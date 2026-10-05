@@ -1061,12 +1061,18 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
+    // Only the request tenant's streams. A tenant admin passes the gate above,
+    // and this listed every user connected to the instance, in every tenant.
+    const tenantId = ctxTenantId(c);
+    const users = [...connections.entries()]
+      .map(([userId, subs]) => ({
+        userId,
+        streams: [...subs].filter((s) => (s.tenantId ?? null) === tenantId).length,
+      }))
+      .filter((u) => u.streams > 0);
     return c.json({
-      connections: connections.size,
-      users: [...connections.keys()].map((id) => ({
-        userId: id,
-        streams: connections.get(id)?.size ?? 0,
-      })),
+      connections: users.length,
+      users,
     });
   });
 

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { guardSessionOrKey } from '../lib/admin-guard.js';
 import {
   isApiKeyPrincipal,
@@ -243,6 +243,21 @@ export function storageRoutes(db: Database, auth: any): Hono {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const badId = (c: any) => !UUID_RE.test(c.req.param('id'));
+  // A folder named in a write must be one this request can see. The foreign
+  // key is checked by Postgres outside row-level security, so it accepted
+  // another tenant's folder id: the new row hung under B's folder, and the
+  // 201-versus-error answer told A which of B's folder ids exist.
+  const folderVisible = async (c: Context, rdb: Database, id: unknown) =>
+    typeof id === 'string' &&
+    UUID_RE.test(id) &&
+    Boolean(
+      await rdb
+        .selectFrom('zv_media_folders')
+        .select('id')
+        .where('id', '=', id)
+        .where('tenant_id', '=', tenantId(c))
+        .executeTakeFirst(),
+    );
 
   // A session, or an API key holding `$storage` for what the method does.
   app.use('*', async (c, next) => {
@@ -329,6 +344,11 @@ export function storageRoutes(db: Database, auth: any): Hono {
     }
 
     const folderId = formData.get('folder_id') as string | null;
+    // Before anything is stored: a refused folder must not leave an object behind.
+    const uploadDb = (c.get('tenantTrx') as Database | null) ?? db;
+    if (folderId && !(await folderVisible(c, uploadDb, folderId))) {
+      return c.json({ error: 'Folder not found' }, 404);
+    }
     // Files are private by default (served only via a signed, expiring URL). Pass
     // `public=true` to store under the public namespace and get a bare public URL
     // (e.g. a company logo shown on the site). Business documents stay private.
@@ -431,7 +451,6 @@ export function storageRoutes(db: Database, auth: any): Hono {
       height = dims.height;
     }
 
-    const uploadDb = (c.get('tenantTrx') as Database | null) ?? db;
     const record = await uploadDb
       .insertInto('zv_media_files')
       .values({
@@ -481,6 +500,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const { name, parent_id } = await c.req.json();
 
     if (!name) return c.json({ error: 'Folder name required' }, 400);
+    if (parent_id && !(await folderVisible(c, foldersWriteDb, parent_id))) {
+      return c.json({ error: 'Folder not found' }, 404);
+    }
 
     try {
       const folder = await foldersWriteDb

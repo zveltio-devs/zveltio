@@ -200,10 +200,14 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     const isAdmin = await isTenantAdmin(session.user.id);
     if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
 
-    const activeUsers = [...new Set([...connections.values()].map((c) => c.userId))];
+    // Only the request tenant's sockets: a tenant admin passes the gate above,
+    // and these counts were the whole instance's.
+    const tenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
+    const mine = [...connections.values()].filter((conn) => conn.tenantId === tenantId);
+    const activeUsers = new Set(mine.map((conn) => conn.userId));
     return c.json({
-      connections: connections.size,
-      active_users: activeUsers.length,
+      connections: mine.length,
+      active_users: activeUsers.size,
     });
   });
 
