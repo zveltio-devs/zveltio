@@ -94,6 +94,9 @@ d('unique keys are scoped to the tenant (in-process)', () => {
           JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = 'public'
            AND ix.indisunique
+           -- A key over the rows that belong to no tenant only (single-tenant
+           -- data) cannot refuse one company a value another one took.
+           AND pg_get_expr(ix.indpred, ix.indrelid) IS DISTINCT FROM '(tenant_id IS NULL)'
            AND EXISTS (SELECT 1 FROM pg_attribute a
                         WHERE a.attrelid = c.oid
                           AND a.attname = 'tenant_id'
