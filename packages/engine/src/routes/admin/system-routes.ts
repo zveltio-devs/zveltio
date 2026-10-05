@@ -22,7 +22,11 @@ import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import { exportSchema, SCHEMA_FORMAT } from '../../lib/schema-artifact/export.js';
 import { planSchema, SchemaFileError } from '../../lib/schema-artifact/plan.js';
-import { applySchema, SchemaApplyRefused } from '../../lib/schema-artifact/apply.js';
+import {
+  appliedMigrations,
+  applySchema,
+  SchemaApplyRefused,
+} from '../../lib/schema-artifact/apply.js';
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
 import { SAMPLE_RATE as REQUEST_LOG_SAMPLE_RATE } from '../../middleware/request-log.js';
@@ -408,7 +412,11 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   app.post('/schema/plan', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { files?: unknown } | null;
     try {
-      const steps = planSchema(await exportSchema(db), body?.files as Record<string, unknown>);
+      const steps = planSchema(
+        await exportSchema(db),
+        body?.files as Record<string, unknown>,
+        await appliedMigrations(db),
+      );
       return c.json({ format: SCHEMA_FORMAT, steps });
     } catch (err) {
       if (err instanceof SchemaFileError) return c.json({ error: err.message }, 400);
@@ -421,10 +429,15 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   // validate is a 400, and a plan with a step apply cannot run yet is a 409;
   // in both cases nothing was changed.
   app.post('/schema/apply', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { files?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as {
+      files?: unknown;
+      allowDestructive?: unknown;
+    } | null;
     const user = c.get('user' as never) as { id?: string } | undefined;
     try {
-      const steps = await applySchema(db, body?.files as Record<string, unknown>, user?.id);
+      const steps = await applySchema(db, body?.files as Record<string, unknown>, user?.id, {
+        allowDestructive: body?.allowDestructive === true,
+      });
       return c.json({ format: SCHEMA_FORMAT, steps });
     } catch (err) {
       if (err instanceof SchemaFileError) return c.json({ error: err.message }, 400);

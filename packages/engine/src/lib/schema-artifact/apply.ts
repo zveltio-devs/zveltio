@@ -18,7 +18,12 @@ import type { Database } from '../../db/index.js';
 import { withAdvisoryLock } from '../../db/advisory-lock.js';
 import { auditLog } from '../audit.js';
 import {
+  alterField,
   announceSchemaChange,
+  createRelation,
+  FieldChangeError,
+  RelationSchema,
+  dropField,
   type CollectionDefinition,
   CollectionSchema,
   DDLManager,
@@ -26,12 +31,15 @@ import {
   fieldTypeRegistry,
   runAddField,
   runCreateCollection,
+  schemaChangeRefusal,
   SYSTEM_COLUMNS,
 } from '../data/index.js';
 import { toJsonb } from '../jsonb.js';
 import {
   createRlsPolicy,
   deleteColumnPermission,
+  deleteRole,
+  ENGINE_SEEDED_ROLES,
   deleteRlsPolicy,
   getEnforcer,
   invalidateAllPermissionCaches,
@@ -43,22 +51,45 @@ import {
 import { checkValidationExpression, invalidateRulesCache } from '../validation-engine.js';
 import { exportSchema } from './export.js';
 import { sql } from 'kysely';
-import { type ApplyOp, type PlanStep, planSchema, SchemaFileError } from './plan.js';
+import {
+  type ApplyOp,
+  type MigrationOp,
+  type PlanStep,
+  planSchema,
+  SchemaFileError,
+} from './plan.js';
 
 /** An op after `prepare`: its definition parsed into the shape the engine takes. */
+type Field = z.infer<typeof FieldSchema>;
 type Prepared =
   | { kind: 'createCollection'; definition: CollectionDefinition }
-  | { kind: 'addField'; collection: string; field: z.infer<typeof FieldSchema> }
-  | Exclude<ApplyOp, { kind: 'createCollection' | 'addField' }>;
+  | { kind: 'addField'; collection: string; field: Field }
+  | { kind: 'alterField'; collection: string; field: Field; keys: string[] }
+  | {
+      kind: 'putRelation';
+      data: z.infer<typeof RelationSchema>;
+      fields: { source?: Field; target?: Field };
+    }
+  | Exclude<ApplyOp, { kind: 'createCollection' | 'addField' | 'alterField' | 'putRelation' }>;
 
 /** The plan has steps `apply` cannot run yet; nothing was changed. */
 export class SchemaApplyRefused extends Error {
-  constructor(public readonly steps: PlanStep[]) {
+  constructor(
+    public readonly steps: PlanStep[],
+    why = `apply cannot run ${steps.length} step(s) yet`,
+  ) {
     super(
-      `apply cannot run ${steps.length} step(s) yet, so it changed nothing: ` +
+      `${why}, so it changed nothing: ` +
         steps.map((s) => `${s.change} ${s.target} ${s.action}`).join('; '),
     );
   }
+}
+
+/** Migration id → checksum, for every schema migration this instance ran. */
+export async function appliedMigrations(db: Database): Promise<Map<string, string>> {
+  const rows = await sql<{ id: string; checksum: string }>`
+    SELECT id, checksum FROM zv_schema_migrations`.execute(db);
+  return new Map(rows.rows.map((r) => [r.id, r.checksum]));
 }
 
 const ROLE_NAME = /^[a-z][a-z0-9_-]*$/;
@@ -131,6 +162,103 @@ async function prepare(db: Database, step: PlanStep, op: ApplyOp): Promise<Prepa
     case 'removeEntry':
       checkEntry(target, op.list, op.entry);
       return op;
+    case 'alterField':
+      return { ...op, field: parsed(target, FieldSchema.safeParse(op.field)) };
+    case 'putRelation': {
+      const e = op.entry;
+      const data = parsed(
+        target,
+        RelationSchema.safeParse({
+          name: e.name,
+          type: e.type,
+          source_collection: op.collection,
+          source_field: e.field,
+          target_collection: e.target,
+          // Only an o2m names a column on the target; for the others the
+          // engine sets it (`id`).
+          target_field: e.type === 'o2m' ? e.targetField : undefined,
+          on_delete: e.onDelete ?? undefined,
+          on_update: e.onUpdate ?? undefined,
+          metadata: e.metadata ?? undefined,
+        }),
+      );
+      const def = (f?: Record<string, unknown>) => f && parsed(target, FieldSchema.safeParse(f));
+      return {
+        kind: 'putRelation',
+        data,
+        fields: { source: def(op.fields.source), target: def(op.fields.target) },
+      };
+    }
+    case 'migration': {
+      const c = op.change;
+      if (c.op === 'changeFieldType' && !fieldTypeRegistry.has(c.to)) {
+        throw new SchemaFileError(`${target}: unknown type "${c.to}"`);
+      }
+      if (c.op === 'renameField' && SYSTEM_COLUMNS.has(c.to)) {
+        throw new SchemaFileError(`${target}: "${c.to}" is a system column`);
+      }
+      if (c.op === 'dropRole') {
+        // A role the engine seeds holds every tenant's admins and members;
+        // dropping it takes their access, and the next boot seeds it back.
+        const custom =
+          !ENGINE_SEEDED_ROLES.includes(c.role) &&
+          (await db
+            .selectFrom('zv_roles')
+            .select('name')
+            .where('name', '=', c.role)
+            .executeTakeFirst());
+        if (!custom) throw new SchemaFileError(`${target}: ${c.role} is not a custom role`);
+      }
+      if (c.op === 'dropCollection') {
+        // The plan cannot see a collection the export leaves out, so it lets
+        // the name through (a rerun finds it gone). The catalog can: an engine,
+        // extension or BYOD collection is not the files' to drop, and a
+        // schema-locked one is refused here as `DELETE /api/collections` does.
+        const meta = await db
+          .selectFrom('zvd_collections')
+          .select('is_system')
+          .where('name', '=', c.collection)
+          .executeTakeFirst();
+        const why = meta?.is_system
+          ? `Collection '${c.collection}' is an engine or extension collection.`
+          : await schemaChangeRefusal(db, c.collection, 'drop');
+        if (why) throw new SchemaFileError(`${target}: ${why}`);
+      }
+      return op;
+    }
+  }
+}
+
+const fieldsOf = async (db: Database, collection: string) => {
+  const col = await DDLManager.getCollection(db, collection);
+  return (
+    typeof col?.fields === 'string' ? JSON.parse(col.fields) : (col?.fields ?? [])
+  ) as CollectionDefinition['fields'];
+};
+
+/**
+ * Runs one migration op through the function its route uses. Each is a no-op
+ * when its effect is already there, so an apply that failed part-way through
+ * a migration can run it again from the top.
+ */
+async function migrate(db: Database, op: MigrationOp, userId: string | undefined) {
+  if (op.op === 'dropRole') return deleteRole(db, op.role);
+  if (op.op === 'dropCollection') {
+    if (!(await DDLManager.getCollection(db, op.collection))) return;
+    await DDLManager.dropCollection(db, op.collection);
+    return announceSchemaChange(op.collection, 'drop');
+  }
+  const field = (await fieldsOf(db, op.collection)).find(
+    (f) => f.name === (op.op === 'renameField' ? op.from : op.field),
+  );
+  if (!field) return;
+  if (op.op === 'renameField') {
+    await alterField(db, op.collection, op.from, { newName: op.to }, userId);
+  } else if (op.op === 'changeFieldType') {
+    if (field.type !== op.to)
+      await alterField(db, op.collection, op.field, { newType: op.to }, userId);
+  } else {
+    await dropField(db, op.collection, op.field, userId);
   }
 }
 
@@ -255,6 +383,39 @@ async function putEntry(db: Database, collection: string, list: string, e: Entry
   }
 }
 
+/**
+ * Creates the relation, or — when one already holds its field (a collection
+ * created with an m2o field registers one) — sets what `PATCH /api/relations`
+ * sets: its name, its actions and its metadata.
+ */
+async function putRelation(
+  db: Database,
+  data: z.infer<typeof RelationSchema>,
+  fields: { source?: Field; target?: Field },
+) {
+  const existing = await db
+    .selectFrom('zvd_relations')
+    .select('id')
+    .where('source_collection', '=', data.source_collection)
+    .where('source_field', '=', data.source_field)
+    .executeTakeFirst();
+  if (!existing) {
+    await createRelation(db, data, fields);
+    return;
+  }
+  await db
+    .updateTable('zvd_relations')
+    .set({
+      name: data.name,
+      on_delete: data.on_delete,
+      on_update: data.on_update,
+      metadata: toJsonb(data.metadata),
+      updated_at: new Date(),
+    })
+    .where('id', '=', existing.id)
+    .execute();
+}
+
 async function removeEntry(db: Database, collection: string, list: string, e: Entry) {
   if (list === 'rowRules') {
     const id = await findRowRule(db, collection, e);
@@ -269,7 +430,7 @@ async function removeEntry(db: Database, collection: string, list: string, e: En
   }
 }
 
-async function run(db: Database, op: Prepared): Promise<void> {
+async function run(db: Database, op: Prepared, userId: string | undefined): Promise<void> {
   switch (op.kind) {
     case 'createCollection':
       return runCreateCollection(db, op.definition);
@@ -299,10 +460,7 @@ async function run(db: Database, op: Prepared): Promise<void> {
       await (await getEnforcer()).removePolicy(op.role, '*', op.resource, op.action);
       return;
     case 'reorderFields': {
-      const col = await DDLManager.getCollection(db, op.collection);
-      const fields = (
-        typeof col?.fields === 'string' ? JSON.parse(col.fields) : (col?.fields ?? [])
-      ) as CollectionDefinition['fields'];
+      const fields = await fieldsOf(db, op.collection);
       const at = (n: string) => {
         const i = op.order.indexOf(n);
         return i === -1 ? op.order.length : i;
@@ -312,6 +470,43 @@ async function run(db: Database, op: Prepared): Promise<void> {
       });
       return announceSchemaChange(op.collection, 'alter');
     }
+    case 'migration':
+      try {
+        await migrate(db, op.change, userId);
+      } catch (err) {
+        // The migrations before this one are recorded and stay applied.
+        throw new SchemaFileError(`migration ${op.id}: ${(err as Error).message}`);
+      }
+      if (op.last) {
+        await sql`INSERT INTO zv_schema_migrations (id, checksum, applied_by)
+                  VALUES (${op.id}, ${op.checksum}, ${userId ?? null})
+                  ON CONFLICT (id) DO NOTHING`.execute(db);
+      }
+      return;
+    case 'alterField': {
+      if (op.keys.includes('required')) {
+        await alterField(db, op.collection, op.field.name, { required: op.field.required }, userId);
+      }
+      const rest = op.keys.filter((k) => k !== 'required');
+      if (!rest.length) return;
+      // label, description, options: what the field says about itself, not
+      // its column — metadata only, like Studio's field editor.
+      const fields = (await fieldsOf(db, op.collection)).map((f) =>
+        f.name === op.field.name
+          ? Object.fromEntries(
+              Object.entries({
+                ...f,
+                ...Object.fromEntries(rest.map((k) => [k, op.field[k as keyof Field]])),
+              }).filter(([, v]) => v !== undefined),
+            )
+          : f,
+      ) as CollectionDefinition['fields'];
+      await DDLManager.updateCollectionMetadata(db, op.collection, { fields });
+      DDLManager.invalidateCache(op.collection);
+      return announceSchemaChange(op.collection, 'alter');
+    }
+    case 'putRelation':
+      return putRelation(db, op.data, op.fields);
     case 'putEntry':
       // A row rule is checked against the columns it names, which an earlier
       // step may have added, so only now; the steps before it stay applied.
@@ -335,11 +530,18 @@ export async function applySchema(
   db: Database,
   files: Record<string, unknown>,
   userId: string | undefined,
+  opts: { allowDestructive?: boolean } = {},
 ): Promise<PlanStep[]> {
   return withAdvisoryLock(db, 'zveltio:schema-apply', async () => {
-    const steps = planSchema(await exportSchema(db), files);
+    const steps = planSchema(await exportSchema(db), files, await appliedMigrations(db));
     const refused = steps.filter((s) => !s.op);
     if (refused.length) throw new SchemaApplyRefused(refused);
+    // Every destructive step left has an op, so it comes from a migration
+    // (RFC §6): a drop in the state diff alone has none and was refused above.
+    const destructive = steps.filter((s) => s.destructive);
+    if (destructive.length && !opts.allowDestructive) {
+      throw new SchemaApplyRefused(destructive, 'destructive steps need --allow-destructive');
+    }
 
     const ops: Prepared[] = [];
     for (const step of steps) ops.push(await prepare(db, step, step.op as ApplyOp));
@@ -352,7 +554,12 @@ export async function applySchema(
     // the model to the table first, as the orphan prune route does.
     if (policies) await reconcilePolicies();
     try {
-      for (const op of ops) await run(db, op);
+      for (const op of ops) await run(db, op, userId);
+    } catch (err) {
+      // The collection routes' own refusals (a relation over an existing one,
+      // a field that cannot be required) are a file problem, not a crash.
+      if (err instanceof FieldChangeError) throw new SchemaFileError(err.message);
+      throw err;
     } finally {
       if (policies) await invalidateAllPermissionCaches();
     }

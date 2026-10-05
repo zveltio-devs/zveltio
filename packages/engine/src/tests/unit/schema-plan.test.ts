@@ -146,4 +146,84 @@ describe('planSchema', () => {
     const { 'roles.json': _, ...noRoles } = base;
     expect(bad(noRoles)).toThrow(/roles.json is missing/);
   });
+
+  describe('migrations', () => {
+    const mig = (id: string, ops: Obj[]) => ({
+      [`migrations/${id}.json`]: serialize({ id, ops }),
+    });
+    const renamed = () => {
+      const p = posts();
+      (p.fields as Obj[])[0].name = 'headline';
+      return p;
+    };
+    const ID = '20261005T100000-headline';
+    const rename = mig(ID, [
+      { op: 'renameField', collection: 'posts', from: 'title', to: 'headline' },
+    ]);
+
+    it('plans the state diff against what the pending migrations leave', () => {
+      expect(plan({ ...files([renamed()]), ...rename })).toEqual([
+        `~ posts rename field title → headline (migration ${ID})`,
+      ]);
+      // Without it, the rename is a drop and an add.
+      expect(plan(files([renamed()]))[0]).toBe('- posts drop field title !');
+    });
+
+    it('skips an applied migration, and refuses one whose file changed', () => {
+      const desired = { ...files([renamed()]), ...rename };
+      const once = planSchema(files([posts()]), desired);
+      const op = once[0].op as { checksum: string };
+      // Applied: the instance already has the rename, so nothing is left.
+      expect(planSchema(files([renamed()]), desired, new Map([[ID, op.checksum]]))).toEqual([]);
+      expect(() => planSchema(files([renamed()]), desired, new Map([[ID, 'other']]))).toThrow(
+        /changed after it was applied/,
+      );
+    });
+
+    it('marks drops, type changes and removed roles destructive', () => {
+      const p = posts();
+      p.fields = [{ name: 'title', type: 'int', required: true }];
+      const steps = plan({
+        ...files([p], []),
+        ...mig('20261005T110000-x', [
+          { op: 'dropField', collection: 'posts', field: 'body' },
+          { op: 'changeFieldType', collection: 'posts', field: 'title', to: 'int' },
+          { op: 'dropRole', role: 'editor' },
+        ]),
+      });
+      expect(steps.filter((s) => s.endsWith('!'))).toHaveLength(3);
+      expect(steps.filter((s) => !s.includes('migration'))).toEqual([]);
+    });
+
+    it('refuses a malformed migration', () => {
+      const bad = (m: Record<string, string>) => () =>
+        planSchema(files([posts()]), { ...files([posts()]), ...m });
+      expect(bad(mig('yesterday', [{ op: 'dropRole', role: 'editor' }]))).toThrow(/timestamp/);
+      expect(bad(mig(ID, []))).toThrow(/ops is empty/);
+      expect(bad(mig(ID, [{ op: 'renameCollection', from: 'posts', to: 'p' }]))).toThrow(
+        /not supported yet/,
+      );
+      expect(bad(mig(ID, [{ op: 'sql', query: 'DROP TABLE x' }]))).toThrow(/unknown op/);
+      expect(bad(mig(ID, [{ op: 'dropRole' }]))).toThrow(/needs role/);
+      expect(bad(mig(ID, [{ op: 'dropField', collection: 'nope', field: 'x' }]))).toThrow(
+        /does not exist/,
+      );
+      expect(
+        bad({
+          [`migrations/${ID}.json`]: serialize({
+            id: 'other',
+            ops: [{ op: 'dropRole', role: 'editor' }],
+          }),
+        }),
+      ).toThrow(/does not match/);
+    });
+  });
+
+  it('alters a relation in place only where PATCH can', () => {
+    const rel = { name: 'posts_author', type: 'm2o', field: 'author', target: 'users' };
+    const p = (r: Obj) => ({ ...posts(), relations: [r] });
+    const steps = (r: Obj) => planSchema(files([p(rel)]), files([p(r)]));
+    expect(steps({ ...rel, onDelete: 'CASCADE' })[0].op?.kind).toBe('putRelation');
+    expect(steps({ ...rel, target: 'people' })[0].op).toBeUndefined();
+  });
 });

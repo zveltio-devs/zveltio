@@ -7,8 +7,12 @@ import { DDLManager, CollectionSchema, FieldSchema, SYSTEM_COLUMNS } from '../li
 // and admitted any delegated tenant admin.
 import { getCurrentDomainOrNull, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import {
+  alterField,
   announceSchemaChange,
   apiKeyMayWatchSchema,
+  dropField,
+  FieldChangeError,
+  schemaChangeRefusal,
   authenticate,
   enqueueDDLJob,
   getDDLJob,
@@ -373,24 +377,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   // ddl-queue.ts enforces the same rule for async DDL jobs; this keeps the sync HTTP
   // paths (add_field / remove_field / drop) from silently diverging.
   // `drop`-type ops additionally respect schema_locked for the core/system tables.
-  async function assertMutable(
-    collectionName: string,
-    op: 'add' | 'remove' | 'drop',
-  ): Promise<string | null> {
-    const meta = await db
-      .selectFrom('zvd_collections')
-      .select(['is_managed', 'schema_locked'])
-      .where('name', '=', collectionName)
-      .executeTakeFirst();
-    if (!meta) return null; // collection-not-found is handled by caller
-    if (meta.is_managed === false) {
-      return `Collection '${collectionName}' is unmanaged (BYOD). Schema changes are not allowed.`;
-    }
-    if (meta.schema_locked === true && op !== 'add') {
-      return `Collection '${collectionName}' is schema-locked. ${op === 'drop' ? 'Dropping' : 'Removing fields from'} it is not allowed.`;
-    }
-    return null;
-  }
+  const assertMutable = (collectionName: string, op: 'add' | 'remove' | 'drop') =>
+    schemaChangeRefusal(db, collectionName, op);
 
   // POST /:name/fields — Add a field to existing collection
   app.post('/:name/fields', zValidator('json', FieldSchema), async (c) => {
@@ -634,178 +622,21 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         ),
     ),
     async (c) => {
-      const name = c.req.param('name');
-      const fieldName = c.req.param('field');
       const { new_name: newName, new_type: newType, required } = c.req.valid('json');
-
-      if (!SAFE_NAME_RE.test(fieldName)) {
-        return c.json({ error: 'Invalid field name' }, 400);
-      }
-      if (SYSTEM_FIELDS.has(fieldName) || (newName && SYSTEM_FIELDS.has(newName))) {
-        return c.json({ error: 'Cannot modify system fields' }, 400);
-      }
-
-      const collection = await DDLManager.getCollection(db, name);
-      if (!collection) return c.json({ error: 'Collection not found' }, 404);
-
-      const guardError = await assertMutable(name, 'add'); // rename/type/required keep the column → "add" semantics
-      if (guardError) return c.json({ error: guardError }, 403);
-
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      let existingFields: any[];
+      const user = c.get('user' as never) as any;
       try {
-        existingFields =
-          typeof collection.fields === 'string'
-            ? JSON.parse(collection.fields)
-            : (collection.fields ?? []);
-      } catch {
-        existingFields = [];
-      }
-
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const fieldDef = existingFields.find((f: any) => f.name === fieldName);
-      if (!fieldDef) {
-        return c.json({ error: `Field "${fieldName}" not found in collection "${name}"` }, 404);
-      }
-
-      const isRelation = ALL_RELATION_TYPES.has(fieldDef.type);
-
-      if (newName) {
-        if (newName === fieldName) {
-          return c.json({ error: 'New name is identical to the current name' }, 400);
-        }
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        if (existingFields.some((f: any) => f.name === newName)) {
-          return c.json(
-            { error: `Field "${newName}" already exists in collection "${name}"` },
-            409,
-          );
-        }
-      }
-      if (newType && isRelation) {
-        return c.json(
-          {
-            error:
-              'Changing type on a relation field is not supported. Delete and re-add the field.',
-          },
-          400,
+        const result = await alterField(
+          db,
+          c.req.param('name'),
+          c.req.param('field'),
+          { newName, newType, required },
+          user?.id,
         );
-      }
-      if (newType && fieldDef.type === 'computed') {
-        return c.json({ error: 'Computed fields cannot change type via this endpoint.' }, 400);
-      }
-      if (
-        required !== undefined &&
-        isRelation &&
-        fieldDef.type !== 'm2o' &&
-        fieldDef.type !== 'reference'
-      ) {
-        return c.json(
-          {
-            error:
-              'Toggling required is only supported on m2o/reference relations among relation types.',
-          },
-          400,
-        );
-      }
-
-      const tableName = DDLManager.getTableName(name);
-      const actions: string[] = [];
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      let updatedFieldShape: any = { ...fieldDef };
-
-      try {
-        // Altering a field is DDL plus the metadata that describes it, and the
-        // two must not come apart.
-        //
-        // A rename that changes the physical column but not `zvd_relations` and
-        // `zvd_collections.fields` leaves the collection definition pointing at
-        // a column that no longer exists — every query built from that
-        // definition fails, and the only repair is editing metadata by hand.
-        // The reverse leaves metadata describing a column the table does not
-        // have. Postgres runs DDL inside transactions, so this is one of the
-        // few places where the schema change and its bookkeeping genuinely can
-        // roll back together.
-        await db.transaction().execute(async (trx) => {
-          // ── 1) Type change ────────────────────────────────────────────
-          if (newType && newType !== fieldDef.type) {
-            if (!fieldTypeRegistry.has(newType)) {
-              // `return` here would be a return from THIS callback, captured by
-              // `.execute()`'s promise and discarded — not from the outer route
-              // handler. Throwing is what actually reaches the `catch` below and
-              // turns into an HTTP error instead of a silent no-op 200.
-              throw new Error(`Unknown field type: "${newType}"`);
-            }
-            const targetDef = fieldTypeRegistry.get(newType)!;
-            const targetSqlType = targetDef.db.columnType;
-            const conv = resolveConversion(fieldDef.type, newType, targetSqlType, fieldName);
-            if (!conv.ok) {
-              throw new Error(conv.reason);
-            }
-            await dynamicChangeColumnType(trx, tableName, fieldName, conv.sqlType, conv.using);
-            updatedFieldShape = { ...updatedFieldShape, type: newType };
-            actions.push(`type ${fieldDef.type}→${newType}`);
-          }
-
-          // ── 2) Required toggle ────────────────────────────────────────
-          if (required !== undefined && required !== !!fieldDef.required) {
-            await dynamicSetColumnRequired(trx, tableName, fieldName, required);
-            updatedFieldShape = { ...updatedFieldShape, required };
-            actions.push(`required→${required}`);
-          }
-
-          // ── 3) Rename ─────────────────────────────────────────────────
-          if (newName && newName !== fieldName) {
-            if (isRelation) {
-              // Physical column rename only for m2o/reference (FK on source).
-              // o2m/m2m fields are metadata on the source side; we only
-              // update zvd_relations + zvd_collections.fields.
-              if (fieldDef.type === 'm2o' || fieldDef.type === 'reference') {
-                await dynamicRenameColumn(trx, tableName, fieldName, newName);
-              }
-              await trx
-                .updateTable('zvd_relations')
-                .set({ source_field: newName })
-                .where('source_collection', '=', name)
-                .where('source_field', '=', fieldName)
-                .execute();
-            } else {
-              await dynamicRenameColumn(trx, tableName, fieldName, newName);
-              // Also sync any zvd_relations rows where this is the target_field
-              // (i.e. another collection has an o2m pointing at this column).
-              await trx
-                .updateTable('zvd_relations')
-                .set({ target_field: newName })
-                .where('target_collection', '=', name)
-                .where('target_field', '=', fieldName)
-                .execute();
-            }
-            updatedFieldShape = { ...updatedFieldShape, name: newName };
-            actions.push(`renamed ${fieldName}→${newName}`);
-          }
-
-          // ── Persist metadata ──────────────────────────────────────────
-          const finalName = updatedFieldShape.name;
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          const updatedFields = existingFields.map((f: any) =>
-            f.name === fieldName ? updatedFieldShape : f,
-          );
-          await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields });
-
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          const user = c.get('user' as never) as any;
-          await auditLog(trx, {
-            type: 'settings.changed',
-            userId: user?.id,
-            resourceId: name,
-            resourceType: 'collection_field',
-            metadata: { actions, from: fieldName, to: finalName },
-          });
-        });
-        announceSchemaChange(name, 'alter');
-
-        return c.json({ success: true, field: updatedFieldShape, actions });
+        return c.json({ success: true, ...result });
       } catch (error) {
+        if (error instanceof FieldChangeError)
+          return c.json({ error: error.message }, error.status);
         return c.json(
           { error: error instanceof Error ? error.message : 'Failed to modify field' },
           400,
@@ -816,100 +647,13 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
   // DELETE /:name/fields/:field — Remove a field
   app.delete('/:name/fields/:field', async (c) => {
-    const name = c.req.param('name');
-    const fieldName = c.req.param('field');
-
-    if (!/^[a-z][a-z0-9_]*$/.test(fieldName)) {
-      return c.json({ error: 'Invalid field name' }, 400);
-    }
-
-    if (SYSTEM_FIELDS.has(fieldName)) {
-      return c.json({ error: `"${fieldName}" is a reserved system field name` }, 400);
-    }
-
-    const collection = await DDLManager.getCollection(db, name);
-    if (!collection) return c.json({ error: 'Collection not found' }, 404);
-
-    const guardError = await assertMutable(name, 'remove');
-    if (guardError) return c.json({ error: guardError }, 403);
-
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    let existingFields: any[];
+    const user = c.get('user' as never) as any;
     try {
-      existingFields =
-        typeof collection.fields === 'string'
-          ? JSON.parse(collection.fields)
-          : (collection.fields ?? []);
-    } catch {
-      existingFields = [];
-    }
-
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    if (!existingFields.some((f: any) => f.name === fieldName)) {
-      return c.json({ error: `Field "${fieldName}" not found in collection "${name}"` }, 404);
-    }
-
-    try {
-      const tableName = DDLManager.getTableName(name);
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const fieldDef = existingFields.find((f: any) => f.name === fieldName);
-
-      // DROP and metadata in one transaction: separately, a failed metadata write
-      // left the collection describing a column the table no longer has.
-      await db.transaction().execute(async (trx) => {
-        if (fieldDef?.type === 'o2m') {
-          // o2m: FK column lives in TARGET table — look up and drop it there
-          const relation = await trx
-            .selectFrom('zvd_relations')
-            .select(['target_collection', 'target_field'])
-            .where('source_collection', '=', name)
-            .where('source_field', '=', fieldName)
-            .executeTakeFirst();
-          if (relation?.target_collection && relation?.target_field) {
-            const targetTable = DDLManager.getTableName(relation.target_collection);
-            await dynamicDropColumn(trx, targetTable, relation.target_field);
-          }
-        } else if (fieldDef?.type === 'm2m') {
-          // m2m: drop the junction table (no column in source table)
-          const relation = await trx
-            .selectFrom('zvd_relations')
-            .select(['junction_table'])
-            .where('source_collection', '=', name)
-            .where('source_field', '=', fieldName)
-            .executeTakeFirst();
-          if (relation?.junction_table) {
-            await DDLManager.dropJunctionTable(trx, relation.junction_table);
-          }
-        } else {
-          await dynamicDropColumn(trx, tableName, fieldName);
-        }
-
-        // Drop the relation row (dangling metadata causes re-add to hit UNIQUE
-        // constraint). No `.catch`: inside the transaction a failure aborts it anyway.
-        await trx
-          .deleteFrom('zvd_relations')
-          .where('source_collection', '=', name)
-          .where('source_field', '=', fieldName)
-          .execute();
-
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        const updatedFields = existingFields.filter((f: any) => f.name !== fieldName);
-        await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields });
-      });
-      DDLManager.invalidateCache(name);
-      announceSchemaChange(name, 'alter');
-
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const user = c.get('user' as never) as any;
-      await auditLog(db, {
-        type: 'settings.changed',
-        userId: user?.id,
-        resourceId: name,
-        resourceType: 'collection_field',
-        metadata: { action: 'removed', field: fieldName },
-      });
+      await dropField(db, c.req.param('name'), c.req.param('field'), user?.id);
       return c.json({ success: true });
     } catch (error) {
+      if (error instanceof FieldChangeError) return c.json({ error: error.message }, error.status);
       return c.json(
         { error: error instanceof Error ? error.message : 'Failed to delete field' },
         400,

@@ -8,6 +8,8 @@ import {
   getEnforcer,
   invalidateAllPermissionCaches,
   reconcilePolicies,
+  deleteRole,
+  ENGINE_SEEDED_ROLES,
 } from '../../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
@@ -146,23 +148,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       .executeTakeFirst();
     if (!role) return c.json({ error: 'Role not found' }, 404);
 
-    // Remove all Casbin policies for this role name
-    const e = await getEnforcer();
-    await e.deletePermissionsForUser(role.name);
-    await e.deleteRole(role.name);
-    // And take it away from the people holding it.
-    //
-    // `deleteRole` removes the role's own grants — what it inherits and what it
-    // may do — but not the assignments TO it, so every holder kept a membership
-    // in a role that no longer exists. Harmless while the name stays gone, since
-    // the permissions went with it; the moment an administrator creates a role
-    // with the same name again, every old holder is silently a member of the new
-    // one. A name is not an identity here, and the route says it deletes "a
-    // custom role and its Casbin policies".
-    await e.removeFilteredGroupingPolicy(1, role.name);
-
-    await db.deleteFrom('zv_roles').where('id', '=', id).execute();
-    await invalidateAllPermissionCaches();
+    await deleteRole(db, role.name);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
@@ -504,22 +490,3 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     },
   );
 }
-
-/**
- * Roles the engine seeds into Casbin only (migrations 001/009), with no
- * `zv_roles` row — migration 017's list, plus the intranet/portal/CRM roles
- * 001 grants policies to (`employee`, `manager`, `client`), which a fresh
- * install holds with no member and would otherwise read as orphans.
- */
-const ENGINE_SEEDED_ROLES = [
-  'admin',
-  'client',
-  'employee',
-  'manager',
-  'member',
-  'tenant_owner',
-  'tenant_admin',
-  'tenant_manager',
-  'tenant_member',
-  'tenant_viewer',
-];
