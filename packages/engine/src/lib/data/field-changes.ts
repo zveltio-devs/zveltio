@@ -7,6 +7,7 @@
  */
 
 import { sql } from 'kysely';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import type { Database } from '../../db/index.js';
 import {
   dynamicChangeColumnType,
@@ -256,7 +257,7 @@ export async function alterField(
     try {
       await DDLManager.setFieldKeys(db, name, shape as never, keyChanges);
     } catch (err) {
-      if ((err as { errno?: string }).errno === '23505') {
+      if (sqlState(err) === '23505') {
         throw new FieldChangeError(
           `"${shape.name}" repeats a value within a tenant, so it cannot be made unique.`,
           409,

@@ -59,6 +59,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import { CompiledQuery, type ConnectionProvider, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { keepWorkerExtensionTables, temporaryObjectsRestricted } from '../tenancy/index.js';
@@ -571,7 +572,7 @@ async function retryConcurrentUpdate(run: () => Promise<unknown>): Promise<void>
       await run();
       return;
     } catch (err) {
-      if (attempt >= 3 || (err as { errno?: unknown }).errno !== 'XX000') throw err;
+      if (attempt >= 3 || sqlState(err) !== 'XX000') throw err;
     }
   }
 }

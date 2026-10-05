@@ -23,6 +23,7 @@
  * violate it: `(tenant_id, x)` is unique wherever `(x)` was.
  */
 import { sql } from 'kysely';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import type { Database } from '../../db/index.js';
 import { pgIdentifier } from '../pg-identifier.js';
@@ -107,7 +108,7 @@ async function reconcileLocked(db: Database): Promise<UniqueKeyReconcileResult> 
       });
       result.fixed.push(key);
     } catch (err) {
-      skip(`${(err as { errno?: string }).errno ?? ''} ${(err as Error).message}`.trim());
+      skip(`${sqlState(err)} ${(err as Error).message}`.trim());
     }
   }
   return result;

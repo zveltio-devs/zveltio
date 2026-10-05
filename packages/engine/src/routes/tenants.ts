@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { sqlState } from '../db/bun-sql-quirks.js';
 import { guardSession } from '../lib/admin-guard.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -223,8 +224,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
         );
       }
       // Duplicate slug is a client error — Bun's SQL driver reports the
-      // Postgres SQLSTATE in `errno` (23505 = unique_violation), not `code`.
-      if (String((e as { errno?: string | number }).errno) === '23505') {
+      if (sqlState(e) === '23505') {
         return c.json({ error: `A tenant with slug "${data.slug}" already exists` }, 409);
       }
       throw e;

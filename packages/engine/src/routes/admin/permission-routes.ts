@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -67,8 +68,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       // — a permission error, a timeout — is a failure, and answering it with an
       // empty list would tell an administrator there are no zones to grant when
       // there may be several.
-      const code = (err as { errno?: string; code?: string }).errno ?? '';
-      if (code !== '42P01') throw err;
+      if (sqlState(err) !== '42P01') throw err;
     }
     const resources = [
       ...collections.map((col) => ({
