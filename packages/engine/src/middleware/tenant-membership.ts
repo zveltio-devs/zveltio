@@ -18,7 +18,7 @@
 import { createMiddleware } from 'hono/factory';
 import { requestSession } from './session-prefetch.js';
 import type { Database } from '../db/index.js';
-import { isGodUser } from '../lib/tenancy/index.js';
+import { getResolvedMembership, isGodUser } from '../lib/tenancy/index.js';
 import { activeMembership, DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { problem } from '../lib/problem.js';
 
@@ -43,6 +43,21 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
 
     // Cross-tenant operators (god / super-admin) are exempt.
     if (await isGodUser(userId)) return next();
+
+    // The request's transaction already resolved this user's reach in this
+    // tenant, and the reach is the membership answer (`withTenantIsolation`).
+    // Only routes that open no transaction (TXN_SKIP_PREFIXES) ask below.
+    const resolved = getResolvedMembership(userId, tenant.id);
+    if (resolved !== undefined) {
+      if (!resolved) {
+        throw problem(
+          'tenant.membership_required',
+          403,
+          'You are not a member of this tenant. Access denied.',
+        );
+      }
+      return next();
+    }
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const member = await (db as any)
