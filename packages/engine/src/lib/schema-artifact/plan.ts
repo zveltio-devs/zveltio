@@ -12,6 +12,7 @@
  * makes `apply` refuse those without a migration.
  */
 
+import { createHash } from 'node:crypto';
 import { exportField, isDefaultGrant, SCHEMA_FORMAT, serialize } from './export.js';
 
 export interface PlanStep {
@@ -41,7 +42,35 @@ export type ApplyOp =
   | { kind: 'createRole'; name: string; description?: string }
   | { kind: 'setRole'; name: string; description: string | null }
   | { kind: 'grant'; role: string; resource: string; action: string }
-  | { kind: 'revoke'; role: string; resource: string; action: string };
+  | { kind: 'revoke'; role: string; resource: string; action: string }
+  /** One op of `migrations/<id>.json`; the last one records the migration as applied. */
+  | { kind: 'migration'; id: string; checksum: string; last: boolean; change: MigrationOp };
+
+/**
+ * What a migration file may say (RFC §4.4): what a diff of two states cannot
+ * express without guessing. A field's new type is converted the way Studio
+ * converts it (`resolveConversion`), so the cast is the engine's closed table,
+ * not a free `USING` expression.
+ */
+export type MigrationOp =
+  | { op: 'renameField'; collection: string; from: string; to: string }
+  | { op: 'changeFieldType'; collection: string; field: string; to: string }
+  | { op: 'dropField'; collection: string; field: string }
+  | { op: 'dropCollection'; collection: string }
+  | { op: 'dropRole'; role: string };
+
+/** The keys each migration op takes, every one a non-empty string. */
+const MIGRATION_OPS: Record<string, string[]> = {
+  renameField: ['collection', 'from', 'to'],
+  changeFieldType: ['collection', 'field', 'to'],
+  dropField: ['collection', 'field'],
+  dropCollection: ['collection'],
+  dropRole: ['role'],
+};
+
+/** Ids sort by time: `20261004T120000-rename-title`. */
+const MIGRATION_ID = /^\d{8}T\d{6}(-[a-z0-9-]+)?$/;
+const NAME = /^[a-z][a-z0-9_]*$/;
 
 /** The collection lists `apply` writes entry by entry. */
 export type EntryList = 'rowRules' | 'columnPermissions' | 'validation';
@@ -159,11 +188,40 @@ function list(path: string, value: unknown, key: string): Obj[] {
 interface Parsed {
   collections: Map<string, Obj>;
   roles: Map<string, Obj>;
+  migrations: Map<string, { checksum: string; ops: MigrationOp[] }>;
+}
+
+function readMigration(path: string, id: string, file: Obj) {
+  if (!MIGRATION_ID.test(id)) {
+    throw new SchemaFileError(`${path}: a migration id is a timestamp, like 20261004T120000-name`);
+  }
+  if (file.id !== id)
+    throw new SchemaFileError(`${path}: id ${show(file.id)} does not match the file name`);
+  const ops = list(path, file.ops, 'ops');
+  if (!ops.length) throw new SchemaFileError(`${path}: ops is empty`);
+  for (const op of ops) {
+    if (op.op === 'renameCollection') {
+      throw new SchemaFileError(`${path}: renameCollection is not supported yet`);
+    }
+    const keys = MIGRATION_OPS[String(op.op)];
+    if (!keys) throw new SchemaFileError(`${path}: unknown op ${show(op.op)}`);
+    const extra = Object.keys(op).filter((k) => k !== 'op' && !keys.includes(k));
+    if (extra.length)
+      throw new SchemaFileError(`${path}: ${op.op} has unknown key ${extra.join(', ')}`);
+    for (const k of keys) {
+      if (typeof op[k] !== 'string' || !op[k]) {
+        throw new SchemaFileError(`${path}: ${op.op} needs ${k}`);
+      }
+    }
+  }
+  // Over the canonical form: reformatting a file is not a change to it.
+  const checksum = createHash('sha256').update(serialize(file)).digest('hex');
+  return { checksum, ops: ops as MigrationOp[] };
 }
 
 /** Reads a file set. Unknown paths and keys are refused, not ignored. */
 function read(files: Record<string, unknown>): Parsed {
-  const out: Parsed = { collections: new Map(), roles: new Map() };
+  const out: Parsed = { collections: new Map(), roles: new Map(), migrations: new Map() };
   if (!files || typeof files !== 'object' || Array.isArray(files)) {
     throw new SchemaFileError('files must be an object of path → content');
   }
@@ -187,6 +245,10 @@ function read(files: Record<string, unknown>): Parsed {
         list(path, role.permissions, `${role.name}.permissions`);
         out.roles.set(role.name, role);
       }
+    } else if (path.startsWith('migrations/')) {
+      const id = /^migrations\/([^/]+)\.json$/.exec(path)?.[1];
+      if (!id) throw new SchemaFileError(`${path}: not a schema file`);
+      out.migrations.set(id, readMigration(path, id, file));
     } else {
       const name = /^collections\/([^/]+)\.json$/.exec(path)?.[1];
       if (!name) throw new SchemaFileError(`${path}: not a schema file`);
@@ -303,17 +365,104 @@ function grants(role: Obj | undefined): Map<string, [string, string]> {
 }
 
 /**
+ * One migration op as a plan step, after making `state` what it will be once
+ * the op ran, so the state diff that follows is planned against that. An op
+ * whose effect is already there (a rerun after a failure part-way) is kept as
+ * a step that changes nothing, so the migration still gets recorded.
+ */
+function migrate(state: Parsed, id: string, checksum: string, op: MigrationOp, last: boolean) {
+  const where = `migration ${id}`;
+  const fail = (why: string) => new SchemaFileError(`${where}: ${op.op} ${why}`);
+  const result = (target: string, action: string, destructive: boolean): PlanStep => ({
+    change: op.op === 'renameField' ? '~' : op.op === 'changeFieldType' ? '~' : '-',
+    target,
+    action: `${action} (${where})`,
+    ...(destructive ? { destructive: true as const } : {}),
+    op: { kind: 'migration', id, checksum, last, change: op },
+  });
+
+  if (op.op === 'dropRole') {
+    state.roles.delete(op.role);
+    return result(`role ${op.role}`, 'remove role', true);
+  }
+  const col = state.collections.get(op.collection);
+  if (op.op === 'dropCollection') {
+    state.collections.delete(op.collection);
+    // Dropping a collection takes the relations that point at it too.
+    for (const other of state.collections.values()) {
+      other.relations = list(where, other.relations, 'relations').filter(
+        (r) => r.target !== op.collection,
+      );
+    }
+    return result(op.collection, 'drop collection', true);
+  }
+  if (!col) throw fail(`names collection ${op.collection}, which does not exist`);
+  const fields = list(where, col.fields, 'fields');
+  const find = (n: string) => fields.find((f) => f.name === n);
+  const kind = op.op;
+  switch (kind) {
+    case 'renameField': {
+      if (!NAME.test(op.to)) throw fail(`to ${show(op.to)} is not a field name`);
+      const from = find(op.from);
+      if (from && find(op.to)) throw fail(`${op.to} exists already`);
+      if (!from && !find(op.to)) throw fail(`names field ${op.from}, which does not exist`);
+      if (from) {
+        from.name = op.to;
+        for (const r of list(where, col.relations, 'relations')) {
+          if (r.field === op.from) r.field = op.to;
+        }
+        for (const other of state.collections.values()) {
+          for (const r of list(where, other.relations, 'relations')) {
+            if (r.target === op.collection && r.targetField === op.from) r.targetField = op.to;
+          }
+        }
+      }
+      return result(op.collection, `rename field ${op.from} → ${op.to}`, false);
+    }
+    case 'changeFieldType': {
+      const f = find(op.field);
+      if (!f) throw fail(`names field ${op.field}, which does not exist`);
+      const was = f.type;
+      f.type = op.to;
+      return result(op.collection, `change field ${op.field} type ${was} → ${op.to}`, true);
+    }
+    case 'dropField':
+      col.fields = fields.filter((f) => f.name !== op.field);
+      col.relations = list(where, col.relations, 'relations').filter((r) => r.field !== op.field);
+      return result(op.collection, `drop field ${op.field}`, true);
+  }
+}
+
+/**
  * The steps that turn `current` into `desired`, both `{ path: content }` as
- * `exportSchema` returns them. Throws `SchemaFileError` on a malformed file.
+ * `exportSchema` returns them; `applied` maps each migration id the instance
+ * ran (`zv_schema_migrations`) to its checksum. Throws `SchemaFileError` on a malformed file.
  * The order is stable: collections by name, then roles by name.
  */
 export function planSchema(
   current: Record<string, string>,
   desired: Record<string, unknown>,
+  applied: ReadonlyMap<string, string> = new Map(),
 ): PlanStep[] {
   const cur = read(current);
   const des = read(desired);
   const steps: PlanStep[] = [];
+
+  // Pending migrations first, in id order; the state diff is planned against
+  // what they leave. An applied migration whose file changed is refused, the
+  // rule the engine's own migrations follow.
+  for (const [id, m] of [...des.migrations].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    const was = applied.get(id);
+    if (was !== undefined) {
+      if (was !== m.checksum) {
+        throw new SchemaFileError(`migrations/${id}.json changed after it was applied`);
+      }
+      continue;
+    }
+    m.ops.forEach((op, i) => {
+      steps.push(migrate(cur, id, m.checksum, op, i === m.ops.length - 1));
+    });
+  }
 
   const names = [...new Set([...cur.collections.keys(), ...des.collections.keys()])].sort();
   for (const name of names) {

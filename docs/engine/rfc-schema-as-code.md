@@ -158,7 +158,7 @@ guessing:
 | Change | Why state is not enough | Op |
 |---|---|---|
 | Rename a field or collection | It looks like drop + add, which loses data | `renameField`, `renameCollection` |
-| Type change that needs a conversion | The cast is a choice | `changeFieldType` with `using` from a closed list (`text`, `int`, `numeric`, `date`, `timestamptz`, `bool`, `json`) |
+| Type change that needs a conversion | The cast is a choice | `changeFieldType` (`to` a field type; the cast is the engine's closed table, see below) |
 | Drop a field or collection | A drop must be intended, not inferred from absence | `dropField`, `dropCollection` |
 | Remove a role | Users holding it lose access | `dropRole` |
 
@@ -170,8 +170,23 @@ guessing:
 - **Ops, not SQL.** A schema file is applied by a tenant admin as often as by
   a god, and the collection API deliberately never gives a tenant admin SQL.
   Arbitrary SQL stays a god-only tool (`/api/admin/sql`).
+- **No free `USING`.** `changeFieldType` converts through `resolveConversion`
+  (`lib/data/field-type-conversions.ts`), the closed table Studio's type change
+  already uses: same-family casts, `NULLIF(col, '')` for text → number, and a
+  refusal for anything it does not list. A file chooses the target type, never
+  the expression. (Decided 2026-10-05; the earlier draft named a `using` list.)
+- **`renameCollection` is not supported yet.** The engine has no collection
+  rename anywhere (table, relations, junctions, grants, rules); a file that
+  names it is refused. Until then a rename is a new collection plus a copy.
 - Ids sort by time, so concurrent branches rarely collide. Two migrations with
   the same id are an error.
+- The checksum is over the file's canonical form (§5), so reformatting a file
+  is not a change to it.
+- Each op is a no-op when its effect is already there, and a migration is
+  recorded after its last op. An apply that fails part-way through one runs it
+  again from the top; earlier migrations stay recorded.
+- A built-in role (one with no `zv_roles` row) cannot be dropped: the next
+  boot would seed it back.
 - Applied migrations are recorded in a new table, `zv_schema_migrations`
   (`id`, `checksum`, `applied_at`, `applied_by`), so that `apply` runs each one
   once. An applied migration whose file has changed is refused, the same rule
@@ -272,7 +287,7 @@ The plan reads like `terraform plan`:
 | 1 | Serializer + `GET /api/admin/schema/export` + `schema pull` + determinism gate + JSON Schemas | M |
 | 2 | Plan computation (`POST /api/admin/schema/plan`) + `schema diff` | M |
 | 3a | `apply` for additions: create collection, add field, collection settings, create role, global grant. Any other step refuses the whole plan | M |
-| 3b | Rules, column permissions, validation rules, field order, role descriptions and revokes (done); relations, alterations, `zv_schema_migrations` + migration ops (and with them the destructive steps) + the acceptance test | L |
+| 3b | Rules, column permissions, validation rules, field order, role descriptions and revokes (part 1); `zv_schema_migrations` + migration ops, destructive steps (part 2); relations, field alterations and the acceptance test (part 3) | L |
 | 4 | Studio dev-mode writer (including rename/drop migrations) | M |
 | 5 | `generate-types --from` (with R7) | S |
 

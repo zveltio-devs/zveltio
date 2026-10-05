@@ -81,3 +81,4 @@ export type { RequestUser } from './types.js';
 //   - `rowAuthorId` so routes outside the data handlers record authorship the
 //     way they do: an API key's writes are attributed to the person who issued it.
 export { rowAuthorId } from './auth.js';
+export * from './field-changes.js';

@@ -152,6 +152,7 @@ schema
   .option('--dir <path>', 'Schema directory', './schema')
   .option('--url <url>', 'Engine URL (env: ZVELTIO_URL)')
   .option('--yes', 'Apply without asking')
+  .option('--allow-destructive', 'Run drops and type changes that a migration in migrations/ names')
   .action(schemaApplyCommand);
 
 // ── zveltio install <name> ────────────────────────────────────────────────────
