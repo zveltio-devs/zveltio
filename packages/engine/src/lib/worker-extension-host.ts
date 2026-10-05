@@ -476,10 +476,21 @@ export class WorkerExtensionHost {
   ): Promise<void> {
     try {
       // The tenant of the request this query was issued under, from the host's
-      // own dispatch record. A worker that names an unknown id — or issues a
-      // query outside any request, as a background hook does — gets `undefined`
-      // and the query runs with no tenant context, which the isolation
+      // own dispatch record. A query outside any request — a background hook —
+      // names no id and runs with no tenant context, which the isolation
       // predicate resolves to the default tenant rather than to everything.
+      //
+      // A query that names an id the record no longer holds is refused, not
+      // demoted to that default: it is work a request started and did not wait
+      // for (a timer, an un-awaited promise, a handler past the 30 s timeout),
+      // still carrying the request's async context after the request ended.
+      // Run tenantless, tenant B's leftover work read the default tenant's rows.
+      if (msg.requestId && !managed.invokeTenants.has(msg.requestId)) {
+        throw new Error(
+          `request ${msg.requestId} is over (or was never issued); a query outliving ` +
+            'its request has no tenant to run as',
+        );
+      }
       const tenantId = msg.requestId ? managed.invokeTenants.get(msg.requestId) : undefined;
       const rows = await runRawWithParams(managed.name, msg.sql, msg.params, tenantId ?? undefined);
       this.post(managed, { type: 'db:ok', id: msg.id, rows });
