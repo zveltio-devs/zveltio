@@ -9,7 +9,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000ff';
@@ -54,7 +59,13 @@ d('dashboards tenant isolation (in-process)', () => {
     userId = ((await session.json()) as { user: { id: string } }).user.id;
     await db
       .insertInto('zv_panels')
-      .values({ id: FOREIGN_PANEL, dashboard_id: FOREIGN_ID, title: 'foreign', query: FOREIGN_SQL })
+      .values({
+        id: FOREIGN_PANEL,
+        dashboard_id: FOREIGN_ID,
+        title: `foreign-panel-${STAMP}`,
+        query: FOREIGN_SQL,
+        last_executed_at: new Date(),
+      })
       .execute();
     await db
       .insertInto('zvd_dashboard_shares')
@@ -179,6 +190,37 @@ d('dashboards tenant isolation (in-process)', () => {
       .where('dashboard_id', '=', FOREIGN_ID)
       .execute();
     expect(panels.map((r) => r.id)).toEqual([FOREIGN_PANEL]);
+  });
+
+  it('own tenant: the same panel routes still change and delete a panel of this tenant', async () => {
+    const add = await send('POST', `/dashboards/${myId}/panels`, {
+      title: 'mine',
+      query: 'SELECT 1',
+    });
+    expect(add.status).toBe(201);
+    const panelId = ((await add.json()) as { panel: { id: string } }).panel.id;
+    const patch = await send('PATCH', `/panels/${panelId}`, { query: 'SELECT 2' });
+    expect(patch.status).toBe(200);
+    expect(((await patch.json()) as { panel: { query: string } }).panel.query).toBe('SELECT 2');
+    expect((await send('DELETE', `/panels/${panelId}`)).status).toBe(200);
+    const gone = await db
+      .selectFrom('zv_panels')
+      .select('id')
+      .where('id', '=', panelId)
+      .executeTakeFirst();
+    expect(gone).toBeUndefined();
+  });
+
+  it('cross-tenant: GET /stats does not show the root tenant’s admin another tenant’s panels', async () => {
+    // Instance admin without being god: an admin of the root tenant.
+    const admin = await createMemberSession(app, db, {
+      grants: [{ collection: 'admin', actions: ['*'] }],
+    });
+    const res = await app.request('/api/insights/stats', { headers: { cookie: admin.cookie } });
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).not.toContain(FOREIGN_PANEL);
+    expect(body).not.toContain(`foreign-panel-${STAMP}`);
   });
 
   it('saved queries: a new one lands in this tenant; another tenant’s is not changed, deleted or run', async () => {

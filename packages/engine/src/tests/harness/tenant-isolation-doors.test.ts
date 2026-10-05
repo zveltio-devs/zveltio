@@ -169,7 +169,7 @@ const DOORS: Record<string, Coverage> = {
   'GET /api/insights/subscriptions': OWN_USER,
   'POST /api/insights/subscriptions': at('dashboards-tenant-isolation.test.ts'),
   'DELETE /api/insights/subscriptions/:id': OWN_USER,
-  'GET /api/insights/stats': exempt('instance administrators only (requireInstanceAdmin)'),
+  'GET /api/insights/stats': at('dashboards-tenant-isolation.test.ts'),
   'GET /api/saved-queries': at('saved-queries-import-tenant-isolation.test.ts'),
   'GET /api/saved-queries/:id': at('saved-queries-import-tenant-isolation.test.ts'),
   'POST /api/saved-queries': here,
