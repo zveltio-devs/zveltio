@@ -10,6 +10,17 @@
 -- them as they stand would cut every existing integration to ~16 requests a
 -- minute, so they are cleared.
 --
+-- squawk's ban-drop-not-null is for a client that reads the column as always
+-- set. In the engine only the limiter reads it, and NULL means "no own limit"
+-- there; Studio's list shows `—`. Nothing in the SDK, the CLI or
+-- ../zveltio-extensions reads it. A replica of the previous release during a
+-- rolling upgrade still writes 1000 on create, and this release enforces it:
+-- a key created through an old replica during that window gets 1000/hour
+-- until an admin clears it. So the drop is deliberate, and ignored for this
+-- file only.
+
+-- squawk-ignore-file ban-drop-not-null
+
 -- Re-runnable. It runs again only after a rollback, whose DOWN put the old
 -- default back — which is again no one's choice, so clearing it is right.
 
