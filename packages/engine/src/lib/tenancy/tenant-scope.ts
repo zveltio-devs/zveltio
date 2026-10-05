@@ -42,8 +42,10 @@ export function activeMembership(table = 'zv_tenant_users'): RawBuilder<boolean>
  * assignment must do. A set containing only a unit that cannot exist says the
  * same thing in the one vocabulary the predicate already speaks, and keeps the
  * decision in the policy rather than in an `if` in the middleware.
+ *
+ * Published by `zveltio_tenant_reach()` (migration 057), which spells it again.
  */
-const NO_UNITS = '00000000-0000-0000-0000-000000000000';
+export const NO_UNITS = '00000000-0000-0000-0000-000000000000';
 
 export interface TenantScope {
   /**
@@ -59,16 +61,61 @@ export interface TenantScope {
   ancestors: string[];
 }
 
-interface AssignmentRow {
-  read_scope: string;
-  scope_list: string[] | null;
+/** The reach as the GUC spelling. `visible_csv` NULL means: publish no set. */
+export interface ScopeRow {
+  visible_csv: string | null;
+  ancestors_csv: string;
 }
 
 /**
- * One round trip: the currently-valid assignments for this user in this unit,
- * whether any assignment exists at all, and the ancestor chain.
+ * The reach as ONE single-row statement, so it can ride inside the `set_config`
+ * that publishes it.
  *
- * Runs BEFORE the transaction drops to `zveltio_rls`, as the engine's own role.
+ * It used to be a membership query, an ancestor walk, a count when nothing was
+ * in force and an org/subtree follow-up — up to four round trips before the
+ * `set_config`, on every authenticated request. The branches now live in
+ * `zveltio_tenant_reach()` (migration 057), which keeps them in the order this
+ * file took them: no row → no set; rows, none in force → `NO_UNITS`; otherwise
+ * the widest reach in force, `list` reaches merged. A function rather than the
+ * same logic inlined here, because an inlined statement is planned on every
+ * request — measured 0.7 ms warm, for branches most callers never take.
+ *
+ * It also fixes `list`, which never worked: the driver returns `uuid[]` as the
+ * string `{…}`, and spreading that string published its characters as tenant
+ * ids, so every policed read of a `list` user failed its uuid cast.
+ */
+export function tenantScopeQuery(userId: string, tenantId: string): RawBuilder<ScopeRow> {
+  return sql<ScopeRow>`
+    SELECT r.visible_csv, r.ancestors_csv FROM zveltio_tenant_reach(${userId}, ${tenantId}) AS r
+  `;
+}
+
+/** God's reach: every unit and no ancestors, in the same row shape. */
+export function godScopeQuery(): RawBuilder<ScopeRow> {
+  return sql<ScopeRow>`
+    SELECT (SELECT coalesce(string_agg(id::text, ','), '') FROM zv_tenants) AS visible_csv,
+           ''::text AS ancestors_csv
+  `;
+}
+
+/** No user named: no set published and no walk, in the same row shape. */
+export function noScopeQuery(): RawBuilder<ScopeRow> {
+  return sql<ScopeRow>`SELECT NULL::text AS visible_csv, ''::text AS ancestors_csv`;
+}
+
+export function scopeFromRow(row: ScopeRow): TenantScope {
+  const split = (csv: string | null) => (csv ?? '').split(',').filter(Boolean);
+  return {
+    visible: row.visible_csv === null ? null : split(row.visible_csv),
+    ancestors: split(row.ancestors_csv),
+  };
+}
+
+/**
+ * The reach on its own, in one round trip. `withTenantIsolation` folds the same
+ * query into its `set_config` instead of calling this.
+ *
+ * Runs as the engine's own role, before a transaction drops to `zveltio_rls`.
  * `zv_tenant_users` deliberately carries no policy — it answers "which units am
  * I in?", a question asked before a unit is chosen — but the recursive walks
  * read `zv_tenants`, and depending on grants held by the restricted role would
@@ -79,86 +126,8 @@ export async function resolveTenantScope(
   userId: string,
   tenantId: string,
 ): Promise<TenantScope> {
-  const [assignments, ancestors] = await Promise.all([
-    sql<AssignmentRow>`
-      SELECT read_scope, scope_list
-        FROM zv_tenant_users
-       WHERE user_id = ${userId}
-         AND tenant_id = ${tenantId}::uuid
-         AND ${activeMembership()}
-    `.execute(db),
-    sql<{ id: string }>`
-      SELECT a::text AS id FROM zveltio_tenant_ancestors(${tenantId}::uuid) AS a
-    `.execute(db),
-  ]);
-
-  const ancestorIds = ancestors.rows.map((r) => r.id).filter(Boolean);
-  const rows = assignments.rows;
-
-  // No assignment row at all. Not the same as an expired one: this is a god
-  // user (exempt from the membership check), an API key, or a single-tenant
-  // install where nobody was ever enrolled. Publish nothing and let the
-  // equality predicate answer, which is what all three did yesterday.
-  if (rows.length === 0) {
-    const hasAny = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zv_tenant_users
-       WHERE user_id = ${userId} AND tenant_id = ${tenantId}::uuid
-    `.execute(db);
-    if ((hasAny.rows[0]?.n ?? 0) === 0) return { visible: null, ancestors: ancestorIds };
-    // Enrolled, but no assignment is valid right now.
-    return { visible: [NO_UNITS], ancestors: ancestorIds };
-  }
-
-  // Several assignments in one unit are combined by taking the WIDEST reach.
-  // They are grants, not filters — a person given both `self` and `subtree`
-  // has been given `subtree`.
-  const widest = pickWidest(rows);
-
-  if (widest.read_scope === 'org') {
-    const all = await sql<{ id: string }>`SELECT id::text AS id FROM zv_tenants`.execute(db);
-    return { visible: all.rows.map((r) => r.id), ancestors: ancestorIds };
-  }
-
-  if (widest.read_scope === 'subtree') {
-    const sub = await sql<{ id: string }>`
-      SELECT s::text AS id FROM zveltio_tenant_subtree(${tenantId}::uuid) AS s
-    `.execute(db);
-    return { visible: dedupe([tenantId, ...sub.rows.map((r) => r.id)]), ancestors: ancestorIds };
-  }
-
-  if (widest.read_scope === 'list') {
-    // The own unit is always in the set. A reach that could not read back what
-    // it just wrote would not be a narrower reach, it would be a broken one —
-    // writes land on the own node by construction.
-    return {
-      visible: dedupe([tenantId, ...(widest.scope_list ?? [])]),
-      ancestors: ancestorIds,
-    };
-  }
-
-  return { visible: [tenantId], ancestors: ancestorIds };
-}
-
-const REACH_ORDER: Record<string, number> = { self: 0, list: 1, subtree: 2, org: 3 };
-
-function pickWidest(rows: AssignmentRow[]): AssignmentRow {
-  let best = rows[0];
-  for (const r of rows) {
-    if ((REACH_ORDER[r.read_scope] ?? 0) > (REACH_ORDER[best.read_scope] ?? 0)) best = r;
-  }
-  // Two `list` assignments are a union, not a contest.
-  if (best.read_scope === 'list') {
-    const merged: string[] = [];
-    for (const r of rows) {
-      if (r.read_scope === 'list' && r.scope_list) merged.push(...r.scope_list);
-    }
-    return { read_scope: 'list', scope_list: merged };
-  }
-  return best;
-}
-
-function dedupe(ids: string[]): string[] {
-  return [...new Set(ids.filter(Boolean))];
+  const r = await tenantScopeQuery(userId, tenantId).execute(db);
+  return scopeFromRow(r.rows[0] ?? { visible_csv: null, ancestors_csv: '' });
 }
 
 /** The GUC spelling: a comma-separated list, parsed by `string_to_array` in the predicate. */
