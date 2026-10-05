@@ -301,7 +301,7 @@ A person's reach is `zv_tenant_users.read_scope`, with four values:
 | `org` | The whole organisation |
 
 These are **grants, not filters**: someone with both `self` and `subtree` has
-`subtree`. The ordering is in `zveltio_tenant_reach()` (migration 052). It is
+`subtree`. The ordering is in `zveltio_tenant_reach()` (migration 057). It is
 resolved **once per request**, as the engine role, before the privilege
 descent — because `zv_tenant_users` must be read in order to learn what may be
 read. It costs no extra round trip: the call rides inside the statement that

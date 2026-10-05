@@ -43,7 +43,7 @@ export function activeMembership(table = 'zv_tenant_users'): RawBuilder<boolean>
  * same thing in the one vocabulary the predicate already speaks, and keeps the
  * decision in the policy rather than in an `if` in the middleware.
  *
- * Published by `zveltio_tenant_reach()` (migration 052), which spells it again.
+ * Published by `zveltio_tenant_reach()` (migration 057), which spells it again.
  */
 export const NO_UNITS = '00000000-0000-0000-0000-000000000000';
 
@@ -74,7 +74,7 @@ export interface ScopeRow {
  * It used to be a membership query, an ancestor walk, a count when nothing was
  * in force and an org/subtree follow-up — up to four round trips before the
  * `set_config`, on every authenticated request. The branches now live in
- * `zveltio_tenant_reach()` (migration 052), which keeps them in the order this
+ * `zveltio_tenant_reach()` (migration 057), which keeps them in the order this
  * file took them: no row → no set; rows, none in force → `NO_UNITS`; otherwise
  * the widest reach in force, `list` reaches merged. A function rather than the
  * same logic inlined here, because an inlined statement is planned on every
