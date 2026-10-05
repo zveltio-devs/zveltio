@@ -458,7 +458,11 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
       await DDLManager.dropCollection(trx, payload.name, { force: payload.force === true });
       return true;
     });
-    if (ran) announceSchemaChange(payload.name, 'drop');
+    if (!ran) return;
+    // This transaction is the queue's own, which `onAfterCommit` cannot see, so
+    // the grants leave the live permission model here, once it has committed.
+    await DDLManager.forgetDroppedCollection(payload.name);
+    announceSchemaChange(payload.name, 'drop');
   });
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
