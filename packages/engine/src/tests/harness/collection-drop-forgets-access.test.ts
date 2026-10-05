@@ -18,7 +18,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { enqueueDDLJob, initDDLQueue, stopDDLQueue } from '../../lib/data/ddl-queue.js';
+import {
+  enqueueDDLJob,
+  initDDLQueue,
+  isDDLQueueStarted,
+  stopDDLQueue,
+} from '../../lib/data/ddl-queue.js';
 import { checkPermission, getEnforcer, reconcilePolicies } from '../../lib/tenancy/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import {
@@ -106,8 +111,12 @@ d('dropping a collection forgets its access rules', () => {
     await reconcilePolicies();
   });
 
+  // CI runs every harness file in one process: stop only a queue this file
+  // started, or every later test that enqueues DDL finds none.
+  let startedQueue = false;
+
   afterAll(async () => {
-    await stopDDLQueue();
+    if (startedQueue) await stopDDLQueue();
     if (!db) return;
     for (const name of names) {
       await dropTestCollection(db, name).catch(() => {});
@@ -152,7 +161,10 @@ d('dropping a collection forgets its access rules', () => {
   it('the drop_collection DDL queue job', async () => {
     const name = `drop_queue_${tag}`;
     await seed(name);
-    await initDDLQueue(db);
+    if (!isDDLQueueStarted()) {
+      await initDDLQueue(db);
+      startedQueue = true;
+    }
     await enqueueDDLJob(db, 'drop_collection', { name });
     await expectForgotten(name);
   }, 60_000);
