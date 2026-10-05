@@ -18,12 +18,19 @@
  * doors for readers; change it with this table.
  */
 
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/index.js';
+import {
+  DEFAULT_TENANT_ID,
+  getEnforcer,
+  invalidateUserPermCache,
+} from '../../lib/tenancy/index.js';
 import { _wsPermCacheForTests, websocketHandler } from '../../routes/ws.js';
 import {
   createGodSession,
@@ -44,13 +51,15 @@ const C = `drs_c_${TAG}`; // child: m2o parent
 const T = `drs_t_${TAG}`; // tag
 const MARK = `B-SECRET-${TAG}`;
 const KEY = generateApiKey();
+// The local storage driver writes here, so `/files/*` has real bytes to serve.
+const STORE = mkdtempSync(join(tmpdir(), 'zv-doors-'));
+const storeBefore = process.env.STORAGE_LOCAL_DIR;
 
 type Coverage = { here: true } | { elsewhere: string } | { exempt: string } | { todo: string };
 
 const here = { here: true } as const;
 const at = (file: string): Coverage => ({ elsewhere: file });
 const exempt = (why: string): Coverage => ({ exempt: why });
-const todo = (what: string): Coverage => ({ todo: what });
 
 const MIDDLEWARE = exempt(
   'middleware (rate limits, preview environment, slow-query log), no handler',
@@ -90,13 +99,13 @@ const DOORS: Record<string, Coverage> = {
   'GET /api/realtime/stream': here,
   'GET /api/ws': here,
   'GET /api/ws/info': exempt('static endpoint description, no tenant data'),
-  'GET /api/ws/stats': todo('connection counts: assert a tenant admin of A sees only A'),
-  'GET /api/realtime/connections': todo('assert a tenant admin of A lists only A connections'),
+  'GET /api/ws/stats': here,
+  'GET /api/realtime/connections': here,
   'GET /api/realtime/presence/:channel': at('realtime-channel-routes.test.ts'),
   'POST /api/realtime/presence/:channel': at('realtime-channel-routes.test.ts'),
   'DELETE /api/realtime/presence/:channel': at('realtime-channel-routes.test.ts'),
   'POST /api/realtime/broadcast/:channel': at('realtime-channel-routes.test.ts'),
-  'POST /api/realtime/publish': todo('assert a publish in B reaches no subscriber in A'),
+  'POST /api/realtime/publish': here,
   // ── Revisions and comments ──────────────────────────────────────────────
   'GET /api/revisions': at('revisions-tenant-isolation.test.ts'),
   'GET /api/revisions/:id': here,
@@ -112,8 +121,8 @@ const DOORS: Record<string, Coverage> = {
   'GET /api/storage/:id/transform': here,
   'GET /api/storage/folders': here,
   'POST /api/storage/folders': here,
-  'POST /api/storage/upload': todo('assert an upload lands in the request tenant'),
-  'GET /files/*': todo('assert a B object path is not served to A (signed and public)'),
+  'POST /api/storage/upload': here,
+  'GET /files/*': here,
   // ── API keys ────────────────────────────────────────────────────────────
   'GET /api/api-keys': at('api-keys-tenant-isolation.test.ts'),
   'POST /api/api-keys': at('api-keys-tenant-isolation.test.ts'),
@@ -280,6 +289,44 @@ d('tenant isolation, door by door', () => {
     return m;
   }
 
+  /** A member of `tenant` who administers it: `isTenantAdmin` passes in that tenant only. */
+  async function tenantAdmin(tenant: { id: string }) {
+    const m = await member(tenant);
+    await (await getEnforcer()).addPolicy(m.userId, tenant.id, 'admin', '*');
+    await invalidateUserPermCache(m.userId);
+    return m;
+  }
+
+  /** Open an SSE stream and collect what it receives until `stop()`. */
+  async function listen(path: string, headers: Record<string, string>) {
+    const res = await app.request(path, { headers });
+    expect(res.status).toBe(200);
+    const reader = res.body!.getReader();
+    const got: string[] = [];
+    const decoder = new TextDecoder();
+    const reading = (async () => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        got.push(decoder.decode(value));
+      }
+    })();
+    return {
+      text: () => got.join(''),
+      stop: async () => {
+        await reader.cancel().catch(() => {});
+        await reading.catch(() => {});
+      },
+    };
+  }
+
+  async function upload(headers: Record<string, string>, fields: Record<string, string> = {}) {
+    const fd = new FormData();
+    fd.append('file', new File([MARK], `doors-up-${TAG}.txt`, { type: 'text/plain' }));
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+    return app.request('/api/storage/upload', { method: 'POST', headers, body: fd });
+  }
+
   async function create(who: () => Record<string, string>, coll: string, body: object) {
     const res = await app.request(`/api/data/${coll}`, {
       method: 'POST',
@@ -292,6 +339,7 @@ d('tenant isolation, door by door', () => {
   }
 
   beforeAll(async () => {
+    process.env.STORAGE_LOCAL_DIR = STORE;
     ({ app, db } = await getTestApp());
     god = await createGodSession(app, db);
     for (const t of [A, B]) {
@@ -359,7 +407,13 @@ d('tenant isolation, door by door', () => {
   afterAll(async () => {
     const { connections } = _wsPermCacheForTests();
     for (const id of wsProbes) connections.delete(id);
+    if (storeBefore === undefined) delete process.env.STORAGE_LOCAL_DIR;
+    else process.env.STORAGE_LOCAL_DIR = storeBefore;
+    rmSync(STORE, { recursive: true, force: true });
     if (!db) return;
+    await sql`DELETE FROM zv_media_files WHERE original_name = ${`doors-up-${TAG}.txt`}`
+      .execute(db)
+      .catch(() => {});
     await sql`DELETE FROM zv_api_keys WHERE name = ${`doors-${TAG}`}`.execute(db).catch(() => {});
     await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${`doors_fn_${TAG}`}`
       .execute(db)
@@ -605,6 +659,80 @@ d('tenant isolation, door by door', () => {
     expect(streamed.join('')).not.toContain(MARK);
   }, 30_000);
 
+  it("connection lists and counts show a tenant's admin only that tenant, root admin included", async () => {
+    probe('GET /api/realtime/connections');
+    probe('GET /api/ws/stats');
+    const { connections } = _wsPermCacheForTests();
+    // B's member holds a stream and a socket in B.
+    const data = await wsUpgradeData(app, asB());
+    const id = `doors_ws_b_${TAG}`;
+    wsProbes.push(id);
+    websocketHandler.open({ data: { ...data, id }, send: () => {}, close: () => {} } as never);
+    const stream = await listen(`/api/realtime/stream?collection=${P}`, asB());
+
+    const aAdmin = await tenantAdmin(A);
+    const bAdmin = await tenantAdmin(B);
+    // An admin of the root tenant: `requireInstanceAdmin` passes, which is not
+    // a licence to see other tenants.
+    const root = await createMemberSession(app, db, {
+      grants: [{ collection: 'admin', actions: ['*'] }],
+    });
+    try {
+      const seen = await app.request('/api/realtime/connections', {
+        headers: { cookie: bAdmin.cookie, 'x-tenant-slug': B.slug },
+      });
+      expect(seen.status).toBe(200);
+      expect(await seen.text()).toContain(b.userId);
+
+      for (const [headers, tenant] of [
+        [{ cookie: aAdmin.cookie, 'x-tenant-slug': A.slug }, A.id],
+        [{ cookie: root.cookie }, DEFAULT_TENANT_ID],
+      ] as const) {
+        const listed = await app.request('/api/realtime/connections', { headers });
+        expect(listed.status).toBe(200);
+        expect(await listed.text()).not.toContain(b.userId);
+
+        const stats = await app.request('/api/ws/stats', { headers });
+        expect(stats.status).toBe(200);
+        const own = [...connections.values()].filter((c) => c.tenantId === tenant).length;
+        expect(((await stats.json()) as { connections: number }).connections).toBe(own);
+      }
+    } finally {
+      await stream.stop();
+    }
+  }, 30_000);
+
+  it('a publish in B, or in the root tenant, reaches no stream in A; a publish in A does', async () => {
+    probe('POST /api/realtime/publish');
+    const channel = `doors-pub-${TAG}`;
+    const aAdmin = await tenantAdmin(A);
+    const bAdmin = await tenantAdmin(B);
+    const root = await createMemberSession(app, db, {
+      grants: [{ collection: 'admin', actions: ['*'] }],
+    });
+    const asAdminA = { cookie: aAdmin.cookie, 'x-tenant-slug': A.slug };
+    const stream = await listen(`/api/realtime/stream?channel=${channel}`, asAdminA);
+    const publish = async (headers: Record<string, string>, mark: string) => {
+      const res = await app.request('/api/realtime/publish', {
+        method: 'POST',
+        headers: { ...headers, ...json },
+        body: JSON.stringify({ channel: `zveltio:${channel}`, payload: { mark } }),
+      });
+      expect(res.status).toBe(200);
+    };
+    const control = `A-pub-${TAG}`;
+    try {
+      await publish({ cookie: bAdmin.cookie, 'x-tenant-slug': B.slug }, MARK);
+      await publish({ cookie: root.cookie }, MARK);
+      await publish(asAdminA, control);
+      for (let i = 0; i < 100 && !stream.text().includes(control); i++) await Bun.sleep(30);
+      expect(stream.text()).toContain(control);
+      expect(stream.text()).not.toContain(MARK);
+    } finally {
+      await stream.stop();
+    }
+  }, 30_000);
+
   // ── Revisions and comments ──────────────────────────────────────────────
 
   it("B's revision is not found by A, and cannot be reverted", async () => {
@@ -705,6 +833,74 @@ d('tenant isolation, door by door', () => {
       db,
     );
     expect(landed.rows.map((r) => r.tenant_id)).toEqual([B.id]);
+  });
+
+  it("an upload lands in the request tenant, and never under B's folder", async () => {
+    probe('POST /api/storage/upload');
+    const up = await upload(asA());
+    expect(up.status).toBe(201);
+    const { file } = (await up.json()) as { file: { id: string } };
+    const landed = await sql<{ tenant_id: string }>`
+      SELECT tenant_id::text FROM zv_media_files WHERE id = ${file.id}::uuid`.execute(db);
+    expect(landed.rows[0]?.tenant_id).toBe(A.id);
+
+    const bFolder = await app.request('/api/storage/folders', {
+      method: 'POST',
+      headers: asB(json),
+      body: JSON.stringify({ name: `doors-bfolder-${TAG}` }),
+    });
+    expect(bFolder.status).toBe(201);
+    const folderId = ((await bFolder.json()) as { folder: { id: string } }).folder.id;
+
+    // The foreign key is checked outside RLS, so B's folder id was accepted.
+    // Refused before the bytes are stored: a 404 must not leave an object behind.
+    const objects = () => readdirSync(STORE, { recursive: true }).length;
+    const before = objects();
+    const into = await upload(asA(), { folder_id: folderId });
+    expect(into.status).toBe(404);
+    expect(objects()).toBe(before);
+    const sub = await app.request('/api/storage/folders', {
+      method: 'POST',
+      headers: asA(json),
+      body: JSON.stringify({ name: `doors-afolder-${TAG}`, parent_id: folderId }),
+    });
+    expect(sub.status).toBe(404);
+    const hung = await sql<{ n: number }>`
+      SELECT (SELECT count(*) FROM zv_media_files WHERE folder_id = ${folderId}::uuid)
+           + (SELECT count(*) FROM zv_media_folders WHERE parent_id = ${folderId}::uuid) AS n`.execute(
+      db,
+    );
+    expect(Number(hung.rows[0]!.n)).toBe(0);
+  });
+
+  it("B's object is served to A by no session and by no signature of A's", async () => {
+    probe('GET /files/*');
+    const pathOf = async (res: Response) => {
+      expect(res.status).toBe(201);
+      const { file } = (await res.json()) as { file: { storage_path: string; url: string } };
+      return { key: file.storage_path, url: new URL(file.url, 'http://local') };
+    };
+    const bPrivate = await pathOf(await upload(asB()));
+    const aPrivate = await pathOf(await upload(asA()));
+
+    // B's own signed link serves B's bytes: the probe below is not vacuous.
+    const own = await app.request(bPrivate.url.pathname + bPrivate.url.search);
+    expect(await own.text()).toBe(MARK);
+
+    // A's session alone, and A's signature replayed on B's key, serve nothing.
+    for (const path of [`/files/${bPrivate.key}`, `/files/${bPrivate.key}${aPrivate.url.search}`]) {
+      const res = await app.request(path, { headers: asA() });
+      expect(res.status).toBe(403);
+      expect(await leaks(res)).toBe(false);
+    }
+
+    // A public object is public to the internet, not to a tenant: a session of
+    // A adds nothing to what an anonymous request already gets.
+    const bPublic = await pathOf(await upload(asB(), { public: 'true' }));
+    const anon = await app.request(`/files/${bPublic.key}`);
+    const asMember = await app.request(`/files/${bPublic.key}`, { headers: asA() });
+    expect(anon.status).toBe(200);
+    expect(asMember.status).toBe(anon.status);
   });
 
   it("a saved query lands in A; B's cannot be changed, deleted or run from A; execute reads no B row", async () => {

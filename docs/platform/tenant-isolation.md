@@ -39,10 +39,14 @@ switched off on one table, five of the probes fail.
 | API key scoped to A | Reads A only, and is refused in B |
 | `POST /api/sync/pull` / `push` | A pull carries nothing of B, and a push does not change B's row |
 | `GET /api/ws`, `GET /api/realtime/stream` | A write in B reaches no socket and no stream in A, while a write in A does |
+| `GET /api/realtime/connections`, `GET /api/ws/stats` | An admin of A, and an admin of the root tenant, list and count only their own tenant's streams and sockets |
+| `POST /api/realtime/publish` | A publish by an admin of B, or of the root tenant, reaches no stream in A; a publish in A does |
 | `GET /api/revisions/:id`, `POST …/revert` | B's revision is refused, and reverting it changes nothing |
 | Record comments (read, write, delete) | B's comments are not read; A cannot write into, or delete from, B's |
 | `GET /api/storage/:id/signed-url`, `/transform` | No URL and no image for B's file |
-| `GET` / `POST /api/storage/folders` | B's folders are not listed; a folder lands in its own tenant |
+| `GET` / `POST /api/storage/folders` | B's folders are not listed; a folder lands in its own tenant, never under B's folder |
+| `POST /api/storage/upload` | An upload lands in the request's tenant; B's folder id is refused |
+| `GET /files/*` | B's private object is refused to A's session, and to A's signature replayed on B's key. A public object is public to anyone, so a session adds nothing |
 | `POST /api/saved-queries`, `PUT` / `DELETE /:id`, `POST /:id/run`, `/execute` | A saved query lands in A; B's cannot be changed, deleted or run from A; an execution reads no B row |
 | `POST /api/rpc/:fn` | A function (security invoker) called from A reads A's rows and none of B's |
 
@@ -77,17 +81,16 @@ absent or refused:
 - **No data read.** `POST /api/saved-queries/preview-url` builds a URL string
   from its body.
 
-## Not yet in the suite
+## Probes that found a hole
 
-These routes are listed in the table as `todo`, each with the assertion its
-probe has to make. They look tenant-scoped in the code, but no test proves it
-yet — and reading was not enough before: the API-key rate-limit `DELETE` had no
-tenant check until its probe was written (2026-10-05), and neither had
-`PATCH` / `DELETE /api/insights/panels/:id` or the panel figures of
-`/api/insights/stats` (same day).
-- connection and stats endpoints of realtime;
-- `POST /api/realtime/publish`;
-- storage upload and `/files/*`;
+Every door now has a probe. Reading the code was not enough: each of these
+looked tenant-scoped and was not, until its probe was written (all 2026-10-05):
 
-Moving a row from `todo` to `here` (or to the file that probes it) means writing
-its probe.
+- the API-key rate-limit `DELETE` had no tenant check;
+- `PATCH` / `DELETE /api/insights/panels/:id` and the panel figures of
+  `/api/insights/stats` reached other tenants' panels;
+- `GET /api/realtime/connections` and `GET /api/ws/stats` listed and counted
+  every connection on the instance for any tenant admin;
+- `POST /api/storage/upload` (`folder_id`) and `POST /api/storage/folders`
+  (`parent_id`) accepted another tenant's folder: PostgreSQL checks a foreign
+  key outside row-level security.
