@@ -42,6 +42,20 @@ export default {
         return c.json({ ok: true, rows, tenant: t[0]?.t ?? null });
       } catch (e) { return c.json({ ok: false, error: e.message }, 500); }
     });
+    // Work the route starts and does not wait for: it runs after the
+    // invocation is over, still inside the route's async context.
+    let late = null;
+    app.get('/later', (c) => {
+      late = null;
+      setTimeout(() => {
+        ctx.db.query('SELECT title FROM ${TABLE} ORDER BY title').then(
+          (rows) => { late = { ok: true, rows }; },
+          (e) => { late = { ok: false, error: e.message }; },
+        );
+      }, 100);
+      return c.json({ started: true });
+    });
+    app.get('/late', (c) => c.json(late));
   },
 };
 `;
@@ -100,5 +114,18 @@ d('a worker query runs as the tenant of its request', () => {
     const res = await workerApp.request(`/ext/${WORKER}/rows`);
     const out = (await res.json()) as { ok: boolean; rows?: { title: string }[]; tenant?: string };
     expect(out).toEqual({ ok: true, rows: [{ title: 'b-row' }], tenant: B });
+  });
+
+  it('refuses a query issued after its request is over, rather than run it as the default tenant', async () => {
+    await workerApp.request(`/ext/${WORKER}/later`);
+    type Late = { ok: boolean; rows?: unknown[]; error?: string } | null;
+    let late: Late = null;
+    for (let i = 0; i < 50 && !late; i++) {
+      await Bun.sleep(50);
+      late = (await (await workerApp.request(`/ext/${WORKER}/late`)).json()) as Late;
+    }
+    // Before: { ok: true, rows: [{ title: 'default-row' }] } — tenant B's
+    // leftover work read (and could write) the default tenant's rows.
+    expect(late).toEqual({ ok: false, error: expect.stringContaining('is over') });
   });
 });

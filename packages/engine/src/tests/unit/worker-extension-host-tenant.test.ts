@@ -58,9 +58,8 @@ describe('worker db:query tenant resolution', () => {
   });
 
   it('gives nothing for an invocation id the host never issued', () => {
-    // A worker inventing an id must not obtain a tenant context. `undefined`
-    // means the query runs with no GUC, which the isolation predicate resolves
-    // to the default tenant — not to everything.
+    // A worker inventing an id must not obtain a tenant context. The real
+    // handler refuses such a query outright (worker-query-tenant.test.ts).
     const m = makeManaged();
     m.invokeTenants.set('inv-1', TENANT_A);
     expect(resolveDbTenant(m, 'inv-made-up')).toBeUndefined();

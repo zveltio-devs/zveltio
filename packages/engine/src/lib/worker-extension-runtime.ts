@@ -70,20 +70,21 @@ for (const level of ['log', 'warn', 'error'] as const) {
 }
 
 /**
- * Kysely-style executor that crosses the worker boundary for every query.
- * Returns a CompiledQuery-result-shape object.
- */
-/**
  * The route invocation a piece of work belongs to — the host's id for the
- * request. A query names it, and the host reads the tenant and the identity of
- * that request from its OWN record of the invocation (`invokeTenants`,
- * `invokeIdentities`), never from anything the worker says about them.
+ * request. A query names it, and the host reads the tenant of that request from
+ * its OWN record of the invocation (`invokeTenants`), never from anything the
+ * worker says about it. Work that outlives the request still carries the id;
+ * the host refuses it, since the record is gone.
  *
  * The protocol always had the field and the host always looked it up; this side
- * never sent it, so every worker query ran with no tenant and no actor.
+ * never sent it, so every worker query ran with no tenant.
  */
 const invocation = new AsyncLocalStorage<string>();
 
+/**
+ * Kysely-style executor that crosses the worker boundary for every query.
+ * Returns a CompiledQuery-result-shape object.
+ */
 async function dbExecute(sql: string, params: unknown[]): Promise<{ rows: unknown[] }> {
   return new Promise((resolve, reject) => {
     const id = rpcId('db');
