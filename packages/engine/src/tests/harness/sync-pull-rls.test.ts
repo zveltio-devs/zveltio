@@ -7,7 +7,7 @@
  * and the columns a role may not read — and then kept them on the device, where
  * no server-side check applies afterwards.
  *
- * `checkPermission(user, 'data:<collection>', 'read')` guarded the pull, but
+ * `checkPermission(user, '<collection>', 'read')` guards the pull, but
  * that is collection-level and cannot see rows or columns. Same shape as the
  * export route: the main data path is defended, the secondary one is not.
  */
@@ -38,7 +38,6 @@ async function memberSession(app: Hono, db: Database): Promise<{ cookie: string;
   await sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`.execute(db);
   const enforcer = await getEnforcer();
   await enforcer.addPolicy(userId, '*', COLLECTION, 'read');
-  await enforcer.addPolicy(userId, '*', `data:${COLLECTION}`, 'read');
   await invalidateUserPermCache(userId);
   const signIn = await app.request('/api/auth/sign-in/email', {
     method: 'POST',
@@ -140,7 +139,6 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
     if (memberUserId) {
       const enforcer = await getEnforcer();
       await enforcer.removePolicy(memberUserId, '*', COLLECTION, 'read').catch(() => {});
-      await enforcer.removePolicy(memberUserId, '*', `data:${COLLECTION}`, 'read').catch(() => {});
     }
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)

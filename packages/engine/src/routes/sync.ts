@@ -261,13 +261,16 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // Permission check via checkPermission(), never user.role —
       // Better-Auth's session may not carry `role` on magic-link / OAuth
       // flows. checkPermission handles god bypass + Casbin in the right
-      // order regardless of how the user signed in.
+      // order regardless of how the user signed in. The bare collection name,
+      // as REST and realtime ask: a `data:<name>` resource no grant names was
+      // met only by an instance-wide wildcard, so sync refused every user the
+      // collection's own grants let read and write it.
       const collectionShortName = op.collection.replace(/^zvd_/, '');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       const canWrite = await checkPermission(
         user.id,
-        `data:${collectionShortName}`,
+        collectionShortName,
         op.operation === 'delete' ? 'delete' : op.operation === 'create' ? 'create' : 'update',
       );
       if (!canWrite) {
@@ -628,7 +631,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       const collectionShortName = collection.replace(/^zvd_/, '');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
-      const canRead = await checkPermission(user.id, `data:${collectionShortName}`, 'read');
+      const canRead = await checkPermission(user.id, collectionShortName, 'read');
       if (!canRead) continue; // silently skip collections the user has no access to
 
       // The read gate: row policies, extension alters, entity access and
