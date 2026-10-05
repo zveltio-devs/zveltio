@@ -71,9 +71,10 @@ for (const level of ['log', 'warn', 'error'] as const) {
 
 /**
  * The route invocation a piece of work belongs to — the host's id for the
- * request. A query names it, and the host reads the tenant of that request from
- * its OWN record of the invocation (`invokeTenants`), never from anything the
- * worker says about it. Work that outlives the request still carries the id;
+ * request, or for a `service:invoke` the host sent on a caller's behalf. A
+ * query or service call names it, and the host reads the tenant from its OWN
+ * record of the invocation (`invokeTenants`), never from anything the worker
+ * says about it. Work that outlives the request still carries the id;
  * the host refuses it, since the record is gone.
  *
  * The protocol always had the field and the host always looked it up; this side
@@ -110,7 +111,9 @@ async function serviceCall(name: string, args: unknown[]): Promise<unknown> {
         reject(new Error(res.error ?? 'service call failed'));
       }
     });
-    send({ type: 'service:call', id, name, args });
+    // The request it serves, as for a query: the host answers the call as that
+    // request's tenant, looked up in its own record.
+    send({ type: 'service:call', id, name, args, requestId: invocation.getStore() });
   });
 }
 
@@ -288,7 +291,9 @@ async function handleServiceInvoke(msg: ServiceInvokeRequest): Promise<void> {
     return;
   }
   try {
-    const result = await Promise.resolve(impl(...msg.args));
+    // The host minted this id as an invocation of its own, recorded under the
+    // CALLER's tenant, so the service's queries name it exactly as a route's do.
+    const result = await invocation.run(msg.id, () => Promise.resolve(impl(...msg.args)));
     send({ type: 'service:invoke:ok', id: msg.id, result });
   } catch (err) {
     send({ type: 'service:invoke:err', id: msg.id, error: (err as Error).message });

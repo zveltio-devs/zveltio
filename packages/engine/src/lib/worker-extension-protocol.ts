@@ -115,6 +115,12 @@ export interface ServiceCallRequest {
   id: WorkerMessageId;
   name: string;
   args: unknown[];
+  /**
+   * The invocation this call was made while handling, exactly as on
+   * `DbQueryRequest`: the host answers the call as the tenant of its own record
+   * of that invocation, and refuses an id it no longer holds.
+   */
+  requestId?: WorkerMessageId;
 }
 
 export interface ServiceCallResponse {
@@ -158,7 +164,13 @@ export interface ServiceRegisterResponse {
   error?: string;
 }
 
-/** Host → worker: invoke a service that this worker previously registered. */
+/**
+ * Host → worker: invoke a service that this worker previously registered.
+ *
+ * `id` doubles as an invocation the host records under the CALLER's tenant for
+ * as long as the call is pending; the worker runs the service under it, so the
+ * service's queries and calls name it as `requestId`.
+ */
 export interface ServiceInvokeRequest {
   type: 'service:invoke';
   id: WorkerMessageId;
