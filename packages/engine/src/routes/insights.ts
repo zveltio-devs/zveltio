@@ -197,6 +197,15 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
         .executeTakeFirst(),
     );
 
+  // `zv_panels` has no tenant_id and no policy: a panel belongs to the tenant of
+  // its dashboard, so a write reaches it only through this tenant's dashboards.
+  // PATCH and DELETE /panels/:id matched the id alone, and instance admin is
+  // not the same as every tenant — the root tenant's admin passes it too — so
+  // a panel of any tenant could be rewritten (its SQL then runs in that
+  // tenant on /execute) or deleted by id.
+  const tenantDashboards = (c: Context<InsightsEnv>, t: Database) =>
+    t.selectFrom('zv_dashboards').select('id').where('tenant_id', '=', tenantOf(c));
+
   const findSavedQuery = (c: Context<InsightsEnv>, id: string) =>
     inTenant(c, (t) =>
       t
@@ -576,12 +585,15 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
       if (body.position !== undefined) updates.position = toJsonb(body.position);
       if (body.refresh_interval !== undefined) updates.refresh_interval = body.refresh_interval;
 
-      const panel = await poolDb
-        .updateTable('zv_panels')
-        .set(updates)
-        .where('id', '=', id)
-        .returningAll()
-        .executeTakeFirst();
+      const panel = await inTenant(c, (t) =>
+        t
+          .updateTable('zv_panels')
+          .set(updates)
+          .where('id', '=', id)
+          .where('dashboard_id', 'in', tenantDashboards(c, t))
+          .returningAll()
+          .executeTakeFirst(),
+      );
 
       if (!panel) return c.json({ error: 'Panel not found' }, 404);
       return c.json({ panel });
@@ -594,11 +606,14 @@ export function insightsRoutes(poolDb: Database, auth: any): Hono<InsightsEnv> {
     const isAdmin = await requireInstanceAdmin(user.id);
     if (!isAdmin) return c.json({ error: 'Admin required' }, 403);
 
-    const deleted = await poolDb
-      .deleteFrom('zv_panels')
-      .where('id', '=', c.req.param('id'))
-      .returningAll()
-      .executeTakeFirst();
+    const deleted = await inTenant(c, (t) =>
+      t
+        .deleteFrom('zv_panels')
+        .where('id', '=', c.req.param('id'))
+        .where('dashboard_id', 'in', tenantDashboards(c, t))
+        .returningAll()
+        .executeTakeFirst(),
+    );
 
     if (!deleted) return c.json({ error: 'Panel not found' }, 404);
     return c.json({ success: true });
