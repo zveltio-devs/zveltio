@@ -42,7 +42,7 @@ export { serializeRecord } from './shape.js';
 //   - `readScope` so every read path outside the data handlers (sync pull,
 //     `?expand=`, the realtime doors) asks the one read gate instead of picking
 //     a subset of row policies, alters, entity access and column permissions.
-export { inOrder, readScope, type ReadScope } from './read-scope.js';
+export { inOrder, readScope, recordReadable, type ReadScope } from './read-scope.js';
 //   - `dataApiWrite` so an extension's writes (`ctx.internals.createRecord` …)
 //     take the data API's own handlers instead of Kysely through `ctx.db`.
 export { dataApiWrite, type WriteRequest } from './api-write.js';

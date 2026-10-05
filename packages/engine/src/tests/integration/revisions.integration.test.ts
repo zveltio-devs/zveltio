@@ -129,24 +129,20 @@ describe.skipIf(skipAll)('Revisions — Integration', () => {
     expect(res.status).toBe(404);
   });
 
-  it('GET /api/revisions/record/:collection/:id/comments — returns comments array', async () => {
+  // Comments are gated on the record being readable; neither of these names one.
+  it('GET /api/revisions/record/:collection/:id/comments — refuses a record it cannot read', async () => {
     const res = await fetch(`${BASE_URL}/api/revisions/record/user/test-id/comments`, {
       headers: { Cookie: regularCookie },
     });
-    // 200 with empty array, 403 if collection access is restricted, or 503 if migration not run
-    expect(res.status).toBeOneOf([200, 403, 503]);
-    if (res.status === 200) {
-      const body = (await res.json()) as any;
-      expect(Array.isArray(body.comments)).toBe(true);
-    }
+    expect(res.status).toBeOneOf([403, 404]);
   });
 
-  it('POST /api/revisions/record/:collection/:id/comments — adds a comment', async () => {
+  it('POST /api/revisions/record/:collection/:id/comments — refuses a record it cannot read', async () => {
     const res = await fetch(`${BASE_URL}/api/revisions/record/user/test-record/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: regularCookie },
       body: JSON.stringify({ comment: 'Integration test comment' }),
     });
-    expect(res.status).toBeOneOf([200, 201, 503]);
+    expect(res.status).toBeOneOf([403, 404]);
   });
 });

@@ -7,11 +7,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { DDLManager } from '../../lib/data/index.js';
+import {
+  createGodSession,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const COLLECTION = 'user';
-const RECORD = `rec-${Date.now()}`;
+// A real record: a comment is gated on the record it sits on being readable.
+const COLLECTION = `hrevcomments_${Date.now()}`;
+let RECORD = '';
 
 d('revisions + comments (in-process)', () => {
   let app: Hono;
@@ -28,6 +35,13 @@ d('revisions + comments (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    await DDLManager.createCollection(db, {
+      name: COLLECTION,
+      fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
+    } as never);
+    const created = await app.request(`/api/data/${COLLECTION}`, json('POST', { title: 'x' }));
+    expect(created.status).toBe(201);
+    RECORD = ((await created.json()) as { id: string }).id;
   });
 
   afterAll(async () => {
@@ -35,6 +49,7 @@ d('revisions + comments (in-process)', () => {
     await sql`DELETE FROM zv_record_comments WHERE record_id = ${RECORD}`
       .execute(db)
       .catch(() => {});
+    await dropTestCollection(db, COLLECTION).catch(() => {});
   });
 
   it('lists revisions (GET /)', async () => {
