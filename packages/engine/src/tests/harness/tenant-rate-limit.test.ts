@@ -14,7 +14,9 @@
  *  - a second tenant is unaffected;
  *  - resolution: tenant override, then tenant default, then off;
  *  - anonymous requests naming a tenant do not spend its budget;
- *  - the admin API accepts only well-formed tenant keys, instance admins only.
+ *  - the admin API accepts only well-formed tenant keys, god only;
+ *  - a tenant's admin sets its own limit only while god allows it, and it can
+ *    only tighten.
  *
  * The limiter returns next() under NODE_ENV=test, so the environment is flipped
  * for the duration — otherwise this would measure the bypass. There is no Valkey
@@ -31,7 +33,11 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
-import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/index.js';
+import {
+  DEFAULT_TENANT_ID,
+  getEnforcer,
+  invalidateUserPermCache,
+} from '../../lib/tenancy/index.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -112,7 +118,8 @@ d('per-tenant rate limit', () => {
     process.env.NODE_ENV = savedEnv;
     if (savedProxy === undefined) delete process.env.TRUSTED_PROXY;
     else process.env.TRUSTED_PROXY = savedProxy;
-    await sql`DELETE FROM zv_rate_limit_configs WHERE key_prefix LIKE 'tenant:%'`.execute(db);
+    await sql`DELETE FROM zv_rate_limit_configs WHERE key_prefix LIKE 'tenant%'`.execute(db);
+    await sql`DELETE FROM zv_settings WHERE key = 'tenant_admin_rate_limits'`.execute(db);
     invalidateRateLimitCache();
     for (const id of tenants) {
       await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${id}::uuid`.execute(db);
@@ -236,5 +243,137 @@ d('per-tenant rate limit', () => {
     const res = await patch(`tenant:ai:${f.id}`, { max_requests: 100_000 }, cookie, f.slug);
     await enforcer.deleteRoleForUser(userId, 'tenant_admin', f.id);
     expect(res.status).toBe(403);
+  });
+
+  /** A member of `tenantId` holding its `tenant_admin` role. */
+  async function tenantAdmin(tenantId: string): Promise<string> {
+    const { cookie, userId } = await newUser();
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id)
+              VALUES (${tenantId}::uuid, ${userId})`.execute(db);
+    await (await getEnforcer()).addRoleForUser(userId, 'tenant_admin', tenantId);
+    await invalidateUserPermCache(userId);
+    return cookie;
+  }
+
+  const own = (method: string, slug: string, cookie: string, tier = 'api', body?: unknown) =>
+    app.request(`/api/tenants/current/rate-limits/${tier}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        cookie,
+        'x-tenant-slug': slug,
+        'x-forwarded-for': nextIp(),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+  const allowTenantAdmins = (enabled: boolean) =>
+    app.request('/api/admin/rate-limits/tenant-admins', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie: god, 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ enabled }),
+    });
+
+  it('an instance admin who is not god manages no limit', async () => {
+    // The default tenant's admin passes `requireInstanceAdmin`, so reached
+    // every limit of every tenant until 2026-10-05.
+    const admin = await tenantAdmin(DEFAULT_TENANT_ID);
+    const headers = { cookie: admin, 'x-forwarded-for': nextIp() };
+    expect((await app.request('/api/admin/rate-limits', { headers })).status).toBe(403);
+    expect((await patch('tenant:api', { window_ms: 60_000, max_requests: 5 }, admin)).status).toBe(
+      403,
+    );
+    const key = await app.request(`/api/api-keys/${crypto.randomUUID()}/rate-limit`, {
+      method: 'DELETE',
+      headers: { cookie: admin, 'x-forwarded-for': nextIp() },
+    });
+    expect(key.status).toBe(403);
+    expect((await allowTenantAdmins(true)).status).toBe(200);
+    const asAdmin = await app.request('/api/admin/rate-limits/tenant-admins', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie: admin, 'x-forwarded-for': nextIp() },
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(asAdmin.status).toBe(403);
+    expect((await allowTenantAdmins(false)).status).toBe(200);
+  });
+
+  it('a tenant admin sets its own limit only while god allows it, and it only tightens', async () => {
+    const g = await newTenant();
+    const h = await newTenant();
+    const [ag, ah] = [await tenantAdmin(g.id), await tenantAdmin(h.id)];
+    const [ug, uh] = [await member(g.id), await member(h.id)];
+    const limit = { window_ms: 60_000, max_requests: 2 };
+
+    // Off by default.
+    expect((await own('PUT', g.slug, ag, 'api', limit)).status).toBe(403);
+    expect((await allowTenantAdmins(true)).status).toBe(200);
+
+    // A plain member is not its tenant's admin.
+    expect((await own('PUT', g.slug, ug, 'api', limit)).status).toBe(403);
+    expect((await own('PUT', g.slug, ag, 'nope', limit)).status).toBe(400);
+    expect((await own('PUT', g.slug, ag, 'api', limit)).status).toBe(200);
+    expect(
+      (await own('PUT', h.slug, ah, 'api', { window_ms: 60_000, max_requests: 100_000 })).status,
+    ).toBe(200);
+    // Each lands on its own tenant, whatever the caller might name.
+    const rows = await sql<{ key_prefix: string; max_requests: number }>`
+      SELECT key_prefix, max_requests FROM zv_rate_limit_configs
+       WHERE key_prefix LIKE 'tenant-self:%' ORDER BY max_requests`.execute(db);
+    expect(rows.rows).toEqual([
+      { key_prefix: `tenant-self:api:${g.id}`, max_requests: 2 },
+      { key_prefix: `tenant-self:api:${h.id}`, max_requests: 100_000 },
+    ]);
+
+    // Tighter than no instance limit: g's members get 2.
+    const gSeen = await statuses(g.slug, nextIp(), ug, 3);
+    expect(gSeen.slice(0, 2)).not.toContain(429);
+    expect(gSeen[2]).toBe(429);
+    // An exhausted own limit does not lock g's admin out of changing it.
+    expect((await own('PUT', g.slug, ag, 'api', limit)).status).toBe(200);
+
+    // Looser than the instance's: the instance's 3 still holds for h.
+    expect((await patch(`tenant:api:${h.id}`, { window_ms: 60_000, max_requests: 3 })).status).toBe(
+      200,
+    );
+    // What h's admin sees, before h's members spend the shared bucket.
+    const view = (await (
+      await app.request('/api/tenants/current/rate-limits', {
+        headers: { cookie: ah, 'x-tenant-slug': h.slug, 'x-forwarded-for': nextIp() },
+      })
+    ).json()) as {
+      enabled: boolean;
+      limits: { tier: string; instance: { max: number } | null; own: { max: number } | null }[];
+    };
+    expect(view.enabled).toBe(true);
+    const api = view.limits.find((l) => l.tier === 'api');
+    expect(api?.instance?.max).toBe(3);
+    expect(api?.own?.max).toBe(100_000);
+
+    expect((await statuses(h.slug, nextIp(), uh, 4))[3]).toBe(429);
+
+    // An own row the switch-off did not delete (a write that raced it) is
+    // not enforced while the switch is off.
+    const r = await newTenant();
+    const ur = await member(r.id);
+    await sql`INSERT INTO zv_rate_limit_configs (key_prefix, window_ms, max_requests)
+              VALUES (${`tenant-self:api:${r.id}`}, 60000, 1)`.execute(db);
+    await sql`UPDATE zv_settings SET value = 'false'::jsonb
+               WHERE key = 'tenant_admin_rate_limits'`.execute(db);
+    invalidateRateLimitCache();
+    expect(await statuses(r.slug, nextIp(), ur, 2)).toEqual([200, 200]);
+    await sql`UPDATE zv_settings SET value = 'true'::jsonb
+               WHERE key = 'tenant_admin_rate_limits'`.execute(db);
+    invalidateRateLimitCache();
+
+    // Off again: their limits go, and they can set none.
+    expect((await allowTenantAdmins(false)).status).toBe(200);
+    const left =
+      await sql`SELECT 1 FROM zv_rate_limit_configs WHERE key_prefix LIKE 'tenant-self:%'`.execute(
+        db,
+      );
+    expect(left.rows.length).toBe(0);
+    expect((await own('PUT', g.slug, ag, 'api', limit)).status).toBe(403);
+    expect((await own('DELETE', g.slug, ag)).status).toBe(403);
   });
 });

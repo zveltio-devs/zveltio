@@ -15,9 +15,11 @@ import { storedEmail } from '../lib/auth-email.js';
 import {
   activeMembership,
   DEFAULT_TENANT_ID,
+  getCurrentDomain,
   getEnforcer,
   invalidateUserPermCache,
   isGodUser,
+  isTenantAdmin,
   purgeTenant,
   requireInstanceAdmin,
   revalidatePrincipalsEverywhere,
@@ -25,6 +27,13 @@ import {
   type TenantPurgeResult,
 } from '../lib/tenancy/index.js';
 import { getStorage } from '../lib/storage/index.js';
+import {
+  invalidateRateLimitCache,
+  parseTenantLimitKey,
+  pickTenantLimit,
+  rateLimitTiers,
+  tenantAdminsMayLimit,
+} from '../middleware/rate-limit.js';
 import { deleteTenantlessUsers, type TenantlessUsers } from '../lib/users.js';
 import {
   casbinTenantRole as casbinRole,
@@ -630,6 +639,104 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       metadata: { tenant_id: tenantId, tenant_slug: tenant?.slug ?? null },
     });
 
+    return c.json({ success: true });
+  });
+
+  // ── The request tenant's own rate limits ─────────────────────────────────
+  //
+  // When god allows it (`PUT /api/admin/rate-limits/tenant-admins`), a tenant's
+  // admin sets `tenant-self:<tier>:<tenant>`. The limiter counts it as a second
+  // bucket next to the instance's, so it can only tighten: a larger number than
+  // the instance's limit changes nothing. Always the request tenant, never one
+  // named in the URL.
+  const ownKey = (tier: string) => `tenant-self:${tier}:${getCurrentDomain()}`;
+
+  router.get('/current/rate-limits', async (c) => {
+    const user = c.get('user' as never) as { id: string };
+    if (!(await isTenantAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
+    const tenant = getCurrentDomain();
+    const tiers = rateLimitTiers();
+    const rows = await db
+      .selectFrom('zv_rate_limit_configs')
+      .select(['key_prefix', 'window_ms', 'max_requests'])
+      .where('is_active', '=', true)
+      .where((eb) =>
+        eb.or([
+          eb('key_prefix', 'like', 'tenant:%'),
+          eb('key_prefix', 'like', `tenant-self:%:${tenant}`),
+        ]),
+      )
+      .execute();
+    return c.json({
+      enabled: await tenantAdminsMayLimit(db),
+      limits: tiers.map((tier) => {
+        const own = rows.find((r) => r.key_prefix === ownKey(tier));
+        return {
+          tier,
+          // What the instance holds this tenant to; null = no tenant limit.
+          instance: pickTenantLimit(rows, tier, tenant),
+          own: own ? { windowMs: own.window_ms, max: own.max_requests } : null,
+        };
+      }),
+    });
+  });
+
+  router.put(
+    '/current/rate-limits/:tier',
+    zValidator(
+      'json',
+      z.object({
+        window_ms: z.number().int().min(1000).max(3_600_000),
+        max_requests: z.number().int().min(1).max(100_000),
+      }),
+    ),
+    async (c) => {
+      const user = c.get('user' as never) as { id: string };
+      if (!(await isTenantAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
+      if (!(await tenantAdminsMayLimit(db))) {
+        return c.json({ error: 'Rate limits are managed by the instance administrator' }, 403);
+      }
+      const key = ownKey(c.req.param('tier'));
+      if (!parseTenantLimitKey(key, true)) return c.json({ error: 'Unknown tier' }, 400);
+      const { window_ms, max_requests } = c.req.valid('json');
+      await db
+        .insertInto('zv_rate_limit_configs')
+        .values({ key_prefix: key, window_ms, max_requests, updated_by: user.id })
+        .onConflict((oc) =>
+          oc
+            .column('key_prefix')
+            .doUpdateSet({ window_ms, max_requests, updated_by: user.id, updated_at: new Date() }),
+        )
+        .execute();
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user.id,
+        resourceId: key,
+        resourceType: 'rate_limit',
+        metadata: { window_ms, max_requests },
+      });
+      invalidateRateLimitCache(key);
+      return c.json({ key_prefix: key, window_ms, max_requests });
+    },
+  );
+
+  router.delete('/current/rate-limits/:tier', async (c) => {
+    const user = c.get('user' as never) as { id: string };
+    if (!(await isTenantAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
+    if (!(await tenantAdminsMayLimit(db))) {
+      return c.json({ error: 'Rate limits are managed by the instance administrator' }, 403);
+    }
+    const key = ownKey(c.req.param('tier'));
+    if (!parseTenantLimitKey(key, true)) return c.json({ error: 'Unknown tier' }, 400);
+    await db.deleteFrom('zv_rate_limit_configs').where('key_prefix', '=', key).execute();
+    await auditLog(db, {
+      type: 'settings.changed',
+      userId: user.id,
+      resourceId: key,
+      resourceType: 'rate_limit',
+      metadata: { removed: true },
+    });
+    invalidateRateLimitCache(key);
     return c.json({ success: true });
   });
 

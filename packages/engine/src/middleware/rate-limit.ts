@@ -42,7 +42,7 @@ async function loadConfig(
 export function clearLocalRateLimitCache(keyPrefix?: string) {
   // A `tenant:<tier>` default feeds every tenant's resolved entry, so any tenant
   // change drops them all rather than guessing which ones it reached.
-  if (!keyPrefix || keyPrefix.startsWith('tenant:')) tenantConfigCache.clear();
+  if (!keyPrefix || keyPrefix.startsWith('tenant')) tenantConfigCache.clear();
   if (keyPrefix) configCache.delete(keyPrefix);
   else configCache.clear();
 }
@@ -100,15 +100,39 @@ export function rateLimitDefaults(): LimitRow[] {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** `tenant:<tier>` / `tenant:<tier>:<uuid>` → its parts; anything else → null. */
-export function parseTenantLimitKey(key: string): { tier: string; tenantId: string | null } | null {
+/**
+ * `tenant:<tier>` / `tenant:<tier>:<uuid>` → its parts; anything else → null.
+ * With `self`, `tenant-self:<tier>:<uuid>`: the limit a tenant's own admin set
+ * (see `tenantLimitRefusal`). It always names one tenant.
+ */
+export function parseTenantLimitKey(
+  key: string,
+  self = false,
+): { tier: string; tenantId: string | null } | null {
   const [head, tier, id, ...rest] = key.split(':');
-  if (head !== 'tenant' || !tier || rest.length > 0 || !compiledDefaults.has(tier)) return null;
-  if (id === undefined) return { tier, tenantId: null };
+  if (head !== (self ? 'tenant-self' : 'tenant') || !tier || rest.length > 0) return null;
+  if (!compiledDefaults.has(tier)) return null;
+  if (id === undefined) return self ? null : { tier, tenantId: null };
   return UUID_RE.test(id) ? { tier, tenantId: id.toLowerCase() } : null;
 }
 
 type LimitRow = { key_prefix: string; window_ms: number; max_requests: number };
+
+/**
+ * `zv_settings` key, written by god only (`PUT /api/admin/rate-limits/tenant-admins`;
+ * not in the settings route's writable list): may a tenant's admin set its own,
+ * tighter limit (`tenant-self:<tier>:<id>`)?
+ */
+export const TENANT_ADMIN_LIMITS_SETTING = 'tenant_admin_rate_limits';
+
+export async function tenantAdminsMayLimit(db: Database): Promise<boolean> {
+  const row = await db
+    .selectFrom('zv_settings')
+    .select('value')
+    .where('key', '=', TENANT_ADMIN_LIMITS_SETTING)
+    .executeTakeFirst();
+  return row?.value === true || row?.value === 'true';
+}
 
 /** Tenant-specific row, then the tier's tenant default, then off. */
 export function pickTenantLimit(
@@ -124,17 +148,21 @@ export function pickTenantLimit(
 
 // Negative answers are cached too: "off" is the common case, and an uncached
 // miss would cost every authenticated request a query to learn nothing.
-const tenantConfigCache = new Map<
-  string,
-  { limit: { windowMs: number; max: number } | null; ts: number }
->();
+type TenantLimits = { bucket: string; windowMs: number; max: number }[];
 
+const tenantConfigCache = new Map<string, { limit: TenantLimits; ts: number }>();
+
+/**
+ * The tenant's buckets: its own admin's (`ts`), then the instance's (`t`). The
+ * own one is a second bucket, never a replacement, so it can only make the
+ * tenant's limit tighter — whatever value it holds.
+ */
 async function loadTenantLimit(
   db: Database | undefined,
   tier: string,
   tenant: string,
-): Promise<{ windowMs: number; max: number } | null> {
-  if (!db) return null;
+): Promise<TenantLimits> {
+  if (!db) return [];
   const cacheKey = `${tier}:${tenant}`;
   const now = Date.now();
   const cached = tenantConfigCache.get(cacheKey);
@@ -143,16 +171,29 @@ async function loadTenantLimit(
     const rows = await db
       .selectFrom('zv_rate_limit_configs')
       .select(['key_prefix', 'window_ms', 'max_requests'])
-      .where('key_prefix', 'in', [`tenant:${tier}:${tenant}`, `tenant:${tier}`])
+      .where('key_prefix', 'in', [
+        `tenant:${tier}:${tenant}`,
+        `tenant:${tier}`,
+        `tenant-self:${tier}:${tenant}`,
+      ])
       .where('is_active', '=', true)
       .execute();
-    const limit = pickTenantLimit(rows, tier, tenant);
+    // Read with the switch, not trusted to the switch-off delete: a tenant
+    // admin's write that raced it would otherwise stay in force.
+    const own =
+      (await tenantAdminsMayLimit(db)) &&
+      rows.find((r) => r.key_prefix === `tenant-self:${tier}:${tenant}`);
+    const instance = pickTenantLimit(rows, tier, tenant);
+    const limit: TenantLimits = [
+      ...(own ? [{ bucket: 'ts', windowMs: own.window_ms, max: own.max_requests }] : []),
+      ...(instance ? [{ bucket: 't', ...instance }] : []),
+    ];
     tenantConfigCache.set(cacheKey, { limit, ts: now });
     return limit;
   } catch {
     // Same stance as the tier lookup above: an unreadable config is not a
     // reason to refuse traffic, and the per-user bucket has already applied.
-    return null;
+    return [];
   }
 }
 
@@ -181,24 +222,31 @@ async function tenantLimitRefusal(
 ): Promise<Response | null> {
   if (!callerId) return null;
   const tenant = tenantId(c);
-  const limit = await loadTenantLimit(db, tier, tenant);
-  if (!limit) return null;
-
-  const key = `rl:${tier}:t:${tenant}`;
-  // Seconds until a request would be admitted; 0 = admitted, null = no answer.
-  let wait: number | null = null;
-  const cache = getCache();
-  if (cache) {
-    try {
-      wait = (await slidingWindow(cache, key, limit.windowMs, limit.max, false)).wait;
-    } catch {
-      wait = null; // fall through to the in-memory bucket, closed like the tiers
+  // The own bucket first: a request it refuses never spends the instance's.
+  // ponytail: one the instance bucket refuses has spent an own-bucket slot;
+  // that only tightens, and only while the tenant is over its limit anyway.
+  // Never the own bucket on the routes that change it: a limit set too tight
+  // would otherwise lock its admin out of removing it.
+  const ownRoute = c.req.path.startsWith('/api/tenants/current/rate-limits');
+  for (const limit of await loadTenantLimit(db, tier, tenant)) {
+    if (ownRoute && limit.bucket === 'ts') continue;
+    const key = `rl:${tier}:${limit.bucket}:${tenant}`;
+    // Seconds until a request would be admitted; 0 = admitted, null = no answer.
+    let wait: number | null = null;
+    const cache = getCache();
+    if (cache) {
+      try {
+        wait = (await slidingWindow(cache, key, limit.windowMs, limit.max, false)).wait;
+      } catch {
+        wait = null; // fall through to the in-memory bucket, closed like the tiers
+      }
     }
+    if (wait === null) wait = memoryRateLimit(key, limit.windowMs, limit.max, false);
+    if (wait === 0) continue;
+    c.header('Retry-After', String(wait));
+    return c.json({ error: 'Tenant rate limit exceeded' }, 429);
   }
-  if (wait === null) wait = memoryRateLimit(key, limit.windowMs, limit.max, false);
-  if (wait === 0) return null;
-  c.header('Retry-After', String(wait));
-  return c.json({ error: 'Tenant rate limit exceeded' }, 429);
+  return null;
 }
 
 /**

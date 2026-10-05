@@ -63,6 +63,14 @@ let rlResetting = $state(false);
 // A per-tenant limit has no seeded row until one is added (PATCH creates it).
 let rlTierNames = $state<string[]>([]);
 let newTenantLimit = $state({ tier: 'api', tenant: '', window_ms: 60000, max_requests: 1000 });
+// God decides whether tenant admins may set their own, tighter limit.
+let rlTenantAdmins = $state(false);
+// Anyone but god: their own tenant's limits instead of the instance's tables.
+type OwnLimit = { windowMs: number; max: number };
+let ownLimits = $state<{
+  enabled: boolean;
+  limits: Array<{ tier: string; instance: OwnLimit | null; own: OwnLimit | null; edit: OwnLimit }>;
+} | null>(null);
 
 onMount(async () => {
   try {
@@ -88,15 +96,72 @@ onMount(async () => {
 
 async function loadRateLimiting() {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const res = await api.get<{ rate_limits: any[]; tiers?: string[] }>('/api/admin/rate-limits');
+    const res = await api.get<{
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+      rate_limits: any[];
+      tiers?: string[];
+      tenant_admins_may_limit?: boolean;
+    }>('/api/admin/rate-limits');
     if (Array.isArray(res?.rate_limits)) rlTiers = res.rate_limits;
     rlTierNames = res?.tiers ?? [];
+    rlTenantAdmins = res?.tenant_admins_may_limit === true;
   } catch (err) {
+    // Limits are god's; a tenant admin sees its own tenant's instead.
+    if (await loadOwnLimits()) return;
     // A 403 or a 500 read exactly like the pre-migration case — the tier table
     // came back empty and the tab said "no rate limits configured", which is
     // also what a working instance with none looks like.
     rlError = err instanceof Error ? err.message : m['common.loadFailed']();
+  }
+}
+
+async function loadOwnLimits(): Promise<boolean> {
+  try {
+    const res = await api.get<{
+      enabled: boolean;
+      limits: Array<{ tier: string; instance: OwnLimit | null; own: OwnLimit | null }>;
+    }>('/api/tenants/current/rate-limits');
+    ownLimits = {
+      enabled: res.enabled,
+      limits: res.limits.map((l) => ({
+        ...l,
+        edit: l.own ?? l.instance ?? { windowMs: 60000, max: 1000 },
+      })),
+    };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function setTenantAdmins(enabled: boolean) {
+  try {
+    await api.put('/api/admin/rate-limits/tenant-admins', { enabled });
+    rlTenantAdmins = enabled;
+    toast.success(m['settings.saved']());
+  } catch (err) {
+    rlTenantAdmins = !enabled;
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+  }
+}
+
+async function saveOwnLimit(tier: string, edit: OwnLimit | null) {
+  rlSaving = tier;
+  try {
+    if (edit) {
+      await api.put(`/api/tenants/current/rate-limits/${tier}`, {
+        window_ms: edit.windowMs,
+        max_requests: edit.max,
+      });
+    } else {
+      await api.delete(`/api/tenants/current/rate-limits/${tier}`);
+    }
+    toast.success(m['settings.tierSaved']({ tier }));
+    await loadOwnLimits();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+  } finally {
+    rlSaving = null;
   }
 }
 
@@ -362,7 +427,53 @@ let confirmState = $state<{
  {m['settings.rateLimitIntro']()}
  </p>
 
- {#if rlError}
+ {#if ownLimits}
+ <h3 class="font-semibold text-sm">{m['settings.ownLimitTitle']()}</h3>
+ {#if !ownLimits.enabled}
+ <p class="text-sm text-base-content/65 py-4">{m['settings.ownLimitDisabled']()}</p>
+ {:else}
+ <p class="text-xs text-base-content/65 mb-2">{m['settings.ownLimitHint']()}</p>
+ <div class="overflow-x-auto">
+ <table class="table table-sm">
+ <thead>
+ <tr>
+ <th>{m['settings.tier']()}</th>
+ <th>{m['settings.ownLimitInstance']()}</th>
+ <th>{m['settings.window']()}</th>
+ <th>{m['settings.maxRequests']()}</th>
+ <th></th>
+ </tr>
+ </thead>
+ <tbody>
+ {#each ownLimits.limits as l}
+ <tr>
+ <td><span class="font-mono font-semibold text-xs">{l.tier}</span></td>
+ <td class="font-mono text-xs">
+ {l.instance ? `${l.instance.max} / ${l.instance.windowMs} ms` : m['settings.ownLimitNone']()}
+ </td>
+ <td>
+ <input type="number" class="input input-sm input-bordered w-24 font-mono text-xs" aria-label={m['settings.window']()} bind:value={l.edit.windowMs} min="1000" max="3600000" step="1000" />
+ </td>
+ <td>
+ <input type="number" class="input input-sm input-bordered w-24 font-mono text-xs" aria-label={m['settings.maxRequests']()} bind:value={l.edit.max} min="1" max="100000" />
+ </td>
+ <td class="flex gap-1">
+ <button class="btn btn-xs btn-primary" aria-label={m['common.save']()} onclick={() => saveOwnLimit(l.tier, l.edit)} disabled={rlSaving === l.tier}>
+ <Save size={12} />
+ </button>
+ {#if l.own}
+ <button class="btn btn-xs btn-ghost" onclick={() => saveOwnLimit(l.tier, null)} disabled={rlSaving === l.tier}>
+ {m['common.remove']()}
+ </button>
+ {/if}
+ </td>
+ </tr>
+ {/each}
+ </tbody>
+ </table>
+ </div>
+ {/if}
+ {:else if rlError}
  <div class="alert alert-error text-sm"><span>{rlError}</span></div>
  {:else if rlTiers.length === 0}
  <p class="text-sm text-base-content/65 text-center py-8">{m['settings.noRateLimits']()}</p>
@@ -433,6 +544,21 @@ let confirmState = $state<{
  {/each}
  </tbody>
  </table>
+ </div>
+
+ <div class="mt-6">
+ <label class="flex items-start gap-2 cursor-pointer">
+ <input
+ type="checkbox"
+ class="toggle toggle-sm toggle-primary mt-0.5"
+ checked={rlTenantAdmins}
+ onchange={(e) => setTenantAdmins(e.currentTarget.checked)}
+ />
+ <span>
+ <span class="font-semibold text-sm">{m['settings.tenantAdminsMayLimit']()}</span>
+ <span class="block text-xs text-base-content/65">{m['settings.tenantAdminsMayLimitHint']()}</span>
+ </span>
+ </label>
  </div>
 
  <div class="mt-6">

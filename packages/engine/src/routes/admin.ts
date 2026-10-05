@@ -3,7 +3,12 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { checkPermission, getEnforcer, requireInstanceAdmin } from '../lib/tenancy/index.js';
+import {
+  checkPermission,
+  getEnforcer,
+  isGodUser,
+  requireInstanceAdmin,
+} from '../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
 import { getCurrentDomain } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID, revalidatePrincipalsEverywhere } from '../lib/tenancy/index.js';
@@ -293,6 +298,14 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       resourceType: 'api_key',
     });
     return c.json({ success: true });
+  });
+
+  // Per-key limits are rate-limit configuration: god only, like
+  // /api/admin/rate-limits (owner decision 2026-10-05).
+  app.use('/:id/rate-limit', async (c, next) => {
+    const user = c.get('user') as RequestUser;
+    if (!(await isGodUser(user.id))) return c.json({ error: 'Forbidden' }, 403);
+    await next();
   });
 
   // PUT /:id/rate-limit — Set per-key rate limit override

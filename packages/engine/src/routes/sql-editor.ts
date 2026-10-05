@@ -4,7 +4,11 @@
  * POST /api/admin/sql  →  { query: "...", timeout_ms?: number }  →  { rows, rowCount }
  *
  * Safety:
- *  - Admin-only (requires session + admin permission).
+ *  - God only, both modes (owner decision 2026-10-05). It runs on the pool as
+ *    the engine's own role, past RLS: write mode let an instance admin make
+ *    themself god (`UPDATE "user" SET role = 'god'`) or rewrite god-only
+ *    tables such as rate limits; read mode let them read every tenant's rows
+ *    and god's session tokens.
  *  - Audited via auditLog so we have a paper trail of who ran what.
  *  - Statement-level timeout (default 30s, max 5min) enforced via
  *    `SET LOCAL statement_timeout` so a runaway admin query can't
@@ -26,7 +30,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
-import { requireInstanceAdmin } from '../lib/tenancy/index.js';
+import { isGodUser } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 
 const SqlSchema = z.object({
@@ -48,7 +52,7 @@ export function sqlEditorRoutes(db: Database, auth: any): Hono {
   const router = new Hono();
 
   router.use('*', async (c, next) => {
-    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    const user = await guardAdmin(c, auth, isGodUser);
     if (user instanceof Response) return user;
     c.set('user', user);
     await next();

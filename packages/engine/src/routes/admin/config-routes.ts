@@ -1,9 +1,9 @@
-import { Hono } from 'hono';
+import { type Context, Hono, type Next } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
+import { checkPermission, getEnforcer, isGodUser } from '../../lib/tenancy/index.js';
 import {
   deleteColumnPermission,
   invalidateColumnPermCache,
@@ -14,11 +14,14 @@ import { DDLManager } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestUser } from '../data.js';
+import { toJsonb } from '../../lib/jsonb.js';
 import {
   invalidateRateLimitCache,
   parseTenantLimitKey,
   rateLimitDefaults,
   rateLimitTiers,
+  TENANT_ADMIN_LIMITS_SETTING,
+  tenantAdminsMayLimit,
 } from '../../middleware/rate-limit.js';
 
 /**
@@ -29,6 +32,17 @@ import {
 export function registerConfigRoutes(app: Hono, db: Database): void {
   // ── Rate Limit Configs ────────────────────────────────────────────────────
 
+  // God only (owner decision 2026-10-05). An instance admin of the default
+  // tenant used to manage every tenant's limits; a tenant's admin sets only its
+  // own, tighter one, when god allows it (`/api/tenants/current/rate-limits`).
+  const godOnly = async (c: Context, next: Next) => {
+    const user = c.get('user') as RequestUser;
+    if (!(await isGodUser(user.id))) return c.json({ error: 'Forbidden' }, 403);
+    await next();
+  };
+  app.use('/rate-limits', godOnly);
+  app.use('/rate-limits/*', godOnly);
+
   // GET /rate-limits — list all configurable tiers
   app.get('/rate-limits', async (c) => {
     const rows = await db
@@ -37,8 +51,49 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       .orderBy('key_prefix')
       .execute();
     // `tiers`: what a `tenant:<tier>` key may name.
-    return c.json({ rate_limits: rows, tiers: rateLimitTiers() });
+    return c.json({
+      rate_limits: rows,
+      tiers: rateLimitTiers(),
+      tenant_admins_may_limit: await tenantAdminsMayLimit(db),
+    });
   });
+
+  // PUT /rate-limits/tenant-admins — may tenant admins set their own tenant's
+  // limit? Turning it off removes every limit they set: none is left in force
+  // that its tenant can no longer change.
+  app.put(
+    '/rate-limits/tenant-admins',
+    zValidator('json', z.object({ enabled: z.boolean() })),
+    async (c) => {
+      const user = c.get('user') as RequestUser;
+      const { enabled } = c.req.valid('json');
+      await db.transaction().execute(async (trx) => {
+        await trx
+          .insertInto('zv_settings')
+          .values({ key: TENANT_ADMIN_LIMITS_SETTING, value: toJsonb(enabled), is_public: false })
+          .onConflict((oc) =>
+            oc.column('key').doUpdateSet({ value: toJsonb(enabled), updated_at: new Date() }),
+          )
+          .execute();
+        if (!enabled) {
+          await trx
+            .deleteFrom('zv_rate_limit_configs')
+            .where('key_prefix', 'like', 'tenant-self:%')
+            .execute();
+        }
+        await auditLog(trx, {
+          type: 'settings.changed',
+          tenantId: null,
+          userId: user.id,
+          resourceId: TENANT_ADMIN_LIMITS_SETTING,
+          resourceType: 'rate_limit',
+          metadata: { enabled },
+        });
+      });
+      invalidateRateLimitCache();
+      return c.json({ tenant_admins_may_limit: enabled });
+    },
+  );
 
   // PATCH /rate-limits/:keyPrefix — update a tier
   app.patch(
@@ -58,7 +113,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       const body = c.req.valid('json');
       // Tenant ids are stored lowercase; an uppercase copy would be a row no
       // lookup ever matches.
-      const isTenantKey = rawKey.startsWith('tenant:');
+      const isTenantKey = rawKey.startsWith('tenant:') || rawKey.startsWith('tenant-self:');
       const keyPrefix = isTenantKey ? rawKey.toLowerCase() : rawKey;
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -71,11 +126,11 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       // Tenant limits have no seeded row — absent means off — so PATCH creates
       // one. The key is validated first: a typo would otherwise create a row no
       // limiter ever reads, and the operator would believe the limit applies.
-      if (isTenantKey && !parseTenantLimitKey(keyPrefix)) {
+      if (isTenantKey && !parseTenantLimitKey(keyPrefix) && !parseTenantLimitKey(keyPrefix, true)) {
         return c.json(
           {
             error: 'Invalid tenant rate limit key',
-            detail: `Expected tenant:<tier> or tenant:<tier>:<tenant uuid>. Tiers: ${rateLimitTiers().join(', ')}`,
+            detail: `Expected tenant:<tier>, tenant:<tier>:<tenant uuid> or tenant-self:<tier>:<tenant uuid>. Tiers: ${rateLimitTiers().join(', ')}`,
           },
           400,
         );
