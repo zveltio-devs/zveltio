@@ -82,3 +82,4 @@ export type { RequestUser } from './types.js';
 //     way they do: an API key's writes are attributed to the person who issued it.
 export { rowAuthorId } from './auth.js';
 export * from './field-changes.js';
+export * from './relations.js';

@@ -20,6 +20,9 @@ import { auditLog } from '../audit.js';
 import {
   alterField,
   announceSchemaChange,
+  createRelation,
+  FieldChangeError,
+  RelationSchema,
   dropField,
   type CollectionDefinition,
   CollectionSchema,
@@ -57,10 +60,17 @@ import {
 } from './plan.js';
 
 /** An op after `prepare`: its definition parsed into the shape the engine takes. */
+type Field = z.infer<typeof FieldSchema>;
 type Prepared =
   | { kind: 'createCollection'; definition: CollectionDefinition }
-  | { kind: 'addField'; collection: string; field: z.infer<typeof FieldSchema> }
-  | Exclude<ApplyOp, { kind: 'createCollection' | 'addField' }>;
+  | { kind: 'addField'; collection: string; field: Field }
+  | { kind: 'alterField'; collection: string; field: Field; keys: string[] }
+  | {
+      kind: 'putRelation';
+      data: z.infer<typeof RelationSchema>;
+      fields: { source?: Field; target?: Field };
+    }
+  | Exclude<ApplyOp, { kind: 'createCollection' | 'addField' | 'alterField' | 'putRelation' }>;
 
 /** The plan has steps `apply` cannot run yet; nothing was changed. */
 export class SchemaApplyRefused extends Error {
@@ -152,6 +162,33 @@ async function prepare(db: Database, step: PlanStep, op: ApplyOp): Promise<Prepa
     case 'removeEntry':
       checkEntry(target, op.list, op.entry);
       return op;
+    case 'alterField':
+      return { ...op, field: parsed(target, FieldSchema.safeParse(op.field)) };
+    case 'putRelation': {
+      const e = op.entry;
+      const data = parsed(
+        target,
+        RelationSchema.safeParse({
+          name: e.name,
+          type: e.type,
+          source_collection: op.collection,
+          source_field: e.field,
+          target_collection: e.target,
+          // Only an o2m names a column on the target; for the others the
+          // engine sets it (`id`).
+          target_field: e.type === 'o2m' ? e.targetField : undefined,
+          on_delete: e.onDelete ?? undefined,
+          on_update: e.onUpdate ?? undefined,
+          metadata: e.metadata ?? undefined,
+        }),
+      );
+      const def = (f?: Record<string, unknown>) => f && parsed(target, FieldSchema.safeParse(f));
+      return {
+        kind: 'putRelation',
+        data,
+        fields: { source: def(op.fields.source), target: def(op.fields.target) },
+      };
+    }
     case 'migration': {
       const c = op.change;
       if (c.op === 'changeFieldType' && !fieldTypeRegistry.has(c.to)) {
@@ -346,6 +383,39 @@ async function putEntry(db: Database, collection: string, list: string, e: Entry
   }
 }
 
+/**
+ * Creates the relation, or — when one already holds its field (a collection
+ * created with an m2o field registers one) — sets what `PATCH /api/relations`
+ * sets: its name, its actions and its metadata.
+ */
+async function putRelation(
+  db: Database,
+  data: z.infer<typeof RelationSchema>,
+  fields: { source?: Field; target?: Field },
+) {
+  const existing = await db
+    .selectFrom('zvd_relations')
+    .select('id')
+    .where('source_collection', '=', data.source_collection)
+    .where('source_field', '=', data.source_field)
+    .executeTakeFirst();
+  if (!existing) {
+    await createRelation(db, data, fields);
+    return;
+  }
+  await db
+    .updateTable('zvd_relations')
+    .set({
+      name: data.name,
+      on_delete: data.on_delete,
+      on_update: data.on_update,
+      metadata: toJsonb(data.metadata),
+      updated_at: new Date(),
+    })
+    .where('id', '=', existing.id)
+    .execute();
+}
+
 async function removeEntry(db: Database, collection: string, list: string, e: Entry) {
   if (list === 'rowRules') {
     const id = await findRowRule(db, collection, e);
@@ -413,6 +483,30 @@ async function run(db: Database, op: Prepared, userId: string | undefined): Prom
                   ON CONFLICT (id) DO NOTHING`.execute(db);
       }
       return;
+    case 'alterField': {
+      if (op.keys.includes('required')) {
+        await alterField(db, op.collection, op.field.name, { required: op.field.required }, userId);
+      }
+      const rest = op.keys.filter((k) => k !== 'required');
+      if (!rest.length) return;
+      // label, description, options: what the field says about itself, not
+      // its column — metadata only, like Studio's field editor.
+      const fields = (await fieldsOf(db, op.collection)).map((f) =>
+        f.name === op.field.name
+          ? Object.fromEntries(
+              Object.entries({
+                ...f,
+                ...Object.fromEntries(rest.map((k) => [k, op.field[k as keyof Field]])),
+              }).filter(([, v]) => v !== undefined),
+            )
+          : f,
+      ) as CollectionDefinition['fields'];
+      await DDLManager.updateCollectionMetadata(db, op.collection, { fields });
+      DDLManager.invalidateCache(op.collection);
+      return announceSchemaChange(op.collection, 'alter');
+    }
+    case 'putRelation':
+      return putRelation(db, op.data, op.fields);
     case 'putEntry':
       // A row rule is checked against the columns it names, which an earlier
       // step may have added, so only now; the steps before it stay applied.
@@ -461,6 +555,11 @@ export async function applySchema(
     if (policies) await reconcilePolicies();
     try {
       for (const op of ops) await run(db, op, userId);
+    } catch (err) {
+      // The collection routes' own refusals (a relation over an existing one,
+      // a field that cannot be required) are a file problem, not a crash.
+      if (err instanceof FieldChangeError) throw new SchemaFileError(err.message);
+      throw err;
     } finally {
       if (policies) await invalidateAllPermissionCaches();
     }

@@ -231,6 +231,14 @@ The plan reads like `terraform plan`:
   `indexed` flags, so they show as `alter field`.
 - **Additions apply straight from the diff**: fields, indexes, relations,
   rules, permissions, roles and settings.
+- **Relations are created the way `POST /api/relations` creates them**
+  (`createRelation`): the foreign key or junction table, and the fields that
+  stand for them, with the file's own field definitions. A field a new
+  relation creates is not added by itself, and the relations run after every
+  collection exists, so a relation may point at a collection the same apply
+  creates. Rules, permissions, validation and field order run after them,
+  because they can name a relation's field. A relation already holding its
+  field is updated as `PATCH` updates it (name, actions, metadata).
 - **A setting the file leaves out keeps the instance's value.** Creating a
   collection fills defaults (`icon`, `routeGroup`, `sort`…); a hand-written
   file without them would otherwise show drift forever. `pull` writes every
@@ -287,7 +295,7 @@ The plan reads like `terraform plan`:
 | 1 | Serializer + `GET /api/admin/schema/export` + `schema pull` + determinism gate + JSON Schemas | M |
 | 2 | Plan computation (`POST /api/admin/schema/plan`) + `schema diff` | M |
 | 3a | `apply` for additions: create collection, add field, collection settings, create role, global grant. Any other step refuses the whole plan | M |
-| 3b | Rules, column permissions, validation rules, field order, role descriptions and revokes (part 1); `zv_schema_migrations` + migration ops, destructive steps (part 2); relations, field alterations and the acceptance test (part 3) | L |
+| 3b | Rules, column permissions, validation rules, field order, role descriptions and revokes (part 1); `zv_schema_migrations` + migration ops, destructive steps (part 2); relations, field `required` and descriptive keys (`label`, `description`, `options`), the acceptance test (part 3). Still refused: `unique`, `indexed`, `encrypted`, `defaultValue` and a relation field's `options` | L |
 | 4 | Studio dev-mode writer (including rename/drop migrations) | M |
 | 5 | `generate-types --from` (with R7) | S |
 

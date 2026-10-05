@@ -173,6 +173,29 @@ d('schema apply', () => {
     expect(await pull()).toEqual(edited);
   });
 
+  it("alters a field's required flag and label, and refuses what it cannot alter yet", async () => {
+    const files = await pull();
+    const path = `collections/${EXISTING}.json`;
+    const probe = JSON.parse(files[path]);
+    const title = probe.fields.find((f: { name: string }) => f.name === 'title');
+    title.required = true;
+    title.label = 'Title';
+    const edited = { ...files, [path]: serialize(probe) };
+    expect((await call('apply', edited)).status).toBe(200);
+    expect(await pull()).toEqual(edited);
+    const notNull = await sql<{ is_nullable: string }>`
+      SELECT is_nullable FROM information_schema.columns
+       WHERE table_name = ${`zvd_${EXISTING}`} AND column_name = 'title'`.execute(db);
+    expect(notNull.rows[0].is_nullable).toBe('NO');
+
+    title.unique = true;
+    const res = await call('apply', { ...edited, [path]: serialize(probe) });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { detail: string }).detail).toContain(
+      'alter field title (unique)',
+    );
+  });
+
   it('refuses a row rule the engine cannot enforce', async () => {
     const files = await pull();
     const path = `collections/${EXISTING}.json`;
