@@ -151,6 +151,28 @@ d('schema apply', () => {
     expect(await pull()).toEqual(removed);
   });
 
+  it('revokes and grants what the table holds, even when this instance has not loaded it', async () => {
+    // Written beside the enforcer — another replica whose bus message was
+    // lost, or psql — so the table and this instance's model disagree. Casbin
+    // skips a remove the model lacks and an add the model holds, without
+    // touching the table, and the plan is read from the table.
+    await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
+              VALUES ('p', ${ROLE}, '*', ${EXISTING}, 'delete')`.execute(db);
+    const files = await pull();
+    const roles = JSON.parse(files['roles.json']);
+    const role = roles.roles.find((r: { name: string }) => r.name === ROLE);
+    expect(role.permissions).toEqual([{ resource: EXISTING, actions: ['delete', 'read'] }]);
+    role.permissions = [{ resource: EXISTING, actions: ['read'] }];
+    const edited = { ...files, 'roles.json': serialize(roles) };
+    expect((await call('apply', edited)).status).toBe(200);
+    expect(await pull()).toEqual(edited);
+
+    await sql`DELETE FROM zvd_permissions
+              WHERE v0 = ${ROLE} AND v2 = ${EXISTING} AND v3 = 'read'`.execute(db);
+    expect((await call('apply', edited)).status).toBe(200);
+    expect(await pull()).toEqual(edited);
+  });
+
   it('refuses a row rule the engine cannot enforce', async () => {
     const files = await pull();
     const path = `collections/${EXISTING}.json`;

@@ -36,6 +36,7 @@ import {
   getEnforcer,
   invalidateAllPermissionCaches,
   putColumnPermission,
+  reconcilePolicies,
   UnenforceableRuleError,
   updateRlsPolicy,
 } from '../tenancy/index.js';
@@ -345,11 +346,15 @@ export async function applySchema(
     // Not one transaction: CREATE INDEX CONCURRENTLY refuses a transaction
     // block. A step that fails leaves the ones before it applied; the next
     // apply plans from what is there and carries on from that step.
+    const policies = ops.some((op) => op.kind === 'grant' || op.kind === 'revoke');
+    // The plan is read from the table, and casbin skips — without touching
+    // the table — a revoke its model lacks or a grant it already holds. Bring
+    // the model to the table first, as the orphan prune route does.
+    if (policies) await reconcilePolicies();
     try {
       for (const op of ops) await run(db, op);
     } finally {
-      if (ops.some((op) => op.kind === 'grant' || op.kind === 'revoke'))
-        await invalidateAllPermissionCaches();
+      if (policies) await invalidateAllPermissionCaches();
     }
     if (steps.length) {
       await auditLog(db, {
