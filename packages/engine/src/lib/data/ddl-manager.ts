@@ -3,7 +3,8 @@ import { sql } from 'kysely';
 import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
-import { fieldTypeRegistry, type FieldConfig } from './field-type-registry.js';
+import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
+import { buildTenantUniqueIndex } from './unique-key-reconcile.js';
 import { toJsonb } from '../jsonb.js';
 import { invalidateRulesCache } from '../validation-engine.js';
 
@@ -1100,6 +1101,95 @@ export class DDLManager {
     await withLockTimeout(db, async (trx) => {
       await sql`ALTER TABLE ${sql.id(tableName)} ADD ${sql.raw(key)}`.execute(trx);
     });
+  }
+
+  /**
+   * Brings an existing column's default, unique key and indexes to what
+   * `field` says, as `createCollection` and `addField` would have built them.
+   * Only the keys named in `keys` are touched; metadata is the caller's.
+   *
+   * The builds run CONCURRENTLY (outside any transaction), so the table keeps
+   * taking writes while an index is built over existing rows. A unique key is
+   * built as an index first, then attached as the constraint under a lock
+   * timeout — the way `unique-key-reconcile.ts` widens old keys. Rows that
+   * already repeat a value within a tenant fail the build with 23505, and the
+   * INVALID index it leaves behind is dropped before the error goes up.
+   */
+  static async setFieldKeys(
+    db: Database,
+    collectionName: string,
+    field: FieldConfig,
+    keys: ReadonlyArray<string>,
+  ): Promise<void> {
+    const tableName = this.getTableName(collectionName);
+    const typeDef = fieldTypeRegistry.get(field.type);
+    if (!typeDef || typeDef.db.virtual) throw new Error(`"${field.name}" has no column`);
+
+    if (keys.includes('defaultValue')) {
+      const value = field.defaultValue ?? typeDef.db.defaultValue;
+      await withLockTimeout(db, async (trx) => {
+        await sql
+          .raw(
+            value === undefined || value === null
+              ? `ALTER TABLE "${tableName}" ALTER COLUMN "${field.name}" DROP DEFAULT`
+              : `ALTER TABLE "${tableName}" ALTER COLUMN "${field.name}" SET DEFAULT ${renderSqlDefault(value)}`,
+          )
+          .execute(trx);
+      });
+    }
+
+    if (keys.includes('unique')) {
+      const key = await sql<{ conname: string }>`
+        SELECT k.conname FROM pg_constraint k
+        WHERE k.conrelid = to_regclass(quote_ident(${tableName})) AND k.contype = 'u'
+          AND k.conkey = ARRAY(
+            SELECT a.attnum FROM unnest(ARRAY['tenant_id', ${field.name}]) WITH ORDINALITY AS c(name, i)
+            JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attname = c.name ORDER BY c.i
+          )::int2[]
+      `.execute(db);
+      const existing = key.rows[0]?.conname;
+      if (field.unique && !existing) {
+        const name = pgIdentifier(`${tableName}_tenant_id_${field.name}_key`);
+        try {
+          await buildTenantUniqueIndex(db, tableName, field.name, name);
+        } catch (err) {
+          await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(name)}`.execute(db);
+          throw err;
+        }
+        await withLockTimeout(db, async (trx) => {
+          await sql`ALTER TABLE ${sql.id(tableName)} ADD CONSTRAINT ${sql.id(name)} UNIQUE USING INDEX ${sql.id(name)}`.execute(
+            trx,
+          );
+        });
+      } else if (!field.unique && existing) {
+        await withLockTimeout(db, async (trx) => {
+          await sql`ALTER TABLE ${sql.id(tableName)} DROP CONSTRAINT ${sql.id(existing)}`.execute(
+            trx,
+          );
+        });
+      }
+    }
+
+    if (keys.includes('indexed')) {
+      if (field.indexed) {
+        const plain = fieldTypeRegistry.getIndexDDL(tableName, field);
+        if (plain) await buildIndex(db, plain);
+        const tenant = fieldTypeRegistry.getTenantIndexDDL(tableName, field);
+        if (tenant) await buildIndex(db, tenant);
+      } else {
+        await sql
+          .raw(`DROP INDEX CONCURRENTLY IF EXISTS ${indexName(tableName, `tenant_${field.name}`)}`)
+          .execute(db);
+        // A type with its own index method (GIN, GiST…) gets that index
+        // whatever `indexed` says; only the btree one is the flag's.
+        if (!typeDef.db.indexType) {
+          await sql
+            .raw(`DROP INDEX CONCURRENTLY IF EXISTS ${indexName(tableName, field.name)}`)
+            .execute(db);
+        }
+      }
+    }
+    this.invalidateCache(collectionName);
   }
 
   // ── addField ─────────────────────────────────────────────────────────────────

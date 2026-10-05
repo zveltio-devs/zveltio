@@ -483,10 +483,18 @@ async function run(db: Database, op: Prepared, userId: string | undefined): Prom
       }
       return;
     case 'alterField': {
-      if (op.keys.includes('required')) {
-        await alterField(db, op.collection, op.field.name, { required: op.field.required });
+      const columnKeys = ['required', 'unique', 'indexed', 'defaultValue'];
+      const has = (k: string) => op.keys.includes(k);
+      if (columnKeys.some(has)) {
+        await alterField(db, op.collection, op.field.name, {
+          required: has('required') ? op.field.required : undefined,
+          unique: has('unique') ? op.field.unique : undefined,
+          indexed: has('indexed') ? op.field.indexed : undefined,
+          // Gone from the file: the field's own default goes too.
+          defaultValue: has('defaultValue') ? (op.field.defaultValue ?? null) : undefined,
+        });
       }
-      const rest = op.keys.filter((k) => k !== 'required');
+      const rest = op.keys.filter((k) => !columnKeys.includes(k));
       if (!rest.length) return;
       // label, description, options: what the field says about itself, not
       // its column — metadata only, like Studio's field editor.

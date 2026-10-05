@@ -80,12 +80,27 @@ async function fieldsOf(db: Database, name: string, fieldName: string, op: 'add'
   return { fields, fieldDef };
 }
 
-/** Changes a field's type (through `resolveConversion`), its `required` flag and its name, in that order. */
+/** The keys `alterField` changes with `DDLManager.setFieldKeys`, outside its transaction. */
+const KEY_CHANGES = ['defaultValue', 'unique', 'indexed'] as const;
+
+/**
+ * Changes a field's type (through `resolveConversion`), its `required` flag and
+ * its name, in that order and in one transaction; then its default, unique key
+ * and index, which build CONCURRENTLY and so cannot join it. A `defaultValue`
+ * of null removes the field's own default (the type's, if any, applies).
+ */
 export async function alterField(
   db: Database,
   name: string,
   fieldName: string,
-  change: { newName?: string; newType?: string; required?: boolean },
+  change: {
+    newName?: string;
+    newType?: string;
+    required?: boolean;
+    unique?: boolean;
+    indexed?: boolean;
+    defaultValue?: unknown;
+  },
 ): Promise<{ field: FieldDef; actions: string[] }> {
   const { newName, newType, required } = change;
   if (SYSTEM_COLUMNS.has(fieldName) || (newName && SYSTEM_COLUMNS.has(newName))) {
@@ -124,6 +139,17 @@ export async function alterField(
   ) {
     throw new FieldChangeError(
       'Toggling required is only supported on m2o/reference relations among relation types.',
+      400,
+    );
+  }
+
+  const keyChanges = KEY_CHANGES.filter(
+    (k) =>
+      change[k] !== undefined && JSON.stringify(change[k]) !== JSON.stringify(fieldDef[k] ?? null),
+  );
+  if (keyChanges.length && (isRelation || fieldTypeRegistry.get(fieldDef.type)?.db.virtual)) {
+    throw new FieldChangeError(
+      `${keyChanges.join(', ')} cannot be changed on a ${fieldDef.type} field.`,
       400,
     );
   }
@@ -205,6 +231,31 @@ export async function alterField(
     const updatedFields = fields.map((f) => (f.name === fieldName ? updatedFieldShape : f));
     await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields as never });
   });
+
+  if (keyChanges.length) {
+    const shape: FieldDef = { ...updatedFieldShape };
+    for (const k of keyChanges) {
+      if (change[k] === null) delete shape[k];
+      else shape[k] = change[k];
+    }
+    try {
+      await DDLManager.setFieldKeys(db, name, shape as never, keyChanges);
+    } catch (err) {
+      if ((err as { errno?: string }).errno === '23505') {
+        throw new FieldChangeError(
+          `"${shape.name}" repeats a value within a tenant, so it cannot be made unique.`,
+          409,
+        );
+      }
+      throw err;
+    }
+    const current = (await fieldsOf(db, name, shape.name, 'add')).fields;
+    await DDLManager.updateCollectionMetadata(db, name, {
+      fields: current.map((f) => (f.name === shape.name ? shape : f)) as never,
+    });
+    updatedFieldShape = shape;
+    actions.push(...keyChanges.map((k) => `${k}→${JSON.stringify(change[k])}`));
+  }
   announceSchemaChange(name, 'alter');
   return { field: updatedFieldShape, actions };
 }

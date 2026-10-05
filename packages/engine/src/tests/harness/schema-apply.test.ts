@@ -188,12 +188,59 @@ d('schema apply', () => {
        WHERE table_name = ${`zvd_${EXISTING}`} AND column_name = 'title'`.execute(db);
     expect(notNull.rows[0].is_nullable).toBe('NO');
 
-    title.unique = true;
+    title.encrypted = true;
     const res = await call('apply', { ...edited, [path]: serialize(probe) });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { detail: string }).detail).toContain(
-      'alter field title (unique)',
+      'alter field title (encrypted)',
     );
+  });
+
+  it("alters a field's unique key, index and default, and takes them away again", async () => {
+    const files = await pull();
+    const path = `collections/${EXISTING}.json`;
+    const table = `zvd_${EXISTING}`;
+    const probe = JSON.parse(files[path]);
+    const title = probe.fields.find((f: { name: string }) => f.name === 'title');
+    const keys = async () => {
+      const r = await sql<{ def: string }>`
+        SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+         WHERE conrelid = to_regclass(${table}) AND contype = 'u'
+        UNION ALL
+        SELECT indexdef FROM pg_indexes WHERE tablename = ${table} AND indexdef LIKE '%(title)%'
+        UNION ALL
+        SELECT indexdef FROM pg_indexes WHERE tablename = ${table} AND indexdef LIKE '%, title,%'
+        UNION ALL
+        SELECT 'default ' || column_default FROM information_schema.columns
+         WHERE table_name = ${table} AND column_name = 'title' AND column_default IS NOT NULL`.execute(
+        db,
+      );
+      return r.rows.map((x) => x.def).sort();
+    };
+    const before = await keys();
+
+    title.unique = true;
+    title.indexed = true;
+    title.defaultValue = 'untitled';
+    const edited = { ...files, [path]: serialize(probe) };
+    expect((await call('apply', edited)).status).toBe(200);
+    expect(await pull()).toEqual(edited);
+    const on = await keys();
+    expect(on).toContain('UNIQUE (tenant_id, title)');
+    expect(on.some((k) => k.includes('USING btree (title)'))).toBe(true);
+    expect(on.some((k) => k.includes('(tenant_id, title, created_at DESC)'))).toBe(true);
+    expect(on).toContain("default 'untitled'::text");
+    expect(
+      ((await call('plan', edited).then((r) => r.json())) as { steps: unknown[] }).steps,
+    ).toEqual([]);
+
+    delete title.unique;
+    delete title.indexed;
+    delete title.defaultValue;
+    const back = { ...files, [path]: serialize(probe) };
+    expect((await call('apply', back)).status).toBe(200);
+    expect(await pull()).toEqual(back);
+    expect(await keys()).toEqual(before);
   });
 
   it('refuses a row rule the engine cannot enforce', async () => {

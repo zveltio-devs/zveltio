@@ -92,7 +92,7 @@ async function reconcileLocked(db: Database): Promise<UniqueKeyReconcileResult> 
     const name = pgIdentifier(`${r.tbl}_tenant_id_${r.col}_key`);
     try {
       // The per-tenant key may already sit beside the old one; then only drop.
-      if (!r.widened) await buildIndex(db, r.tbl, r.col, name);
+      if (!r.widened) await buildTenantUniqueIndex(db, r.tbl, r.col, name);
       await db.transaction().execute(async (trx) => {
         await sql`SET LOCAL lock_timeout = '2s'`.execute(trx);
         if (!r.widened) {
@@ -113,7 +113,13 @@ async function reconcileLocked(db: Database): Promise<UniqueKeyReconcileResult> 
   return result;
 }
 
-async function buildIndex(db: Database, tbl: string, col: string, name: string): Promise<void> {
+/** Builds `name` as a unique index on `(tenant_id, col)`, CONCURRENTLY. */
+export async function buildTenantUniqueIndex(
+  db: Database,
+  tbl: string,
+  col: string,
+  name: string,
+): Promise<void> {
   // A CONCURRENTLY build that died (cancelled, killed, lock timeout) leaves
   // an INVALID index that `IF NOT EXISTS` would happily keep.
   const prior = await sql<{ valid: boolean }>`
