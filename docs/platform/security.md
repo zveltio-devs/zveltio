@@ -165,7 +165,7 @@ API keys are hashed with **HMAC-SHA256** (not plain SHA-256) using `BETTER_AUTH_
 - Raw key shown **only once** at creation — never stored
 - Keys start with `zvk_` prefix for easy identification
 - Scoped per collection and action (`read`, `create`, `update`, `delete`)
-- Optional expiry date and per-key rate limit
+- Optional expiry date and own rate limit (`rate_limit`, requests/hour; enforced since migration 056 as a separate bucket, so it only tightens — god's `apikey:<id>` override is the ceiling)
 - Revocable immediately via `DELETE /api/api-keys/:id`
 - A key acts on its creator's standing: it stops when the creator is banned, loses membership in the key's tenant, or is deleted — by any path, including a direct `DELETE FROM "user"`
 

@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "Brak zakresów",
   "apiKeys.rateLimit": "Limit żądań",
   "apiKeys.rateLimitLabel": "Limit (żądań/godz.)",
+  "apiKeys.rateLimitHint": "Może tylko zaostrzyć limit tego klucza względem limitu instancji. Puste: brak.",
   "apiKeys.revoke": "Unieważnij",
   "apiKeys.revokeFailed": "Nie udało się unieważnić klucza",
   "apiKeys.revoked": "Unieważniony",

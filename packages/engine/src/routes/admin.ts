@@ -179,7 +179,9 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
             }),
           )
           .default([]),
-        rate_limit: z.number().int().default(1000),
+        // The key's own limit, requests per hour; null = none. Counted next to
+        // the tier's and god's `apikey:<id>` override, so it only tightens.
+        rate_limit: z.number().int().min(1).max(1_000_000).nullable().default(null),
         expires_at: z.string().optional(),
         /**
          * Exempt this key from row-level security.

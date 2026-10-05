@@ -303,7 +303,7 @@ Authorization: Bearer <session-token>
 {
   "name": "CI/CD Pipeline",
   "expires_at": "2027-01-01T00:00:00Z",  // optional
-  "rate_limit": 1000  // requests/minute, optional
+  "rate_limit": 1000  // the key's own limit, requests/hour, optional; null = none
 }
 → { "key": "zvk_...", "id": "..." }  // key shown only once
 ```
@@ -323,7 +323,7 @@ Authorization: Bearer zvk_abc123...
 ### API key limitations
 
 - Cannot access system tables (only `zvd_*` user collections)
-- Subject to per-key rate limits
+- Subject to the tier limits, god's per-key override (`PUT /api/api-keys/:id/rate-limit`) and the key's own `rate_limit` (requests/hour). The own limit is a separate bucket, so it can only make the key stricter
 - Automatically revoked after `expires_at`
 - Stored as SHA-256 hash — the raw key is shown only at creation
 

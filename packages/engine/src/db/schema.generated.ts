@@ -187,7 +187,7 @@ export interface ZvApiKeysTable {
   key_hash: string;
   key_prefix: string;
   scopes: Generated<unknown>;
-  rate_limit: Generated<number>;
+  rate_limit: Generated<number | null>;
   expires_at: Date | null;
   last_used_at: Date | null;
   is_active: Generated<boolean>;

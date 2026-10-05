@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "Nincs hatókör",
   "apiKeys.rateLimit": "Sebességkorlát",
   "apiKeys.rateLimitLabel": "Korlát (kérés/óra)",
+  "apiKeys.rateLimitHint": "Ezt a kulcsot csak szigorúbbá teheti a példány korlátjánál. Üres: nincs.",
   "apiKeys.revoke": "Visszavonás",
   "apiKeys.revokeFailed": "A kulcs visszavonása nem sikerült",
   "apiKeys.revoked": "Visszavonva",

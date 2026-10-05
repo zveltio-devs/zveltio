@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "Sin ámbitos",
   "apiKeys.rateLimit": "Límite de tasa",
   "apiKeys.rateLimitLabel": "Límite (sol./hora)",
+  "apiKeys.rateLimitHint": "Solo puede hacer esta clave más estricta que el límite de la instancia. Vacío: ninguno.",
   "apiKeys.revoke": "Revocar",
   "apiKeys.revokeFailed": "No se pudo revocar la clave",
   "apiKeys.revoked": "Revocada",

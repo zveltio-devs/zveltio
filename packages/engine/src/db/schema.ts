@@ -188,7 +188,7 @@ export interface ZvApiKeysTable {
   // expects callers to pass JSON.stringify(...) values (see admin route
   // INSERTs). Callers that need to READ them should cast at the use site.
   scopes: Generated<unknown>; // JSONB DEFAULT '[]'
-  rate_limit: Generated<number>; // DEFAULT 1000
+  rate_limit: number | null; // the key's own limit, requests per hour (056)
   expires_at: Date | null;
   last_used_at: Date | null;
   is_active: Generated<boolean>; // DEFAULT true

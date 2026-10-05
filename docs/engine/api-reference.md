@@ -752,7 +752,7 @@ Create an API key. The raw key is returned **only once** in the response.
     { "collection": "products", "actions": ["read"] },
     { "collection": "orders", "actions": ["read", "create"] }
   ],
-  "rate_limit": 1000,
+  "rate_limit": 1000,  // optional: the key's own limit, requests/hour; omit or null for none
   "expires_at": "2027-01-01T00:00:00Z"
 }
 
@@ -826,7 +826,7 @@ session (only a key has a key record).
 
 ### PUT /api/api-keys/:id/rate-limit
 
-Set a custom rate limit for a specific API key, overriding the tier defaults.
+God only. Set a custom rate limit for a specific API key, overriding the tier defaults (it can loosen or tighten them). The key's own `rate_limit` still applies on top of it and can only tighten.
 
 ```json
 // Request

@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "Keine Bereiche",
   "apiKeys.rateLimit": "Ratenlimit",
   "apiKeys.rateLimitLabel": "Ratenlimit (Anfragen/Stunde)",
+  "apiKeys.rateLimitHint": "Kann diesen Schlüssel nur strenger machen als das Limit der Instanz. Leer: keins.",
   "apiKeys.revoke": "Widerrufen",
   "apiKeys.revokeFailed": "Schlüssel konnte nicht widerrufen werden",
   "apiKeys.revoked": "Widerrufen",

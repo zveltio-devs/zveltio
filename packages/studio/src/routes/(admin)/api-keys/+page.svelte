@@ -23,7 +23,7 @@ interface ApiKey {
   last_used_at: string | null;
   expires_at: string | null;
   is_active: boolean;
-  rate_limit: number;
+  rate_limit: number | null;
 }
 
 let apiKeys = $state<ApiKey[]>([]);
@@ -69,7 +69,8 @@ const actionsFor = (collection: string) => (collection === '$rpc' ? ['execute'] 
 
 const emptyForm = () => ({
   name: '',
-  rate_limit: 1000,
+  // Empty = no own limit; the tier's limit applies.
+  rate_limit: null as number | null,
   expires_at: '',
   scopes: [{ collection: '*', actions: ['read', 'create', 'update', 'delete'] as string[] }],
 });
@@ -101,7 +102,7 @@ async function createKey() {
   try {
     const res = await api.post<{ id: string; key: string; key_prefix: string }>('/api/api-keys', {
       name: form.name.trim(),
-      rate_limit: form.rate_limit,
+      rate_limit: form.rate_limit || null,
       expires_at: form.expires_at || undefined,
       scopes: form.scopes,
     });
@@ -238,7 +239,7 @@ function formatRelative(dateStr: string): string {
                 <td class="font-medium">{key.name}</td>
                 <td><code class="text-xs bg-base-300 px-2 py-1 rounded">{key.key_prefix}…</code></td>
                 <td class="text-sm text-base-content/70">{scopesSummary(key.scopes)}</td>
-                <td class="text-sm">{key.rate_limit}/hr</td>
+                <td class="text-sm">{key.rate_limit ? `${key.rate_limit}/hr` : '—'}</td>
                 <td class="text-sm">{formatExpiry(key.expires_at)}</td>
                 <td class="text-sm text-base-content/65">
                   {key.last_used_at ? formatRelative(key.last_used_at) : m['apiKeys.never']()}
@@ -279,8 +280,12 @@ function formatRelative(dateStr: string): string {
 
         <div class="grid grid-cols-2 gap-4">
           <div class="form-control">
-            <label class="label" for="api-key-rate-limit"><span class="label-text">{m['apiKeys.rateLimitLabel']()}</span></label>
+            <div class="label">
+              <label for="api-key-rate-limit" class="label-text">{m['apiKeys.rateLimitLabel']()}</label>
+              <span class="label-text-alt">{m['common.optional']()}</span>
+            </div>
             <input id="api-key-rate-limit" type="number" bind:value={form.rate_limit} min="1" class="input" />
+            <span class="text-xs text-base-content/65 mt-1">{m['apiKeys.rateLimitHint']()}</span>
           </div>
           <div class="form-control">
             <div class="label">

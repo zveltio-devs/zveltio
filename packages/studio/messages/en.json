@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "No scopes",
   "apiKeys.rateLimit": "Rate Limit",
   "apiKeys.rateLimitLabel": "Rate limit (req/hour)",
+  "apiKeys.rateLimitHint": "Can only make this key stricter than the instance's limit. Empty: none.",
   "apiKeys.revoke": "Revoke",
   "apiKeys.revokeFailed": "Failed to revoke key",
   "apiKeys.revoked": "Revoked",
