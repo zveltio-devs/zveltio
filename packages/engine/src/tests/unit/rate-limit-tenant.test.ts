@@ -43,6 +43,19 @@ describe('parseTenantLimitKey', () => {
   });
 });
 
+describe('parseTenantLimitKey — tenant-self', () => {
+  it('names one tenant, never a tier default', () => {
+    expect(parseTenantLimitKey(`tenant-self:api:${T1}`, true)).toEqual({
+      tier: 'api',
+      tenantId: T1,
+    });
+    expect(parseTenantLimitKey('tenant-self:api', true)).toBeNull();
+    expect(parseTenantLimitKey(`tenant-self:nope:${T1}`, true)).toBeNull();
+    expect(parseTenantLimitKey(`tenant-self:api:${T1}`)).toBeNull();
+    expect(parseTenantLimitKey(`tenant:api:${T1}`, true)).toBeNull();
+  });
+});
+
 describe('pickTenantLimit', () => {
   const row = (key_prefix: string, max_requests: number) => ({
     key_prefix,
