@@ -30,6 +30,7 @@
  */
 
 import { sql } from 'kysely';
+import { sqlState } from './bun-sql-quirks.js';
 import { activePoolMax, type Database } from './index.js';
 
 // ponytail: one counter for the process, sized from the engine pool every
@@ -129,7 +130,7 @@ async function hold<T>(
           await sql`SELECT pg_advisory_xact_lock(${k})`.execute(holder);
         } catch (err) {
           // 55P03: lock_timeout fired while waiting for the advisory lock.
-          if (maxWait && (err as { errno?: unknown })?.errno === '55P03') {
+          if (maxWait && sqlState(err) === '55P03') {
             throw new AdvisoryLockTimeout(key, maxWait);
           }
           throw err;

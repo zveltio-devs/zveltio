@@ -146,9 +146,16 @@ describe('timeoutAdvice', () => {
     expect(timeoutAdvice(undefined)).toBeNull();
   });
 
-  it('is not fooled by the SQLSTATE landing on `code`, which is where it is not', () => {
-    const wrongField = Object.assign(new Error('canceling statement'), { code: '55P03' });
-    expect(timeoutAdvice(wrongField)).toBeNull();
+  it("reads errno before code: Bun.SQL's generic code does not hide the SQLSTATE", () => {
+    // node-postgres sets no errno and puts the SQLSTATE in `code`; Bun.SQL sets
+    // both, `code` to a marker. Reading `code ?? errno` would miss Bun's.
+    const nodePg = Object.assign(new Error('canceling statement'), { code: '55P03' });
+    expect(timeoutAdvice(nodePg)).toContain('lock timeout');
+    const bun = Object.assign(new Error('canceling statement'), {
+      code: 'ERR_POSTGRES_SERVER_ERROR',
+      errno: '57014',
+    });
+    expect(timeoutAdvice(bun)).toContain('statement timeout');
   });
 });
 

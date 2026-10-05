@@ -18,6 +18,7 @@
  */
 
 import { sql } from 'kysely';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import type { Database } from '../../db/index.js';
 import { withSavepoint } from '../savepoint.js';
 import { getCurrentTenantTrx } from './tenant-context.js';
@@ -225,7 +226,7 @@ export async function purgeTenant(
             () =>
               count(trx, sql`DELETE FROM ${sql.id('public', table)} WHERE tenant_id = ${tenantId}`),
             (err) => {
-              if (String((err as { errno?: unknown }).errno) !== '23503') throw err;
+              if (sqlState(err) !== '23503') throw err;
               lastError = (err as Error).message;
               return -1;
             },

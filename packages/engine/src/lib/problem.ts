@@ -19,6 +19,7 @@
 
 import type { Context, MiddlewareHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { sqlState } from '../db/bun-sql-quirks.js';
 
 export const PROBLEM_CONTENT_TYPE = 'application/problem+json';
 
@@ -160,11 +161,9 @@ export function problemOnError(err: Error, c: Context): Response {
   // query, almost always a bad path/query param cast to uuid/int/enum. That is a
   // client error, not a server fault, so render 400 instead of a scary 500. Core
   // data routes catch this earlier; this covers extension routes that query the
-  // DB directly with an unvalidated `:id`. SQLSTATE is in `code` for node-pg,
-  // but Bun.SQL puts a generic string in `code` (ERR_POSTGRES_SERVER_ERROR) and
-  // the real SQLSTATE in `errno` — so check both.
-  const e = err as { code?: string; errno?: string | number };
-  if (e.code === '22P02' || String(e.errno) === '22P02') {
+  // DB directly with an unvalidated `:id`.
+  const state = sqlState(err);
+  if (state === '22P02') {
     return toResponse({
       type: 'about:blank',
       title: statusTitle(400),
@@ -179,7 +178,7 @@ export function problemOnError(err: Error, c: Context): Response {
   // 55P03 (lock_not_available): a lock_timeout gave up on a table another
   // transaction holds — a schema change queued behind an index build, say.
   // Nothing is wrong with the request; the same one succeeds once the lock is free.
-  if (e.code === '55P03' || String(e.errno) === '55P03') {
+  if (state === '55P03') {
     return toResponse(
       {
         type: 'about:blank',

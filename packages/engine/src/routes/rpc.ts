@@ -9,6 +9,7 @@
  */
 
 import { Hono } from 'hono';
+import { sqlState } from '../db/bun-sql-quirks.js';
 import { guardSession, guardSessionOrKey } from '../lib/admin-guard.js';
 import { isApiKeyPrincipal, RPC_SCOPE } from '../lib/data/index.js';
 import { sql } from 'kysely';
@@ -154,10 +155,9 @@ export function rpcRoutes(db: Database, auth: any): Hono {
       // outside it. The comment claiming otherwise would have outlived the
       // behaviour by exactly as long as nobody checked.
       //
-      // SQLSTATE arrives on `errno`, not `code`, on this driver.
-      const sqlState = (err as { errno?: string; code?: string })?.errno;
+      const state = sqlState(err);
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[rpc] ${fn.function_name} failed${sqlState ? ` (${sqlState})` : ''}:`, message);
+      console.warn(`[rpc] ${fn.function_name} failed${state ? ` (${state})` : ''}:`, message);
       return c.json({ error: 'Function execution failed' }, 500);
     }
   });

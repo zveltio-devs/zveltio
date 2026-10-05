@@ -20,6 +20,7 @@
  */
 
 import { kyselyAdapter } from '@better-auth/kysely-adapter';
+import { sqlState } from '../db/bun-sql-quirks.js';
 import { createInternalAdapter } from 'better-auth/db';
 import { type RawBuilder, sql } from 'kysely';
 import { getDb } from '../db/index.js';
@@ -121,7 +122,7 @@ async function userByEmail(db: Database, email: string): Promise<IdentityUser | 
   return r.rows[0] ?? null;
 }
 
-const isUniqueViolation = (err: unknown) => (err as { errno?: string } | null)?.errno === '23505';
+const isUniqueViolation = (err: unknown) => sqlState(err) === '23505';
 
 /**
  * Whether `user_email_lower_key` (migration 048) is built and valid: one

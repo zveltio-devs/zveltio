@@ -16,6 +16,7 @@ import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { getStudioFile, studioEmbedActive } from './studio-embed/index.js';
+import { isRecoverableDbError } from './db/bun-sql-quirks.js';
 import { initDatabase, recycleActivePool } from './db/index.js';
 import { setTenantScopedTables, withEveryTenant } from './lib/tenancy/index.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
@@ -1659,29 +1660,9 @@ async function shutdown() {
 process.on('SIGINT', () => shutdown());
 process.on('SIGTERM', () => shutdown());
 
-// Bun crashes the process on any unhandled promise rejection. A handful
-// of recoverable error classes shouldn't take the engine down:
-//
-//   - ERR_POSTGRES_CONNECTION_CLOSED: the Bun SQL pool can race idle
-//     timeout against a transaction release; the connection is already
-//     gone, no work to roll back. Surfaced live alpha.112 during
-//     concurrent marketplace enable + studio rebuild.
-//
-//   - ECONNRESET / EPIPE on websocket peers: client navigated away,
-//     not our problem.
-//
-// Everything else still aborts so real bugs aren't masked.
-function isRecoverableDbError(err: { code?: string; message?: string } | undefined): boolean {
-  const code = err?.code;
-  const msg = err?.message ?? '';
-  return (
-    code === 'ERR_POSTGRES_CONNECTION_CLOSED' ||
-    /Connection closed/i.test(msg) ||
-    /must be a PostgresSQLConnection/i.test(msg) ||
-    code === 'ECONNRESET' ||
-    code === 'EPIPE'
-  );
-}
+// Bun crashes the process on any unhandled promise rejection. The few
+// recoverable classes (db/bun-sql-quirks.ts) shouldn't take the engine down;
+// everything else still aborts so real bugs aren't masked.
 
 process.on('unhandledRejection', (reason: unknown) => {
   const err = reason as { code?: string; message?: string } | undefined;

@@ -28,6 +28,7 @@
  */
 
 import { sql } from 'kysely';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import { PgBoss } from 'pg-boss';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
@@ -267,7 +268,7 @@ async function buildIndexJob(db: Database, job: { ddl: string }) {
     await sql.raw(job.ddl).execute(db);
   } catch (err) {
     // The table or column went away since: nothing left to index, not a retry.
-    if (['42P01', '42703'].includes(String((err as { errno?: unknown }).errno))) return;
+    if (['42P01', '42703'].includes(sqlState(err))) return;
     throw err;
   }
 }

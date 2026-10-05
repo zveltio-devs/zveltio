@@ -1,3 +1,4 @@
+import { sqlState } from '../bun-sql-quirks.js';
 import type { Database } from '../index.js';
 import { sql } from 'kysely';
 import { join } from 'path';
@@ -267,7 +268,7 @@ const TIMEOUT_PATTERN = /^\d+(ms|s|min)?$/;
  * would match nothing. Verified against both cancellations.
  */
 export function timeoutAdvice(err: unknown): string | null {
-  const sqlstate = (err as { errno?: unknown } | null)?.errno;
+  const sqlstate = sqlState(err);
 
   if (sqlstate === '55P03') {
     const configured = process.env.ZVELTIO_MIGRATION_LOCK_TIMEOUT || '5s';
@@ -459,9 +460,7 @@ async function readChain(db: Database): Promise<{
     // 42P01: the tracking table does not exist yet, so this is a fresh database
     // and there is nothing to disagree with. Any other error means the answer is
     // unknown, and an unknown answer must not read as "compatible".
-    const code =
-      (err as { errno?: string; code?: string }).errno ?? (err as { code?: string }).code ?? '';
-    if (code !== '42P01') throw err;
+    if (sqlState(err) !== '42P01') throw err;
     recorded = [];
   }
   return { shipped, byVersion: new Map(recorded.map((r) => [Number(r.version), r])) };
@@ -541,9 +540,7 @@ async function applyMigration(
       .where('rolled_back_at', 'is', null)
       .executeTakeFirst();
   } catch (err) {
-    const code =
-      (err as { errno?: string; code?: string }).errno ?? (err as { code?: string }).code ?? '';
-    if (code !== '42P01') throw err;
+    if (sqlState(err) !== '42P01') throw err;
   }
 
   if (existing) {

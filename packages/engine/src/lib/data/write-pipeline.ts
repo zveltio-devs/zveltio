@@ -31,6 +31,7 @@ import { invalidateQueryCache } from './query-cache.js';
 import { DEFAULT_TENANT_ID } from '../route-db.js';
 import { normalizeFields } from './shape.js';
 import type { CollectionDef } from './types.js';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
 import type { VirtualConfig } from '../virtual-collection-adapter.js';
 
@@ -235,20 +236,11 @@ export function mapPgError(
 ): { status: ContentfulStatusCode; body: Record<string, unknown> } | null {
   if (!err) return null;
   const e = err as Record<string, unknown>;
-  // `errno` FIRST. Bun.SQL puts a generic marker in `code` --
-  // `ERR_POSTGRES_SERVER_ERROR` -- and the real SQLSTATE in `errno`, so `code ??
-  // errno` never reached `errno` and every `code === '23505'` test below was
-  // dead. What kept this mapper working was the message regexes beside each one;
-  // the SQLSTATEs without a regex that matches (42501 outside the English
-  // "row-level security" phrasing, 23514) fell through to a 500. The literal was
-  // also handed to the caller as `code`.
-  //
-  // `problem.ts` documents the same trap for its own 22P02 branch and reads both
-  // fields. `isRlsRefusal`, forty lines below, reads `errno ?? code`. This was
-  // the one place that read them the other way round.
-  const raw = String((e.errno as string | undefined) ?? (e.code as string | undefined) ?? '');
-  // Only a real SQLSTATE -- five characters, letters and digits -- is a code.
-  const code = /^[0-9A-Z]{5}$/.test(raw) ? raw : '';
+  // Through `sqlState`: this mapper once read `code ?? errno`, so on Bun.SQL
+  // every `code === '23505'` test below was dead and only the message regexes
+  // kept it working; 42501 outside the English phrasing and 23514 fell through
+  // to a 500, and the driver's generic marker reached the caller as `code`.
+  const code = sqlState(e);
   const message = String((e.message as string | undefined) ?? '');
   const detail = String((e.detail as string | undefined) ?? '');
   const constraint = String(
@@ -404,11 +396,10 @@ export function describeWriteRefusal(message: string): string {
 
 /** Whether this error is the database refusing a row, whatever raised it. */
 export function isRlsRefusal(err: unknown): boolean {
-  const e = err as { errno?: string; code?: string; message?: string };
-  // SQLSTATE arrives in `errno` on this driver, not `code` — a distinction this
-  // codebase has had to learn more than once.
-  const sqlstate = e?.errno ?? e?.code;
-  return sqlstate === '42501' || /row-level security/i.test(e?.message ?? '');
+  return (
+    sqlState(err) === '42501' ||
+    /row-level security/i.test((err as { message?: string } | null)?.message ?? '')
+  );
 }
 
 /** Run an async handler and translate known Postgres errors into 4xx responses

@@ -5,6 +5,7 @@
  * POST /api/sync/pull — client requests changes after its cursors
  */
 
+import { sqlState } from '../db/bun-sql-quirks.js';
 import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
 import { guardSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
@@ -693,7 +694,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         'sync_pull_collection',
         () => pullQuery.execute() as Promise<unknown[]>,
         (err) => {
-          const code = (err as { errno?: string; code?: string }).errno ?? '';
+          const code = sqlState(err);
           if (code === '42P01' || code === '42703') return null;
           throw err;
         },
