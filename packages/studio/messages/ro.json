@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "Fără domenii",
   "apiKeys.rateLimit": "Limită de rată",
   "apiKeys.rateLimitLabel": "Limită (cereri/oră)",
+  "apiKeys.rateLimitHint": "Poate doar face cheia mai strictă decât limita instanței. Gol: fără.",
   "apiKeys.revoke": "Revocă",
   "apiKeys.revokeFailed": "Revocarea cheii a eșuat",
   "apiKeys.revoked": "Revocată",

@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "Aucune portée",
   "apiKeys.rateLimit": "Limite de débit",
   "apiKeys.rateLimitLabel": "Limite (req/heure)",
+  "apiKeys.rateLimitHint": "Ne peut que rendre cette clé plus stricte que la limite de l'instance. Vide : aucune.",
   "apiKeys.revoke": "Révoquer",
   "apiKeys.revokeFailed": "Échec de la révocation de la clé",
   "apiKeys.revoked": "Révoquée",

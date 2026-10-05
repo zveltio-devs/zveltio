@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "Nessun ambito",
   "apiKeys.rateLimit": "Limite di frequenza",
   "apiKeys.rateLimitLabel": "Limite (richieste/ora)",
+  "apiKeys.rateLimitHint": "Può solo rendere questa chiave più restrittiva del limite dell'istanza. Vuoto: nessuno.",
   "apiKeys.revoke": "Revoca",
   "apiKeys.revokeFailed": "Impossibile revocare la chiave",
   "apiKeys.revoked": "Revocata",

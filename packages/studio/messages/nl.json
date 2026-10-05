@@ -188,6 +188,7 @@
   "apiKeys.noScopes": "Geen scopes",
   "apiKeys.rateLimit": "Snelheidslimiet",
   "apiKeys.rateLimitLabel": "Limiet (verzoeken/uur)",
+  "apiKeys.rateLimitHint": "Kan deze sleutel alleen strenger maken dan de limiet van de instantie. Leeg: geen.",
   "apiKeys.revoke": "Intrekken",
   "apiKeys.revokeFailed": "Sleutel kon niet worden ingetrokken",
   "apiKeys.revoked": "Ingetrokken",

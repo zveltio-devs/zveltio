@@ -214,6 +214,58 @@ async function loadTenantLimit(
  * whole tenant out for its busiest member. It never admits more than `max` per
  * window.
  */
+/** The key's own limit (`zv_api_keys.rate_limit`, per hour) is one bucket for all its traffic. */
+const KEY_OWN_TIERS = new Set(['api', 'ext']);
+const HOUR_MS = 3_600_000;
+
+/**
+ * The calling key's own limit: a bucket next to the tier's and god's
+ * `apikey:<id>` override, so it can only make the key stricter. Checked once
+ * per request — on `api` or `ext`, which every key request meets exactly one
+ * of — and before the tenant's buckets, so a request it refuses spends none of
+ * the tenant's budget. Read from the key row the request already loaded.
+ */
+async function keyOwnLimitRefusal(
+  c: Context,
+  tier: string,
+  callerId: string | undefined,
+): Promise<Response | null> {
+  if (!KEY_OWN_TIERS.has(tier) || !callerId?.startsWith('apikey:')) return null;
+  const max = (c.get('prefetchedApiKey') as { rate_limit?: number | null } | null)?.rate_limit;
+  if (!max) return null;
+  return bucketRefusal(
+    c,
+    `rl:keyown:${callerId.slice(7)}`,
+    HOUR_MS,
+    max,
+    'API key rate limit exceeded',
+  );
+}
+
+/** One sliding-window bucket that records only what it admits. */
+async function bucketRefusal(
+  c: Context,
+  key: string,
+  windowMs: number,
+  max: number,
+  message: string,
+): Promise<Response | null> {
+  // Seconds until a request would be admitted; 0 = admitted, null = no answer.
+  let wait: number | null = null;
+  const cache = getCache();
+  if (cache) {
+    try {
+      wait = (await slidingWindow(cache, key, windowMs, max, false)).wait;
+    } catch {
+      wait = null; // fall through to the in-memory bucket, closed like the tiers
+    }
+  }
+  if (wait === null) wait = memoryRateLimit(key, windowMs, max, false);
+  if (wait === 0) return null;
+  c.header('Retry-After', String(wait));
+  return c.json({ error: message }, 429);
+}
+
 async function tenantLimitRefusal(
   c: Context,
   tier: string,
@@ -230,21 +282,14 @@ async function tenantLimitRefusal(
   const ownRoute = c.req.path.startsWith('/api/tenants/current/rate-limits');
   for (const limit of await loadTenantLimit(db, tier, tenant)) {
     if (ownRoute && limit.bucket === 'ts') continue;
-    const key = `rl:${tier}:${limit.bucket}:${tenant}`;
-    // Seconds until a request would be admitted; 0 = admitted, null = no answer.
-    let wait: number | null = null;
-    const cache = getCache();
-    if (cache) {
-      try {
-        wait = (await slidingWindow(cache, key, limit.windowMs, limit.max, false)).wait;
-      } catch {
-        wait = null; // fall through to the in-memory bucket, closed like the tiers
-      }
-    }
-    if (wait === null) wait = memoryRateLimit(key, limit.windowMs, limit.max, false);
-    if (wait === 0) continue;
-    c.header('Retry-After', String(wait));
-    return c.json({ error: 'Tenant rate limit exceeded' }, 429);
+    const refused = await bucketRefusal(
+      c,
+      `rl:${tier}:${limit.bucket}:${tenant}`,
+      limit.windowMs,
+      limit.max,
+      'Tenant rate limit exceeded',
+    );
+    if (refused) return refused;
   }
   return null;
 }
@@ -590,7 +635,11 @@ export function rateLimit(config: RateLimitConfig) {
         c.header('Retry-After', String(wait));
         return c.json({ error: message }, 429);
       }
-      return (await tenantLimitRefusal(c, keyPrefix, db ?? _db, callerId)) ?? next();
+      return (
+        (await keyOwnLimitRefusal(c, keyPrefix, callerId)) ??
+        (await tenantLimitRefusal(c, keyPrefix, db ?? _db, callerId)) ??
+        next()
+      );
     }
 
     try {
@@ -655,7 +704,11 @@ export function rateLimit(config: RateLimitConfig) {
       }
     }
 
-    return (await tenantLimitRefusal(c, keyPrefix, db ?? _db, callerId)) ?? next();
+    return (
+      (await keyOwnLimitRefusal(c, keyPrefix, callerId)) ??
+      (await tenantLimitRefusal(c, keyPrefix, db ?? _db, callerId)) ??
+      next()
+    );
   };
 }
 

@@ -140,7 +140,9 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
             }),
           )
           .default([]),
-        rate_limit: z.number().int().default(1000),
+        // The key's own limit, requests per hour; null = none. Counted next to
+        // the tier's and god's `apikey:<id>` override, so it only tightens.
+        rate_limit: z.number().int().min(1).max(1_000_000).nullable().default(null),
         expires_at: z.string().optional(),
       }),
     ),
@@ -241,7 +243,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         description: z.string().nullable().optional(),
         permissions_mode: z.enum(['scoped', 'casbin', 'god']).optional(),
         casbin_subject: z.string().nullable().optional(),
-        rate_limit: z.number().int().optional(),
+        rate_limit: z.number().int().min(1).max(1_000_000).nullable().optional(),
       }),
     ),
     async (c) => {

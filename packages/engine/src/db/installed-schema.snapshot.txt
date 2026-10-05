@@ -506,7 +506,7 @@ table zv_api_keys
   col name                           text NOT NULL
   col organization                   text
   col permissions_mode               text NOT NULL DEFAULT 'scoped'::text
-  col rate_limit                     integer NOT NULL DEFAULT 1000
+  col rate_limit                     integer
   col request_count                  bigint NOT NULL DEFAULT 0
   col rls_bypass                     boolean NOT NULL DEFAULT false
   col scopes                         jsonb NOT NULL DEFAULT '[]'::jsonb
