@@ -253,12 +253,11 @@ async function migrate(db: Database, op: MigrationOp, userId: string | undefined
   );
   if (!field) return;
   if (op.op === 'renameField') {
-    await alterField(db, op.collection, op.from, { newName: op.to }, userId);
+    await alterField(db, op.collection, op.from, { newName: op.to });
   } else if (op.op === 'changeFieldType') {
-    if (field.type !== op.to)
-      await alterField(db, op.collection, op.field, { newType: op.to }, userId);
+    if (field.type !== op.to) await alterField(db, op.collection, op.field, { newType: op.to });
   } else {
-    await dropField(db, op.collection, op.field, userId);
+    await dropField(db, op.collection, op.field);
   }
 }
 
@@ -485,7 +484,7 @@ async function run(db: Database, op: Prepared, userId: string | undefined): Prom
       return;
     case 'alterField': {
       if (op.keys.includes('required')) {
-        await alterField(db, op.collection, op.field.name, { required: op.field.required }, userId);
+        await alterField(db, op.collection, op.field.name, { required: op.field.required });
       }
       const rest = op.keys.filter((k) => k !== 'required');
       if (!rest.length) return;

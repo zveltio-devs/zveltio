@@ -13,7 +13,6 @@ import {
   dynamicRenameColumn,
   dynamicSetColumnRequired,
 } from '../../db/dynamic.js';
-import { auditLog } from '../audit.js';
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
@@ -87,7 +86,6 @@ export async function alterField(
   name: string,
   fieldName: string,
   change: { newName?: string; newType?: string; required?: boolean },
-  userId?: string,
 ): Promise<{ field: FieldDef; actions: string[] }> {
   const { newName, newType, required } = change;
   if (SYSTEM_COLUMNS.has(fieldName) || (newName && SYSTEM_COLUMNS.has(newName))) {
@@ -204,29 +202,15 @@ export async function alterField(
     }
 
     // ── Persist metadata ──────────────────────────────────────────
-    const finalName = updatedFieldShape.name;
     const updatedFields = fields.map((f) => (f.name === fieldName ? updatedFieldShape : f));
     await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields as never });
-
-    await auditLog(trx, {
-      type: 'settings.changed',
-      userId,
-      resourceId: name,
-      resourceType: 'collection_field',
-      metadata: { actions, from: fieldName, to: finalName },
-    });
   });
   announceSchemaChange(name, 'alter');
   return { field: updatedFieldShape, actions };
 }
 
 /** Drops a field: its column (or, for o2m and m2m, the column or junction it stands for), its relation and its metadata. */
-export async function dropField(
-  db: Database,
-  name: string,
-  fieldName: string,
-  userId?: string,
-): Promise<void> {
+export async function dropField(db: Database, name: string, fieldName: string): Promise<void> {
   if (SYSTEM_COLUMNS.has(fieldName)) {
     throw new FieldChangeError(`"${fieldName}" is a reserved system field name`, 400);
   }
@@ -277,11 +261,4 @@ export async function dropField(
   });
   DDLManager.invalidateCache(name);
   announceSchemaChange(name, 'alter');
-  await auditLog(db, {
-    type: 'settings.changed',
-    userId,
-    resourceId: name,
-    resourceType: 'collection_field',
-    metadata: { action: 'removed', field: fieldName },
-  });
 }
