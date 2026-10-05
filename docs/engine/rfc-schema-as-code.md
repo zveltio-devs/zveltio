@@ -272,7 +272,7 @@ The plan reads like `terraform plan`:
 | 1 | Serializer + `GET /api/admin/schema/export` + `schema pull` + determinism gate + JSON Schemas | M |
 | 2 | Plan computation (`POST /api/admin/schema/plan`) + `schema diff` | M |
 | 3a | `apply` for additions: create collection, add field, collection settings, create role, global grant. Any other step refuses the whole plan | M |
-| 3b | Rules, relations, alterations, `zv_schema_migrations` + migration ops (and with them the destructive steps) + the acceptance test | L |
+| 3b | Rules, column permissions, validation rules, field order, role descriptions and revokes (done); relations, alterations, `zv_schema_migrations` + migration ops (and with them the destructive steps) + the acceptance test | L |
 | 4 | Studio dev-mode writer (including rename/drop migrations) | M |
 | 5 | `generate-types --from` (with R7) | S |
 
