@@ -6,6 +6,7 @@
  * run these, so a field changes one way whichever door it came through.
  */
 
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
   dynamicChangeColumnType,
@@ -16,7 +17,7 @@ import {
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
-import { fieldTypeRegistry } from './field-type-registry.js';
+import { fieldTypeRegistry, renderSqlDefault } from './field-type-registry.js';
 
 const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
@@ -155,6 +156,20 @@ export async function alterField(
   }
 
   const tableName = DDLManager.getTableName(name);
+  // A default the column type refuses is refused before anything runs: the
+  // rename and retype below commit on their own, so a failure after them
+  // answered 400 for a change that had half happened.
+  if (keyChanges.includes('defaultValue') && change.defaultValue !== null) {
+    const columnType = fieldTypeRegistry.get(newType ?? fieldDef.type)?.db.columnType;
+    try {
+      await sql.raw(`SELECT (${renderSqlDefault(change.defaultValue)})::${columnType}`).execute(db);
+    } catch (err) {
+      throw new FieldChangeError(
+        `Default ${JSON.stringify(change.defaultValue)} is not a ${newType ?? fieldDef.type}: ${(err as Error).message}`,
+        400,
+      );
+    }
+  }
   const actions: string[] = [];
   let updatedFieldShape: FieldDef = { ...fieldDef };
 

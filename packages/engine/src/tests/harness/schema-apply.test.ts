@@ -230,9 +230,7 @@ d('schema apply', () => {
     expect(on.some((k) => k.includes('USING btree (title)'))).toBe(true);
     expect(on.some((k) => k.includes('(tenant_id, title, created_at DESC)'))).toBe(true);
     expect(on).toContain("default 'untitled'::text");
-    expect(
-      ((await call('plan', edited).then((r) => r.json())) as { steps: unknown[] }).steps,
-    ).toEqual([]);
+    expect(((await (await call('plan', edited)).json()) as { steps: unknown[] }).steps).toEqual([]);
 
     delete title.unique;
     delete title.indexed;

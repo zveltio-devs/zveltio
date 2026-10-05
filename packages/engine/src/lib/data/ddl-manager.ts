@@ -4,7 +4,7 @@ import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
 import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
-import { buildTenantUniqueIndex } from './unique-key-reconcile.js';
+import { buildTenantUniqueIndex, findTenantUniqueIndex } from './unique-key-reconcile.js';
 import { toJsonb } from '../jsonb.js';
 import { invalidateRulesCache } from '../validation-engine.js';
 
@@ -1139,34 +1139,44 @@ export class DDLManager {
     }
 
     if (keys.includes('unique')) {
-      const key = await sql<{ conname: string }>`
-        SELECT k.conname FROM pg_constraint k
-        WHERE k.conrelid = to_regclass(quote_ident(${tableName})) AND k.contype = 'u'
-          AND k.conkey = ARRAY(
-            SELECT a.attnum FROM unnest(ARRAY['tenant_id', ${field.name}]) WITH ORDINALITY AS c(name, i)
-            JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attname = c.name ORDER BY c.i
-          )::int2[]
-      `.execute(db);
-      const existing = key.rows[0]?.conname;
-      if (field.unique && !existing) {
-        const name = pgIdentifier(`${tableName}_tenant_id_${field.name}_key`);
+      const found = await findTenantUniqueIndex(db, tableName, field.name);
+      if (field.unique && !found?.constraint) {
+        let name = found?.index;
+        if (!name) {
+          // The usual name may belong to the key of a column renamed away.
+          const base = `${tableName}_tenant_id_${field.name}_key`;
+          for (let n = 0; !name; n++) {
+            const candidate = pgIdentifier(n ? `${base}_${n}` : base);
+            const taken = await sql`SELECT to_regclass(quote_ident(${candidate})) AS r`.execute(db);
+            if ((taken.rows[0] as { r: unknown }).r === null) name = candidate;
+          }
+        }
+        // Any failure — a duplicate in the build, a lock timeout in the
+        // attach — drops the index: left unattached, it would go on refusing
+        // duplicates while the field says it is not unique, out of reach of
+        // `unique: false`.
         try {
-          await buildTenantUniqueIndex(db, tableName, field.name, name);
+          if (!found) await buildTenantUniqueIndex(db, tableName, field.name, name);
+          await withLockTimeout(db, async (trx) => {
+            await sql`ALTER TABLE ${sql.id(tableName)} ADD CONSTRAINT ${sql.id(name)} UNIQUE USING INDEX ${sql.id(name)}`.execute(
+              trx,
+            );
+          });
         } catch (err) {
           await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(name)}`.execute(db);
           throw err;
         }
-        await withLockTimeout(db, async (trx) => {
-          await sql`ALTER TABLE ${sql.id(tableName)} ADD CONSTRAINT ${sql.id(name)} UNIQUE USING INDEX ${sql.id(name)}`.execute(
-            trx,
-          );
-        });
-      } else if (!field.unique && existing) {
-        await withLockTimeout(db, async (trx) => {
-          await sql`ALTER TABLE ${sql.id(tableName)} DROP CONSTRAINT ${sql.id(existing)}`.execute(
-            trx,
-          );
-        });
+      } else if (!field.unique && found) {
+        if (found.constraint) {
+          const constraint = found.constraint;
+          await withLockTimeout(db, async (trx) => {
+            await sql`ALTER TABLE ${sql.id(tableName)} DROP CONSTRAINT ${sql.id(constraint)}`.execute(
+              trx,
+            );
+          });
+        } else {
+          await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(found.index)}`.execute(db);
+        }
       }
     }
 

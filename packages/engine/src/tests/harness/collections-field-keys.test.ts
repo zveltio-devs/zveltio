@@ -55,6 +55,8 @@ d('collections field keys (in-process)', () => {
       name: COLLECTION,
       fields: [
         { name: 'code', type: 'text' },
+        { name: 'qty', type: 'integer' },
+        { name: 'ref', type: 'text', unique: true },
         { name: 'owner', type: 'm2o', options: { related_collection: COLLECTION } },
       ],
     } as never);
@@ -100,6 +102,42 @@ d('collections field keys (in-process)', () => {
     const bare = await sql<{ code: string | null }>`
       INSERT INTO ${sql.id(TABLE)} DEFAULT VALUES RETURNING code`.execute(db);
     expect(bare.rows[0].code).toBeNull();
+  });
+
+  it('drops the index when attaching it fails, so unique stays false', async () => {
+    // A reader that holds its lock past the attach's 2 s lock timeout, then
+    // lets go: the cleanup's DROP INDEX CONCURRENTLY waits for it.
+    let res: Promise<Response> | undefined;
+    await db.transaction().execute(async (trx) => {
+      await sql`LOCK TABLE ${sql.id(TABLE)} IN ACCESS SHARE MODE`.execute(trx);
+      res = Promise.resolve(patch('code', { unique: true }));
+      await Bun.sleep(4000);
+    });
+    expect((await res!).status).toBeGreaterThanOrEqual(400);
+    expect((await field('code')).unique).toBeFalsy();
+    expect(await indexes()).toEqual([]);
+  });
+
+  it('keys the renamed-to name by its column, not by an index named after it', async () => {
+    // `ref` keeps its key, named after `ref`, through the rename.
+    expect((await patch('ref', { new_name: 'ref_old' })).status).toBe(200);
+    await DDLManager.addField(db, COLLECTION, { name: 'ref', type: 'text' } as never);
+    expect((await patch('ref', { unique: true })).status).toBe(200);
+    const defs = (
+      await sql<{ def: string }>`
+        SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+         WHERE conrelid = to_regclass(${TABLE}) AND contype = 'u'`.execute(db)
+    ).rows
+      .map((r) => r.def)
+      .sort();
+    expect(defs).toEqual(['UNIQUE (tenant_id, ref)', 'UNIQUE (tenant_id, ref_old)']);
+  });
+
+  it('refuses a default the column type refuses before renaming anything', async () => {
+    const res = await patch('qty', { new_name: 'amount', default_value: 'abc' });
+    expect(res.status).toBe(400);
+    expect(await field('qty')).toBeDefined();
+    expect(await field('amount')).toBeUndefined();
   });
 
   it('refuses these keys on a relation field', async () => {

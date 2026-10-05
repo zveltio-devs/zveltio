@@ -113,6 +113,34 @@ async function reconcileLocked(db: Database): Promise<UniqueKeyReconcileResult> 
   return result;
 }
 
+/**
+ * The valid unique index on exactly `(tenant_id, col)`, and the constraint
+ * attached to it if any — found by definition, never by name: a renamed column
+ * keeps the key named after its old name, and that name may be free again.
+ */
+export async function findTenantUniqueIndex(
+  db: Database,
+  tbl: string,
+  col: string,
+): Promise<{ index: string; constraint: string | null } | undefined> {
+  const { rows } = await sql<{ index: string; constraint: string | null }>`
+    SELECT ix.relname AS index, k.conname AS constraint
+      FROM pg_index i
+      JOIN pg_class ix ON ix.oid = i.indexrelid
+      LEFT JOIN pg_constraint k ON k.conindid = i.indexrelid AND k.conrelid = i.indrelid
+                               AND k.contype IN ('u', 'p')
+     WHERE i.indrelid = to_regclass(quote_ident(${tbl})) AND i.indisunique AND i.indisvalid
+       AND i.indnatts = 2 AND i.indexprs IS NULL AND i.indpred IS NULL
+       AND (SELECT attname FROM pg_attribute
+             WHERE attrelid = i.indrelid AND attnum = i.indkey[0]) = 'tenant_id'
+       AND (SELECT attname FROM pg_attribute
+             WHERE attrelid = i.indrelid AND attnum = i.indkey[1]) = ${col}
+     ORDER BY k.conname IS NULL
+     LIMIT 1
+  `.execute(db);
+  return rows[0];
+}
+
 /** Builds `name` as a unique index on `(tenant_id, col)`, CONCURRENTLY. */
 export async function buildTenantUniqueIndex(
   db: Database,
@@ -127,6 +155,10 @@ export async function buildTenantUniqueIndex(
   `.execute(db);
   if (prior.rows[0] && !prior.rows[0].valid) {
     await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(name)}`.execute(db);
+  } else if (prior.rows[0] && (await findTenantUniqueIndex(db, tbl, col))?.index !== name) {
+    // `IF NOT EXISTS` checks the name only: the key of a column renamed from
+    // `col` would be kept, and then attached, as this column's key.
+    throw new Error(`"${name}" already names an index that is not (tenant_id, ${col})`);
   }
   await sql`
     CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ${sql.id(name)}
