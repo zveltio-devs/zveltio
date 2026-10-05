@@ -59,6 +59,8 @@ describe('planSchema', () => {
       '- posts drop field title !',
       '+ posts add field summary (text)',
       '~ posts alter field body (indexed)',
+      // New fields are appended, so one placed before a kept field is a reorder.
+      '~ posts reorder fields (summary, body)',
     ]);
     p.fields = [
       { name: 'body', type: 'int' },

@@ -4,7 +4,11 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { checkPermission, getEnforcer } from '../../lib/tenancy/index.js';
-import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
+import {
+  deleteColumnPermission,
+  invalidateColumnPermCache,
+  putColumnPermission,
+} from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
@@ -183,20 +187,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
   // POST /column-permissions
   app.post('/column-permissions', zValidator('json', ColumnPermSchema), async (c) => {
     const data = c.req.valid('json');
-    const row = await db
-      .insertInto('zvd_column_permissions')
-      .values(data)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      .onConflict((oc: any) =>
-        oc.columns(['collection_name', 'column_name', 'role']).doUpdateSet({
-          can_read: data.can_read,
-          can_write: data.can_write,
-          updated_at: new Date(),
-        }),
-      )
-      .returningAll()
-      .executeTakeFirst();
-    await invalidateColumnPermCache(data.collection_name);
+    const row = await putColumnPermission(db, data);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
@@ -237,12 +228,7 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
 
   // DELETE /column-permissions/:id
   app.delete('/column-permissions/:id', async (c) => {
-    const deleted = await db
-      .deleteFrom('zvd_column_permissions')
-      .where('id', '=', c.req.param('id'))
-      .returning('collection_name')
-      .executeTakeFirst();
-    if (deleted?.collection_name) await invalidateColumnPermCache(deleted.collection_name);
+    await deleteColumnPermission(db, c.req.param('id'));
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {

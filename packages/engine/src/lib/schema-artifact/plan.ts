@@ -34,8 +34,17 @@ export type ApplyOp =
   | { kind: 'createCollection'; definition: Obj }
   | { kind: 'addField'; collection: string; field: Obj }
   | { kind: 'setCollection'; collection: string; key: string; value: unknown }
+  | { kind: 'reorderFields'; collection: string; order: string[] }
+  /** Adds an entry of a collection list, or changes the one with the same natural key. */
+  | { kind: 'putEntry'; collection: string; list: EntryList; entry: Obj }
+  | { kind: 'removeEntry'; collection: string; list: EntryList; entry: Obj }
   | { kind: 'createRole'; name: string; description?: string }
-  | { kind: 'grant'; role: string; resource: string; action: string };
+  | { kind: 'setRole'; name: string; description: string | null }
+  | { kind: 'grant'; role: string; resource: string; action: string }
+  | { kind: 'revoke'; role: string; resource: string; action: string };
+
+/** The collection lists `apply` writes entry by entry. */
+export type EntryList = 'rowRules' | 'columnPermissions' | 'validation';
 
 export class SchemaFileError extends Error {}
 
@@ -93,6 +102,8 @@ const COLLECTION_KEYS = new Set([
 /** Collection keys that are lists of entries, each diffed by its natural key. */
 const LISTS: {
   key: string;
+  /** Absent while `apply` cannot write this list's entries. */
+  entries?: EntryList;
   noun: string;
   id: (e: Obj) => string;
   canon?: (e: Obj) => Obj;
@@ -100,13 +111,20 @@ const LISTS: {
   { key: 'relations', noun: 'relation', id: (e) => String(e.name) },
   {
     key: 'rowRules',
+    entries: 'rowRules',
     noun: 'row rule',
     id: (e) => `${e.role}: ${e.field} ${e.op} ${e.value}`,
     canon: (e) => ({ ...e, enabled: e.enabled === true ? null : e.enabled }),
   },
-  { key: 'columnPermissions', noun: 'column permission', id: (e) => `${e.role}: ${e.column}` },
+  {
+    key: 'columnPermissions',
+    entries: 'columnPermissions',
+    noun: 'column permission',
+    id: (e) => `${e.role}: ${e.column}`,
+  },
   {
     key: 'validation',
+    entries: 'validation',
     noun: 'validation',
     id: (e) => `${e.field} ${e.rule} ${serialize(e.config ?? null).trim()}`,
     canon: (e) => ({ ...e, active: e.active === true ? null : e.active }),
@@ -240,25 +258,34 @@ function diffCollection(name: string, cur: Obj, des: Obj, steps: PlanStep[]) {
       step('~', `alter field ${f.name} (${keys.join(', ')})`);
     }
   }
-  const kept = (fs: Obj[]) => fs.map((f) => f.name).filter((n) => curByName.has(n as string));
-  const order = kept(desFields);
-  if (
-    !same(
-      kept(curFields).filter((n) => desNames.has(n as string)),
+  // New fields are appended, so the order after the adds is the kept fields
+  // in their current order, then the new ones; anything else needs a reorder.
+  const order = desFields.map((f) => f.name as string);
+  const after = [
+    ...curFields.map((f) => f.name as string).filter((n) => desNames.has(n)),
+    ...order.filter((n) => !curByName.has(n)),
+  ];
+  if (!same(after, order)) {
+    step('~', `reorder fields (${order.join(', ')})`, false, {
+      kind: 'reorderFields',
+      collection: name,
       order,
-    )
-  ) {
-    step('~', `reorder fields (${order.join(', ')})`);
+    });
   }
 
-  for (const { key, noun, id, canon = (e: Obj) => e } of LISTS) {
-    const curList = new Map(list(name, cur[key], key).map((e) => [id(e), canon(e)]));
-    const desList = new Map(list(name, des[key], key).map((e) => [id(e), canon(e)]));
-    for (const [k] of curList) if (!desList.has(k)) step('-', `remove ${noun} ${k}`);
-    for (const [k, e] of desList) {
+  for (const { key, entries, noun, id, canon = (e: Obj) => e } of LISTS) {
+    const raw = new Map(list(name, des[key], key).map((e) => [id(e), e]));
+    const curList = new Map(list(name, cur[key], key).map((e) => [id(e), e]));
+    const op = (kind: 'putEntry' | 'removeEntry', entry: Obj): ApplyOp | undefined =>
+      entries && { kind, collection: name, list: entries, entry };
+    for (const [k, e] of curList) {
+      if (!raw.has(k)) step('-', `remove ${noun} ${k}`, false, op('removeEntry', e));
+    }
+    for (const [k, e] of raw) {
       const old = curList.get(k);
-      if (!old) step('+', `add ${noun} ${k}`);
-      else if (!same(old, e)) step('~', `alter ${noun} ${k}`);
+      if (!old) step('+', `add ${noun} ${k}`, false, op('putEntry', e));
+      else if (!same(canon(old), canon(e)))
+        step('~', `alter ${noun} ${k}`, false, op('putEntry', e));
     }
   }
 }
@@ -335,12 +362,27 @@ export function planSchema(
         op: { kind: 'createRole', name, description },
       });
     } else if (!same(c.description, d.description)) {
-      steps.push({ change: '~', target, action: `set description ${show(d.description)}` });
+      steps.push({
+        change: '~',
+        target,
+        action: `set description ${show(d.description)}`,
+        op: {
+          kind: 'setRole',
+          name,
+          description: typeof d.description === 'string' ? d.description : null,
+        },
+      });
     }
     const had = grants(c);
     const has = grants(d);
-    for (const g of [...had.keys()].sort()) {
-      if (!has.has(g)) steps.push({ change: '-', target, action: `revoke ${g}` });
+    for (const [g, [resource, action]] of [...had].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      if (has.has(g)) continue;
+      steps.push({
+        change: '-',
+        target,
+        action: `revoke ${g}`,
+        op: { kind: 'revoke', role: name, resource, action },
+      });
     }
     for (const [g, [resource, action]] of [...has].sort(([a], [b]) => (a < b ? -1 : 1))) {
       if (had.has(g)) continue;

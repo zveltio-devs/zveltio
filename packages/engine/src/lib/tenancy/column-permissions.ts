@@ -219,3 +219,43 @@ export function filterWritableFields(
   }
   return { data: result, blocked };
 }
+
+export interface ColumnPermissionInput {
+  collection_name: string;
+  column_name: string;
+  role: string;
+  can_read: boolean;
+  can_write: boolean;
+}
+
+/**
+ * Sets one column permission, keyed by (collection, column, role). The admin
+ * route and `POST /api/admin/schema/apply` both write through here.
+ */
+export async function putColumnPermission(db: Database, data: ColumnPermissionInput) {
+  const row = await db
+    .insertInto('zvd_column_permissions')
+    .values(data)
+    .onConflict((oc) =>
+      oc.columns(['collection_name', 'column_name', 'role']).doUpdateSet({
+        can_read: data.can_read,
+        can_write: data.can_write,
+        updated_at: new Date(),
+      }),
+    )
+    .returningAll()
+    .executeTakeFirst();
+  await invalidateColumnPermCache(data.collection_name);
+  return row;
+}
+
+/** Removes one column permission by id; false when there was none. */
+export async function deleteColumnPermission(db: Database, id: string): Promise<boolean> {
+  const deleted = await db
+    .deleteFrom('zvd_column_permissions')
+    .where('id', '=', id)
+    .returning('collection_name')
+    .executeTakeFirst();
+  if (deleted) await invalidateColumnPermCache(deleted.collection_name);
+  return !!deleted;
+}

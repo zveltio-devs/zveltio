@@ -3,8 +3,9 @@
  *
  * `applySchema` makes the instance match the files, for the steps the plan
  * gives an `op`: creating collections, adding fields, collection settings,
- * creating roles and global grants. Anything else in the plan — a removal, an
- * alteration, a rule — refuses the whole apply before a single change, so a
+ * field order, row rules, column permissions, validation rules, roles and
+ * global grants. Anything else in the plan — a drop, a field alteration, a
+ * relation — refuses the whole apply before a single change, so a
  * half-applied file set is never the result of an unsupported step.
  *
  * Each op runs through the functions the collection and permission routes
@@ -27,8 +28,20 @@ import {
   runCreateCollection,
   SYSTEM_COLUMNS,
 } from '../data/index.js';
-import { getEnforcer, invalidateAllPermissionCaches } from '../tenancy/index.js';
+import { toJsonb } from '../jsonb.js';
+import {
+  createRlsPolicy,
+  deleteColumnPermission,
+  deleteRlsPolicy,
+  getEnforcer,
+  invalidateAllPermissionCaches,
+  putColumnPermission,
+  UnenforceableRuleError,
+  updateRlsPolicy,
+} from '../tenancy/index.js';
+import { checkValidationExpression, invalidateRulesCache } from '../validation-engine.js';
 import { exportSchema } from './export.js';
+import { sql } from 'kysely';
 import { type ApplyOp, type PlanStep, planSchema, SchemaFileError } from './plan.js';
 
 /** An op after `prepare`: its definition parsed into the shape the engine takes. */
@@ -108,8 +121,150 @@ async function prepare(db: Database, step: PlanStep, op: ApplyOp): Promise<Prepa
         );
       }
       return op;
+    case 'setRole':
+    case 'revoke':
     case 'setCollection':
+    case 'reorderFields':
       return op;
+    case 'putEntry':
+    case 'removeEntry':
+      checkEntry(target, op.list, op.entry);
+      return op;
+  }
+}
+
+const str = (v: unknown) => typeof v === 'string' && v !== '';
+const optional = (v: unknown, type: string) => v === undefined || v === null || typeof v === type;
+
+/** The keys each list entry needs, as `exportSchema` writes them. */
+function checkEntry(target: string, list: string, e: Record<string, unknown>) {
+  const ok =
+    list === 'rowRules'
+      ? str(e.role) &&
+        str(e.field) &&
+        str(e.op) &&
+        str(e.value) &&
+        optional(e.enabled, 'boolean') &&
+        optional(e.description, 'string')
+      : list === 'columnPermissions'
+        ? str(e.role) &&
+          str(e.column) &&
+          optional(e.read, 'boolean') &&
+          optional(e.write, 'boolean')
+        : str(e.field) &&
+          str(e.rule) &&
+          optional(e.message, 'string') &&
+          optional(e.description, 'string') &&
+          optional(e.active, 'boolean');
+  if (!ok)
+    throw new SchemaFileError(`${target}: entry is missing a key or has one of the wrong type`);
+  if (list === 'validation' && e.rule === 'nlp') {
+    // The same check the validation rules API runs before storing an expression.
+    const verdict = checkValidationExpression(
+      String((e.config as { expression?: unknown })?.expression ?? ''),
+    );
+    if (!verdict.ok) throw new SchemaFileError(`${target}: the expression ${verdict.reason}`);
+  }
+}
+
+type Entry = Record<string, unknown>;
+
+async function findRowRule(db: Database, collection: string, e: Entry) {
+  const r = await sql<{ id: string }>`
+    SELECT id FROM zvd_rls_policies
+     WHERE collection = ${collection} AND role = ${e.role} AND filter_field = ${e.field}
+       AND filter_op = ${e.op} AND filter_value_source = ${e.value}`.execute(db);
+  return r.rows[0]?.id;
+}
+
+const findColumnPermission = (db: Database, collection: string, e: Entry) =>
+  db
+    .selectFrom('zvd_column_permissions')
+    .select('id')
+    .where('collection_name', '=', collection)
+    .where('column_name', '=', String(e.column))
+    .where('role', '=', String(e.role))
+    .executeTakeFirst()
+    .then((r) => r?.id);
+
+const findValidation = (db: Database, collection: string, e: Entry) =>
+  db
+    .selectFrom('zv_validation_rules')
+    .select('id')
+    .where('collection', '=', collection)
+    .where('field_name', '=', String(e.field))
+    .where('rule_type', '=', String(e.rule))
+    .where(sql<boolean>`COALESCE(rule_config, 'null'::jsonb) = ${toJsonb(e.config ?? null)}`)
+    .executeTakeFirst()
+    .then((r) => r?.id);
+
+/** Adds an entry, or changes the one with its natural key (the plan's `id`). */
+async function putEntry(db: Database, collection: string, list: string, e: Entry) {
+  if (list === 'rowRules') {
+    const id = await findRowRule(db, collection, e);
+    const is_enabled = e.enabled !== false;
+    // ponytail: updateRlsPolicy COALESCEs, so a description removed from the file stays; clear it in Studio.
+    const description = (e.description as string | undefined) ?? undefined;
+    if (id) await updateRlsPolicy(id, { is_enabled, description });
+    else {
+      await createRlsPolicy({
+        collection,
+        role: String(e.role),
+        filter_field: String(e.field),
+        filter_op: String(e.op),
+        filter_value_source: String(e.value),
+        is_enabled,
+        description,
+      });
+    }
+  } else if (list === 'columnPermissions') {
+    await putColumnPermission(db, {
+      collection_name: collection,
+      column_name: String(e.column),
+      role: String(e.role),
+      can_read: e.read !== false,
+      can_write: e.write !== false,
+    });
+  } else {
+    const values = {
+      error_message: (e.message as string | undefined) ?? null,
+      nl_description: (e.description as string | undefined) ?? null,
+      is_active: e.active !== false,
+    };
+    const id = await findValidation(db, collection, e);
+    if (id) {
+      await db
+        .updateTable('zv_validation_rules')
+        .set({ ...values, updated_at: new Date() })
+        .where('id', '=', id)
+        .execute();
+    } else {
+      await db
+        .insertInto('zv_validation_rules')
+        .values({
+          ...values,
+          collection,
+          field_name: String(e.field),
+          rule_type: String(e.rule),
+          rule_config: toJsonb(e.config ?? null),
+        })
+        .execute();
+    }
+    invalidateRulesCache(collection);
+  }
+}
+
+async function removeEntry(db: Database, collection: string, list: string, e: Entry) {
+  if (list === 'rowRules') {
+    const id = await findRowRule(db, collection, e);
+    if (id) await deleteRlsPolicy(id);
+  } else if (list === 'columnPermissions') {
+    const id = await findColumnPermission(db, collection, e);
+    if (id) await deleteColumnPermission(db, id);
+  } else {
+    const id = await findValidation(db, collection, e);
+    if (id) await db.deleteFrom('zv_validation_rules').where('id', '=', id).execute();
+    invalidateRulesCache(collection);
   }
 }
 
@@ -128,10 +283,45 @@ async function run(db: Database, op: Prepared): Promise<void> {
         .values({ name: op.name, description: op.description ?? null })
         .execute();
       return;
+    case 'setRole':
+      await db
+        .updateTable('zv_roles')
+        .set({ description: op.description })
+        .where('name', '=', op.name)
+        .execute();
+      return;
     case 'grant':
       // Domain '*': roles.json holds global grants only (RFC §4.2).
       await (await getEnforcer()).addPolicy(op.role, '*', op.resource, op.action);
       return;
+    case 'revoke':
+      await (await getEnforcer()).removePolicy(op.role, '*', op.resource, op.action);
+      return;
+    case 'reorderFields': {
+      const col = await DDLManager.getCollection(db, op.collection);
+      const fields = (
+        typeof col?.fields === 'string' ? JSON.parse(col.fields) : (col?.fields ?? [])
+      ) as CollectionDefinition['fields'];
+      const at = (n: string) => {
+        const i = op.order.indexOf(n);
+        return i === -1 ? op.order.length : i;
+      };
+      await DDLManager.updateCollectionMetadata(db, op.collection, {
+        fields: [...fields].sort((a, b) => at(a.name) - at(b.name)),
+      });
+      return announceSchemaChange(op.collection, 'alter');
+    }
+    case 'putEntry':
+      // A row rule is checked against the columns it names, which an earlier
+      // step may have added, so only now; the steps before it stay applied.
+      return putEntry(db, op.collection, op.list, op.entry).catch((err) => {
+        if (err instanceof UnenforceableRuleError) {
+          throw new SchemaFileError(`${op.collection} row rule: ${err.message}`);
+        }
+        throw err;
+      });
+    case 'removeEntry':
+      return removeEntry(db, op.collection, op.list, op.entry);
   }
 }
 
@@ -158,7 +348,8 @@ export async function applySchema(
     try {
       for (const op of ops) await run(db, op);
     } finally {
-      if (ops.some((op) => op.kind === 'grant')) await invalidateAllPermissionCaches();
+      if (ops.some((op) => op.kind === 'grant' || op.kind === 'revoke'))
+        await invalidateAllPermissionCaches();
     }
     if (steps.length) {
       await auditLog(db, {

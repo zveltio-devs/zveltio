@@ -66,6 +66,9 @@ d('schema apply', () => {
       db,
     );
     await sql`DELETE FROM zv_roles WHERE name = ${ROLE}`.execute(db);
+    await sql`DELETE FROM zvd_rls_policies WHERE role = ${ROLE}`.execute(db);
+    await sql`DELETE FROM zvd_column_permissions WHERE role = ${ROLE}`.execute(db);
+    await sql`DELETE FROM zv_validation_rules WHERE collection = ${EXISTING}`.execute(db);
     await sql`DELETE FROM zvd_collections WHERE name = ${HIDDEN}`.execute(db);
     await sql`DROP TABLE IF EXISTS ${sql.id(`zvd_${BARE}`)}`.execute(db);
     await dropTestCollection(db, CREATED);
@@ -110,6 +113,52 @@ d('schema apply', () => {
     expect(await columns(`zvd_${CREATED}`)).toContain('label');
     const plan = await call('plan', edited);
     expect(((await plan.json()) as { steps: unknown[] }).steps).toEqual([]);
+  });
+
+  it('writes and removes rules, permissions, validations and grants, and reorders fields', async () => {
+    const files = await pull();
+    const path = `collections/${EXISTING}.json`;
+    const probe = JSON.parse(files[path]);
+    probe.fields.unshift(probe.fields.pop()); // summary before title
+    probe.rowRules = [{ role: ROLE, field: 'title', op: 'eq', value: 'static:x', enabled: false }];
+    probe.columnPermissions = [{ role: ROLE, column: 'title', read: true, write: false }];
+    probe.validation = [
+      { field: 'title', rule: 'length', config: { max: 9 }, message: 'Too long' },
+    ];
+    const roles = JSON.parse(files['roles.json']);
+    const role = roles.roles.find((r: { name: string }) => r.name === ROLE);
+    role.description = 'Changed';
+    role.permissions = [{ resource: EXISTING, actions: ['read'] }];
+    const edited = { ...files, [path]: serialize(probe), 'roles.json': serialize(roles) };
+
+    const res = await call('apply', edited);
+    expect(res.status).toBe(200);
+    expect(await pull()).toEqual(edited);
+
+    // Change each entry in place, then take every one away again.
+    delete probe.rowRules[0].enabled;
+    probe.validation[0].message = 'Way too long';
+    probe.columnPermissions[0].write = true;
+    const altered = { ...edited, [path]: serialize(probe) };
+    expect((await call('apply', altered)).status).toBe(200);
+    expect(await pull()).toEqual(altered);
+
+    probe.rowRules = [];
+    probe.columnPermissions = [];
+    probe.validation = [];
+    const removed = { ...altered, [path]: serialize(probe) };
+    expect((await call('apply', removed)).status).toBe(200);
+    expect(await pull()).toEqual(removed);
+  });
+
+  it('refuses a row rule the engine cannot enforce', async () => {
+    const files = await pull();
+    const path = `collections/${EXISTING}.json`;
+    const probe = JSON.parse(files[path]);
+    probe.rowRules = [{ role: ROLE, field: 'title', op: 'eq', value: 'nonsense' }];
+    const res = await call('apply', { ...files, [path]: serialize(probe) });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { detail: string }).detail).toContain('row rule');
   });
 
   it('refuses a plan with a step it cannot run yet, and changes nothing', async () => {
