@@ -128,12 +128,16 @@ zveltio generate-types products
 
 # Custom output path
 zveltio generate-types --output ./src/types/zveltio.d.ts
+
+# From the schema files (`zveltio schema pull`), no engine needed
+zveltio generate-types --from schema/
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `-o, --output <path>` | `./zveltio.d.ts` | Output file path |
+| `-o, --output <path>` | `./types/zveltio.d.ts` | Output file path |
 | `--url <url>` | `http://localhost:3000` | Engine URL |
+| `--from <dir>` | — | Read `<dir>/collections/*.json` instead of asking an engine. Same generator as the engine (`@zveltio/sdk/codegen`); a field type that is not a core type (an extension's) is typed `any`. |
 
 Generated file example:
 

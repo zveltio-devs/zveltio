@@ -5,6 +5,8 @@
  */
 
 import { describe, it, expect } from 'bun:test';
+import { CORE_FIELD_TS_TYPES, emitCollectionTypes } from '@zveltio/sdk/codegen';
+import { registerCoreFieldTypes } from '../../field-types/index.js';
 import { FieldTypeRegistry, type FieldTypeDefinition } from '../../lib/data/field-type-registry.js';
 type Any = any;
 
@@ -187,5 +189,30 @@ describe('FieldTypeRegistry — generateTypeScript', () => {
     expect(ts).toContain('note?: string;'); // optional
     expect(ts).toContain('weird?: any;'); // unknown type falls back to any
     expect(ts).toContain('export interface Contact extends ContactInput {');
+  });
+});
+
+// `zveltio generate-types --from schema/` has no engine, so it types core field
+// types from the SDK's table. Kept equal here, or the two paths disagree.
+describe('CORE_FIELD_TS_TYPES', () => {
+  it('is the core registry, type for type', () => {
+    const r = new FieldTypeRegistry();
+    registerCoreFieldTypes(r);
+    const registry = Object.fromEntries(r.getAll().map((t) => [t.type, t.typescript.inputType]));
+    expect({ ...CORE_FIELD_TS_TYPES }).toEqual(registry);
+  });
+
+  it('the SDK generator writes what the engine writes, for every core type', () => {
+    const r = new FieldTypeRegistry();
+    registerCoreFieldTypes(r);
+    const fields = Object.keys(CORE_FIELD_TS_TYPES).map((type, i) => ({
+      name: `f_${type}`,
+      type,
+      required: i % 2 === 0,
+    }));
+    fields.push({ name: 'f_ext', type: 'not_a_core_type', required: false });
+    expect(emitCollectionTypes({ name: 'probe', fields })).toBe(
+      r.generateTypeScript('probe', fields as Any),
+    );
   });
 });
