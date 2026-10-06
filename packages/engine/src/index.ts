@@ -6,6 +6,8 @@
 // happens to load reflect first; the `bun build --compile` binary
 // has a tighter load order and exposes the bug, which is exactly
 // what alpha.97's install on WSL hit.
+// First: fills <NAME> from <NAME>_FILE before any module reads its config.
+import './lib/secret-files.js';
 import 'reflect-metadata';
 
 import { Hono } from 'hono';

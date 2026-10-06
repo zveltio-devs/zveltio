@@ -34,6 +34,28 @@ These must be set for the engine to start:
 | `BETTER_AUTH_SECRET` | Secret key for session signing (min 32 chars) | `your-super-secret-32-char-key-here` |
 | `BETTER_AUTH_URL` | Public URL of the engine (used in OAuth redirects) | `https://api.yourapp.com` |
 
+### Secrets from files (`<NAME>_FILE`)
+
+Every credential below can come from a file instead of the environment. Set
+`<NAME>_FILE` to the file's path, for example `DATABASE_URL_FILE=/run/secrets/db`
+with Docker or Kubernetes secrets. One trailing newline is dropped.
+
+Prefer it in production. A value passed as a variable stays readable in the
+process environment (`/proc/self/environ`) for the life of the process, to
+anything running in it, and removing it from `process.env` does not change that.
+A value read from a file never gets there.
+
+`AI_KEY_ENCRYPTION_KEY`, `APNS_KEY`, `APPLE_CLIENT_SECRET`, `BACKUP_DB_PASSWORD`,
+`BETTER_AUTH_SECRET`, `DATABASE_PASSWORD`, `DATABASE_URL`, `DISCORD_CLIENT_SECRET`,
+`ELECTRIC_AUTH_TOKEN`, `FCM_SERVER_KEY`, `FIELD_ENCRYPTION_KEY`,
+`GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_SECRET`, `MAIL_ENCRYPTION_KEY`,
+`METRICS_TOKEN`, `MICROSOFT_CLIENT_SECRET`, `NATIVE_DATABASE_URL`,
+`RECOVERY_TOKEN`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `TWITTER_CLIENT_SECRET`,
+`VALKEY_URL`, `VAPID_PRIVATE_KEY`.
+
+Setting both `<NAME>` and `<NAME>_FILE`, or naming a missing or empty file, stops
+the engine at boot with the variable's name.
+
 ---
 
 ## Database

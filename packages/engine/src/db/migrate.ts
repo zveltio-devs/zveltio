@@ -4,6 +4,7 @@
  * Usage: bun packages/engine/src/db/migrate.ts
  */
 
+import '../lib/secret-files.js';
 import { sql } from 'kysely';
 import { createDb } from './index.js';
 import { runMigrations } from './migrations/index.js';
