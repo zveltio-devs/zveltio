@@ -659,7 +659,7 @@ d('tenant isolation, door by door', () => {
     expect(streamed.join('')).not.toContain(MARK);
   }, 30_000);
 
-  it("connection lists and counts show a tenant's admin only that tenant, root admin included", async () => {
+  it("connection lists and counts show a tenant's admin only that tenant, root admin included; god the whole instance", async () => {
     probe('GET /api/realtime/connections');
     probe('GET /api/ws/stats');
     const { connections } = _wsPermCacheForTests();
@@ -697,6 +697,16 @@ d('tenant isolation, door by door', () => {
         const own = [...connections.values()].filter((c) => c.tenantId === tenant).length;
         expect(((await stats.json()) as { connections: number }).connections).toBe(own);
       }
+
+      // God is above every tenant: both lists are the whole instance's.
+      const godList = await app.request('/api/realtime/connections', { headers: { cookie: god } });
+      expect(godList.status).toBe(200);
+      expect(await godList.text()).toContain(b.userId);
+      const godStats = await app.request('/api/ws/stats', { headers: { cookie: god } });
+      expect(godStats.status).toBe(200);
+      expect(((await godStats.json()) as { connections: number }).connections).toBe(
+        connections.size,
+      );
     } finally {
       await stream.stop();
     }

@@ -7,6 +7,7 @@ import { auth } from '../lib/auth.js';
 import {
   checkPermission,
   DEFAULT_TENANT_ID,
+  isGodUser,
   isTenantAdmin,
   permissionGeneration,
   revalidateSockets,
@@ -1061,13 +1062,14 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    // Only the request tenant's streams. A tenant admin passes the gate above,
-    // and this listed every user connected to the instance, in every tenant.
+    // A tenant admin sees the request tenant's streams only; god, who is above
+    // every tenant, sees the whole instance's.
     const tenantId = ctxTenantId(c);
+    const god = await isGodUser(session.user.id).catch(() => false);
     const users = [...connections.entries()]
       .map(([userId, subs]) => ({
         userId,
-        streams: [...subs].filter((s) => (s.tenantId ?? null) === tenantId).length,
+        streams: [...subs].filter((s) => god || (s.tenantId ?? null) === tenantId).length,
       }))
       .filter((u) => u.streams > 0);
     return c.json({

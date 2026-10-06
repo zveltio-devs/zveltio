@@ -13,6 +13,7 @@ import {
 import { checkWsOrigin } from '../lib/security/index.js';
 import {
   DEFAULT_TENANT_ID,
+  isGodUser,
   isTenantAdmin,
   permissionGeneration,
   requireInstanceAdmin,
@@ -200,10 +201,11 @@ export function wsRoutes(_db: Database, _auth: any): Hono {
     const isAdmin = await isTenantAdmin(session.user.id);
     if (!isAdmin) return c.json({ error: 'Forbidden' }, 403);
 
-    // Only the request tenant's sockets: a tenant admin passes the gate above,
-    // and these counts were the whole instance's.
+    // A tenant admin sees the request tenant's sockets only; god, who is above
+    // every tenant, sees the whole instance's.
     const tenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
-    const mine = [...connections.values()].filter((conn) => conn.tenantId === tenantId);
+    const god = await isGodUser(session.user.id).catch(() => false);
+    const mine = [...connections.values()].filter((conn) => god || conn.tenantId === tenantId);
     const activeUsers = new Set(mine.map((conn) => conn.userId));
     return c.json({
       connections: mine.length,
