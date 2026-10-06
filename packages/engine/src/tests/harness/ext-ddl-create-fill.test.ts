@@ -24,7 +24,13 @@ import {
 import { buildExtensionInternals, type ExtensionContext } from '../../lib/extensions/internals.js';
 import { buildRestrictedContext } from '../../lib/extensions/register.js';
 import { _setRlsRoleAvailableForTests } from '../../lib/tenancy/tenant-manager.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -61,6 +67,10 @@ d('an extension creates a collection and fills it in one request', () => {
     for (const name of made) await dropTestCollection(db, name).catch(() => {});
   });
 
+  // The request's transaction, with an actor, as the tenant middleware opens it.
+  const withActor = <T>(fn: () => Promise<T>) =>
+    withTenantIsolation(TENANT, fn, { identity: ALL_COLLECTIONS_ACTOR });
+
   for (const mode of ['enforced', 'unavailable'] as const) {
     it(`creates, grants and fills before commit (tenant RLS ${mode})`, async () => {
       const restore = _setRlsRoleAvailableForTests(mode === 'enforced');
@@ -69,7 +79,7 @@ d('an extension creates a collection and fills it in one request', () => {
       made.push(name);
       try {
         // The tenant middleware's request transaction.
-        await buildExtensionInternals().withTenantIsolation(TENANT, async () => {
+        await withActor(async () => {
           const ext = ctx.db as unknown as Database;
           // The extension's own role (a member of `zveltio_ext`, which holds collections).
           const role = await sql<{ r: string; d: string }>`

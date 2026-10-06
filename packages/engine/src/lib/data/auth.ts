@@ -400,6 +400,7 @@ export async function validateApiKey(
   await publishApiKeyActor(
     `apikey:${apiKey.id}`,
     (apiKey as { rls_bypass?: boolean }).rls_bypass === true,
+    (apiKey as { scopes?: unknown }).scopes,
   );
 
   // Update last_used_at — fire-and-forget; non-blocking on hot path

@@ -311,6 +311,7 @@ GITHUB_CLIENT_SECRET=abc123...
 | `ZVELTIO_EXTENSIONS` | — | Comma-separated list of extensions to load |
 | `EXTENSIONS_DIR` | *(see resolution order)* | Directory containing extension packages on disk |
 | `ZVELTIO_EXTENSIONS_PATH` | — | Optional **additional** directory scanned for extra extensions (CI) |
+| `ZVELTIO_COLLECTION_RLS_EXEMPT` | — | Comma-separated extension names that run **without** collection permissions in the database, as the system inside each tenant (tenant isolation and the table guard still apply). A bridge for extensions not yet adapted to R1 — they should use `ctx.internals.asSystem` instead. Warned at every boot, reported in `/api/health/deep` as `collectionPermissionExemptions`; needs per-extension database roles (CREATEROLE). Removed at 3.0.0 GA. The engine's own routes are never exempt. |
 
 ### `EXTENSIONS_DIR` resolution
 

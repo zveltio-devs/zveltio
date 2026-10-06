@@ -65,6 +65,7 @@ import m048 from './sql/054_instance_heartbeat.sql' with { type: 'text' };
 import m049 from './sql/055_schema_migrations.sql' with { type: 'text' };
 import m050 from './sql/056_api_key_own_limit.sql' with { type: 'text' };
 import m051 from './sql/057_tenant_reach_function.sql' with { type: 'text' };
+import m052 from './sql/058_collection_permissions.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -120,4 +121,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '055_schema_migrations.sql': m049,
   '056_api_key_own_limit.sql': m050,
   '057_tenant_reach_function.sql': m051,
+  '058_collection_permissions.sql': m052,
 };

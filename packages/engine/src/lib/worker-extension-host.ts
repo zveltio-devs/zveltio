@@ -998,6 +998,8 @@ async function runRawWithParams(
                 set_config('zveltio.user_roles', $5, true),
                 set_config('zveltio.actor', $6, true),
                 set_config('zveltio.rls_bypass', 'off', true),
+                set_config('zveltio.collection_grants', $7, true),
+                set_config('zveltio.collection_all', $8, true),
                 set_config('zveltio.system_collections', '', true)`,
         [
           tenantId,
@@ -1005,7 +1007,12 @@ async function runRawWithParams(
           id?.email ?? '',
           id?.role ?? '',
           (id?.roles ?? []).join(','),
-          id?.userId ? 'on' : 'off',
+          // An anonymous request is an actor too: the tenant's `public` role (R1).
+          id?.userId || id?.anonymous ? 'on' : 'off',
+          // What collection permissions (R1) check — the caller's own grants, so a
+          // worker's query gets no collection its caller could not touch.
+          id?.collectionGrants ?? '',
+          id?.collectionAll ? 'on' : 'off',
         ],
       );
     }

@@ -197,6 +197,45 @@ if (!canAccess) {
 
 ---
 
+## Collection permissions in the database
+
+A collection grant (`read`, `create`, `update`, `delete` on a collection) is
+enforced twice: by the application's `checkPermission`, and by Postgres. Every
+collection table carries four RESTRICTIVE policies — `zv_coll_read` (SELECT),
+`zv_coll_create` (INSERT), `zv_coll_update` (UPDATE), `zv_coll_delete`
+(DELETE) — so a path that never asks the application (a new route, an
+extension's query) is refused by the table.
+
+The request publishes what the caller may do, resolved exactly as
+`checkPermission` resolves it (role chains, the tenant and `*` domains, the
+`"user".role` column); the policies read that set. A statement passes when:
+
+| Who | Collection rights in the database |
+|---|---|
+| god, `data:view_all`, an API key with `rls_bypass` | all (`zveltio.rls_bypass`) |
+| a signed-in user | their grants; a tenant admin's `('*','*')` is everything |
+| an API key | its scopes (`write` = create + update, `*` = all) |
+| an anonymous request | the **tenant's `public` role**, in the tenant resolved for the request |
+| the engine's own work with no actor (boot, jobs, reconcilers) | all |
+| an extension's statement in a request | the requesting user's grants |
+| a worker-isolated extension's statement in a request | the requesting user's grants — never the bypass, never another tenant |
+| an extension's statement with no actor (a hook, a timer) | nothing — unless the extension holds `data:system`, whose jobs in `withTenantIsolation` are system inside the tenant |
+| inside `ctx.internals.asSystem(collections, fn)` | those collections (capability `data:system`, audited) |
+| an extension listed in `ZVELTIO_COLLECTION_RLS_EXEMPT` | all — a temporary bridge, warned at boot, removed at 3.0.0 GA |
+
+Tenant isolation and the row rules apply in every case; "system" is always
+system **inside** the tenant.
+
+Public pages and forms are configuration, not code: grant the `public` role
+`read` on the collection (with a row rule such as `status = 'published'`), or
+`create` without `read` on a form's response collection. Postgres applies the
+SELECT policy to `INSERT … RETURNING` and to `UPDATE … WHERE`, so a role with
+`create` but not `read` can insert only through statements that do not read the
+row back.
+
+Measured on Postgres 18: +20 µs per statement against the tenant policy alone
+(20 000 re-planned primary-key reads).
+
 ## Row-Level Security (RLS)
 
 RLS adds a second authorization layer **below Casbin**: after a role is granted access to a collection, RLS policies control *which records* within that collection the user can see. Policies are implemented at the application layer and are fully visible and editable from Studio — no SQL knowledge required.

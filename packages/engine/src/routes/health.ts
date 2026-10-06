@@ -12,7 +12,7 @@ import {
 } from '../db/migrations/index.js';
 import { getCache, realtimeBus } from '../lib/runtime/index.js';
 import { isDDLQueueStarted } from '../lib/data/index.js';
-import { extensionLoader } from '../lib/extensions/index.js';
+import { collectionRlsExemptionStatus, extensionLoader } from '../lib/extensions/index.js';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { storageConfig } from '../lib/storage/index.js';
 import { emailCaseUniquenessProblem } from '../lib/identity.js';
@@ -312,6 +312,10 @@ export function healthRoutes(db: Database, auth?: any): Hono {
         version: ENGINE_VERSION,
         timestamp: new Date().toISOString(),
         checks,
+        // Extensions running without collection permissions in the database
+        // (ZVELTIO_COLLECTION_RLS_EXEMPT). Not a failed check — the operator
+        // chose it — but always visible, so it cannot become permanent quietly.
+        collectionPermissionExemptions: collectionRlsExemptionStatus(),
       },
       allOk ? 200 : 503,
     );
