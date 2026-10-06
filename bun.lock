@@ -55,6 +55,7 @@
       },
       "devDependencies": {
         "@inlang/paraglide-js": "^2.25.0",
+        "@inlang/plugin-message-format": "3.2.1",
         "@sveltejs/adapter-auto": "^7.0.0",
         "@sveltejs/kit": "2.70.3",
         "@sveltejs/vite-plugin-svelte": "^6.2.4",
@@ -182,6 +183,7 @@
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
+        "@inlang/plugin-message-format": "3.2.1",
         "@sveltejs/vite-plugin-svelte": "^6.2.4",
         "@tailwindcss/vite": "^4.3.3",
         "@testing-library/jest-dom": "^6.9.1",
@@ -378,6 +380,8 @@
     "@hono/zod-validator": ["@hono/zod-validator@0.9.1", "", { "peerDependencies": { "hono": ">=4.11.2", "zod": "^3.25.0 || ^4.0.0" } }, "sha512-iiv6w0qrIc0arfvCtUqBWsvl4fXjzaTcQcCJTTtCnkawF9HHGE+KjEl0ox3gQJ6rKZEgE3mLExlQCF72M+mNuw=="],
 
     "@inlang/paraglide-js": ["@inlang/paraglide-js@2.25.0", "", { "dependencies": { "@inlang/recommend-sherlock": "^0.2.1", "@inlang/sdk": "^3.0.1", "commander": "11.1.0", "consola": "3.4.0", "jiti": "^2.7.0", "json5": "2.2.3", "unplugin": "^2.1.2", "urlpattern-polyfill": "^10.0.0", "valibot": "^1.4.2" }, "peerDependencies": { "typescript": ">=5.6", "vite": ">=5.0.0" }, "optionalPeers": ["typescript", "vite"], "bin": { "paraglide-js": "bin/run.js" } }, "sha512-a3Gw3md1S3WyJK1rFAP/FwDCsFKnu1b98rJ3k5bUl6nc3cmbglaSYpuK9qq9aLLlUlZhuCtB/Pb1LeKDUaLycg=="],
+
+    "@inlang/plugin-message-format": ["@inlang/plugin-message-format@3.2.1", "", {}, "sha512-Sq9JC+XWiCToch7pkb6uMd78up834hSiyVAFG8ufiKwTgbZZzkLUSm9RQ58JOiZ1YL3I6wegJH1W7s7/rlZAiw=="],
 
     "@inlang/recommend-sherlock": ["@inlang/recommend-sherlock@0.2.1", "", { "dependencies": { "comment-json": "^4.2.3" } }, "sha512-ckv8HvHy/iTqaVAEKrr+gnl+p3XFNwe5D2+6w6wJk2ORV2XkcRkKOJ/XsTUJbPSiyi4PI+p+T3bqbmNx/rDUlg=="],
 
