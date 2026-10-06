@@ -20,6 +20,22 @@ const ABANDONED_RUN_HOURS = 6;
  */
 export const SYNC_TOMBSTONE_RETENTION_DAYS = 30;
 
+/**
+ * A retention knob in whole days; 0 keeps forever. Anything else purges
+ * nothing: `parseInt('1y')` is 1, so a value written as a duration purged every
+ * row older than a day. Deleting on a value nobody meant is the one wrong way to
+ * fail.
+ */
+function retentionDaysFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (raw === undefined || raw === '') return fallback;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  console.warn(
+    `[GC] ${name}=${JSON.stringify(raw)} is not a whole number of days; nothing is purged.`,
+  );
+  return 0;
+}
+
 export async function runGarbageCollector(db: Database): Promise<void> {
   console.log('[GC] Starting garbage collection...');
 
@@ -32,7 +48,7 @@ export async function runGarbageCollector(db: Database): Promise<void> {
   // controls the cutoff (default 30, set to 0 to keep forever).
   // Same shape extended to zv_slow_queries; both are observability
   // tables, not source of truth for anything.
-  const retentionDays = parseInt(process.env.REQUEST_LOG_RETENTION_DAYS ?? '30', 10);
+  const retentionDays = retentionDaysFromEnv('REQUEST_LOG_RETENTION_DAYS', 30);
   if (retentionDays > 0) {
     try {
       const reqDeleted = await sql<{ deleted: number }>`
@@ -73,7 +89,7 @@ export async function runGarbageCollector(db: Database): Promise<void> {
 
   // Audit log retention — separate knob because compliance teams often
   // require longer audit retention (default 365 days, 0 = keep forever).
-  const auditRetentionDays = parseInt(process.env.AUDIT_LOG_RETENTION_DAYS ?? '365', 10);
+  const auditRetentionDays = retentionDaysFromEnv('AUDIT_LOG_RETENTION_DAYS', 365);
   if (auditRetentionDays > 0) {
     try {
       // Policed since 040: the pool alone purges the default firm's and the
