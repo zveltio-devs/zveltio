@@ -197,6 +197,7 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/tenant-scope.ts`,
       `${E}lib/tenancy/fail-closed-tenant.ts`,
       `${E}lib/tenancy/tenant-purge.ts`,
+      `${E}lib/tenancy/tenant-index-reconcile.ts`,
       `${E}lib/tenancy/index.ts`,
       `${E}lib/tenancy/temp-privilege.ts`,
     ],
@@ -249,6 +250,7 @@ const SECTIONS: Section[] = [
       `${E}lib/security/keyring.ts`,
       `${E}lib/security/index.ts`,
       `${E}lib/security/loggable-request.ts`,
+      `${E}lib/secret-files.ts`,
     ],
   },
   {
@@ -259,6 +261,8 @@ const SECTIONS: Section[] = [
     match: [
       `${E}db/index.ts`,
       `${E}db/bun-sql-dialect.ts`,
+      `${E}db/bun-sql-quirks.ts`,
+      `${E}db/pg-dialect.ts`,
       `${E}db/dynamic.ts`,
       `${E}db/dynamic-types.ts`,
       `${E}db/pool-autosize.ts`,
@@ -813,6 +817,7 @@ const SECTIONS: Section[] = [
     match: [
       'scripts/check-tenant-boundary.ts',
       'scripts/check-tenant-table-on-pool.ts',
+      'scripts/check-record-attached-reads.ts',
       'scripts/check-pooldb-txn-skip.ts',
       'scripts/check-atomic-writes.ts',
       'scripts/check-raw-sql-identifiers.ts',
