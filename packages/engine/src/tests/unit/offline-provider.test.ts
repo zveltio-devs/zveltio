@@ -185,6 +185,21 @@ describe('S5-07 createOfflineProvider — electric provider', () => {
     expect(caught!.message).toContain('ELECTRIC_URL');
   });
 
+  it('a 409 refusal carries the engine reason', async () => {
+    const fetchStub = makeFetchStub({
+      status: 409,
+      body: { code: 'electric.multi_tenant', detail: 'more than one tenant' },
+    });
+    const caught = await createOfflineProvider({
+      engineUrl: 'http://engine',
+      provider: 'electric',
+      fetch: fetchStub,
+      websocket: FakeWebSocket as unknown as typeof WebSocket,
+    }).catch((e: Error) => e);
+    expect(caught).toBeInstanceOf(ElectricUnavailable);
+    expect((caught as Error).message).toContain('more than one tenant');
+  });
+
   it('throws ElectricUnavailable when engine returns 401', async () => {
     const fetchStub = makeFetchStub({ status: 401, body: { error: 'Unauthorized' } });
     let caught: Error | null = null;

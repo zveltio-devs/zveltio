@@ -29,11 +29,19 @@
  *
  * When unset, the routes return 503 — callers fall back to the CRDT
  * provider (which is the default anyway).
+ *
+ * Refused with more than one tenant. Electric streams a published table
+ * through logical replication: none of the engine's read gates run on that
+ * stream and nothing in it is filtered by tenant (the `tenant_id` claim is
+ * not read by Electric). Until shapes are served through an engine-controlled
+ * filter, a token is only minted where every row belongs to the one tenant.
  */
 
 import { Hono } from 'hono';
 import { guardSession } from '../lib/admin-guard.js';
 import type { Database } from '../db/index.js';
+import { isSingleTenantInstance } from '../lib/identity.js';
+import { problem } from '../lib/problem.js';
 import { tenantId } from '../lib/route-db.js';
 
 const TOKEN_TTL_SECONDS = 60;
@@ -75,9 +83,24 @@ function readConfig(): ElectricConfig | null {
   return { electricUrl, authToken };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export function electricRoutes(_db: Database, auth: any): Hono {
+export function electricRoutes(
+  db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  auth: any,
+  singleTenant: () => Promise<boolean> = () => isSingleTenantInstance(db),
+): Hono {
   const app = new Hono();
+
+  /** Throws a 409 problem unless the instance has at most one tenant. */
+  async function refuseMultiTenant(): Promise<void> {
+    if (await singleTenant()) return;
+    throw problem(
+      'electric.multi_tenant',
+      409,
+      'Electric is disabled on an instance with more than one tenant: its replication ' +
+        'stream is not filtered by tenant. Use provider: "crdt".',
+    );
+  }
 
   // Session guard for every route — Electric tokens are scoped per user.
   app.use('*', async (c, next) => {
@@ -90,7 +113,7 @@ export function electricRoutes(_db: Database, auth: any): Hono {
   // GET /api/electric/config — surface the websocket URL the client should
   // connect to + whether Electric is enabled for this engine deployment.
   // Hides the shared secret unconditionally.
-  app.get('/config', (c) => {
+  app.get('/config', async (c) => {
     const cfg = readConfig();
     if (!cfg) {
       return c.json(
@@ -101,6 +124,7 @@ export function electricRoutes(_db: Database, auth: any): Hono {
         503,
       );
     }
+    await refuseMultiTenant();
     return c.json({
       enabled: true,
       electricUrl: cfg.electricUrl,
@@ -126,6 +150,8 @@ export function electricRoutes(_db: Database, auth: any): Hono {
         503,
       );
     }
+
+    await refuseMultiTenant();
 
     const user = c.get('user') as { id: string };
     const body = (await c.req.json().catch(() => null)) as { tables?: unknown } | null;

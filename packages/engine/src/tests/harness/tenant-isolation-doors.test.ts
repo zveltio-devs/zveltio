@@ -203,6 +203,9 @@ const DOORS: Record<string, Coverage> = {
   'PATCH /api/rpc/:id': exempt('instance administrators only (requireInstanceAdmin)'),
   'DELETE /api/rpc/:id': exempt('instance administrators only (requireInstanceAdmin)'),
   'POST /api/rpc/:fn': here,
+  // ── Electric ────────────────────────────────────────────────────────────
+  'GET /api/electric/config': at('electric-multi-tenant.test.ts'),
+  'POST /api/electric/auth': at('electric-multi-tenant.test.ts'),
 };
 
 /** The prefixes that serve tenant data. A route under one of them needs a row. */
@@ -221,6 +224,7 @@ const PREFIXES = [
   '/api/saved-queries',
   '/api/notifications',
   '/api/rpc',
+  '/api/electric',
 ];
 
 d('tenant isolation, door by door', () => {
