@@ -14,3 +14,4 @@ export * from './resource-grants.js';
 export * from './denial.js';
 export * from './tenant-purge.js';
 export * from './temp-privilege.js';
+export * from './tenant-index-reconcile.js';

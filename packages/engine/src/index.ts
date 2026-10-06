@@ -1490,7 +1490,8 @@ async function bootstrap() {
   // This puts them all on the host's predicate, including extensions that do
   // not live in this repository.
   try {
-    const n = await reconcileExtensionTenantRLS(db);
+    // Its composite index is built after listen, CONCURRENTLY (below).
+    const n = await reconcileExtensionTenantRLS(db, undefined, { deferIndexes: true });
     if (n > 0) console.log(`🔒 Tenant RLS reconciled on ${n} extension table(s)`);
   } catch (err) {
     console.warn('⚠️ Extension RLS reconcile failed (non-fatal):', (err as Error).message);
@@ -1588,6 +1589,21 @@ async function bootstrap() {
   extensionLoader.setReloadCallback(async () => {
     _currentApp = await buildHonoApp();
   });
+
+  // The composite tenant indexes the RLS reconcilers above deferred, for the
+  // reason given just below: after listen, not awaited, CONCURRENTLY, one
+  // instance at a time.
+  void (async () => {
+    try {
+      const { reconcileTenantIndexes } = await import('./lib/tenancy/index.js');
+      const r = await reconcileTenantIndexes(db);
+      if (r && r.built.length + r.failed.length > 0) {
+        console.log(`🗂️  Tenant indexes: ${r.built.length} built, ${r.failed.length} failed`);
+      }
+    } catch (err) {
+      console.warn('⚠️ Tenant index reconcile failed (non-fatal):', (err as Error).message);
+    }
+  })();
 
   // Unique keys onto (tenant_id, column). After listen and not awaited, unlike
   // the reconciles above: those touch catalogs, this builds an index as large as
