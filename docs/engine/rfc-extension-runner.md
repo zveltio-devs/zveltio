@@ -1,6 +1,8 @@
 # RFC: third-party extensions run out of process
 
-Status: **proposed**. Owner decision required before implementation.
+Status: **accepted** (owner, 2026-10-06). The open questions are settled under
+[Decisions](#decisions). Step 2 (transport) is queued after R1 and the Electric
+tenant filter.
 
 ## Problem
 
@@ -144,8 +146,8 @@ functions too.
 
 0. **Done in #906:** the production opt-in for worker extensions, and corrected
    documentation.
-1. **This RFC accepted.** Settle the open questions below.
-2. **Transport:**
+1. **Done:** this RFC is accepted and its open questions settled (2026-10-06).
+2. **Transport** (queued after R1 and the Electric tenant filter):
    - put a byte-stream transport behind the existing protocol, with the in-thread
      worker kept as the development transport;
    - a contract test runs the same extension over both transports and expects
@@ -182,7 +184,26 @@ runtime to ship and support.
 **Same-uid subprocess with an empty environment.** It is cheaper, but it fails
 goal 1 for the reason given above.
 
-## Open questions
+## Decisions
+
+The owner settled the four open questions on 2026-10-06.
+
+1. **Compose: a separate runner service.** The `zveltio-ext-runner` service from
+   the table above is the compose target. No second uid inside the engine
+   container, so nothing needs root at container start.
+2. **Egress: the manifest requests it, the operator approves it.** An extension
+   declares the hosts it needs in its manifest. At install, the operator approves
+   them; nothing is reachable until then. The approved list is what the network
+   policy (container) or the per-uid firewall rule (bare metal) enforces.
+3. **Memory: a default per extension, with operator override.** Every runner gets
+   the same default budget. The operator can raise or lower it per extension in
+   the extension's config. There are no tiers.
+4. **First-party extensions may opt into the runner.** The ones that need no
+   engine-side hooks can run out of process too, which shrinks the trusted
+   surface over time. Opting in is the extension's choice; staying in process
+   remains allowed for first-party code.
+
+The questions, as they were asked:
 
 1. **Compose:** a separate runner service, or runner processes inside the engine
    container under a second uid? The separate service is cleaner. The second uid
