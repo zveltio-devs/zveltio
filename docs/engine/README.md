@@ -21,6 +21,7 @@ The Bun + Hono server. Everything else in the product is a client of it.
 | [sdk.md](sdk.md) | `@zveltio/sdk` and the framework bindings |
 | [cli.md](cli.md) | The `zveltio` binary |
 | [CLOUD-REVIEW-BRIEF.md](CLOUD-REVIEW-BRIEF.md) | Brief for a fresh full review of the engine |
+| [AUDIT-REPORT.md](AUDIT-REPORT.md) | Findings of the 2026-10-04 blind audit, and the decisions they need |
 
 Cross-cutting material lives in the Platform chapter:
 [architecture](../platform/architecture.md) (boot sequence, request lifecycle),
