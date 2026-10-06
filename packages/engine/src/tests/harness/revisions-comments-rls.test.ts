@@ -30,6 +30,7 @@ d('record comments honour the read gate (in-process)', () => {
   let godCookie = '';
   let readerCookie = '';
   let strangerCookie = '';
+  let tenantAdminCookie = '';
   let policyId = '';
   let openId = '';
   let hiddenId = '';
@@ -63,6 +64,10 @@ d('record comments honour the read gate (in-process)', () => {
       grants: [{ collection: COLLECTION, actions: ['read'] }],
     }));
     ({ cookie: strangerCookie } = await createMemberSession(app, db));
+    // A tenant admin (`admin` / `*`) with no read on this collection.
+    ({ cookie: tenantAdminCookie } = await createMemberSession(app, db, {
+      grants: [{ collection: 'admin', actions: ['*'] }],
+    }));
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,
@@ -123,6 +128,14 @@ d('record comments honour the read gate (in-process)', () => {
   it('refuses a comment from a user with no read on the collection', async () => {
     const res = await comment(strangerCookie, openId, 'drive-by');
     expect(res.status).toBe(403);
+  });
+
+  // One rule: comments follow the record's read gate. Tenant admin used to be
+  // an exception, so an admin without read on the collection read and wrote
+  // every comment on any of its records.
+  it('refuses comments to a tenant admin with no read on the collection', async () => {
+    expect((await comments(tenantAdminCookie, openId)).status).toBe(403);
+    expect((await comment(tenantAdminCookie, openId, 'admin note')).status).toBe(403);
   });
 
   it('refuses a comment on a row the reader’s policy hides', async () => {
