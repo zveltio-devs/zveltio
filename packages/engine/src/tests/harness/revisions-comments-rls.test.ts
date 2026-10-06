@@ -138,6 +138,20 @@ d('record comments honour the read gate (in-process)', () => {
     expect((await comment(tenantAdminCookie, openId, 'admin note')).status).toBe(403);
   });
 
+  it('refuses a tenant admin with no read on the collection deleting a comment', async () => {
+    const row = await sql<{ id: string }>`
+      SELECT id FROM zv_record_comments WHERE collection = ${COLLECTION} AND record_id = ${hiddenId}
+       LIMIT 1`.execute(db);
+    const id = row.rows[0]!.id;
+    const res = await app.request(`/api/revisions/record/comments/${id}`, {
+      method: 'DELETE',
+      headers: { cookie: tenantAdminCookie },
+    });
+    expect(res.status).toBe(403);
+    const left = await sql`SELECT 1 FROM zv_record_comments WHERE id = ${id}`.execute(db);
+    expect(left.rows).toHaveLength(1);
+  });
+
   it('refuses a comment on a row the reader’s policy hides', async () => {
     const res = await comment(readerCookie, hiddenId, 'I can see you');
     expect(res.status).toBe(404);

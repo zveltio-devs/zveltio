@@ -251,10 +251,19 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const commentId = c.req.param('commentId');
+
+    // The same gate as reading and writing: a comment on a record the caller
+    // cannot read is not theirs to delete, tenant admin or not.
+    const target = await sql<{ collection: string; record_id: string }>`
+      SELECT collection, record_id FROM zv_record_comments
+       WHERE id = ${commentId} AND tenant_id = ${tenantId(c)}::uuid`.execute(reqDb(c, db));
+    const row = target.rows[0];
+    if (!row) return c.json({ success: true });
+    const denied = await commentGate(c, user, row.collection, row.record_id);
+    if (denied) return denied;
     const isAdmin = await isTenantAdmin(user.id);
 
-    // Replaced `OR TRUE` idiom (confusing, hard to audit) with explicit branch.
-    // Admins can delete any comment; non-admins can only delete their own.
+    // Admins can delete any comment they can read; others only their own.
     if (isAdmin) {
       await sql`DELETE FROM zv_record_comments WHERE id = ${commentId} AND tenant_id = ${tenantId(c)}::uuid`.execute(
         reqDb(c, db),
