@@ -7,8 +7,8 @@ failed before it and passes after it. A finding left open says why.
 
 ## Summary
 
-- **Six findings fixed, in six PRs**: zveltio#900–#904 and
-  zveltio-extensions#181.
+- **Six findings fixed, in six PRs**: zveltio#900, #902–#904, #945 (which
+  superseded #901) and zveltio-extensions#181.
   - Two are authorization or correctness defects in tenant-data paths:
     - record comments ignored the row gate;
     - offline sync asked for a permission name nobody can grant.
@@ -46,7 +46,7 @@ with Valkey 8. Bun is 1.3.14. Each lane was run the way CI runs it.
 |---|---|---|---|
 | X-1 | **high** (functional, cross-repo) | engine `lib/extensions/worker-sql-policy.ts` (#858) vs ~10 extensions | **open — known, tracked by the owner** |
 | E-1 | medium (authorization) | `routes/revisions.ts:170`, `:195` | fixed — zveltio#900 |
-| E-2 | medium (correctness) | `routes/sync.ts:268`, `:631` | fixed — zveltio#901 |
+| E-2 | medium (correctness) | `routes/sync.ts:268`, `:631` | fixed — zveltio#945 (superseded #901) |
 | X-2 | high (functional) | `zveltio-extensions/geospatial/postgis/engine/routes.ts:28` | fixed — zveltio-extensions#181 |
 | P-1 | medium (performance) | `routes/sync.ts` pull query; `tenant-manager.applyTenantRLS` | fixed — zveltio#903 |
 | S-1 | medium (accessibility) | `studio/.../RecordDrawer.svelte`, `AddFieldDrawer.svelte` | fixed — zveltio#902 |
@@ -122,7 +122,10 @@ Both stayed inside the tenant.
 **Test.** `revisions-comments-rls.test.ts` failed 4 of 5 before the fix and passes 5
 of 5 after. The integration test that asserted the bug now asserts the refusal.
 
-### E-2 — offline sync asked for `data:<collection>` (fixed, zveltio#901)
+### E-2 — offline sync asked for `data:<collection>` (fixed, zveltio#945)
+
+zveltio#901 was this report's fix; zveltio#945 landed the same fix first, and #901
+was closed in its favour.
 
 **What was broken.** Push and pull checked `checkPermission(user, 'data:<c>', …)`, but
 no grant can satisfy that:
