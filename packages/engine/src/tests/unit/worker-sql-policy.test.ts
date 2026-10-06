@@ -427,6 +427,11 @@ describe('assertWorkerSqlAllowed — functions that leave the sandbox', () => {
     expect(allowed("SELECT * FROM zvd_orders WHERE SET_CONFIG ('a', 'b', true) IS NOT NULL")).toBe(
       false,
     );
+    // Postgres decodes a Unicode-escaped identifier to `set_config`.
+    expect(allowed(`SELECT U&"set\\005fconfig"('zveltio.system_collections', 'x', true)`)).toBe(
+      false,
+    );
+    expect(allowed(`SELECT u&"set!005fconfig" UESCAPE '!' ('role', 'none', true)`)).toBe(false);
   });
 
   it('refuses the server, the file system and other connections', () => {
