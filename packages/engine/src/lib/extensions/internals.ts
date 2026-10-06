@@ -51,7 +51,7 @@ import {
 // as well — so the extension shipped throwing `request.headers.forEach is not a
 // function` on every invocation. A shared name is not a contract.
 import { runEdgeFunction } from '../edge-function-runner.js';
-import { getCurrentDomainOrNull, withTenantIsolation } from '../tenancy/index.js';
+import { getCurrentDomainOrNull, runWithDomain, withTenantIsolation } from '../tenancy/index.js';
 import { applyColumnAccess } from '../tenancy/index.js';
 import { checkAccess, dataApiWrite, readScope } from '../data/index.js';
 import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
@@ -602,7 +602,11 @@ function enterTenantAs(
 ): ExtensionInternals['withTenantIsolation'] {
   return (tenantId, fn) => {
     const running = getCurrentDomainOrNull();
-    if (anyTenant || tenantId === running) return withTenantIsolation(tenantId, fn);
+    if (tenantId === running) return withTenantIsolation(tenantId, fn);
+    // Entered, the tenant is also the one the work acts AS: a nested transaction
+    // keeps the enclosing domain, so permission checks and the identity helpers
+    // answered for the request's tenant while the rows went to this one.
+    if (anyTenant) return runWithDomain(tenantId, () => withTenantIsolation(tenantId, fn));
     return Promise.reject(
       new Error(
         `${caller}: ctx.internals.withTenantIsolation("${tenantId}") refused — this work runs ` +
