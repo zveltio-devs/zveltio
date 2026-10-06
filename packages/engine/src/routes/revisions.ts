@@ -25,11 +25,13 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     collection: string,
     recordId: string,
   ): Promise<Response | null> => {
-    if (!(await checkPermission(user.id, collection, 'read')) && !(await isTenantAdmin(user.id))) {
+    // The record's read gate, with no exception: a tenant admin without read on
+    // the collection does not read or write its comments either. Session only
+    // (`guardSession` below), so there is no API-key branch.
+    if (!(await checkPermission(user.id, collection, 'read'))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
-    const authType = c.get('authType') === 'api_key' ? 'api_key' : 'session';
-    if (!(await recordReadable(db, reqDb(c, db), collection, recordId, user, authType))) {
+    if (!(await recordReadable(db, reqDb(c, db), collection, recordId, user, 'session'))) {
       return c.json({ error: 'Record not found' }, 404);
     }
     return null;
