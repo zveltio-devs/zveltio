@@ -12,7 +12,7 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getDb } from '../../db/index.js';
-import { auditLog } from '../audit.js';
+import { auditLog, trackAuditWrite } from '../audit.js';
 import type { AuditEventType } from '../audit.js';
 import { DDLManager } from '../data/index.js';
 import {
@@ -154,7 +154,11 @@ export function auditAs(caller: string, event: ExtensionAuditEvent): Promise<voi
     metadata: { ...(event.metadata ?? {}), extension: caller },
   };
   const tenant = getCurrentDomainOrNull();
-  return tenant ? withTenantIsolation(tenant, (trx) => auditLog(trx, row)) : auditLog(getDb(), row);
+  // Tracked from the start: the write inside the transaction registers only
+  // once the transaction has begun.
+  return tenant
+    ? trackAuditWrite(withTenantIsolation(tenant, (trx) => auditLog(trx, row)))
+    : auditLog(getDb(), row);
 }
 
 export interface AuditActivity {

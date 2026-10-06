@@ -120,14 +120,23 @@ export async function _settleAuditWrites(): Promise<void> {
   }
 }
 
-export async function auditLog(db: Database, event: AuditEvent): Promise<void> {
-  const write = writeAuditRow(db, event);
+/**
+ * Count `write` as an audit write in flight until it settles. For a caller whose
+ * `auditLog` runs inside work of its own (a transaction it opens first): the
+ * write is only registered once that work reaches it, and a settle in between
+ * would return before it started.
+ */
+export async function trackAuditWrite<T>(write: Promise<T>): Promise<T> {
   _inFlight.add(write);
   try {
-    await write;
+    return await write;
   } finally {
     _inFlight.delete(write);
   }
+}
+
+export function auditLog(db: Database, event: AuditEvent): Promise<void> {
+  return trackAuditWrite(writeAuditRow(db, event));
 }
 
 const CURRENT_TENANT = sql`NULLIF(current_setting('zveltio.current_tenant', true), '')`;
