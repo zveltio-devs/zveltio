@@ -1309,6 +1309,7 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.user_roles', ${identity.roles}, true),
              set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
              set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true),
+             set_config('zveltio.system_collections', '', true),
              set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true)
         FROM reach
     `.execute(trx);

@@ -37,6 +37,7 @@
  */
 
 import { sql } from 'kysely';
+import type { Database } from '../../db/index.js';
 import { getCurrentTenantTrx } from '../tenancy/index.js';
 import { auditAs } from './tenant-facts.js';
 
@@ -55,8 +56,18 @@ export function encodeSystemCollections(names: readonly string[]): string {
   return names.length === 0 ? '' : `,${[...new Set(names)].sort().join(',')},`;
 }
 
-function decode(value: string | null | undefined): string[] {
-  return (value ?? '').split(',').filter(Boolean);
+/**
+ * The calls open on each tenant transaction. The mark is written from this
+ * after every entry and exit, never restored from a value read on entry: two
+ * calls that overlap (`Promise.all`) exit in either order, and restoring the
+ * first one's snapshot last put its collections back for the rest of the request.
+ */
+const openCalls = new WeakMap<object, (readonly string[])[]>();
+
+function writeMark(trx: Database, calls: readonly (readonly string[])[]) {
+  return sql`SELECT set_config(${SYSTEM_COLLECTIONS_SETTING}, ${encodeSystemCollections(calls.flat())}, true)`.execute(
+    trx,
+  );
 }
 
 /**
@@ -99,17 +110,23 @@ export async function asSystemAs<T>(
     );
   }
 
-  const before = await sql<{ prev: string | null; uid: string | null }>`
-    SELECT current_setting(${SYSTEM_COLLECTIONS_SETTING}, true) AS prev,
-           current_setting('zveltio.user_id', true) AS uid
+  const before = await sql<{ uid: string | null }>`
+    SELECT current_setting('zveltio.user_id', true) AS uid
   `.execute(trx);
-  const prev = before.rows[0]?.prev ?? '';
   const userId = before.rows[0]?.uid || undefined;
 
-  // Nested calls widen, never narrow: an inner call inside an outer one keeps
-  // the outer's collections for its duration.
-  const next = encodeSystemCollections([...decode(prev), ...collections]);
-  await sql`SELECT set_config(${SYSTEM_COLLECTIONS_SETTING}, ${next}, true)`.execute(trx);
+  // Nested and overlapping calls widen, never narrow: the mark is every open
+  // call's collections, so an inner call keeps the outer's for its duration.
+  const mine = [...collections];
+  const calls = openCalls.get(trx) ?? [];
+  openCalls.set(trx, calls);
+  calls.push(mine);
+  try {
+    await writeMark(trx, calls);
+  } catch (err) {
+    calls.splice(calls.indexOf(mine), 1);
+    throw err;
+  }
 
   // Not awaited into the result: a failed audit write must not fail the work,
   // and `auditAs` writes in a transaction of its own. Logged when it fails.
@@ -126,11 +143,10 @@ export async function asSystemAs<T>(
   try {
     return await fn();
   } finally {
-    // Restored, not cleared: the outer call's window is still open. If the
+    // Rewritten, not cleared: another call's window may still be open. If the
     // transaction is aborted this fails too — and the transaction's own
     // rollback discards the setting with everything else.
-    await sql`SELECT set_config(${SYSTEM_COLLECTIONS_SETTING}, ${prev}, true)`
-      .execute(trx)
-      .catch(() => undefined);
+    calls.splice(calls.indexOf(mine), 1);
+    await writeMark(trx, calls).catch(() => undefined);
   }
 }

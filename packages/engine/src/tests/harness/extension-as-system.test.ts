@@ -105,6 +105,27 @@ d('ctx.internals.asSystem', () => {
     expect(seen.after).toBe('');
   });
 
+  it('leaves no mark behind when two calls overlap on one transaction', async () => {
+    // A call that starts while another is open, and ends after it: restoring
+    // the value each saw on entry put the first call's collections back after
+    // both had returned, for the rest of the request.
+    const after = await inTenant(async (trx) => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const first = granted.asSystem(['a_coll'], () => gate);
+      await Bun.sleep(20);
+      const second = granted.asSystem(['b_coll'], async () => {
+        release();
+        await Bun.sleep(20);
+      });
+      await Promise.all([first, second]);
+      return mark(trx);
+    });
+    expect(after).toBe('');
+  });
+
   it('refuses outside a tenant, and anything that is not a collection name', async () => {
     await expect(granted.asSystem(['products'], async () => 1)).rejects.toThrow(/inside a tenant/);
     for (const bad of [[], ['zvd_products'], ['*'], ['a,b'], ['']]) {
