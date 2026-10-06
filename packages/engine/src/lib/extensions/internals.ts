@@ -92,6 +92,7 @@ import {
   deleteUser,
   liftOwnBan,
   revokeUserSessions,
+  exportUserData,
   setUserActive,
 } from '../users.js';
 import { bindsCaller } from './capabilities.js';
@@ -107,7 +108,7 @@ import {
   readAuditActivity,
   countAuditActivity,
 } from './tenant-facts.js';
-import type { CreateSsoSessionOptions, UserDeletion } from '../users.js';
+import type { CreateSsoSessionOptions, UserDataExport, UserDeletion } from '../users.js';
 
 /**
  * Internal extension context — extends the public ExtensionContext from the SDK
@@ -490,6 +491,9 @@ export interface ExtensionInternals {
   deleteUser: (db: unknown, userId: string, who: UserDeletion) => Promise<boolean>;
   /** End a user's sessions (DB and cache). Gated `auth:users`. */
   revokeUserSessions: (userId: string) => Promise<void>;
+  /** What the engine's tables hold about a user, every tenant's rows — a
+   *  data-subject access request. Gated `auth:users`. */
+  exportUserData: (userId: string) => Promise<UserDataExport | null>;
   /** Block (`false`, and every session revoked) or restore sign-in by every
    *  method. A ban records the calling extension as its source; `true` lifts
    *  any ban. `db` is the caller's transaction. Gated `auth:users`. */
@@ -740,6 +744,7 @@ function buildUnboundInternals(): ExtensionInternals {
     deleteUser: (db: unknown, userId: string, who: UserDeletion) =>
       deleteUser(db as Database, getDb(), userId, who),
     revokeUserSessions: (userId: string) => revokeUserSessions(getDb(), userId),
+    exportUserData: (userId: string) => exportUserData(getDb(), userId),
     setUserActive: unbound('setUserActive'),
     liftOwnBan: unbound('liftOwnBan'),
     isSingleTenantInstance: () => isSingleTenantInstance(),

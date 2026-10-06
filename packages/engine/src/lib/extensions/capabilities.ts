@@ -37,8 +37,8 @@
  * that speaks a different major version.
  */
 // 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`),
-// 5: `identity:provision`, 6: `audit:read`
-export const CAPABILITY_CONTRACT_VERSION = 6;
+// 5: `identity:provision`, 6: `audit:read`, 7: `auth:users` also reads (exportUserData)
+export const CAPABILITY_CONTRACT_VERSION = 7;
 
 /**
  * Every capability an extension may declare.
@@ -72,7 +72,8 @@ export const CAPABILITIES = [
    */
   'auth:session',
   /**
-   * Delete any user, end their sessions, or stop them signing in at all. The
+   * Delete any user, end their sessions, stop them signing in at all, or read
+   * what the engine holds about them in every tenant (`exportUserData`). The
    * offboarding extensions (SCIM, GDPR erasure) need it; the session table is
    * out of reach of `ctx.db`, so this is the only way an extension can do it.
    */
@@ -213,6 +214,7 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   // Identity — "remove anyone"
   deleteUser: 'auth:users',
   revokeUserSessions: 'auth:users',
+  exportUserData: 'auth:users',
   setUserActive: 'auth:users',
   liftOwnBan: 'auth:users',
   // Identity — "provision accounts and the running tenant's memberships"

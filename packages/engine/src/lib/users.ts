@@ -25,6 +25,7 @@ import {
   isGodUser,
   onAfterCommit,
   requireInstanceAdmin,
+  withEveryTenant,
 } from './tenancy/index.js';
 
 /**
@@ -202,6 +203,90 @@ export async function revokeUserSessions(
   exceptToken?: string,
 ): Promise<void> {
   await revokeAllUserSessions(poolDb, userId, exceptToken);
+}
+
+/** What the engine holds about one user, for a data-subject access request. */
+export interface UserDataExport {
+  profile: { id: string; name: string | null; email: string; created_at: string } | null;
+  /** The user's own actions, in every tenant and at instance level; newest 1000. */
+  audit_log: Array<{
+    action: string;
+    collection: string | null;
+    record_id: string | null;
+    created_at: string;
+  }>;
+  /** Newest 500. */
+  notifications: Array<{
+    title: string;
+    message: string | null;
+    type: string | null;
+    is_read: boolean;
+    created_at: string;
+  }>;
+  /** Keys the user created — names and prefixes, never a secret. */
+  api_keys: Array<{ name: string; key_prefix: string | null; scopes: unknown; created_at: string }>;
+  approval_requests: Array<{
+    id: string;
+    collection: string;
+    record_id: string | null;
+    status: string;
+    requested_at: string;
+  }>;
+}
+
+/**
+ * Everything the engine's own tables hold about `userId` (GDPR art. 15), or
+ * null when there is no such user. Every tenant's rows: they are the subject's
+ * data whichever tenant recorded them, and a tenant-scoped read left the
+ * instance-level ones (sign-ins) and the other tenants' out of the export.
+ * Read in one `withEveryTenant` transaction on the engine's pool — READ
+ * COMMITTED, so each statement sees its own snapshot, not one for the export.
+ */
+export async function exportUserData(
+  poolDb: Database,
+  userId: string,
+): Promise<UserDataExport | null> {
+  return withEveryTenant(poolDb, async (trx) => {
+    const profile = (
+      await sql<NonNullable<UserDataExport['profile']>>`
+        SELECT id, name, email, "createdAt" AS created_at FROM "user" WHERE id = ${userId}`.execute(
+        trx,
+      )
+    ).rows[0];
+    if (!profile) return null;
+    const audit = await sql<UserDataExport['audit_log'][number]>`
+      SELECT event_type AS action, resource_type AS collection, resource_id AS record_id, created_at
+        FROM zv_audit_log WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 1000`.execute(
+      trx,
+    );
+    const notifications = await sql<UserDataExport['notifications'][number]>`
+      SELECT title, message, type, is_read, created_at FROM zv_notifications
+       WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 500`.execute(trx);
+    const keys = await sql<UserDataExport['api_keys'][number]>`
+      SELECT name, key_prefix, scopes, created_at FROM zv_api_keys
+       WHERE created_by = ${userId} ORDER BY created_at`.execute(trx);
+    // Created by the approvals feature's migration, so absent on an install
+    // that never ran it.
+    const hasApprovals = (
+      await sql<{
+        t: string | null;
+      }>`SELECT to_regclass('zv_approval_requests')::text AS t`.execute(trx)
+    ).rows[0]?.t;
+    const approvals = hasApprovals
+      ? (
+          await sql<UserDataExport['approval_requests'][number]>`
+            SELECT id::text, collection, record_id, status, requested_at FROM zv_approval_requests
+             WHERE requested_by = ${userId} ORDER BY requested_at DESC`.execute(trx)
+        ).rows
+      : [];
+    return {
+      profile,
+      audit_log: audit.rows,
+      notifications: notifications.rows,
+      api_keys: keys.rows,
+      approval_requests: approvals,
+    };
+  });
 }
 
 /**
