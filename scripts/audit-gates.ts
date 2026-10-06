@@ -554,6 +554,16 @@ const CASES: Case[] = [
       "  poolDb.selectFrom('zv_api_keys').selectAll().execute();\n",
   },
   {
+    // A route reading a record-attached table (comments) with no record gate.
+    gate: 'check-record-attached-reads',
+    cmd: 'bun run scripts/check-record-attached-reads.ts',
+    file: 'packages/engine/src/routes/__gate_probe.ts',
+    body:
+      "import type { Database } from '../db/index.js';\n" +
+      'export const probe = (db: Database) =>\n' +
+      "  db.selectFrom('zv_record_comments').selectAll().execute();\n",
+  },
+  {
     // A backtick inside an SQL `--` comment, which ends the template early.
     gate: 'check-sql-template-backticks',
     cmd: 'bun run scripts/check-sql-template-backticks.ts',
