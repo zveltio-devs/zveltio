@@ -55,6 +55,8 @@ import {
 } from './extensions/index.js';
 import {
   getCurrentDomainOrNull,
+  getRequestActor,
+  type RequestActor,
   runWithDomain,
   temporaryObjectsRestricted,
   withTenantIsolation,
@@ -123,6 +125,16 @@ export interface WorkerHealth {
   routes: number;
 }
 
+/**
+ * What the host recorded for an invocation it dispatched: the tenant of the
+ * request, and the caller that request's transaction runs as (absent for work
+ * with no tenant transaction — the old tenant-only behaviour).
+ */
+interface InvokeScope {
+  tenantId: string | null;
+  actor?: RequestActor;
+}
+
 interface ManagedWorker {
   name: string;
   extDir: string;
@@ -131,14 +143,15 @@ interface ManagedWorker {
   routes: RouteDescriptor[];
   pendingInvokes: Map<string, (res: RouteInvokeResponse) => void>;
   /**
-   * Tenant of each in-flight `route:invoke`, keyed by the id the host minted.
+   * Tenant and caller of each in-flight `route:invoke`, keyed by the id the host
+   * minted.
    *
    * This is the host's own record of what it dispatched. `db:query` names an
-   * invocation and the tenant is read from here — never from the message, since
-   * the worker is the untrusted party and a tenant it asserts is a tenant it
-   * picked.
+   * invocation and the tenant and user are read from here — never from the
+   * message, since the worker is the untrusted party and a tenant or user it
+   * asserts is one it picked.
    */
-  invokeTenants: Map<string, string | null>;
+  invokeTenants: Map<string, InvokeScope>;
   pendingInits: Map<string, (res: InitResponse) => void>;
   pendingPings: Map<string, () => void>;
   /** Service names this worker has registered. Used to unregister on
@@ -481,9 +494,9 @@ export class WorkerExtensionHost {
       // own dispatch record. A query outside any request — a background hook —
       // names no id and runs with no tenant context, which the isolation
       // predicate resolves to the default tenant rather than to everything. A
-      // query naming a request that is over is refused (`requestTenant`).
-      const tenantId = requestTenant(managed, msg.requestId, 'query');
-      const rows = await runRawWithParams(managed.name, msg.sql, msg.params, tenantId ?? undefined);
+      // query naming a request that is over is refused (`requestScope`).
+      const scope = requestScope(managed, msg.requestId, 'query');
+      const rows = await runRawWithParams(managed.name, msg.sql, msg.params, scope);
       this.post(managed, { type: 'db:ok', id: msg.id, rows });
     } catch (err) {
       this.post(managed, { type: 'db:err', id: msg.id, error: (err as Error).message });
@@ -508,11 +521,12 @@ export class WorkerExtensionHost {
     msg: Extract<WorkerToHostMessage, { type: 'service:call' }>,
   ): Promise<void> {
     try {
-      const tenantId = requestTenant(managed, msg.requestId, 'service call') ?? null;
+      const scope = requestScope(managed, msg.requestId, 'service call') ?? { tenantId: null };
+      const { tenantId, actor } = scope;
       // First check if a worker owns this service.
       const ownerWorker = this.findServiceOwner(msg.name);
       if (ownerWorker && ownerWorker.name !== managed.name) {
-        const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, tenantId);
+        const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, scope);
         this.post(managed, { type: 'service:ok', id: msg.id, result });
         return;
       }
@@ -530,9 +544,10 @@ export class WorkerExtensionHost {
       // The context an inline extension's code has while serving a request of
       // that tenant — the domain `tenantMiddleware` opens and the tenant
       // transaction inside it — so the service's `ctx.db` and its permission
-      // checks resolve the caller's tenant. No request, no tenant: unchanged.
+      // checks resolve the caller's tenant — and, opened with the same caller,
+      // the row rules keyed on that user. No request, no tenant: unchanged.
       const result = tenantId
-        ? await runWithDomain(tenantId, () => withTenantIsolation(tenantId, call))
+        ? await runWithDomain(tenantId, () => withTenantIsolation(tenantId, call, actor))
         : await call();
       this.post(managed, { type: 'service:ok', id: msg.id, result });
     } catch (err) {
@@ -542,22 +557,22 @@ export class WorkerExtensionHost {
 
   /**
    * Ask `target` to run a service it registered, on behalf of a caller in
-   * `tenantId`, and return its result.
+   * `scope`, and return its result.
    *
    * The invoke id is recorded in the target's `invokeTenants` for as long as the
    * call is pending, so the queries the service makes under it run as the
-   * caller's tenant — the same record, and the same lifetime, as a route
-   * invocation's. Without it the service queried as no request at all, which
+   * caller's tenant and user — the same record, and the same lifetime, as a
+   * route invocation's. Without it the service queried as no request at all, which
    * the isolation predicate answers with the default tenant.
    */
   private async invokeWorkerService(
     target: ManagedWorker,
     name: string,
     args: unknown[],
-    tenantId: string | null,
+    scope: InvokeScope,
   ): Promise<unknown> {
     const invokeId = rpcId('inv-svc');
-    target.invokeTenants.set(invokeId, tenantId);
+    target.invokeTenants.set(invokeId, scope);
     try {
       const reply = await new Promise<
         Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
@@ -588,11 +603,12 @@ export class WorkerExtensionHost {
       // Publish a stub in the host registry that, when called, forwards
       // to the worker via service:invoke. This is what makes worker-
       // registered services callable from inline extensions / other
-      // workers. The caller's tenant is the one its async context runs as.
+      // workers. The caller's tenant and user are the ones its async context
+      // runs as.
       serviceRegistry
         .scope(managed.name)
         .register(msg.name, (...args: unknown[]) =>
-          this.invokeWorkerService(managed, msg.name, args, getCurrentDomainOrNull()),
+          this.invokeWorkerService(managed, msg.name, args, currentScope(getCurrentDomainOrNull())),
         );
       managed.registeredServices.add(msg.name);
       this.post(managed, { type: 'service:register:ok', id: msg.id });
@@ -642,7 +658,7 @@ export class WorkerExtensionHost {
           });
           const id = rpcId('inv');
           const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
-          live.invokeTenants.set(id, reqTenantId);
+          live.invokeTenants.set(id, currentScope(reqTenantId));
           live.inFlightRequests++;
           live.totalRequests++;
           try {
@@ -750,25 +766,34 @@ export const _internalForTests = {
    * anything the worker sent, and that is a property of this lookup.
    */
   resolveDbTenant(managed: ManagedWorker, requestId?: string): string | null | undefined {
-    return requestId ? managed.invokeTenants.get(requestId) : undefined;
+    return requestId ? managed.invokeTenants.get(requestId)?.tenantId : undefined;
   },
 };
 
 /**
- * The tenant of the invocation a worker message names, from the host's own
- * record — `undefined` when it names none (background work), and a refusal when
- * it names one the record no longer holds.
+ * The scope to record for an invocation made now, in `tenantId`: the caller the
+ * current tenant transaction runs as rides along. Taken here, on the host, while
+ * the request is live — the worker never gets a say in who it acts as.
+ */
+function currentScope(tenantId: string | null): InvokeScope {
+  return tenantId ? { tenantId, actor: getRequestActor() } : { tenantId };
+}
+
+/**
+ * The tenant and caller of the invocation a worker message names, from the
+ * host's own record — `undefined` when it names none (background work), and a
+ * refusal when it names one the record no longer holds.
  *
  * Refused, not demoted to no tenant: such a message is work a request started
  * and did not wait for (a timer, an un-awaited promise, a handler past the 30 s
  * timeout), still carrying the request's async context after the request ended.
  * Run tenantless, tenant B's leftover work read the default tenant's rows.
  */
-function requestTenant(
+function requestScope(
   managed: ManagedWorker,
   requestId: string | undefined,
   what: string,
-): string | null | undefined {
+): InvokeScope | undefined {
   if (!requestId) return undefined;
   if (!managed.invokeTenants.has(requestId)) {
     throw new Error(
@@ -888,8 +913,9 @@ async function runRawWithParams(
   extName: string,
   sql: string,
   params: unknown[],
-  tenantId?: string,
+  scope?: InvokeScope,
 ): Promise<unknown[]> {
+  const tenantId = scope?.tenantId;
   assertWorkerSqlAllowed(extName, sql, await workerSqlEngineTables());
 
   const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
@@ -951,13 +977,36 @@ async function runRawWithParams(
     if (!role) throw noWorkerSqlRole(extName);
     await reserved.unsafe(`SET LOCAL ROLE ${role}`);
     if (tenantId) {
-      // Parameterised: this value comes from the host's own record, but it is
-      // interpolated into a session setting, and `set_config` takes a bind
-      // parameter where `SET` does not.
-      await reserved.unsafe('SELECT set_config($1, $2, true)', [
-        'zveltio.current_tenant',
-        tenantId,
-      ]);
+      // The tenant and the caller, from the host's own record — the settings
+      // `withTenantIsolation` publishes for the request, so the row rules keyed
+      // on the user apply here as they do to an inline extension's `ctx.db`.
+      // Without them `zveltio.actor` was never `on`, every such rule stood down,
+      // and the worker saw what an anonymous caller of the tenant sees.
+      //
+      // Deliberately NOT carried: the caller's exemption (`rls_bypass`) and a
+      // reach wider than this tenant (`visible_tenants`/`ancestor_tenants`).
+      // Both only widen, and this code is the extension the platform chose not
+      // to trust; it keeps the single-tenant, rules-apply view it always had.
+      //
+      // Parameterised: `set_config` takes bind parameters where `SET` does not.
+      const id = scope?.actor?.identity;
+      await reserved.unsafe(
+        `SELECT set_config('zveltio.current_tenant', $1, true),
+                set_config('zveltio.user_id', $2, true),
+                set_config('zveltio.user_email', $3, true),
+                set_config('zveltio.user_role', $4, true),
+                set_config('zveltio.user_roles', $5, true),
+                set_config('zveltio.actor', $6, true),
+                set_config('zveltio.rls_bypass', 'off', true)`,
+        [
+          tenantId,
+          id?.userId ?? '',
+          id?.email ?? '',
+          id?.role ?? '',
+          (id?.roles ?? []).join(','),
+          id?.userId ? 'on' : 'off',
+        ],
+      );
     }
     const rows = (await reserved.unsafe(sql, params.length > 0 ? params : undefined)) as unknown[];
     await reserved.unsafe('COMMIT');

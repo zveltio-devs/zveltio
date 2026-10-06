@@ -10,6 +10,7 @@ import {
   currentAfterCommitQueue,
   runAfterCommitJob,
   runWithTenantTrx,
+  setRequestActor,
   setResolvedMembership,
   setSingleTenantScope,
   settleAfterCommit,
@@ -1307,6 +1308,7 @@ export async function withTenantIsolation<T>(
       // Whether the reach is this tenant alone — decided HERE, beside the scope
       // that produced it, rather than re-derived later from a GUC string.
       setSingleTenantScope(isSingleUnitReach(scope, tenantId));
+      setRequestActor({ userId: opts?.userId ?? null, identity: opts?.identity });
       // The reach is also the membership answer: no row is NULL, rows none in
       // force are NO_UNITS (`zveltio_tenant_reach`). The membership gate reads it
       // instead of asking `zv_tenant_users` again.

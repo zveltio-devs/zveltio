@@ -37,7 +37,7 @@ function makeManaged(name = 'probe') {
     worker: { postMessage: mock(() => {}), terminate: mock(() => {}) } as unknown as Worker,
     routes: [],
     pendingInvokes: new Map(),
-    invokeTenants: new Map<string, string | null>(),
+    invokeTenants: new Map<string, { tenantId: string | null }>(),
     pendingInits: new Map(),
     pendingPings: new Map(),
     registeredServices: new Set<string>(),
@@ -53,7 +53,7 @@ function makeManaged(name = 'probe') {
 describe('worker db:query tenant resolution', () => {
   it('resolves the tenant of the request the host dispatched', () => {
     const m = makeManaged();
-    m.invokeTenants.set('inv-1', TENANT_A);
+    m.invokeTenants.set('inv-1', { tenantId: TENANT_A });
     expect(resolveDbTenant(m, 'inv-1')).toBe(TENANT_A);
   });
 
@@ -61,14 +61,14 @@ describe('worker db:query tenant resolution', () => {
     // A worker inventing an id must not obtain a tenant context. The real
     // handler refuses such a query outright (worker-query-tenant.test.ts).
     const m = makeManaged();
-    m.invokeTenants.set('inv-1', TENANT_A);
+    m.invokeTenants.set('inv-1', { tenantId: TENANT_A });
     expect(resolveDbTenant(m, 'inv-made-up')).toBeUndefined();
   });
 
   it('gives nothing for a query issued outside any request', () => {
     // Background hooks and scheduled tasks have no caller to inherit from.
     const m = makeManaged();
-    m.invokeTenants.set('inv-1', TENANT_A);
+    m.invokeTenants.set('inv-1', { tenantId: TENANT_A });
     expect(resolveDbTenant(m, undefined)).toBeUndefined();
   });
 
@@ -77,8 +77,8 @@ describe('worker db:query tenant resolution', () => {
     // would have let the second overwrite the first — which is one tenant's
     // query running in another tenant's context, the exact bug being fixed.
     const m = makeManaged();
-    m.invokeTenants.set('inv-1', TENANT_A);
-    m.invokeTenants.set('inv-2', TENANT_B);
+    m.invokeTenants.set('inv-1', { tenantId: TENANT_A });
+    m.invokeTenants.set('inv-2', { tenantId: TENANT_B });
     expect(resolveDbTenant(m, 'inv-1')).toBe(TENANT_A);
     expect(resolveDbTenant(m, 'inv-2')).toBe(TENANT_B);
   });
@@ -88,7 +88,7 @@ describe('worker db:query tenant resolution', () => {
     // a request dispatched to extension Y.
     const x = makeManaged('x');
     const y = makeManaged('y');
-    x.invokeTenants.set('inv-1', TENANT_A);
+    x.invokeTenants.set('inv-1', { tenantId: TENANT_A });
     expect(resolveDbTenant(y, 'inv-1')).toBeUndefined();
   });
 
@@ -96,7 +96,7 @@ describe('worker db:query tenant resolution', () => {
     // Otherwise the map grows for the process lifetime and a worker could keep
     // quoting a completed request's id to hold onto its tenant context.
     const m = makeManaged();
-    m.invokeTenants.set('inv-1', TENANT_A);
+    m.invokeTenants.set('inv-1', { tenantId: TENANT_A });
     m.invokeTenants.delete('inv-1');
     expect(resolveDbTenant(m, 'inv-1')).toBeUndefined();
   });
