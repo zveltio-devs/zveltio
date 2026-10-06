@@ -447,7 +447,9 @@ pass; flip back to `strict` for production.
 | `zv_audit_log` | 365 days | `AUDIT_LOG_RETENTION_DAYS` |
 | `zv_sync_tombstones` | 30 days | hard-coded |
 
-Set to `0` to disable purge for a given table. Purges run nightly at
+Values are whole days. Set to `0` to disable purge for a given table. A value
+that is not a whole number of days (`1y`, `30d`) purges nothing and logs a
+warning. Purges run nightly at
 03:00 from the garbage collector (`lib/runtime/garbage-collector.ts`), on one
 replica. Trashed records are purged by the trash scheduler, not by this sweep.
 

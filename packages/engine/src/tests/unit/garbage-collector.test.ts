@@ -72,6 +72,26 @@ describe('runGarbageCollector — retention purges', () => {
     expect(db.executed(/DELETE FROM zv_audit_log/i)).toHaveLength(0);
   });
 
+  // `parseInt('1y')` is 1: a value written as a duration purged every audit row
+  // older than a day. A value that is not a whole number of days purges nothing.
+  for (const bad of ['1y', '30d', '1e3', '-5', '12.5', 'forever']) {
+    it(`purges nothing when a retention knob is ${JSON.stringify(bad)}`, async () => {
+      process.env.REQUEST_LOG_RETENTION_DAYS = bad;
+      process.env.AUDIT_LOG_RETENTION_DAYS = bad;
+      const db = new CannedDb();
+      db.when(/FROM information_schema\.schemata/i, []);
+      const q = quiet();
+      try {
+        await runGarbageCollector(asDb(db));
+      } finally {
+        q.restore();
+      }
+      expect(db.executed(/DELETE FROM zv_request_logs/i)).toHaveLength(0);
+      expect(db.executed(/DELETE FROM zv_slow_queries/i)).toHaveLength(0);
+      expect(db.executed(/DELETE FROM zv_audit_log/i)).toHaveLength(0);
+    });
+  }
+
   it('defaults to 30d request-log / 365d audit retention when unset', async () => {
     const db = new CannedDb();
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 0 }]);
