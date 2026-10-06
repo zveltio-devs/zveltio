@@ -1,5 +1,6 @@
 <script lang="ts">
 import { m } from '$lib/i18n.svelte.js';
+import { modalFocus } from '$lib/utils/modal-focus.js';
 import {
   X,
   Plus,
@@ -235,8 +236,11 @@ async function submit() {
   class="fixed inset-0 z-50 flex flex-col {open ? '' : 'pointer-events-none'}"
   aria-modal="true"
   role="dialog"
+  aria-labelledby="add-field-drawer-title"
   aria-hidden={!open}
+  tabindex="-1"
   {...{ inert: !open || undefined }}
+  use:modalFocus={{ open, onEscape: close }}
 >
   <!-- Backdrop -->
   <div
@@ -257,7 +261,7 @@ async function submit() {
           <Plus size={20} class="text-primary" />
         </div>
         <div>
-          <h2 class="font-bold text-lg leading-tight">{m['fields.addField']()}</h2>
+          <h2 id="add-field-drawer-title" class="font-bold text-lg leading-tight">{m['fields.addField']()}</h2>
           <p class="text-xs text-base-content/65 mt-0.5">
             {m['fields.toCollection']({ name: collectionName })}
           </p>

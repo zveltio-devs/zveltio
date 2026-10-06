@@ -9,6 +9,7 @@ import { X, Layers, Save, Plus, History, ChevronDown } from '@lucide/svelte';
 import { api, dataApi } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { fieldLabel, fieldBadgeColor, labelFromRecord } from './field-helpers.js';
+import { modalFocus } from '$lib/utils/modal-focus.js';
 import type { CollectionField, CollectionRecord } from './types.js';
 
 interface Props {
@@ -243,7 +244,9 @@ async function saveRecord() {
     class="fixed inset-0 z-50 flex"
     role="dialog"
     aria-modal="true"
-    aria-label={m['record.new']()}
+    aria-labelledby="record-drawer-title"
+    tabindex="-1"
+    use:modalFocus={{ open: true, onEscape: () => (drawerOpen = false) }}
   >
     <!-- Backdrop -->
     <div
@@ -260,7 +263,9 @@ async function saveRecord() {
       <!-- Panel header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-base-200 shrink-0">
         <div>
-          <h2 class="font-bold text-lg">{drawerMode === 'edit' ? 'Edit Record' : 'New Record'}</h2>
+          <h2 id="record-drawer-title" class="font-bold text-lg">
+            {drawerMode === 'edit' ? m['data.editRecord']() : m['record.new']()}
+          </h2>
           <p class="text-xs text-base-content/65 font-mono mt-0.5">
             {collectionName}{#if drawerMode === 'edit' && drawerRecordId} · {drawerRecordId.slice(0, 8)}…{/if}
           </p>
@@ -318,7 +323,7 @@ async function saveRecord() {
                     bind:checked={insertForm[field.name]}
                   />
                   <span class="text-sm text-base-content/65">
-                    {insertForm[field.name] ? 'Yes' : 'No'}
+                    {insertForm[field.name] ? m['common.yes']() : m['common.no']()}
                   </span>
                 </label>
 
@@ -403,6 +408,7 @@ async function saveRecord() {
                   <input
                     type="color"
                     class="h-10 w-12 rounded border border-base-300 cursor-pointer p-0.5 bg-transparent"
+                    aria-label={fieldLabel(field)}
                     bind:value={insertForm[field.name]}
                   />
                   <input

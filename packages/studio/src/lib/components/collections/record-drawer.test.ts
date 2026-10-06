@@ -122,3 +122,75 @@ describe('RecordDrawer', () => {
     expect(queryByText(/No records in/i)).toBeNull();
   });
 });
+
+/**
+ * The drawer says `aria-modal="true"`, so a screen reader treats the page
+ * behind it as gone. It has to behave like it: Escape bound to a backdrop that
+ * never takes focus did nothing, focus stayed on the button that opened it, Tab
+ * walked into the table behind, and closing dropped the keyboard at the top of
+ * the document. And it announced "New record" while editing one.
+ */
+describe('RecordDrawer as a modal dialog', () => {
+  // `focusables()`-style filters drop elements with a null offsetParent, which
+  // jsdom reports for everything — see Modal.test.ts.
+  const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+  beforeEach(() =>
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.parentElement;
+      },
+    }),
+  );
+  afterEach(() => {
+    if (desc) Object.defineProperty(HTMLElement.prototype, 'offsetParent', desc);
+  });
+
+  async function openFrom() {
+    const opener = document.createElement('button');
+    opener.textContent = 'open';
+    document.body.appendChild(opener);
+    opener.focus();
+    const view = mount();
+    view.component.openEdit({ id: 'rec-a', title: 'A' });
+    const dialog = await view.findByRole('dialog');
+    return { ...view, opener, dialog };
+  }
+
+  it('moves focus into the drawer when it opens', async () => {
+    const { dialog } = await openFrom();
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+  });
+
+  it('closes on Escape pressed inside a field', async () => {
+    const { getByLabelText, queryByRole } = await openFrom();
+    await fireEvent.keyDown(getByLabelText('Title'), { key: 'Escape' });
+    await waitFor(() => expect(queryByRole('dialog')).toBeNull());
+  });
+
+  it('keeps Tab inside the drawer', async () => {
+    const { dialog } = await openFrom();
+    const items = [
+      ...(dialog as HTMLElement).querySelectorAll<HTMLElement>('button:not([disabled]), input'),
+    ];
+    const last = items[items.length - 1]!;
+    last.focus();
+    // jsdom does not move focus on Tab itself, so "still inside" proves
+    // nothing; the trap has to wrap to the first control.
+    await fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(items[0]);
+  });
+
+  it('gives focus back to what opened it on close', async () => {
+    const { opener, getByLabelText, queryByRole } = await openFrom();
+    await fireEvent.keyDown(getByLabelText('Title'), { key: 'Escape' });
+    await waitFor(() => expect(queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+    opener.remove();
+  });
+
+  it('is announced as editing when it edits a record', async () => {
+    const { dialog } = await openFrom();
+    expect(dialog).toHaveAccessibleName(/edit record/i);
+  });
+});
