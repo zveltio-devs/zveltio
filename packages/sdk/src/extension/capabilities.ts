@@ -61,6 +61,7 @@ export const CAPABILITY_MEMBERS = {
   deriveTokenHash: 'secrets',
   createBetterAuthSession: 'auth:session',
   deleteUser: 'auth:users',
+  exportUserData: 'auth:users',
   revokeUserSessions: 'auth:users',
   setUserActive: 'auth:users',
   liftOwnBan: 'auth:users',
