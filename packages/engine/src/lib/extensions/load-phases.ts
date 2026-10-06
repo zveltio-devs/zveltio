@@ -246,6 +246,31 @@ export async function resolveManifest(
 }
 
 /**
+ * Worker-isolated extensions load in production only with the operator's
+ * explicit consent.
+ *
+ * The worker is a thread inside the engine process: it keeps an extension away
+ * from the engine's JavaScript objects, not from the process's files or its
+ * environment, so it is not a boundary for untrusted code. Until extensions run
+ * out of process, an operator who installs third-party code in production says
+ * so with ZVELTIO_ALLOW_WORKER_EXTENSIONS=1. Development and tests are not gated.
+ */
+export function enforceWorkerOptIn(
+  extName: string,
+  manifest: ExtensionManifest | null,
+): PhaseResult<void> {
+  if (manifest?.engine?.isolation !== 'worker') return { ok: true, value: undefined };
+  if (process.env.NODE_ENV !== 'production') return { ok: true, value: undefined };
+  if (process.env.ZVELTIO_ALLOW_WORKER_EXTENSIONS === '1') return { ok: true, value: undefined };
+  const msg =
+    `Extension "${extName}" runs in worker isolation, which in production requires ` +
+    `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1. The worker is a thread in the engine process and ` +
+    `does not keep an extension from the process's files or environment; set the variable ` +
+    `only for third-party code you trust.`;
+  return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
+}
+
+/**
  * Phase 2 — marketplace-policy.md §2 publisher-tier gate. When the manifest did
  * NOT opt into worker isolation (and no operator inline override is set), fetch
  * the registry catalog and refuse inline execution for community/unaudited
