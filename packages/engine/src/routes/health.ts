@@ -1,4 +1,4 @@
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { unlink, writeFile } from 'node:fs/promises';
 import { requestSession } from '../middleware/session-prefetch.js';
 import { refuseWithoutSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
@@ -14,6 +14,7 @@ import { getCache, realtimeBus } from '../lib/runtime/index.js';
 import { isDDLQueueStarted } from '../lib/data/index.js';
 import { extensionLoader } from '../lib/extensions/index.js';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
+import { storageConfig } from '../lib/storage/index.js';
 import { emailCaseUniquenessProblem } from '../lib/identity.js';
 import {
   type HealthCheck,
@@ -231,14 +232,18 @@ export function healthRoutes(db: Database, auth?: any): Hono {
         name: 'storage',
         critical: false,
         run: async () => {
-          const dir = process.env.STORAGE_DIR;
-          if (dir) {
+          // The storage the engine actually uses. This read STORAGE_DIR, which
+          // nothing else reads, so a default install answered "not configured,
+          // ok" while uploads to an unwritable directory failed.
+          const cfg = storageConfig();
+          if (cfg.driver === 'local') {
+            const dir = cfg.localDir;
             const canary = `${dir}/.health-probe-${Date.now()}`;
-            writeFileSync(canary, 'ok');
-            unlinkSync(canary);
+            await writeFile(canary, 'ok');
+            await unlink(canary);
             return { ok: true, detail: { backend: 'local', dir } };
           }
-          const endpoint = process.env.S3_ENDPOINT;
+          const endpoint = cfg.s3.endpoint;
           if (endpoint) {
             const res = await fetch(endpoint, {
               method: 'HEAD',
