@@ -319,6 +319,12 @@ export function assertWorkerSqlAllowed(
       refuse('SELECT … INTO (creates a table)', "Declare tables in the extension's migrations.");
     }
   }
+  // `U&"set\005fconfig"` is `set_config` to Postgres and an unknown name to
+  // every rule here, which reads identifiers as written. No extension needs
+  // escapes in a name, so the spelling is refused rather than decoded.
+  if (/u&"/i.test(code)) {
+    refuse('a Unicode-escaped identifier (U&"…")', 'Spell identifiers out.');
+  }
   for (let p = code.indexOf('('); p !== -1; p = code.indexOf('(', p + 1)) {
     let q = p - 1;
     while (q >= 0 && /\s/.test(code[q]!)) q--;
