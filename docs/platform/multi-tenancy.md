@@ -460,7 +460,11 @@ worker extension's tables go to a role of its own, a member of `zveltio_worker`,
 and the bridge runs that extension's queries as it — so one worker extension
 cannot reach another's tables even where the SQL analyzer is wrong. Otherwise
 it is one role for every worker extension and the analyzer keeps them apart. The tenant is **injected by the host**,
-not declared by the worker. Contaminated connections are closed rather than
+not declared by the worker. So is the caller: a query or service call made while
+serving a request runs with that request's user, email and roles published, so
+row rules keyed on the user apply as they do to an inline extension. The
+caller's exemption (`rls_bypass`) and any reach wider than the tenant are not
+carried into the worker's own SQL. Contaminated connections are closed rather than
 returned to the pool.
 
 An inline extension's `ctx.db` statement inside a tenant transaction runs as

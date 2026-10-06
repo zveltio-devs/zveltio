@@ -14,7 +14,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { joinedTransactionBuilder, withSavepoint } from '../savepoint.js';
-import { DEFAULT_TENANT_ID } from './tenant-manager.js';
+import { DEFAULT_TENANT_ID, type RlsIdentity } from './tenant-manager.js';
 
 /** Savepoint names for read-only joined scopes; unique so nesting is plain. */
 let savepointSeq = 0;
@@ -69,6 +69,21 @@ interface TenantStore {
   afterCommit?: AfterCommitQueue;
   /** Set by `runAsTenantWithoutTransaction`; read by `poolOrRefusal`. */
   refuseUnscoped?: boolean;
+  /** Who this transaction runs as. See `RequestActor`. */
+  actor?: RequestActor;
+}
+
+/**
+ * The caller a tenant transaction was opened for: what `withTenantIsolation` was
+ * handed, enough to open another transaction as the same caller.
+ *
+ * Kept so work that crosses a boundary on the request's behalf — a
+ * worker-isolated extension's query or service call, run by the host on ANOTHER
+ * connection — runs as that caller instead of as nobody in its tenant.
+ */
+export interface RequestActor {
+  userId: string | null;
+  identity?: RlsIdentity;
 }
 
 /**
@@ -336,6 +351,17 @@ export function setResolvedMembership(userId: string, tenantId: string, inForce:
   if (current) current.membership = { userId, tenantId, inForce };
 }
 
+/** Record who the current tenant transaction runs as. See `RequestActor`. */
+export function setRequestActor(actor: RequestActor): void {
+  const current = store.getStore();
+  if (current) current.actor = actor;
+}
+
+/** Who the current tenant transaction runs as, or `undefined` outside one. */
+export function getRequestActor(): RequestActor | undefined {
+  return store.getStore()?.actor;
+}
+
 /**
  * Whether `userId` is a member in force of `tenantId` by the reach this
  * transaction resolved, or `undefined` when it resolved none for them there.
@@ -557,4 +583,13 @@ export async function publishApiKeyActor(userId: string, bypass: boolean): Promi
            set_config('zveltio.actor', 'on', true),
            set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true)
   `.execute(trx);
+  // Replaced, not mutated: a record taken before this (a worker invocation
+  // already dispatched) keeps what it was taken as.
+  const current = store.getStore();
+  if (current?.actor) {
+    current.actor = {
+      ...current.actor,
+      identity: { userId, email: '', role: 'api_key', roles: ['api_key'], bypass },
+    };
+  }
 }

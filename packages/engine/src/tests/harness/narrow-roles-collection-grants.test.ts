@@ -48,7 +48,7 @@ async function workerQuery(sqlText: string, tenantId: string): Promise<Reply> {
     const managed = {
       name: 'grant-probe',
       worker: { postMessage: resolve, terminate: () => {} },
-      invokeTenants: new Map([['req-1', tenantId]]),
+      invokeTenants: new Map([['req-1', { tenantId }]]),
       pendingInvokes: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
