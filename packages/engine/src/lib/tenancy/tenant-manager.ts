@@ -314,18 +314,29 @@ export async function applyTenantRLS(db: Database, table: string): Promise<void>
   // `tenant_id =` (see `tenantScopeId` in db/dynamic.ts — the policy alone
   // cannot drive it, because `= ANY` over a runtime array is not an index cond).
   //
-  // Guarded on the column: this runs for collection tables, which always have
-  // `created_at`, but the guard costs nothing and the next caller may not.
-  const hasCreatedAt = await sql<{ n: number }>`
-    SELECT COUNT(*)::int AS n FROM information_schema.columns
+  // Guarded on the columns: this runs for collection tables, which always have
+  // both, but a junction table has no `updated_at` and the next caller may not.
+  const columns = await sql<{ column_name: string }>`
+    SELECT column_name FROM information_schema.columns
     WHERE table_schema = current_schema()
       AND table_name = ${table}
-      AND column_name = 'created_at'
+      AND column_name IN ('created_at', 'updated_at')
   `.execute(db);
-  if (hasCreatedAt.rows[0]?.n ?? 0) {
+  const has = new Set(columns.rows.map((r) => r.column_name));
+  if (has.has('created_at')) {
     await sql`
       CREATE INDEX IF NOT EXISTS ${sql.id(indexName(table, 'tenant_created'))}
       ON ${sql.id(table)}(tenant_id, created_at DESC)
+    `.execute(db);
+  }
+  // And the keyset `POST /api/sync/pull` walks: `tenant_id =`, `updated_at >=`
+  // the cursor, in `(updated_at, id::text COLLATE "C")` order. Without it an
+  // idle incremental pull read every row the tenant has, per collection, per
+  // device: on 200 000 rows 63 ms and 2 535 buffers, against 0,08 ms and 3.
+  if (has.has('updated_at')) {
+    await sql`
+      CREATE INDEX IF NOT EXISTS ${sql.id(indexName(table, 'tenant_updated'))}
+      ON ${sql.id(table)}(tenant_id, updated_at, (id::text COLLATE "C"))
     `.execute(db);
   }
   await sql`ALTER TABLE ${sql.id(table)} ENABLE ROW LEVEL SECURITY`.execute(db);

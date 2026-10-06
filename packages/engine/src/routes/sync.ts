@@ -18,6 +18,7 @@ import {
   filterWritableFields,
   getColumnAccess,
   getRlsFilters,
+  getSingleTenantId,
   resolveUserRole,
 } from '../lib/tenancy/index.js';
 import {
@@ -663,6 +664,12 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         resync[collection] = true;
         cursor = undefined;
       }
+      // `tenant_id =` and `updated_at >=` let `(tenant_id, updated_at, id::text)`
+      // bound the scan; the policy's `= ANY` and a row comparison on an
+      // expression cannot, so an idle pull read every row the tenant has: on
+      // 200 000 rows, 63 ms and 2 535 buffers against 0,08 ms and 3. The
+      // equality only when the reach is one tenant (`tenantScopeId`, db/dynamic.ts).
+      const tenantScopeId = getSingleTenantId();
       const pullQuery = scope.query(
         pullDb
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -672,12 +679,14 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
             sql<string>`${updatedUs}::text`.as('__zv_pull_us'),
             sql<string>`id::text`.as('__zv_pull_id'),
           ])
+          .where(tenantScopeId ? sql<boolean>`tenant_id = ${tenantScopeId}` : sql<boolean>`true`)
           .where(
             cursor
-              ? sql<boolean>`(${updatedUs}, ${idText}) > (${cursor.us}::bigint, ${cursor.id})`
+              ? sql<boolean>`updated_at >= ${usToTs(cursor.us)}
+                  AND (${updatedUs}, ${idText}) > (${cursor.us}::bigint, ${cursor.id})`
               : sql<boolean>`true`,
           )
-          .where(sql<boolean>`${updatedUs} < ${watermarkUs}::bigint`)
+          .where(sql<boolean>`updated_at < ${usToTs(watermarkUs)}`)
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           .orderBy('updated_at' as any, 'asc')
           .orderBy(idText)
