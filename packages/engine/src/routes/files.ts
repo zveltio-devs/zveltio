@@ -112,6 +112,12 @@ export function filesRoutes(): Hono {
       'X-Content-Type-Options': 'nosniff',
       'Accept-Ranges': 'bytes',
     };
+    // An SVG opened directly is a document on this origin — Studio's — and the
+    // upload-time sanitizer is the only other thing standing between it and a
+    // script. SVG only: `sandbox` would break the browser's PDF viewer.
+    if (contentType.toLowerCase().startsWith('image/svg+xml')) {
+      headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+    }
 
     const range = parseRange(c.req.header('range'), size);
     if (range === 'invalid') {
