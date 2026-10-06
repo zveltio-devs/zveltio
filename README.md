@@ -53,7 +53,7 @@ The engine ships with everything every business application needs. Activate plug
 | **Automation flows** | Visual trigger → step builder with DLQ retry and idempotency. |
 | **Webhooks** | HMAC-signed outbound webhooks on data changes. |
 | **Multi-tenancy** | Isolated tenants with environment branching. |
-| **Plugin system** | Engine extensions + Studio extensions, Ed25519-signed; community extensions run in a worker restricted to their own tables. |
+| **Plugin system** | Engine extensions + Studio extensions, Ed25519-signed. Community extensions run in a worker thread whose SQL is restricted to user tables and their own — a guard-rail inside the engine process, not a sandbox, and off in production unless the operator opts in. |
 | **Offline sync** | CRDT-based local-first storage in the SDK (Electric SQL provider optional). |
 
 AI (OpenAI, Anthropic, Ollama, Azure; semantic search via pgvector, text-to-SQL, schema generation) is the `ai` extension, not the core.
@@ -109,7 +109,7 @@ Zveltio extensions are **plugins**, not forks. Two types ship together:
 ### Engine extensions
 - TypeScript modules that mount Hono routes at `/ext/<name>/`, declare migrations, hook pre/post-write triggers, alter queries, gate entity access, run cron jobs.
 - Signed with Ed25519 at publish time and **verified at install**: a missing or invalid signature fails the install. Set `REQUIRE_EXTENSION_SIGNATURES=false` only for a private mirror that does not sign; to trust an additional signer, add its key to `REGISTRY_PUBLIC_KEYS_JSON` instead.
-- Community-tier extensions are **review-gated, signed, and worker-isolated**: their code is never imported into the engine process — the worker loads it — and from there the host restricts their SQL to user-data tables and their own `zv_<ext>_*` namespace, on a reserved connection with a statement timeout, running as a database role (`zveltio_worker`) that holds no grant at all on the tables Better-Auth owns. Until 3.0.0-beta.61 that restriction was a denylist of table-name prefixes with no rule for unprefixed names, so an extension could read `session` and `account` directly; it is an allowlist now, with the role beneath it as the layer that survives the next mistake in the string matching. Worker isolation is a boundary against accident and a real attacker's first obstacle — it is not a sandbox that has been adversarially tested, and an instance that installs untrusted community code is still trusting the review.
+- Community-tier extensions are **review-gated, signed, and worker-isolated**: their code is never imported into the engine process — the worker loads it — and from there the host restricts their SQL to user-data tables and their own `zv_<ext>_*` namespace, on a reserved connection with a statement timeout, running as a database role (`zveltio_worker`) that holds no grant at all on the tables Better-Auth owns. Until 3.0.0-beta.61 that restriction was a denylist of table-name prefixes with no rule for unprefixed names, so an extension could read `session` and `account` directly; it is an allowlist now, with the role beneath it as the layer that survives the next mistake in the string matching. Worker isolation is a guard-rail, not a sandbox: the worker is a thread inside the engine process, so its JavaScript environment holds no engine credentials but it shares the process with them. Production therefore loads worker-isolated extensions only when the operator sets `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1`, and an instance that installs untrusted community code is still trusting the review. Where such code runs, give the engine its credentials through `<NAME>_FILE` rather than environment variables. An out-of-process runner for third-party code is planned (RFC zveltio#907).
 - The capability policy (`db.read` / `db.write` / `fetch.https` / …) is currently enforced for the WASM host only; JS extensions are governed by the worker/table restrictions above rather than per-capability grants.
 - Optional WASM runtime for strict isolation (Rust / TinyGo / AssemblyScript).
 
@@ -163,7 +163,7 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 - **Isolation in the database.** Tenant isolation is FORCE row-level security in PostgreSQL, keyed on a per-transaction setting — not an application filter. Hierarchical tenants: a parent can read its subtree and write only its own node.
 - **Backend and business stack on the same data.** The headless engine and the business extensions (CRM, invoicing, accounting, payroll, POS, e-commerce) share one database, one permission model and one audit trail.
 - **Schema changes on live tables.** Ghost DDL copies and swaps, so writes block only for milliseconds at the swap; schema branches get a diff, review, preview and merge first.
-- **Extensions are signed and contained.** Ed25519 signatures verified at install; community code runs in a worker under a database role with no access to auth tables. Admin pages are declarative JSON, so no third-party JavaScript reaches the admin.
+- **Extensions are signed and fenced.** Ed25519 signatures verified at install; community code runs in a worker whose SQL is limited to user tables and its own, under a database role with no access to auth tables — a guard-rail in the engine process, opt-in in production, not a sandbox. Admin pages are declarative JSON, so no third-party JavaScript reaches the admin.
 - **Compliance built in.** Audit trail on every write, GDPR export and erasure, per-field encryption, and Romanian fiscal packs (e-Factura, SAF-T, e-Transport).
 
 **Where it is not there yet**
@@ -288,7 +288,7 @@ Building extensions: [docs/extensions/developer-guide.md](docs/extensions/develo
           │   • Collections + dynamic schema              │
           │   • Real-time bus + audit trail               │
           │   • AI providers + edge functions             │
-          │   • Plugin runtime (signed, sandboxed)        │
+          │   • Plugin runtime (signed, SQL-fenced)       │
           └───────────────┬───────────────────┬───────────┘
                           │                   │
                   ┌───────▼────────┐   ┌──────▼──────┐
@@ -341,7 +341,7 @@ Honest about where we are: still beta. The current version is in [`packages/engi
 - `ZveltioExtension` SDK interface + `@zveltio/sdk/extension` types
 - `@zveltio/sdk/build` plugin config (custom build pipelines)
 - Marketplace publish flow + review queue endpoints
-- Worker isolation contract (minimal worker environment, table-restricted SQL bridge, ping/pong heartbeat, crash respawn)
+- Worker isolation contract (credential-free worker environment, table-restricted SQL bridge, ping/pong heartbeat, crash respawn) — a guard-rail inside the engine process, not a sandbox
 
 **What may still move in beta.x:**
 - Engine internal helpers not exported via SDK

@@ -81,7 +81,7 @@ of date — capabilities that used to live in core and moved out keep their old
 | Tier | Who runs there | What it means |
 |---|---|---|
 | `inline` | First-party, reviewed extensions | In-process. Trusted code. |
-| `worker` | Community extensions | A separate process, a restricted SQL allowlist limited to user tables and the extension's own namespace, a reserved connection with a statement timeout, and a database role with no access to the authentication tables. |
+| `worker` | Community extensions | A worker thread in the engine process, a restricted SQL allowlist limited to user tables and the extension's own namespace, a reserved connection with a statement timeout, and a database role with no access to the authentication tables. A guard-rail, not a sandbox; off in production unless the operator sets `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1`. |
 | WASM | Available, opt-in | Strict isolation. |
 
 Worker isolation is a strong guard-rail. It is not an adversarially-tested
