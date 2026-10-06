@@ -14,6 +14,7 @@
 //     operator exempts it — which never exempts an engine route;
 //   - an anonymous request gets the tenant's `public` grants, in its tenant only.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
@@ -31,11 +32,15 @@ import {
   encodeApiKeyScopes,
   getCurrentTenantTrx,
   getEnforcer,
+  getRequestActor,
   invalidateAllPermissionCaches,
+  publishApiKeyActor,
   type RlsIdentity,
   runWithDomain,
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
+import type { HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
+import { WorkerExtensionHost, _internalForTests } from '../../lib/worker-extension-host.js';
 import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -263,6 +268,56 @@ d('collection permissions in the database (R1)', () => {
     // The other tenant's public role holds nothing here.
     const otherAnon = { ...anon, collectionGrants: '' };
     expect(await as(otherAnon, (t) => count(t), OTHER).catch(() => -1)).toBe(0);
+  });
+
+  it("holds a worker's query to the caller's grants, never the caller's bypass", async () => {
+    // One `db:query` through the host, as a worker's `ctx.db` sends it for a
+    // request the host recorded as served by `identity` in TENANT.
+    const viaWorker = async (identity: RlsIdentity) => {
+      const reply = await new Promise<HostToWorkerMessage>((resolve) => {
+        const managed = {
+          name: EXT,
+          worker: { postMessage: resolve, terminate: () => {} },
+          invokeTenants: new Map([
+            ['req-1', { tenantId: TENANT, actor: { userId: null, identity } }],
+          ]),
+          pendingInvokes: new Map(),
+          pendingInits: new Map(),
+          pendingPings: new Map(),
+          registeredServices: new Set<string>(),
+          routes: [],
+        };
+        _internalForTests.dispatchMessage(
+          new WorkerExtensionHost(new Hono()),
+          managed as never,
+          {
+            type: 'db:query',
+            id: 'q-1',
+            requestId: 'req-1',
+            sql: `SELECT count(*)::int AS n FROM ${TABLE}`,
+            params: [],
+          } as never,
+        );
+      });
+      if (reply.type !== 'db:ok') throw new Error(String((reply as { error?: string }).error));
+      return (reply.rows as { n: number }[])[0]!.n;
+    };
+    expect(await viaWorker(await identityOf(U.reader))).toBe(2);
+    expect(await viaWorker(await identityOf(U.nobody))).toBe(0);
+    // The bypass stays with the engine: a worker gets the caller's grants only.
+    expect(await viaWorker({ ...(await identityOf(U.nobody)), bypass: true })).toBe(0);
+    expect(await viaWorker(await anonymous())).toBe(2);
+    // An API key's scopes reach the record the host takes for its worker calls.
+    const key = await attempt(await anonymous(), async () => {
+      await publishApiKeyActor('apikey:probe', false, [{ collection: COLL, actions: ['read'] }]);
+      return getRequestActor()?.identity;
+    });
+    expect(await viaWorker(key as RlsIdentity)).toBe(2);
+    const noScope = await attempt(await anonymous(), async () => {
+      await publishApiKeyActor('apikey:probe', false, [{ collection: PRIVATE, actions: ['read'] }]);
+      return getRequestActor()?.identity;
+    });
+    expect(await viaWorker(noScope as RlsIdentity)).toBe(0);
   });
 
   it("encodes an API key's scopes as checkAccess reads them", () => {
