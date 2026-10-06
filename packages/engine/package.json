@@ -34,7 +34,6 @@
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
     "@opentelemetry/sdk-node": "^0.222.0",
-    "@types/pg": "^8.23.1",
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.7.5",
     "casbin": "^5.51.1",
@@ -52,6 +51,7 @@
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.1",
+    "@types/pg": "^8.23.1",
     "@zveltio/sdk": "workspace:*",
     "bun-types": "latest",
     "fast-check": "^4.10.2",
