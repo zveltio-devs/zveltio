@@ -29,7 +29,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "3.0.0-beta.72",
+      "version": "3.0.0-beta.77",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -44,7 +44,7 @@
     },
     "packages/client": {
       "name": "@zveltio/client",
-      "version": "3.0.0-beta.72",
+      "version": "3.0.0-beta.77",
       "dependencies": {
         "@lucide/svelte": "^0.577.0",
         "@zveltio/sdk": "workspace:*",
@@ -76,7 +76,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "3.0.0-beta.72",
+      "version": "3.0.0-beta.77",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.7.5",
         "@better-auth/passkey": "^1.7.5",
@@ -110,7 +110,7 @@
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "3.0.0-beta.72",
+      "version": "3.0.0-beta.77",
       "dependencies": {
         "idb": "^8.0.3",
       },
@@ -134,7 +134,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "3.0.0-beta.72",
+      "version": "3.0.0-beta.77",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -150,7 +150,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "3.0.0-beta.72",
+      "version": "3.0.0-beta.77",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -164,7 +164,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "3.0.0-beta.72",
+      "version": "3.0.0-beta.77",
       "dependencies": {
         "@inlang/paraglide-js": "^2.25.0",
         "@lucide/svelte": "^0.577.0",
@@ -217,6 +217,7 @@
     "postcss-selector-parser": "6.1.4",
     "protobufjs": "7.6.5",
     "qs": "6.16.0",
+    "source-map-js": "1.2.2",
     "undici": "7.29.1",
     "uuid": "11.1.1",
     "vite": "^8.3.0",
@@ -1562,7 +1563,7 @@
 
     "source-map": ["source-map@0.7.6", "", {}, "sha512-i5uvt8C3ikiWeNZSVZNWcfZPItFQOsYTUAOkcUPGd8DqDy1uOUikjt5dG+uRlwyvR108Fb9DOd4GvXfT0N2/uQ=="],
 
-    "source-map-js": ["source-map-js@1.2.1", "", {}, "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="],
+    "source-map-js": ["source-map-js@1.2.2", "", {}, "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw=="],
 
     "split-ca": ["split-ca@1.0.1", "", {}, "sha512-Q5thBSxp5t8WPTTJQS59LrGqOZqOsrhDGDVm8azCqIBjSBd7nd9o2PM+mDulQQkh8h//4U6hFZnc/mul8t5pWQ=="],
 
