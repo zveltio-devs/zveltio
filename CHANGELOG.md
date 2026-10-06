@@ -4,6 +4,18 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Extensions: `data:system` and `ctx.internals.asSystem`.** Collection
+permissions are moving into the database: a policy on each collection table will
+refuse what the caller's roles do not grant, so an extension's `ctx.db` in a
+user's request will do what that user may do. Work that is legitimately more —
+stock a customer cannot edit, a counter a public form bumps — runs inside
+`asSystem(['products'], fn, { reason })`, which needs the new `data:system`
+capability (contract version 8). It stands down collection permissions only, for
+the collections named and the running tenant only; tenant isolation and the
+`ctx.db` table guard still apply, and every call writes an `extension.as_system`
+audit row. Nothing enforces collection permissions in the database yet: this
+release adds the way out first, so extensions can move before the policy lands.
+
 ## [3.0.0-beta.77] - 2026-10-03
 
 **Security: invitation tokens are stored as digests.** `zv_invitations.token`

@@ -37,8 +37,9 @@
  * that speaks a different major version.
  */
 // 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`),
-// 5: `identity:provision`, 6: `audit:read`, 7: `auth:users` also reads (exportUserData)
-export const CAPABILITY_CONTRACT_VERSION = 7;
+// 5: `identity:provision`, 6: `audit:read`, 7: `auth:users` also reads (exportUserData),
+// 8: `data:system`
+export const CAPABILITY_CONTRACT_VERSION = 8;
 
 /**
  * Every capability an extension may declare.
@@ -100,6 +101,14 @@ export const CAPABILITIES = [
    * extensions write user data on a user's behalf.
    */
   'data:write',
+  /**
+   * Act as the system inside the running tenant, for named collections
+   * (`ctx.internals.asSystem`): collection permissions stand down for that
+   * call, tenant isolation and the table guard do not. For work that is more
+   * than the caller may do — stock a customer cannot edit, a counter a form
+   * bumps. Every call is audited.
+   */
+  'data:system',
   /** Send notifications to users. */
   'notifications',
   /** Read/extract from stored files, move to trash, schedule indexing. */
@@ -230,6 +239,8 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   createRecord: 'data:write',
   updateRecord: 'data:write',
   deleteRecord: 'data:write',
+  // Beyond the caller, inside the tenant
+  asSystem: 'data:system',
   // Messaging
   sendNotification: 'notifications',
   // Files

@@ -95,6 +95,7 @@ import {
   exportUserData,
   setUserActive,
 } from '../users.js';
+import { type AsSystemOptions, asSystemAs } from './as-system.js';
 import { bindsCaller } from './capabilities.js';
 import {
   auditAs,
@@ -380,6 +381,15 @@ export interface ExtensionInternals {
   getPublicSetting: (key: string) => Promise<unknown>;
   /** Append to `zv_audit_log`; the row records the calling extension in `metadata.extension`. */
   audit: (event: ExtensionAuditEvent) => Promise<void>;
+  /**
+   * Run `fn` with collection permissions standing down for `collections`, in
+   * the running tenant only — see `as-system.ts`. Gated `data:system`; audited.
+   */
+  asSystem: <T>(
+    collections: readonly string[],
+    fn: () => Promise<T>,
+    opts?: AsSystemOptions,
+  ) => Promise<T>;
   /** The running tenant's recent audit rows. Gated `audit:read`. */
   readAuditActivity: typeof readAuditActivity;
   /** How many of the running tenant's audit rows match, since an instant. Ungated. */
@@ -646,6 +656,7 @@ export function buildExtensionInternals(): ExtensionInternals {
       setUserActive(db as Database, getDb(), userId, active, caller),
     liftOwnBan: (db: unknown, userId: string) => liftOwnBan(db as Database, userId, caller),
     audit: (event: ExtensionAuditEvent) => auditAs(caller, event),
+    asSystem: (collections, fn, opts) => asSystemAs(caller, collections, fn, opts),
   }));
 }
 
@@ -712,6 +723,7 @@ function buildUnboundInternals(): ExtensionInternals {
     listRoles,
     getPublicSetting: (key: string) => getPublicSetting(key),
     audit: unbound('audit'),
+    asSystem: unbound('asSystem'),
     // Arity fixed, as for the facts above: the tenant is the host's.
     readAuditActivity: (query) => readAuditActivity(query),
     countAuditActivity: (query) => countAuditActivity(query),

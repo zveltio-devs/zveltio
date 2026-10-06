@@ -997,7 +997,8 @@ async function runRawWithParams(
                 set_config('zveltio.user_role', $4, true),
                 set_config('zveltio.user_roles', $5, true),
                 set_config('zveltio.actor', $6, true),
-                set_config('zveltio.rls_bypass', 'off', true)`,
+                set_config('zveltio.rls_bypass', 'off', true),
+                set_config('zveltio.system_collections', '', true)`,
         [
           tenantId,
           id?.userId ?? '',
