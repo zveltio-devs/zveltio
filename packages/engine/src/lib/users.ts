@@ -239,7 +239,8 @@ export interface UserDataExport {
  * null when there is no such user. Every tenant's rows: they are the subject's
  * data whichever tenant recorded them, and a tenant-scoped read left the
  * instance-level ones (sign-ins) and the other tenants' out of the export.
- * Read in one snapshot as `withEveryTenant`, on the engine's pool.
+ * Read in one `withEveryTenant` transaction on the engine's pool — READ
+ * COMMITTED, so each statement sees its own snapshot, not one for the export.
  */
 export async function exportUserData(
   poolDb: Database,
