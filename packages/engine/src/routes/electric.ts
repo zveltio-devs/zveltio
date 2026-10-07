@@ -30,9 +30,8 @@ import {
   type CollectionDef,
   checkAccess,
   DDLManager,
-  fieldTypeRegistry,
-  normalizeFields,
   readScope,
+  withheldColumns,
 } from '../lib/data/index.js';
 import { problem } from '../lib/problem.js';
 import { tenantId } from '../lib/route-db.js';
@@ -128,14 +127,7 @@ export function electricRoutes(
       columns,
       // What `serializeRecord` drops: a `password` field serializes to nothing,
       // so REST never returned its hash, and Electric would have synced it.
-      withheld: new Set(
-        normalizeFields(def)
-          .filter(
-            (f) =>
-              f.encrypted || fieldTypeRegistry.get(f.type)?.typescript.outputType === 'undefined',
-          )
-          .map((f) => f.name),
-      ),
+      withheld: (({ unserved, sealed }) => new Set([...unserved, ...sealed]))(withheldColumns(def)),
       scope,
       tenants: await shapeTenantReach(db, authType === 'session' ? user.id : null, tenantId(c)),
     });

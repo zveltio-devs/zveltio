@@ -34,7 +34,7 @@ export { describeWriteRefusal, isRlsRefusal } from './write-pipeline.js';
 //   - `normalizeFields` so the extension write proxy can tell a collection's
 //     declared fields from the system columns an extension passes alongside
 //     them (`id`, `created_by`); `processInput` returns only the former.
-export { normalizeFields } from './shape.js';
+export { normalizeFields, withheldColumns } from './shape.js';
 //   - `serializeRecord` so the sync PULL path shapes rows the way every other
 //     read does — it was shipping `enc:v1:…` to offline clients that have no
 //     key to read it with.
