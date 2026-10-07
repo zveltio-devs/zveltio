@@ -18,6 +18,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { isSingleTenantInstance } from '../../lib/identity.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -208,6 +209,8 @@ d('sync push guards (in-process)', () => {
     }
   });
 
+  // The shared harness database may hold other suites' tenants, and Electric is
+  // refused with more than one (electric-multi-tenant.test.ts).
   it('the Electric token carries the request tenant', async () => {
     process.env.ELECTRIC_URL = 'wss://electric.test:5133';
     process.env.ELECTRIC_AUTH_TOKEN = 'harness-shared-secret';
@@ -216,6 +219,10 @@ d('sync push guards (in-process)', () => {
       headers: { 'Content-Type': 'application/json', cookie: godCookie },
       body: JSON.stringify({}),
     });
+    if (!(await isSingleTenantInstance(db))) {
+      expect(res.status).toBe(409);
+      return;
+    }
     expect(res.status).toBe(200);
     const { token } = (await res.json()) as { token: string };
     const claims = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString()) as {

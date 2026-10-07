@@ -43,7 +43,11 @@ afterEach(() => {
  * test stayed green only because `fakeAuth` hand-built a user shape the real
  * session does not have. Set the tenant where the real request carries it.
  */
-function makeApp(user: { id: string } | null, tenant?: { id: string }) {
+function makeApp(
+  user: { id: string } | null,
+  tenant?: { id: string },
+  singleTenant: () => Promise<boolean> = async () => true,
+) {
   const app = new Hono();
   if (tenant) {
     app.use('*', async (c, next) => {
@@ -51,7 +55,7 @@ function makeApp(user: { id: string } | null, tenant?: { id: string }) {
       await next();
     });
   }
-  app.route('/api/electric', electricRoutes({} as never, fakeAuth(user)));
+  app.route('/api/electric', electricRoutes({} as never, fakeAuth(user), singleTenant));
   return app;
 }
 
@@ -81,6 +85,34 @@ describe('S5-07 electric route — service-unavailable', () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as { enabled: boolean };
     expect(body.enabled).toBe(false);
+  });
+});
+
+// The stream Electric serves is not filtered by tenant, so nothing is minted or
+// advertised while a second tenant exists. The harness test drives the real count.
+describe('electric route — refused with more than one tenant', () => {
+  const multi = async () => false;
+
+  it('409 on mint and config, no token, no URL', async () => {
+    process.env.ELECTRIC_URL = 'wss://e.test';
+    process.env.ELECTRIC_AUTH_TOKEN = 's';
+    const app = makeApp({ id: 'u1' }, { id: 't1' }, multi);
+    const minted = await app.request('/api/electric/auth', { method: 'POST' });
+    expect(minted.status).toBe(409);
+    expect(await minted.text()).not.toContain('token');
+    const cfg = await app.request('/api/electric/config');
+    expect(cfg.status).toBe(409);
+    expect(await cfg.text()).not.toContain('e.test');
+  });
+
+  it('a failing tenant count refuses too', async () => {
+    process.env.ELECTRIC_URL = 'wss://e.test';
+    process.env.ELECTRIC_AUTH_TOKEN = 's';
+    const app = makeApp({ id: 'u1' }, { id: 't1' }, async () => {
+      throw new Error('db down');
+    });
+    const minted = await app.request('/api/electric/auth', { method: 'POST' });
+    expect(minted.status).toBe(500);
   });
 });
 

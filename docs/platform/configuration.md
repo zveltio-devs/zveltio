@@ -484,7 +484,7 @@ because it boots many engines against one Postgres — see the note at the top o
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ELECTRIC_URL` | — | Electric sync service. Absent disables the `/api/electric` routes. |
+| `ELECTRIC_URL` | — | Electric sync service. Absent disables the `/api/electric` routes. With more than one tenant they answer `409` whatever is set: the stream is not filtered by tenant (see `docs/engine/offline-sync.md`). |
 | `ELECTRIC_AUTH_TOKEN` | — | Bearer token for that service. |
 
 ## Demo mode
