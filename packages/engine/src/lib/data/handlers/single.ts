@@ -129,8 +129,15 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
       return c.json({ error: 'Record not found' }, 404);
     }
 
+    // The snapshot is the stored row: serialized as the live read below
+    // serializes it, so a `password` hash stays out and an encrypted field
+    // reads decrypted, not as `enc:v1:`.
     return c.json({
-      record: scope.shape(data as Record<string, unknown>),
+      record: await serializeRecord(
+        data as Record<string, unknown>,
+        await DDLManager.getCollection(db, collection),
+        scope.columns,
+      ),
       time_travel: { as_of: asOf.toISOString(), snapshot_at: rev.rows[0].created_at },
     });
   }

@@ -78,6 +78,36 @@ export function normalizeFields(
   return Array.isArray(raw) ? raw : [];
 }
 
+/**
+ * The columns a payload built without `serializeRecord` leaves out. Realtime
+ * events (`ReadScope.shape`) and webhooks carry the STORED row, and shipped it
+ * whole: the argon2 hash and the `enc:v1:` ciphertext reached every subscriber.
+ *
+ * - `unserved`: a field whose type serializes to nothing (`password`) is served
+ *   to no one, god included. The read gate counts it as a hidden column, so it
+ *   is not filterable or sortable either — a `like` on it read the hash back
+ *   through the row count.
+ * - `sealed`: what REST serves only transformed. An `encrypted` field is
+ *   decrypted by `serializeRecord` alone: a stream payload cannot (`shape` is
+ *   synchronous), and a plaintext copy in a broadcast frame or a webhook
+ *   delivery row is the copy encryption exists to prevent. The FTS columns:
+ *   `search_text` concatenates every text field, hidden ones included.
+ *
+ * Electric's shape proxy withholds the same set.
+ */
+export function withheldColumns(collectionDef: CollectionDef | null | undefined): {
+  unserved: string[];
+  sealed: string[];
+} {
+  const fields = normalizeFields(collectionDef);
+  return {
+    unserved: fields
+      .filter((f) => fieldTypeRegistry.get(f.type)?.typescript.outputType === 'undefined')
+      .map((f) => f.name),
+    sealed: [...INTERNAL_COLUMNS, ...fields.filter((f) => f.encrypted).map((f) => f.name)],
+  };
+}
+
 /** Serialize a record's field values using the field-type registry.
  *
  * Input is a loosely typed DB row (values `unknown` — dynamic tables can't be

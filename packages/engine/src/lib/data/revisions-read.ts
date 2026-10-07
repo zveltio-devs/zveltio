@@ -30,6 +30,7 @@ import { checkPermission, entityAccessRegistry } from '../tenancy/index.js';
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { readScope, type ReadScope } from './read-scope.js';
 import { dynamicDb, isUuid } from './write-pipeline.js';
+import { serializeRecord } from './shape.js';
 
 export interface RevisionQuery {
   id?: string;
@@ -68,15 +69,24 @@ function asObject(v: unknown): Record<string, unknown> {
 }
 
 /**
- * A stored copy as this caller reads the record: their column permissions, and
- * never the FTS columns — `search_text` concatenates every text field, hidden
- * ones included, and the data API strips both from every payload.
+ * A stored copy as this caller reads the record: serialized as `GET
+ * /api/data/:collection/:id` serializes the live row — their column
+ * permissions, a `password` field left out, an encrypted one decrypted, the
+ * FTS columns stripped. Shaped by column permissions alone, the list served the
+ * argon2 hash and the `enc:v1:` ciphertext; decrypted, a revert restores the
+ * encrypted value (the PATCH re-encrypts it).
  */
-export function shapeRevisionData(scope: ReadScope, v: unknown): Record<string, unknown> {
-  const o = asObject(v);
-  delete o.search_text;
-  delete o.search_vector;
-  return scope.shape(o);
+export async function shapeRevisionData(
+  db: Database,
+  scope: ReadScope,
+  collection: string,
+  v: unknown,
+): Promise<Record<string, unknown>> {
+  return serializeRecord(
+    asObject(v),
+    await DDLManager.getCollection(db, collection),
+    scope.columns,
+  );
 }
 
 export async function readableRevisions(
@@ -154,8 +164,9 @@ export async function readableRevisions(
     }
     rows.push({
       ...row,
-      data: shapeRevisionData(scope, row.data),
-      delta: row.delta == null ? null : shapeRevisionData(scope, row.delta),
+      data: await shapeRevisionData(db, scope, row.collection, row.data),
+      delta:
+        row.delta == null ? null : await shapeRevisionData(db, scope, row.collection, row.delta),
     });
   }
 
