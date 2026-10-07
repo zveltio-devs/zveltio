@@ -23,6 +23,7 @@ import {
   getEnforcer,
   invalidateUserPermCache,
   isGodUser,
+  isMemberBaseline,
   onAfterCommit,
   requireInstanceAdmin,
   withEveryTenant,
@@ -165,7 +166,9 @@ export async function deleteTenantlessUsers(
       trx,
     );
     if (member.rows.length) return 'other_tenant';
-    const roles = (await e.getFilteredGroupingPolicy(0, id)).filter((r) => r[2] !== tenant.id);
+    const roles = (await e.getFilteredGroupingPolicy(0, id)).filter(
+      (r) => r[2] !== tenant.id && !isMemberBaseline(r),
+    );
     const rules = (await e.getFilteredPolicy(0, id)).filter((r) => r[1] !== tenant.id);
     if (roles.length || rules.length) return 'other_grants';
     const gone = await deleteUser(trx, poolDb, id, {

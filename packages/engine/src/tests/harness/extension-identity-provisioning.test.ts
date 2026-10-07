@@ -501,7 +501,8 @@ d('identity provisioning through ctx.internals', () => {
       await scim.addTenantMember(trx, user.id);
       return user;
     });
-    expect(await grades(done.id)).toEqual([`tenant_member@${T}`]);
+    // Plus the `member` baseline the account got once the provisioning committed.
+    expect((await grades(done.id)).sort()).toEqual(['member@*', `tenant_member@${T}`]);
 
     await expect(
       as(T, async (trx) => {
@@ -510,7 +511,7 @@ d('identity provisioning through ctx.internals', () => {
       }),
     ).rejects.toBe(planted);
     expect((await membership(T, done.id))!.role).toBe('member');
-    expect(await grades(done.id)).toEqual([`tenant_member@${T}`]);
+    expect((await grades(done.id)).sort()).toEqual(['member@*', `tenant_member@${T}`]);
   });
 
   it('two transactions provisioning one email: the second gets the first account, its own transaction intact', async () => {

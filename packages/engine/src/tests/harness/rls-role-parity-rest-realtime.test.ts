@@ -182,7 +182,7 @@ d('REST and realtime resolve the same roles for the read gate', () => {
       .sort();
   }
 
-  it('the premise: one role lives only in the column, the other only in Casbin', async () => {
+  it('the premise: both roles live in Casbin; the member holds `member` alone', async () => {
     const roles = await sql<{ id: string; role: string }>`
       SELECT id, role FROM "user" WHERE id IN (${member.userId}, ${reviewer.userId})
     `.execute(db);
@@ -191,7 +191,13 @@ d('REST and realtime resolve the same roles for the read gate', () => {
       SELECT v0, v1 FROM zvd_permissions WHERE ptype = 'g'
         AND v0 IN (${member.userId}, ${reviewer.userId})
     `.execute(db);
-    expect(g.rows).toEqual([{ v0: reviewer.userId, v1: CASBIN_ROLE }]);
+    const held = (id: string) =>
+      g.rows
+        .filter((r) => r.v0 === id)
+        .map((r) => r.v1)
+        .sort();
+    expect(held(member.userId)).toEqual(['member']);
+    expect(held(reviewer.userId)).toEqual([CASBIN_ROLE, 'member'].sort());
   });
 
   it('a column-role member sees the same rows on REST, WS and SSE', async () => {

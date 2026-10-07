@@ -1,5 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { revalidatePrincipalsEverywhere, runWithoutTenantTrx } from './tenancy/index.js';
+import {
+  getCurrentTenantTrx,
+  grantMemberRole,
+  onAfterCommit,
+  revalidatePrincipalsEverywhere,
+  runWithoutTenantTrx,
+} from './tenancy/index.js';
 import { type BetterAuthOptions, betterAuth } from 'better-auth';
 import { kyselyAdapter } from '@better-auth/kysely-adapter';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
@@ -527,6 +533,16 @@ export async function initAuth(db: Database) {
               code: 'registration_disabled',
               message: 'Self-registration is disabled on this instance.',
             });
+          },
+          // Every account is a `member` in Casbin, the one source of roles —
+          // sign-up, OAuth, magic link and identity provisioning all land here.
+          // Awaited before better-auth answers, so no session reaches a request
+          // before the row exists. Inside a tenant transaction (provisioning),
+          // after its commit: the enforcer writes on the pool, and a rolled-back
+          // account must not leave its row behind.
+          after: async (user: { id: string }) => {
+            if (getCurrentTenantTrx()) onAfterCommit(() => grantMemberRole(user.id));
+            else await grantMemberRole(user.id);
           },
         },
       },

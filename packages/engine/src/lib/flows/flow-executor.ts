@@ -17,12 +17,7 @@
 import { sql } from 'kysely';
 import { toJsonb } from '../jsonb.js';
 import type { Database } from '../../db/index.js';
-import {
-  DEFAULT_TENANT_ID,
-  grantHoldsIn,
-  memberOfTenant,
-  withEveryTenant,
-} from '../tenancy/index.js';
+import { DEFAULT_TENANT_ID, grantHoldsIn, withEveryTenant } from '../tenancy/index.js';
 import { runScript } from '../script-runner.js';
 import { sendEmail } from '../email.js';
 import { recordsToCsv } from '../security/index.js';
@@ -53,10 +48,8 @@ export interface FlowRunResult {
  * - A `g` row counts as `grantHoldsIn` says: in this tenant's domain unless the
  *   membership here has lapsed; at `*` only for a member of the tenant.
  *   Otherwise a tenant-A flow carried its message to tenant B.
- * - The `"user".role` column (god/member since #785) holds in every domain, so
- *   like a `*` grant it counts only for members of the tenant
- *   (`memberOfTenant`: every account in the default tenant). The one god is
- *   enrolled in no tenant by construction, so a tenant flow does not reach it.
+ * - `member` is a `g <user> member *` row like any other `*` grant; `"user".role`
+ *   (god) is an instance attribute, not a role, and is not read here.
  */
 async function getUsersForRole(db: Database, role: string, tenantId: string): Promise<string[]> {
   const rows = await sql<{ id: string }>`
@@ -71,7 +64,6 @@ async function getUsersForRole(db: Database, role: string, tenantId: string): Pr
      WHERE EXISTS (SELECT 1 FROM zvd_permissions g
                     WHERE g.ptype = 'g' AND g.v0 = u.id AND g.v1 IN (SELECT r FROM held)
                       AND ${grantHoldsIn('g', tenantId)})
-        OR (u.role IN (SELECT r FROM held) AND ${memberOfTenant('u.id', tenantId)})
   `.execute(db);
   return rows.rows.map((r) => r.id);
 }

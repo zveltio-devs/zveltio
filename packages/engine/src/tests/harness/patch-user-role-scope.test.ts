@@ -68,9 +68,9 @@ d('PATCH /api/users/:id role scope (in-process)', () => {
 
     expect(held).toContain(`tenant_owner@${TENANT_A}`);
     expect(held).toContain(`tenant_member@${TENANT_B}`);
-    // And the thing the route is for: the column. No `member@*` mirror — the
-    // column is the role now (column-role-casbin-subject.test.ts).
-    expect(held).not.toContain('member@*');
+    // And the thing the route is for: `member` is a Casbin role, written by
+    // the PATCH (this account was inserted with none).
+    expect(held).toContain('member@*');
     const col = await sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId}`.execute(
       db,
     );

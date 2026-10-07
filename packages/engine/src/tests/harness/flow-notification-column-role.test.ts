@@ -1,20 +1,18 @@
 /**
- * A flow's `send_notification` to `member` / `god` reaches the holders of the
- * `"user".role` column — in the flow's tenant only.
+ * A flow's `send_notification` to `member` reaches the holders of the Casbin
+ * `g <user> member *` row — in the flow's tenant only — and `god` reaches
+ * nobody: it is an instance attribute in `"user".role`, not a role (owner
+ * decision 2026-10-07, Casbin is the one source of roles).
  *
- * Since #785 the column is the only source of those two roles; migration 033
- * deleted the `g <user> member|god *` mirror rows the role lookup read. The
- * lookup still read `g` rows alone, so a flow notifying `member` reached nobody
- * (and before 033, only users an admin had PATCHed — never a self-registered
- * one).
+ * Between #785 and 059 the column was the source of `member`, and a lookup that
+ * read `g` rows alone reached nobody. Now every account is created with the row
+ * (migration 059 backfilled the rest), which these raw inserts reproduce.
  *
- * The column holds in every domain, so "every user whose column says member"
- * would carry tenant A's message to tenant B's members. A column role counts in
- * a tenant only for its members (`zv_tenant_users`) — everybody, in the default
- * tenant, as with the membership middleware. A god is enrolled in no tenant (it
- * bypasses tenancy), so a tenant flow does not reach an unenrolled god.
- * There is exactly one god per instance (`zveltio_one_god_only`): the test
- * borrows the existing one, or creates it.
+ * A `*` row holds in every domain, so "everyone holding member" would carry
+ * tenant A's message to tenant B's members. It counts in a tenant only for its
+ * members (`zv_tenant_users`) — everybody, in the default tenant, as with the
+ * membership middleware. There is exactly one god per instance
+ * (`zveltio_one_god_only`): the test borrows the existing one, or creates it.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -31,7 +29,7 @@ const TENANT_B = '00000000-0000-0000-0000-00000000f20b';
 const TAG = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 const EMPLOYEE = `probe_employee_${TAG}`;
 
-d('flow send_notification to a column role, per tenant', () => {
+d('flow send_notification to `member`, per tenant', () => {
   let db: Database;
   let god = '';
   let ownGod = false;
@@ -91,11 +89,13 @@ d('flow send_notification to a column role, per tenant', () => {
       [u.employeeA, 'member', TENANT_A],
     ];
     for (const [id, role, tenant] of users) {
-      // Self-registered: a column role and nothing in Casbin.
+      // As sign-up (or 059) leaves an account: the `member` row in Casbin.
       await sql`
         INSERT INTO "user" (id, name, email, "emailVerified", role, "createdAt", "updatedAt")
         VALUES (${id}, ${id}, ${`${id}@test.local`}, false, ${role}, NOW(), NOW())
       `.execute(db);
+      await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2)
+                VALUES ('g', ${id}, 'member', '*')`.execute(db);
       await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
                 VALUES (${tenant}::uuid, ${id}, 'member')`.execute(db);
     }
@@ -112,6 +112,9 @@ d('flow send_notification to a column role, per tenant', () => {
       await sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(db).catch(() => {});
     }
     await sql`DELETE FROM zvd_permissions WHERE v1 = ${EMPLOYEE}`.execute(db).catch(() => {});
+    for (const id of Object.values(u)) {
+      await sql`DELETE FROM zvd_permissions WHERE v0 = ${id}`.execute(db).catch(() => {});
+    }
     for (const id of [...Object.values(u), ...(ownGod ? [god] : [])]) {
       await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db).catch(() => {});
     }
@@ -128,11 +131,11 @@ d('flow send_notification to a column role, per tenant', () => {
     expect(to).not.toContain(god);
   });
 
-  it('a tenant-A `god` step reaches the god only once it is enrolled in A', async () => {
+  it('a `god` step reaches nobody: god is not a role, enrolled or not', async () => {
     expect(await notifiedBy(TENANT_A, 'god')).toEqual([]);
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
               VALUES (${TENANT_A}::uuid, ${god}, 'admin')`.execute(db);
-    expect(await notifiedBy(TENANT_A, 'god')).toEqual([god]);
+    expect(await notifiedBy(TENANT_A, 'god')).toEqual([]);
   });
 
   it('a business role granted in tenant A still resolves', async () => {
@@ -142,6 +145,6 @@ d('flow send_notification to a column role, per tenant', () => {
   it('in the default tenant every account counts, enrolled or not', async () => {
     const members = await notifiedBy(DEFAULT_TENANT_ID, 'member');
     for (const id of [u.memberA, u.memberB, u.employeeA]) expect(members).toContain(id);
-    expect(await notifiedBy(DEFAULT_TENANT_ID, 'god')).toEqual([god]);
+    expect(await notifiedBy(DEFAULT_TENANT_ID, 'god')).toEqual([]);
   });
 });

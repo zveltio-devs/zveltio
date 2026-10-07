@@ -32,6 +32,7 @@ import type { Database } from '../db/index.js';
 import {
   DEFAULT_TENANT_ID,
   getEnforcer,
+  grantMemberRole,
   invalidateGodCache,
   invalidateUserPermCache,
 } from '../lib/tenancy/index.js';
@@ -161,6 +162,8 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
   // tenants in it — i.e. it was blind on precisely the multi-tenant path the
   // product is for. Measured on one 63-tenant database: 108 failures, all of
   // them this, none of them the code under test.
+  // A demoted god is a member, which only Casbin says (`g <user> member *`).
+  for (const row of demoted.rows) await grantMemberRole(row.id);
   for (const row of [...demoted.rows, ...granted.rows]) {
     await invalidateGodCache(row.id);
   }

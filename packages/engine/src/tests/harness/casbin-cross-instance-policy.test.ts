@@ -291,6 +291,9 @@ d('policy changes cross instances', () => {
     e.getImplicitRolesForUser = async (...args: Parameters<typeof orig>) => {
       const roles = await orig(...args);
       if (args[0] !== user) return roles;
+      // The publisher deleted the row before it published; the model follows.
+      await sql`DELETE FROM zvd_permissions
+                WHERE ptype = 'g' AND v0 = ${user} AND v1 = ${role} AND v2 = ${TENANT}`.execute(db);
       await e.selfRemovePolicy('g', 'g', [user, role, TENANT]);
       clearLocalPermissionCache();
       return roles;

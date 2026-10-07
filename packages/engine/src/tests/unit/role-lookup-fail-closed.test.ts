@@ -37,12 +37,13 @@ function asDb(db: CannedDb): Database {
   return db.kysely as unknown as Database;
 }
 
-/** `u-member` may read `contacts`; a `member` column rule hides `salary`. */
+/** `u-member` (a Casbin `member`) may read `contacts`; a `member` column rule hides `salary`. */
 function seedDb(): CannedDb {
   const db = new CannedDb();
   db.when(/FROM zvd_permissions/i, [
     { ptype: 'p', v0: 'reader', v1: '*', v2: 'contacts', v3: 'read', v4: null, v5: null },
     { ptype: 'g', v0: USER.id, v1: 'reader', v2: '*', v3: null, v4: null, v5: null },
+    { ptype: 'g', v0: USER.id, v1: 'member', v2: '*', v3: null, v4: null, v5: null },
   ]);
   db.when(/SELECT role FROM "user"/i, [{ role: 'member' }]);
   db.when(/from "zvd_column_permissions"/i, (q) =>

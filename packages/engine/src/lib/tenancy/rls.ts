@@ -259,15 +259,17 @@ export async function getRlsFilters(
   // Plus the DIRECT role, resolved here and never read off `user`. It used to
   // be `user.role` from whatever object the caller passed: the realtime doors
   // resolved it, REST passed the session user, where better-auth leaves it
-  // undefined. A self-registered member holds `member` only in the `"user".role`
-  // column — no Casbin `g` row — so a `member` rule filtered their socket and
-  // stood down on `GET /api/data`, where in single-tenant mode nothing else
-  // applies it. The database policy reads `resolveUserRole` too (middleware/
-  // tenant.ts), so this is now the same set it publishes.
+  // undefined, so a `member` rule filtered a socket and stood down on
+  // `GET /api/data`. Casbin is the one source of roles (`member` is a
+  // `g <user> member *` row); the database policy publishes the same set
+  // (middleware/tenant.ts).
   //
-  // A key's role is `api_key` by construction — see `principalRole`.
+  // A key's role is `api_key` by construction — see `principalRole`. Only that
+  // one is added: the user's single role is drawn FROM the set (or is `god`,
+  // which is no role, or `public`, which a signed-in user does not hold).
   const direct = await principalRole(user.id);
-  const userRoles = new Set([...(await getUserRoles(user.id)), direct]);
+  const userRoles = new Set(await getUserRoles(user.id));
+  if (direct === 'api_key') userRoles.add(direct);
   const actor = { id: user.id, email: user.email, role: direct };
 
   const result: Array<{ field: string; condition: FilterCondition }> = [];

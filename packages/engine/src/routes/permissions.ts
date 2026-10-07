@@ -15,6 +15,7 @@ import {
   checkPermission,
   getEnforcer,
   getUserRoles,
+  grantMemberRole,
   invalidateAllPermissionCaches,
   invalidateUserPermCache,
   requireInstanceAdmin,
@@ -232,6 +233,10 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     // the role back for the length of the TTL, which is the opposite of what a
     // recovery is for.
     for (const id of outcome?.demotedIds ?? []) {
+      // A demoted god is a member, and `member` lives in Casbin only.
+      await grantMemberRole(id).catch((err: Error) => {
+        console.error('[permissions] member grant failed for a demoted god:', err.message);
+      });
       await invalidateUserPermCache(id).catch((err: Error) => {
         console.error('[permissions] cache invalidation failed for a demoted god:', err.message);
       });
@@ -285,10 +290,11 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { userId, role } = c.req.valid('json');
-      // The `"user".role` column is the only source of these two; a `g` row
-      // would outlive the column (a `god` row kept every `p god` grant after
-      // a demotion, while the bypass itself was gone).
-      if (role === 'god' || role === 'member') {
+      // `god` is an instance attribute in `"user".role`, not a Casbin role: a
+      // `g` row would outlive the column (a `god` row kept every `p god` grant
+      // after a demotion, while the bypass itself was gone). `member` is a
+      // Casbin role like any other.
+      if (role === 'god') {
         return c.json({ error: `"${role}" is set by PATCH /api/users/:id, not as a role` }, 422);
       }
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

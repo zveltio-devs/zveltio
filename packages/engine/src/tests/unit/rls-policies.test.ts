@@ -25,15 +25,29 @@ import {
 import { CannedDb } from './fixtures/canned-db.js';
 
 /**
- * The `"user".role` column, which `getRlsFilters` resolves the direct role
- * from — never from the role on the object its caller passes.
+ * Roles come from Casbin — never from the role on the object the caller passes.
+ * `"user".role` is only the god attribute; the single role `getRlsFilters`
+ * resolves for a `user_role` source is then `member`.
  */
 const USER_COLUMN_ROLE: Record<string, string> = {
-  'u-1': 'editor',
-  'u-2': 'editor',
+  'u-1': 'member',
+  'u-2': 'member',
   'u-god': 'god',
 };
 const permissionsDb = new CannedDb();
+permissionsDb.when(/FROM zvd_permissions/i, () =>
+  ['u-1', 'u-2'].flatMap((v0) =>
+    ['member', 'editor'].map((v1) => ({
+      ptype: 'g',
+      v0,
+      v1,
+      v2: '*',
+      v3: null,
+      v4: null,
+      v5: null,
+    })),
+  ),
+);
 permissionsDb.when(/SELECT role FROM "user"/i, (q) => {
   const role = USER_COLUMN_ROLE[q.parameters[0] as string];
   return role ? [{ role }] : [];
@@ -186,7 +200,7 @@ describe('getRlsFilters — policy matching', () => {
     expect(filters).toEqual([{ field: 'owner_id', condition: { op: 'eq', value: 'u-1' } }]);
   });
 
-  it('role-specific policy applies only to that role (the user-column role)', async () => {
+  it('role-specific policy applies only to holders of that Casbin role', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [
       policy({ id: 'p-editor', role: 'editor', filter_value_source: 'user_email' }),
@@ -213,7 +227,7 @@ describe('getRlsFilters — policy matching', () => {
     const noEmail = { id: 'u-2', role: 'editor' };
     const filters = await getRlsFilters('contacts', noEmail, 'session');
     expect(filters).toEqual([
-      { field: 'team', condition: { op: 'eq', value: 'editor' } },
+      { field: 'team', condition: { op: 'eq', value: 'member' } },
       { field: 'region', condition: { op: 'eq', value: 'eu' } },
       // Unknown source: it used to be skipped, so it hid nothing. `in []` is
       // the condition all four appliers read as "no row".
@@ -300,7 +314,7 @@ describe('the role on the caller object', () => {
    * changes nothing. The Postgres twin reads the same resolved role from
    * `zveltio.user_role` (middleware/tenant.ts).
    */
-  it('is ignored: no role, or a claimed one, both resolve from the column', async () => {
+  it('is ignored: no role, or a claimed one, both resolve from Casbin', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [
       policy({ id: 'p-role', filter_field: 'team', filter_value_source: 'user_role' }),
@@ -312,7 +326,7 @@ describe('the role on the caller object', () => {
       }),
     ]);
     const expected: Awaited<ReturnType<typeof getRlsFilters>> = [
-      { field: 'team', condition: { op: 'eq', value: 'editor' } },
+      { field: 'team', condition: { op: 'eq', value: 'member' } },
       { field: 'dept', condition: { op: 'eq', value: 'x' } },
     ];
     expect(await getRlsFilters('contacts', { id: 'u-1' }, 'session')).toEqual(expected);

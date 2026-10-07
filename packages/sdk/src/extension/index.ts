@@ -549,7 +549,12 @@ export interface ExtensionInternals<DB = unknown> {
      */
     userId?: string,
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
-  /** The Casbin role behind a user — what `getColumnAccess` keys on. */
+  /**
+   * The single role behind a user — what `getColumnAccess` keys on. Drawn from
+   * Casbin, the one source of roles: `god` (the instance attribute) > `member`
+   * (the `g <user> member *` row every account gets) > `public`. A user's full
+   * role set is `getUserRoles`.
+   */
   resolveUserRole: (user: { id?: string; role?: string }) => Promise<string>;
   /**
    * The engine's whole read gate for one caller on one collection: row policies,

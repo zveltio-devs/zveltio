@@ -1,14 +1,14 @@
 /**
- * A row rule keyed on `member` applies to a self-registered member over REST.
+ * A row rule keyed on `member` applies to a self-registered member over REST —
+ * and `member` comes from Casbin, never from `"user".role`.
  *
- * Such a user holds `member` only in the `"user".role` column — no Casbin `g`
- * row, which only `PATCH /api/users/:id` writes. `getRlsFilters` took the
- * column role from `user.role` on the object its caller passed: the realtime
- * doors resolved it, REST did not, so the same rule filtered this user's
- * socket and stood down on `GET /api/data`. Nothing else caught it: the
- * generated database policy exists, but a collection table has RLS enabled
- * only in multi-tenant mode, and `?as_of=` reads `zv_revisions`, which no row
- * rule covers — so the member read every owner's rows.
+ * `getRlsFilters` used to take the role from `user.role` on the object its
+ * caller passed: the realtime doors resolved it, REST did not, so the same rule
+ * filtered this user's socket and stood down on `GET /api/data`. Since the
+ * owner's 2026-10-07 decision Casbin is the one source of roles: sign-up writes
+ * `g <user> member *`, and the column (still `member`) is no longer read as a
+ * role. A replica whose model has not loaded the row yet reads it from the
+ * table rather than answer "no roles", which would stand the rule down.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -16,14 +16,19 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
+import {
+  clearLocalPermissionCache,
+  getEnforcer,
+  getUserRoles,
+  invalidateUserPermCache,
+} from '../../lib/tenancy/permissions.js';
 import { getRlsFilters, invalidateRlsCache } from '../../lib/tenancy/rls.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hrlscolrole_${Date.now()}`;
 
-d('a member-keyed row rule applies to a column-role member over REST', () => {
+d('a member-keyed row rule applies to a self-registered member over REST', () => {
   let app: Hono;
   let db: Database;
   let godCookie = '';
@@ -36,7 +41,7 @@ d('a member-keyed row rule applies to a column-role member over REST', () => {
     ({ app, db } = await getTestApp());
     godCookie = await createGodSession(app, db);
 
-    // Self-registration, untouched: the column default is the only role.
+    // Self-registration, untouched: the sign-up hook is the only role writer.
     const email = `harness-colrole-${Date.now()}@test.local`;
     const password = 'MemberUser123!';
     const signUp = await app.request('/api/auth/sign-up/email', {
@@ -65,7 +70,7 @@ d('a member-keyed row rule applies to a column-role member over REST', () => {
       ],
     } as never);
 
-    // A direct grant, so Casbin lets the user read — and still no `g` row.
+    // A direct grant, so Casbin lets the user read whatever its roles say.
     await (await getEnforcer()).addPolicy(userId, '*', COLLECTION, 'read');
     await invalidateUserPermCache(userId);
 
@@ -116,16 +121,11 @@ d('a member-keyed row rule applies to a column-role member over REST', () => {
       .catch(() => {});
   });
 
-  it('the premise: member is a column role only, with no Casbin grouping', async () => {
-    const row = await sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId}`.execute(
-      db,
-    );
-    expect(row.rows[0]?.role).toBe('member');
-    // The table, not `getUserRoles`: that now reports the column role too.
-    const g = await sql`SELECT 1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${userId}`.execute(
-      db,
-    );
-    expect(g.rows).toHaveLength(0);
+  it('the premise: sign-up wrote `g <user> member *`', async () => {
+    const g = await sql<{ v1: string; v2: string }>`
+      SELECT v1, v2 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${userId}
+    `.execute(db);
+    expect(g.rows).toEqual([{ v1: 'member', v2: '*' }]);
   });
 
   it('getRlsFilters applies the rule whether or not the caller passed the role', async () => {
@@ -174,5 +174,67 @@ d('a member-keyed row rule applies to a column-role member over REST', () => {
     expect(res.status).toBe(200);
     const ids = ((await res.json()) as { records: Array<{ id: string }> }).records.map((r) => r.id);
     expect(ids).toEqual([mineId]);
+  });
+
+  const listIds = async () => {
+    const res = await app.request(`/api/data/${COLLECTION}`, { headers: { cookie } });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { records: Array<{ id: string }> }).records.map((r) => r.id);
+  };
+
+  it('the rule follows the Casbin row, not the column', async () => {
+    const e = await getEnforcer();
+    await e.deleteRoleForUser(userId, 'member', '*');
+    await invalidateUserPermCache(userId);
+    let ids: string[] = [];
+    try {
+      const col = await sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId}`.execute(
+        db,
+      );
+      expect(col.rows[0]?.role).toBe('member');
+      ids = await listIds();
+    } finally {
+      await e.addRoleForUser(userId, 'member', '*');
+      await invalidateUserPermCache(userId);
+    }
+    // No `member` row: the rule stands down although the column still says member.
+    expect(ids.sort()).toEqual([mineId, theirsId].sort());
+    expect(await listIds()).toEqual([mineId]);
+  });
+
+  it('a row the live model has not loaded yet still restricts (watcher lag)', async () => {
+    const e = await getEnforcer();
+    // Model only: the table keeps the row, as when another replica wrote it and
+    // its bus message has not arrived.
+    await e.selfRemovePolicy('g', 'g', [userId, 'member', '*']);
+    clearLocalPermissionCache();
+    try {
+      expect(e.getModel().getFilteredPolicy('g', 'g', 0, userId)).toEqual([]);
+      expect(await getUserRoles(userId)).toContain('member');
+      expect(await listIds()).toEqual([mineId]);
+    } finally {
+      await e.selfAddPolicy('g', 'g', [userId, 'member', '*']);
+      clearLocalPermissionCache();
+    }
+  });
+
+  it('a later role this replica did load does not hide the `member` row it did not', async () => {
+    // Signed up on another replica, then given a role here: this model holds the
+    // new grant but has not heard of `member` yet. Holding *a* row is not
+    // holding all of them.
+    const e = await getEnforcer();
+    const other = `hrlscolrole-other-${Date.now()}`;
+    await e.selfRemovePolicy('g', 'g', [userId, 'member', '*']);
+    await e.selfAddPolicy('g', 'g', [userId, other, '*']);
+    clearLocalPermissionCache();
+    try {
+      expect(e.getModel().getFilteredPolicy('g', 'g', 0, userId)).toEqual([[userId, other, '*']]);
+      expect(await getUserRoles(userId)).toContain('member');
+      expect(await listIds()).toEqual([mineId]);
+    } finally {
+      await e.selfRemovePolicy('g', 'g', [userId, other, '*']);
+      await e.selfAddPolicy('g', 'g', [userId, 'member', '*']);
+      clearLocalPermissionCache();
+    }
   });
 });
