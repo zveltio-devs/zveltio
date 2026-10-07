@@ -1,59 +1,76 @@
 /**
- * Electric SQL bridge — token mint + service config.
+ * Electric shapes, served through the engine's read gate.
  *
- * Electric SQL streams Postgres changes to clients over a websocket. The
- * client authenticates to Electric with a short-lived JWT signed by a
- * shared secret. The engine knows the user (better-auth session) and the
- * shared secret (`ELECTRIC_AUTH_TOKEN`); the client knows neither.
+ *   GET /api/electric/v1/shape?collection=<name>&offset=…[&handle=…&live=true&cursor=…]
  *
- * Flow:
+ * Electric 1.x (HTTP Shape API) is reachable only from the engine and holds a
+ * secret clients never see. The client names a collection and continues a
+ * stream; the ENGINE decides everything that decides what is read — `table`,
+ * `columns` and `where` — from the caller's Casbin `read`, tenant reach, row
+ * rules and column permissions (lib/tenancy/electric-shape.ts). A client that
+ * sends any of those, or `params`, `secret` or a subset query, is refused.
  *
- *   1. Client → engine `POST /api/electric/auth` (with session cookie)
- *      → engine validates session, mints HS256 JWT { sub, tenant_id, exp }
- *      → returns { token, expiresAt, electricUrl }.
+ * A handle cannot widen a shape: Electric binds it to the definition, and a
+ * handle sent with a different definition answers 409 `must-refetch` (measured
+ * on 1.8.1). The definition is rebuilt on every request, so a revoked grant or
+ * a changed rule takes effect at the client's next poll, as a resync.
  *
- *   2. Client → Electric `wss://electric/...?token=<jwt>` directly.
- *      Electric verifies the JWT signature with the same shared secret.
+ * Runs outside the request transaction (TXN_SKIP_PREFIXES): a live request
+ * long-polls for up to ~20 s, and holding a pooled connection for that is how
+ * the engine stops at `c = DB_POOL_MAX`. Nothing here reads a policed table.
  *
- * Why this design (vs. proxying through engine):
- *   - Electric is built for direct websocket sync; proxying defeats its
- *     low-latency replication model.
- *   - The shared HS256 secret lives only in two trusted environments
- *     (engine + Electric service), never on the client.
- *   - Token expiry (default 60s) is short enough that revocation isn't
- *     needed — the client requests a fresh one before each session.
- *
- * Required env:
- *   - `ELECTRIC_URL`        e.g. `wss://electric.internal:5133`
- *   - `ELECTRIC_AUTH_TOKEN` shared HS256 secret with the Electric service
- *
- * When unset, the routes return 503 — callers fall back to the CRDT
- * provider (which is the default anyway).
- *
- * Refused, on every instance. Electric streams a published table through
- * logical replication: none of the engine's read gates run on that stream —
- * not the tenant (the `tenant_id` claim is not read by Electric), not row
- * rules, not column permissions. One tenant does not make that safe: a member
- * would still receive the rows and columns their rules hide. No token is minted
- * until shapes are served through an engine-controlled filter.
+ * Without ELECTRIC_URL + ELECTRIC_SECRET the route answers 503, and the SDK
+ * falls back to the CRDT provider.
  */
 
 import { Hono } from 'hono';
-import { guardSession } from '../lib/admin-guard.js';
 import type { Database } from '../db/index.js';
+import {
+  authenticate,
+  type CollectionDef,
+  checkAccess,
+  DDLManager,
+  readScope,
+  withheldColumns,
+} from '../lib/data/index.js';
 import { problem } from '../lib/problem.js';
+import { tenantId } from '../lib/route-db.js';
+import { buildShapeDefinition, shapeSearchParams, shapeTenantReach } from '../lib/tenancy/index.js';
 
 interface ElectricConfig {
   electricUrl: string;
-  authToken: string;
+  secret: string;
 }
 
 function readConfig(): ElectricConfig | null {
   const electricUrl = process.env.ELECTRIC_URL?.trim();
-  const authToken = process.env.ELECTRIC_AUTH_TOKEN?.trim();
-  if (!electricUrl || !authToken) return null;
-  return { electricUrl, authToken };
+  const secret = process.env.ELECTRIC_SECRET?.trim();
+  if (!electricUrl || !secret) return null;
+  return { electricUrl: electricUrl.replace(/\/+$/, ''), secret };
 }
+
+/** The Shape protocol's continuation parameters — the only ones a client sets. */
+const CLIENT_PARAMS = new Set([
+  'collection',
+  'offset',
+  'handle',
+  'live',
+  'cursor',
+  'replica',
+  'log',
+]);
+
+/** Electric response headers the client needs; nothing else of Electric's is passed on. */
+const ELECTRIC_HEADERS = [
+  'electric-cursor',
+  'electric-handle',
+  'electric-has-data',
+  'electric-offset',
+  'electric-schema',
+  'electric-snapshot',
+  'electric-up-to-date',
+  'retry-after',
+];
 
 export function electricRoutes(
   db: Database,
@@ -62,50 +79,99 @@ export function electricRoutes(
 ): Hono {
   const app = new Hono();
 
-  /** Throws a 409 problem: the stream is not filtered by the engine's rules. */
-  function refuseUnfiltered(): never {
-    throw problem(
-      'electric.unfiltered',
-      409,
-      "Electric is disabled: its replication stream bypasses the engine's tenant, row and " +
-        'column rules. Use provider: "crdt".',
-    );
-  }
-
-  // Session guard for every route — Electric tokens are scoped per user.
-  app.use('*', async (c, next) => {
-    const session = await guardSession(c, auth);
-    if (session instanceof Response) return session;
-    c.set('user', session.user);
-    await next();
-  });
-
-  // 503 with the old shape when Electric is not configured (the SDK reads it to
-  // fall back to CRDT); otherwise refused — see the header. No URL, no token.
-  app.get('/config', (c) => {
-    if (!readConfig()) {
-      return c.json(
-        {
-          enabled: false,
-          reason: 'ELECTRIC_URL and ELECTRIC_AUTH_TOKEN must both be set on the engine',
-        },
-        503,
-      );
-    }
-    return refuseUnfiltered();
-  });
-  app.post('/auth', (c) => {
-    if (!readConfig()) {
+  app.get('/v1/shape', async (c) => {
+    const principal = await authenticate(c, auth, db);
+    if (!principal) return c.json({ error: 'Unauthorized' }, 401);
+    const config = readConfig();
+    if (!config) {
       return c.json(
         {
           error:
-            'Electric is not configured on this engine. Use provider: "crdt" or ' +
-            'set ELECTRIC_URL + ELECTRIC_AUTH_TOKEN.',
+            'Electric is not configured on this engine. Use provider: "crdt" or set ' +
+            'ELECTRIC_URL + ELECTRIC_SECRET.',
         },
         503,
       );
     }
-    return refuseUnfiltered();
+
+    const query = new URL(c.req.url).searchParams;
+    for (const name of query.keys()) {
+      if (!CLIENT_PARAMS.has(name)) {
+        throw problem(
+          'electric.param_refused',
+          400,
+          `"${name}" is decided by the engine, not the client. Send collection, offset, handle, ` +
+            'live, cursor, replica or log.',
+        );
+      }
+    }
+    const collection = query.get('collection') ?? '';
+    const def = (await DDLManager.getCollection(db, collection)) as CollectionDef | null;
+    if (!collection || !def) throw problem('electric.collection', 404, 'Collection not found');
+    const { user, authType } = principal;
+    if (!(await checkAccess(db, user, collection, 'read'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    if (def.source_type === 'virtual') {
+      throw problem(
+        'electric.unfilterable',
+        409,
+        `"${collection}" is virtual: nothing to replicate.`,
+      );
+    }
+
+    const scope = await readScope(db, collection, user, authType as 'session' | 'api_key');
+    const columns = await DDLManager.columnNames(db, collection);
+    const shape = buildShapeDefinition({
+      table: scope.table,
+      columns,
+      // What `serializeRecord` drops: a `password` field serializes to nothing,
+      // so REST never returned its hash, and Electric would have synced it.
+      withheld: (({ unserved, sealed }) => new Set([...unserved, ...sealed]))(withheldColumns(def)),
+      scope,
+      tenants: await shapeTenantReach(db, authType === 'session' ? user.id : null, tenantId(c)),
+    });
+    if (!shape.ok) throw problem(shape.code, shape.status, shape.detail);
+
+    const upstream = new URL(`${config.electricUrl}/v1/shape`);
+    for (const [k, v] of shapeSearchParams(shape)) upstream.searchParams.append(k, v);
+    for (const [k, v] of query) if (k !== 'collection') upstream.searchParams.set(k, v);
+    upstream.searchParams.set('secret', config.secret);
+
+    let res: Response;
+    try {
+      res = await fetch(upstream, { signal: c.req.raw.signal });
+    } catch (err) {
+      // The client went away mid-poll: nobody is left to answer.
+      if (c.req.raw.signal.aborted) return new Response(null, { status: 499 });
+      console.warn('[electric] upstream unreachable:', (err as Error).message);
+      throw problem('electric.unreachable', 503, 'The Electric service is unreachable.');
+    }
+    // 409 is the protocol's `must-refetch`: the handle no longer matches this
+    // caller's shape (rebuilt, or someone else's). Named, so a client tells it
+    // from the engine's own 409 refusals and restarts from offset -1.
+    if (res.status === 409) {
+      await res.body?.cancel();
+      throw problem('electric.must_refetch', 409, 'The shape changed: sync again from offset -1.');
+    }
+    // Any other refusal may quote the WHERE and its values, so it stays in the log.
+    if (!res.ok) {
+      console.warn(`[electric] upstream ${res.status} for ${scope.table}:`, await res.text());
+      throw problem('electric.upstream', 502, `The Electric service answered ${res.status}.`);
+    }
+
+    const headers: Record<string, string> = {
+      'content-type': res.headers.get('content-type') ?? 'application/json',
+      // Per caller: the same URL is a different shape for another caller.
+      'cache-control': 'private, no-store',
+      vary: 'Cookie, X-API-Key, Authorization, X-Tenant-Slug',
+      'access-control-expose-headers': ELECTRIC_HEADERS.join(','),
+    };
+    for (const h of ELECTRIC_HEADERS) {
+      const v = res.headers.get(h);
+      if (v !== null) headers[h] = v;
+    }
+    return c.body(res.body as ReadableStream, res.status as 200, headers);
   });
 
   return app;

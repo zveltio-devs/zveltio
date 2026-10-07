@@ -9,37 +9,17 @@
  *     offline, applies on reconnect, handles conflicts. No external
  *     dependency beyond the SDK + engine.
  *
- *   - **`electric`** — Electric SQL replication. Postgres logical-
- *     replication slot → Electric service → client. Conflicts are
- *     resolved server-side via CRDTs Electric implements internally.
- *     Requires an Electric service running alongside Postgres + the
- *     engine routes from `routes/electric.ts` that mint short-lived
- *     JWTs the client uses to authenticate.
+ *   - **`electric`** — Electric 1.x shapes, served THROUGH the engine:
+ *     `GET {engineUrl}/api/electric/v1/shape?collection=…`. The engine decides
+ *     the table, rows and columns from the caller's grants, tenant, row rules
+ *     and column permissions, and proxies Electric's Shape protocol (initial
+ *     snapshot, then long-poll `live=true`). Read-only: writes go through the
+ *     data API, and Electric streams them back. Requires the engine's
+ *     ELECTRIC_URL + ELECTRIC_SECRET; the client never talks to Electric.
  *
- * Auth flow for the electric provider
- * -----------------------------------
- *   1. Provider calls `POST {engineUrl}/api/electric/auth` (with
- *      credentials; the engine reads the better-auth session).
- *   2. Engine returns `{ token, expiresAt, electricUrl }`.
- *   3. Provider opens a websocket to `${electricUrl}?token=<jwt>`.
- *   4. Before each token expires, the provider re-requests a fresh one
- *      (no user interaction).
- *
- * Pull/push semantics
- * -------------------
- * Electric replicates continuously over the websocket — there's no
- * explicit "pull" call. The provider's `pull()` is a no-op that returns
- * once the initial sync handshake completes. `push()` is the same: local
- * writes go through Electric's normal replication path automatically.
- * Both shims exist so the OfflineProvider interface stays uniform across
- * crdt/electric.
- *
- * Subscriptions
- * -------------
- * `subscribe('zvd_contacts', cb)` registers a callback fired whenever
- * Electric pushes a change for that table. The implementation uses the
- * websocket's `message` event with a routing table; one socket, many
- * subscriptions.
+ * `subscribe('contacts', cb)` keeps one live shape per collection and calls
+ * `cb` with every current row after each change. `pull()` brings each of
+ * `tables` up to date once.
  */
 
 export type OfflineProviderKind = 'crdt' | 'electric';
@@ -47,34 +27,25 @@ export type OfflineProviderKind = 'crdt' | 'electric';
 export interface OfflineProviderConfig {
   /** Which sync engine to use. Default: 'crdt'. */
   provider?: OfflineProviderKind;
-  /** Engine base URL — used for the token-mint call AND CRDT push/pull. */
+  /** Engine base URL — for CRDT push/pull and the Electric shape endpoint. */
   engineUrl: string;
-  /**
-   * Override the Electric websocket URL. When omitted, the provider asks
-   * the engine via `GET /api/electric/config` so operators have a single
-   * place to configure it. Useful for tests + dev setups.
-   */
-  electricUrl?: string;
-  /**
-   * Tables to record on the audit token claim. Does NOT restrict what
-   * Electric replicates — Electric enforces that via its own config.
-   */
+  /** Collections to replicate. */
   tables?: string[];
   /**
    * Override the `fetch` impl — handy for tests + SSR. Default: globalThis.fetch.
    */
   fetch?: typeof fetch;
   /**
-   * Override the WebSocket constructor — handy for tests + non-browser
-   * runtimes. Default: globalThis.WebSocket.
+   * Extra request headers for the Electric shape requests — an `X-API-Key` or
+   * `X-Tenant-Slug`. A browser session's cookie is sent without this.
    */
-  websocket?: typeof WebSocket;
+  headers?: Record<string, string>;
 }
 
 /**
  * Public interface every provider implements. The CRDT provider wraps
- * `SyncManager`; the Electric provider wraps a websocket. Both expose the same
- * surface.
+ * `SyncManager`; the Electric provider follows the engine's shape endpoint. Both
+ * expose the same surface.
  */
 export interface OfflineProvider {
   readonly kind: OfflineProviderKind;
@@ -92,8 +63,7 @@ export class ElectricNotConfigured extends Error {
   constructor(reason: string) {
     super(
       `Electric SQL provider is not configured: ${reason}. ` +
-        `Set provider: 'crdt' for the default sync path, or stand up an Electric ` +
-        `service and pass electricUrl. See docs/engine/offline-sync.md.`,
+        `Set provider: 'crdt' for the default sync path. See docs/engine/offline-sync.md.`,
     );
     this.name = 'ElectricNotConfigured';
   }
@@ -103,8 +73,8 @@ export class ElectricUnavailable extends Error {
   constructor(reason: string) {
     super(
       `Electric SQL is unavailable: ${reason}. ` +
-        `The engine reported ELECTRIC_URL / ELECTRIC_AUTH_TOKEN are unset, or the ` +
-        `Electric service is down. Fall back to provider: 'crdt' or check the ops checklist.`,
+        `The engine refused the shape, reports ELECTRIC_URL / ELECTRIC_SECRET unset, or ` +
+        `the Electric service is down. Fall back to provider: 'crdt' or check the ops checklist.`,
     );
     this.name = 'ElectricUnavailable';
   }
@@ -115,11 +85,9 @@ export class ElectricUnavailable extends Error {
  *
  * For `crdt` (default): returns a thin adapter around `SyncManager`.
  *
- * For `electric`: returns the real Electric provider. Throws
- * `ElectricNotConfigured` synchronously when required config is missing
- * (no electricUrl AND no way to discover one), or `ElectricUnavailable`
- * lazily on the first network op when the engine reports Electric is
- * disabled.
+ * For `electric`: syncs `tables` once before resolving. Throws
+ * `ElectricNotConfigured` when there is no `fetch`, and `ElectricUnavailable`
+ * when the engine refuses a shape (401, 403, 409 with its reason, 503).
  */
 export async function createOfflineProvider(
   config: OfflineProviderConfig,
@@ -205,19 +173,20 @@ async function makeCrdtAdapter(config: OfflineProviderConfig): Promise<OfflinePr
   };
 }
 
-// ── Electric provider (real impl) ───────────────────────────────────────────
+// ── Electric provider (engine shape endpoint) ──────────────────────────────
 
-interface ElectricAuthResponse {
-  token: string;
-  expiresAt: number; // ms epoch
-  electricUrl: string;
+interface ShapeMessage {
+  key?: string;
+  value?: Record<string, unknown>;
+  headers: { operation?: 'insert' | 'update' | 'delete'; control?: string };
 }
 
-interface ElectricMessage {
-  /** "change" for replication events, "ack" for handshake, etc. */
-  type: string;
-  table?: string;
-  rows?: unknown[];
+/** One collection's shape: its rows and where the stream continues from. */
+interface ShapeState {
+  rows: Map<string, Record<string, unknown>>;
+  offset: string;
+  handle?: string;
+  cursor?: string;
 }
 
 async function makeElectricProvider(config: OfflineProviderConfig): Promise<OfflineProvider> {
@@ -225,142 +194,124 @@ async function makeElectricProvider(config: OfflineProviderConfig): Promise<Offl
   if (typeof doFetch !== 'function') {
     throw new ElectricNotConfigured('no fetch implementation available — pass config.fetch');
   }
-  const WSCandidate =
-    config.websocket ?? (globalThis as { WebSocket?: typeof WebSocket }).WebSocket;
-  if (typeof WSCandidate !== 'function') {
-    throw new ElectricNotConfigured(
-      'no WebSocket implementation available — pass config.websocket',
-    );
-  }
-  const WS = WSCandidate;
-
-  // Mint the first token + figure out the Electric URL.
-  async function mintToken(): Promise<ElectricAuthResponse> {
-    const res = await doFetch(`${config.engineUrl}/api/electric/auth`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tables: config.tables ?? [] }),
-    });
-    if (res.status === 401) {
-      throw new ElectricUnavailable(
-        'engine returned 401 — sign in before requesting Electric sync',
-      );
-    }
-    if (res.status === 503) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new ElectricUnavailable(body.error ?? 'engine reports Electric is not configured');
-    }
-    if (!res.ok) {
-      // 409: the engine refuses Electric (`electric.unfiltered`): its stream
-      // bypasses the engine's rules.
-      const body = (await res.json().catch(() => ({}))) as { detail?: string };
-      throw new ElectricUnavailable(body.detail ?? `engine returned ${res.status}`);
-    }
-    return (await res.json()) as ElectricAuthResponse;
-  }
-
-  let auth = await mintToken();
-  const electricUrl = config.electricUrl ?? auth.electricUrl;
-
-  // Per-table subscription registry.
+  const shapes = new Map<string, ShapeState>();
   const subscribers = new Map<string, Set<(rows: unknown[]) => void>>();
+  const loops = new Map<string, AbortController>();
+  // The engine names collections; `zvd_contacts` is accepted for the old table spelling.
+  const nameOf = (table: string) => table.replace(/^zvd_/, '');
+  const notify = (name: string) => {
+    const rows = [...(shapes.get(name)?.rows.values() ?? [])];
+    for (const cb of subscribers.get(name) ?? []) cb(rows);
+  };
 
-  // Token refresh — fire-and-forget background timer that mints a fresh
-  // token ~10s before the current one expires.
-  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  function scheduleRefresh(): void {
-    if (refreshTimer) clearTimeout(refreshTimer);
-    const delay = Math.max(1_000, auth.expiresAt - Date.now() - 10_000);
-    refreshTimer = setTimeout(async () => {
-      try {
-        auth = await mintToken();
-        scheduleRefresh();
-        // No need to reconnect — Electric accepts refreshed tokens via
-        // its in-band auth-update message. The full Electric driver
-        // would send `{ type: 'auth', token: auth.token }` over the
-        // socket. We emit it here so the server-side TLS is kept warm.
-        if (socket && socket.readyState === WS.OPEN) {
-          socket.send(JSON.stringify({ type: 'auth', token: auth.token }));
-        }
-      } catch (err) {
-        console.warn('[offline:electric] token refresh failed:', (err as Error).message);
+  /** One Shape-protocol request. Resolves true once the shape is up to date. */
+  async function step(name: string, live: boolean, signal?: AbortSignal): Promise<boolean> {
+    const st: ShapeState = shapes.get(name) ?? { rows: new Map(), offset: '-1' };
+    shapes.set(name, st);
+    const qs = new URLSearchParams({ collection: name, offset: st.offset });
+    if (st.handle) qs.set('handle', st.handle);
+    if (live) qs.set('live', 'true');
+    if (live && st.cursor) qs.set('cursor', st.cursor);
+    const res = await doFetch(`${config.engineUrl}/api/electric/v1/shape?${qs}`, {
+      credentials: 'include',
+      headers: config.headers,
+      signal,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as {
+        code?: string;
+        detail?: string;
+        error?: string;
+      };
+      if (res.status === 409 && body.code === 'electric.must_refetch') {
+        // The shape was rebuilt (a rule or grant changed): start over.
+        shapes.set(name, { rows: new Map(), offset: '-1' });
+        notify(name);
+        return false;
       }
-    }, delay);
+      throw new ElectricUnavailable(
+        `engine returned ${res.status}${body.code ? ` ${body.code}` : ''}: ` +
+          (body.detail ?? body.error ?? 'no detail'),
+      );
+    }
+    const messages = (await res.json()) as ShapeMessage[];
+    st.offset = res.headers.get('electric-offset') ?? st.offset;
+    st.handle = res.headers.get('electric-handle') ?? st.handle;
+    st.cursor = res.headers.get('electric-cursor') ?? st.cursor;
+    let changed = false;
+    let upToDate = false;
+    for (const m of messages) {
+      if (m.headers.control === 'up-to-date') upToDate = true;
+      if (!m.key) continue;
+      changed = true;
+      if (m.headers.operation === 'delete') st.rows.delete(m.key);
+      // An update carries only the changed columns.
+      else st.rows.set(m.key, { ...st.rows.get(m.key), ...m.value });
+    }
+    if (changed) notify(name);
+    return upToDate;
   }
 
-  // Open the websocket. Electric's URL contract is
-  // `${baseUrl}?token=<jwt>`; we forward the URL the engine gave us.
-  let socket: WebSocket;
-  const handshake = new Promise<void>((resolve, reject) => {
-    const url = `${electricUrl}${electricUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(auth.token)}`;
-    socket = new WS(url);
-    socket.addEventListener('open', () => {
-      resolve();
-      scheduleRefresh();
-    });
-    socket.addEventListener('error', (ev) => {
-      // The first error fires before `open`; treat it as a connect failure.
-      reject(
-        new ElectricUnavailable(`websocket error: ${(ev as ErrorEvent).message ?? 'unknown'}`),
-      );
-    });
-    socket.addEventListener('message', (ev) => {
-      let msg: ElectricMessage;
-      try {
-        msg = JSON.parse((ev as MessageEvent).data as string) as ElectricMessage;
-      } catch {
-        return; // Electric sometimes sends binary heartbeats — skip parse errors.
-      }
-      if (msg.type === 'change' && msg.table && Array.isArray(msg.rows)) {
-        const subs = subscribers.get(msg.table);
-        if (subs) for (const cb of subs) cb(msg.rows);
-      }
-    });
-  });
-  await handshake;
+  async function syncOnce(name: string): Promise<void> {
+    for (let i = 0; i < 1000 && !(await step(name, false)); i++);
+  }
 
-  return {
+  function follow(name: string): void {
+    if (loops.has(name)) return;
+    const ctl = new AbortController();
+    loops.set(name, ctl);
+    void (async () => {
+      let backoff = 1_000;
+      let upToDate = false;
+      while (!ctl.signal.aborted) {
+        try {
+          upToDate = await step(name, upToDate, ctl.signal);
+          backoff = 1_000;
+        } catch (err) {
+          if (ctl.signal.aborted) return;
+          // A refusal (403, 409) stays a refusal until something changes; retry slowly.
+          console.warn(`[offline:electric] ${name}:`, (err as Error).message);
+          await new Promise((r) => setTimeout(r, backoff));
+          backoff = Math.min(backoff * 2, 30_000);
+        }
+      }
+    })();
+  }
+
+  const provider: OfflineProvider = {
     kind: 'electric',
     async pull() {
-      // Electric is continuous-sync — `pull` is a no-op that exists for
-      // API parity with the CRDT path.
+      // A followed collection is already kept current by its live loop.
+      for (const t of config.tables ?? []) if (!loops.has(nameOf(t))) await syncOnce(nameOf(t));
     },
     async push() {
-      // Same shape — local writes flow through replication automatically.
-      return 0;
+      throw new Error(
+        'The electric provider syncs reads only: write through the data API ' +
+          '(client.collection(name).create/update/delete); Electric streams the change back.',
+      );
     },
-    subscribe(table: string, cb) {
-      let set = subscribers.get(table);
-      if (!set) {
-        set = new Set();
-        subscribers.set(table, set);
-        // Tell Electric we're interested in this table — the protocol
-        // is documented in Electric's docs as `{ type: 'subscribe', table }`.
-        if (socket.readyState === WS.OPEN) {
-          socket.send(JSON.stringify({ type: 'subscribe', table }));
-        }
-      }
+    subscribe(table, cb) {
+      const name = nameOf(table);
+      const set = subscribers.get(name) ?? new Set();
+      subscribers.set(name, set);
       set.add(cb);
+      follow(name);
       return () => {
-        set!.delete(cb);
-        if (set!.size === 0) {
-          subscribers.delete(table);
-          if (socket.readyState === WS.OPEN) {
-            socket.send(JSON.stringify({ type: 'unsubscribe', table }));
-          }
+        set.delete(cb);
+        if (set.size === 0) {
+          subscribers.delete(name);
+          loops.get(name)?.abort();
+          loops.delete(name);
         }
       };
     },
     async close() {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
-      }
-      if (socket.readyState === WS.OPEN || socket.readyState === WS.CONNECTING) {
-        socket.close();
-      }
+      for (const ctl of loops.values()) ctl.abort();
+      loops.clear();
       subscribers.clear();
     },
   };
+  // Fail at creation, as the token mint did, when the engine refuses.
+  await provider.pull();
+  return provider;
 }

@@ -487,9 +487,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // watermark: `zveltio_rls` cannot see other sessions in pg_stat_activity.
   app.route('/api/sync', syncRoutes(db, auth, poolDb));
 
-  // Electric SQL bridge — token mint + config for clients using the
-  // `electric` offline-sync provider. 503s when ELECTRIC_URL +
-  // ELECTRIC_AUTH_TOKEN are unset so the SDK can fall back to CRDT.
+  // Electric shapes through the engine's read gate (`electric` offline-sync
+  // provider). 503 when ELECTRIC_URL + ELECTRIC_SECRET are unset.
   app.route('/api/electric', electricRoutes(db, auth));
 
   // BYOD Introspection — moved to extensions/developer/byod

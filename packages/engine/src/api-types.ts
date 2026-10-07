@@ -176,17 +176,11 @@ export interface HealthResponse {
 
 // ── /api/electric ───────────────────────────────────────────────────────────
 
-export interface ElectricConfigResponse {
-  enabled: boolean;
-  electricUrl?: string;
-  tokenTtlSeconds?: number;
-  reason?: string;
-}
-
-export interface ElectricAuthResponse {
-  token: string;
-  expiresAt: number;
-  electricUrl: string;
+/** One Shape-protocol message (Electric 1.x): a row operation or a control message. */
+export interface ElectricShapeMessage {
+  key?: string;
+  value?: Record<string, unknown>;
+  headers: { operation?: 'insert' | 'update' | 'delete'; control?: string };
 }
 
 // ── /api/data fixture ───────────────────────────────────────────────────────
@@ -248,15 +242,7 @@ const _healthRoutes = new Hono().get('/', (c) => c.json<HealthResponse>({ status
 
 // ── /api/electric ───────────────────────────────────────────────────────────
 
-const _electricRoutes = new Hono()
-  .get('/config', (c) => c.json<ElectricConfigResponse>({ enabled: false }))
-  .post('/auth', (c) =>
-    c.json<ElectricAuthResponse>({
-      token: '',
-      expiresAt: 0,
-      electricUrl: '',
-    }),
-  );
+const _electricRoutes = new Hono().get('/v1/shape', (c) => c.json<ElectricShapeMessage[]>([]));
 
 // ── Engine root fixture ─────────────────────────────────────────────────────
 

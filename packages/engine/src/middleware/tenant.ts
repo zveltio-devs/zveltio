@@ -160,6 +160,11 @@ const TXN_SKIP_PREFIXES = [
   // transaction always names one — god's included. The routes read through
   // `withEveryTenant` instead, behind the same `requireInstanceAdmin` guard.
   '/api/admin/audit',
+
+  // Electric shapes long-poll for up to ~20 s. Holding the request transaction
+  // across that wait is a pooled connection per live client; the route reads
+  // only instance metadata and resolves the tenant reach itself (routes/electric.ts).
+  '/api/electric',
 ];
 
 export const tenantMiddleware = createMiddleware(async (c, next) => {

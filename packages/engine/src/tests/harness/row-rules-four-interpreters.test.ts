@@ -7,6 +7,10 @@
  *   buildRowRulePredicate → SQL text, run by Postgres as a RESTRICTIVE policy
  *   matchesRlsFilters     → JavaScript, in-process, for realtime fan-out
  *   rlsJsonConditions     → SQL over the jsonb snapshots, for `?as_of=`
+ *   buildShapeDefinition  → an Electric shape WHERE (run here by Postgres, with
+ *                           its positional params as untyped literals — how
+ *                           Electric types them; its live evaluator is driven
+ *                           against a real Electric in electric-shapes.test.ts)
  *
  * An independent audit found seven divergences between them, and the comment
  * above two of them claimed they were kept adjacent precisely so they could not
@@ -52,6 +56,7 @@ import type { Database } from '../../db/index.js';
 import {
   applyRlsFilters,
   buildRowRulePredicate,
+  buildShapeDefinition,
   describeRuleProblem,
   getRlsFilters,
   matchesRlsFilters,
@@ -266,6 +271,32 @@ d('one rule, four interpreters (in-process)', () => {
     }
   }
 
+  /** Ids the Electric shape's WHERE keeps, evaluated by Postgres. */
+  async function viaElectric(filters: unknown[]): Promise<Outcome> {
+    const def = buildShapeDefinition({
+      table: TABLE,
+      columns: ['id', 'bucket', 'code', 'data'],
+      withheld: new Set(),
+      scope: {
+        rls: filters as never,
+        readable: () => true,
+        altersRestrict: false,
+        entityChecks: false,
+      },
+      tenants: 'all',
+    });
+    if (!def.ok) return 'error';
+    const where = (def.where ?? 'true').replace(/\$(\d+)/g, (_, n) => sqlLit(def.params[n - 1]!));
+    try {
+      const rows = await sql
+        .raw<{ id: number }>(`SELECT id FROM ${TABLE} WHERE ${where}`)
+        .execute(db);
+      return rows.rows.map((r) => r.id).sort((a, b) => a - b);
+    } catch {
+      return 'error';
+    }
+  }
+
   /** Ids the in-process matcher keeps. */
   function viaMatcher(filters: unknown[]): Outcome {
     if (filters.length === 0) return ROWS.map((r) => r.id);
@@ -338,6 +369,7 @@ d('one rule, four interpreters (in-process)', () => {
           policy: await viaPolicy(rule),
           matcher: viaMatcher(filters),
           snapshot: await viaSnapshot(filters),
+          electric: await viaElectric(filters),
         };
         expect({ rule: `${field} ${op}`, ...seen }).toEqual({
           rule: `${field} ${op}`,
@@ -345,6 +377,7 @@ d('one rule, four interpreters (in-process)', () => {
           policy: [],
           matcher: [],
           snapshot: [],
+          electric: [],
         });
       }
     }
@@ -375,12 +408,14 @@ d('one rule, four interpreters (in-process)', () => {
             policy: await viaPolicy(rule),
             matcher: viaMatcher(filters),
             snapshot: await viaSnapshot(filters),
+            electric: await viaElectric(filters),
           }).toEqual({
             rule: `${field} ${op} ${source}`,
             engine: want,
             policy: want,
             matcher: want,
             snapshot: want,
+            electric: want,
           });
         }
       }
@@ -409,12 +444,14 @@ d('one rule, four interpreters (in-process)', () => {
         policy: await viaPolicy(rule, types),
         matcher: hidden(viaMatcher(filters)),
         snapshot: hidden(await viaSnapshot(filters)),
+        electric: hidden(await viaElectric(filters)),
       }).toEqual({
         rule: label,
         engine: 'hidden',
         policy: [],
         matcher: 'hidden',
         snapshot: 'hidden',
+        electric: 'hidden',
       });
     }
   });
@@ -457,11 +494,13 @@ d('one rule, four interpreters (in-process)', () => {
           const policy = await viaPolicy(rule);
           const matcher = viaMatcher(filters);
           const snapshot = await viaSnapshot(filters);
+          const electric = await viaElectric(filters);
 
-          expect({ policy, matcher, snapshot }).toEqual({
+          expect({ policy, matcher, snapshot, electric }).toEqual({
             policy: engine,
             matcher: engine,
             snapshot: engine,
+            electric: engine,
           });
         });
       }

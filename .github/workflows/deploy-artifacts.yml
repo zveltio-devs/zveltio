@@ -91,7 +91,7 @@ jobs:
           S3_SECRET_KEY: x
           S3_ENDPOINT: http://seaweedfs:8333
           METRICS_TOKEN: x
-          ELECTRIC_AUTH_TOKEN: x
+          ELECTRIC_SECRET: x
         run: |
           docker compose -f docker-compose.yml config -q
           for o in ai dev electric; do

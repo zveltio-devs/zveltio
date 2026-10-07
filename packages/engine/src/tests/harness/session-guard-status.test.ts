@@ -47,7 +47,6 @@ const ROUTES: Array<[method: string, path: string, stream?: true]> = [
   ['GET', '/api/saved-queries'],
   ['GET', '/api/insights/dashboards'],
   ['GET', '/api/tenants/me'],
-  ['GET', '/api/electric/config'],
   ['GET', '/api/notifications'],
   ['GET', '/api/health/version'],
   ['GET', '/api/health/deep'],

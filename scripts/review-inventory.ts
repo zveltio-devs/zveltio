@@ -212,6 +212,8 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/rls.ts`,
       `${E}lib/tenancy/row-rule-policy.ts`,
       `${E}lib/tenancy/rule-operators.ts`,
+      // The shape WHERE is the fifth applier of the row-rule operators.
+      `${E}lib/tenancy/electric-shape.ts`,
       `${E}lib/tenancy/entity-access.ts`,
       `${E}lib/tenancy/denial.ts`,
       `${E}lib/tenancy/signed-cache.ts`,
