@@ -30,46 +30,18 @@
  * When unset, the routes return 503 — callers fall back to the CRDT
  * provider (which is the default anyway).
  *
- * Refused with more than one tenant. Electric streams a published table
- * through logical replication: none of the engine's read gates run on that
- * stream and nothing in it is filtered by tenant (the `tenant_id` claim is
- * not read by Electric). Until shapes are served through an engine-controlled
- * filter, a token is only minted where every row belongs to the one tenant.
+ * Refused, on every instance. Electric streams a published table through
+ * logical replication: none of the engine's read gates run on that stream —
+ * not the tenant (the `tenant_id` claim is not read by Electric), not row
+ * rules, not column permissions. One tenant does not make that safe: a member
+ * would still receive the rows and columns their rules hide. No token is minted
+ * until shapes are served through an engine-controlled filter.
  */
 
 import { Hono } from 'hono';
 import { guardSession } from '../lib/admin-guard.js';
 import type { Database } from '../db/index.js';
-import { isSingleTenantInstance } from '../lib/identity.js';
 import { problem } from '../lib/problem.js';
-import { tenantId } from '../lib/route-db.js';
-
-const TOKEN_TTL_SECONDS = 60;
-
-/** Base64url without padding — matches the JWT spec. */
-function b64url(input: ArrayBuffer | Uint8Array | string): string {
-  let bytes: Uint8Array;
-  if (typeof input === 'string') bytes = new TextEncoder().encode(input);
-  else if (input instanceof Uint8Array) bytes = input;
-  else bytes = new Uint8Array(input);
-  let str = '';
-  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-async function signHs256(payload: object, secret: string): Promise<string> {
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const signingInput = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(signingInput));
-  return `${signingInput}.${b64url(sig)}`;
-}
 
 interface ElectricConfig {
   electricUrl: string;
@@ -87,18 +59,16 @@ export function electricRoutes(
   db: Database,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   auth: any,
-  singleTenant: () => Promise<boolean> = () => isSingleTenantInstance(db),
 ): Hono {
   const app = new Hono();
 
-  /** Throws a 409 problem unless the instance has at most one tenant. */
-  async function refuseMultiTenant(): Promise<void> {
-    if (await singleTenant()) return;
+  /** Throws a 409 problem: the stream is not filtered by the engine's rules. */
+  function refuseUnfiltered(): never {
     throw problem(
-      'electric.multi_tenant',
+      'electric.unfiltered',
       409,
-      'Electric is disabled on an instance with more than one tenant: its replication ' +
-        'stream is not filtered by tenant. Use provider: "crdt".',
+      "Electric is disabled: its replication stream bypasses the engine's tenant, row and " +
+        'column rules. Use provider: "crdt".',
     );
   }
 
@@ -110,12 +80,10 @@ export function electricRoutes(
     await next();
   });
 
-  // GET /api/electric/config — surface the websocket URL the client should
-  // connect to + whether Electric is enabled for this engine deployment.
-  // Hides the shared secret unconditionally.
-  app.get('/config', async (c) => {
-    const cfg = readConfig();
-    if (!cfg) {
+  // 503 with the old shape when Electric is not configured (the SDK reads it to
+  // fall back to CRDT); otherwise refused — see the header. No URL, no token.
+  app.get('/config', (c) => {
+    if (!readConfig()) {
       return c.json(
         {
           enabled: false,
@@ -124,23 +92,10 @@ export function electricRoutes(
         503,
       );
     }
-    await refuseMultiTenant();
-    return c.json({
-      enabled: true,
-      electricUrl: cfg.electricUrl,
-      tokenTtlSeconds: TOKEN_TTL_SECONDS,
-    });
+    return refuseUnfiltered();
   });
-
-  // POST /api/electric/auth — mint a short-lived HS256 JWT the client
-  // hands to Electric to open its replication stream. Body is optional;
-  // when present it may carry { tables: string[] } to record an audit
-  // claim of which tables the client intends to sync (Electric itself
-  // enforces table access via its own config, not via the JWT — this is
-  // purely an audit hint we may consult later for usage analytics).
-  app.post('/auth', async (c) => {
-    const cfg = readConfig();
-    if (!cfg) {
+  app.post('/auth', (c) => {
+    if (!readConfig()) {
       return c.json(
         {
           error:
@@ -150,41 +105,11 @@ export function electricRoutes(
         503,
       );
     }
-
-    await refuseMultiTenant();
-
-    const user = c.get('user') as { id: string };
-    const body = (await c.req.json().catch(() => null)) as { tables?: unknown } | null;
-    const tables = Array.isArray(body?.tables)
-      ? (body!.tables as unknown[]).filter((t): t is string => typeof t === 'string')
-      : undefined;
-
-    const now = Math.floor(Date.now() / 1000);
-    const exp = now + TOKEN_TTL_SECONDS;
-    const claims: Record<string, unknown> = {
-      sub: user.id,
-      iat: now,
-      exp,
-      iss: 'zveltio-engine',
-      aud: 'electric-sql',
-    };
-    // The request's tenant, not `user.tenantId` — better-auth declares no
-    // additional fields, so that property was always undefined and the claim
-    // was never emitted. Measured: a minted token carried sub/iat/exp/iss/aud
-    // and nothing else, on an engine where the caller had a tenant.
-    claims.tenant_id = tenantId(c);
-    if (tables && tables.length > 0) claims.tables = tables;
-
-    const token = await signHs256(claims, cfg.authToken);
-    return c.json({
-      token,
-      expiresAt: exp * 1000, // ms epoch — easier for client schedulers
-      electricUrl: cfg.electricUrl,
-    });
+    return refuseUnfiltered();
   });
 
   return app;
 }
 
 // Internal exports for tests — never imported outside the test suite.
-export const _internalForTests = { signHs256, readConfig };
+export const _internalForTests = { readConfig };
