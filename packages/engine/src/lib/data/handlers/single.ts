@@ -174,7 +174,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     return c.json({ error: 'Record not found' }, 404);
   }
 
-  const serializedRecord = scope.shape(await serializeRecord(record, collectionDef));
+  const serializedRecord = await serializeRecord(record, collectionDef, scope.columns);
 
   // Expand m2o relations on demand
   const singleExpand = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));
@@ -303,7 +303,11 @@ export async function createRecord(
       author: rowAuthorId(user),
       tenantId: w.tenantId,
     });
-    const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
+    const serialized: Record<string, unknown> = await serializeRecord(
+      record,
+      collectionDef,
+      colAccessCreate,
+    );
     return c.json(serialized, 201);
   });
   return result as Response;
@@ -417,7 +421,11 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
       author: rowAuthorId(user),
       tenantId: getTenantId(c),
     });
-    const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
+    const serialized: Record<string, unknown> = await serializeRecord(
+      record,
+      collectionDef,
+      colAccessPut,
+    );
     return c.json(serialized);
   });
   return result as Response;
@@ -541,7 +549,11 @@ export async function patchRecord(
       author: rowAuthorId(user),
       tenantId: w.tenantId,
     });
-    const serialized: Record<string, unknown> = await serializeRecord(record, collectionDef);
+    const serialized: Record<string, unknown> = await serializeRecord(
+      record,
+      collectionDef,
+      colAccessPatch,
+    );
     return c.json(serialized);
   });
   return result as Response;

@@ -438,9 +438,9 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // per row.
   result.records = await scope.keep(result.records);
 
-  const serialized = (
-    await Promise.all(result.records.map((r) => serializeRecord(r, collectionDef)))
-  ).map(scope.shape);
+  const serialized = await Promise.all(
+    result.records.map((r) => serializeRecord(r, collectionDef, scope.columns)),
+  );
 
   // ── Expand m2o relations on demand (?expand=customer_id,author_id) ──
   const expandPlan = await resolveExpand(effectiveDb, collectionDef, c.req.query('expand'));

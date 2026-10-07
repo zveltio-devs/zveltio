@@ -13,7 +13,12 @@ import { DDLManager } from './ddl-manager.js';
 import { readScope } from './read-scope.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { maybeDecrypt } from './field-crypto.js';
-import { getColumnAccess, applyColumnAccess, checkPermission } from '../tenancy/index.js';
+import {
+  getColumnAccess,
+  applyColumnAccess,
+  checkPermission,
+  type ColumnAccess,
+} from '../tenancy/index.js';
 import type {
   CollectionDef,
   CollectionField,
@@ -76,15 +81,23 @@ export function normalizeFields(
 /** Serialize a record's field values using the field-type registry.
  *
  * Input is a loosely typed DB row (values `unknown` — dynamic tables can't be
- * statically typed); output is a validated `DynamicRow` (JSON values). */
+ * statically typed); output is a validated `DynamicRow` (JSON values).
+ *
+ * `columns` is the caller's column access, and it is required: this is where a
+ * row becomes a payload, and a payload is a read whoever asked for it. The
+ * write handlers serialized without it — `GET` masked a column the caller may
+ * not read while `POST`, `PUT`, `PATCH` and the bulk writes echoed the written
+ * row whole, hidden values included. Hidden columns go first, so an encrypted
+ * one is not even decrypted. */
 export async function serializeRecord(
   record: Record<string, unknown>,
   collectionDef: CollectionDef | null | undefined,
+  columns: ColumnAccess,
 ): Promise<DynamicRow> {
   const fields = normalizeFields(collectionDef);
   // Work on a loosely typed copy (DB rows carry `unknown` values); the returned
   // shape is the validated `DynamicRow` — the single JSON boundary cast is here.
-  const result: Record<string, unknown> = { ...record };
+  const result: Record<string, unknown> = { ...applyColumnAccess(record, columns) };
   if (fields.length === 0) {
     for (const k of INTERNAL_COLUMNS) delete result[k];
     return result as DynamicRow;
@@ -186,7 +199,7 @@ export async function applyExpand(
     // or ownership rule hides came back nested in its referrer. Not caught: a
     // failed lookup read as "nothing to filter" expanded every hidden row.
     let rows: DynamicRow[];
-    let shape: (r: DynamicRow) => DynamicRow;
+    let columns: ColumnAccess;
     if (user) {
       const scope = await readScope(db, exp.targetCollection, user, authType ?? 'session');
       const base = (db as unknown as RuntimeDb)
@@ -194,7 +207,7 @@ export async function applyExpand(
         .selectAll()
         .where('id', 'in', ids);
       rows = await scope.keep(await scope.query(base).execute());
-      shape = scope.shape;
+      columns = scope.columns;
     } else {
       // An internal caller with no request identity: columns by role only.
       rows = (
@@ -203,14 +216,13 @@ export async function applyExpand(
           WHERE id = ANY(${ids})
         `.execute(db)
       ).rows;
-      const colAccess = await getColumnAccess(db, exp.targetCollection, role);
-      shape = (r) => applyColumnAccess(r, colAccess);
+      columns = await getColumnAccess(db, exp.targetCollection, role);
     }
 
     const targetDef = (await DDLManager.getCollection(db, exp.targetCollection)) as CollectionDef;
     const byId = new Map<string, DynamicRow>();
     for (const r of rows) {
-      const visible = shape(await serializeRecord(r, targetDef));
+      const visible = await serializeRecord(r, targetDef, columns);
       // Add a default `_label` (best-effort: name → title → email → id slice),
       // derived only from VISIBLE fields so a hidden column can't leak via _label.
       const idVal = visible.id;
