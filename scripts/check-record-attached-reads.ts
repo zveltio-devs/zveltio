@@ -18,7 +18,8 @@
  * anyway (an instance-admin view), said out loud where a reviewer reads it.
  *
  * Which tables: read from the migrations, not listed here. Any table created
- * with both a `collection…` column and a `record_id` column counts, so the next
+ * with both a `collection…` (or `table_name`) column and a `record_id` column
+ * counts, so the next
  * one is covered the day it is created. Finding none is a failure — a gate that
  * cannot see what it guards must not report clean.
  *
@@ -42,7 +43,11 @@ function recordAttachedTables(): string[] {
     const src = readFileSync(join(MIGRATIONS, f), 'utf8');
     for (const m of src.matchAll(/CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\(([\s\S]*?)\n\);/g)) {
       const body = m[2] ?? '';
-      if (/^\s*record_id\s/m.test(body) && /^\s*collection\w*\s/m.test(body)) tables.add(m[1]!);
+      // `table_name` names the parent as surely as `collection` does
+      // (zv_tenant_transfers): the key is what makes a table record-attached.
+      if (/^\s*record_id\s/m.test(body) && /^\s*(?:collection\w*|table_name)\s/m.test(body)) {
+        tables.add(m[1]!);
+      }
     }
   }
   return [...tables].sort();
@@ -132,10 +137,12 @@ for (const file of walk(ROUTES)) {
     return gate.test(code.slice(start, end).join('\n'));
   };
   for (const table of tables) {
-    const use = new RegExp(
-      String.raw`(?:selectFrom|updateTable|deleteFrom|insertInto|innerJoin|leftJoin|rightJoin|\bjoin)\(\s*['"\`]${table}\b|\b(?:FROM|JOIN|INTO|UPDATE)\s+"?${table}\b`,
-      'i',
-    );
+    // Any mention in code is a reference. Matching the call or the keyword in
+    // front of the name missed `sql.table('…')`, a name held in a const,
+    // `public.<table>`, and the house style of `FROM` closing one line and the
+    // table opening the next. A name in a message string is waived like any
+    // other line.
+    const use = new RegExp(String.raw`\b${table}\b`);
     code.forEach((line, i) => {
       if (!use.test(line)) return;
       // The waiver is a comment, so it is read from the original lines.

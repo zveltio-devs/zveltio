@@ -227,6 +227,8 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/permissions.ts`,
       `${E}lib/tenancy/resource-grants.ts`,
       `${E}lib/tenancy/column-permissions.ts`,
+      // Collection permissions compiled into RLS (R1, #926).
+      `${E}lib/tenancy/collection-permissions.ts`,
       `${E}routes/permissions.ts`,
       `${E}routes/admin/permission-routes.ts`,
     ],
@@ -431,6 +433,8 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/config.ts`,
       `${E}lib/extensions/index.ts`,
       `${E}lib/extensions/ext-db-role.ts`,
+      // The operator's per-extension exemption rides on those roles.
+      `${E}lib/extensions/collection-rls-exempt.ts`,
       `${E}lib/extensions/tenant-facts.ts`,
       `${E}lib/engine-handle.ts`,
     ],
