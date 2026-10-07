@@ -96,10 +96,14 @@ async function createExtension(name: string, category: string, codePage: boolean
   // engine/index.ts
   await writeFile(
     join(targetDir, 'engine', 'index.ts'),
-    `import type { ZveltioExtension } from '@zveltio/sdk/extension';
+    `import { defineExtension } from '@zveltio/sdk/extension';
 import { join } from 'path';
 
-const extension: ZveltioExtension = {
+// The capabilities this extension uses — the same list as "permissions" in
+// manifest.json (\`zveltio extension validate\` compares them). It types \`ctx\`:
+// a ctx.internals member whose capability is not listed is a compile error,
+// not a refusal on the first request that needs it. Start with none.
+export default defineExtension([], {
   name: '${extName}',
   category: '${category}',
 
@@ -122,9 +126,7 @@ const extension: ZveltioExtension = {
       return c.json({ data });
     });
   },
-};
-
-export default extension;
+});
 `,
   );
 

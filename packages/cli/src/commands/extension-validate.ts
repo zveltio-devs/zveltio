@@ -212,6 +212,78 @@ function inferExpectedName(dir: string): string {
  * A manifest with no `sourceSha256` was packed by an older CLI: warn, don't
  * fail — there is nothing to compare against, and the author's fix is a repack.
  */
+/**
+ * The capabilities an extension declares to TypeScript (`defineExtension([...],
+ * …)`, roadmap R8) must be the ones its manifest declares to the engine.
+ *
+ * The list types `ctx`; `permissions` in manifest.json is what the engine
+ * enforces and an administrator approves. A capability in the list but not the
+ * manifest compiles and is then refused at runtime — the surprise the types
+ * exist to remove; one in the manifest but not the list is power asked of the
+ * administrator that the code says it does not use. Both are errors. No
+ * `defineExtension` call: nothing to compare.
+ *
+ * `sources` are the extension's engine TypeScript files; the legacy labels
+ * (`database`, `settings`, `network`) are not capabilities and are ignored.
+ */
+export function checkDeclaredCapabilities(sources: string[], manifest: unknown): ValidationError[] {
+  const call = sources
+    .map((src) => /defineExtension\s*(?:<[^>]*>)?\(\s*\[([^\]]*)\]/.exec(src))
+    .find((m) => m !== null);
+  if (!call) return [];
+  const typed = new Set([...(call[1] ?? '').matchAll(/['"`]([^'"`]+)['"`]/g)].map((m) => m[1]!));
+  const raw =
+    manifest && typeof manifest === 'object'
+      ? (manifest as { permissions?: unknown }).permissions
+      : undefined;
+  const legacy = new Set(['database', 'settings', 'network']);
+  const declared = new Set(
+    (Array.isArray(raw) ? raw : []).filter(
+      (p): p is string => typeof p === 'string' && !legacy.has(p),
+    ),
+  );
+  const out: ValidationError[] = [];
+  const onlyTyped = [...typed].filter((c) => !declared.has(c)).sort();
+  const onlyManifest = [...declared].filter((c) => !typed.has(c)).sort();
+  if (onlyTyped.length > 0) {
+    out.push({
+      code: 'CAPABILITY_NOT_IN_MANIFEST',
+      message:
+        `defineExtension declares ${onlyTyped.join(', ')}, which manifest.json "permissions" ` +
+        'does not: the code type-checks and the engine refuses it at runtime. Add it to the manifest.',
+      file: 'manifest.json',
+    });
+  }
+  if (onlyManifest.length > 0) {
+    out.push({
+      code: 'CAPABILITY_NOT_IN_DEFINE',
+      message:
+        `manifest.json "permissions" asks for ${onlyManifest.join(', ')}, which defineExtension ` +
+        'does not declare: the administrator is asked for power the code says it does not use. ' +
+        'Remove it from the manifest, or add it to defineExtension.',
+      file: 'manifest.json',
+    });
+  }
+  return out;
+}
+
+/** The extension's own engine TypeScript (not the bundle), for checks that read declarations. */
+export function readEngineTypeScript(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string) => {
+    if (!existsSync(d)) return;
+    for (const name of readdirSync(d)) {
+      if (name === 'node_modules') continue;
+      const p = join(d, name);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (p.endsWith('.ts') && !p.endsWith('.test.ts') && !p.endsWith('.d.ts'))
+        out.push(readFileSync(p, 'utf8'));
+    }
+  };
+  walk(join(dir, 'engine'));
+  return out;
+}
+
 export function checkBundleIntegrity(dir: string, manifest: unknown): ValidationError[] {
   const bundle = join(dir, 'engine', 'index.js');
   const integrity = (manifest as { integrity?: { engineSha256?: string; sourceSha256?: string } })
@@ -603,6 +675,13 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   if (integrityErrors.length > 0) {
     result.errors.push(...integrityErrors);
     if (integrityErrors.some((e) => e.severity !== 'warning')) result.ok = false;
+  }
+
+  // The capabilities `defineExtension` types `ctx` with are the manifest's (R8).
+  const capabilityErrors = checkDeclaredCapabilities(readEngineTypeScript(dir), manifest);
+  if (capabilityErrors.length > 0) {
+    result.errors.push(...capabilityErrors);
+    result.ok = false;
   }
 
   const warnings = result.errors.filter((e) => e.severity === 'warning');

@@ -1,3 +1,4 @@
+import type { Capability, MembersLockedFor } from './capabilities.js';
 import type { Context, Hono } from 'hono';
 import type { Kysely, RawBuilder } from 'kysely';
 
@@ -206,8 +207,15 @@ export interface ExtensionConfig {
  * extensions get full Kysely autocomplete + typo detection.
  */
 
+/**
+ * `C` — the capabilities this extension declared, when it says so through
+ * `defineExtension`. It narrows `internals` to the members those capabilities
+ * unlock and `adminDb` to `db:admin`, so an undeclared capability is a compile
+ * error rather than a `CapabilityDeniedError` on the first request that needs
+ * it. Defaults to every capability: code that does not opt in keeps today's type.
+ */
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export interface ExtensionContext<DB = any> {
+export interface ExtensionContext<DB = any, C extends string = Capability> {
   // ─── Stable public API ───────────────────────────────────────────────────────
 
   /**
@@ -235,7 +243,7 @@ export interface ExtensionContext<DB = any> {
    * Use for legitimately global operations (platform-wide reporting, backup).
    * Declaring `db:admin` surfaces the cross-tenant access at review + install.
    */
-  adminDb?: Kysely<DB>;
+  adminDb?: 'db:admin' extends C ? Kysely<DB> : never;
   /**
    * Per-request, tenant-scoped database. Returns the request's tenant
    * transaction (so the `zveltio.current_tenant` GUC is set and FORCE-RLS rows
@@ -364,7 +372,7 @@ export interface ExtensionContext<DB = any> {
    * Engine-internal helpers. Stable across patch versions but may break across
    * minor versions. First-party extensions only.
    */
-  internals: ExtensionInternals<DB>;
+  internals: Omit<ExtensionInternals<DB>, MembersLockedFor<C>>;
 }
 
 /**
@@ -1212,7 +1220,7 @@ export type MountStrategy = 'global' | 'subapp';
  */
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export interface ZveltioExtension<DB = any> {
+export interface ZveltioExtension<DB = any, C extends string = Capability> {
   /** Unique name — must match manifest.json `name` exactly (e.g. `'hr/employees'`). */
   name: string;
   /** Category shown in the marketplace (e.g. `'hr'`, `'finance'`, `'content'`). */
@@ -1227,7 +1235,7 @@ export interface ZveltioExtension<DB = any> {
    * Called once when the extension is activated.
    * Register Hono routes, subscribe to events, etc.
    */
-  register: (app: Hono, ctx: ExtensionContext<DB>) => Promise<void>;
+  register: (app: Hono, ctx: ExtensionContext<DB, C>) => Promise<void>;
   /** Register custom Studio field types contributed by this extension. */
   registerFieldTypes?: (registry: FieldTypeRegistryAPI) => void;
   /** Return absolute paths to SQL migration files, run in order on first activation. */
@@ -1358,4 +1366,26 @@ export interface AssetPreviewHandler {
   component: any; // Svelte component
 }
 
+/**
+ * Declare an extension together with the capabilities it uses, so `ctx` is typed
+ * by them (roadmap R8). The list must match `permissions` in manifest.json —
+ * the manifest is what the engine enforces and an administrator approves;
+ * `zveltio extension validate` reports a difference.
+ *
+ *   export default defineExtension(['secrets'], { name, category, register });
+ *
+ * Returns the extension unchanged, with the list attached as `capabilities`.
+ */
+/** `ZveltioExtension`'s own default schema type, without spelling it again. */
+type DefaultExtensionDB = ZveltioExtension extends ZveltioExtension<infer D> ? D : never;
+
+export function defineExtension<const C extends readonly Capability[], DB = DefaultExtensionDB>(
+  capabilities: C,
+  extension: ZveltioExtension<DB, C[number]>,
+): ZveltioExtension<DB, C[number]> & { readonly capabilities: C } {
+  return Object.assign(extension, { capabilities });
+}
+
 export type { Hono };
+
+export * from './capabilities.js';

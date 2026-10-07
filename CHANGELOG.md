@@ -19,6 +19,14 @@ at 3.0.0 GA. A worker-isolated extension's query carries the collection grants
 of the request it serves, never its bypass. Migration 058. See
 `docs/engine/authorization.md`.
 
+**Extensions: capabilities in the types.** `defineExtension(['secrets'], { … })`
+(from `@zveltio/sdk/extension`) types `ctx` by the capabilities listed: a
+`ctx.internals` member whose capability is not declared, or `ctx.adminDb`
+without `db:admin`, is a compile error instead of a runtime refusal. `zveltio
+extension validate` fails when the list and manifest.json `permissions` differ,
+and `zveltio extension create` generates `defineExtension([], …)`. Extensions
+that do not opt in keep today's types.
+
 **Extensions: `data:system` and `ctx.internals.asSystem`.** Collection
 permissions are moving into the database: a policy on each collection table will
 refuse what the caller's roles do not grant, so an extension's `ctx.db` in a
