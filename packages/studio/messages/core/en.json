@@ -1546,5 +1546,6 @@
   "wh.test": "Test",
   "wh.testNamed": "Test webhook {name}",
   "wh.timeout": "Timeout",
-  "wh.timeoutHint": "milliseconds (1000–30000)"
+  "wh.timeoutHint": "milliseconds (1000–30000)",
+  "shell.collection_rls_exempt": "{count} extension(s) run without collection permissions in the database: {names}. Adapt them and remove them from ZVELTIO_COLLECTION_RLS_EXEMPT — the exemption ends at 3.0.0."
 }

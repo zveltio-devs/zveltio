@@ -1546,5 +1546,6 @@
   "wh.test": "Teszt",
   "wh.testNamed": "A(z) {name} webhook tesztelése",
   "wh.timeout": "Időkorlát",
-  "wh.timeoutHint": "ezredmásodperc (1000–30000)"
+  "wh.timeoutHint": "ezredmásodperc (1000–30000)",
+  "shell.collection_rls_exempt": "{count} bővítmény fut gyűjteményjogosultságok nélkül az adatbázisban: {names}. Igazítsa át őket, és vegye ki őket a ZVELTIO_COLLECTION_RLS_EXEMPT listából — a mentesség a 3.0.0-val megszűnik."
 }

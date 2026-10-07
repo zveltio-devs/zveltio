@@ -4,6 +4,21 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Security: collection permissions are enforced by the database.** A grant on a
+collection was checked only by the application, so a path that skipped
+`checkPermission` — a new route, an extension's query — read and wrote freely
+inside the tenant. Every collection table now carries one RESTRICTIVE policy per
+command (`zv_coll_read`, `_create`, `_update`, `_delete`), checking the
+permissions the request publishes, resolved exactly as `checkPermission` resolves
+them. An extension's `ctx.db` gets the requesting user's rights, nothing without
+an actor (a `data:system` extension's jobs excepted), and more only inside
+`ctx.internals.asSystem`. Anonymous requests get the tenant's `public` role.
+`ZVELTIO_COLLECTION_RLS_EXEMPT=ext-a,ext-b` exempts named extensions until they
+are adapted — warned at every boot, reported in `/api/health/deep`, and removed
+at 3.0.0 GA. A worker-isolated extension's query carries the collection grants
+of the request it serves, never its bypass. Migration 058. See
+`docs/engine/authorization.md`.
+
 **Extensions: `data:system` and `ctx.internals.asSystem`.** Collection
 permissions are moving into the database: a policy on each collection table will
 refuse what the caller's roles do not grant, so an extension's `ctx.db` in a

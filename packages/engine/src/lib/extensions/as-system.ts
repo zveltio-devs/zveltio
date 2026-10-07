@@ -150,3 +150,25 @@ export async function asSystemAs<T>(
     await writeMark(trx, calls).catch(() => undefined);
   }
 }
+
+/**
+ * Mark a job of a `data:system` extension as system inside its tenant: every
+ * collection, for the whole transaction `withTenantIsolation` opened for it.
+ *
+ * A job has no actor, and without one collection permissions give an
+ * extension's statements nothing (owner decision, 2026-10-04: "jobs without a
+ * user run as system in the tenant only if the extension has `data:system`").
+ * `*` is a value only the engine writes — `asSystem` refuses it from an
+ * extension. Audited once per job.
+ */
+export async function markSystemJob(caller: string, trx: Database): Promise<void> {
+  await sql`SELECT set_config(${SYSTEM_COLLECTIONS_SETTING}, ',*,', true)`.execute(trx);
+  auditAs(caller, {
+    type: 'extension.as_system',
+    resourceType: 'collection',
+    resourceId: '*',
+    metadata: { collections: ['*'], reason: 'job in withTenantIsolation' },
+  }).catch((err) => {
+    console.warn(`[asSystem] audit for ext:${caller} failed:`, (err as Error)?.message ?? err);
+  });
+}

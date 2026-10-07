@@ -10,6 +10,7 @@
 // the default tenant — and migrated policies live at domain '*', which matches
 // every domain, so authorization is unchanged until per-tenant policies exist.
 
+import { encodeApiKeyScopes } from './collection-permissions.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -572,16 +573,24 @@ export function createRequestScopedDb(pool: Database): Database {
  * stays empty: a key has none, and a rule using it compares against `''`, so it
  * matches no owner — which is what the engine does too.
  */
-export async function publishApiKeyActor(userId: string, bypass: boolean): Promise<void> {
+export async function publishApiKeyActor(
+  userId: string,
+  bypass: boolean,
+  scopes?: unknown,
+): Promise<void> {
   const trx = getCurrentTenantTrx();
   if (!trx) return;
+  // The key's scopes, for the collection-permission policies (R1).
+  const { all, grants } = encodeApiKeyScopes(scopes);
   await sql`
     SELECT set_config('zveltio.user_id', ${userId}, true),
            set_config('zveltio.user_email', '', true),
            set_config('zveltio.user_role', 'api_key', true),
            set_config('zveltio.user_roles', 'api_key', true),
            set_config('zveltio.actor', 'on', true),
-           set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true)
+           set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true),
+           set_config('zveltio.collection_grants', ${grants}, true),
+           set_config('zveltio.collection_all', ${all ? 'on' : 'off'}, true)
   `.execute(trx);
   // Replaced, not mutated: a record taken before this (a worker invocation
   // already dispatched) keeps what it was taken as.
@@ -589,7 +598,15 @@ export async function publishApiKeyActor(userId: string, bypass: boolean): Promi
   if (current?.actor) {
     current.actor = {
       ...current.actor,
-      identity: { userId, email: '', role: 'api_key', roles: ['api_key'], bypass },
+      identity: {
+        userId,
+        email: '',
+        role: 'api_key',
+        roles: ['api_key'],
+        bypass,
+        collectionGrants: grants,
+        collectionAll: all,
+      },
     };
   }
 }

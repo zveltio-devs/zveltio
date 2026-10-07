@@ -19,7 +19,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
-import { applyTenantRLS } from '../../lib/tenancy/index.js';
+import { applyTenantRLS, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   createRequestScopedDb,
   getCurrentDomainOrNull,
@@ -27,7 +27,7 @@ import {
 } from '../../lib/tenancy/tenant-context.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { ALL_COLLECTIONS_ACTOR, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -151,11 +151,20 @@ d('a worker query runs as the tenant of its request', () => {
       domain: getCurrentDomainOrNull(),
     }));
     _resetWorkerHostForTests();
-    // What tenantMiddleware sets for a request to tenant B.
-    workerApp.use('*', async (c, next) => {
-      c.set('tenant' as never, { id: B } as never);
-      await next();
-    });
+    // What tenantMiddleware sets for a request to tenant B — with an actor, as
+    // every request has one (R1).
+    workerApp.use('*', (c, next) =>
+      runWithDomain(B, () =>
+        withTenantIsolation(
+          B,
+          async () => {
+            c.set('tenant' as never, { id: B } as never);
+            await next();
+          },
+          { identity: ALL_COLLECTIONS_ACTOR },
+        ),
+      ),
+    );
     getWorkerHost(workerApp);
     const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
     await extensionLoader.loadExtension(WORKER, workerApp, ctx, base);
@@ -217,7 +226,10 @@ d('a worker query runs as the tenant of its request', () => {
 
   it("a worker's service called by an inline caller queries as the caller's tenant", async () => {
     const svc = serviceRegistry.get<() => Promise<unknown>>(`${WORKER}.rows`);
-    expect(await runWithDomain(B, () => svc!())).toEqual([{ title: 'b-row' }]);
+    const rows = await runWithDomain(B, () =>
+      withTenantIsolation(B, () => svc!() as Promise<unknown>, { identity: ALL_COLLECTIONS_ACTOR }),
+    );
+    expect(rows).toEqual([{ title: 'b-row' }]);
   });
 
   it("a worker's service called by another worker queries as the caller's tenant", async () => {

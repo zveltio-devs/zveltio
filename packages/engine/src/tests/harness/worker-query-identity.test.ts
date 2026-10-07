@@ -46,6 +46,8 @@ const IDENTITY: RlsIdentity = {
   role: 'member',
   roles: ['member'],
   bypass: false,
+  // What tenantMiddleware publishes for a member who may read it (R1).
+  collectionGrants: `,${COLLECTION}:read,`,
 };
 
 const ENTRY = `
@@ -195,11 +197,12 @@ d("a worker query runs as its request's user", () => {
     expect(rows).toEqual([{ title: 'mine' }]);
   });
 
-  it('work with no identity keeps the old behaviour: the rule stands down', async () => {
+  it('work with no identity gets no collection: an extension needs an actor (R1)', async () => {
     const svc = serviceRegistry.get<() => Promise<unknown>>(`${WORKER}.rows`);
     const rows = await runWithDomain(B, () =>
       withTenantIsolation(B, () => svc!() as Promise<unknown>),
     );
-    expect(rows).toEqual([{ title: 'mine' }, { title: 'theirs' }]);
+    // Before R1 the owner rule stood down and both rows came back.
+    expect(rows).toEqual([]);
   });
 });

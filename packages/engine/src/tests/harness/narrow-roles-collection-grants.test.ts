@@ -29,7 +29,12 @@ import type {
   WorkerToHostMessage,
 } from '../../lib/worker-extension-protocol.js';
 import { WorkerExtensionHost, _internalForTests } from '../../lib/worker-extension-host.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -48,7 +53,10 @@ async function workerQuery(sqlText: string, tenantId: string): Promise<Reply> {
     const managed = {
       name: 'grant-probe',
       worker: { postMessage: resolve, terminate: () => {} },
-      invokeTenants: new Map([['req-1', { tenantId }]]),
+      // The request it serves has an actor, as every request does (R1).
+      invokeTenants: new Map([
+        ['req-1', { tenantId, actor: { userId: null, identity: ALL_COLLECTIONS_ACTOR } }],
+      ]),
       pendingInvokes: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),

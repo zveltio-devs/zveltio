@@ -22,7 +22,13 @@ import { buildExtensionInternals, type ExtensionContext } from '../../lib/extens
 import { buildRestrictedContext } from '../../lib/extensions/register.js';
 import { problemOnError } from '../../lib/problem.js';
 import { applyTenantRLS } from '../../lib/tenancy/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -45,7 +51,7 @@ d('deferred index builds of ctx.DDLManager', () => {
     await sql`INSERT INTO ${sql.id(`zvd_${name}`)} DEFAULT VALUES`.execute(db);
   };
   const inRequest = (fn: () => Promise<void>) =>
-    buildExtensionInternals().withTenantIsolation(TENANT, fn);
+    withTenantIsolation(TENANT, fn, { identity: ALL_COLLECTIONS_ACTOR });
   /** The index's definition once it is valid; null if it never becomes valid. */
   const validDef = async (index: string) => {
     for (let i = 0; i < 300; i++) {

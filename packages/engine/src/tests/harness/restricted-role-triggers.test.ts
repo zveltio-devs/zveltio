@@ -34,7 +34,13 @@ import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { applyTenantRLS, getCurrentTenantTrx } from '../../lib/tenancy/index.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -87,7 +93,7 @@ d('collection triggers under every restricted writer role', () => {
     _resetExtensionDbRoleForTests();
     await grantExtensionDbRole(db, INLINE, new Set());
     const inTenant = <T>(fn: () => Promise<T>): Promise<T> =>
-      buildExtensionInternals().withTenantIsolation(TENANT, fn);
+      withTenantIsolation(TENANT, fn, { identity: ALL_COLLECTIONS_ACTOR });
     const kysely = (h: Database): Writer => ({
       insert: async (title) => {
         const r = await h
@@ -132,6 +138,12 @@ d('collection triggers under every restricted writer role', () => {
     );
     writeFileSync(join(dir, 'engine', 'index.js'), ENTRY);
     _resetWorkerHostForTests();
+    // What the tenant middleware does for the request the worker serves: its
+    // tenant, and a transaction run as an actor (R1) — the host records both.
+    workerApp.use('*', async (c, next) => {
+      c.set('tenant' as never, { id: TENANT } as never);
+      await withTenantIsolation(TENANT, () => next(), { identity: ALL_COLLECTIONS_ACTOR });
+    });
     getWorkerHost(workerApp);
     const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
     await extensionLoader.loadExtension(WORKER, workerApp, ctx, base);

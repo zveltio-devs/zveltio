@@ -1546,5 +1546,6 @@
   "wh.test": "Testen",
   "wh.testNamed": "Webhook {name} testen",
   "wh.timeout": "Zeitlimit",
-  "wh.timeoutHint": "Millisekunden (1000–30000)"
+  "wh.timeoutHint": "Millisekunden (1000–30000)",
+  "shell.collection_rls_exempt": "{count} Erweiterung(en) laufen ohne Sammlungsberechtigungen in der Datenbank: {names}. Passen Sie sie an und entfernen Sie sie aus ZVELTIO_COLLECTION_RLS_EXEMPT — die Ausnahme endet mit 3.0.0."
 }

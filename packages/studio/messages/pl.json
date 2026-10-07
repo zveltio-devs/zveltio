@@ -3507,6 +3507,7 @@
   "settings.useTls": "Użyj TLS/SSL",
   "settings.window": "Okno",
   "shell.collapseSidebar": "Zwiń pasek boczny",
+  "shell.collection_rls_exempt": "{count} rozszerzenie(-a) działa bez uprawnień do kolekcji w bazie danych: {names}. Dostosuj je i usuń z ZVELTIO_COLLECTION_RLS_EXEMPT — zwolnienie wygasa w 3.0.0.",
   "shell.darkMode": "Tryb ciemny",
   "shell.densityComfortable": "Komfortowy",
   "shell.densityCompact": "Kompaktowy",

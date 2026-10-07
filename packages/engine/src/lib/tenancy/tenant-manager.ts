@@ -1,6 +1,7 @@
 // packages/engine/src/lib/tenant-manager.ts
 // Manages tenant schema lifecycle and resolution
 
+import { applyCollectionPermissions } from './collection-permissions.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { type RawBuilder, sql } from 'kysely';
 import { indexName } from '../pg-identifier.js';
@@ -33,6 +34,19 @@ export interface RlsIdentity {
   /** Casbin roles plus the direct one — what a rule's `role` is matched against. */
   roles: string[];
   bypass: boolean;
+  /**
+   * What the caller may do to collections, from `collectionGrantsFor` (or an
+   * API key's scopes) — read by the collection-permission policies (R1).
+   */
+  collectionGrants?: string;
+  /** The `('*','*')` grant: every collection, every action. */
+  collectionAll?: boolean;
+  /**
+   * An anonymous request: no user, but an actor all the same — the tenant's
+   * `public` role — so the policies hold it to that role's grants rather than
+   * standing down as they do for the engine's own work.
+   */
+  anonymous?: boolean;
 }
 import {
   activeMembership,
@@ -372,6 +386,10 @@ export async function applyTenantRLS(
     USING (tenant_id = ANY (${sql.raw(visibleFn)}))
     WITH CHECK (zveltio_tenant_write_ok(tenant_id))
   `.execute(db);
+
+  // Collection permissions beside tenant isolation (R1): one RESTRICTIVE policy
+  // per command, asking what the request published. See collection-permissions.ts.
+  await applyCollectionPermissions(db, table);
 
   // The two narrow roles hold an allowlist of collection tables, and this is
   // where a collection joins it: `zveltio_worker` (the worker SQL bridge, DML)
@@ -1248,6 +1266,8 @@ export async function withTenantIsolation<T>(
       role: opts?.identity?.role ?? '',
       roles: (opts?.identity?.roles ?? []).join(','),
       bypass: opts?.identity?.bypass ?? false,
+      grants: opts?.identity?.collectionGrants ?? '',
+      all: opts?.identity?.collectionAll ?? false,
     };
 
     // Whether there is an ACTOR at all — written as its own setting, because
@@ -1268,7 +1288,7 @@ export async function withTenantIsolation<T>(
     // Hence a separate flag, ALWAYS written like the rest, saying what the empty
     // spellings cannot: background jobs and boot reconcilers publish no identity
     // and get `off`, and a rule stands down for them exactly as it does today.
-    const hasActor = (opts?.identity?.userId ?? '') !== '';
+    const hasActor = (opts?.identity?.userId ?? '') !== '' || opts?.identity?.anonymous === true;
 
     // set_config(..., is_local=true) is the transaction-local equivalent of
     // SET LOCAL but accepts a bind parameter — `SET LOCAL x = $1` is a Postgres
@@ -1309,6 +1329,8 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.user_roles', ${identity.roles}, true),
              set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
              set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true),
+             set_config('zveltio.collection_grants', ${identity.grants}, true),
+             set_config('zveltio.collection_all', ${identity.all ? 'on' : 'off'}, true),
              set_config('zveltio.system_collections', '', true),
              set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true)
         FROM reach

@@ -24,7 +24,13 @@ import { buildExtensionInternals, type ExtensionContext } from '../../lib/extens
 import { buildRestrictedContext } from '../../lib/extensions/register.js';
 import { applyTenantRLS } from '../../lib/tenancy/index.js';
 import { _setRlsRoleAvailableForTests } from '../../lib/tenancy/tenant-manager.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -51,7 +57,7 @@ d("ctx.DDLManager's mutations inside a request", () => {
   const inRequest = async (mode: Mode, fn: () => Promise<void>) => {
     const restore = _setRlsRoleAvailableForTests(mode === 'enforced');
     try {
-      await buildExtensionInternals().withTenantIsolation(TENANT, fn);
+      await withTenantIsolation(TENANT, fn, { identity: ALL_COLLECTIONS_ACTOR });
     } finally {
       restore();
     }

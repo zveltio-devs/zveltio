@@ -43,7 +43,13 @@ import {
   getCurrentTenantTrx,
   restrictTemporaryObjects,
 } from '../../lib/tenancy/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -61,7 +67,9 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
   let ROLE = '';
   let TWIN = '';
   const inTenant = <T>(fn: (trx: Database) => Promise<T>): Promise<T> =>
-    buildExtensionInternals().withTenantIsolation(TENANT, () => fn(getCurrentTenantTrx()!));
+    withTenantIsolation(TENANT, () => fn(getCurrentTenantTrx()!), {
+      identity: ALL_COLLECTIONS_ACTOR,
+    });
   const whoAmI = async (h: Database) =>
     (await sql<{ r: string }>`SELECT current_user::text AS r`.execute(h)).rows[0]!.r;
 
@@ -252,7 +260,7 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
     }
   }, 60_000);
 
-  it('runs pool statements as zveltio_ext on a plain-role engine (no CREATEROLE: shared role), seeing what the engine sees', async () => {
+  it('runs pool statements as zveltio_ext on a plain-role engine (no CREATEROLE: shared role), and with no actor reads no collection rows', async () => {
     await sql.raw(`DROP ROLE IF EXISTS ${PLAIN}`).execute(db);
     await sql.raw(`CREATE ROLE ${PLAIN} LOGIN PASSWORD 'p' NOSUPERUSER NOBYPASSRLS`).execute(db);
     // What scripts/bootstrap-db-role.sh gives the engine role.
@@ -270,7 +278,11 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
       expect(await ext.transaction().execute((t) => whoAmI(t))).toBe('zveltio_ext');
       const engineSees = await tenantsSeen(plain);
       expect(engineSees).toBeLessThan(2); // RLS binds the plain role on the pool
-      expect(await tenantsSeen(ext)).toBe(engineSees);
+      // Collection permissions (R1): an extension's statement with no actor —
+      // the pool, outside any request — gets nothing from a collection, where
+      // the engine's own statement still sees its default tenant.
+      expect(engineSees).toBe(1);
+      expect(await tenantsSeen(ext)).toBe(0);
       // The twin is never handed to a role that RLS binds.
       const m = await sql<{ m: boolean }>`
         SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_ext_bypass')
@@ -340,7 +352,7 @@ d('one extension cannot reach another extension’s tables at the database layer
   let app: Awaited<ReturnType<typeof getTestApp>>['app'];
   let cookie: string;
   const inTenant = <T>(fn: () => Promise<T>): Promise<T> =>
-    buildExtensionInternals().withTenantIsolation(TENANT, fn);
+    withTenantIsolation(TENANT, fn, { identity: ALL_COLLECTIONS_ACTOR });
   const extDb = (name: string, allowed: string[] = []) =>
     createRestrictedDb(() => getCurrentTenantTrx() ?? db, name, new Set(allowed));
   const count = (h: Database, table: string) =>

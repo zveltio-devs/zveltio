@@ -28,6 +28,7 @@ import {
 } from '../lib/tenancy/index.js';
 import {
   checkPermission,
+  collectionGrantsFor,
   getUserRoles,
   resolveUserRole,
   type RlsIdentity,
@@ -225,10 +226,20 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
             // published for a FAILED lookup stood every such rule down. The
             // rejection refuses the request instead. The bypass may keep its
             // `false` — denying the exemption is the restrictive answer.
-            const [roles, bypass] = await Promise.all([
+            const [roles, bypass, collections] = await Promise.all([
               getUserRoles(sessionUser.id),
               checkPermission(sessionUser.id, 'data', 'view_all').catch(() => false),
+              // What the collection-permission policies check (R1). A failed
+              // lookup is held, not swallowed: publishing no grants would refuse
+              // everything with a misleading "permission denied".
+              collectionGrantsFor(sessionUser.id).then(
+                (g) => ({ ...g, failed: undefined as unknown }),
+                (failed: unknown) => ({ all: false, grants: '', failed }),
+              ),
             ]);
+            // Refused for a bypassing caller too: `rls_bypass` covers reads only
+            // (058), and a god's writes need the `all` this lookup answers.
+            if (collections.failed !== undefined) throw collections.failed;
             // The role is RESOLVED, not read off the session.
             //
             // better-auth does not populate `session.user.role`, so publishing
@@ -245,6 +256,24 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               role: direct,
               roles: direct && !roles.includes(direct) ? [...roles, direct] : roles,
               bypass,
+              collectionGrants: collections.grants,
+              collectionAll: collections.all,
+            };
+          } else {
+            // Anonymous: an actor all the same — the tenant's `public` role, held
+            // to that role's grants (R1, owner decision 2026-10-04). Bound to the
+            // tenant resolved for this request, like everything else here. A key
+            // presented to the handler replaces this with its own identity.
+            const collections = await collectionGrantsFor('public');
+            identity = {
+              userId: '',
+              email: '',
+              role: 'public',
+              roles: ['public'],
+              bypass: false,
+              collectionGrants: collections.grants,
+              collectionAll: collections.all,
+              anonymous: true,
             };
           }
 

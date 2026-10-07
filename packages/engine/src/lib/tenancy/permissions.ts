@@ -253,6 +253,34 @@ async function effectivePermissions(userId: string, domain: string): Promise<Eff
 }
 
 /**
+ * What a principal may do to collections, encoded for the database (R1).
+ *
+ * The same resolved set `checkPermission` answers from — role chains, the
+ * tenant and `*` domains, the column role — so the policies check exactly what
+ * the application would. `grants` is `,<resource>:<action>,…` with `:*` for an
+ * object granted every action; `all` is the `('*','*')` rule a tenant admin
+ * holds. Every resource is included, collection or not: a name that is not a
+ * collection is never asked about. A god gets `all`, as `checkPermission`'s
+ * god bypass answers yes to everything; `rls_bypass` cannot carry that, since
+ * `data:view_all` publishes it too and the policies read it as `read` only.
+ *
+ * `subject` is a user id, or `public` for an anonymous request: that role's
+ * grants in the running tenant.
+ */
+export async function collectionGrantsFor(
+  subject: string,
+): Promise<{ all: boolean; grants: string }> {
+  // Unguarded: a failed god lookup throws, and the caller refuses the request.
+  if (subject !== 'public' && (await lookupGod(subject))) return { all: true, grants: '' };
+  const perms = await effectivePermissions(subject, getCurrentDomain());
+  const parts = [
+    ...[...perms.anyAction].map((o) => `${o}:*`),
+    ...[...perms.exact].map((k) => k.replace('\u0000', ':')),
+  ].filter((p) => !p.includes(','));
+  return { all: perms.all, grants: parts.length > 0 ? `,${parts.join(',')},` : '' };
+}
+
+/**
  * Test seam: the answer the resolved set gives, without going near `enforce()`.
  *
  * Exported so `permission-set-matches-enforce.test.ts` can hold the two against

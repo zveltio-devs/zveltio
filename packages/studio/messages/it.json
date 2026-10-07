@@ -3507,6 +3507,7 @@
   "settings.useTls": "Usa TLS/SSL",
   "settings.window": "Finestra",
   "shell.collapseSidebar": "Comprimi barra laterale",
+  "shell.collection_rls_exempt": "{count} estensione/i eseguite senza permessi di collezione nel database: {names}. Adattatele e rimuovetele da ZVELTIO_COLLECTION_RLS_EXEMPT: l'esenzione termina con la 3.0.0.",
   "shell.darkMode": "Modalità scura",
   "shell.densityComfortable": "Comodo",
   "shell.densityCompact": "Compatto",

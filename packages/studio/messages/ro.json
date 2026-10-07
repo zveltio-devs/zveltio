@@ -3507,6 +3507,7 @@
   "settings.useTls": "Folosește TLS/SSL",
   "settings.window": "Fereastră",
   "shell.collapseSidebar": "Restrânge bara laterală",
+  "shell.collection_rls_exempt": "{count} extensie(i) rulează fără permisiuni pe colecții în baza de date: {names}. Adaptați-le și scoateți-le din ZVELTIO_COLLECTION_RLS_EXEMPT — scutirea dispare la 3.0.0.",
   "shell.darkMode": "Mod întunecat",
   "shell.densityComfortable": "Confortabil",
   "shell.densityCompact": "Compact",

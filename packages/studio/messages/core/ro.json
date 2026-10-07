@@ -1546,5 +1546,6 @@
   "wh.test": "Testează",
   "wh.testNamed": "Testează webhook-ul {name}",
   "wh.timeout": "Timp de expirare",
-  "wh.timeoutHint": "milisecunde (1000–30000)"
+  "wh.timeoutHint": "milisecunde (1000–30000)",
+  "shell.collection_rls_exempt": "{count} extensie(i) rulează fără permisiuni pe colecții în baza de date: {names}. Adaptați-le și scoateți-le din ZVELTIO_COLLECTION_RLS_EXEMPT — scutirea dispare la 3.0.0."
 }

@@ -352,3 +352,20 @@ export async function wsUpgradeData(
   await app.request('/api/ws', { headers }, { server });
   return data;
 }
+
+/**
+ * An actor holding every collection grant — for tests whose subject is not
+ * permissions (roles, triggers, DDL inside a request) but which run extension or
+ * worker statements in a tenant transaction. Collection permissions (R1) give an
+ * extension's statement nothing without an actor; a real request always has one.
+ */
+export const ALL_COLLECTIONS_ACTOR = {
+  userId: '',
+  email: '',
+  role: '',
+  roles: [] as string[],
+  bypass: false,
+  collectionGrants: '',
+  collectionAll: true,
+  anonymous: true,
+};

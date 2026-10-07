@@ -35,6 +35,7 @@ import { initRls } from './lib/tenancy/index.js';
 import { createRequestScopedDb } from './lib/tenancy/index.js';
 import { fieldTypeRegistry } from './lib/data/index.js';
 import {
+  collectionRlsExemptionStatus,
   extensionLoader,
   buildExtensionInternals,
   isSupportedLocaleName,
@@ -1024,6 +1025,9 @@ rm studio.tar.gz</pre>
       '# HELP zveltio_extensions_active Number of active extensions',
       '# TYPE zveltio_extensions_active gauge',
       `zveltio_extensions_active ${extensionLoader.getActive().length}`,
+      '# HELP zveltio_collection_rls_exemptions Extensions running without collection permissions in the database (ZVELTIO_COLLECTION_RLS_EXEMPT)',
+      '# TYPE zveltio_collection_rls_exemptions gauge',
+      `zveltio_collection_rls_exemptions ${collectionRlsExemptionStatus().applied.length}`,
       '# HELP zveltio_memory_heap_used_bytes Current heap used in bytes',
       '# TYPE zveltio_memory_heap_used_bytes gauge',
       `zveltio_memory_heap_used_bytes ${memoryReport.current.heapUsed}`,
