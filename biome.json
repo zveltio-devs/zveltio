@@ -40,7 +40,6 @@
       "!packages/studio/src/routes/(admin)/content/documents",
       "!packages/studio/src/routes/(admin)/crm",
       "!packages/studio/src/routes/(admin)/developer/api-docs",
-      "!packages/studio/src/routes/(admin)/developer/database",
       "!packages/studio/src/routes/(admin)/developer/edge-functions",
       "!packages/studio/src/routes/(admin)/developer/graphql",
       "!packages/studio/src/routes/(admin)/developer/validation",

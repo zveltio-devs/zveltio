@@ -4,6 +4,22 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Removed: the `developer/database` extension (`@zveltio/ext-database`).** It
+was a database admin panel (catalog explorer plus raw DDL for functions,
+triggers, enums, roles and RLS) running through `ctx.db`, gated on instance
+admin and outside DDLManager and RLS; since the raw-SQL allowlist it answered
+500 on every route. The god-only, read-only-by-default, audited SQL editor
+(`/api/admin/sql`) covers the same need. It is no longer in the catalog or the
+registry. On an instance that has it installed: uninstall it first
+(`POST /api/marketplace/developer%2Fdatabase/uninstall`, god only). That keeps
+its tables. `?purgeData=true` refuses with `EXT_DOWN_MISSING`, because three of
+its four migrations carry no DOWN, so to drop the data run, after a backup:
+`DROP TABLE IF EXISTS zv_developer_database_snippets, zvd_db_query_history,
+zvd_db_ddl_log, zvd_db_connection_profiles; DELETE FROM zv_migrations WHERE
+name LIKE 'ext:developer/database:%'; DELETE FROM zv_extension_registry WHERE
+name = 'developer/database';` and remove `developer/database` from the
+extensions directory.
+
 **Security: collection permissions are enforced by the database.** A grant on a
 collection was checked only by the application, so a path that skipped
 `checkPermission` — a new route, an extension's query — read and wrote freely

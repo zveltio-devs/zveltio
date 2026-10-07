@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 393
+# tables: 389
 
 table account
   col accessToken                    text
@@ -1052,19 +1052,6 @@ table zv_dashboards
   pk  zv_dashboards_pkey PRIMARY KEY (id)
   rls enabled forced
   pol tenant_isolation_zv_dashboards FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
-
-table zv_developer_database_snippets
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col query                          text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zv_developer_database_snippets_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_developer_database_snippets FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_doc_templates
   col counter                        integer NOT NULL DEFAULT 0
@@ -4088,54 +4075,6 @@ table zvd_dashboard_subscriptions
   uq  zvd_dashboard_subscriptions_dashboard_id_user_id_key UNIQUE (dashboard_id, user_id)
   ck  zvd_dashboard_subscriptions_frequency_check CHECK ((frequency = ANY (ARRAY['daily'::text, 'weekly'::text, 'monthly'::text])))
   pk  zvd_dashboard_subscriptions_pkey PRIMARY KEY (id)
-
-table zvd_db_connection_profiles
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col database                       text NOT NULL
-  col description                    text
-  col host                           text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col is_readonly                    boolean NOT NULL DEFAULT false
-  col name                           text NOT NULL
-  col port                           integer NOT NULL DEFAULT 5432
-  col ssl                            boolean NOT NULL DEFAULT true
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  uq  zvd_db_connection_profiles_name_key UNIQUE (tenant_id, name)
-  pk  zvd_db_connection_profiles_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_db_connection_profiles FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_db_ddl_log
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col ddl_text                       text
-  col error                          text
-  col executed_by                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col object_name                    text NOT NULL
-  col object_type                    text NOT NULL
-  col operation                      text NOT NULL
-  col schema_name                    text NOT NULL DEFAULT 'public'::text
-  col success                        boolean NOT NULL DEFAULT true
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_db_ddl_log_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_db_ddl_log FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_db_query_history
-  col duration_ms                    integer
-  col error                          text
-  col executed_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col executed_by                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col query                          text NOT NULL
-  col row_count                      integer
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_db_query_history_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_db_query_history FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_departments
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()

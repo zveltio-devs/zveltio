@@ -22,7 +22,7 @@ export async function extensionCommand(
  * Scaffold a new extension.
  *
  * The default page is an SDUI schema, not a Svelte file. That is not a style
- * preference — across the 56 shipped extensions there are 61 schemas and seven
+ * preference — across the 55 shipped extensions there are 60 schemas and seven
  * code pages, and every one of those seven sits BESIDE a schema rather than
  * instead of it. A scaffold that opened with
  * `studio/pages/+page.svelte` and mentioned schemas in a parenthesis taught
@@ -358,7 +358,7 @@ Do NOT add studio/vite.config.ts, studio/package.json, or studio/dist/ — remov
 
   if (codePage) {
     console.warn(
-      `\x1b[33mScaffolded a CODE page. Across the 56 shipped extensions, 61 pages are
+      `\x1b[33mScaffolded a CODE page. Across the 55 shipped extensions, 60 pages are
 schemas and seven are code — and each of those seven sits beside a schema, for
 the part a schema could not express. On this road you own fetching,
 loading and error states, i18n by hand, and a Studio release to ship a change.

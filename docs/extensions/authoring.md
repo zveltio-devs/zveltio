@@ -15,14 +15,14 @@ every extension follows — read it before building one.
 
 ### Where UI goes
 
-Three destinations, and they are not three equal choices. Of the 56 extensions
-shipped today, 61 pages are schemas and seven are code — and each of those seven
+Three destinations, and they are not three equal choices. Of the 55 extensions
+shipped today, 60 pages are schemas and seven are code — and each of those seven
 sits BESIDE a schema, for the one part a schema could not express (a chat, an
 inbox, a block builder, a playground, an IDE, a kanban, a map).
 
 | You want | You write | Shipped today |
 |---|---|---|
-| a page | `studio/schemas/*.json` | 61 schemas |
+| a page | `studio/schemas/*.json` | 60 schemas |
 | a widget on a core surface (dashboard, topbar) | `studio/src/contribute.ts` | 3 extensions |
 | UI a schema cannot express — canvas, chat, map, inbox | `studio/pages/+page.svelte` | 7 pages, in 7 extensions |
 

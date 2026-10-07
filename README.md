@@ -128,7 +128,7 @@ Build your own: `zveltio extension create <name>` scaffolds. `zveltio extension 
 
 ## What you can install today
 
-56 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install, or read [docs/extensions/catalog.md](docs/extensions/catalog.md).
+55 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install, or read [docs/extensions/catalog.md](docs/extensions/catalog.md).
 
 Some capabilities are the engine itself rather than an extension — collections,
 storage, webhooks, realtime, audit, notifications, automation flows, backup,
@@ -143,7 +143,7 @@ See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extens
 
 **Communications & HR** · `communications/mail` · `sms` · `hr/employees` · `hr/time-tracking` · `hr/leave` · `hr/payroll`
 
-**Developer & Integrations** · `developer/edge-functions` · `developer/graphql` · `developer/api-docs` · `developer/byod` (import tables from an existing database) · `developer/database` · `developer/validation` · `integrations/api-connector` · `integrations/migrators` (HubSpot, Notion, Airtable)
+**Developer & Integrations** · `developer/edge-functions` · `developer/graphql` · `developer/api-docs` · `developer/byod` (import tables from an existing database) · `developer/validation` · `integrations/api-connector` · `integrations/migrators` (HubSpot, Notion, Airtable)
 
 **Intelligence** · `ai` (multi-provider) · `analytics/dashboard` (per-role home dashboards) · `analytics/quality`
 
@@ -169,7 +169,7 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 **Where it is not there yet**
 
 - **Beta.** The extension API and marketplace flow are stable; engine internals and the Studio still move. No SOC 2 or ISO 27001 certification.
-- **Small ecosystem.** 56 first-party extensions; third-party submissions are reviewed by hand and the community is small.
+- **Small ecosystem.** 55 first-party extensions; third-party submissions are reviewed by hand and the community is small.
 
 ---
 

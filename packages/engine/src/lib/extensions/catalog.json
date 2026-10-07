@@ -303,16 +303,6 @@
       "permissions": ["database"]
     },
     {
-      "name": "developer/database",
-      "displayName": "Database Management",
-      "description": "PostgreSQL functions, triggers, enums, roles, RLS",
-      "category": "developer",
-      "version": "1.0.0",
-      "author": "Zveltio",
-      "tags": ["database", "postgresql", "triggers", "rls"],
-      "permissions": ["database"]
-    },
-    {
       "name": "developer/edge-functions",
       "displayName": "Edge Functions",
       "description": "Write and deploy TypeScript serverless functions directly inside the engine with a sandboxed runtime",

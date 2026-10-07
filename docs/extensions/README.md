@@ -11,7 +11,7 @@ and scheduled jobs, and they can be disabled again.
 | [authoring.md](authoring.md) | Authoring conventions and review expectations |
 | [signatures.md](signatures.md) | Ed25519 signing and verification |
 | [marketplace-policy.md](marketplace-policy.md) | What is accepted into the registry, and the tier rules |
-| [catalog.md](catalog.md) | The 56 official extensions |
+| [catalog.md](catalog.md) | The 55 official extensions |
 | [overview.md](overview.md) | User-facing introduction to the plugin system |
 | [../ui/sdui.md](../ui/sdui.md) | The declarative page schema |
 

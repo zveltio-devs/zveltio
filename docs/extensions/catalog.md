@@ -1,7 +1,7 @@
 # Official Extension Catalog
 
-The 56 first-party extensions, maintained in the sibling repository
-`zveltio-extensions`. 55 ship engine code; `content/pdf-viewer` is Studio-only.
+The 55 first-party extensions, maintained in the sibling repository
+`zveltio-extensions`. 54 ship engine code; `content/pdf-viewer` is Studio-only.
 24 categories.
 
 **Generated from the manifests on 2026-09-02.** To regenerate, read
@@ -95,7 +95,6 @@ accurate counts.
 |---|---|---|---|
 | `developer/api-docs` | API Documentation | 1.0.2 | Swagger UI + OpenAPI generated from collections |
 | `developer/byod` | BYOD Import | 1.0.4 | Introspect and import an external database schema |
-| `developer/database` | Database Management | 1.0.4 | Functions, triggers, enums, roles, RLS |
 | `developer/edge-functions` | Edge Functions | 1.0.4 | Serverless functions running inside the engine |
 | `developer/graphql` | GraphQL API | 1.0.2 | Auto-generated GraphQL with playground |
 | `developer/validation` | Data Validation | 1.0.3 | Field-level rules with AI-assisted natural-language authoring |

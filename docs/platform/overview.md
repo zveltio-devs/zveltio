@@ -56,7 +56,7 @@ See [multi-tenancy.md](multi-tenancy.md).
 | **Live TypeScript types** | `zveltio generate-types` once, and every SDK call is typed from that point on. |
 | **Immutable audit trail** | Every write logged with user, IP, and before/after values. GDPR export and erasure built in. |
 | **Server-driven UI** | Extension admin pages ship as JSON schemas rendered by trusted host components — no per-extension build, no third-party JavaScript in the admin. See [SDUI](../ui/sdui.md). |
-| **56 official extensions** | Including Romanian compliance (e-Factura, e-Transport, SAF-T) and a D300 VAT return in accounting. See the [catalog](../extensions/catalog.md). |
+| **55 official extensions** | Including Romanian compliance (e-Factura, e-Transport, SAF-T) and a D300 VAT return in accounting. See the [catalog](../extensions/catalog.md). |
 
 ---
 
@@ -97,7 +97,7 @@ Two public repositories, conventionally cloned as siblings:
 
 ```
 zveltio/                  the engine, Studio, client, SDK, CLI  (this repo)
-zveltio-extensions/       the 56 official extensions
+zveltio-extensions/       the 55 official extensions
 ```
 
 CI clones `zveltio-extensions` as `../zveltio-extensions`, using a paired branch

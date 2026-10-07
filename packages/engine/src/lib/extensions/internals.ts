@@ -404,8 +404,8 @@ export interface ExtensionInternals {
    * for anything touching the instance: raw SQL, schema, role grants.
    *
    * Exposed because an extension that cannot reach this helper writes the
-   * `checkPermission` version instead — developer/database did, on a raw-SQL
-   * route, which is how a tenant admin got an instance-wide query console.
+   * `checkPermission` version instead — the removed developer/database did, on
+   * a raw-SQL route, which is how a tenant admin got an instance-wide query console.
    */
   requireInstanceAdmin: typeof requireInstanceAdmin;
   runEdgeFunction: typeof runEdgeFunction;

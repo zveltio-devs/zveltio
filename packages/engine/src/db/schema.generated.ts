@@ -632,17 +632,6 @@ export interface ZvDashboardsTable {
   tenant_id: string | null;
 }
 
-export interface ZvDeveloperDatabaseSnippetsTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  query: string;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: string | null;
-}
-
 export interface ZvDocTemplatesTable {
   id: Generated<string>;
   name: string;
@@ -3131,47 +3120,6 @@ export interface ZvdDashboardSubscriptionsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdDbConnectionProfilesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  host: string;
-  port: Generated<number>;
-  database: string;
-  ssl: Generated<boolean>;
-  is_readonly: Generated<boolean>;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: string | null;
-}
-
-export interface ZvdDbDdlLogTable {
-  id: Generated<string>;
-  operation: string;
-  object_type: string;
-  object_name: string;
-  schema_name: Generated<string>;
-  ddl_text: string | null;
-  executed_by: string;
-  success: Generated<boolean>;
-  error: string | null;
-  created_at: Generated<Date>;
-  tenant_id: string | null;
-}
-
-export interface ZvdDbQueryHistoryTable {
-  id: Generated<string>;
-  query: string;
-  executed_by: string;
-  duration_ms: number | null;
-  row_count: number | null;
-  error: string | null;
-  executed_at: Generated<Date>;
-  tenant_id: string | null;
-}
-
 export interface ZvdDepartmentsTable {
   id: Generated<string>;
   name: string;
@@ -5565,7 +5513,6 @@ export interface DbSchema {
   zv_content_drafts: ZvContentDraftsTable;
   zv_dashboard_layouts: ZvDashboardLayoutsTable;
   zv_dashboards: ZvDashboardsTable;
-  zv_developer_database_snippets: ZvDeveloperDatabaseSnippetsTable;
   zv_doc_templates: ZvDocTemplatesTable;
   zv_document_access_log: ZvDocumentAccessLogTable;
   zv_document_number_sequences: ZvDocumentNumberSequencesTable;
@@ -5737,9 +5684,6 @@ export interface DbSchema {
   zvd_crm_pipeline_stages: ZvdCrmPipelineStagesTable;
   zvd_dashboard_shares: ZvdDashboardSharesTable;
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
-  zvd_db_connection_profiles: ZvdDbConnectionProfilesTable;
-  zvd_db_ddl_log: ZvdDbDdlLogTable;
-  zvd_db_query_history: ZvdDbQueryHistoryTable;
   zvd_departments: ZvdDepartmentsTable;
   zvd_document_series: ZvdDocumentSeriesTable;
   zvd_dunning_attempts: ZvdDunningAttemptsTable;

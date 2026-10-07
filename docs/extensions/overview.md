@@ -5,7 +5,7 @@ system — CRM, invoicing, HR, e-commerce, compliance, mail. They are plugins, n
 forks: an operator installs them, they add tables, routes and admin pages, and
 they can be disabled again.
 
-There are **56 official extensions**. See the [catalog](catalog.md) for
+There are **55 official extensions**. See the [catalog](catalog.md) for
 the full list.
 
 ---
