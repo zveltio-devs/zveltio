@@ -381,7 +381,7 @@ role.
 | `docs/engine/` | The server: API reference, collections, ghost DDL, auth, webhooks, SDK, CLI |
 | `docs/studio/` | The admin SPA: routing, data access, extension pages, i18n |
 | `docs/ui/` | Design system, component library, interaction patterns, SDUI |
-| `docs/extensions/` | The extension system, the developer guide, and the 56 official extensions |
+| `docs/extensions/` | The extension system, the developer guide, and the 55 official extensions |
 
 Read before you touch the thing they describe:
 

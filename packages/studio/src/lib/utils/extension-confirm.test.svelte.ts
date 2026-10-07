@@ -10,7 +10,7 @@ import { createExtensionConfirm } from './extension-confirm.svelte.js';
  * `ConfirmModal` on every SDUI page reads `confirmState.open`, destructured
  * from this factory. The factory used to REASSIGN its `$state` variable, so
  * the object the caller holds was the first `emptyState()` forever: every
- * confirm on `SchemaPage` and `DetailLayout` — 56 extensions' delete buttons —
+ * confirm on `SchemaPage` and `DetailLayout` — 55 extensions' delete buttons —
  * opened nothing and ran nothing. The compiler said so at build time
  * ("This reference only captures the initial value of `confirmState`") and the
  * warning was not an error.

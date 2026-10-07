@@ -611,7 +611,7 @@ const SECTIONS: Section[] = [
     id: 'C02',
     track: 'C — Studio & client',
     title: 'SDUI renderer — SchemaPage',
-    focus: 'The one file that renders every extension page. A defect here is 56 extensions wide.',
+    focus: 'The one file that renders every extension page. A defect here is 55 extensions wide.',
     match: [`${S}lib/sdui/SchemaPage.svelte`, `${S}lib/sdui/types.ts`, `${S}lib/sdui/validate.ts`],
   },
   {

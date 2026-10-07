@@ -78,8 +78,8 @@ for (const root of ROOTS) {
     if (!EXTS.some((e) => rel.endsWith(e))) continue;
     if (rel.includes('node_modules/') || rel.includes('dist/')) continue;
     // Only Studio-facing code. An extension's ENGINE may legitimately serve a
-    // route called `/extensions/:name/enable` — `developer/database` does — and
-    // flagging that would be the gate misreading its own subject. The rule is
+    // route called `/extensions/:name/enable` — the removed `developer/database`
+    // did — and flagging that would be the gate misreading its own subject. The rule is
     // about what Studio CALLS, so only pages count.
     if (root.path.startsWith('..') && !rel.includes('/studio/')) continue;
 

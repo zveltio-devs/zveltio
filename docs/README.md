@@ -21,7 +21,7 @@ change; each chapter opens with its own index.
 | 2 | [**Engine**](engine/) | The Bun/Hono server: routes, data layer, auth, subsystems, SDK and CLI | [engine/README.md](engine/README.md) |
 | 3 | [**Studio**](studio/) | The SvelteKit 5 admin application served at `/admin` | [studio/README.md](studio/README.md) |
 | 4 | [**UI**](ui/) | Design system, component library, interaction patterns, SDUI renderer | [ui/README.md](ui/README.md) |
-| 5 | [**Extensions**](extensions/) | The extension system and the 56 official extensions | [extensions/README.md](extensions/README.md) |
+| 5 | [**Extensions**](extensions/) | The extension system and the 55 official extensions | [extensions/README.md](extensions/README.md) |
 
 Supporting material:
 

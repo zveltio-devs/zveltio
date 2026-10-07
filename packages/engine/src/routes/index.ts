@@ -95,8 +95,8 @@ import { demoModeMiddleware } from '../middleware/demo-mode.js';
 //
 // The comparison that settled it: not one route existed only in the engine.
 // Deleting them loses nothing. And every other name in this list already
-// answers 404 at `/api/<feature>` — `/api/database` and `/api/quality` do,
-// with their extensions enabled — because extensions live under `/ext/<name>/`.
+// answers 404 at `/api/<feature>` — `/api/quality` does, with its extension
+// enabled — because extensions live under `/ext/<name>/`.
 // Translations were the single exception, and only because this file kept
 // serving them.
 // ────────────────────────────────────────────────────────────────────────────
@@ -431,8 +431,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Schema branches — promoted to core; see the mount below.
 
   // API documentation portal — moved to extensions/developer/api-docs
-
-  // Database management — moved to extensions/developer/database
 
   // Media library — owned by extensions/content/media (Studio uses /ext/…).
   app.route('/api/media', goneRoutes('/ext/content/media', 'Media library'));
