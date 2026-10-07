@@ -22,12 +22,28 @@ import { type FieldConfig, fieldTypeRegistry } from './field-type-registry.js';
 const BATCH_SIZE = 10_000;
 
 // Track pending cleanup timers so they can be cancelled at shutdown
-const _pendingCleanups = new Set<ReturnType<typeof setTimeout>>();
+const _pendingCleanups = new Map<ReturnType<typeof setTimeout>, () => Promise<void>>();
 
 /** Cancel all pending Ghost DDL cleanup timers (call on graceful shutdown). */
 export function cancelPendingCleanups(): void {
-  for (const timer of _pendingCleanups) clearTimeout(timer);
+  for (const timer of _pendingCleanups.keys()) clearTimeout(timer);
   _pendingCleanups.clear();
+}
+
+/**
+ * Cancel the pending cleanups and hand them back, for a test to run when it
+ * chooses. Test-only.
+ *
+ * The test that needed one replaced `globalThis.setTimeout` to catch it, and
+ * `bun test` runs every harness file in one process: every timer anything else
+ * set in that window was swallowed too, among them each pg-boss worker's poll
+ * delay, so that worker never polled again and every later DDL job sat queued
+ * until its test timed out (Handler Coverage, since 2026-09-30).
+ */
+export function _takePendingCleanupsForTests(): Array<() => Promise<void>> {
+  const runs = [..._pendingCleanups.values()];
+  cancelPendingCleanups();
+  return runs;
 }
 
 export interface GhostMigration {
@@ -723,8 +739,7 @@ export class GhostDDL {
     }
 
     // Cleanup async after 60s (safety net — doesn't block response)
-    const timer = setTimeout(async () => {
-      _pendingCleanups.delete(timer);
+    const cleanup = async () => {
       try {
         await db.transaction().execute(async (trx) => {
           for (const [name, oid] of owned) {
@@ -746,8 +761,12 @@ export class GhostDDL {
           (err as Error).message,
         );
       }
+    };
+    const timer = setTimeout(() => {
+      _pendingCleanups.delete(timer);
+      return cleanup();
     }, 60_000);
-    _pendingCleanups.add(timer);
+    _pendingCleanups.set(timer, cleanup);
   }
 
   /**

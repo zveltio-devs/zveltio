@@ -17,6 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  _takePendingCleanupsForTests,
   cancelPendingCleanups,
   DDLManager,
   GhostDDL,
@@ -93,20 +94,14 @@ d('ghost DDL index names and back-to-back runs (in-process)', () => {
   it("a finished run's deferred cleanup leaves the next run's changelog alone", async () => {
     cancelPendingCleanups();
     await sweepGhostOrphans(db);
-    let cleanup: (() => Promise<void>) | null = null;
-    const realSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((fn: () => Promise<void>) => {
-      cleanup = fn;
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof setTimeout;
-    try {
-      await GhostDDL.execute(db, TABLE, [
-        { kind: 'add_column', field: { name: 'third', type: 'text' } },
-      ]);
-    } finally {
-      globalThis.setTimeout = realSetTimeout;
-    }
-    expect(cleanup).not.toBeNull();
+    // Taken from GhostDDL, not caught by replacing `globalThis.setTimeout`: the
+    // harness is one process, and that swallowed the pg-boss workers' timers.
+    await GhostDDL.execute(db, TABLE, [
+      { kind: 'add_column', field: { name: 'third', type: 'text' } },
+    ]);
+    const taken = _takePendingCleanupsForTests();
+    expect(taken).toHaveLength(1);
+    const cleanup = taken[0];
 
     const next = await GhostDDL.createGhost(db, TABLE, [
       { kind: 'add_column', field: { name: 'fourth', type: 'text' } },
