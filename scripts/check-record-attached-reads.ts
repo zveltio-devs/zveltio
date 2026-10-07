@@ -64,11 +64,43 @@ if (tables.length === 0) {
   process.exit(1);
 }
 
+/**
+ * Names of the file's own helpers that ask `recordReadable` (`commentGate`):
+ * calling one is asking the gate.
+ */
+function gateHelpers(src: string): string[] {
+  const names: string[] = [];
+  for (const m of src.matchAll(
+    /(?:const|function)\s+(\w+)\s*=?\s*(?:async\s*)?(?:function\s*)?\(/g,
+  )) {
+    const start = m.index ?? 0;
+    const body = src.slice(start, start + 2000);
+    const end = body.search(/\n\s{0,2}\};?\n/);
+    if ((end === -1 ? body : body.slice(0, end)).includes('recordReadable(')) names.push(m[1]!);
+  }
+  return names;
+}
+
+const ROUTE_START = /\b(?:app|router|r)\.(?:get|post|put|patch|delete|all|on)\(/;
+
 const violations: string[] = [];
 for (const file of walk(ROUTES)) {
   const src = readFileSync(file, 'utf8');
-  if (src.includes('recordReadable(')) continue;
   const lines = src.split('\n');
+  // Per route, not per file: one gated handler used to clear every other
+  // handler in the file, and a DELETE that skipped the gate went unseen.
+  const gate = new RegExp(String.raw`\b(?:${['recordReadable', ...gateHelpers(src)].join('|')})\(`);
+  // The route the line is in: from its `app.<method>(` to the next one. A lookup
+  // that finds which record to ask about comes before the ask, so anywhere in
+  // the route counts.
+  const gatedInRoute = (i: number): boolean => {
+    let start = i;
+    while (start > 0 && !ROUTE_START.test(lines[start]!)) start--;
+    if (!ROUTE_START.test(lines[start]!)) return false;
+    let end = i + 1;
+    while (end < lines.length && !ROUTE_START.test(lines[end]!)) end++;
+    return gate.test(lines.slice(start, end).join('\n'));
+  };
   for (const table of tables) {
     const use = new RegExp(
       String.raw`(?:selectFrom|updateTable|deleteFrom|insertInto|innerJoin|leftJoin|rightJoin|\bjoin)\(\s*['"\`]${table}\b|\b(?:FROM|JOIN|INTO|UPDATE)\s+"?${table}\b`,
@@ -78,6 +110,7 @@ for (const file of walk(ROUTES)) {
       if (!use.test(line)) return;
       const above = lines.slice(Math.max(0, i - 3), i).join('\n');
       if (/\/\/\s*record-attached-ok:\s*\S/.test(above)) return;
+      if (gatedInRoute(i)) return;
       violations.push(`  ${relative(ROOT, file)}:${i + 1}  ${table}  ${line.trim().slice(0, 100)}`);
     });
   }
@@ -87,7 +120,7 @@ if (violations.length > 0) {
   console.error(
     `✗ record-attached-reads: ${violations.length} query(ies) on a record-attached table`,
   );
-  console.error('  with no recordReadable() in the file:\n');
+  console.error('  with no recordReadable() in its route:\n');
   for (const v of violations) console.error(v);
   console.error(
     '\nAsk recordReadable(db, reqDb, collection, recordId, user, authType) before reading or\n' +

@@ -37,6 +37,27 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     return null;
   };
 
+  /**
+   * A revision is a copy of the record: who may see it is who may read the
+   * record. The collection's `read`, then the row — except for a delete, whose
+   * row is gone and is judged by the collection alone.
+   */
+  const revisionReadable = async (
+    c: Context,
+    user: { id: string },
+    revision: { collection: string; record_id: string; action: string },
+  ): Promise<boolean> =>
+    (await checkPermission(user.id, revision.collection, 'read')) &&
+    (revision.action === 'delete' ||
+      (await recordReadable(
+        db,
+        reqDb(c, db),
+        revision.collection,
+        revision.record_id,
+        user,
+        'session',
+      )));
+
   // Auth middleware
   app.use('*', async (c, next) => {
     const session = await guardSession(c, auth);
@@ -57,14 +78,26 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     const lim = Math.min(parseInt(limit), 200);
     const offset = (parseInt(page) - 1) * lim;
 
+    // Only collections the admin may read: a revision carries the record's data.
+    // record-attached-ok: the collection read gate below; row rules are not applied to the history list
+    const present = await sql<{ collection: string }>`
+      SELECT DISTINCT collection FROM zv_revisions WHERE tenant_id = ${tenantId(c)}::uuid`.execute(
+      reqDb(c, db),
+    );
+    const readable: string[] = [];
+    for (const r of present.rows) {
+      if (await checkPermission(user.id, r.collection, 'read')) readable.push(r.collection);
+    }
+    const inReadable = readable.length
+      ? sql`AND r.collection IN (${sql.join(readable)})`
+      : sql`AND false`;
+
+    // record-attached-ok: limited to readable collections (inReadable); row rules are not applied to the history list
     const rows = await sql`
-      SELECT
-        r.*,
-        u.name AS user_name,
-        u.email AS user_email
+      SELECT r.*, u.name AS user_name, u.email AS user_email
       FROM zv_revisions r
       LEFT JOIN "user" u ON u.id = r.user_id
-      WHERE r.tenant_id = ${tenantId(c)}::uuid
+      WHERE r.tenant_id = ${tenantId(c)}::uuid ${inReadable}
         ${collection ? sql`AND r.collection = ${collection}` : sql``}
         ${record_id ? sql`AND r.record_id = ${record_id}` : sql``}
         ${user_id ? sql`AND r.user_id = ${user_id}` : sql``}
@@ -73,9 +106,10 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       LIMIT ${lim} OFFSET ${offset}
     `.execute(reqDb(c, db));
 
+    // record-attached-ok: same filter as the list above
     const total = await sql<{ count: string }>`
-      SELECT COUNT(*)::int AS count FROM zv_revisions
-      WHERE tenant_id = ${tenantId(c)}::uuid
+      SELECT COUNT(*)::int AS count FROM zv_revisions r
+      WHERE r.tenant_id = ${tenantId(c)}::uuid ${inReadable}
         ${collection ? sql`AND collection = ${collection}` : sql``}
         ${record_id ? sql`AND record_id = ${record_id}` : sql``}
         ${user_id ? sql`AND user_id = ${user_id}` : sql``}
@@ -108,8 +142,12 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       WHERE r.id = ${c.req.param('id')} AND r.tenant_id = ${tenantId(c)}::uuid
     `.execute(reqDb(c, db));
 
-    const revision = rows.rows[0];
-    if (!revision) return c.json({ error: 'Revision not found' }, 404);
+    const revision = rows.rows[0] as
+      | { collection: string; record_id: string; action: string }
+      | undefined;
+    if (!revision || !(await revisionReadable(c, user, revision))) {
+      return c.json({ error: 'Revision not found' }, 404);
+    }
 
     return c.json({ revision });
   });
@@ -130,7 +168,13 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       .where('tenant_id', '=', tenantId(c))
       .executeTakeFirst();
 
-    if (!revision) return c.json({ error: 'Revision not found' }, 404);
+    if (!revision || !(await revisionReadable(c, user, revision))) {
+      return c.json({ error: 'Revision not found' }, 404);
+    }
+    // A revert is an update of the record.
+    if (!(await checkPermission(user.id, revision.collection, 'update'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
     if (revision.action === 'delete') {
       return c.json({ error: 'Cannot revert a delete — record no longer exists' }, 400);
     }

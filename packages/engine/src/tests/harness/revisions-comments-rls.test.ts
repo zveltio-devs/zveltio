@@ -138,6 +138,26 @@ d('record comments honour the read gate (in-process)', () => {
     expect((await comment(tenantAdminCookie, openId, 'admin note')).status).toBe(403);
   });
 
+  // A revision is a copy of the record: the same rule as its comments.
+  it('hides revisions of a collection from a tenant admin with no read on it', async () => {
+    const own = await sql<{ id: string }>`
+      SELECT id FROM zv_revisions WHERE collection = ${COLLECTION} AND record_id = ${openId}
+       LIMIT 1`.execute(db);
+    const id = own.rows[0]?.id;
+    expect(id).toBeDefined();
+    const headers = { cookie: tenantAdminCookie };
+    expect((await app.request(`/api/revisions/${id}`, { headers })).status).toBe(404);
+    const revert = await app.request(`/api/revisions/${id}/revert`, { method: 'POST', headers });
+    expect(revert.status).toBe(404);
+    const list = await app.request(`/api/revisions?collection=${COLLECTION}`, { headers });
+    expect(list.status).toBe(200);
+    expect(((await list.json()) as { revisions: unknown[] }).revisions).toHaveLength(0);
+    // God still sees it.
+    expect(
+      (await app.request(`/api/revisions/${id}`, { headers: { cookie: godCookie } })).status,
+    ).toBe(200);
+  });
+
   it('refuses a tenant admin with no read on the collection deleting a comment', async () => {
     const row = await sql<{ id: string }>`
       SELECT id FROM zv_record_comments WHERE collection = ${COLLECTION} AND record_id = ${hiddenId}
