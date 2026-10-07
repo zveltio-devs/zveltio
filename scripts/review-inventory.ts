@@ -328,6 +328,7 @@ const SECTIONS: Section[] = [
       `${E}lib/data/shape.ts`,
       `${E}lib/data/time-travel-count.ts`,
       `${E}lib/data/read-scope.ts`,
+      `${E}lib/data/revisions-read.ts`,
       `${E}lib/graphql-dataloader.ts`,
       `${E}lib/virtual-collection-adapter.ts`,
     ],

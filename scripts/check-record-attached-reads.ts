@@ -64,20 +64,84 @@ if (tables.length === 0) {
   process.exit(1);
 }
 
+/**
+ * The source with its comments blanked, line structure kept. A helper name or
+ * `recordReadable(` written in a comment is not a call: it used to count as one,
+ * so a route whose only "gate" was a sentence about it passed. `//` after a `:`
+ * or a quote is left alone — that is a URL in a string, not a comment.
+ */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
+}
+
+/**
+ * Names of the file's own helpers that ask `recordReadable` (`commentGate`):
+ * calling one is asking the gate.
+ */
+function gateHelpers(code: string): string[] {
+  const names: string[] = [];
+  for (const m of code.matchAll(
+    /(?:const|function)\s+(\w+)\s*=?\s*(?:async\s*)?(?:function\s*)?\(/g,
+  )) {
+    const start = m.index ?? 0;
+    const body = code.slice(start, start + 2000);
+    const end = body.search(/\n\s{0,2}\};?\n/);
+    if ((end === -1 ? body : body.slice(0, end)).includes('recordReadable(')) names.push(m[1]!);
+  }
+  return names;
+}
+
+const METHODS = 'get|post|put|patch|delete|all|on|use';
+
+/**
+ * Where a route (or a middleware) starts: `<router>.<method>(` for every name
+ * the file binds to a Hono app — `new Hono(` or a `: Hono` parameter, so
+ * `admin.get(` counts as surely as `app.get(` — or a chained `.get(` opening
+ * its line. `app.use` counts: a middleware that reads the table is a route too.
+ */
+function routeStart(code: string): RegExp {
+  const routers = new Set(['app', 'router', 'r']);
+  for (const m of code.matchAll(/\b(\w+)\s*(?::\s*Hono\b|=\s*new\s+Hono\b)/g)) routers.add(m[1]!);
+  return new RegExp(
+    String.raw`\b(?:${[...routers].join('|')})\s*\.(?:${METHODS})\(|^\s*\.(?:${METHODS})\(`,
+  );
+}
+
 const violations: string[] = [];
 for (const file of walk(ROUTES)) {
   const src = readFileSync(file, 'utf8');
-  if (src.includes('recordReadable(')) continue;
   const lines = src.split('\n');
+  const code = stripComments(src).split('\n');
+  const ROUTE_START = routeStart(code.join('\n'));
+  // Per route, not per file: one gated handler used to clear every other
+  // handler in the file, and a DELETE that skipped the gate went unseen.
+  const gate = new RegExp(
+    String.raw`\b(?:${['recordReadable', ...gateHelpers(code.join('\n'))].join('|')})\(`,
+  );
+  // The route the line is in: from its start to the next one. A lookup that
+  // finds which record to ask about comes before the ask, so anywhere in the
+  // route counts.
+  const gatedInRoute = (i: number): boolean => {
+    let start = i;
+    while (start > 0 && !ROUTE_START.test(code[start]!)) start--;
+    if (!ROUTE_START.test(code[start]!)) return false;
+    let end = i + 1;
+    while (end < code.length && !ROUTE_START.test(code[end]!)) end++;
+    return gate.test(code.slice(start, end).join('\n'));
+  };
   for (const table of tables) {
     const use = new RegExp(
       String.raw`(?:selectFrom|updateTable|deleteFrom|insertInto|innerJoin|leftJoin|rightJoin|\bjoin)\(\s*['"\`]${table}\b|\b(?:FROM|JOIN|INTO|UPDATE)\s+"?${table}\b`,
       'i',
     );
-    lines.forEach((line, i) => {
+    code.forEach((line, i) => {
       if (!use.test(line)) return;
+      // The waiver is a comment, so it is read from the original lines.
       const above = lines.slice(Math.max(0, i - 3), i).join('\n');
       if (/\/\/\s*record-attached-ok:\s*\S/.test(above)) return;
+      if (gatedInRoute(i)) return;
       violations.push(`  ${relative(ROOT, file)}:${i + 1}  ${table}  ${line.trim().slice(0, 100)}`);
     });
   }
@@ -87,7 +151,7 @@ if (violations.length > 0) {
   console.error(
     `✗ record-attached-reads: ${violations.length} query(ies) on a record-attached table`,
   );
-  console.error('  with no recordReadable() in the file:\n');
+  console.error('  with no recordReadable() in its route:\n');
   for (const v of violations) console.error(v);
   console.error(
     '\nAsk recordReadable(db, reqDb, collection, recordId, user, authType) before reading or\n' +

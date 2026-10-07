@@ -43,6 +43,9 @@ export { serializeRecord } from './shape.js';
 //     `?expand=`, the realtime doors) asks the one read gate instead of picking
 //     a subset of row policies, alters, entity access and column permissions.
 export { inOrder, readScope, recordReadable, type ReadScope } from './read-scope.js';
+//   - `readableRevisions` so both revision lists (`/api/revisions`,
+//     `/api/admin/revisions`) ask the record's read gate the same way.
+export { readableRevisions, revertPatch, shapeRevisionData } from './revisions-read.js';
 //   - `dataApiWrite` so an extension's writes (`ctx.internals.createRecord` …)
 //     take the data API's own handlers instead of Kysely through `ctx.db`.
 export { dataApiWrite, type WriteRequest } from './api-write.js';

@@ -564,6 +564,35 @@ const CASES: Case[] = [
       "  db.selectFrom('zv_record_comments').selectAll().execute();\n",
   },
   {
+    // The same read, after a gated route, on a router not named `app`. The
+    // gate used to know `app|router|r` only, so `admin.get(` read as part of the
+    // gated route above it.
+    gate: 'check-record-attached-reads (other router name)',
+    cmd: 'bun run scripts/check-record-attached-reads.ts',
+    file: 'packages/engine/src/routes/__gate_probe.ts',
+    body:
+      "import { Hono } from 'hono';\n" +
+      "import { recordReadable } from '../lib/data/index.js';\n" +
+      'export const probe = (db: never, app: Hono) => {\n' +
+      '  const admin = new Hono();\n' +
+      "  app.get('/a', async (c) => c.json(await recordReadable(db, db, 'x', 'y', { id: 'u' }, 'session')));\n" +
+      "  admin.get('/b', async (c) => c.json(await (db as any).selectFrom('zv_revisions').execute()));\n" +
+      '};\n',
+  },
+  {
+    // A route whose only "gate" is the gate's name in a comment.
+    gate: 'check-record-attached-reads (gate named in a comment)',
+    cmd: 'bun run scripts/check-record-attached-reads.ts',
+    file: 'packages/engine/src/routes/__gate_probe.ts',
+    body:
+      "import { Hono } from 'hono';\n" +
+      'export const probe = (db: never, app: Hono) =>\n' +
+      "  app.get('/b', async (c) => {\n" +
+      '    // recordReadable( is asked elsewhere\n' +
+      "    return c.json(await (db as any).selectFrom('zv_revisions').execute());\n" +
+      '  });\n',
+  },
+  {
     // A backtick inside an SQL `--` comment, which ends the template early.
     gate: 'check-sql-template-backticks',
     cmd: 'bun run scripts/check-sql-template-backticks.ts',
