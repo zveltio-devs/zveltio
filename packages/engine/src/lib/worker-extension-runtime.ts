@@ -32,6 +32,7 @@ import type {
   ServiceInvokeRequest,
   ServiceRegisterResponse,
 } from './worker-extension-protocol.js';
+import { encodeFrame, FrameDecoder } from './worker-extension-transport.js';
 
 declare const self: {
   postMessage: (msg: WorkerToHostMessage) => void;
@@ -46,8 +47,27 @@ const pendingServiceRegistrations = new Map<string, (res: ServiceRegisterRespons
 /** Services this worker registered. Host invokes them via service:invoke. */
 const localServices = new Map<string, (...args: unknown[]) => unknown>();
 
+/**
+ * In a worker thread the host talks through `postMessage`; as a runner process
+ * (`ZVELTIO_EXT_TRANSPORT=process`) through frames on stdin and stdout.
+ */
+const asProcess = Bun.isMainThread;
+
+/**
+ * stdout is the channel. The runtime keeps the only writer to it, and an
+ * extension's `process.stdout.write` goes to stderr; a raw write to fd 1 still
+ * corrupts the channel, which ends the runner (the host respawns it).
+ */
+const writeChannel = asProcess ? process.stdout.write.bind(process.stdout) : null;
+// Captured before `handleInit` swaps `globalThis.process` for its shim.
+const exit = process.exit.bind(process);
+if (asProcess) {
+  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
+}
+
 function send(msg: WorkerToHostMessage): void {
-  self.postMessage(msg);
+  if (writeChannel) writeChannel(encodeFrame(msg));
+  else self.postMessage(msg);
 }
 
 function rpcId(prefix: string): string {
@@ -57,16 +77,22 @@ function rpcId(prefix: string): string {
 // Forward console output so operators see worker logs in the engine
 // journal. Without this, console.log inside the extension only goes
 // to the worker's stdout (which is captured by Bun but not exposed).
+// As a runner process `console.log` would write to the channel: it is only
+// forwarded (and `info`/`debug`, which also write to stdout, with it).
 for (const level of ['log', 'warn', 'error'] as const) {
   const orig = console[level].bind(console);
   console[level] = (...args: unknown[]) => {
-    orig(...args);
+    if (!asProcess || level !== 'log') orig(...args);
     send({
       type: 'log',
       level,
       message: args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '),
     });
   };
+}
+if (asProcess) {
+  console.info = console.log;
+  console.debug = console.log;
 }
 
 /**
@@ -300,8 +326,7 @@ async function handleServiceInvoke(msg: ServiceInvokeRequest): Promise<void> {
   }
 }
 
-self.onmessage = (e) => {
-  const msg = e.data;
+function dispatch(msg: HostToWorkerMessage): void {
   switch (msg.type) {
     case 'init':
       void handleInit(msg);
@@ -349,4 +374,18 @@ self.onmessage = (e) => {
       break;
     }
   }
-};
+}
+
+if (asProcess) {
+  // The host closing stdin (or dying) ends the runner; a frame the decoder
+  // refuses means the host is not who is talking, and so does the runner.
+  void (async () => {
+    const frames = new FrameDecoder();
+    for await (const chunk of Bun.stdin.stream()) {
+      for (const msg of frames.push(chunk)) dispatch(msg as HostToWorkerMessage);
+    }
+    exit(0);
+  })().catch(() => exit(1));
+} else {
+  self.onmessage = (e) => dispatch(e.data);
+}
