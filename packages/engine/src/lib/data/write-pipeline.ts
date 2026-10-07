@@ -29,7 +29,7 @@ import { engineEvents } from '../runtime/index.js';
 import { triggerDataFlows } from '../flows/index.js';
 import { invalidateQueryCache } from './query-cache.js';
 import { DEFAULT_TENANT_ID } from '../route-db.js';
-import { normalizeFields } from './shape.js';
+import { normalizeFields, withheldColumns } from './shape.js';
 import type { CollectionDef } from './types.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
@@ -506,11 +506,17 @@ export async function afterWrite(
 
   const eventName = action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
 
+  // A webhook leaves the engine and its payload is kept in
+  // `zvd_webhook_deliveries`: it carries what REST would serve, not the stored
+  // row — no `password` hash, no ciphertext (see `withheldColumns`).
+  const { unserved, sealed } = withheldColumns(await DDLManager.getCollection(db, collection));
+  const outbound: Record<string, unknown> = { ...data };
+  for (const k of [...unserved, ...sealed]) delete outbound[k];
   await broadcastWebhook(
     db,
     eventName,
     collection,
-    data as Record<string, unknown> & { id: string },
+    outbound as Record<string, unknown> & { id: string },
     tenantId ?? null,
   );
   // tenant id flows into WS + SSE broadcasts so a write in tenant A

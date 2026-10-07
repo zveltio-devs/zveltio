@@ -18,6 +18,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { queryAlterRegistry } from './query-alter.js';
 import { dynamicDb, isUuid } from './write-pipeline.js';
+import { withheldColumns } from './shape.js';
 import {
   applyColumnAccess,
   applyRlsFilters,
@@ -54,7 +55,10 @@ export interface ReadScope {
    * checks registered delivers in the same tick.
    */
   admits(row: Record<string, unknown>): boolean | Promise<boolean>;
-  /** Column permissions onto one row: the same row, minus the hidden columns. */
+  /**
+   * One stored row as a stream may carry it: minus the hidden columns, and
+   * minus what REST serves only transformed (`withheldColumns`).
+   */
   shape<R extends Record<string, unknown>>(row: R): R;
   /**
    * Whether the caller may read this column — and so filter, sort or search on
@@ -84,7 +88,13 @@ export async function readScope(
   const role = await principalRole(given.id);
   const user = { ...given, role };
   const rls = await getRlsFilters(collection, user, authType);
-  const columns = await getColumnAccess(db, collection, role, user.id);
+  // A field no one is served (`password`) is hidden from every reader.
+  const { unserved, sealed } = withheldColumns(await DDLManager.getCollection(db, collection));
+  const granted = await getColumnAccess(db, collection, role, user.id);
+  const columns: ColumnAccess =
+    unserved.length === 0
+      ? granted
+      : { ...granted, hidden: new Set([...granted.hidden, ...unserved]) };
   // Lazy: the probe runs every alter once more, which only a reader without a
   // query needs. Eager, every live read called each extension alter twice.
   let restricts: boolean | undefined;
@@ -110,7 +120,13 @@ export async function readScope(
       if (rls.length > 0 && !matchesRlsFilters(row, rls)) return false;
       return entityAccessRegistry.hasChecksFor(table) ? viewable(row) : true;
     },
-    shape: (row) => applyColumnAccess(row, columns) as typeof row,
+    shape: (row) => {
+      const visible = applyColumnAccess(row, columns) as typeof row;
+      if (!sealed.some((k) => k in visible)) return visible;
+      const out: Record<string, unknown> = { ...visible };
+      for (const k of sealed) delete out[k];
+      return out as typeof row;
+    },
     readable: (column) => !columns.hidden.has('*') && !columns.hidden.has(column),
   };
 }

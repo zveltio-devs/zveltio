@@ -211,7 +211,12 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     const snapshots = pageRows.rows.map(
       (r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) as Record<string, unknown>,
     );
-    const page = (await scope.keep(snapshots)).map(scope.shape);
+    // Serialized as the live list is: `scope.shape` alone left the password
+    // hash in and served encrypted fields as ciphertext.
+    const def = await DDLManager.getCollection(getDb(c, db), collection);
+    const page = await Promise.all(
+      (await scope.keep(snapshots)).map((r) => serializeRecord(r, def, scope.columns)),
+    );
 
     return c.json({
       records: page,

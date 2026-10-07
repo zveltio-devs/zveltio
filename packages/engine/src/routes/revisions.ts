@@ -131,7 +131,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       tenantId: tenantId(c),
     });
     if (res.status !== 200) return res;
-    const record = shapeRevisionData(scope, await res.json());
+    const record = await shapeRevisionData(db, scope, revision.collection, await res.json());
     return c.json({ success: true, record });
   });
 
