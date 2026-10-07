@@ -615,3 +615,59 @@ describe('check-sql-template-backticks says when it did not scan the sibling', (
     }
   });
 });
+
+// ─── check-record-attached-reads ─────────────────────────────────────────────
+
+describe('check-record-attached-reads sees every way a route names the table', () => {
+  const GATE = 'check-record-attached-reads.ts';
+  const MIGRATION =
+    'CREATE TABLE IF NOT EXISTS zv_notes (\n  id UUID,\n  collection TEXT NOT NULL,\n  record_id TEXT NOT NULL\n);\n' +
+    'CREATE TABLE IF NOT EXISTS zv_moves (\n  id UUID,\n  table_name TEXT NOT NULL,\n  record_id UUID NOT NULL\n);\n';
+  const route = (handler: string) =>
+    `import { Hono } from 'hono';\nconst app = new Hono();\napp.get('/x', async (c) => {\n${handler}\n});\n`;
+
+  async function verdict(handler: string): Promise<{ code: number; out: string }> {
+    const r = fakeRoot(GATE);
+    write(r, 'packages/engine/src/db/migrations/sql/001_x.sql', MIGRATION);
+    write(r, 'packages/engine/src/routes/probe.ts', route(handler));
+    try {
+      return await run(r, GATE);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  }
+
+  // Each of these passed the gate: it matched the builder call or the keyword
+  // in front of the name, on the same line.
+  for (const [name, handler] of [
+    ['sql.table', "  return db.selectFrom(sql.table('zv_notes')).selectAll().execute();"],
+    ['a const', "  const T = 'zv_notes';\n  return db.selectFrom(T).selectAll().execute();"],
+    ['schema-qualified', '  return sql`SELECT * FROM public.zv_notes`.execute(db);'],
+    ['FROM on the line before', '  return sql`SELECT *\n    FROM\n    zv_notes`.execute(db);'],
+  ] as const) {
+    it(`an ungated read through ${name} fails`, async () => {
+      const { code, out } = await verdict(handler);
+      expect(out).toContain('zv_notes');
+      expect(code).toBe(1);
+    });
+  }
+
+  it('a table keyed by table_name + record_id is record-attached', async () => {
+    const { code, out } = await verdict('  return sql`SELECT * FROM zv_moves`.execute(db);');
+    expect(out).toContain('zv_moves');
+    expect(code).toBe(1);
+  });
+
+  it('a gated route passes, and the gate says what it guards', async () => {
+    const { code, out } = await verdict(
+      "  if (!(await recordReadable(db, db, 'c', 'r', u, 'session'))) return c.json({}, 404);\n" +
+        '  return sql`SELECT * FROM zv_notes`.execute(db);',
+    );
+    expect(code).toBe(0);
+    expect(out).toContain('2 record-attached table(s) (zv_moves, zv_notes)');
+  });
+
+  it('a mention in a comment is not a reference', async () => {
+    expect((await verdict('  // reads zv_notes elsewhere\n  return c.json(1);')).code).toBe(0);
+  });
+});
