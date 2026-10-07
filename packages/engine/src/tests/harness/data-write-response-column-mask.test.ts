@@ -15,9 +15,11 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
 import {
   createGodSession,
+  createKeyCreator,
   createMemberSession,
   getTestApp,
   harnessAvailable,
@@ -26,6 +28,7 @@ import {
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hwrm_${Date.now()}`;
 const SECRET = 'SECRET99';
+const KEY = generateApiKey();
 
 type Row = Record<string, unknown>;
 
@@ -56,6 +59,7 @@ d('write responses omit columns the caller may not read', () => {
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'secret', type: 'text', required: false, unique: false, indexed: false },
+        { name: 'keynote', type: 'text', required: false, unique: false, indexed: false },
       ],
     } as never);
     await db
@@ -68,7 +72,24 @@ d('write responses omit columns the caller may not read', () => {
         can_write: false,
       })
       .execute();
+    // Hidden from API keys only: the read gate resolves a key's role as
+    // `api_key`, and a write must resolve it the same way.
+    await db
+      .insertInto('zvd_column_permissions')
+      .values({
+        collection_name: COLLECTION,
+        column_name: 'keynote',
+        role: 'api_key',
+        can_read: false,
+        can_write: false,
+      })
+      .execute();
     await invalidateColumnPermCache(COLLECTION);
+    await sql`
+      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, created_by)
+      VALUES (${`hwrm-${Date.now()}`}, ${await hashApiKey(KEY)}, ${KEY.slice(0, 12)},
+              ${JSON.stringify([{ collection: COLLECTION, actions: ['read', 'write'] }])}::jsonb,
+              true, ${await createKeyCreator(db)})`.execute(db);
 
     const created = await send(god, 'POST', '', { title: 'seed', secret: SECRET });
     expect(created.status).toBe(201);
@@ -84,6 +105,9 @@ d('write responses omit columns the caller may not read', () => {
       .execute()
       .catch(() => {});
     await invalidateColumnPermCache(COLLECTION).catch(() => {});
+    await sql`DELETE FROM zv_api_keys WHERE key_prefix = ${KEY.slice(0, 12)}`
+      .execute(db)
+      .catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
       .execute(db)
@@ -128,6 +152,19 @@ d('write responses omit columns the caller may not read', () => {
     const updated = (u.body.records as Row[])[0]!;
     expect(updated.title).toBe('bulk');
     expect('secret' in updated).toBe(false);
+  });
+
+  it('an API key gets the api_key column rules on a write, as on a read', async () => {
+    await send(god, 'PATCH', `/${recordId}`, { keynote: 'NOTE7' });
+    const res = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': KEY },
+      body: JSON.stringify({ title: 'by key' }),
+    });
+    const body = (await res.json()) as Row;
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    expect(body.title).toBe('by key');
+    expect('keynote' in body).toBe(false);
   });
 
   it('the stored value is untouched, and god still sees it in a write response', async () => {
