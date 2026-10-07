@@ -424,6 +424,7 @@ const SECTIONS: Section[] = [
     match: [
       `${E}lib/extensions/extension-context.ts`,
       `${E}lib/extensions/internals.ts`,
+      `${E}lib/extensions/as-system.ts`,
       `${E}lib/extensions/register.ts`,
       `${E}lib/extensions/capabilities.ts`,
       `${E}lib/extensions/config.ts`,
