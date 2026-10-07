@@ -50,7 +50,9 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
     (
       await sql<{ role: string; dom: string }>`
         SELECT v1 AS role, v2 AS dom FROM zvd_permissions
-         WHERE ptype = 'g' AND v0 = ${user} ORDER BY v2, v1
+         WHERE ptype = 'g' AND v0 = ${user}
+           AND NOT (v1 = 'member' AND v2 = '*') -- every account's baseline (059)
+         ORDER BY v2, v1
       `.execute(db)
     ).rows;
 

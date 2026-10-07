@@ -56,7 +56,9 @@ d('migration 059 backfills `member` into Casbin', () => {
     const file = Bun.file(
       new URL('../../db/migrations/sql/059_member_role_in_casbin.sql', import.meta.url),
     );
-    ({ up, down } = parseMigrationFile(await file.text()));
+    const parsed = parseMigrationFile(await file.text());
+    up = parsed.up;
+    down = parsed.down ?? '';
 
     for (const id of USERS) {
       await sql`
@@ -66,7 +68,8 @@ d('migration 059 backfills `member` into Casbin', () => {
       `.execute(db);
     }
     // As 058 left them: no row for OLD, the row already there for HELD,
-    // another role only for OTHER.
+    // another role only for OTHER. 059's trigger gave each one at INSERT.
+    await sql`DELETE FROM zvd_permissions WHERE v0 = ANY(${USERS})`.execute(db);
     await sql`
       INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES
         ('g', ${HELD}, 'member', '*'),
@@ -108,10 +111,14 @@ d('migration 059 backfills `member` into Casbin', () => {
     expect(await getUserRoles(OLD)).toContain('member');
   });
 
-  it('down removes the `member` rows and nothing else', async () => {
+  it('down removes the `member` rows and the trigger, and nothing else', async () => {
     await sql.raw(down).execute(db);
     expect(await rows(db, OLD)).toEqual([]);
     expect(await rows(db, HELD)).toEqual([]);
     expect(await rows(db, OTHER)).toEqual(['editor@*']);
+    const triggers = await sql<{ n: number }>`
+      SELECT COUNT(*)::int AS n FROM pg_trigger
+       WHERE tgrelid = '"user"'::regclass AND tgname LIKE 'zv_grant_member_role%'`.execute(db);
+    expect(triggers.rows[0]?.n).toBe(0);
   });
 });

@@ -488,11 +488,16 @@ class KyselyCasbinAdapter {
     // memo and the object index catches all of them.
     clearLocalPermissionCache();
     invalidatePolicyObjectIndex();
+    // A row the table already holds is held, not an error: the `member` row a
+    // trigger wrote with the account (migration 059), or one another replica
+    // wrote before this model heard of it. Casbin asks this only when its model
+    // lacks the row, so a duplicate here means the model was behind the table.
     await trackPolicyWrite(() =>
       sql`
         INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
         VALUES (${ptype}, ${rule[0] ?? null}, ${rule[1] ?? null}, ${rule[2] ?? null},
                 ${rule[3] ?? null}, ${rule[4] ?? null}, ${rule[5] ?? null})
+        ON CONFLICT DO NOTHING
       `.execute(_db),
     );
   }

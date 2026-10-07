@@ -66,6 +66,10 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
         INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
         VALUES (${id}, 'Probe', ${`${id}@probe.invalid`}, false, now(), now())
       `.execute(db);
+      // Only the rows planted below: 059's trigger gave the account `member`.
+      await sql`DELETE FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${id} AND v1 = 'member'`.execute(
+        db,
+      );
     }
     await sql`INSERT INTO zv_roles (name) VALUES (${REGISTERED})`.execute(db);
     await sql`
@@ -174,6 +178,10 @@ d('migration 017 trigger: a deleted user row takes its Casbin rows with it', () 
         INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
         VALUES (${id}, 'Probe', ${`${id}@probe.invalid`}, false, now(), now())
       `.execute(db);
+      // Only the rows planted below: 059's trigger gave the account `member`.
+      await sql`DELETE FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${id} AND v1 = 'member'`.execute(
+        db,
+      );
     }
     await sql`
       INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3) VALUES

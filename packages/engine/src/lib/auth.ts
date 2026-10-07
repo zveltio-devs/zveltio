@@ -534,15 +534,23 @@ export async function initAuth(db: Database) {
               message: 'Self-registration is disabled on this instance.',
             });
           },
-          // Every account is a `member` in Casbin, the one source of roles —
-          // sign-up, OAuth, magic link and identity provisioning all land here.
-          // Awaited before better-auth answers, so no session reaches a request
-          // before the row exists. Inside a tenant transaction (provisioning),
-          // after its commit: the enforcer writes on the pool, and a rolled-back
-          // account must not leave its row behind.
+          // Every account is a `member` in Casbin, the one source of roles. The
+          // ROW is written by a trigger on "user" (migration 059), inside the
+          // transaction that creates the account: better-auth runs this hook
+          // only after its own transaction has committed, so a failure here
+          // used to leave a committed account with no row. This puts the row in
+          // the live model and tells the other replicas (the adapter treats the
+          // row the trigger wrote as held). Inside a tenant transaction
+          // (provisioning), after its commit: the enforcer writes on the pool.
+          // Not fatal: the account and its row are committed whatever happens
+          // here, and a replica whose model lacks the row reads the table.
           after: async (user: { id: string }) => {
-            if (getCurrentTenantTrx()) onAfterCommit(() => grantMemberRole(user.id));
-            else await grantMemberRole(user.id);
+            const load = () =>
+              grantMemberRole(user.id).catch((err: Error) => {
+                console.warn('[auth] member row not loaded into the live model:', err.message);
+              });
+            if (getCurrentTenantTrx()) onAfterCommit(load);
+            else await load();
           },
         },
       },

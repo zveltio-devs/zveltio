@@ -492,7 +492,9 @@ d('identity provisioning through ctx.internals', () => {
     expect(left.rows).toHaveLength(0);
     expect(await membership(T, joiner)).toBeUndefined();
     expect(await grades(joiner)).toEqual([]);
-    const rows = await sql`SELECT 1 FROM zvd_permissions WHERE v0 = ${joiner}`.execute(db);
+    // Nothing but the `member` baseline 059's trigger gave the account.
+    const rows = await sql`SELECT 1 FROM zvd_permissions
+      WHERE v0 = ${joiner} AND NOT (v1 = 'member' AND v2 = '*')`.execute(db);
     expect(rows.rows).toHaveLength(0);
 
     // Committed, the same steps land, account included.

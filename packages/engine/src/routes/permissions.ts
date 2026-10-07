@@ -331,6 +331,12 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { userId, role } = c.req.valid('json');
+      // Every account holds `member` (a trigger writes it, migration 059). Taking
+      // it away does not narrow anyone: rules keyed on `member` RESTRICT members,
+      // and an account without the row is out from under all of them.
+      if (role === 'member') {
+        return c.json({ error: '"member" is every account\'s baseline role and stays' }, 422);
+      }
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();

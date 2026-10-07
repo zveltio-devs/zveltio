@@ -417,11 +417,14 @@ Assign a Casbin role to a user.
 `god` is refused (422): it is an instance attribute in the `"user".role`
 column, set by `PATCH /api/users/:id`, not a role. Every other role, `member`
 included, lives in Casbin; every account is given `g <user> member *` when it is
-created (and migration 059 backfilled existing ones).
+created or demoted from god — by a database trigger, in the same transaction
+(migration 059, which also backfilled existing accounts).
 
 ### DELETE /api/permissions/roles
 
-Remove a Casbin role from a user.
+Remove a Casbin role from a user. `member` is refused (422): it is every
+account's baseline, and rules keyed on `member` restrict members — an account
+without it would be out from under all of them.
 
 ### POST /api/permissions/cache/invalidate
 

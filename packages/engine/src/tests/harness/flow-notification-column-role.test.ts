@@ -89,13 +89,11 @@ d('flow send_notification to `member`, per tenant', () => {
       [u.employeeA, 'member', TENANT_A],
     ];
     for (const [id, role, tenant] of users) {
-      // As sign-up (or 059) leaves an account: the `member` row in Casbin.
+      // 059's trigger gives the account its `member` row in Casbin.
       await sql`
         INSERT INTO "user" (id, name, email, "emailVerified", role, "createdAt", "updatedAt")
         VALUES (${id}, ${id}, ${`${id}@test.local`}, false, ${role}, NOW(), NOW())
       `.execute(db);
-      await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2)
-                VALUES ('g', ${id}, 'member', '*')`.execute(db);
       await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
                 VALUES (${tenant}::uuid, ${id}, 'member')`.execute(db);
     }
