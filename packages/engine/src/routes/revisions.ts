@@ -5,8 +5,13 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
-import { dynamicUpdate } from '../db/dynamic.js';
-import { DDLManager, recordReadable } from '../lib/data/index.js';
+import {
+  dataApiWrite,
+  readableRevisions,
+  recordReadable,
+  revertPatch,
+  shapeRevisionData,
+} from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -37,27 +42,6 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     return null;
   };
 
-  /**
-   * A revision is a copy of the record: who may see it is who may read the
-   * record. The collection's `read`, then the row — except for a delete, whose
-   * row is gone and is judged by the collection alone.
-   */
-  const revisionReadable = async (
-    c: Context,
-    user: { id: string },
-    revision: { collection: string; record_id: string; action: string },
-  ): Promise<boolean> =>
-    (await checkPermission(user.id, revision.collection, 'read')) &&
-    (revision.action === 'delete' ||
-      (await recordReadable(
-        db,
-        reqDb(c, db),
-        revision.collection,
-        revision.record_id,
-        user,
-        'session',
-      )));
-
   // Auth middleware
   app.use('*', async (c, next) => {
     const session = await guardSession(c, auth);
@@ -65,6 +49,11 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     c.set('user', session.user);
     await next();
   });
+
+  // The revision routes read through `readableRevisions`: a revision is a copy
+  // of the record and answers to its read gate (lib/data/revisions-read.ts).
+  // The tenant-admin check below narrows who may browse history; it widens
+  // nothing.
 
   // GET / — List revisions with user join (admin only)
   app.get('/', async (c) => {
@@ -75,56 +64,19 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     }
 
     const { collection, record_id, user_id, action, limit = '50', page = '1' } = c.req.query();
-    const lim = Math.min(parseInt(limit), 200);
-    const offset = (parseInt(page) - 1) * lim;
-
-    // Only collections the admin may read: a revision carries the record's data.
-    // record-attached-ok: the collection read gate below; row rules are not applied to the history list
-    const present = await sql<{ collection: string }>`
-      SELECT DISTINCT collection FROM zv_revisions WHERE tenant_id = ${tenantId(c)}::uuid`.execute(
-      reqDb(c, db),
-    );
-    const readable: string[] = [];
-    for (const r of present.rows) {
-      if (await checkPermission(user.id, r.collection, 'read')) readable.push(r.collection);
-    }
-    const inReadable = readable.length
-      ? sql`AND r.collection IN (${sql.join(readable)})`
-      : sql`AND false`;
-
-    // record-attached-ok: limited to readable collections (inReadable); row rules are not applied to the history list
-    const rows = await sql`
-      SELECT r.*, u.name AS user_name, u.email AS user_email
-      FROM zv_revisions r
-      LEFT JOIN "user" u ON u.id = r.user_id
-      WHERE r.tenant_id = ${tenantId(c)}::uuid ${inReadable}
-        ${collection ? sql`AND r.collection = ${collection}` : sql``}
-        ${record_id ? sql`AND r.record_id = ${record_id}` : sql``}
-        ${user_id ? sql`AND r.user_id = ${user_id}` : sql``}
-        ${action ? sql`AND r.action = ${action}` : sql``}
-      ORDER BY r.created_at DESC
-      LIMIT ${lim} OFFSET ${offset}
-    `.execute(reqDb(c, db));
-
-    // record-attached-ok: same filter as the list above
-    const total = await sql<{ count: string }>`
-      SELECT COUNT(*)::int AS count FROM zv_revisions r
-      WHERE r.tenant_id = ${tenantId(c)}::uuid ${inReadable}
-        ${collection ? sql`AND collection = ${collection}` : sql``}
-        ${record_id ? sql`AND record_id = ${record_id}` : sql``}
-        ${user_id ? sql`AND user_id = ${user_id}` : sql``}
-        ${action ? sql`AND action = ${action}` : sql``}
-    `.execute(reqDb(c, db));
-
-    return c.json({
-      revisions: rows.rows,
-      pagination: {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        total: (total.rows[0] as any)?.count ?? 0,
-        page: parseInt(page),
-        limit: lim,
-      },
+    const lim = Math.min(parseInt(limit) || 50, 200);
+    const pageNo = Math.max(parseInt(page) || 1, 1);
+    const { rows, total } = await readableRevisions(db, reqDb(c, db), tenantId(c), user, {
+      collection,
+      record_id,
+      user_id,
+      action,
+      limit: lim,
+      offset: (pageNo - 1) * lim,
+      total: true,
     });
+
+    return c.json({ revisions: rows, pagination: { total, page: pageNo, limit: lim } });
   });
 
   // GET /:id — Get single revision
@@ -134,22 +86,13 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     if (!(await isTenantAdmin(user.id))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
-
-    const rows = await sql`
-      SELECT r.*, u.name AS user_name, u.email AS user_email
-      FROM zv_revisions r
-      LEFT JOIN "user" u ON u.id = r.user_id
-      WHERE r.id = ${c.req.param('id')} AND r.tenant_id = ${tenantId(c)}::uuid
-    `.execute(reqDb(c, db));
-
-    const revision = rows.rows[0] as
-      | { collection: string; record_id: string; action: string }
-      | undefined;
-    if (!revision || !(await revisionReadable(c, user, revision))) {
-      return c.json({ error: 'Revision not found' }, 404);
-    }
-
-    return c.json({ revision });
+    const { rows } = await readableRevisions(db, reqDb(c, db), tenantId(c), user, {
+      id: c.req.param('id'),
+      limit: 1,
+      offset: 0,
+    });
+    if (!rows[0]) return c.json({ error: 'Revision not found' }, 404);
+    return c.json({ revision: rows[0] });
   });
 
   // POST /:id/revert — Revert record to this revision's state
@@ -160,78 +103,36 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const revision = await (reqDb(c, db) as any)
-      .selectFrom('zv_revisions')
-      .selectAll()
-      .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantId(c))
-      .executeTakeFirst();
-
-    if (!revision || !(await revisionReadable(c, user, revision))) {
-      return c.json({ error: 'Revision not found' }, 404);
-    }
-    // A revert is an update of the record.
-    if (!(await checkPermission(user.id, revision.collection, 'update'))) {
-      return c.json({ error: 'Forbidden' }, 403);
-    }
+    const { rows, scopes } = await readableRevisions(db, reqDb(c, db), tenantId(c), user, {
+      id: c.req.param('id'),
+      limit: 1,
+      offset: 0,
+    });
+    const revision = rows[0];
+    if (!revision) return c.json({ error: 'Revision not found' }, 404);
     if (revision.action === 'delete') {
       return c.json({ error: 'Cannot revert a delete — record no longer exists' }, 400);
     }
+    const scope = scopes.get(revision.collection)!;
 
-    const tableName = DDLManager.getTableName(revision.collection);
-    const data = typeof revision.data === 'string' ? JSON.parse(revision.data) : revision.data;
+    const patch = await revertPatch(reqDb(c, db), scope, revision);
 
-    // P2: strip ALL protected system fields before reverting — prevents tenant_id / search_vector overwrite
-    const REVERT_PROTECTED = new Set([
-      'id',
-      'created_at',
-      'updated_at',
-      'tenant_id',
-      'search_vector',
-      'embedding',
-      'created_by',
-    ]);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const revertData: Record<string, any> = {};
-    for (const [k, v] of Object.entries(data)) {
-      if (!REVERT_PROTECTED.has(k)) revertData[k] = v;
-    }
-
-    // `updated_by` travels as `system`, not inside the payload: RESERVED strips
-    // it from `data`, so passing it there wrote nothing at all. A revert IS a
-    // modification and the person who performed it is the one to record.
-    const reverted = await dynamicUpdate(reqDb(c, db), tableName, revision.record_id, revertData, {
-      updated_by: user.id,
+    // A revert is an update, so it is the data API's PATCH: collection
+    // `update`, writable columns, row rules, entity access, hooks, and the
+    // revision it records. It used to be a raw `dynamicUpdate`, which wrote
+    // columns the caller may not write and rows their rules do not reach.
+    const res = await dataApiWrite('update', c, db, {
+      collection: revision.collection,
+      id: revision.record_id,
+      body: async () => patch,
+      user,
+      authType: 'session',
+      trx: c.get('tenantTrx') ?? undefined,
+      tenantId: tenantId(c),
     });
-
-    if (!reverted) return c.json({ error: 'Record not found — may have been deleted' }, 404);
-
-    // Log the revert as a new revision
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    await (reqDb(c, db) as any)
-      .insertInto('zv_revisions')
-      .values({
-        collection: revision.collection,
-        record_id: revision.record_id,
-        action: 'update',
-        // Objects, not strings — see the note in `write-pipeline.ts`: a string
-        // parameter lands in `jsonb` as a jsonb string, and every key lookup
-        // against it silently returns NULL.
-        data: reverted,
-        delta: { _reverted_from: revision.id },
-        user_id: user.id,
-        tenant_id: tenantId(c),
-      })
-      .execute()
-      .catch((err: Error) => {
-        // Failure to record the revert in zvd_revisions breaks the audit
-        // trail for the revert itself (the underlying record IS reverted).
-        // Log so an operator can backfill if needed.
-        console.warn('[revisions] revert audit write failed:', err.message);
-      });
-
-    return c.json({ success: true, record: reverted });
+    if (res.status !== 200) return res;
+    const record = shapeRevisionData(scope, await res.json());
+    return c.json({ success: true, record });
   });
 
   // GET /record/:collection/:id/comments — Get comments for a record

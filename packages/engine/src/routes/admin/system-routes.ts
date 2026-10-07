@@ -16,9 +16,9 @@ import { apiKeyUsable, escapeLike } from '../../lib/data/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, readableRevisions } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
-import { tenantId } from '../../lib/route-db.js';
+import { reqDb, tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import { exportSchema, SCHEMA_FORMAT } from '../../lib/schema-artifact/export.js';
 import { planSchema, SchemaFileError } from '../../lib/schema-artifact/plan.js';
@@ -339,30 +339,22 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     const { collection, record_id, user_id, limit = '50', page = '1' } = c.req.query();
     // I3: cap limit to prevent DoS / OOM
     const parsedLimit = Math.min(parseInt(limit) || 50, 500);
-    const offset = (parseInt(page) - 1) * parsedLimit;
+    const offset = (Math.max(parseInt(page) || 1, 1) - 1) * parsedLimit;
 
-    // The email, joined here for the same reason as on `/audit`: every consumer
-    // otherwise renders a truncated user id, which tells a reader nothing about
-    // who changed the record they are looking at. LEFT, so a deleted user does
-    // not delete the history of what they did.
-    // record-attached-ok: instance-admin only (adminRoutes → requireInstanceAdmin),
-    // a reader who may see every record of the tenant.
-    let query = db
-      .selectFrom('zv_revisions')
-      .leftJoin('user', 'user.id', 'zv_revisions.user_id')
-      .selectAll('zv_revisions')
-      .select('user.email as user_email')
-      .where('zv_revisions.tenant_id', '=', tenantId(c))
-      .orderBy('zv_revisions.created_at', 'desc')
-      .limit(parsedLimit)
-      .offset(offset);
-
-    if (collection) query = query.where('zv_revisions.collection', '=', collection);
-    if (record_id) query = query.where('zv_revisions.record_id', '=', record_id);
-    if (user_id) query = query.where('zv_revisions.user_id', '=', user_id);
-
-    const revisions = await query.execute();
-    return c.json({ revisions });
+    // The record's read gate, as on `/api/revisions`: an instance admin reads
+    // the history of the records they may read — collection `read`, row rules,
+    // column permissions — and a god, who may read every one, reads all of it.
+    // It used to be every revision of the tenant for anyone past the admin
+    // guard, a root-tenant `admin` without read on the collection included.
+    // The user's email is joined in for the same reason as on `/audit`.
+    const { rows } = await readableRevisions(db, reqDb(c, db), tenantId(c), c.get('user'), {
+      collection,
+      record_id,
+      user_id,
+      limit: parsedLimit,
+      offset,
+    });
+    return c.json({ revisions: rows });
   });
 
   // ── Field Types ───────────────────────────────────────────────
