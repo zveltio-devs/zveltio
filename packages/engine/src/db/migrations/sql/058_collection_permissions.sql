@@ -20,8 +20,11 @@
 --
 -- A statement passes when ANY of these holds:
 --
---   1. `zveltio.rls_bypass` is on — god, `data:view_all`, an API key with
---      rls_bypass. The same exemption the row rules honour.
+--   1. `zveltio.rls_bypass` is on and the action is `read` — `data:view_all`
+--      (a god holds it too), an API key with rls_bypass: the exemption the row
+--      rules honour, which is about SEEING rows. It writes nothing: the setting
+--      cannot tell a god from a view_all holder, so a god's writes come from
+--      `zveltio.collection_all` (5), which the engine publishes for a god.
 --   2. The collection is named in `zveltio.system_collections` — an extension
 --      inside `ctx.internals.asSystem` (capability `data:system`, audited) — or
 --      the setting holds `*`: a job of an extension with `data:system`, which
@@ -70,7 +73,8 @@ DECLARE
   sys text := coalesce(current_setting('zveltio.system_collections', true), '');
   g text;
 BEGIN
-  IF lower(coalesce(nullif(current_setting('zveltio.rls_bypass', true), ''), 'off')) IN ('on', 'true', '1') THEN
+  IF act = 'read'
+     AND lower(coalesce(nullif(current_setting('zveltio.rls_bypass', true), ''), 'off')) IN ('on', 'true', '1') THEN
     RETURN true;
   END IF;
   IF sys <> '' AND (strpos(sys, ',' || coll || ',') > 0 OR strpos(sys, ',*,') > 0) THEN

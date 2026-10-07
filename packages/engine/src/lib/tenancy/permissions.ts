@@ -260,8 +260,9 @@ async function effectivePermissions(userId: string, domain: string): Promise<Eff
  * the application would. `grants` is `,<resource>:<action>,…` with `:*` for an
  * object granted every action; `all` is the `('*','*')` rule a tenant admin
  * holds. Every resource is included, collection or not: a name that is not a
- * collection is never asked about. The god bypass is not here — a god's
- * request publishes `rls_bypass`, which the policies honour first.
+ * collection is never asked about. A god gets `all`, as `checkPermission`'s
+ * god bypass answers yes to everything; `rls_bypass` cannot carry that, since
+ * `data:view_all` publishes it too and the policies read it as `read` only.
  *
  * `subject` is a user id, or `public` for an anonymous request: that role's
  * grants in the running tenant.
@@ -269,6 +270,8 @@ async function effectivePermissions(userId: string, domain: string): Promise<Eff
 export async function collectionGrantsFor(
   subject: string,
 ): Promise<{ all: boolean; grants: string }> {
+  // Unguarded: a failed god lookup throws, and the caller refuses the request.
+  if (subject !== 'public' && (await lookupGod(subject))) return { all: true, grants: '' };
   const perms = await effectivePermissions(subject, getCurrentDomain());
   const parts = [
     ...[...perms.anyAction].map((o) => `${o}:*`),

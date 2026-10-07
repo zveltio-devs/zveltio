@@ -237,10 +237,9 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
                 (failed: unknown) => ({ all: false, grants: '', failed }),
               ),
             ]);
-            // A bypassing caller (god, `data:view_all`) is exempt before the
-            // grants are read, so an outage of the lookup is no reason to refuse
-            // them; anyone else gets the lookup's own error.
-            if (!bypass && collections.failed !== undefined) throw collections.failed;
+            // Refused for a bypassing caller too: `rls_bypass` covers reads only
+            // (058), and a god's writes need the `all` this lookup answers.
+            if (collections.failed !== undefined) throw collections.failed;
             // The role is RESOLVED, not read off the session.
             //
             // better-auth does not populate `session.user.role`, so publishing

@@ -59,10 +59,18 @@ const U = {
   chained: `cperm-chained-${SFX}`,
   admin: `cperm-admin-${SFX}`,
 };
+// Exempt from row rules, each for its own reason — kept out of `U`, whose loop
+// below holds the database to `checkPermission` on the collection itself.
+// The instance holds one god at most; another file may already have made it.
+const OWN_GOD = `cperm-god-${SFX}`;
+let GOD = OWN_GOD;
+const VIEW_ALL = `cperm-viewall-${SFX}`;
 
 d('collection permissions in the database (R1)', () => {
   let db: Database;
 
+  // Built as `tenantMiddleware` builds a session's: the bypass is the
+  // `data:view_all` answer, the grants `collectionGrantsFor`'s.
   const identityOf = (userId: string): Promise<RlsIdentity> =>
     runWithDomain(TENANT, async () => {
       const g = await collectionGrantsFor(userId);
@@ -71,7 +79,7 @@ d('collection permissions in the database (R1)', () => {
         email: '',
         role: '',
         roles: [],
-        bypass: false,
+        bypass: await checkPermission(userId, 'data', 'view_all'),
         collectionGrants: g.grants,
         collectionAll: g.all,
       };
@@ -115,6 +123,8 @@ d('collection permissions in the database (R1)', () => {
       (await sql`DELETE FROM ${sql.table(TABLE)} WHERE title = 'never-matches'`.execute(h))
         .numAffectedRows ?? 0n,
     );
+  const deleteAll = async (h: Database) =>
+    Number((await sql`DELETE FROM ${sql.table(TABLE)}`.execute(h)).numAffectedRows ?? 0n);
   /** A rolled-back attempt: the assertions are about the answer, not the data. */
   const attempt = <T>(identity: RlsIdentity | undefined, fn: (trx: Database) => Promise<T>) =>
     as(identity, async (trx) => {
@@ -129,10 +139,15 @@ d('collection permissions in the database (R1)', () => {
     ({ db } = await getTestApp());
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${`cperm-${SFX}`}, 'other', 'active')`.execute(db);
-    for (const id of Object.values(U)) {
+    for (const id of [...Object.values(U), OWN_GOD, VIEW_ALL]) {
       await sql`INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
                 VALUES (${id}, ${id}, ${`${id}@example.test`}, true, now(), now())`.execute(db);
     }
+    const existing = await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(
+      db,
+    );
+    if (existing.rows[0]) GOD = existing.rows[0].id;
+    else await sql`UPDATE "user" SET role = 'god' WHERE id = ${GOD}`.execute(db);
     for (const name of [COLL, PRIVATE]) {
       await DDLManager.createCollection(db, {
         name,
@@ -156,6 +171,7 @@ d('collection permissions in the database (R1)', () => {
     await e.addPolicy(ROLE_B, '*', COLL, 'read');
     await e.addPolicy(U.admin, TENANT, '*', '*');
     await e.addPolicy('public', TENANT, COLL, 'read');
+    await e.addPolicy(VIEW_ALL, '*', 'data', 'view_all');
     await invalidateAllPermissionCaches();
 
     _resetExtensionDbRoleForTests();
@@ -174,9 +190,10 @@ d('collection permissions in the database (R1)', () => {
     await e.removePolicy(ROLE_B, '*', COLL, 'read');
     await e.removePolicy(U.admin, TENANT, '*', '*');
     await e.removePolicy('public', TENANT, COLL, 'read');
+    await e.removePolicy(VIEW_ALL, '*', 'data', 'view_all');
     await invalidateAllPermissionCaches();
     for (const name of [COLL, PRIVATE]) await dropTestCollection(db, name).catch(() => {});
-    for (const id of Object.values(U)) {
+    for (const id of [...Object.values(U), OWN_GOD, VIEW_ALL]) {
       await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db).catch(() => {});
     }
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db).catch(() => {});
@@ -215,12 +232,33 @@ d('collection permissions in the database (R1)', () => {
     expect(await attempt(await identityOf(U.chained), (t) => inserts(t))).toBe(true);
   });
 
-  it("leaves the engine's own work and a bypassing caller alone", async () => {
+  it("leaves the engine's own work and a god alone", async () => {
     // No actor: boot, reconcilers, jobs.
     expect(await attempt(undefined, (t) => count(t))).toBe(2);
-    const god = { ...(await identityOf(U.nobody)), bypass: true };
+    // A god: every action, as `checkPermission` answers — with no Casbin grant.
+    const god = await identityOf(GOD);
+    expect(god.bypass).toBe(true);
     expect(await attempt(god, (t) => count(t))).toBe(2);
     expect(await attempt(god, (t) => inserts(t))).toBe(true);
+    expect(await attempt(god, (t) => updates(t))).toBe(2);
+    expect(await attempt(god, (t) => deleteAll(t))).toBe(2);
+  });
+
+  it('lets `data:view_all` read every row and write nothing it was not granted', async () => {
+    // The same `rls_bypass` a god publishes. On the first cut the function
+    // passed EVERY action for it, so a read-only exemption wrote everywhere.
+    const viewAll = await identityOf(VIEW_ALL);
+    expect(viewAll.bypass).toBe(true);
+    expect(await attempt(viewAll, (t) => count(t))).toBe(2);
+    expect(await attempt(viewAll, (t) => inserts(t))).toBe(false);
+    expect(await attempt(viewAll, (t) => updates(t))).toBe(0);
+    expect(await attempt(viewAll, (t) => deleteAll(t))).toBe(0);
+    // An API key's `rls_bypass` is the same exemption: its scopes still decide.
+    const key = await attempt(await anonymous(), async (t) => {
+      await publishApiKeyActor('apikey:probe', true, [{ collection: COLL, actions: ['read'] }]);
+      return [await count(t), await inserts(t)];
+    });
+    expect(key).toEqual([2, false]);
   });
 
   it("holds an extension's statement to the actor, to nothing without one, and opens asSystem's collections", async () => {
