@@ -89,7 +89,7 @@ d("ctx.DDLManager's mutations inside a request", () => {
     // this table, and the transactions a CONCURRENTLY build would wait on.
     const jobs = await sql`
       SELECT state, retry_count, created_on, started_on, left(output::text, 200) AS output
-        FROM pgboss.job WHERE name = 'build_index' AND data::text LIKE ${`%${table}%`}`
+        FROM pgboss.job WHERE name = 'ddl.build_index' AND data::text LIKE ${`%${table}%`}`
       .execute(db)
       .catch((e) => ({ rows: [{ error: (e as Error).message }] }));
     const old = await sql`
