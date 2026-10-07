@@ -8,11 +8,13 @@ import { createOfflineProvider } from '@zveltio/sdk/offline';
 // Default — CRDT (works against vanilla engine, no extra services)
 const sync = await createOfflineProvider({ engineUrl: 'http://localhost:3000' });
 
-// Opt-in — Electric SQL (needs Electric service alongside Postgres)
+// Opt-in — Electric (needs an Electric service the engine can reach)
 const sync = await createOfflineProvider({
   engineUrl: 'http://localhost:3000',
   provider: 'electric',
+  tables: ['contacts'],
 });
+const stop = sync.subscribe('contacts', (rows) => render(rows));
 ```
 
 Both providers implement the same `OfflineProvider` interface — apps migrate from one to the other by changing the `provider` field, with no rewrite of the data layer.
@@ -21,78 +23,62 @@ Both providers implement the same `OfflineProvider` interface — apps migrate f
 
 | Concern | CRDT | Electric |
 |---|---|---|
-| Extra services | None | Electric service + replication slot |
-| Conflict resolution | Field-level Last-Write-Wins | CRDTs implemented in Electric |
-| Replication latency | ~1s (polled) | under 100 ms (websocket) |
-| Schema migrations | Free (SDK-side) | Requires `REPLICA IDENTITY FULL` + publication membership |
-| Network overhead | Polling pull/push | Continuous websocket |
+| Extra services | None | Electric 1.x + a replication slot |
+| Direction | Read and write (push/pull) | Read only; writes go through the data API and stream back |
+| Replication latency | ~1s (polled) | Long-poll: a change arrives as it commits |
+| Rules applied | The engine's read gate | The same gate, compiled into the shape (below) |
 
-The CRDT path is the default because it works against any engine deployment without operator action. Electric is the right choice when sync latency matters (collaborative editing, live dashboards) and the operator is willing to run an extra service.
+The CRDT path is the default because it works against any engine deployment without operator action. Electric fits live views (dashboards, lists other people edit) when the operator is willing to run an extra service.
 
-**Electric is disabled.** `POST /api/electric/auth` and `GET /api/electric/config` answer `409` with code `electric.unfiltered` on every instance, and no token is minted: Electric's replication stream bypasses the engine's tenant, row and column rules. Use the CRDT provider. It comes back when shapes are served through an engine-controlled filter. See [Limits & known gaps](#limits--known-gaps).
+## How Electric is served
+
+Electric 1.x speaks the HTTP Shape API and reads Postgres as a role that bypasses RLS. So clients never talk to it: Electric has no published port, and every request to it carries `ELECTRIC_SECRET`, which only the engine holds. A client asks the engine:
+
+```
+GET /api/electric/v1/shape?collection=contacts&offset=-1
+GET /api/electric/v1/shape?collection=contacts&offset=<o>&handle=<h>&live=true&cursor=<c>
+```
+
+with a session or an API key, as the data API takes them. The engine then decides the shape itself:
+
+| Shape part | Decided from |
+|---|---|
+| `table` | The collection, after the caller's Casbin `read` on it (API keys: their scopes). |
+| `where` | `tenant_id IN (<the tenants this request reads>)` — the request tenant, a consolidating parent's subtree, or no clause for god, whose reach is every tenant — AND every row rule (`getRlsFilters`), with values as Electric params. |
+| `columns` | The table's columns minus those column permissions hide, `search_vector`/`search_text`, and encrypted fields (ciphertext the client cannot use). |
+
+The client may send only `collection`, `offset`, `handle`, `live`, `cursor`, `replica` and `log`; `table`, `where`, `columns`, `params`, `secret` or a `subset__*` query answers `400 electric.param_refused`. The shape is rebuilt on every request, and Electric binds a handle to its shape: a handle used with a different shape — another caller's, or this caller's after a rule or grant changed — answers `409 electric.must_refetch`, and the SDK syncs again from offset `-1`. A revoked `read` answers `403` on the next poll.
+
+### When a collection cannot be served
+
+| Status | Code | Why |
+|---|---|---|
+| 503 | — | `ELECTRIC_URL` / `ELECTRIC_SECRET` unset. |
+| 409 | `electric.unfilterable` | An extension query alter or entity-access rule decides this caller's rows in code, a row rule cannot be expressed, or the collection is virtual. Use CRDT for it. |
+| 409 | `electric.columns` | The caller may not read the primary key. |
+| 409 | `electric.untenanted` | The table has no `tenant_id`. |
+| 409 | `electric.reach_too_wide` | The request reads more than 100 tenants (Electric refuses a request line over ~10 KB). |
+| 502 | `electric.upstream` | Electric refused the shape; its message stays in the engine log, since it can quote the WHERE. |
+
+Responses are `Cache-Control: private, no-store`: the same URL is a different shape for another caller, so no shared cache may hold one.
 
 ## Operator setup — Electric
 
-### 1. Run the migration
-
-Migration `075_electric_replication.sql` creates the `zveltio_electric` publication + helper functions. The engine auto-applies migrations on startup; no manual SQL.
-
-### 2. Generate a shared secret
-
 ```bash
-openssl rand -hex 32
-```
-
-Add it to your `.env`:
-
-```
-ELECTRIC_URL=ws://electric:5133
-ELECTRIC_AUTH_TOKEN=<the secret you just generated>
-```
-
-The engine signs short-lived (60 s) HS256 JWTs with this secret; Electric verifies them with the same secret. The secret never leaves these two trusted environments.
-
-### 3. Stand up Electric alongside Postgres
-
-```bash
+openssl rand -hex 32   # → ELECTRIC_SECRET in .env
 docker compose -f docker-compose.yml -f docker-compose.electric.yml up
 ```
 
-The overlay starts Electric, wires its env, and injects `ELECTRIC_URL` / `ELECTRIC_AUTH_TOKEN` into the engine container.
+The overlay runs Electric 1.x on the internal network with no published port and sets `ELECTRIC_URL=http://electric:3000` and `ELECTRIC_SECRET` on the engine. Postgres needs `wal_level=logical` (the stack's `db` service has it). Electric manages its own publication and replication slot, and sets `REPLICA IDENTITY FULL` on a table the first time a shape asks for it; nothing is enabled per collection. Its database user needs `REPLICATION`, must own the tables (or be a superuser) and must bypass RLS (superuser or `BYPASSRLS`): the tables are `FORCE ROW LEVEL SECURITY`, and without a tenant setting their policy shows Electric the default tenant only — the shape would sync incomplete, never wider.
 
-### 4. Enable replication per collection
-
-Electric only replicates tables explicitly added to its publication. Call the helper function once per collection you want to sync:
-
-```sql
-SELECT zv_electric_enable_table('zvd_contacts');
-```
-
-The function sets `REPLICA IDENTITY FULL` (so updates carry the full prior row) and adds the table to `zveltio_electric`. Safe to call repeatedly.
-
-To remove a table from sync:
-
-```sql
-SELECT zv_electric_disable_table('zvd_contacts');
-```
-
-## How the auth flow works
-
-1. Client calls `POST /api/electric/auth` (with the better-auth session cookie).
-2. Engine validates the session, mints `{ sub: user.id, tenant_id, exp: now+60, aud: 'electric-sql' }` HS256-signed with `ELECTRIC_AUTH_TOKEN`.
-3. Engine returns `{ token, expiresAt, electricUrl }`.
-4. Client connects to `${electricUrl}?token=<jwt>`. Electric verifies the signature against the same shared secret.
-5. Before the token expires, the SDK requests a fresh one (background timer; no user action).
-
-The shared secret is HMAC-symmetric: anyone holding it can mint tokens. Keep it server-side only.
+An Electric taken down for good must have its slot dropped — `SELECT pg_drop_replication_slot('electric_slot_default')` — or Postgres retains WAL for it without limit. The `zveltio_electric` publication and `zv_electric_enable_table` helpers from migration 001 belong to the 0.12 integration and are unused.
 
 ## Falling back to CRDT
 
-If `ELECTRIC_URL` is unset on the engine, `/api/electric/auth` returns 503 with a structured error; otherwise it returns 409 (`electric.unfiltered`). The SDK throws `ElectricUnavailable`. Operators can switch the client back to `provider: 'crdt'` without a redeploy of the engine.
+The SDK throws `ElectricUnavailable` (with the engine's code and reason) when a shape is refused at creation, and its live loop retries with backoff after a refusal. Switching the client to `provider: 'crdt'` needs no engine change.
 
 ## Limits & known gaps
 
-- **Token revocation** isn't supported — the 60-s TTL is the only revocation mechanism. For high-security tenants, shorten `TOKEN_TTL_SECONDS` in `routes/electric.ts`.
-- **No read gate applies to the stream.** Electric replicates whatever is in the publication, through logical replication. Logical replication applies no RLS per subscriber, and Electric does not read the `tenant_id` claim. So the engine's tenant policy, row rules, column permissions and collection permissions all stop at the stream: every holder of a token receives every row and column of every enabled table. Postgres RLS on the tables does not change that.
-- **Refused on every instance.** Because nothing on the stream applies the engine's rules, the engine mints no token (`409`, `electric.unfiltered`), with one tenant or many. Rules are not optional for a smaller install. An Electric service that is already running keeps the streams it opened before an upgrade: restart it.
-- **The current SDK Electric driver** speaks a minimal subset of Electric's protocol (auth + change + subscribe). The full `electric-sql` JS client lands once Electric publishes a stable browser bundle for the v1 protocol.
+- **Read only.** `push()` on the Electric provider throws; write through the data API.
+- **A change of rules takes effect at the next poll.** A long-poll already waiting (up to Electric's `ELECTRIC_LONG_POLL_TIMEOUT`) completes under the shape it started with.
+- **Values arrive as Electric serialises them** (text for numbers, Postgres timestamp text), not through the field-type serialisers the data API applies.

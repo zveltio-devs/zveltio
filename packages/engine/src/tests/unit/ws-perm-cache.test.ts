@@ -18,6 +18,7 @@ const openScope = (table: string): ReadScope => ({
   rls: [],
   columns: { hidden: new Set(), readOnly: new Set() },
   altersRestrict: false,
+  entityChecks: false,
   query: (qb) => qb,
   keep: async (rows) => rows,
   admits: () => true,

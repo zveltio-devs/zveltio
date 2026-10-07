@@ -10,7 +10,8 @@
  *   aborted` and was lost — a batch is capped at 500, so one bad row took 499
  *   good ones with it;
  * - the Electric token's `tenant_id` claim came from `user.tenantId`, a property
- *   better-auth never sets, so it was never emitted at all.
+ *   better-auth never sets, so it was never emitted at all. There is no token
+ *   now: shapes are built by the engine (electric-shapes.test.ts).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -206,19 +207,5 @@ d('sync push guards (in-process)', () => {
     } finally {
       await sql`DROP TABLE IF EXISTS ${sql.id(table)}`.execute(db);
     }
-  });
-
-  // Electric is refused on every instance (its stream bypasses the engine's
-  // rules), one tenant included: no token, so no claim to check.
-  it('Electric mints no token, even for god', async () => {
-    process.env.ELECTRIC_URL = 'wss://electric.test:5133';
-    process.env.ELECTRIC_AUTH_TOKEN = 'harness-shared-secret';
-    const res = await app.request('/api/electric/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie: godCookie },
-      body: JSON.stringify({}),
-    });
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { token?: string }).token).toBeUndefined();
   });
 });

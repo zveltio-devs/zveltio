@@ -204,8 +204,7 @@ const DOORS: Record<string, Coverage> = {
   'DELETE /api/rpc/:id': exempt('instance administrators only (requireInstanceAdmin)'),
   'POST /api/rpc/:fn': here,
   // ── Electric ────────────────────────────────────────────────────────────
-  'GET /api/electric/config': at('electric-multi-tenant.test.ts'),
-  'POST /api/electric/auth': at('electric-multi-tenant.test.ts'),
+  'GET /api/electric/v1/shape': at('electric-shapes.test.ts'),
 };
 
 /** The prefixes that serve tenant data. A route under one of them needs a row. */

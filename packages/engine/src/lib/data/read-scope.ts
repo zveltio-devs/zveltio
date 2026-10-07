@@ -45,6 +45,12 @@ export interface ReadScope {
    * so it must refuse — `admits` does.
    */
   altersRestrict: boolean;
+  /**
+   * An extension entity-access rule judges this table's rows one by one in
+   * code, so a reader that cannot call `keep`/`admits` per row (an Electric
+   * shape, filtered by Postgres expressions) must refuse.
+   */
+  entityChecks: boolean;
   /** Alters + row policies onto a SELECT builder. */
   query<Q>(qb: Q): Q;
   /** The fetched rows entity access lets the caller `view`. */
@@ -108,6 +114,9 @@ export async function readScope(
     columns,
     get altersRestrict() {
       return altersRestrict();
+    },
+    get entityChecks() {
+      return entityAccessRegistry.hasChecksFor(table);
     },
     query: (qb) => applyRlsFilters(queryAlterRegistry.applyAll(qb, table, user), rls),
     keep: async (rows) => {

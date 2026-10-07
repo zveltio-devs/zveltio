@@ -47,7 +47,7 @@ A value read from a file never gets there.
 
 `AI_KEY_ENCRYPTION_KEY`, `APNS_KEY`, `APPLE_CLIENT_SECRET`, `BACKUP_DB_PASSWORD`,
 `BETTER_AUTH_SECRET`, `DATABASE_PASSWORD`, `DATABASE_URL`, `DISCORD_CLIENT_SECRET`,
-`ELECTRIC_AUTH_TOKEN`, `FCM_SERVER_KEY`, `FIELD_ENCRYPTION_KEY`,
+`ELECTRIC_SECRET`, `FCM_SERVER_KEY`, `FIELD_ENCRYPTION_KEY`,
 `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_SECRET`, `MAIL_ENCRYPTION_KEY`,
 `METRICS_TOKEN`, `MICROSOFT_CLIENT_SECRET`, `NATIVE_DATABASE_URL`,
 `RECOVERY_TOKEN`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `TWITTER_CLIENT_SECRET`,
@@ -485,8 +485,8 @@ because it boots many engines against one Postgres — see the note at the top o
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ELECTRIC_URL` | — | Electric sync service. Absent: the `/api/electric` routes answer `503`. Set: they answer `409` (`electric.unfiltered`): the stream bypasses the engine's tenant, row and column rules (see `docs/engine/offline-sync.md`). |
-| `ELECTRIC_AUTH_TOKEN` | — | Bearer token for that service. |
+| `ELECTRIC_URL` | — | Electric 1.x HTTP API, reachable from the engine only (e.g. `http://electric:3000`). Absent: `GET /api/electric/v1/shape` answers `503`. Set: the engine proxies shapes it builds from the caller's grants, tenant, row rules and column permissions (see `docs/engine/offline-sync.md`). |
+| `ELECTRIC_SECRET` | — | The `ELECTRIC_SECRET` the Electric service runs with. Sent by the engine only; clients never see it. Both must be set. |
 
 ## Demo mode
 
