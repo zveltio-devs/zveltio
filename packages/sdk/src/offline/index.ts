@@ -252,7 +252,8 @@ async function makeElectricProvider(config: OfflineProviderConfig): Promise<Offl
       throw new ElectricUnavailable(body.error ?? 'engine reports Electric is not configured');
     }
     if (!res.ok) {
-      // 409: the engine refuses Electric on an instance with more than one tenant.
+      // 409: the engine refuses Electric (`electric.unfiltered`): its stream
+      // bypasses the engine's rules.
       const body = (await res.json().catch(() => ({}))) as { detail?: string };
       throw new ElectricUnavailable(body.detail ?? `engine returned ${res.status}`);
     }

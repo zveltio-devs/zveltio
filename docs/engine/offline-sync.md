@@ -29,7 +29,7 @@ Both providers implement the same `OfflineProvider` interface — apps migrate f
 
 The CRDT path is the default because it works against any engine deployment without operator action. Electric is the right choice when sync latency matters (collaborative editing, live dashboards) and the operator is willing to run an extra service.
 
-**Electric is single-tenant only.** On an instance with more than one tenant, `POST /api/electric/auth` and `GET /api/electric/config` answer `409` with code `electric.multi_tenant`, and no token is minted. Use the CRDT provider there. See [Limits & known gaps](#limits--known-gaps).
+**Electric is disabled.** `POST /api/electric/auth` and `GET /api/electric/config` answer `409` with code `electric.unfiltered` on every instance, and no token is minted: Electric's replication stream bypasses the engine's tenant, row and column rules. Use the CRDT provider. It comes back when shapes are served through an engine-controlled filter. See [Limits & known gaps](#limits--known-gaps).
 
 ## Operator setup — Electric
 
@@ -88,12 +88,11 @@ The shared secret is HMAC-symmetric: anyone holding it can mint tokens. Keep it 
 
 ## Falling back to CRDT
 
-If `ELECTRIC_URL` is unset on the engine, `/api/electric/auth` returns 503 with a structured error; on an instance with more than one tenant it returns 409. The SDK throws `ElectricUnavailable`. Operators can switch the client back to `provider: 'crdt'` without a redeploy of the engine.
+If `ELECTRIC_URL` is unset on the engine, `/api/electric/auth` returns 503 with a structured error; otherwise it returns 409 (`electric.unfiltered`). The SDK throws `ElectricUnavailable`. Operators can switch the client back to `provider: 'crdt'` without a redeploy of the engine.
 
 ## Limits & known gaps
 
 - **Token revocation** isn't supported — the 60-s TTL is the only revocation mechanism. For high-security tenants, shorten `TOKEN_TTL_SECONDS` in `routes/electric.ts`.
 - **No read gate applies to the stream.** Electric replicates whatever is in the publication, through logical replication. Logical replication applies no RLS per subscriber, and Electric does not read the `tenant_id` claim. So the engine's tenant policy, row rules, column permissions and collection permissions all stop at the stream: every holder of a token receives every row and column of every enabled table. Postgres RLS on the tables does not change that.
-- **Refused with more than one tenant.** Because the stream is not filtered by tenant, the engine mints no token (`409`, `electric.multi_tenant`) once a second tenant exists. The check runs on every mint, not once: creating a second tenant stops new tokens, but it does not close a stream Electric already opened. Restart the Electric service when you add the second tenant.
-- **On a single-tenant instance**, every signed-in user who mints a token reads every row and column of every enabled table, past row rules and column permissions. Enable only tables every user may read in full.
+- **Refused on every instance.** Because nothing on the stream applies the engine's rules, the engine mints no token (`409`, `electric.unfiltered`), with one tenant or many. Rules are not optional for a smaller install. An Electric service that is already running keeps the streams it opened before an upgrade: restart it.
 - **The current SDK Electric driver** speaks a minimal subset of Electric's protocol (auth + change + subscribe). The full `electric-sql` JS client lands once Electric publishes a stable browser bundle for the v1 protocol.

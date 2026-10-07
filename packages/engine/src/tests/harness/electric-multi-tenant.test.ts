@@ -90,15 +90,15 @@ d('electric on a multi-tenant instance', () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(res.status).toBe(409);
     expect(body.token).toBeUndefined();
-    expect(body.code).toBe('electric.multi_tenant');
-    expect(String(body.detail)).toMatch(/more than one tenant/);
+    expect(body.code).toBe('electric.unfiltered');
+    expect(String(body.detail)).toMatch(/tenant, row and/);
   });
 
   it('GET /api/electric/config does not advertise the service', async () => {
     const res = await app.request('/api/electric/config', { headers: asA() });
     const body = (await res.json()) as Record<string, unknown>;
     expect(res.status).toBe(409);
-    expect(body.code).toBe('electric.multi_tenant');
+    expect(body.code).toBe('electric.unfiltered');
     expect(body.electricUrl).toBeUndefined();
   });
 });

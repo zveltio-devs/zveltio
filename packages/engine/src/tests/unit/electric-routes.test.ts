@@ -3,14 +3,11 @@ import { Hono } from 'hono';
 import { electricRoutes, _internalForTests } from '../../routes/electric.js';
 
 /**
- * S5-07 — Electric token mint route.
- *
- * The route is small but security-critical: a leaked token grants the
- * holder Electric-side access for 60 seconds. The tests verify:
- *   - 503 when ELECTRIC_URL / ELECTRIC_AUTH_TOKEN are unset.
- *   - 401 when the better-auth session is missing.
- *   - Successful mint returns a valid HS256 JWT with the right claims.
- *   - The shared secret never appears in any response body.
+ * Electric routes. Electric's replication stream bypasses the engine's tenant,
+ * row and column rules, so no token is minted on any instance:
+ *   - 401 when the better-auth session is missing;
+ *   - 503 when ELECTRIC_URL / ELECTRIC_AUTH_TOKEN are unset (SDK falls back);
+ *   - 409 otherwise, with no token, URL or secret in the body.
  */
 
 const fakeAuth = (user: { id: string } | null) => ({
@@ -36,26 +33,9 @@ afterEach(() => {
   else process.env.ELECTRIC_AUTH_TOKEN = prevToken;
 });
 
-/**
- * `tenant` is what the engine's tenant middleware puts on the context; the mint
- * reads it through `tenantId(c)`. It used to read `user.tenantId` instead — a
- * property better-auth never sets, so the claim was never emitted — and this
- * test stayed green only because `fakeAuth` hand-built a user shape the real
- * session does not have. Set the tenant where the real request carries it.
- */
-function makeApp(
-  user: { id: string } | null,
-  tenant?: { id: string },
-  singleTenant: () => Promise<boolean> = async () => true,
-) {
+function makeApp(user: { id: string } | null) {
   const app = new Hono();
-  if (tenant) {
-    app.use('*', async (c, next) => {
-      c.set('tenant', tenant as never);
-      await next();
-    });
-  }
-  app.route('/api/electric', electricRoutes({} as never, fakeAuth(user), singleTenant));
+  app.route('/api/electric', electricRoutes({} as never, fakeAuth(user)));
   return app;
 }
 
@@ -90,73 +70,26 @@ describe('S5-07 electric route — service-unavailable', () => {
 
 // The stream Electric serves is not filtered by tenant, so nothing is minted or
 // advertised while a second tenant exists. The harness test drives the real count.
-describe('electric route — refused with more than one tenant', () => {
-  const multi = async () => false;
-
-  it('409 on mint and config, no token, no URL', async () => {
+describe('electric route — refused on every instance', () => {
+  it('409 on mint and config, no token, no URL, no secret', async () => {
     process.env.ELECTRIC_URL = 'wss://e.test';
-    process.env.ELECTRIC_AUTH_TOKEN = 's';
-    const app = makeApp({ id: 'u1' }, { id: 't1' }, multi);
-    const minted = await app.request('/api/electric/auth', { method: 'POST' });
-    expect(minted.status).toBe(409);
-    expect(await minted.text()).not.toContain('token');
-    const cfg = await app.request('/api/electric/config');
-    expect(cfg.status).toBe(409);
-    expect(await cfg.text()).not.toContain('e.test');
-  });
-
-  it('a failing tenant count refuses too', async () => {
-    process.env.ELECTRIC_URL = 'wss://e.test';
-    process.env.ELECTRIC_AUTH_TOKEN = 's';
-    const app = makeApp({ id: 'u1' }, { id: 't1' }, async () => {
-      throw new Error('db down');
-    });
-    const minted = await app.request('/api/electric/auth', { method: 'POST' });
-    expect(minted.status).toBe(500);
-  });
-});
-
-describe('S5-07 electric route — token mint', () => {
-  it('mints a HS256 JWT with sub + exp + aud claims', async () => {
-    process.env.ELECTRIC_URL = 'wss://electric.test';
     process.env.ELECTRIC_AUTH_TOKEN = 'shared-secret';
-    const app = makeApp({ id: 'user-42' }, { id: 'tenant-7' });
-
-    const res = await app.request('/api/electric/auth', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tables: ['zvd_contacts'] }),
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { token: string; expiresAt: number; electricUrl: string };
-
-    // Three segments separated by dots.
-    expect(body.token.split('.').length).toBe(3);
-
-    // Decode + check claims.
-    const [, payloadB64] = body.token.split('.');
-    const padded =
-      payloadB64.replace(/-/g, '+').replace(/_/g, '/') +
-      '='.repeat((4 - (payloadB64.length % 4)) % 4);
-    const claims = JSON.parse(atob(padded)) as Record<string, unknown>;
-    expect(claims.sub).toBe('user-42');
-    expect(claims.tenant_id).toBe('tenant-7');
-    expect(claims.aud).toBe('electric-sql');
-    expect(claims.tables).toEqual(['zvd_contacts']);
-    expect(typeof claims.exp).toBe('number');
-    expect(typeof claims.iat).toBe('number');
-    expect(claims.exp as number).toBeGreaterThan(claims.iat as number);
-
-    // Public response includes the Electric URL but NEVER the secret.
-    expect(body.electricUrl).toBe('wss://electric.test');
-    expect(JSON.stringify(body)).not.toContain('shared-secret');
+    const app = makeApp({ id: 'u1' });
+    for (const res of [
+      await app.request('/api/electric/auth', { method: 'POST' }),
+      await app.request('/api/electric/config'),
+    ]) {
+      expect(res.status).toBe(409);
+      const text = await res.text();
+      expect(text).not.toContain('token"');
+      expect(text).not.toContain('e.test');
+      expect(text).not.toContain('shared-secret');
+    }
   });
 
-  it('signHs256 produces a deterministic signature for fixed inputs', async () => {
-    const t1 = await _internalForTests.signHs256({ a: 1 }, 'secret');
-    const t2 = await _internalForTests.signHs256({ a: 1 }, 'secret');
-    expect(t1).toBe(t2);
-    const t3 = await _internalForTests.signHs256({ a: 1 }, 'different');
-    expect(t3).not.toBe(t1);
+  it('readConfig needs both variables', () => {
+    process.env.ELECTRIC_URL = 'wss://e.test';
+    delete process.env.ELECTRIC_AUTH_TOKEN;
+    expect(_internalForTests.readConfig()).toBeNull();
   });
 });

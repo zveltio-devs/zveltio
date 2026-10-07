@@ -188,7 +188,7 @@ describe('S5-07 createOfflineProvider — electric provider', () => {
   it('a 409 refusal carries the engine reason', async () => {
     const fetchStub = makeFetchStub({
       status: 409,
-      body: { code: 'electric.multi_tenant', detail: 'more than one tenant' },
+      body: { code: 'electric.unfiltered', detail: 'stream bypasses the rules' },
     });
     const caught = await createOfflineProvider({
       engineUrl: 'http://engine',
@@ -197,7 +197,7 @@ describe('S5-07 createOfflineProvider — electric provider', () => {
       websocket: FakeWebSocket as unknown as typeof WebSocket,
     }).catch((e: Error) => e);
     expect(caught).toBeInstanceOf(ElectricUnavailable);
-    expect((caught as Error).message).toContain('more than one tenant');
+    expect((caught as Error).message).toContain('stream bypasses the rules');
   });
 
   it('throws ElectricUnavailable when engine returns 401', async () => {
