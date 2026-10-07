@@ -46,6 +46,10 @@ describe('authenticate', () => {
     };
     const roles = new CannedDb();
     roles.when(/SELECT role FROM "user"/i, [{ role: 'member' }]);
+    // `member` is a Casbin row, not the column.
+    roles.when(/FROM zvd_permissions/i, [
+      { ptype: 'g', v0: 'u-auth-role', v1: 'member', v2: '*', v3: null, v4: null, v5: null },
+    ]);
     await initPermissions(roles.kysely as unknown as Database);
     try {
       const db = new CannedDb().kysely as unknown as Database;

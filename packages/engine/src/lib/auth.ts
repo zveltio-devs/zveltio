@@ -1,5 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { revalidatePrincipalsEverywhere, runWithoutTenantTrx } from './tenancy/index.js';
+import {
+  getCurrentTenantTrx,
+  grantMemberRole,
+  onAfterCommit,
+  revalidatePrincipalsEverywhere,
+  runWithoutTenantTrx,
+} from './tenancy/index.js';
 import { type BetterAuthOptions, betterAuth } from 'better-auth';
 import { kyselyAdapter } from '@better-auth/kysely-adapter';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
@@ -527,6 +533,24 @@ export async function initAuth(db: Database) {
               code: 'registration_disabled',
               message: 'Self-registration is disabled on this instance.',
             });
+          },
+          // Every account is a `member` in Casbin, the one source of roles. The
+          // ROW is written by a trigger on "user" (migration 059), inside the
+          // transaction that creates the account: better-auth runs this hook
+          // only after its own transaction has committed, so a failure here
+          // used to leave a committed account with no row. This puts the row in
+          // the live model and tells the other replicas (the adapter treats the
+          // row the trigger wrote as held). Inside a tenant transaction
+          // (provisioning), after its commit: the enforcer writes on the pool.
+          // Not fatal: the account and its row are committed whatever happens
+          // here, and a replica whose model lacks the row reads the table.
+          after: async (user: { id: string }) => {
+            const load = () =>
+              grantMemberRole(user.id).catch((err: Error) => {
+                console.warn('[auth] member row not loaded into the live model:', err.message);
+              });
+            if (getCurrentTenantTrx()) onAfterCommit(load);
+            else await load();
           },
         },
       },

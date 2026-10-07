@@ -207,8 +207,8 @@ collection table carries four RESTRICTIVE policies — `zv_coll_read` (SELECT),
 extension's query) is refused by the table.
 
 The request publishes what the caller may do, resolved exactly as
-`checkPermission` resolves it (role chains, the tenant and `*` domains, the
-`"user".role` column); the policies read that set. A statement passes when:
+`checkPermission` resolves it (role chains, the tenant and `*` domains — roles
+come from Casbin alone, `member` included); the policies read that set. A statement passes when:
 
 | Who | Collection rights in the database |
 |---|---|

@@ -45,7 +45,7 @@ d('tenant purge — delete_users', () => {
   let only: Member; // T only → deleted
   let also: Member; // T and U → kept, other_tenant
   let granted: Member; // T, plus a grant in '*' → kept, other_grants
-  let roled: Member; // T, plus a ROLE in '*' (how PATCH /api/users sets one) → kept, other_grants
+  let roled: Member; // T, plus a ROLE in '*' (beyond the member baseline) → kept, other_grants
   let admin: Member; // T, instance admin → kept
   let onlyN: Member; // N only, purged without the flag → kept
   const keyIds = [crypto.randomUUID(), crypto.randomUUID()];
@@ -85,7 +85,8 @@ d('tenant purge — delete_users', () => {
       grants: [{ collection: `hpu_${SFX}`, actions: ['read'] }],
     });
     roled = await createMemberSession(app, db);
-    await (await getEnforcer()).addRoleForUser(roled.userId, 'member', '*');
+    // Not `member`: every account holds that one, so it is nobody's grant.
+    await (await getEnforcer()).addRoleForUser(roled.userId, 'employee', '*');
     admin = await createMemberSession(app, db, {
       grants: [{ collection: 'admin', actions: ['*'] }],
     });

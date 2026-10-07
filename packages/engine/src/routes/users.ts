@@ -5,6 +5,7 @@ import type { Database } from '../db/index.js';
 import {
   getUserRoles,
   getEnforcer,
+  grantMemberRole,
   invalidateUserPermCache,
   getCurrentDomain,
   requireInstanceAdmin,
@@ -82,10 +83,8 @@ export function usersRoutes(
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       users.map(async (u: any) => {
         // getRolesForUser is a single Casbin in-memory lookup (no DB round-trip)
-        const casbin = await e.getRolesForUser(u.id).catch(() => [] as string[]);
-        // The column role is a role too (checkPermission reads it); it is no
-        // longer mirrored into Casbin, so list it from the row.
-        const roles = [...new Set([...casbin, ...(u.role ? [u.role] : [])])];
+        // Casbin alone: `u.role` is the god attribute, not a role.
+        const roles = await e.getRolesForUser(u.id).catch(() => [] as string[]);
         return { ...u, roles };
       }),
     );
@@ -154,10 +153,10 @@ export function usersRoutes(
       if (!user) return c.json({ error: 'User not found' }, 404);
 
       if (role) {
-        // The column is the role: `checkPermission` reads it as a subject in
-        // every domain. No `g` mirror any more — writing one meant
-        // `deleteRolesForUser(userId, '*')` first, which also wiped every
-        // business role (`employee`, `manager`, …) the user held globally.
+        // `god` is the column alone (no Casbin role); a `member` holds the
+        // Casbin baseline row, so a demoted god gets it back. Nothing else is
+        // touched — business roles (`employee`, …) stay.
+        if (role === 'member') await grantMemberRole(userId);
         await invalidateUserPermCache(userId);
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         const admin = c.get('user') as any;

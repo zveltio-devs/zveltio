@@ -189,7 +189,7 @@ interface EffectivePermissions {
   exact: Set<string>;
   /** Objects granted with `act = '*'`. */
   anyAction: Set<string>;
-  /** The column role could not be read: this set lacks it, and is never memoized. */
+  /** The table could not be read for unloaded roles: never memoized. */
   unread?: unknown;
 }
 
@@ -212,15 +212,13 @@ async function effectivePermissions(userId: string, domain: string): Promise<Eff
   // Role chains and the `'*'` domain grant, resolved by casbin itself.
   const subjects = new Set<string>([userId]);
   for (const role of await e.getImplicitRolesForUser(userId, domain)) subjects.add(role);
-  // The column role counts exactly as a `g <user> <role> *` row would, chain
-  // included: only PATCH /api/users/:id ever wrote that row, so a grant to
-  // `member` used to miss every self-registered member.
+  // Plus the rows the table holds and this model has not heard of yet — see
+  // `unloadedRoles`. Chains expand from the live model, which already has them.
   let unread: unknown;
   try {
-    const column = await columnRole(userId);
-    if (column) {
-      subjects.add(column);
-      for (const role of await e.getImplicitRolesForUser(column, domain)) subjects.add(role);
+    for (const direct of await unloadedRoles(e, userId, domain)) {
+      subjects.add(direct);
+      for (const role of await e.getImplicitRolesForUser(direct, domain)) subjects.add(role);
     }
   } catch (err) {
     unread = err ?? new Error('role lookup failed');
@@ -330,18 +328,19 @@ const LOCAL_GOD_TTL_MS = 5_000;
 const _localGod = new Map<string, { value: boolean; at: number }>();
 
 /**
- * The same, for a user's role.
+ * `g` rows of users whose `member` row the live model does not hold, read from
+ * the table.
  *
- * `resolveUserRole` has the identical shape and the identical problem:
- * Valkey-backed, and on an install without Valkey — which is the target
- * deployment — it reads the POOL. On the WRITE path that is a second connection
- * per write, measured, because the write pipeline asks for the role after the
- * request already holds its transaction.
- *
- * Same five seconds as the god flag, for the same reason: a `DEL` reaches every
- * instance, this map only the one that ran the change.
+ * A user created on another replica (or written while the bus was down) has
+ * rows in `zvd_permissions` before this model hears of them — and a role given
+ * here afterwards puts *a* row in this model, not the `member` row it missed,
+ * so holding any row proves nothing. Roles are also
+ * restrictions — a row rule keyed on `member` hides rows FROM members — so
+ * "no rows yet" answered as "no roles" would serve what the rule hides. Five
+ * seconds, like the god flag: every write and every applied bus change clears
+ * it, and a pool read per request is what the memo exists to avoid.
  */
-const _localRole = new Map<string, { value: string; at: number }>();
+const _unloaded = new Map<string, { rows: Array<[string, string | null]>; at: number }>();
 
 /** Test seam — how many god flags are held in process. */
 export function __localGodCacheSize(): number {
@@ -354,12 +353,12 @@ export function clearLocalPermissionCache(userId?: string): void {
     _localPerm.clear();
     _effective.clear();
     _localGod.clear();
-    _localRole.clear();
+    _unloaded.clear();
     invalidatePolicyObjectIndex();
     return;
   }
   _localGod.delete(userId);
-  _localRole.delete(userId);
+  _unloaded.delete(userId);
   // Key shape: `perm:${namespace}:${domain}:${userId}:${resource}:${action}`
   const needle = `:${userId}:`;
   for (const key of _localPerm.keys()) {
@@ -489,11 +488,16 @@ class KyselyCasbinAdapter {
     // memo and the object index catches all of them.
     clearLocalPermissionCache();
     invalidatePolicyObjectIndex();
+    // A row the table already holds is held, not an error: the `member` row a
+    // trigger wrote with the account (migration 059), or one another replica
+    // wrote before this model heard of it. Casbin asks this only when its model
+    // lacks the row, so a duplicate here means the model was behind the table.
     await trackPolicyWrite(() =>
       sql`
         INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
         VALUES (${ptype}, ${rule[0] ?? null}, ${rule[1] ?? null}, ${rule[2] ?? null},
                 ${rule[3] ?? null}, ${rule[4] ?? null}, ${rule[5] ?? null})
+        ON CONFLICT DO NOTHING
       `.execute(_db),
     );
   }
@@ -774,8 +778,14 @@ function _decodeGodCache(userId: string, raw: string): boolean | null {
  * 'api_key'`, which is constructed rather than read from a session and must not
  * be overwritten by a lookup that would find nothing.
  *
- * Cached like `isGodUser`, HMAC-signed so a writable cache cannot promote a
- * member. When the database cannot answer, it THROWS.
+ * ONE role, for the consumers keyed on one (column permissions, a `user_role`
+ * row-rule source, RPC `required_role`): `god` (the instance attribute in
+ * `"user".role`, never a Casbin role) > `member` (a Casbin `g <user> member *`
+ * row) > `public`. `member` outranks every other role on purpose: column rules
+ * are restrictions keyed by role, and a member who also holds `editor` read as
+ * `editor` would escape every `member` column rule. Role-set consumers (row
+ * rules, grants) see the whole Casbin set via `getUserRoles`. When the database
+ * cannot answer, it THROWS.
  *
  * It used to answer `'public'` as "the least-privileged role", but there is no
  * such role here: column rules and row rules are restrictions keyed BY role, so
@@ -789,46 +799,59 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
   if (user.role) return user.role;
   const userId = user.id;
   if (!userId || userId.startsWith('apikey:')) return 'public';
+  if (await lookupGod(userId)) return 'god';
+  const e = await getEnforcer();
+  const domain = getCurrentDomain();
+  const held = new Set(await e.getImplicitRolesForUser(userId, domain));
+  for (const direct of await unloadedRoles(e, userId, domain)) {
+    held.add(direct);
+    for (const role of await e.getImplicitRolesForUser(direct, domain)) held.add(role);
+  }
+  return held.has(MEMBER_ROLE) ? MEMBER_ROLE : 'public';
+}
 
-  const local = _localRole.get(userId);
-  if (local && Date.now() - local.at < LOCAL_GOD_TTL_MS) return local.value;
+/** The baseline Casbin role every account is given (`g <user> member *`). */
+export const MEMBER_ROLE = 'member';
 
-  const cache = getCache();
-  const cacheKey = `urole:${userId}`;
-  if (cache) {
-    try {
-      const raw = await cache.get(cacheKey);
-      if (raw !== null) {
-        const decoded = _decodeRolesCache(cacheKey, userId, raw);
-        if (decoded !== null && decoded.length === 1) return decoded[0]!;
+/** Grant the baseline role. Every path that creates an account calls it. */
+export async function grantMemberRole(userId: string): Promise<void> {
+  await (await getEnforcer()).addRoleForUser(userId, MEMBER_ROLE, '*');
+}
+
+/** Whether a `g` rule is the baseline grant — not power anyone chose to give. */
+export function isMemberBaseline(rule: string[]): boolean {
+  return rule[1] === MEMBER_ROLE && rule[2] === '*';
+}
+
+/**
+ * The roles `userId` holds in `domain` per `zvd_permissions`, when the live
+ * model does not hold their `member` row (see `_unloaded`); `[]` otherwise —
+ * the model answers then. Gods hold none, so theirs is read too, memoized. Throws when the table cannot be read. Not savepoint-guarded:
+ * `_db` is the pool, see `lookupGod`.
+ */
+async function unloadedRoles(e: Enforcer, userId: string, domain: string): Promise<string[]> {
+  if (userId === 'public' || userId.startsWith('apikey:')) return [];
+  if (e.getModel().hasPolicy('g', 'g', [userId, MEMBER_ROLE, '*'])) return [];
+  let hit = _unloaded.get(userId);
+  if (!hit || Date.now() - hit.at >= LOCAL_GOD_TTL_MS) {
+    const gen = _policyGen;
+    const r = await sql<{ ptype: string; v0: string; v1: string; v2: string | null }>`
+      SELECT ptype, v0, v1, v2 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${userId}
+    `.execute(_db);
+    // Re-checked here so a stub answering every `zvd_permissions` read with the
+    // whole table cannot hand a user everyone's roles.
+    const own = r.rows.filter((row) => row.ptype === 'g' && row.v0 === userId);
+    hit = { rows: own.map((row) => [row.v1, row.v2]), at: Date.now() };
+    // Not filed across a clear: the clear may be the write this read missed.
+    if (gen === _policyGen) {
+      if (_unloaded.size >= LOCAL_PERM_MAX) {
+        const oldest = _unloaded.keys().next().value;
+        if (oldest !== undefined) _unloaded.delete(oldest);
       }
-    } catch {
-      /* cache unavailable */
+      _unloaded.set(userId, hit);
     }
   }
-
-  // Deliberately NOT savepoint-guarded, and that is measured rather than assumed.
-  //
-  // `_db` is the pool handle, not the request's transaction, so `SAVEPOINT`
-  // answers `25P01 SAVEPOINT can only be used in transaction blocks`. A version
-  // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
-  // followed by a `25P02` on an unrelated request — the guard had become the
-  // thing it was added to prevent. See lib/savepoint.ts.
-  //
-  // Not caught either: see the doc comment — there is no role to fall back to.
-  const result = await sql<{ role: string }>`
-    SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
-  `.execute(_db);
-  const role = result.rows[0]?.role || 'public';
-  _localRole.set(userId, { value: role, at: Date.now() });
-  if (cache) {
-    try {
-      await cache.setex(cacheKey, GOD_CACHE_TTL, _encodeRolesCache(cacheKey, userId, [role]));
-    } catch {
-      /* cache unavailable */
-    }
-  }
-  return role;
+  return hit.rows.filter(([, d]) => d === '*' || d === domain).map(([role]) => role);
 }
 
 /**
@@ -842,17 +865,6 @@ export function principalRole(userId: string): Promise<string> {
   return userId.startsWith('apikey:')
     ? Promise.resolve('api_key')
     : resolveUserRole({ id: userId });
-}
-
-/**
- * `"user".role` as a role held in every domain — the single source of
- * god/member. `null` for an API key or an unknown id (`resolveUserRole` answers
- * 'public' for both): a key's authority is its scopes, never a column. Throws
- * when the column cannot be read.
- */
-async function columnRole(userId: string): Promise<string | null> {
-  const role = await resolveUserRole({ id: userId });
-  return role === 'public' ? null : role;
 }
 
 export async function isGodUser(userId: string): Promise<boolean> {
@@ -1162,9 +1174,6 @@ function _decodeRolesCache(cacheKey: string, userId: string, raw: string): strin
  * caller-supplied role name (e.g. dashboard sharing) before persisting
  * it, so we don't store dead references to roles that don't exist.
  */
-/** The values the `"user".role` column accepts (its CHECK constraint). */
-const COLUMN_ROLES = ['god', 'member'] as const;
-
 export async function listAllRoles(): Promise<string[]> {
   const e = await getEnforcer();
   // ptype='g' grouping policies — each row is [user, role]. Take the
@@ -1174,9 +1183,6 @@ export async function listAllRoles(): Promise<string[]> {
   for (const row of policies) {
     if (row.length >= 2 && row[1]) set.add(row[1]);
   }
-  // The `"user".role` column's values are roles too (checkPermission reads
-  // them as subjects) and, since migration 033, have no `g` row of their own.
-  for (const role of COLUMN_ROLES) set.add(role);
   return [...set];
 }
 
@@ -1202,12 +1208,14 @@ export async function getUserRoles(userId: string): Promise<string[]> {
 
   const e = await getEnforcer();
   // Roles the user holds in this domain. Casbin's getRolesForUser(user, domain)
-  // honours the '*' domain-matching func, so global grants are included.
-  // Plus the column role, which no `g` row mirrors any more. Not caught: a list
-  // missing it would stand down every rule keyed on it.
-  const column = await columnRole(userId);
+  // honours the '*' domain-matching func, so global grants are included. Plus
+  // rows the model has not loaded yet. Not caught: a list missing `member`
+  // would stand down every rule keyed on it.
   const roles = [
-    ...new Set([...(await e.getRolesForUser(userId, domain)), ...(column ? [column] : [])]),
+    ...new Set([
+      ...(await e.getRolesForUser(userId, domain)),
+      ...(await unloadedRoles(e, userId, domain)),
+    ]),
   ];
 
   // Same rule as `checkPermission`: never file an answer computed across a change.

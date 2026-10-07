@@ -37,6 +37,7 @@ import {
   getEnforcer,
   invalidateTenantCache,
   invalidateUserPermCache,
+  isMemberBaseline,
   isTenantAdmin,
   onAfterCommit,
   requireInstanceAdmin,
@@ -217,7 +218,8 @@ async function mayClaim(db: Database, userId: string, tenant: string | null): Pr
     return !(await requireInstanceAdmin(userId));
   }
   const e = await getEnforcer();
-  const roles = await e.getFilteredGroupingPolicy(0, userId);
+  // The baseline `member` row every account holds is nobody's grant of power.
+  const roles = (await e.getFilteredGroupingPolicy(0, userId)).filter((g) => !isMemberBaseline(g));
   const rules = await e.getFilteredPolicy(0, userId);
   if (r.here) {
     if (r.admin_elsewhere) return false;
@@ -390,7 +392,9 @@ async function notOwnedBy(
   if (!rows?.here && !held) return 'not_member';
   // A grant in '*' or another domain is power the instance gave, not this tenant.
   const e = await getEnforcer();
-  const roles = (await e.getFilteredGroupingPolicy(0, userId)).filter((g) => g[2] !== tenant);
+  const roles = (await e.getFilteredGroupingPolicy(0, userId)).filter(
+    (g) => g[2] !== tenant && !isMemberBaseline(g),
+  );
   const rules = (await e.getFilteredPolicy(0, userId)).filter((p) => p[1] !== tenant);
   return roles.length || rules.length ? 'other_grants' : null;
 }

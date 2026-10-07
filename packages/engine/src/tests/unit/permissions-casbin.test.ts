@@ -30,6 +30,16 @@ const POLICY_ROWS = [
   { ptype: 'g', v0: 'u-editor', v1: 'editor', v2: '*', v3: null, v4: null, v5: null },
   { ptype: 'g', v0: 'u-admin', v1: 'admin', v2: '*', v3: null, v4: null, v5: null },
   { ptype: 'g', v0: 'u-auditor', v1: 'auditor', v2: 'tenant-b', v3: null, v4: null, v5: null },
+  // The `member` baseline every account gets (sign-up hook / migration 059).
+  ...['u-editor', 'u-admin', 'u-auditor'].map((v0) => ({
+    ptype: 'g',
+    v0,
+    v1: 'member',
+    v2: '*',
+    v3: null,
+    v4: null,
+    v5: null,
+  })),
 ];
 
 let db: CannedDb;
@@ -126,7 +136,8 @@ describe('roles', () => {
   // held in every domain — what a `g <user> member *` row used to mirror.
   it('getUserRoles honours the * domain grants', async () => {
     expect(await getUserRoles('u-editor')).toEqual(['editor', 'member']);
-    expect(await getUserRoles('u-nobody')).toEqual(['member']);
+    // No account row, no `member`: the column is no longer read as a role.
+    expect(await getUserRoles('u-nobody')).toEqual([]);
   });
 
   it('getUserRoles scopes tenant-domain grants', async () => {
@@ -138,11 +149,10 @@ describe('roles', () => {
     });
   });
 
-  it('listAllRoles returns the g-policy roles plus the user-column roles', async () => {
-    // `god`/`member` live in "user".role with no `g` row since migration 033;
-    // dashboard sharing validates `shared_with_role` against this list.
+  it('listAllRoles returns the g-policy roles — `god` is no role', async () => {
+    // Dashboard sharing validates `shared_with_role` against this list.
     const roles = await listAllRoles();
-    expect(roles.sort()).toEqual(['admin', 'auditor', 'editor', 'god', 'member']);
+    expect(roles.sort()).toEqual(['admin', 'auditor', 'editor', 'member']);
   });
 });
 
@@ -191,11 +201,11 @@ describe('adapter write-through', () => {
       const e = await getEnforcer();
       await e.savePolicy();
       expect(canned.executed(/TRUNCATE TABLE zvd_permissions/i)).toHaveLength(1);
-      // every row round-trips: 4 p policies + 3 g role grants
-      expect(canned.executed(/INSERT INTO zvd_permissions/i)).toHaveLength(7);
+      // every row round-trips: 4 p policies + 6 g role grants
+      expect(canned.executed(/INSERT INTO zvd_permissions/i)).toHaveLength(10);
       const inserted = canned.executed(/INSERT INTO zvd_permissions/i).map((q) => q.parameters[0]);
       expect(inserted.filter((p) => p === 'p')).toHaveLength(4);
-      expect(inserted.filter((p) => p === 'g')).toHaveLength(3);
+      expect(inserted.filter((p) => p === 'g')).toHaveLength(6);
     } finally {
       await initPermissions(seedDb().kysely as unknown as Database);
     }

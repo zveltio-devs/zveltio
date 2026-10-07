@@ -63,6 +63,7 @@ d('POST /api/invitations/accept', () => {
         consumed: boolean;
         db_role: string;
         grants: { role: string; domain: string }[];
+        baseline: number;
       }>`
         SELECT
           (SELECT COUNT(*)::int FROM zv_tenant_users m
@@ -76,7 +77,11 @@ d('POST /api/invitations/accept', () => {
           (SELECT role FROM "user" WHERE email = ${email}) AS db_role,
           (SELECT COALESCE(json_agg(json_build_object('role', p.v1, 'domain', p.v2)), '[]'::json)
              FROM zvd_permissions p JOIN "user" u ON u.id = p.v0
-            WHERE u.email = ${email} AND p.ptype = 'g') AS grants
+            WHERE u.email = ${email} AND p.ptype = 'g'
+              AND NOT (p.v1 = 'member' AND p.v2 = '*')) AS grants,
+          (SELECT COUNT(*)::int FROM zvd_permissions p JOIN "user" u ON u.id = p.v0
+            WHERE u.email = ${email} AND p.ptype = 'g'
+              AND p.v1 = 'member' AND p.v2 = '*') AS baseline
       `.execute(db);
       const s = state.rows[0]!;
 
@@ -96,6 +101,8 @@ d('POST /api/invitations/accept', () => {
       // when the grant landed in another tenant's domain.
       const casbinRole = role === 'manager' ? 'manager' : `tenant_${role}`;
       expect(s.grants).toEqual([{ role: casbinRole, domain: s.invite_tenant }]);
+      // Plus the `member` baseline every account gets at creation.
+      expect(s.baseline).toBe(1);
     }, 30_000);
   }
 

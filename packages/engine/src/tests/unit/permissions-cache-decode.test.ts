@@ -20,6 +20,8 @@ import { CannedDb } from './fixtures/canned-db.js';
 const POLICY_ROWS = [
   { ptype: 'p', v0: 'editor', v1: '*', v2: 'contacts', v3: 'read', v4: null, v5: null },
   { ptype: 'g', v0: 'u-editor', v1: 'editor', v2: '*', v3: null, v4: null, v5: null },
+  // The `member` baseline every account gets (sign-up hook / migration 059).
+  { ptype: 'g', v0: 'u-editor', v1: 'member', v2: '*', v3: null, v4: null, v5: null },
 ];
 
 function makeCache(store = new Map<string, string>()) {

@@ -72,6 +72,9 @@ d('migration 012 prunes only role grants no membership supports', () => {
         ON CONFLICT (id) DO NOTHING
       `.execute(db);
     }
+    // As 012's era left them: no `member` row (059's trigger writes one).
+    await sql`DELETE FROM zvd_permissions WHERE ptype = 'g' AND v1 = 'member' AND v2 = '*'
+                AND v0 IN (${DEMOTED}, ${REMOVED}, ${MANAGER}, ${GODLIKE})`.execute(db);
 
     // Memberships: the durable fact each grant is measured against.
     await sql`

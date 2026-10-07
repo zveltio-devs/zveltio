@@ -492,7 +492,9 @@ d('identity provisioning through ctx.internals', () => {
     expect(left.rows).toHaveLength(0);
     expect(await membership(T, joiner)).toBeUndefined();
     expect(await grades(joiner)).toEqual([]);
-    const rows = await sql`SELECT 1 FROM zvd_permissions WHERE v0 = ${joiner}`.execute(db);
+    // Nothing but the `member` baseline 059's trigger gave the account.
+    const rows = await sql`SELECT 1 FROM zvd_permissions
+      WHERE v0 = ${joiner} AND NOT (v1 = 'member' AND v2 = '*')`.execute(db);
     expect(rows.rows).toHaveLength(0);
 
     // Committed, the same steps land, account included.
@@ -501,7 +503,8 @@ d('identity provisioning through ctx.internals', () => {
       await scim.addTenantMember(trx, user.id);
       return user;
     });
-    expect(await grades(done.id)).toEqual([`tenant_member@${T}`]);
+    // Plus the `member` baseline the account got once the provisioning committed.
+    expect((await grades(done.id)).sort()).toEqual(['member@*', `tenant_member@${T}`]);
 
     await expect(
       as(T, async (trx) => {
@@ -510,7 +513,7 @@ d('identity provisioning through ctx.internals', () => {
       }),
     ).rejects.toBe(planted);
     expect((await membership(T, done.id))!.role).toBe('member');
-    expect(await grades(done.id)).toEqual([`tenant_member@${T}`]);
+    expect((await grades(done.id)).sort()).toEqual(['member@*', `tenant_member@${T}`]);
   });
 
   it('two transactions provisioning one email: the second gets the first account, its own transaction intact', async () => {

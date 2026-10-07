@@ -254,7 +254,9 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               userId: sessionUser.id,
               email: sessionUser.email ?? '',
               role: direct,
-              roles: direct && !roles.includes(direct) ? [...roles, direct] : roles,
+              // The Casbin set alone: `direct` is drawn from it, or is `god`
+              // (an instance attribute, not a role) — see `resolveUserRole`.
+              roles,
               bypass,
               collectionGrants: collections.grants,
               collectionAll: collections.all,

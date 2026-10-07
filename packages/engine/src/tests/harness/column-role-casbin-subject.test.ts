@@ -1,12 +1,12 @@
 /**
- * `"user".role` is the only source of god/member — Casbin sees it as a subject.
+ * `member` is a Casbin role; `"user".role` is only the god attribute.
  *
- * A grant `p member * <collection> read` used to reach only users holding a
- * `g <user> member *` row, and only `PATCH /api/users/:id` wrote one. So a
- * self-registered member, whose role is the column default and nothing else,
- * was refused a grant written for exactly them. And the PATCH that wrote the
- * mirror did it with `deleteRolesForUser(user, '*')`, wiping every global
- * business role the user held just to copy one column into Casbin.
+ * A grant `p member * <collection> read` once reached only users holding a
+ * `g <user> member *` row, and only `PATCH /api/users/:id` wrote one — so 033
+ * made the column a subject instead. Owner decision 2026-10-07 reverses the
+ * source, not the outcome: every account creation writes the row (sign-up
+ * hook), a demotion writes it, migration 059 backfilled existing accounts, and
+ * the column is no longer read as a role.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
@@ -20,6 +20,7 @@ import {
   getUserRoles,
   invalidateGodCache,
   invalidateUserPermCache,
+  reconcilePolicies,
 } from '../../lib/tenancy/index.js';
 import {
   createMemberSession,
@@ -34,7 +35,7 @@ const MEMBER_COL = `hcolrole_m_${tag}`;
 const GOD_COL = `hcolrole_g_${tag}`;
 const INHERITED_ROLE = `hcolrole_parent_${tag}`;
 
-d('the "user".role column is a Casbin subject', () => {
+d('member is a Casbin role, the column only the god attribute', () => {
   let app: Hono;
   let db: Database;
   // An instance admin who is not god: PATCHing someone TO god needs the seat free.
@@ -76,24 +77,20 @@ d('the "user".role column is a Casbin subject', () => {
     await e.deleteRoleForUser('member', INHERITED_ROLE, '*');
     if (member?.userId) {
       await e.deleteUser(member.userId);
-      await sql`DELETE FROM zvd_permissions_pruned_033 WHERE v0 = ${member.userId}`
-        .execute(db)
-        .catch(() => {});
     }
     await dropTestCollection(db, MEMBER_COL);
     await dropTestCollection(db, GOD_COL);
   });
 
   it('a self-registered member reaches a grant written for `member`', async () => {
-    const g =
-      await sql`SELECT 1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${member.userId}`.execute(
-        db,
-      );
-    expect(g.rows).toHaveLength(0);
+    const g = await sql<{ v1: string; v2: string }>`
+      SELECT v1, v2 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${member.userId}
+    `.execute(db);
+    expect(g.rows).toEqual([{ v1: 'member', v2: '*' }]);
     expect((await read(member.cookie, MEMBER_COL)).status).toBe(200);
   });
 
-  it('the column role expands through role inheritance, like a `g` row did', async () => {
+  it('`member` expands through role inheritance', async () => {
     const e = await getEnforcer();
     await e.addRoleForUser('member', INHERITED_ROLE, '*');
     await e.addPolicy(INHERITED_ROLE, '*', GOD_COL, 'read');
@@ -111,11 +108,11 @@ d('the "user".role column is a Casbin subject', () => {
     expect((await read(member.cookie, GOD_COL)).status).toBe(403);
   });
 
-  it('getUserRoles names the column role', async () => {
+  it('getUserRoles names `member`', async () => {
     expect(await getUserRoles(member.userId)).toContain('member');
   });
 
-  it('an API key principal gains no column role', async () => {
+  it('an API key principal gains no `member`', async () => {
     expect(await checkPermission(`apikey:${crypto.randomUUID()}`, MEMBER_COL, 'read')).toBe(false);
   });
 
@@ -124,9 +121,10 @@ d('the "user".role column is a Casbin subject', () => {
     expect((await patchRole(member.userId, 'member')).status).toBe(200);
     const rows = await sql<{ v1: string }>`
       SELECT v1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${member.userId} AND v2 = '*'
+      ORDER BY v1
     `.execute(db);
-    // Exactly the business role: no `member` mirror written, nothing wiped.
-    expect(rows.rows.map((r) => r.v1)).toEqual(['employee']);
+    // The business role kept, nothing wiped.
+    expect(rows.rows.map((r) => r.v1)).toEqual(['employee', 'member']);
   });
 
   it('a god demoted by PATCH keeps no god-derived grant', async () => {
@@ -142,41 +140,43 @@ d('the "user".role column is a Casbin subject', () => {
     expect((await read(member.cookie, MEMBER_COL)).status).toBe(200);
   });
 
-  it('POST /api/permissions/roles refuses god and member', async () => {
-    for (const role of ['god', 'member']) {
-      const res = await app.request('/api/permissions/roles', {
+  it('POST /api/permissions/roles refuses god, and takes member like any role', async () => {
+    const assign = (role: string) =>
+      app.request('/api/permissions/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', cookie: admin },
         body: JSON.stringify({ userId: member.userId, role }),
       });
-      expect(res.status).toBe(422);
-    }
+    expect((await assign('god')).status).toBe(422);
+    expect((await assign('member')).status).toBe(200);
   });
 
-  it('migration 033 deletes user→god|member mirror rows and nothing else', async () => {
+  it('migration 059 backfills `member` for non-god accounts, re-runnably', async () => {
     const file = Bun.file(
-      new URL('../../db/migrations/sql/033_drop_column_role_mirror.sql', import.meta.url),
+      new URL('../../db/migrations/sql/059_member_role_in_casbin.sql', import.meta.url),
     );
     const { up } = parseMigrationFile(await file.text());
-    await sql`
-      INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES
-        ('g', ${member.userId}, 'god', '*'),
-        ('g', ${member.userId}, 'member', '*')
-      ON CONFLICT DO NOTHING
-    `.execute(db);
+    const god = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
+      .rows[0]?.id;
+    // Behind the enforcer, as an upgraded table looks before 059.
+    await sql`DELETE FROM zvd_permissions
+              WHERE ptype = 'g' AND v0 = ${member.userId} AND v1 = 'member'`.execute(db);
+    if (god) {
+      await sql`DELETE FROM zvd_permissions
+                WHERE ptype = 'g' AND v0 = ${god} AND v1 = 'member'`.execute(db);
+    }
+    await sql.raw(up).execute(db);
     await sql.raw(up).execute(db);
     const mine = await sql<{ v1: string }>`
       SELECT v1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${member.userId} ORDER BY v1
     `.execute(db);
-    expect(mine.rows.map((r) => r.v1)).toEqual(['employee']);
-    // The seeded role→role edge is not a user's row.
-    const edge = await sql`
-      SELECT 1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = 'member' AND v1 = 'member' AND v2 = '*'
-    `.execute(db);
-    expect(edge.rows).toHaveLength(1);
-    const saved = await sql<{ v1: string }>`
-      SELECT v1 FROM zvd_permissions_pruned_033 WHERE v0 = ${member.userId} ORDER BY v1
-    `.execute(db);
-    expect(saved.rows.map((r) => r.v1)).toEqual(['god', 'member']);
+    expect(mine.rows.map((r) => r.v1)).toEqual(['employee', 'member']);
+    if (god) {
+      const g = await sql`SELECT 1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${god}
+                          AND v1 = 'member'`.execute(db);
+      expect(g.rows).toHaveLength(0);
+    }
+    // Bring the model to the table, as the reconcile tick would.
+    await reconcilePolicies();
   });
 });
