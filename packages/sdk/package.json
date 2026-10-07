@@ -69,7 +69,7 @@
     "fake-indexeddb": "^6.2.5",
     "hono": "^4.13.8",
     "kysely": "^0.29.6",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "typescript": "^5.4.0"
   },
   "peerDependencies": {
