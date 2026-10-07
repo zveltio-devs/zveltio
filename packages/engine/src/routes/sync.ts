@@ -779,7 +779,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         }
         const record = keptById.get(item.id);
         if (!record) continue;
-        const shaped = scope.shape(await serializeRecord(record, pullDef));
+        const shaped = await serializeRecord(record, pullDef, scope.columns);
         changes.push({
           collection,
           id: shaped.id as string,

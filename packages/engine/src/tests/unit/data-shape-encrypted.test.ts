@@ -22,6 +22,9 @@ afterAll(() => {
   else process.env.FIELD_ENCRYPTION_KEY = savedKey;
 });
 
+/** No column hidden: these tests are about serialization, not masking. */
+const ALL = { hidden: new Set<string>(), readOnly: new Set<string>() };
+
 describe('serializeRecord — encrypted fields', () => {
   it('decrypts encrypted column values before field-type serialization', async () => {
     const cipher = await encryptField('secret-note');
@@ -30,6 +33,7 @@ describe('serializeRecord — encrypted fields', () => {
       {
         fields: [{ name: 'note', type: 'text', encrypted: true }],
       },
+      ALL,
     );
     expect(out.note).toBe('secret-note');
     expect(out).not.toHaveProperty('search_vector');
@@ -41,6 +45,7 @@ describe('serializeRecord — encrypted fields', () => {
       {
         fields: [{ name: 'note', type: 'text', encrypted: true }],
       },
+      ALL,
     );
     expect(out.note).toBe('still-plain');
   });

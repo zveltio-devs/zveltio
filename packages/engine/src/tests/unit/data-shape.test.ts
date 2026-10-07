@@ -16,6 +16,8 @@ import {
 type Any = any;
 
 const def = (fields: Any[]): Any => ({ fields });
+/** No column hidden: these tests are about serialization, not masking. */
+const ALL = { hidden: new Set<string>(), readOnly: new Set<string>() };
 
 describe('normalizeFields', () => {
   it('returns [] for null/undefined/empty', () => {
@@ -46,7 +48,7 @@ describe('normalizeFields', () => {
 describe('serializeRecord', () => {
   it('with no fields, strips internal columns and returns a copy', async () => {
     const rec = { id: '1', title: 'hi', search_vector: 'x', search_text: 'y' };
-    const out = await serializeRecord(rec, def([]));
+    const out = await serializeRecord(rec, def([]), ALL);
     expect(out).toEqual({ id: '1', title: 'hi' });
     expect(out).not.toBe(rec); // copy, not mutation
   });
@@ -58,6 +60,7 @@ describe('serializeRecord', () => {
         { name: 'qty', type: 'integer' },
         { name: 'price', type: 'decimal' },
       ]),
+      ALL,
     );
     expect(out.qty).toBe(42);
     expect(out.price).toBe(3.5);
@@ -67,6 +70,7 @@ describe('serializeRecord', () => {
     const out = await serializeRecord(
       { id: '1', qty: 'abc' },
       def([{ name: 'qty', type: 'number' }]),
+      ALL,
     );
     expect(out.qty).toBe('abc');
   });
@@ -75,14 +79,25 @@ describe('serializeRecord', () => {
     const out = await serializeRecord(
       { id: '1', qty: null },
       def([{ name: 'qty', type: 'number' }]),
+      ALL,
     );
     expect(out.qty).toBeNull();
+  });
+
+  it('drops the columns the caller may not read', async () => {
+    const out = await serializeRecord(
+      { id: '1', title: 't', salary: '9' },
+      def([{ name: 'salary', type: 'number' }]),
+      { hidden: new Set(['salary']), readOnly: new Set() },
+    );
+    expect(out).toEqual({ id: '1', title: 't' });
   });
 
   it('strips internal columns even when fields are defined', async () => {
     const out = await serializeRecord(
       { id: '1', title: 't', search_vector: 'x' },
       def([{ name: 'title', type: 'text' }]),
+      ALL,
     );
     expect(out).not.toHaveProperty('search_vector');
   });

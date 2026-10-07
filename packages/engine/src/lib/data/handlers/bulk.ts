@@ -26,6 +26,7 @@ import {
   isUuid,
 } from '../write-pipeline.js';
 import { queryAlterRegistry } from '../query-alter.js';
+import { serializeRecord } from '../shape.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
 import {
   getColumnAccess,
@@ -158,7 +159,11 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   }
 
   return c.json(
-    { created: created.length, records: created, errors },
+    {
+      created: created.length,
+      records: await Promise.all(created.map((r) => serializeRecord(r, collectionDef, colAccess))),
+      errors,
+    },
     errors.length > 0 ? 207 : 201,
   );
 }
@@ -307,7 +312,11 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   }
 
   return c.json(
-    { updated: updated.length, records: updated, errors },
+    {
+      updated: updated.length,
+      records: await Promise.all(updated.map((r) => serializeRecord(r, collectionDef, colAccess))),
+      errors,
+    },
     errors.length > 0 ? 207 : 200,
   );
 }
