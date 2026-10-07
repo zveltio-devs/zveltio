@@ -45,6 +45,11 @@ import type {
   RouteInvokeResponse,
   InitResponse,
 } from './worker-extension-protocol.js';
+import {
+  type ExtensionChannel,
+  extensionTransport,
+  spawnProcessRunner,
+} from './worker-extension-transport.js';
 import { serviceRegistry } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
 import { activationMiddlewareFor } from './extensions/index.js';
@@ -139,7 +144,8 @@ interface ManagedWorker {
   name: string;
   extDir: string;
   bundleEntry: string;
-  worker: Worker;
+  /** The in-thread `Worker`, or the runner process (worker-extension-transport.ts). */
+  worker: ExtensionChannel;
   routes: RouteDescriptor[];
   pendingInvokes: Map<string, (res: RouteInvokeResponse) => void>;
   /**
@@ -289,10 +295,11 @@ export class WorkerExtensionHost {
     // after). It does not keep them from the process: this is a thread, and it can
     // read what the process can read. Hence the production opt-in
     // (`enforceWorkerOptIn`) until extensions run out of process.
-    const worker = new Worker(pathToFileURL(runtimePath).href, {
-      type: 'module',
-      env: { NODE_ENV: process.env.NODE_ENV ?? 'production' },
-    } as WorkerOptions);
+    const env = { NODE_ENV: process.env.NODE_ENV ?? 'production' };
+    const worker: ExtensionChannel =
+      extensionTransport() === 'process'
+        ? spawnProcessRunner(runtimePath, env)
+        : new Worker(pathToFileURL(runtimePath).href, { type: 'module', env } as WorkerOptions);
     const managed: ManagedWorker = {
       name: extName,
       extDir,
@@ -312,10 +319,10 @@ export class WorkerExtensionHost {
       stopped: false,
     };
 
-    worker.onmessage = (e) => this.handleWorkerMessage(managed, e.data as WorkerToHostMessage);
+    worker.onmessage = (e) => this.handleWorkerMessage(managed, e.data);
     worker.onerror = (e) => {
-      console.error(`[worker:${extName}] error:`, (e as ErrorEvent).message);
-      this.scheduleRespawn(managed, `onerror: ${(e as ErrorEvent).message}`);
+      console.error(`[worker:${extName}] error:`, e.message);
+      this.scheduleRespawn(managed, `onerror: ${e.message}`);
     };
 
     const initId = rpcId('init');

@@ -1,8 +1,8 @@
 # RFC: third-party extensions run out of process
 
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
-[Decisions](#decisions). Step 2 (transport) is queued after R1 and the Electric
-tenant filter.
+[Decisions](#decisions). Step 2 (transport) is done; step 3 (bare-metal runner)
+is next.
 
 ## Problem
 
@@ -147,11 +147,15 @@ functions too.
 0. **Done in #906:** the production opt-in for worker extensions, and corrected
    documentation.
 1. **Done:** this RFC is accepted and its open questions settled (2026-10-06).
-2. **Transport** (queued after R1 and the Electric tenant filter):
-   - put a byte-stream transport behind the existing protocol, with the in-thread
-     worker kept as the development transport;
-   - a contract test runs the same extension over both transports and expects
-     identical results.
+2. **Done — transport:**
+   - `lib/worker-extension-transport.ts`: 4-byte big-endian length + UTF-8 JSON
+     frames (32 MiB cap) over the child's stdin/stdout, selected by
+     `ZVELTIO_EXT_TRANSPORT=process`; the in-thread worker stays the default and
+     the development transport. stdout belongs to the runtime: an extension's
+     `console.log` and `process.stdout.write` are redirected, and a raw write to
+     fd 1 corrupts the channel, which ends the runner (respawned like a crash);
+   - `tests/harness/worker-transport-contract.test.ts` runs the same extension
+     over both transports and expects identical transcripts.
 3. **Bare-metal runner:**
    - dedicated uid, process-per-extension and kernel limits;
    - an isolation test that must fail on today's worker and pass on the runner. It
