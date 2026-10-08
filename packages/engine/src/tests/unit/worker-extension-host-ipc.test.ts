@@ -27,6 +27,7 @@ function makeManaged(
     name: string;
     routes?: { method: string; path: string }[];
     onPost?: (msg: HostToWorkerMessage) => void;
+    dependencies?: string[];
   },
 ) {
   const posted: HostToWorkerMessage[] = [];
@@ -47,6 +48,7 @@ function makeManaged(
     pendingInits: new Map(),
     pendingPings: new Map(),
     registeredServices: new Set<string>(),
+    dependencies: new Set(overrides.dependencies ?? []),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),
@@ -87,6 +89,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     serviceRegistry.unregisterAll('owner-a');
     serviceRegistry.unregisterAll('caller-b');
     serviceRegistry.unregisterAll('engine');
+    serviceRegistry.unregisterAll('inline');
   });
 
   it('resolves pending route invokes on route:ok', async () => {
@@ -198,9 +201,9 @@ describe('WorkerExtensionHost — IPC message routing', () => {
   });
 
   it('service:call resolves inline registry services', async () => {
-    serviceRegistry.registerAs('engine', 'inline.echo', (value: unknown) => `echo:${value}`);
+    serviceRegistry.registerAs('inline', 'inline.echo', (value: unknown) => `echo:${value}`);
     const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'svc-inline' });
+    const { managed, posted } = makeManaged(host, { name: 'svc-inline', dependencies: ['inline'] });
     dispatchMessage(host, managed, {
       type: 'service:call',
       id: 'svc-1',
@@ -229,11 +232,11 @@ describe('WorkerExtensionHost — IPC message routing', () => {
   });
 
   it('service:call returns service:err when an inline service throws', async () => {
-    serviceRegistry.registerAs('engine', 'inline.boom', () => {
+    serviceRegistry.registerAs('inline', 'inline.boom', () => {
       throw new Error('inline exploded');
     });
     const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'svc-throw' });
+    const { managed, posted } = makeManaged(host, { name: 'svc-throw', dependencies: ['inline'] });
     dispatchMessage(host, managed, {
       type: 'service:call',
       id: 'svc-3',
@@ -244,7 +247,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     const err = posted.find((m) => m.type === 'service:err' && m.id === 'svc-3');
     expect(err?.type).toBe('service:err');
     if (err?.type === 'service:err') expect(err.error).toContain('inline exploded');
-    serviceRegistry.unregisterAs('engine', 'inline.boom');
+    serviceRegistry.unregisterAs('inline', 'inline.boom');
   });
 
   it('posts db:err when the pool query throws', async () => {
@@ -346,7 +349,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     const { managed, posted } = makeManaged(host, {
       name: 'owner-a',
       onPost: (msg) => {
-        if (msg.type === 'service:invoke' && msg.name === 'a.ping') {
+        if (msg.type === 'service:invoke' && msg.name === 'owner-a.ping') {
           queueMicrotask(() => {
             dispatchMessage(host, managed, {
               type: 'service:invoke:ok',
@@ -360,12 +363,12 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     dispatchMessage(host, managed, {
       type: 'service:register',
       id: 'reg-1',
-      name: 'a.ping',
+      name: 'owner-a.ping',
     });
     await new Promise((r) => setTimeout(r, 0));
     expect(posted.some((m) => m.type === 'service:register:ok' && m.id === 'reg-1')).toBe(true);
-    expect(managed.registeredServices.has('a.ping')).toBe(true);
-    const result = await serviceRegistry.get<() => Promise<string>>('a.ping')?.();
+    expect(managed.registeredServices.has('owner-a.ping')).toBe(true);
+    const result = await serviceRegistry.get<() => Promise<string>>('owner-a.ping')?.();
     expect(result).toBe('pong');
   });
 
@@ -381,15 +384,15 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     const { managed: owner } = makeManaged(host, {
       name: 'owner-a',
       onPost: (msg) => {
-        if (msg.type === 'service:invoke' && msg.name === 'a.secret') capturedId = msg.id;
+        if (msg.type === 'service:invoke' && msg.name === 'owner-a.secret') capturedId = msg.id;
       },
     });
     const { managed: impostor } = makeManaged(host, { name: 'caller-b' });
 
-    dispatchMessage(host, owner, { type: 'service:register', id: 'reg-2', name: 'a.secret' });
+    dispatchMessage(host, owner, { type: 'service:register', id: 'reg-2', name: 'owner-a.secret' });
     await new Promise((r) => setTimeout(r, 0));
 
-    const call = serviceRegistry.get<() => Promise<string>>('a.secret')!();
+    const call = serviceRegistry.get<() => Promise<string>>('owner-a.secret')!();
     await new Promise((r) => setTimeout(r, 0));
     expect(capturedId).not.toBe('');
 
@@ -418,9 +421,9 @@ describe('WorkerExtensionHost — IPC message routing', () => {
         if (msg.type === 'service:invoke') ids.push(msg.id);
       },
     });
-    dispatchMessage(host, managed, { type: 'service:register', id: 'reg-3', name: 'a.ids' });
+    dispatchMessage(host, managed, { type: 'service:register', id: 'reg-3', name: 'owner-a.ids' });
     await new Promise((r) => setTimeout(r, 0));
-    const svc = serviceRegistry.get<() => Promise<string>>('a.ids')!;
+    const svc = serviceRegistry.get<() => Promise<string>>('owner-a.ids')!;
     void svc();
     void svc();
     await new Promise((r) => setTimeout(r, 0));
@@ -439,7 +442,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
       dispatchMessage(host, managed, {
         type: 'service:register',
         id: 'reg-bad',
-        name: 'reg.fail',
+        name: 'reg-fail.fail',
       });
       await new Promise((r) => setTimeout(r, 0));
       expect(
@@ -448,7 +451,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
             m.type === 'service:register:err' && m.id === 'reg-bad' && m.error === 'registry full',
         ),
       ).toBe(true);
-      expect(managed.registeredServices.has('reg.fail')).toBe(false);
+      expect(managed.registeredServices.has('reg-fail.fail')).toBe(false);
     } finally {
       regSpy.mockRestore();
       serviceRegistry.unregisterAll('reg-fail');
@@ -460,7 +463,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     const { managed } = makeManaged(host, {
       name: 'owner-err',
       onPost: (msg) => {
-        if (msg.type === 'service:invoke' && msg.name === 'err.boom') {
+        if (msg.type === 'service:invoke' && msg.name === 'owner-err.boom') {
           queueMicrotask(() => {
             dispatchMessage(host, managed, {
               type: 'service:invoke:err',
@@ -474,10 +477,10 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     dispatchMessage(host, managed, {
       type: 'service:register',
       id: 'reg-err',
-      name: 'err.boom',
+      name: 'owner-err.boom',
     });
     await new Promise((r) => setTimeout(r, 0));
-    await expect(serviceRegistry.get<() => Promise<string>>('err.boom')?.()).rejects.toThrow(
+    await expect(serviceRegistry.get<() => Promise<string>>('owner-err.boom')?.()).rejects.toThrow(
       'handler blew up',
     );
     serviceRegistry.unregisterAll('owner-err');
@@ -488,7 +491,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     const { managed: owner, posted: ownerPosted } = makeManaged(host, {
       name: 'owner-svc',
       onPost: (msg) => {
-        if (msg.type === 'service:invoke' && msg.name === 'owner.echo') {
+        if (msg.type === 'service:invoke' && msg.name === 'owner-svc.echo') {
           queueMicrotask(() => {
             dispatchMessage(host, owner, {
               type: 'service:invoke:ok',
@@ -502,15 +505,18 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     dispatchMessage(host, owner, {
       type: 'service:register',
       id: 'reg-owner',
-      name: 'owner.echo',
+      name: 'owner-svc.echo',
     });
     await new Promise((r) => setTimeout(r, 0));
 
-    const { managed: caller, posted: callerPosted } = makeManaged(host, { name: 'caller-svc' });
+    const { managed: caller, posted: callerPosted } = makeManaged(host, {
+      name: 'caller-svc',
+      dependencies: ['owner-svc'],
+    });
     dispatchMessage(host, caller, {
       type: 'service:call',
       id: 'cross-1',
-      name: 'owner.echo',
+      name: 'owner-svc.echo',
       args: ['ping'],
     });
     await new Promise((r) => setTimeout(r, 0));
@@ -518,10 +524,53 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     const ok = callerPosted.find((m) => m.type === 'service:ok' && m.id === 'cross-1');
     expect(ok?.type).toBe('service:ok');
     if (ok?.type === 'service:ok') expect(ok.result).toBe('echoed');
-    expect(ownerPosted.some((m) => m.type === 'service:invoke' && m.name === 'owner.echo')).toBe(
-      true,
-    );
+    expect(
+      ownerPosted.some((m) => m.type === 'service:invoke' && m.name === 'owner-svc.echo'),
+    ).toBe(true);
     serviceRegistry.unregisterAll('owner-svc');
+  });
+
+  it("refuses a worker's registration outside its own namespace", async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed, posted } = makeManaged(host, { name: 'squat' });
+    for (const name of ['crm.contacts.lookup', 'squatter.x', 'squat']) {
+      dispatchMessage(host, managed, { type: 'service:register', id: `sq-${name}`, name });
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    expect(posted.filter((m) => m.type === 'service:register:err')).toHaveLength(3);
+    expect(serviceRegistry.has('crm.contacts.lookup')).toBe(false);
+  });
+
+  it('refuses a call to a service whose owner is not a declared dependency', async () => {
+    serviceRegistry.registerAs('inline', 'inline.echo', () => 'leaked');
+    serviceRegistry.registerAs('engine', 'engine.internal', () => 'leaked');
+    const host = new WorkerExtensionHost(new Hono());
+    // Declaring `engine` opens nothing of the engine's.
+    const { managed, posted } = makeManaged(host, { name: 'nodeps', dependencies: ['engine'] });
+    for (const name of ['inline.echo', 'engine.internal']) {
+      dispatchMessage(host, managed, { type: 'service:call', id: name, name, args: [] });
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    expect(posted.some((m) => m.type === 'service:ok')).toBe(false);
+    const errs = posted.filter((m) => m.type === 'service:err');
+    expect(errs.map((m) => (m.type === 'service:err' ? m.error : ''))).toEqual([
+      'extension "nodeps" may not call service "inline.echo": declare "inline" in its manifest dependencies',
+      'extension "nodeps" may not call service "engine.internal": it is not an engine-public service',
+    ]);
+  });
+
+  it('settles a call in flight with 503 when the owning worker stops', async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed } = makeManaged(host, { name: 'owner-a' });
+    dispatchMessage(host, managed, { type: 'service:register', id: 'r', name: 'owner-a.hang' });
+    await new Promise((r) => setTimeout(r, 0));
+    const call = serviceRegistry.get<() => Promise<unknown>>('owner-a.hang')!();
+    await new Promise((r) => setTimeout(r, 0));
+    await host.stop('owner-a');
+    await expect(call).rejects.toMatchObject({
+      status: 503,
+      message: 'dependency "owner-a" is not running',
+    });
   });
 });
 

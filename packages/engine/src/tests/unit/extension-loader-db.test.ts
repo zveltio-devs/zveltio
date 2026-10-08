@@ -3,6 +3,9 @@
  */
 
 import { describe, expect, it } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
@@ -135,5 +138,44 @@ describe('ExtensionLoader.loadFromDB', () => {
 
     await loader.loadFromDB(db.kysely as unknown as Database, noApp);
     expect(loaded.sort()).toEqual(['ext-a', 'ext-b']);
+  });
+
+  it('refuses a dependency cycle by name and still loads everything else', async () => {
+    // The sort threw on a cycle, and the bare `catch {}` around this method took
+    // it for "no registry table yet": not one enabled extension loaded, silently.
+    const base = mkdtempSync(join(tmpdir(), 'zv-cycle-'));
+    for (const [name, deps] of Object.entries({ a: ['b'], b: ['a'], c: [] })) {
+      mkdirSync(join(base, name));
+      writeFileSync(
+        join(base, name, 'manifest.json'),
+        JSON.stringify({ name, dependencies: deps.map((d) => ({ name: d })) }),
+      );
+    }
+    const saved = process.env.EXTENSIONS_DIR;
+    process.env.EXTENSIONS_DIR = base;
+    try {
+      const loader = new ExtensionLoader();
+      loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
+      const db = new CannedDb();
+      db.when(REGISTRY_SELECT, [{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
+      db.whenAffected(REGISTRY_UPDATE, 1);
+      const loaded: string[] = [];
+      loader.loadExtension = async (name) => {
+        loaded.push(name);
+        loader.loaded.set(name, { registeredRoutes: false } as never);
+      };
+
+      await loader.loadFromDB(db.kysely as unknown as Database, noApp);
+
+      expect(loaded).toEqual(['c']);
+      expect(loader.getLastLoadError('a')).toContain('Circular extension dependency');
+      expect(loader.getLastLoadError('b')).toContain('Circular extension dependency');
+      const persisted = db.executed(REGISTRY_UPDATE).flatMap((q) => q.parameters);
+      expect(persisted.some((p) => String(p).includes('Circular'))).toBe(true);
+    } finally {
+      if (saved === undefined) delete process.env.EXTENSIONS_DIR;
+      else process.env.EXTENSIONS_DIR = saved;
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

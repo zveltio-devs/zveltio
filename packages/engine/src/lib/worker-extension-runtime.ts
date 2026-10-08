@@ -21,6 +21,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { createSafeFetch } from './edge-functions/safe-fetch.js';
 import type {
   HostToWorkerMessage,
@@ -133,6 +134,9 @@ async function serviceCall(name: string, args: unknown[]): Promise<unknown> {
     pendingServiceCalls.set(id, (res) => {
       if (res.type === 'service:ok') {
         resolve(res.result);
+      } else if (res.status) {
+        // Hono answers an uncaught HTTPException with its own status.
+        reject(new HTTPException(res.status as 503, { message: res.error }));
       } else {
         reject(new Error(res.error ?? 'service call failed'));
       }

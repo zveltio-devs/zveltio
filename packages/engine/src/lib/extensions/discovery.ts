@@ -21,12 +21,19 @@ import { join } from 'path';
  *   - Extensions with no manifest or no dependencies retain their relative order.
  *   - If a declared dependency is not in the planned-for-load set, the dependent
  *     extension is skipped with a warning (it can be loaded later via loadFromDB).
- *   - Cycles throw with a clear path for debugging.
+ *   - A cycle is refused, not thrown: its members, and whatever depends on one,
+ *     are left out of the result and named in `refused` with the reason. A throw
+ *     here took every other extension in the batch down with the cycle.
  *
  * @param names    Extension names planned for load.
  * @param baseDir  Base directory where extensions live (manifests are read from here).
+ * @param refused  Filled with name → reason for every extension left out.
  */
-export async function topoSortExtensions(names: string[], baseDir: string): Promise<string[]> {
+export async function topoSortExtensions(
+  names: string[],
+  baseDir: string,
+  refused: Map<string, string> = new Map(),
+): Promise<string[]> {
   if (names.length <= 1) return names;
 
   const depsMap = new Map<string, string[]>();
@@ -50,10 +57,15 @@ export async function topoSortExtensions(names: string[], baseDir: string): Prom
   const visited = new Set<string>();
   const visiting = new Set<string>();
 
-  const visit = (name: string, path: string[]): void => {
-    if (visited.has(name)) return;
+  /** False when `name` is refused. */
+  const visit = (name: string, path: string[]): boolean => {
+    if (refused.has(name)) return false;
+    if (visited.has(name)) return true;
     if (visiting.has(name)) {
-      throw new Error(`Circular extension dependency: ${[...path, name].join(' -> ')}`);
+      const cycle = [...path.slice(path.indexOf(name)), name];
+      const reason = `Circular extension dependency: ${cycle.join(' -> ')}`;
+      for (const n of cycle) refused.set(n, reason);
+      return false;
     }
     visiting.add(name);
     for (const dep of depsMap.get(name) ?? []) {
@@ -63,11 +75,15 @@ export async function topoSortExtensions(names: string[], baseDir: string): Prom
         );
         continue;
       }
-      visit(dep, [...path, name]);
+      if (!visit(dep, [...path, name]) && !refused.has(name)) {
+        refused.set(name, `depends on "${dep}", which is refused (${refused.get(dep)})`);
+      }
     }
     visiting.delete(name);
+    if (refused.has(name)) return false;
     visited.add(name);
     sorted.push(name);
+    return true;
   };
 
   for (const name of names) visit(name, []);

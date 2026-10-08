@@ -42,6 +42,11 @@ export class ServiceRegistryImpl {
     return [...this.services.keys()];
   }
 
+  /** The extension (or `'engine'`) that registered `name`, or null. */
+  ownerOf(name: string): string | null {
+    return this.services.get(name)?.owner ?? null;
+  }
+
   /**
    * Internal full-context register.
    * @param owner   Extension name claiming this service. Use `'engine'` for core.

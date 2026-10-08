@@ -14,6 +14,7 @@ function makeManaged(
     name: string;
     routes?: { method: string; path: string }[];
     registeredServices?: string[];
+    dependencies?: string[];
   },
 ) {
   const posted: unknown[] = [];
@@ -33,6 +34,7 @@ function makeManaged(
     pendingInits: new Map(),
     pendingPings: new Map(),
     registeredServices: new Set(overrides.registeredServices ?? []),
+    dependencies: new Set(overrides.dependencies ?? []),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),
@@ -59,7 +61,10 @@ describe('WorkerExtensionHost — invoke timeouts', () => {
   it('returns service:err when a cross-worker service call times out', async () => {
     const host = new WorkerExtensionHost(new Hono());
     makeManaged(host, { name: 'owner-timeout', registeredServices: ['slow.svc'] });
-    const { managed: caller, posted } = makeManaged(host, { name: 'caller-timeout' });
+    const { managed: caller, posted } = makeManaged(host, {
+      name: 'caller-timeout',
+      dependencies: ['owner-timeout'],
+    });
 
     dispatchMessage(host, caller, {
       type: 'service:call',
@@ -102,6 +107,7 @@ describe('WorkerExtensionHost — invoke timeouts', () => {
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set<string>(),
+      dependencies: new Set<string>(),
       proxyUnmount: () => {},
       workerGeneration: 1,
       enabledAt: Date.now(),

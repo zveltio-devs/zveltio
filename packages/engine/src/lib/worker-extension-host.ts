@@ -51,7 +51,8 @@ import {
 } from './worker-extension-transport.js';
 import { serviceRegistry } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
-import { activationMiddlewareFor } from './extensions/index.js';
+import { activationMiddlewareFor, extensionLoader } from './extensions/index.js';
+import { ProblemException, problem } from './problem.js';
 import {
   assertWorkerSqlAllowed,
   workerDbRoleFor,
@@ -148,6 +149,10 @@ interface ManagedWorker {
   /** Service names this worker has registered. Used to unregister on
    *  respawn so stale entries don't shadow the new worker's exports. */
   registeredServices: Set<string>;
+  /** Manifest `dependencies`: the extensions whose services this one may call. */
+  dependencies: ReadonlySet<string>;
+  /** Between a crash and the fresh spawn: in the map, but answering nothing. */
+  respawning?: boolean;
   proxyUnmount: () => void;
   // Health bookkeeping
   workerGeneration: number;
@@ -205,11 +210,16 @@ export class WorkerExtensionHost {
    * under `/ext/<name>/*` in the main Hono app. Returns when the worker
    * has reported its route table (i.e. `register()` ran successfully).
    */
-  async start(extName: string, extDir: string, bundleEntry: string): Promise<void> {
+  async start(
+    extName: string,
+    extDir: string,
+    bundleEntry: string,
+    dependencies: readonly string[] = [],
+  ): Promise<void> {
     if (this.workers.has(extName)) {
       throw new Error(`Worker for "${extName}" is already running`);
     }
-    const managed = await this.spawn(extName, extDir, bundleEntry, 1);
+    const managed = await this.spawn(extName, extDir, bundleEntry, 1, new Set(dependencies));
     this.workers.set(extName, managed);
     managed.proxyUnmount = this.mountProxyRoutes(managed);
     managed.heartbeatTimer = setInterval(() => this.heartbeat(managed), HEARTBEAT_INTERVAL_MS);
@@ -228,6 +238,7 @@ export class WorkerExtensionHost {
     for (const svc of managed.registeredServices) {
       serviceRegistry.unregisterAs(extName, svc);
     }
+    failPendingInvokes(extName);
     managed.worker.terminate();
     this.workers.delete(extName);
     this.respawnBackoff.delete(extName);
@@ -278,6 +289,7 @@ export class WorkerExtensionHost {
     extDir: string,
     bundleEntry: string,
     generation: number,
+    dependencies: ReadonlySet<string>,
   ): Promise<ManagedWorker> {
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
     const runtimePath = ensureWorkerRuntimeOnDisk();
@@ -305,6 +317,7 @@ export class WorkerExtensionHost {
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set(),
+      dependencies,
       proxyUnmount: () => {},
       workerGeneration: generation,
       enabledAt: Date.now(),
@@ -359,6 +372,7 @@ export class WorkerExtensionHost {
     if (managed.stopped) return;
     if (!this.workers.has(managed.name)) return;
     managed.lastCrashAt = Date.now();
+    managed.respawning = true;
     if (managed.heartbeatTimer) clearInterval(managed.heartbeatTimer);
     try {
       managed.worker.terminate();
@@ -369,6 +383,8 @@ export class WorkerExtensionHost {
       serviceRegistry.unregisterAs(managed.name, svc);
     }
     managed.registeredServices.clear();
+    // A caller waiting on the dead worker would otherwise sit out the 30s timeout.
+    failPendingInvokes(managed.name);
     const prevBackoff = this.respawnBackoff.get(managed.name) ?? 500;
     const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
     this.respawnBackoff.set(managed.name, backoff);
@@ -382,6 +398,7 @@ export class WorkerExtensionHost {
           managed.extDir,
           managed.bundleEntry,
           managed.workerGeneration + 1,
+          managed.dependencies,
         );
         // Carry over the proxy-mount + bookkeeping; the old ManagedWorker
         // is replaced in the registry by the new one.
@@ -524,8 +541,32 @@ export class WorkerExtensionHost {
     try {
       const scope = requestScope(managed, msg.requestId, 'service call') ?? { tenantId: null };
       const { tenantId, actor } = scope;
-      // First check if a worker owns this service.
       const ownerWorker = this.findServiceOwner(msg.name);
+      const owner = ownerWorker?.name ?? serviceRegistry.ownerOf(msg.name);
+      if (owner === null) {
+        // Unregistered. If a dependency is down that is why, and the caller
+        // should hear it as such rather than as a missing name.
+        const down = [...managed.dependencies].filter((d) => !this.isDependencyRunning(d));
+        const named = down.find((d) => msg.name.startsWith(`${d}.`));
+        if (named || down.length > 0) throw dependencyDown(named ?? down.join('", "'));
+        throw new Error(`service "${msg.name}" not found`);
+      }
+      // The broker is the only path between extensions, so it is where a worker
+      // is held to what its manifest declared — not to whatever got registered.
+      // `engine` is never a dependency: declaring it must not open the engine's own.
+      const allowed =
+        owner === managed.name ||
+        (owner === 'engine'
+          ? ENGINE_PUBLIC_SERVICES.has(msg.name)
+          : managed.dependencies.has(owner));
+      if (!allowed) {
+        throw new Error(
+          `extension "${managed.name}" may not call service "${msg.name}": ` +
+            (owner === 'engine'
+              ? 'it is not an engine-public service'
+              : `declare "${owner}" in its manifest dependencies`),
+        );
+      }
       if (ownerWorker && ownerWorker.name !== managed.name) {
         const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, scope);
         this.post(managed, { type: 'service:ok', id: msg.id, result });
@@ -533,14 +574,7 @@ export class WorkerExtensionHost {
       }
       // Fall back to inline registry (host-side services).
       const impl = serviceRegistry.get<(...args: unknown[]) => unknown>(msg.name);
-      if (!impl) {
-        this.post(managed, {
-          type: 'service:err',
-          id: msg.id,
-          error: `service "${msg.name}" not found`,
-        });
-        return;
-      }
+      if (typeof impl !== 'function') throw new Error(`service "${msg.name}" is not callable`);
       const call = () => Promise.resolve(impl(...msg.args));
       // The context an inline extension's code has while serving a request of
       // that tenant — the domain `tenantMiddleware` opens and the tenant
@@ -552,8 +586,22 @@ export class WorkerExtensionHost {
         : await call();
       this.post(managed, { type: 'service:ok', id: msg.id, result });
     } catch (err) {
-      this.post(managed, { type: 'service:err', id: msg.id, error: (err as Error).message });
+      this.post(managed, {
+        type: 'service:err',
+        id: msg.id,
+        error: (err as Error).message,
+        ...(isDependencyDown(err) ? { status: 503 } : {}),
+      });
     }
+  }
+
+  /** A worker dependency counts as running only while its worker is up; an
+   *  inline one while the loader has it. */
+  private isDependencyRunning(name: string): boolean {
+    const w = this.workers.get(name);
+    if (w) return !w.stopped && !w.respawning;
+    const loaded = extensionLoader.loaded.get(name);
+    return loaded !== undefined && !loaded.workerIsolation;
   }
 
   /**
@@ -578,7 +626,7 @@ export class WorkerExtensionHost {
       const reply = await new Promise<
         Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
       >((resolve, reject) => {
-        invokeWaiters.set(invokeId, { expect: target.name, resolve });
+        invokeWaiters.set(invokeId, { expect: target.name, resolve, reject });
         setTimeout(() => {
           if (invokeWaiters.has(invokeId)) {
             invokeWaiters.delete(invokeId);
@@ -601,6 +649,15 @@ export class WorkerExtensionHost {
     msg: Extract<WorkerToHostMessage, { type: 'service:register' }>,
   ): void {
     try {
+      // Only `<extension>.*`: first-come registration let a worker claim a name
+      // another extension publishes and answer its callers. A dot in the
+      // extension name would make `a.` a prefix of `a.b.`, so such a name gets
+      // no namespace at all.
+      if (managed.name.includes('.') || !msg.name.startsWith(`${managed.name}.`)) {
+        throw new Error(
+          `extension "${managed.name}" may register only services named "${managed.name}.<name>"`,
+        );
+      }
       // Publish a stub in the host registry that, when called, forwards
       // to the worker via service:invoke. This is what makes worker-
       // registered services callable from inline extensions / other
@@ -823,8 +880,35 @@ const invokeWaiters = new Map<
     resolve: (
       msg: Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>,
     ) => void;
+    reject: (err: Error) => void;
   }
 >();
+
+/** Settle every call waiting on `extName`'s worker: it will not answer. */
+function failPendingInvokes(extName: string): void {
+  for (const [id, waiter] of invokeWaiters) {
+    if (waiter.expect !== extName) continue;
+    invokeWaiters.delete(id);
+    waiter.reject(dependencyDown(extName));
+  }
+}
+
+/**
+ * Engine-owned services a worker may call without declaring anything. Empty:
+ * the engine publishes none today, and one it adds is not public until named here.
+ */
+const ENGINE_PUBLIC_SERVICES: ReadonlySet<string> = new Set();
+
+const DEPENDENCY_DOWN = 'extension.dependency_unavailable';
+
+/** 503, so the HTTP caller sees "try again", not a server fault. */
+function dependencyDown(extName: string): ProblemException {
+  return problem(DEPENDENCY_DOWN, 503, `dependency "${extName}" is not running`);
+}
+
+function isDependencyDown(err: unknown): boolean {
+  return err instanceof ProblemException && err.code === DEPENDENCY_DOWN;
+}
 
 /** Wall-clock ceiling for a single extension query, in seconds. */
 const WORKER_QUERY_TIMEOUT_S = 10;

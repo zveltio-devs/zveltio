@@ -106,7 +106,7 @@ export default {
 };
 `;
 
-function writeWorker(base: string, name: string, entry: string): void {
+function writeWorker(base: string, name: string, entry: string, deps: string[]): void {
   const dir = join(base, name);
   mkdirSync(join(dir, 'engine'), { recursive: true });
   writeFileSync(
@@ -114,6 +114,8 @@ function writeWorker(base: string, name: string, entry: string): void {
     JSON.stringify({
       name,
       version: '1.0.0',
+      // The broker lets a worker call only what it declared.
+      dependencies: deps.map((n) => ({ name: n })),
       engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
     }),
   );
@@ -138,8 +140,10 @@ d('a worker query runs as the tenant of its request', () => {
                 ('default-row', ${DEFAULT_TENANT}::uuid), ('b-row', ${B}::uuid)`.execute(db);
 
     base = mkdtempSync(join(tmpdir(), 'wkr-ten-'));
-    writeWorker(base, WORKER, ENTRY);
-    writeWorker(base, CALLER, CALLER_ENTRY);
+    writeWorker(base, WORKER, ENTRY, ['inlsvc']);
+    writeWorker(base, CALLER, CALLER_ENTRY, [WORKER]);
+    // 'inlsvc' stands in for the inline extension that owns INLINE_SVC.
+    extensionLoader.loaded.set('inlsvc', { name: 'inlsvc' } as never);
     // What an inline extension's service sees of the caller: its rows through
     // the request-scoped handle every inline `ctx.db` is, and its domain.
     serviceRegistry.registerAs('inlsvc', INLINE_SVC, async () => ({
@@ -176,6 +180,7 @@ d('a worker query runs as the tenant of its request', () => {
   afterAll(async () => {
     await getWorkerHost(workerApp).stopAll();
     serviceRegistry.unregisterAll('inlsvc');
+    extensionLoader.loaded.delete('inlsvc');
     _resetWorkerHostForTests();
     if (base) rmSync(base, { recursive: true, force: true });
     await DDLManager.dropCollection(db, COLLECTION).catch(() => undefined);

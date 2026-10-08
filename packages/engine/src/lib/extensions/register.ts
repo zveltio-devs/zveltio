@@ -651,7 +651,7 @@ async function registerExtensionRoutes(
   restrictedCtx: ExtensionContext,
   app: Hono,
   extName: string,
-  isolation: { entry: string; extDir: string } | null,
+  isolation: { entry: string; extDir: string; dependencies?: string[] } | null,
   db: Database,
 ): Promise<void> {
   const mountStrategy = extension.mountStrategy ?? 'global';
@@ -666,7 +666,7 @@ async function registerExtensionRoutes(
     // running, so first load is unaffected. The proxy routes are re-mounted by
     // the new worker, and the old ones are unmounted by stop().
     await host.stop(extName);
-    await host.start(extName, isolation.extDir, isolation.entry);
+    await host.start(extName, isolation.extDir, isolation.entry, isolation.dependencies);
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();
     subApp.onError(problemOnError);
@@ -835,7 +835,11 @@ export async function finalizeExtensionLoad(
       app,
       extName,
       manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
-        ? { entry: manifest.engine.entry, extDir }
+        ? {
+            entry: manifest.engine.entry,
+            extDir,
+            dependencies: (manifest.dependencies ?? []).map((d) => d.name),
+          }
         : null,
       ctx.db,
     );
@@ -892,7 +896,11 @@ export async function finalizeExtensionLoad(
     apiKeyRoutes,
     workerIsolation:
       manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
-        ? { entry: manifest.engine.entry, extDir }
+        ? {
+            entry: manifest.engine.entry,
+            extDir,
+            dependencies: (manifest.dependencies ?? []).map((d) => d.name),
+          }
         : undefined,
   });
   console.log(`🔌 Extension loaded: ${extName}`);

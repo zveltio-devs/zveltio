@@ -41,6 +41,7 @@ describe('WorkerExtensionHost — route response headers', () => {
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set<string>(),
+      dependencies: new Set<string>(),
       proxyUnmount: () => {},
       workerGeneration: 1,
       enabledAt: Date.now(),

@@ -86,7 +86,7 @@ export default {
 };
 `;
 
-function writeWorker(base: string, name: string, entry: string): void {
+function writeWorker(base: string, name: string, entry: string, deps: string[]): void {
   const dir = join(base, name);
   mkdirSync(join(dir, 'engine'), { recursive: true });
   writeFileSync(
@@ -94,6 +94,8 @@ function writeWorker(base: string, name: string, entry: string): void {
     JSON.stringify({
       name,
       version: '1.0.0',
+      // The broker lets a worker call only what it declared.
+      dependencies: deps.map((n) => ({ name: n })),
       engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
     }),
   );
@@ -125,8 +127,10 @@ d("a worker query runs as its request's user", () => {
     await applyRowRulePolicy(db, COLLECTION);
 
     base = mkdtempSync(join(tmpdir(), 'wkr-id-'));
-    writeWorker(base, WORKER, ENTRY);
-    writeWorker(base, CALLER, CALLER_ENTRY);
+    writeWorker(base, WORKER, ENTRY, ['inlid']);
+    writeWorker(base, CALLER, CALLER_ENTRY, [WORKER]);
+    // 'inlid' stands in for the inline extension that owns INLINE_SVC.
+    extensionLoader.loaded.set('inlid', { name: 'inlid' } as never);
     serviceRegistry.registerAs('inlid', INLINE_SVC, async () =>
       createRequestScopedDb(db)
         .selectFrom(TABLE as never)
@@ -159,6 +163,7 @@ d("a worker query runs as its request's user", () => {
   afterAll(async () => {
     await getWorkerHost(workerApp).stopAll();
     serviceRegistry.unregisterAll('inlid');
+    extensionLoader.loaded.delete('inlid');
     _resetWorkerHostForTests();
     if (base) rmSync(base, { recursive: true, force: true });
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLLECTION}`
