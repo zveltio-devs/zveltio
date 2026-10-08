@@ -51,7 +51,9 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
             method: entry.method,
             path: entry.path,
             query_params: toJsonb(entry.query),
-            status_code: entry.status,
+            // Read now, not above: a COMMIT that fails after `next()` replaces
+            // the handler's answer with a 500, and that is what the client got.
+            status_code: c.res.status,
             duration_ms: entry.duration_ms,
           })
           .execute()

@@ -46,12 +46,6 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
 
     if (skip) return;
 
-    // Always record failures; sample successes to bound table growth.
-    const isError = c.res.status >= 400;
-    if (!isError && SAMPLE_RATE < 1 && (SAMPLE_RATE === 0 || Math.random() >= SAMPLE_RATE)) {
-      return;
-    }
-
     const duration = Math.round(performance.now() - start);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
@@ -72,6 +66,13 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
     // transaction back, which drops that queue — and failures are the rows this
     // log exists for.
     afterRequestSettles(c, () => {
+      // Always record failures; sample successes to bound table growth. Decided
+      // here, once the status is final: a COMMIT that fails after `next()` turns
+      // the handler's 2xx into a 500, and that failure must not be sampled away.
+      const isError = c.res.status >= 400;
+      if (!isError && SAMPLE_RATE < 1 && (SAMPLE_RATE === 0 || Math.random() >= SAMPLE_RATE)) {
+        return;
+      }
       poolDb
         .insertInto('zv_request_logs')
         .values({
