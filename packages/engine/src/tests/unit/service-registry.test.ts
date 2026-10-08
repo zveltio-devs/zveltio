@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { ServiceRegistryImpl } from '../../lib/service-registry.js';
+import { ServiceRegistryImpl, serviceRegisterRefusal } from '../../lib/service-registry.js';
 
 describe('register / get / has / list', () => {
   it('stores and retrieves a value by name', () => {
@@ -100,20 +100,67 @@ describe('scope (per-extension view)', () => {
 
     // a different scope cannot claim the same name
     const ai = r.scope('ai');
-    expect(() => ai.register('crm.lookup', {})).toThrow('already registered');
+    expect(() => ai.register('crm.lookup', {})).toThrow(
+      'may register only services named "ai.<name>"',
+    );
 
     // the owning scope can unregister it
     crm.unregister('crm.lookup');
     expect(r.has('crm.lookup')).toBe(false);
   });
 
-  it('read methods on a scope are unrestricted', async () => {
+  it('an extension registers only under its own name', () => {
+    const r = new ServiceRegistryImpl();
+    expect(() => r.scope('operations/pos').register('pos.sale', 1)).toThrow(
+      'may register only services named "operations/pos.<name>"',
+    );
+    // `a.` would prefix `a.b.`'s names, so a dotted extension name gets no namespace.
+    expect(() => r.scope('a.b').register('a.b.x', 1)).toThrow('may register only');
+    // A name with no dot is in nobody's namespace — not in `share`'s because it starts so.
+    expect(() => r.scope('share').register('shared', 1)).toThrow('may register only');
+    r.scope('operations/pos').register('operations/pos.sale', 1);
+    expect(r.ownerOf('operations/pos.sale')).toBe('operations/pos');
+  });
+
+  it("reads only its own, its declared owners', and nothing undeclared", async () => {
+    const r = new ServiceRegistryImpl();
+    r.registerAs('crm', 'crm.contacts.lookup', 'crm');
+    r.registerAs('ai', 'ai.providers', 'ai');
+    r.registerAs('engine', 'engine.internal', 'engine');
+    const pos = r.scope('operations/pos', ['crm']);
+    expect(pos.get<string>('crm.contacts.lookup')).toBe('crm');
+    expect(pos.has('crm.contacts.lookup')).toBe(true);
+    await expect(pos.waitFor('crm.contacts.lookup')).resolves.toBe('crm');
+    expect(() => pos.get('ai.providers')).toThrow(
+      'declare "ai" in its manifest dependencies or optionalDependencies',
+    );
+    expect(() => pos.has('ai.providers')).toThrow('may not call service "ai.providers"');
+    await expect(pos.waitFor('ai.providers')).rejects.toThrow('may not call');
+    // declaring `engine` opens nothing of the engine's own
+    expect(() => r.scope('x', ['engine']).get('engine.internal')).toThrow('not an engine-public');
+    // a name nobody registered is absent — an optional dependency not installed
+    expect(pos.get('crm.contacts.create')).toBeNull();
+    expect(pos.list()).toContain('ai.providers');
+  });
+
+  it('the engine scope is unrestricted', () => {
     const r = new ServiceRegistryImpl();
     r.registerAs('ai', 'ai.x', 1);
-    const view = r.scope('other');
-    expect(view.has('ai.x')).toBe(true);
-    expect(view.get<number>('ai.x')).toBe(1);
-    expect(view.list()).toContain('ai.x');
-    await expect(view.waitFor('ai.x')).resolves.toBe(1);
+    expect(r.scope('engine').get<number>('ai.x')).toBe(1);
+  });
+});
+
+describe('a third party named like an old first-party service prefix', () => {
+  // The old first-party names (`inventory.*`) were leaf names anyone could
+  // claim. Renamed into `operations/inventory.*`, an extension called
+  // `inventory` owns `inventory.*` only — and no first-party caller reads it,
+  // because the caller may read only the owners it declared.
+  it('can register in its own namespace but is not what a first-party caller reaches', () => {
+    const r = new ServiceRegistryImpl();
+    r.scope('inventory').register('inventory.products.list', 'squat');
+    r.scope('operations/inventory').register('operations/inventory.products.list', 'list');
+    const invoicing = r.scope('finance/invoicing', ['operations/inventory']);
+    expect(invoicing.get<string>('operations/inventory.products.list')).toBe('list');
+    expect(() => invoicing.get('inventory.products.list')).toThrow('declare "inventory"');
   });
 });

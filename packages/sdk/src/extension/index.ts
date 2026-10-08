@@ -1083,18 +1083,33 @@ export interface QueryAlterScope {
  * `register()` is idempotent within a scope (replaces on duplicate), so an
  * extension's `register()` can safely run multiple times during hot-reload.
  */
+/**
+ * A manifest `dependencies` / `optionalDependencies` entry. A required one must be
+ * installed for this extension to load; an optional one need not be — its
+ * services then read as `null`. Either way, the extensions named in these two
+ * lists are the only ones whose services `ctx.services` hands this one.
+ */
+export interface ManifestDependency {
+  name: string;
+  minVersion?: string;
+}
+
 export interface ServiceRegistry {
   /**
-   * Publish a service under a name.
+   * Publish a service under a name, which must be `<this extension's name>.<x>`.
    * Idempotent: re-registering the same name from the same extension replaces.
    * Throws if a different extension already owns that name.
    */
   register<T = unknown>(name: string, value: T): void;
   /** Remove a service this extension previously registered. No-op if not owned. */
   unregister(name: string): void;
-  /** Get a service. Returns `null` if not registered. */
+  /**
+   * Get a service. Returns `null` if not registered (an optional dependency
+   * that is not installed). Throws if its owner is not this extension or one in
+   * its manifest `dependencies` / `optionalDependencies`.
+   */
   get<T = unknown>(name: string): T | null;
-  /** Check if a service is registered. */
+  /** Check if a service is registered. Throws as `get` does for an undeclared owner. */
   has(name: string): boolean;
   /**
    * Wait for a service to be registered. Resolves immediately if already there.

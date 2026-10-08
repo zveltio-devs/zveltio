@@ -16,13 +16,55 @@ import type { ServiceRegistry } from '@zveltio/sdk/extension';
  *     by that extension. Hot-reload becomes safe because re-registering from
  *     the same owner is treated as replacement.
  *
- * Naming convention (recommended): `<extension>.<feature>` or
- * `<extension>.<resource>.<verb>`. Examples: `ai.providers`, `ai.embed`,
- * `crm.contacts.lookup`.
+ * Naming rule (enforced by `scope`): an extension registers only
+ * `<its name>.<feature>` — `ai.providers`, `operations/inventory.products.list` —
+ * and reads only services owned by itself, by an extension its manifest names
+ * in `dependencies` / `optionalDependencies`, or named in ENGINE_PUBLIC_SERVICES.
  */
 interface Entry {
   value: unknown;
   owner: string;
+}
+
+/** Engine-owned services an extension may read without declaring anything. None yet. */
+export const ENGINE_PUBLIC_SERVICES: ReadonlySet<string> = new Set();
+
+/** The extension whose namespace `name` is in (extension names carry no dot); '' for none. */
+function namespaceOf(name: string): string {
+  const dot = name.indexOf('.');
+  return dot < 0 ? '' : name.slice(0, dot);
+}
+
+/** Why `extName` may not register `name`, or null. */
+export function serviceRegisterRefusal(extName: string, name: string): string | null {
+  // A dot in the extension name would make `a.` a prefix of `a.b.`.
+  if (extName.includes('.') || namespaceOf(name) !== extName) {
+    return `extension "${extName}" may register only services named "${extName}.<name>"`;
+  }
+  return null;
+}
+
+/**
+ * Why `caller` may not use `name`, owned by `owner`, or null. `mayCall` is its
+ * manifest `dependencies` + `optionalDependencies`; `engine` in it opens nothing.
+ */
+export function serviceCallRefusal(
+  caller: string,
+  mayCall: ReadonlySet<string>,
+  owner: string,
+  name: string,
+): string | null {
+  if (owner === caller) return null;
+  if (owner === 'engine') {
+    return ENGINE_PUBLIC_SERVICES.has(name)
+      ? null
+      : `extension "${caller}" may not call service "${name}": it is not an engine-public service`;
+  }
+  if (mayCall.has(owner)) return null;
+  return (
+    `extension "${caller}" may not call service "${name}": ` +
+    `declare "${owner}" in its manifest dependencies or optionalDependencies`
+  );
 }
 
 export class ServiceRegistryImpl {
@@ -107,17 +149,51 @@ export class ServiceRegistryImpl {
   }
 
   /**
-   * Returns a `ServiceRegistry` view scoped to the given extension. Calls to
-   * register/unregister through the returned object are attributed to `extName`.
-   * Read methods (get/has/waitFor/list) are unrestricted.
+   * The `ServiceRegistry` an extension gets as `ctx.services`. Its registrations
+   * are attributed to `extName` and held to its namespace; its reads are held to
+   * the owners in `mayCall` (manifest `dependencies` + `optionalDependencies`)
+   * — the rule the worker broker applies, so an inline extension is under it too.
+   * A name nobody registered reads as absent (`null`): an optional dependency
+   * that is not installed. The engine's own scope is unrestricted.
    */
-  scope(extName: string): ServiceRegistry {
+  scope(extName: string, mayCall: Iterable<string> = []): ServiceRegistry {
+    if (extName === 'engine') {
+      return {
+        register: <T>(name: string, value: T) => this.registerAs(extName, name, value),
+        unregister: (name: string) => this.unregisterAs(extName, name),
+        get: <T>(name: string) => this.get<T>(name),
+        has: (name: string) => this.has(name),
+        waitFor: <T>(name: string, timeoutMs?: number) => this.waitFor<T>(name, timeoutMs),
+        list: () => this.list(),
+      };
+    }
+    const allowed = new Set(mayCall);
+    /** Throws when the registered `name` belongs to an owner `extName` did not declare. */
+    const check = (name: string): void => {
+      const owner = this.ownerOf(name);
+      const refusal = owner && serviceCallRefusal(extName, allowed, owner, name);
+      if (refusal) throw new Error(refusal);
+    };
     return {
-      register: <T>(name: string, value: T) => this.registerAs(extName, name, value),
+      register: <T>(name: string, value: T) => {
+        const refusal = serviceRegisterRefusal(extName, name);
+        if (refusal) throw new Error(refusal);
+        this.registerAs(extName, name, value);
+      },
       unregister: (name: string) => this.unregisterAs(extName, name),
-      get: <T>(name: string) => this.get<T>(name),
-      has: (name: string) => this.has(name),
-      waitFor: <T>(name: string, timeoutMs?: number) => this.waitFor<T>(name, timeoutMs),
+      get: <T>(name: string) => {
+        check(name);
+        return this.get<T>(name);
+      },
+      has: (name: string) => {
+        check(name);
+        return this.has(name);
+      },
+      waitFor: async <T>(name: string, timeoutMs?: number) => {
+        const value = await this.waitFor<T>(name, timeoutMs);
+        check(name);
+        return value;
+      },
       list: () => this.list(),
     };
   }

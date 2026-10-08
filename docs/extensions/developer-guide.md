@@ -253,7 +253,8 @@ computes the SHA-256, and patches these blocks in place.
 | `publicRoutes` | string[] | no | Routes reachable WITHOUT a session, relative to the `/ext/<name>` mount (e.g. `["/webhook/twilio", "/public/*"]`). Everything else is fail-closed (401 for anonymous). `*` matches across `/`. See §5 "Authentication". |
 | `apiKeyRoutes` | string[] | no | Routes an API key may call as well as a session: `"<GET\|POST\|PUT\|PATCH\|DELETE> <pattern>"`, patterns as in `publicRoutes` (e.g. `["GET /invoices", "POST /invoices"]`). The key needs the scope `$ext:<name>` with the method's action. Undeclared routes stay session-only. See §5 "Authentication". |
 | `peerDependencies` | object | no | Bundled INTO `engine/index.js` when `engine.bundlePeers: true`. The "install at enable time" model was retired in alpha.113 — bundling is the only path that works on the compiled binary. |
-| `dependencies` | object[] | no | `[{ name: "other/extension", minVersion: "1.0.0" }]`. |
+| `dependencies` | object[] | no | `[{ name: "other/extension", minVersion: "1.0.0" }]`. Must be enabled for this one to load; loads first. |
+| `optionalDependencies` | object[] | no | Same shape. Integrations used when present: not installed is not a load error (its services read as `null`); installed, it loads first. |
 | `contributes.engine` | bool | no | `false` for UI-only extensions. |
 | `contributes.studio` | bool | no | |
 | `contributes.client` | bool | no | |
@@ -993,7 +994,7 @@ Inter-extension function calls. Drupal's services container.
 ```typescript
 // engine/services.ts
 export function registerServices(ctx: ExtensionContext) {
-  ctx.services.register('contacts.lookup', async (email: string) => {
+  ctx.services.register('crm/contacts.lookup', async (email: string) => {
     return ctx.db
       .selectFrom('zvd_contacts')
       .selectAll()
@@ -1001,7 +1002,7 @@ export function registerServices(ctx: ExtensionContext) {
       .executeTakeFirst();
   });
 
-  ctx.services.register('contacts.search', async (query: string, limit = 20) => {
+  ctx.services.register('crm/contacts.search', async (query: string, limit = 20) => {
     return ctx.db
       .selectFrom('zvd_contacts')
       .selectAll()
@@ -1016,17 +1017,21 @@ export function registerServices(ctx: ExtensionContext) {
 
 ```typescript
 // In another extension
-const contact = await ctx.services.get('contacts.lookup')?.('jane@example.com');
+const contact = await ctx.services.get('crm/contacts.lookup')?.('jane@example.com');
 if (!contact) return c.json({ error: 'Not found' }, 404);
 ```
 
 ### Best practices
 
-- **Declare dependencies in manifest.** If you call `contacts.lookup`,
-  add `{ "name": "crm/contacts", "minVersion": "1.0.0" }` to
-  `dependencies`. The loader sorts topologically.
-- **Use `services.get(name)` defensively** — it can return undefined if the
-  provider is disabled. Handle gracefully or fail loudly.
+- **Names are `<your extension>.<name>`.** `ctx.services.register` refuses any
+  other name, so no extension can answer another's callers.
+- **Declare whose services you call.** If you call `crm/contacts.lookup`, add
+  `{ "name": "crm/contacts" }` to `dependencies` (you cannot work without it)
+  or `optionalDependencies` (you can). `ctx.services.get` throws for a service
+  whose owner is in neither — the same rule the broker applies to a
+  worker-isolated extension. The loader sorts both kinds topologically.
+- **Use `services.get(name)` defensively** — it returns `null` when the
+  provider is not installed or disabled. Handle gracefully or fail loudly.
 - **Versioning**: when you change a service signature, bump your extension's
   `version` (major) and update consumers.
 
@@ -2325,7 +2330,7 @@ const ext: ZveltioExtension<DB> = {
     // Hooks
     ctx.events.on('record.beforeInsert', async (e) => { /* ... */ });
     // Services
-    ctx.services.register('my.thing', async () => { /* ... */ });
+    ctx.services.register('<name>.thing', async () => { /* ... */ });
     // Query alters
     ctx.queryAlter.register({ table: 'zvd_x', alter: (qb, u) => qb });
     // Entity access

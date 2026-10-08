@@ -247,7 +247,14 @@ interface LoadedExtension {
    * privileges. Any enable/disable triggers a re-register, so this was not a
    * rare path.
    */
-  workerIsolation?: { entry: string; extDir: string; dependencies?: string[] };
+  workerIsolation?: {
+    entry: string;
+    extDir: string;
+    dependencies?: string[];
+    optionalDependencies?: string[];
+  };
+  /** Manifest `dependencies` + `optionalDependencies`, for `ctx.services` on a reload. */
+  serviceDeps?: string[];
 }
 
 // ManifestMeta, ExtensionManifest, and embedPageSchemas moved to
