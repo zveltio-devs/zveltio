@@ -35,7 +35,7 @@
 import type { Hono } from 'hono';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import { ensureWorkerRuntimeOnDisk } from './ext-runner.js';
+import { ensureWorkerRuntimeOnDisk, startRunner, stopRunner } from './ext-runner.js';
 import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
@@ -231,6 +231,12 @@ export class WorkerExtensionHost {
     managed.worker.terminate();
     this.workers.delete(extName);
     this.respawnBackoff.delete(extName);
+    // Disable stops the extension's runner unit, not only its runtime.
+    if (extensionTransport() === 'runner') {
+      await stopRunner(extName).catch((err) =>
+        console.error(`[worker:${extName}] stopping its runner: ${(err as Error).message}`),
+      );
+    }
   }
 
   async stopAll(): Promise<void> {
@@ -284,7 +290,7 @@ export class WorkerExtensionHost {
     const transport = extensionTransport();
     const worker: ExtensionChannel =
       transport === 'runner'
-        ? connectRunner()
+        ? connectRunner(await startRunner(extName))
         : transport === 'process'
           ? spawnProcessRunner(runtimePath, env)
           : new Worker(pathToFileURL(runtimePath).href, { type: 'module', env } as WorkerOptions);

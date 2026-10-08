@@ -9,8 +9,8 @@
 #   runner  — the runner service, under zveltio-ext: MUST read neither.
 # A third check: a connection from the zveltio-ext uid is refused (SO_PEERCRED).
 #
-# Network egress is not tested here: on bare metal the unit's IPAddressDeny
-# enforces it, and that needs systemd as root (RFC step 4 covers containers).
+# Network egress and the per-extension uid are not tested here: they come from
+# the systemd unit, which ext-runner-systemd.sh tests on a real systemd.
 #
 #   bash packages/engine/scripts/ext-runner-isolation.sh
 set -euo pipefail
@@ -22,16 +22,16 @@ docker run --rm -v "${ROOT}:/src:ro" "${IMAGE}" bash -euo pipefail -c '
 cd /tmp
 useradd -r -M zveltio
 useradd -r -M zveltio-ext
-mkdir -p /opt/zveltio /run/zveltio-ext /opt/ext
+mkdir -p /opt/zveltio /run/zveltio-ext/probe /opt/ext
 echo "SECRET=hunter2-env-file" > /opt/zveltio/.env
 chown -R zveltio:zveltio /opt/zveltio && chmod 600 /opt/zveltio/.env
-chown zveltio-ext /run/zveltio-ext
+chown zveltio-ext /run/zveltio-ext/probe
 chown zveltio /opt/ext && chmod 755 /opt/ext
-export ZVELTIO_EXT_RUNNER_SOCKET=/run/zveltio-ext/runner.sock
+export ZVELTIO_EXT_RUNNER_SOCKET=/run/zveltio-ext/probe/runner.sock
 E="/src/packages/engine"
 
 as_engine() { setpriv --reuid=zveltio --regid=zveltio --init-groups env -i PATH="$PATH" HOME=/tmp \
-  SECRET=hunter2-process-env ZVELTIO_EXT_RUNNER_SOCKET="$ZVELTIO_EXT_RUNNER_SOCKET" "$@"; }
+  SECRET=hunter2-process-env "$@"; }
 
 setpriv --reuid=zveltio-ext --regid=zveltio-ext --init-groups env -i PATH="$PATH" HOME=/tmp \
   ZVELTIO_ENGINE_UID="$(id -u zveltio)" ZVELTIO_EXT_RUNNER_SOCKET="$ZVELTIO_EXT_RUNNER_SOCKET" \
@@ -44,15 +44,14 @@ out=$(as_engine bun "$E/scripts/ext-runner-isolation.ts" process /opt/zveltio/.e
 echo "process: $out"
 [ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] || { echo "FAIL: process transport should read both secrets (probe broken?)"; fail=1; }
 
-out=$(as_engine bun "$E/scripts/ext-runner-isolation.ts" runner /opt/zveltio/.env /opt/ext/r)
+out=$(as_engine bun "$E/scripts/ext-runner-isolation.ts" runner /opt/zveltio/.env /opt/ext/r "$ZVELTIO_EXT_RUNNER_SOCKET")
 echo "runner:  $out"
 grep -q "\"transport\":\"runner\"" <<<"$out" || { echo "FAIL: runner probe gave no answer"; fail=1; }
 grep -q hunter2 <<<"$out" && { echo "FAIL: runner transport read an engine secret"; fail=1; }
 
 # Any uid but the engine is refused: the connection closes before a runtime starts.
 out=$(setpriv --reuid=zveltio-ext --regid=zveltio-ext --init-groups env -i PATH="$PATH" HOME=/tmp \
-  ZVELTIO_EXT_RUNNER_SOCKET="$ZVELTIO_EXT_RUNNER_SOCKET" \
-  bun "$E/scripts/ext-runner-isolation.ts" runner /opt/zveltio/.env /tmp/x 2>&1 || true)
+  bun "$E/scripts/ext-runner-isolation.ts" runner /opt/zveltio/.env /tmp/x "$ZVELTIO_EXT_RUNNER_SOCKET" 2>&1 || true)
 echo "foreign uid: $out"
 grep -q "channel ended" <<<"$out" && grep -q "refused a connection from uid $(id -u zveltio-ext)" /tmp/runner.log \
   || { echo "FAIL: runner served a uid other than the engine"; fail=1; }

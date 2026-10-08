@@ -1,27 +1,38 @@
 /**
- * Isolation probe for the extension runner (RFC extension-runner, step 3).
+ * Isolation probe for the extension runner (RFC extension-runner, steps 3/3b).
  *
  * Plays the engine: starts one extension over the given transport, and the
- * extension tries, in `register()`, to read what an engine holds — its `.env`
- * and its process environment. It reports through `console.log`, which the
- * runtime forwards as `log` frames. Prints one JSON line:
- *   { transport, env: <what it read or the error>, environ: <same> }
+ * extension tries, in `register()`, to reach what it must not — the engine's
+ * `.env`, the engine's process environment, a network address, and a path
+ * outside its own (another extension's runner directory). It reports through
+ * `console.log`, which the runtime forwards as `log` frames. Prints one JSON
+ * line: { transport, env, environ, fetch, write } — each what it got, or
+ * `DENIED <code>`.
  *
- * Run by scripts/ext-runner-isolation.sh inside a container with a real uid
- * boundary; on its own it proves nothing about isolation.
+ *   bun scripts/ext-runner-isolation.ts process <env path> <ext dir>
+ *   bun scripts/ext-runner-isolation.ts runner  <env path> <ext dir> <socket path>
+ *   bun scripts/ext-runner-isolation.ts managed <env path> <ext dir> <extension name>
  *
- *   bun scripts/ext-runner-isolation.ts <process|runner> <engine .env path> <extension dir>
+ * `managed` starts the extension's `zveltio-ext-runner@` unit through systemd,
+ * as the engine does. Optional env: PROBE_URL (fetched), PROBE_WRITE (a file
+ * the extension tries to create). Run by ext-runner-isolation.sh (container)
+ * and ext-runner-systemd.sh (real systemd); on its own it proves nothing.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ensureWorkerRuntimeOnDisk } from '../src/lib/ext-runner.js';
+import { ensureWorkerRuntimeOnDisk, startRunner } from '../src/lib/ext-runner.js';
 import { connectRunner, spawnProcessRunner } from '../src/lib/worker-extension-transport.js';
 
-const [transport, envPath, extDir] = process.argv.slice(2);
-if ((transport !== 'process' && transport !== 'runner') || !envPath || !extDir) {
-  console.error('usage: ext-runner-isolation.ts <process|runner> <env path> <extension dir>');
+const [transport, envPath, extDir, target] = process.argv.slice(2);
+if (
+  !['process', 'runner', 'managed'].includes(transport ?? '') ||
+  !envPath ||
+  !extDir ||
+  (transport !== 'process' && !target)
+) {
+  console.error('usage: ext-runner-isolation.ts <process|runner|managed> <env> <ext dir> [target]');
   process.exit(2);
 }
 
@@ -29,13 +40,26 @@ mkdirSync(extDir, { recursive: true });
 const bundle = join(extDir, 'index.mjs');
 writeFileSync(
   bundle,
-  `const read = async (p) => { try { return await Bun.file(p).text(); } catch (e) { return 'DENIED ' + e.code; } };
+  `const denied = (e) => 'DENIED ' + (e.code ?? e.name ?? e.message);
+const read = async (p) => { try { return await Bun.file(p).text(); } catch (e) { return denied(e); } };
 export default {
   name: 'isolation-probe',
   async register() {
+    const url = ${JSON.stringify(process.env.PROBE_URL ?? '')};
+    const write = ${JSON.stringify(process.env.PROBE_WRITE ?? '')};
+    let fetched = 'skipped', wrote = 'skipped';
+    if (url) {
+      try { fetched = 'HTTP ' + (await fetch(url, { signal: AbortSignal.timeout(3000) })).status; }
+      catch (e) { fetched = denied(e); }
+    }
+    if (write) {
+      try { await Bun.write(write, 'x'); wrote = 'WROTE'; } catch (e) { wrote = denied(e); }
+    }
     console.log(JSON.stringify({
       env: await read(${JSON.stringify(envPath)}),
       environ: await read('/proc/${process.pid}/environ'),
+      fetch: fetched,
+      write: wrote,
     }));
   },
 };
@@ -43,14 +67,14 @@ export default {
 );
 
 const channel =
-  transport === 'runner'
-    ? connectRunner()
-    : spawnProcessRunner(ensureWorkerRuntimeOnDisk(), { NODE_ENV: 'production' });
+  transport === 'process'
+    ? spawnProcessRunner(ensureWorkerRuntimeOnDisk(), { NODE_ENV: 'production' })
+    : connectRunner(transport === 'runner' ? target! : await startRunner(target!));
 
 const timer = setTimeout(() => {
-  console.error('probe: no answer in 15s');
+  console.error('probe: no answer in 20s');
   process.exit(1);
-}, 15_000);
+}, 20_000);
 channel.onerror = (e) => {
   console.error(`probe: channel ended: ${e.message}`);
   process.exit(1);

@@ -238,8 +238,17 @@ success "Migrations complete"
 
 # ── Track version + restart ───────────────────────────────────────────────────
 echo "$ZVELTIO_VERSION" > "${ZVELTIO_DIR}/.version"
-# Same binary, same frame protocol: the runner restarts with the engine.
-systemctl try-restart zveltio-ext-runner 2>/dev/null || true
+# Extension runners (RFC extension-runner, 3b): the new binary rewrites the
+# template unit, polkit rule and engine drop-in, so an install that only ever
+# updates gets them too. Runners are PartOf=zveltio and restart with it.
+if [[ -f "${ZVELTIO_DIR}/zveltio" ]] && "${ZVELTIO_DIR}/zveltio" ext-runner setup \
+    --engine-user zveltio --dir "${ZVELTIO_DIR}"; then
+  command -v pkaction &>/dev/null || apt-get install -y -qq polkitd 2>/dev/null \
+    || apt-get install -y -qq policykit-1 2>/dev/null \
+    || echo "polkit missing: install polkitd, or worker extensions cannot start" >&2
+  rm -f /etc/systemd/system/zveltio-ext-runner.service
+  systemctl daemon-reload
+fi
 systemctl start zveltio
 sleep 2
 
