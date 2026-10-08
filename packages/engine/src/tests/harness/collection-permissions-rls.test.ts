@@ -23,6 +23,7 @@ import {
   grantExtensionDbRole,
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
+import { applyCollectionPermissions } from '../../lib/tenancy/collection-permissions.js';
 import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import {
@@ -207,6 +208,26 @@ d('collection permissions in the database (R1)', () => {
     expect(await attempt(nobody, (t) => updates(t))).toBe(0);
     expect(await attempt(nobody, (t) => deletes(t))).toBe(0);
   });
+
+  it('stays closed while the policies are re-applied, as every boot re-applies them', async () => {
+    // Four RESTRICTIVE policies dropped and recreated one statement at a time on
+    // the pool: between a DROP and its CREATE the table had no such restriction.
+    // Measured before the fix: 23 of 202 of these reads saw rows.
+    const nobody = await identityOf(U.nobody);
+    let stop = false;
+    const seen: number[] = [];
+    const reader = (async () => {
+      while (!stop) seen.push(await as(nobody, (t) => count(t)));
+    })();
+    try {
+      for (let i = 0; i < 40; i++) await applyCollectionPermissions(db, TABLE);
+    } finally {
+      stop = true;
+      await reader;
+    }
+    expect(seen.length).toBeGreaterThan(10);
+    expect(seen.filter((n) => n > 0)).toEqual([]);
+  }, 60_000);
 
   it('a read grant reads, and only reads', async () => {
     const reader = await identityOf(U.reader);

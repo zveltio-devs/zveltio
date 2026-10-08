@@ -59,20 +59,28 @@ export async function applyCollectionPermissions(db: Database, table: string): P
   const collection = collectionOfTable(table);
   if (!collection) return false;
   if (!(await functionPresent(db))) return false;
-  for (const { cmd, act, using, check } of COMMANDS) {
-    const name = collectionPolicyName(act);
-    // The collection name is a literal in the policy: matched by the regex
-    // above, so it cannot carry a quote.
-    const allows = `(SELECT zveltio_collection_allows('${collection}', '${act}'))`;
-    await sql`DROP POLICY IF EXISTS ${sql.id(name)} ON ${sql.id(table)}`.execute(db);
-    await sql
-      .raw(
-        `CREATE POLICY ${name} ON "${table}" AS RESTRICTIVE FOR ${cmd}` +
-          (using ? ` USING (${allows})` : '') +
-          (check ? ` WITH CHECK (${allows})` : ''),
-      )
-      .execute(db);
-  }
+  // One transaction. These are RESTRICTIVE: between a DROP and its CREATE on
+  // the pool the table had no such restriction, and every concurrent statement
+  // ran unchecked — on every boot's reconcile, for every collection (measured:
+  // 23 of 202 reads by a caller with no grant saw rows while it re-ran).
+  const recreate = async (h: Database) => {
+    for (const { cmd, act, using, check } of COMMANDS) {
+      const name = collectionPolicyName(act);
+      // The collection name is a literal in the policy: matched by the regex
+      // above, so it cannot carry a quote.
+      const allows = `(SELECT zveltio_collection_allows('${collection}', '${act}'))`;
+      await sql`DROP POLICY IF EXISTS ${sql.id(name)} ON ${sql.id(table)}`.execute(h);
+      await sql
+        .raw(
+          `CREATE POLICY ${name} ON "${table}" AS RESTRICTIVE FOR ${cmd}` +
+            (using ? ` USING (${allows})` : '') +
+            (check ? ` WITH CHECK (${allows})` : ''),
+        )
+        .execute(h);
+    }
+  };
+  if ((db as unknown as { isTransaction?: boolean }).isTransaction) await recreate(db);
+  else await db.transaction().execute(recreate);
   return true;
 }
 
