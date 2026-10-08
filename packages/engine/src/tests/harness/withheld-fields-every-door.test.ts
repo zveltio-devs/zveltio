@@ -13,6 +13,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { engineEvents, realtimeBus } from '../../lib/runtime/index.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import { websocketHandler } from '../../routes/ws.js';
 import {
@@ -56,6 +57,11 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   const sseDelivered: string[] = [];
   let ws: unknown;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let flowId = '';
+  const events: unknown[] = [];
+  const busSent: unknown[] = [];
+  let unsubscribe: (() => void) | undefined;
+  let realPublish: ReturnType<typeof realtimeBus>['publish'] | undefined;
 
   beforeAll(async () => {
     originalFetch = globalThis.fetch;
@@ -125,6 +131,24 @@ d('password and encrypted fields leave through no door (in-process)', () => {
     };
     wsSent.length = 0;
 
+    // A data flow (its trigger record is kept in zv_flow_runs.trigger_data),
+    // a `record.*` listener (search, AI embeddings) and the cross-instance bus.
+    const flow = await sql<{ id: string }>`
+      INSERT INTO zv_flows (name, trigger_type, trigger_config, is_active)
+      VALUES (${`withheld-flow-${Date.now()}`}, 'on_create',
+              ${JSON.stringify({ collection: COLLECTION })}::jsonb, true)
+      RETURNING id::text AS id`.execute(db);
+    flowId = flow.rows[0]!.id;
+    unsubscribe = engineEvents.on('record.created', (p) => {
+      if (p.collection === COLLECTION) events.push(p);
+    });
+    const bus = realtimeBus();
+    realPublish = bus.publish.bind(bus);
+    bus.publish = (msg) => {
+      if (msg.collection === COLLECTION) busSent.push(msg);
+      return realPublish!(msg);
+    };
+
     const made = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: god },
@@ -138,6 +162,8 @@ d('password and encrypted fields leave through no door (in-process)', () => {
 
   afterAll(async () => {
     globalThis.fetch = originalFetch;
+    if (realPublish) realtimeBus().publish = realPublish;
+    unsubscribe?.();
     if (ws) websocketHandler.close(ws as never);
     await reader?.cancel().catch(() => {});
     if (!db) return;
@@ -152,7 +178,36 @@ d('password and encrypted fields leave through no door (in-process)', () => {
       .where('collection', '=', COLLECTION)
       .execute()
       .catch(() => {});
+    if (flowId) {
+      await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`
+        .execute(db)
+        .catch(() => {});
+      await sql`DELETE FROM zv_flows WHERE id = ${flowId}::uuid`.execute(db).catch(() => {});
+    }
     await dropTestCollection(db, COLLECTION).catch(() => {});
+  });
+
+  it('a data flow is given neither (and keeps neither in zv_flow_runs)', async () => {
+    let runs: unknown[] = [];
+    for (let i = 0; i < 100 && runs.length === 0; i++) {
+      runs = (
+        await sql<{ trigger_data: unknown }>`
+          SELECT trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`.execute(db)
+      ).rows;
+      if (runs.length === 0) await Bun.sleep(20);
+    }
+    expect(runs.length).toBe(1);
+    expectWithheld(runs);
+  });
+
+  it('a `record.created` listener is given neither', () => {
+    expect(events.length).toBe(1);
+    expectWithheld(events);
+  });
+
+  it('the cross-instance bus carries neither', () => {
+    expect(busSent.length).toBe(1);
+    expectWithheld(busSent);
   });
 
   it('stores the hash and the ciphertext, which is the premise', async () => {

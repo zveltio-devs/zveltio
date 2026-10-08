@@ -506,9 +506,14 @@ export async function afterWrite(
 
   const eventName = action === 'create' ? 'insert' : action === 'update' ? 'update' : 'delete';
 
-  // A webhook leaves the engine and its payload is kept in
-  // `zvd_webhook_deliveries`: it carries what REST would serve, not the stored
-  // row — no `password` hash, no ciphertext (see `withheldColumns`).
+  // Everything below leaves the write path — a webhook (POSTed and kept in
+  // `zvd_webhook_deliveries`), WS/SSE, the cross-instance bus, data flows (a
+  // step can template a field into an email or an HTTP call) and
+  // `record.*` listeners (search indexes, AI embeddings) — so it gets what REST
+  // would serve, not the stored row: no `password` hash, no ciphertext, no
+  // search columns (see `withheldColumns`). The revision above keeps the
+  // stored row. A consumer that needs an encrypted value reads it through the
+  // record API, under that API's rules (owner decision 2026-10-08).
   const { unserved, sealed } = withheldColumns(await DDLManager.getCollection(db, collection));
   const outbound: Record<string, unknown> = { ...data };
   for (const k of [...unserved, ...sealed]) delete outbound[k];
@@ -522,8 +527,13 @@ export async function afterWrite(
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
   // doesn't fan out to subscribers in tenant B (collection names
   // collide across tenants on both channel namespaces).
-  broadcastEvent(collection, eventName as 'insert' | 'update' | 'delete', data, tenantId ?? null);
-  broadcastDataEvent(collection, eventName, data, tenantId ?? null);
+  broadcastEvent(
+    collection,
+    eventName as 'insert' | 'update' | 'delete',
+    outbound,
+    tenantId ?? null,
+  );
+  broadcastDataEvent(collection, eventName, outbound, tenantId ?? null);
 
   // Publish to the cross-instance realtime bus (Valkey if
   // configured, else pg_notify). The bus filters its own echo so the
@@ -533,7 +543,7 @@ export async function afterWrite(
       event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
       collection,
       record_id: recordId as string,
-      data,
+      data: outbound,
       timestamp: new Date().toISOString(),
       tenantId: tenantId ?? null,
     })
@@ -558,7 +568,7 @@ export async function afterWrite(
     db,
     collection,
     eventName as 'insert' | 'update' | 'delete',
-    data,
+    outbound,
     tenantId ?? null,
   ).catch((err) => console.error('[afterWrite] flow trigger failed:', err));
 
@@ -588,7 +598,7 @@ export async function afterWrite(
   // fire-and-forget for throughput and needs its own decision.
   await engineEvents.emitAsync(engineEvent, {
     collection,
-    record: data,
+    record: outbound,
     id: recordId,
     userId,
     tenantId: tenantId ?? null,
