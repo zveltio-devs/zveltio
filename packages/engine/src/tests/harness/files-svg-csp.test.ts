@@ -61,6 +61,24 @@ d('/files serves an SVG under a sandboxing CSP (in-process)', () => {
     expect(csp).toContain('sandbox');
   });
 
+  // `.xml` is on the upload allowlist, is served as `application/xml`, and skips
+  // the SVG sanitizer (it runs on `.svg` only). A browser renders an XML document
+  // with an SVG or XHTML root and runs its `<script>` — the same document as an
+  // unsanitized SVG, under another name.
+  it('adds the sandbox to an XML document, which can carry an SVG with a script', async () => {
+    const key = await upload(
+      'logo.xml',
+      'application/xml',
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>parent.x=1</script></svg>',
+    );
+    const res = await app.request(`/files/${key}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('xml');
+    const csp = res.headers.get('content-security-policy') ?? '';
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain('sandbox');
+  });
+
   it('leaves a text file without the sandbox', async () => {
     const key = await upload('note.txt', 'text/plain', 'plain');
     const res = await app.request(`/files/${key}`);

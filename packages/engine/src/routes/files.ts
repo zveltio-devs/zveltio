@@ -114,8 +114,12 @@ export function filesRoutes(): Hono {
     };
     // An SVG opened directly is a document on this origin — Studio's — and the
     // upload-time sanitizer is the only other thing standing between it and a
-    // script. SVG only: `sandbox` would break the browser's PDF viewer.
-    if (contentType.toLowerCase().startsWith('image/svg+xml')) {
+    // script. Every XML type, not SVG alone: an `.xml` upload (allowlisted, not
+    // sanitized, served as `application/xml`) with an SVG or XHTML root runs its
+    // `<script>` the same way. HTML too, for bytes written by another path. Not
+    // every type: `sandbox` would break the browser's PDF viewer.
+    const mediaType = contentType.split(';')[0]!.trim().toLowerCase();
+    if (mediaType.endsWith('xml') || mediaType === 'text/html') {
       headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
     }
 
