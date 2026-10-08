@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.78] - 2026-10-08
+
 **Removed: the `developer/database` extension (`@zveltio/ext-database`).** It
 was a database admin panel (catalog explorer plus raw DDL for functions,
 triggers, enums, roles and RLS) running through `ctx.db`, gated on instance
@@ -52,8 +54,260 @@ stock a customer cannot edit, a counter a public form bumps — runs inside
 capability (contract version 8). It stands down collection permissions only, for
 the collections named and the running tenant only; tenant isolation and the
 `ctx.db` table guard still apply, and every call writes an `extension.as_system`
-audit row. Nothing enforces collection permissions in the database yet: this
-release adds the way out first, so extensions can move before the policy lands.
+audit row. The database enforces collection permissions in this same release
+(see above).
+
+**Breaking: PostgreSQL older than 18 is refused.** The engine never checked the
+server version, so on a 17.x server every migration ran and the engine started.
+It now reads `server_version_num` before the first write and, below 180000,
+stops with "Zveltio requires PostgreSQL 18 (with pgvector). Upgrade the server,
+then start again — no migration was run." Every entry point is covered: boot,
+`migrate`, the CLI `migrate`/`rollback`, `db:init` and the admin migrate
+routes. `scripts/bootstrap-db-role.sh` lost its branches for servers below 16.
+Action: run PostgreSQL 18 before upgrading.
+
+**Breaking: `ZVELTIO_ALLOW_NO_CACHE` is replaced by `ZVELTIO_SINGLE_INSTANCE`.**
+Without Valkey the permission and identity caches live in each process, so a
+revoked grant or a demoted god reached only the process that made the change;
+`ZVELTIO_ALLOW_NO_CACHE=1` let any number of replicas run that way and nothing
+said so. `ZVELTIO_SINGLE_INSTANCE=1` now boots production without Valkey
+(caches and rate limits stay in memory). In production, no `VALKEY_URL` and no
+flag still refuses to boot, and `ZVELTIO_ALLOW_NO_CACHE` is no longer read (the
+refusal names its replacement). The mode is checked: each instance writes a
+heartbeat to the new `zv_instances` table (migration 054, every 10 s), and when
+a newer instance is live the older one keeps serving for 15 s, then answers 503
+to everything except `/api/health` and `/health`, fails `/api/health/ready`, and
+closes its WebSocket and SSE connections. The Helm chart refuses to render the
+mode with `replicaCount > 1` or autoscaling. Action: if you set
+`ZVELTIO_ALLOW_NO_CACHE=1`, set `ZVELTIO_SINGLE_INSTANCE=1` (one process only)
+or configure Valkey.
+
+**Breaking: roles live only in Casbin.** `"user".role` was read as a role in
+every domain, so REST, realtime and flows each resolved roles their own way.
+`member` is now a Casbin role (`g <user> member *`) and `"user".role` is read
+only as the god flag. Migration 059 adds a trigger that grants `member` to each
+new non-god account (and to a god who is demoted) and backfills every existing
+non-god account. A replica that has not yet applied a user's `member` row reads
+it from `zvd_permissions`, so there is no window that fails open.
+`DELETE /api/permissions/roles` with `role: "member"` answers 422. Extensions
+that read `"user".role` as a role in raw SQL should read Casbin instead.
+
+**Breaking: third-party extensions answer to the service broker.** A service
+registry was first come, first served: an extension could register
+`<other>.secret` before its owner loaded, call any service whatever its
+manifest declared, and wait out the 30 s invoke timeout when the owner was
+down. Now, for worker and inline extensions alike, the engine is the only
+broker and enforces its rules:
+- An extension may register only `<its name>.<x>`, and an extension name with
+  a dot is refused.
+- It may call only services owned by itself, by its manifest `dependencies`
+  or `optionalDependencies`, or listed in `ENGINE_PUBLIC_SERVICES` (empty
+  today). Inline extensions get a `ctx.services` that throws for an undeclared
+  owner.
+- A stopped or respawning dependency fails pending calls at once with
+  `extension.dependency_unavailable` (503) instead of waiting out the timeout.
+- A dependency cycle used to load nothing, silently. The members of the cycle
+  are now refused with a reason in `last_load_error`; the rest still load.
+- New manifest field `optionalDependencies: [{ name, minVersion? }]`: not
+  installed is not an error and its services read as `null`; installed, it
+  loads first; a link that would close a loop is dropped. `minVersion` is
+  validated but not yet enforced at load. The SDK and `zveltio extension
+  validate` check the field.
+- The first-party extensions now publish as `<extName>.*` (extensions repo
+  #205 added `optionalDependencies`, #206 renamed the services). There are no
+  aliases for the old names.
+Action: update first-party extensions together with the engine; an older
+extension that registers a name outside its namespace, or calls an optional
+service it did not declare, fails with a 500. Third-party inline extensions
+with non-namespaced service names or undeclared service calls are now refused;
+add the owners to `dependencies` or `optionalDependencies` and rename the
+services.
+
+**New: extensions run out of process, one uid each (installer).** Worker
+(third-party) extensions ran as a thread in the engine process and could read
+its `.env`, storage and `/proc/<pid>/environ`. This release adds the pieces to
+move them out:
+- `ZVELTIO_EXT_TRANSPORT` selects the transport: `worker` (default, in-thread),
+  `process` (child process over stdin/stdout frames, same uid, for
+  development) or `runner`.
+- `zveltio ext-runner` runs each extension in its own systemd service,
+  `zveltio-ext-runner@<instance>.service`, listening on a socket under
+  `/run/zveltio-ext/<instance>` and serving only the engine uid. Each runs with
+  `DynamicUser=yes`, so each extension has its own uid, cgroup (`MemoryMax=1G`
+  by default) and egress rule (`IPAddressDeny=any`, opened per extension with
+  `IPAddressAllow`). Override per extension with `systemctl edit
+  zveltio-ext-runner@<instance>`. The instance name is the extension name
+  reduced to `[a-z0-9_]` plus 8 hex of its SHA-256.
+- The engine starts a runner on enable and stops it on disable, over D-Bus. A
+  polkit rule lets the engine user start, stop and restart
+  `zveltio-ext-runner@*` units and nothing else, so `NoNewPrivileges` stays on.
+- `zveltio ext-runner setup --engine-user <u> --dir <d>` writes the template
+  unit, the polkit rule and an engine drop-in that sets
+  `ZVELTIO_EXT_TRANSPORT=runner`. `install.sh` and `update.sh` run it, so an
+  existing native install gets runners on its next update; `uninstall.sh`
+  removes them.
+Action: native installs pick this up on update and need systemd and polkit.
+Docker, Helm and other installs keep the in-thread default.
+
+**Security: worker extensions need an explicit opt-in in production.** The
+worker is a thread inside the engine process, not a boundary for untrusted
+code; the docs said otherwise. In production a worker-isolated extension now
+loads only with `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1` (the loader records the
+instruction in `lastLoadError` otherwise). The `runner` transport does not need
+it. Development, tests and inline extensions are not gated. Action: set the
+variable if you run third-party worker extensions on the default transport.
+
+**Security: a worker extension queries as the tenant and user of its request.**
+The worker runtime never sent the request id with `db:query`, so every worker
+query ran with no tenant and a worker serving tenant B read and wrote the
+default tenant's rows. Its service calls had the same gap (a worker calling an
+inline service read every tenant; the host calling a worker service read the
+default tenant). The host also recorded only the tenant, never the user, so
+row rules keyed on the caller stood down and the worker saw every row of the
+tenant. Tenant and identity are now taken from the host's own record of the
+request, never from the worker's message, on every hop.
+
+**Security: collection data no longer leaks through side doors.** Several
+paths returned a row without the read gate or the field rules REST applies:
+- Write responses (`POST`, `PATCH`, `PUT`, bulk) returned columns the caller
+  may not read; bulk returned raw rows. All responses now hide those columns.
+  A hidden encrypted value is no longer decrypted for the response.
+- Password hashes, `enc:v1:` ciphertext and `search_text` left through
+  WebSocket and SSE events, `?as_of=` reads, record history and webhook
+  deliveries, and `?filter=` on a password field was a hash oracle. Password
+  fields and search columns are now withheld everywhere; encrypted fields are
+  dropped from realtime and webhooks and decrypted on REST history.
+- The same withheld copy now reaches data flows (`zv_flow_runs.trigger_data`),
+  `record.*` listeners and the realtime bus. A flow or listener that used an
+  encrypted field's value now gets no such key.
+- Record comments and revisions follow the record's read gate, tenant admins
+  included. A tenant admin could list and post comments, delete any comment,
+  and read, list and revert revisions of collections they cannot read; revert
+  now also requires `update`.
+- `GET /api/ws/stats` and `GET /api/realtime/connections` showed every tenant's
+  sockets to any tenant admin; they are limited to the request tenant, and god
+  sees the whole instance.
+- `POST /api/storage/upload` (`folder_id`) and `POST /api/storage/folders`
+  (`parent_id`) accepted another tenant's folder id.
+- `PATCH`/`DELETE /api/insights/panels/:id` reached panels of any tenant, and
+  `POST /api/insights/query` read every tenant for the root tenant's admin.
+  The `/api/insights/subscriptions` routes, which stored subscriptions nothing
+  ever sent, are removed.
+- A dropped collection left its Casbin grants, row rules, column permissions
+  and validation rules behind, so a collection recreated under the same name
+  inherited them. They are now deleted with the table.
+- `DELETE /api/admin/roles/:id` refuses the roles the engine seeds (`client`,
+  `employee`, `manager`, the tenant roles) with 409.
+- `DELETE /api/api-keys/:id/rate-limit` now checks the key's tenant like `PUT`.
+- `POST /api/sync/push` and `/pull` asked for a grant named `data:<name>`
+  that nothing grants, so sync worked only for god; they use the bare
+  collection name.
+
+**Security: Electric is served only through an engine shape proxy.** Electric's
+replication stream bypasses every engine rule, so every signed-in user received
+every row and column of every published table. It is refused on every instance
+(409 `electric.unfiltered`) and the token minting is gone. Electric 1.x is back
+behind `GET /api/electric/v1/shape?collection=<name>`: the engine builds the
+table, columns and `where` from the caller's read gate (collection read, tenant
+reach, row rules, column permissions) on every poll, never syncs password or
+encrypted fields, and never exposes Electric to clients. A shape that cannot be
+filtered (extension query alters, entity checks) answers 409
+`electric.unfilterable`. `docker-compose.electric.yml` runs
+`electricsql/electric:1.8.1` on the internal network. A poll already in flight
+can keep delivering for up to ~20 s after a revoke.
+
+**Security: the extension SQL guard refuses Unicode-escaped identifiers.**
+`U&"set\005fconfig"(...)` is `set_config` to PostgreSQL but passed the guard,
+so an extension could set `zveltio.current_tenant` or `zveltio.rls_bypass` in
+the request's transaction. The guard now refuses them.
+
+**Security: SVG files are served under a sandboxing Content-Security-Policy.**
+`/files` serves uploads from the engine's origin, and an SVG opened directly is
+a document on that origin. SVG responses now carry `default-src 'none';
+style-src 'unsafe-inline'; sandbox`.
+
+**Fixed: an extension that enters a tenant acts as that tenant.**
+`ctx.internals.withTenantIsolation(tenantId, fn)` wrote rows to the entered
+tenant but `checkPermission`, the identity helpers and the tenant facts still
+answered for the request's tenant. They now run in the entered tenant's domain.
+
+**Fixed: audit rows for API-key requests were lost.** `zv_audit_log.user_id`
+is a foreign key to `"user"`, so the `apikey:<id>` principal failed the insert
+and the row was dropped silently. The row is now written with `user_id` NULL
+and the key in `metadata.api_key`.
+
+**Fixed: a retention variable that is not whole days purges nothing.**
+`AUDIT_LOG_RETENTION_DAYS=1y` was read as 1 and the nightly sweep deleted every
+audit row older than a day. `REQUEST_LOG_RETENTION_DAYS` and
+`AUDIT_LOG_RETENTION_DAYS` now accept only whole numbers of days (`0` keeps
+forever); anything else logs a `[GC]` warning and deletes nothing.
+
+**Fixed: the storage health check probes the storage in use.** It read
+`STORAGE_DIR`, which nothing else reads, so a default install reported storage
+as healthy even when the directory was unwritable, and S3 configured from
+Studio was never checked. `/api/health/deep` and `/api/health/storage` now
+resolve the same configuration uploads use.
+
+**New: rate limits are god's; god lets tenant admins tighten their own.**
+`/api/admin/rate-limits*` and `PUT`/`DELETE /api/api-keys/:id/rate-limit` are
+god-only (any instance admin passed before). God's switch
+`PUT /api/admin/rate-limits/tenant-admins { enabled }` (off by default) lets a
+tenant admin set limits for their own tenant under
+`/api/tenants/current/rate-limits`, as a second bucket that can only tighten
+the instance limit. An API key's own `rate_limit`, shown in Studio but read by
+no limiter, is now enforced and can only tighten. Migration 056. Action: an
+instance admin who is not god can no longer change rate limits.
+
+**New: schema as code.** `zveltio schema pull` writes the live schema as
+reviewable JSON (`zveltio-schema.json`, `collections/<name>.json`,
+`roles.json`; extension, system and BYOD collections excluded).
+`zveltio schema diff` prints the plan between the files and the instance and
+changes nothing. `zveltio schema apply` runs it: collections, fields, settings,
+roles, global grants, relations, row rules, column permissions, validation
+rules, field order, revokes, and changes to `unique`, `indexed` and
+`defaultValue` on existing fields (indexes built `CONCURRENTLY`). Destructive
+steps (dropped collection or field, type change, removed role) need
+`--allow-destructive`; a plan with an unsupported step is refused whole (409)
+and nothing runs. Ordered renames and type changes live in
+`migrations/<id>.json` (table `zv_schema_migrations`, migration 055). The
+endpoints are `GET /api/admin/schema/export`, `POST /api/admin/schema/plan`
+and `POST /api/admin/schema/apply` (instance admins).
+`ZVELTIO_SCHEMA_DIR` (outside production) keeps the directory in step from
+Studio. `zveltio generate-types --from <dir>` builds types from the files with
+no engine running.
+
+**New: read credentials from `<NAME>_FILE`.** `DATABASE_URL_FILE=/run/secrets/db`
+instead of `DATABASE_URL=...`, for 20 listed credentials. A value in the
+environment stays readable in `/proc/self/environ` for the life of the process;
+one read from a file never reaches it.
+
+**New: `ZVELTIO_DB_DRIVER=pg`.** Puts the engine's pool on node-postgres in
+place of `Bun.SQL`, so an operator who hits a `Bun.SQL` defect can switch
+drivers. The default is still `bun`; Bun remains the only supported runtime.
+
+**New: `ctx.internals.exportUserData(userId)`** for data-subject access
+requests. It reads the profile, audit rows (newest 1000), notifications
+(newest 500) and the API keys the user created (names and prefixes) as the
+engine, in one snapshot across every tenant. `compliance/gdpr` export answered
+500 since extensions lost direct access to those tables.
+
+**Performance: fewer statements per request, no boot-time index locks.** The
+caller's tenant reach is resolved inside the statement that already publishes
+the tenant settings (`zveltio_tenant_reach`, migration 057), and a member's
+request no longer does a tenant lookup or a second membership query. Sync pull
+walks an index on `(tenant_id, updated_at, id)` instead of every tenant row.
+Those composite indexes are now built after the server listens, with
+`CREATE INDEX CONCURRENTLY`, not before it with a table lock.
+
+**Fixed: Studio record and add-field drawers behave as modals.** Escape now
+closes the record drawer, focus moves into it and returns to the opener, Tab no
+longer walks into the table behind it, and the drawer is announced as editing
+when it edits.
+
+Also: tests, CI, docs and internal changes — #904, #905, #907, #910, #915,
+#918, #919, #920, #921, #924, #928, #931, #932, #940, #942, #946, #947, #956,
+#958, #959, #966, #967, #968, #971, #973, #975, #977, #978. (#925, #926 and
+#929 are the Unreleased entries above.)
 
 ## [3.0.0-beta.77] - 2026-10-03
 
