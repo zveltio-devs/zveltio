@@ -57,7 +57,7 @@ fi
 # ── Stop and disable services ─────────────────────────────────────────────────
 header "Stopping services"
 
-for svc in zveltio seaweedfs valkey; do
+for svc in zveltio zveltio-ext-runner seaweedfs valkey; do
   if systemctl is-active --quiet "$svc" 2>/dev/null; then
     systemctl stop "$svc"
     success "Stopped $svc"
@@ -108,6 +108,7 @@ if [[ "$PURGE_DATA" == "yes" ]]; then
 
   # Remove system users
   userdel -r zveltio 2>/dev/null || userdel zveltio 2>/dev/null || true
+  userdel zveltio-ext 2>/dev/null || true
   userdel valkey 2>/dev/null || true
   userdel seaweedfs 2>/dev/null || true
   success "Removed system users"

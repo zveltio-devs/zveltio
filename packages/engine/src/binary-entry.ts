@@ -35,6 +35,11 @@ if (process.argv[2] === EDGE_RUNNER_SENTINEL) {
   // The same generated bootstrap the non-compiled runner executes with
   // `bun run` — one implementation, two ways of reaching it.
   await import(bootstrap);
+} else if (process.argv[2] === 'ext-runner') {
+  // The extension runner service (lib/ext-runner.ts). Same reason as above:
+  // it must not boot an engine, and it holds no secret, pool or app state.
+  const { runExtRunner } = await import('./lib/ext-runner.js');
+  await runExtRunner();
 } else {
   // `reflect-metadata` before the app, and as its own statement: `index.ts`
   // imports it first for exactly this reason, but reaching `index.ts` through a

@@ -722,6 +722,9 @@ WRAPPER_EOF
   # user so uploads succeed without root; harmless when STORAGE_DRIVER=s3.
   mkdir -p "${ZVELTIO_DIR}/storage"
   chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}"
+  # Uploads are tenant data: no other local user — the extension runner's
+  # included — reads them.
+  chmod 700 "${ZVELTIO_DIR}/storage"
 
   local EXEC_START
   if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
@@ -759,15 +762,75 @@ KMSEOF
   chmod 750 "${ZVELTIO_DIR}/kms-fetch.sh"
   chown "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/kms-fetch.sh"
 
+  # ── Extension runner (RFC extension-runner, step 3) ──────────────────────────
+  # Third-party extensions run as zveltio-ext, a uid that cannot read the
+  # engine's .env, storage or process state. The engine keeps NoNewPrivileges
+  # and connects over a unix socket; the runner serves only the engine's uid
+  # (SO_PEERCRED). Egress is closed until the operator allows it:
+  #   systemctl edit zveltio-ext-runner   ->   [Service] IPAddressAllow=203.0.113.7
+  local EXT_TRANSPORT="worker" EXT_RUNNER_UNIT=""
+  if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
+    id -u zveltio-ext &>/dev/null || useradd -r -s /bin/false -d /nonexistent -M zveltio-ext
+    EXT_TRANSPORT="runner"
+    EXT_RUNNER_UNIT="zveltio-ext-runner.service"
+    cat > /etc/systemd/system/zveltio-ext-runner.service << EOF
+[Unit]
+Description=Zveltio extension runner
+After=network.target
+
+[Service]
+User=zveltio-ext
+Group=zveltio-ext
+ExecStart=${ZVELTIO_DIR}/zveltio ext-runner
+Environment=NODE_ENV=production
+Environment=ZVELTIO_ENGINE_UID=$(id -u "${ZVELTIO_USER}")
+Environment=ZVELTIO_EXT_RUNNER_SOCKET=/run/zveltio-ext/runner.sock
+RuntimeDirectory=zveltio-ext
+RuntimeDirectoryMode=0755
+Restart=always
+RestartSec=2
+SyslogIdentifier=zveltio-ext-runner
+
+# Only the binary and the extensions are visible from the engine's directory.
+TemporaryFileSystem=${ZVELTIO_DIR}:ro
+BindReadOnlyPaths=${ZVELTIO_DIR}/zveltio ${ZVELTIO_DIR}/extensions
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+IPAddressDeny=any
+
+# All extensions together; each runtime also gets RLIMIT_AS (ZVELTIO_EXT_MEMORY_MB).
+MemoryMax=2G
+MemorySwapMax=0
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable zveltio-ext-runner
+  else
+    warn "No compiled binary — worker extensions stay in-process (no extension runner)."
+  fi
+
   cat > /etc/systemd/system/zveltio.service << EOF
 [Unit]
 Description=Zveltio Business OS Engine
-After=network.target postgresql.service valkey.service seaweedfs.service
-Wants=postgresql.service valkey.service seaweedfs.service
+After=network.target postgresql.service valkey.service seaweedfs.service ${EXT_RUNNER_UNIT}
+Wants=postgresql.service valkey.service seaweedfs.service ${EXT_RUNNER_UNIT}
 
 [Service]
 User=${ZVELTIO_USER}
 WorkingDirectory=${ZVELTIO_DIR}
+# Worker-isolated extensions run in zveltio-ext-runner.service, under their own
+# uid. .env can override it (EnvironmentFile wins over Environment).
+Environment=ZVELTIO_EXT_TRANSPORT=${EXT_TRANSPORT}
 ExecStartPre=${ZVELTIO_DIR}/kms-fetch.sh
 EnvironmentFile=${ZVELTIO_DIR}/.env
 EnvironmentFile=-${ZVELTIO_DIR}/.env.kms

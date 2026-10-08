@@ -1,8 +1,8 @@
 # RFC: third-party extensions run out of process
 
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
-[Decisions](#decisions). Step 2 (transport) is done; step 3 (bare-metal runner)
-is next.
+[Decisions](#decisions). Steps 2 (transport) and 3 (bare-metal runner) are done;
+step 4 (container runner) is next.
 
 ## Problem
 
@@ -107,7 +107,7 @@ The runner never holds a connection string.
 |---|---|---|
 | Docker / compose | A separate `zveltio-ext-runner` service. The engine spawns extension processes in it over a control channel. | Separate container: no engine volumes or env, own network with egress policy, cgroup limits per container (or per process via a cgroup v2 subtree). |
 | Kubernetes / Helm | A sidecar container in the engine pod, or a separate Deployment. | As above, plus `NetworkPolicy` for egress, `securityContext` (non-root, read-only rootfs, no privilege escalation, seccomp `RuntimeDefault`). |
-| Bare metal (single binary) | A child process per extension, under a dedicated system user that the installer creates (`zveltio-ext`). | A different uid (so the engine's files, environment and process state are out of reach), `systemd-run --scope` limits where available (the edge-function runner already probes for them), and landlock where the kernel supports it. |
+| Bare metal (single binary) | A separate systemd service, `zveltio-ext-runner`, under a dedicated system user the installer creates (`zveltio-ext`). The engine connects to its unix socket; it spawns one process per extension (step 3). | A different uid (so the engine's files, environment and process state are out of reach), the unit's sandbox (`TemporaryFileSystem`, `ProtectProc=invisible`, `IPAddressDeny`), its cgroup limits and RLIMIT_AS per process. |
 | Development | The current in-thread worker. | Nothing. The engine logs a warning, and the production gate from #906 keeps it out of production. |
 
 A child under the **same** uid with an empty environment is *not* enough. Processes
@@ -156,11 +156,51 @@ functions too.
      fd 1 corrupts the channel, which ends the runner (respawned like a crash);
    - `tests/harness/worker-transport-contract.test.ts` runs the same extension
      over both transports and expects identical transcripts.
-3. **Bare-metal runner:**
-   - dedicated uid, process-per-extension and kernel limits;
-   - an isolation test that must fail on today's worker and pass on the runner. It
-     asserts that the extension cannot read engine files, engine process state or
-     a non-allowed network address.
+3. **Done — bare-metal runner** (owner decision 2026-10-08):
+   - `zveltio ext-runner` (`lib/ext-runner.ts`) is its own systemd service,
+     `zveltio-ext-runner`, started as the `zveltio-ext` user. The engine keeps
+     `NoNewPrivileges=yes`, so it cannot start a process under another uid; it
+     connects to the runner's unix socket instead
+     (`ZVELTIO_EXT_TRANSPORT=runner`, `ZVELTIO_EXT_RUNNER_SOCKET`). One
+     connection is one extension process; the runner pipes the #979 frames
+     between the connection and the process unchanged, kills the process when
+     the connection closes and closes the connection when the process exits.
+   - The runner serves only the engine's uid, read from the kernel with
+     SO_PEERCRED (`bun:ffi` `getsockopt`: Bun exposes neither the option nor a
+     way to listen on a socket systemd created). It refuses to run as the
+     engine's uid or as root.
+   - Limits: each process gets RLIMIT_AS (`ZVELTIO_EXT_MEMORY_MB`, floor and
+     default 1024 — Bun does not start under it); the unit's `MemoryMax` and
+     `TasksMax` bound all of them together.
+   - The unit (written by `install/install.sh` for binary installs) shows the
+     runner only the binary and the extensions directory of `ZVELTIO_DIR`
+     (`TemporaryFileSystem` + `BindReadOnlyPaths`), hides other users' processes
+     (`ProtectProc=invisible`) and denies every IP address (`IPAddressDeny=any`)
+     until the operator allows one with `systemctl edit zveltio-ext-runner`. The
+     installer also makes `storage/` `0700`; `.env` was already `0600`.
+   - With the runner transport, the #906 production opt-in is not asked for:
+     the boundary it stood in for exists.
+   - `packages/engine/scripts/ext-runner-isolation.sh` (CI job *Extension runner
+     isolation*) runs a probe extension in a container with a real uid boundary.
+     Over the `process` transport (the engine's uid) it reads the engine's `.env`
+     and `/proc/<engine pid>/environ`, which proves the probe works; over the
+     runner it gets `EACCES` on both; a connection from a uid other than the
+     engine's is refused.
+
+   Left for later steps, known:
+   - **Network is not in the isolation test.** `IPAddressDeny` is enforced by
+     systemd as root, which a container test does not have (a user manager
+     accepts it and ignores it). Step 4 tests egress against the compose
+     network. The allow list is per runner, not yet per extension.
+   - **Extensions share one uid.** They cannot reach the engine, but they can
+     signal one another, and one that kills the runner could bind its own socket
+     in `/run/zveltio-ext` and receive the engine's frames for the other
+     extensions. A uid per extension (or the engine checking the peer is the
+     unit's main process) closes it.
+   - **Per-extension memory override** (decision 3): one value for all today.
+   - Installs without the compiled binary, and installs that only run
+     `update.sh`, keep the in-thread worker; `update.sh` restarts the runner
+     when it exists.
 4. **Container runner:** compose and Helm, with the same isolation test run in CI
    against the compose stack.
 5. **Edge functions** move to the runner.

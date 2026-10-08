@@ -35,9 +35,7 @@
 import type { Hono } from 'hono';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { WORKER_RUNTIME_SOURCE } from './worker-extension-runtime-source.generated.js';
+import { ensureWorkerRuntimeOnDisk } from './ext-runner.js';
 import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
@@ -49,6 +47,7 @@ import {
   type ExtensionChannel,
   extensionTransport,
   spawnProcessRunner,
+  connectRunner,
 } from './worker-extension-transport.js';
 import { serviceRegistry } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
@@ -95,20 +94,6 @@ export function getWorkerHostIfInitialized(): WorkerExtensionHost | null {
  */
 export function _resetWorkerHostForTests(): void {
   _instance = null;
-}
-
-// Bun's `--compile` mode does NOT auto-bundle workers. Embed the pre-
-// compiled worker JS as a string constant and write it to a temp file
-// at first-spawn — Bun's Worker constructor accepts an absolute disk
-// path. See packages/engine/scripts/gen-worker-source.ts.
-let _workerRuntimePath: string | null = null;
-function ensureWorkerRuntimeOnDisk(): string {
-  if (_workerRuntimePath && existsSync(_workerRuntimePath)) return _workerRuntimePath;
-  const dir = mkdtempSync(join(tmpdir(), 'zveltio-worker-'));
-  const path = join(dir, 'worker-extension-runtime.mjs');
-  writeFileSync(path, WORKER_RUNTIME_SOURCE, 'utf8');
-  _workerRuntimePath = path;
-  return path;
 }
 
 /** Per-extension health surface returned by getHealth(). No RSS field
@@ -296,10 +281,13 @@ export class WorkerExtensionHost {
     // read what the process can read. Hence the production opt-in
     // (`enforceWorkerOptIn`) until extensions run out of process.
     const env = { NODE_ENV: process.env.NODE_ENV ?? 'production' };
+    const transport = extensionTransport();
     const worker: ExtensionChannel =
-      extensionTransport() === 'process'
-        ? spawnProcessRunner(runtimePath, env)
-        : new Worker(pathToFileURL(runtimePath).href, { type: 'module', env } as WorkerOptions);
+      transport === 'runner'
+        ? connectRunner()
+        : transport === 'process'
+          ? spawnProcessRunner(runtimePath, env)
+          : new Worker(pathToFileURL(runtimePath).href, { type: 'module', env } as WorkerOptions);
     const managed: ManagedWorker = {
       name: extName,
       extDir,
