@@ -239,9 +239,13 @@ functions too.
      extension (measured; the runner now logs it instead).
      Without a uid per extension, one extension could replace the runner's
      socket and be handed the next extension's channel, and with it that
-     extension's `db:query` role. For the same reason the runner refuses a
-     socket directory that does not belong to root, and closes it to 0755
-     (a Kubernetes `emptyDir` is 0777).
+     extension's `db:query` role. For the same reason the socket directory and
+     `/tmp` (where the runner writes the runtime) must belong to root: the
+     runner closes the first to 0755 and gives the second the sticky bit,
+     and refuses to start otherwise. A Kubernetes `emptyDir` is 0777 with no
+     sticky bit, which would let an extension rename the runtime's directory
+     and plant its own runtime for the next one. `chmod(1)` does it: Bun's
+     `chmodSync` drops the sticky bit without a word (measured).
    - Helm: `extRunner.enabled` adds the same runner as a sidecar (an
      `emptyDir` for the socket, the PVC's `extensions/` read-only,
      `RuntimeDefault` seccomp). **Limit:** a sidecar shares the pod's network,
@@ -255,8 +259,9 @@ functions too.
      runner image swapped for Bun + source. Under the engine's uid the probe reads
      the `.env`, the environment and a public URL; through the runner it reads
      none of them. It also checks that two extensions run under two uids
-     ≥ the base, that neither can write into the socket directory (made 0777
-     in the test image, as an `emptyDir` is), that no extension process
+     ≥ the base, that neither can write into the socket directory, that the
+     runner closed it and `/tmp` (both handed over 0777, as an `emptyDir`
+     is), that no extension process
      outlives its connection, and that a foreign uid is refused.
    - Egress in compose is all or nothing for the runner: per-extension rules
      (decision 2) exist on bare metal only.

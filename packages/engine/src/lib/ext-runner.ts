@@ -121,6 +121,35 @@ export async function runExtRunner(): Promise<never> {
     process.exit(1);
   }
 
+  const path = process.env.ZVELTIO_EXT_RUNNER_SOCKET;
+  if (!path) {
+    console.error('[ext-runner] ZVELTIO_EXT_RUNNER_SOCKET is not set');
+    process.exit(1);
+  }
+  if (uidBase !== null) {
+    // The extensions run as other uids beside the socket and the runtime. A
+    // directory they can rename entries in — a Kubernetes emptyDir is 0777, no
+    // sticky bit — lets one of them put its own socket in the runner's place,
+    // or its own runtime under the next extension, and be handed that
+    // extension's channel. Both directories must be root's; the socket's is
+    // closed to 0755, /tmp gets the sticky bit.
+    for (const [dir, mode] of [
+      [dirname(path), 0o755],
+      [tmpdir(), 0o1777],
+    ] as const) {
+      // chmod(1): Bun's chmodSync drops the sticky bit without a word
+      // (measured: 0o1777 left the directory at 777).
+      Bun.spawnSync(['chmod', mode.toString(8), dir]);
+      const st = statSync(dir);
+      if (st.uid !== 0 || (st.mode & 0o7777) !== mode) {
+        console.error(
+          `[ext-runner] ${dir} must belong to root and be mode ${mode.toString(8)} in container mode`,
+        );
+        process.exit(1);
+      }
+    }
+  }
+
   const runtimePath = ensureWorkerRuntimeOnDisk();
   // The processes run under other uids and must read the runtime.
   if (uidBase !== null) chmodSync(dirname(runtimePath), 0o755);
@@ -185,22 +214,6 @@ export async function runExtRunner(): Promise<never> {
     child.on('exit', () => conn.destroy());
   });
 
-  const path = process.env.ZVELTIO_EXT_RUNNER_SOCKET;
-  if (!path) {
-    console.error('[ext-runner] ZVELTIO_EXT_RUNNER_SOCKET is not set');
-    process.exit(1);
-  }
-  if (uidBase !== null) {
-    // The extensions run as other uids beside this socket. A directory they can
-    // write into (a Kubernetes emptyDir is 0777) lets one of them put its own
-    // socket in the runner's place and be handed every later connection.
-    const dir = dirname(path);
-    if (statSync(dir).uid !== 0) {
-      console.error(`[ext-runner] ${dir} must belong to root in container mode`);
-      process.exit(1);
-    }
-    chmodSync(dir, 0o755);
-  }
   rmSync(path, { force: true });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);

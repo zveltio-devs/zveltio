@@ -24,12 +24,15 @@ trap 'dc down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
 dc up -d --build --wait engine ext-runner >/dev/null
 
 SOCK=/run/zveltio-ext/runner.sock
+# Both handed over world-writable with no sticky bit (as an emptyDir is).
+modes=$(dc exec -T ext-runner stat -c %a /run/zveltio-ext /tmp | tr '\n' ' ')
+[ "$modes" = "755 1777 " ] || { echo "FAIL: socket dir and /tmp left as: $modes"; fail_early=1; }
 PROBE=/src/packages/engine/scripts/ext-runner-isolation.ts
 # A public address: the runtime's SSRF guard refuses private ones on its own,
 # which would hide what the container network does.
 URL="${PROBE_URL:-http://example.com/}"
 probe() { dc exec -T -e PROBE_URL="$URL" -e PROBE_WRITE=/run/zveltio-ext/evil "$@"; }
-fail=0
+fail=${fail_early:-0}
 
 out=$(probe engine bun "$PROBE" process /opt/zveltio/.env /data/extensions/p)
 echo "process: $out"
