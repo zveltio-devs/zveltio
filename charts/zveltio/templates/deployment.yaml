@@ -77,6 +77,12 @@ spec:
               {{- end }}
             - name: STORAGE_LOCAL_DIR
               value: {{ .Values.engine.config.storage.localDir | default "/data/storage" | quote }}
+            {{- if .Values.extRunner.enabled }}
+            - name: ZVELTIO_EXT_TRANSPORT
+              value: runner
+            - name: ZVELTIO_EXT_RUNNER_SOCKET
+              value: /run/zveltio-ext/runner.sock
+            {{- end }}
             {{- range $k, $v := .Values.engine.config.extra }}
             - name: {{ $k }}
               value: {{ $v | quote }}
@@ -87,17 +93,73 @@ spec:
             {{- toYaml .Values.engine.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.engine.resources | nindent 12 }}
-          {{- if .Values.persistence.enabled }}
           volumeMounts:
+            {{- if .Values.persistence.enabled }}
             - name: data
               mountPath: /data
-          {{- end }}
-      {{- if .Values.persistence.enabled }}
+            {{- end }}
+            {{- if .Values.extRunner.enabled }}
+            - name: ext-runner-socket
+              mountPath: /run/zveltio-ext
+            {{- end }}
+        {{- if .Values.extRunner.enabled }}
+        # Worker-isolated extensions (RFC extension-runner, step 4). Root with
+        # only SETUID/SETGID/KILL: every extension process is dropped to a uid
+        # of its own. No engine env or secrets; the extensions read-only.
+        - name: ext-runner
+          image: {{ include "zveltio.image" . | quote }}
+          imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+          args: ["ext-runner"]
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [SETUID, SETGID, KILL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: ZVELTIO_ENGINE_UID
+              value: {{ .Values.engine.podSecurityContext.runAsUser | quote }}
+            - name: ZVELTIO_EXT_RUNNER_SOCKET
+              value: /run/zveltio-ext/runner.sock
+            - name: ZVELTIO_EXT_RUNNER_UID_BASE
+              value: {{ .Values.extRunner.uidBase | quote }}
+          readinessProbe:
+            exec:
+              command: ["test", "-S", "/run/zveltio-ext/runner.sock"]
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.extRunner.resources | nindent 12 }}
+          volumeMounts:
+            - name: ext-runner-socket
+              mountPath: /run/zveltio-ext
+            - name: ext-runner-tmp
+              mountPath: /tmp
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /data/extensions
+              subPath: extensions
+              readOnly: true
+            {{- end }}
+        {{- end }}
       volumes:
+        {{- if .Values.persistence.enabled }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "zveltio.fullname" . }}-data
-      {{- end }}
+        {{- end }}
+        {{- if .Values.extRunner.enabled }}
+        - name: ext-runner-socket
+          emptyDir: {}
+        - name: ext-runner-tmp
+          emptyDir: {}
+        {{- end }}
       {{- with .Values.engine.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

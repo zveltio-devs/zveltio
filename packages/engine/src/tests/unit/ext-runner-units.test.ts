@@ -5,6 +5,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
   runnerInstance,
+  startRunner,
+  stopRunner,
   runnerSetupFiles,
   runnerSocketPath,
   runnerUnit,
@@ -56,5 +58,24 @@ describe('runnerSetupFiles', () => {
     expect(rule).toContain('subject.user === "zveltio"');
     expect(rule).toContain('unit.indexOf("zveltio-ext-runner@") === 0');
     expect(rule).not.toContain('"enable"');
+  });
+});
+
+// RFC step 4: in containers there is no systemd. With the shared socket set on
+// the engine, a systemctl call would fail every extension's enable.
+describe('startRunner with a shared runner socket', () => {
+  it('returns that socket and starts no unit', async () => {
+    const before = process.env.ZVELTIO_EXT_RUNNER_SOCKET;
+    const path = process.env.PATH;
+    process.env.ZVELTIO_EXT_RUNNER_SOCKET = '/run/zveltio-ext/runner.sock';
+    process.env.PATH = '/nonexistent'; // any systemctl spawn would throw
+    try {
+      expect(await startRunner('acme/x')).toBe('/run/zveltio-ext/runner.sock');
+      await stopRunner('acme/x');
+    } finally {
+      process.env.PATH = path;
+      if (before === undefined) delete process.env.ZVELTIO_EXT_RUNNER_SOCKET;
+      else process.env.ZVELTIO_EXT_RUNNER_SOCKET = before;
+    }
   });
 });

@@ -216,6 +216,23 @@ podDisruptionBudget:
 # Used when S3 isn't configured — uploads + downloaded extension archives
 # live under /data. Disable for stateless deployments that go through S3.
 
+# ── Extension runner (RFC extension-runner, step 4) ───────────────────────────
+# A sidecar that runs worker-isolated extensions out of the engine process,
+# each under a uid of its own, with no engine secrets and no database
+# connection. Limit: a sidecar shares the pod's network, so the pod's
+# NetworkPolicy is also the extensions' egress policy.
+extRunner:
+  enabled: false
+  # First uid given to an extension process; the next 65535 are reserved.
+  uidBase: 200000
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
 persistence:
   enabled: true
   storageClass: ""

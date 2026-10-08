@@ -1,0 +1,36 @@
+# Test stack for ext-runner-compose.sh — layered on the real overlay:
+#   docker compose -f docker-compose.ext-runner.yml -f packages/engine/scripts/ext-runner-compose.test.yml
+# The runner keeps every isolation setting of docker-compose.ext-runner.yml;
+# only its image becomes Bun + the source tree instead of a release build. The
+# "engine" is the probe, under the engine's uid, with a secret in a 0600 .env,
+# a secret in its environment, and a network.
+name: zveltio-ext-runner-test
+
+x-image: &image
+  build: !override
+    context: .
+    dockerfile_inline: |
+      FROM oven/bun:1.3-alpine
+      # /run/zveltio-ext 0777, as a Kubernetes emptyDir is: the runner must close it.
+      RUN apk add --no-cache setpriv && mkdir -p /run/zveltio-ext /data/extensions /opt/zveltio && \
+          chmod 0777 /run/zveltio-ext && \
+          chown 100:101 /data/extensions /opt/zveltio && \
+          echo SECRET=hunter2-env-file > /opt/zveltio/.env && chown 100:101 /opt/zveltio/.env && \
+          chmod 600 /opt/zveltio/.env
+
+services:
+  engine:
+    <<: *image
+    user: '100:101'
+    working_dir: /tmp
+    command: ['sleep', 'infinity']
+    environment:
+      SECRET: hunter2-process-env
+    volumes:
+      - ${ZV_SRC:?}:/src:ro
+
+  ext-runner:
+    <<: *image
+    command: ['bun', '/src/packages/engine/src/binary-entry.ts', 'ext-runner']
+    volumes:
+      - ${ZV_SRC:?}:/src:ro

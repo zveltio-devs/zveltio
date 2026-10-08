@@ -22,11 +22,26 @@
  *
  * Who may connect: only the engine's uid, read from the kernel with
  * SO_PEERCRED.
+ *
+ * Containers (step 4) have no systemd: one runner container serves every
+ * extension on a socket in a volume shared with the engine
+ * (`ZVELTIO_EXT_RUNNER_SOCKET` set on both sides), starts as root with only
+ * CAP_SETUID, CAP_SETGID and CAP_KILL, and gives every process a uid of its own from
+ * `ZVELTIO_EXT_RUNNER_UID_BASE`. Its network is the container's
+ * (`network_mode: none` in compose).
  */
 
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+  chmodSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createServer, type Socket } from 'node:net';
 import { spawn } from 'node:child_process';
 import { WORKER_RUNTIME_SOURCE } from './worker-extension-runtime-source.generated.js';
@@ -82,20 +97,61 @@ export async function runExtRunner(): Promise<never> {
     console.error('[ext-runner] ZVELTIO_ENGINE_UID must be the numeric uid of the engine service');
     process.exit(1);
   }
+  // Container mode (RFC step 4): one runner serves every extension, so the
+  // uid per extension that systemd gives step 3b comes from here — the runner
+  // starts as root with only CAP_SETUID, CAP_SETGID and CAP_KILL and drops each process to a
+  // uid of its own. Without it every extension shares one uid, and one of them
+  // can replace the runner's socket and be handed the next extension's channel.
+  const uidBase = process.env.ZVELTIO_EXT_RUNNER_UID_BASE
+    ? Number(process.env.ZVELTIO_EXT_RUNNER_UID_BASE)
+    : null;
+  if (uidBase !== null && (!Number.isInteger(uidBase) || uidBase < 1000 || uidBase === engineUid)) {
+    console.error('[ext-runner] ZVELTIO_EXT_RUNNER_UID_BASE must be an integer ≥ 1000');
+    process.exit(1);
+  }
   // Same uid as the engine = no boundary at all. Refuse rather than run as
-  // a slower in-process worker that looks isolated.
+  // a slower in-process worker that looks isolated. Root only to drop each
+  // process to its own uid, never to run one.
   const ownUid = process.getuid?.();
-  if (ownUid === undefined || ownUid === engineUid || ownUid === 0) {
+  if (ownUid === undefined || ownUid === engineUid || (ownUid === 0) !== (uidBase !== null)) {
     console.error(
-      '[ext-runner] refusing to run as the engine uid or as root — start it through its unit',
+      '[ext-runner] refusing to run as the engine uid, or as root without ' +
+        'ZVELTIO_EXT_RUNNER_UID_BASE (or with it, as anything but root) — start it through its unit',
     );
     process.exit(1);
   }
 
   const runtimePath = ensureWorkerRuntimeOnDisk();
+  // The processes run under other uids and must read the runtime.
+  if (uidBase !== null) chmodSync(dirname(runtimePath), 0o755);
   // Only what the runtime needs. The runner's own environment is the unit's,
   // and nothing of the engine's ever reaches this process.
   const childEnv = { NODE_ENV: process.env.NODE_ENV ?? 'production', BUN_BE_BUN: '1' };
+  // Bun's spawn ignores the `uid` option without a word (measured: the child
+  // ran as root), so the drop is setpriv's. A uid stays taken while its
+  // process lives; ponytail: 65536 concurrent extensions before a wrap blocks.
+  const liveUids = new Set<number>();
+  let nextUid = 0;
+  const command = (): { argv: string[]; uid?: number } => {
+    const argv = [process.execPath, runtimePath];
+    if (uidBase === null) return { argv };
+    let uid = uidBase + nextUid;
+    for (let i = 0; liveUids.has(uid) && i < 65536; i++) uid = uidBase + (++nextUid % 65536);
+    nextUid = (nextUid + 1) % 65536;
+    liveUids.add(uid);
+    return {
+      uid,
+      argv: [
+        'setpriv',
+        `--reuid=${uid}`,
+        `--regid=${uid}`,
+        '--clear-groups',
+        '--no-new-privs',
+        '--',
+        ...argv,
+      ],
+    };
+  };
 
   const server = createServer(async (conn) => {
     const uid = await peerUid(conn).catch(() => null);
@@ -105,14 +161,26 @@ export async function runExtRunner(): Promise<never> {
       return;
     }
     // Memory and tasks are the unit's cgroup limits, per extension.
-    const child = spawn(process.execPath, [runtimePath], {
+    const { argv, uid: childUid } = command();
+    const child = spawn(argv[0]!, argv.slice(1), {
       stdio: ['pipe', 'pipe', 'inherit'],
       env: childEnv,
+      cwd: '/',
     });
+    if (childUid !== undefined) child.on('exit', () => liveUids.delete(childUid));
     conn.pipe(child.stdin);
     child.stdout.pipe(conn);
-    conn.on('close', () => child.kill('SIGKILL'));
-    conn.on('error', () => child.kill('SIGKILL'));
+    // kill() throws EPERM on a child under another uid when the runner lacks
+    // CAP_KILL — measured: the throw took the runner and every extension down.
+    const kill = () => {
+      try {
+        child.kill('SIGKILL');
+      } catch (err) {
+        console.error(`[ext-runner] could not kill pid ${child.pid}: ${(err as Error).message}`);
+      }
+    };
+    conn.on('close', kill);
+    conn.on('error', kill);
     child.stdin.on('error', () => conn.destroy());
     child.on('exit', () => conn.destroy());
   });
@@ -121,6 +189,17 @@ export async function runExtRunner(): Promise<never> {
   if (!path) {
     console.error('[ext-runner] ZVELTIO_EXT_RUNNER_SOCKET is not set');
     process.exit(1);
+  }
+  if (uidBase !== null) {
+    // The extensions run as other uids beside this socket. A directory they can
+    // write into (a Kubernetes emptyDir is 0777) lets one of them put its own
+    // socket in the runner's place and be handed every later connection.
+    const dir = dirname(path);
+    if (statSync(dir).uid !== 0) {
+      console.error(`[ext-runner] ${dir} must belong to root in container mode`);
+      process.exit(1);
+    }
+    chmodSync(dir, 0o755);
   }
   rmSync(path, { force: true });
   await new Promise<void>((resolve, reject) => {
@@ -186,6 +265,10 @@ async function systemctl(verb: 'start' | 'stop', unit: string): Promise<void> {
  * exists; the socket appears when the runner listens.
  */
 export async function startRunner(extName: string): Promise<string> {
+  // Containers (RFC step 4): one runner service listens on a socket shared
+  // with the engine; there is no systemd to start an instance.
+  const shared = process.env.ZVELTIO_EXT_RUNNER_SOCKET;
+  if (shared) return shared;
   const unit = runnerUnit(extName);
   await systemctl('start', unit);
   const path = runnerSocketPath(extName);
@@ -195,6 +278,8 @@ export async function startRunner(extName: string): Promise<string> {
 }
 
 export async function stopRunner(extName: string): Promise<void> {
+  // The shared runner kills the extension's process when its connection closes.
+  if (process.env.ZVELTIO_EXT_RUNNER_SOCKET) return;
   await systemctl('stop', runnerUnit(extName));
 }
 

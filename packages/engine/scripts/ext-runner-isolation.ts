@@ -6,7 +6,7 @@
  * `.env`, the engine's process environment, a network address, and a path
  * outside its own (another extension's runner directory). It reports through
  * `console.log`, which the runtime forwards as `log` frames. Prints one JSON
- * line: { transport, env, environ, fetch, write } — each what it got, or
+ * line: { transport, env, environ, fetch, write, uid } — each what it got, or
  * `DENIED <code>`.
  *
  *   bun scripts/ext-runner-isolation.ts process <env path> <ext dir>
@@ -15,8 +15,9 @@
  *
  * `managed` starts the extension's `zveltio-ext-runner@` unit through systemd,
  * as the engine does. Optional env: PROBE_URL (fetched), PROBE_WRITE (a file
- * the extension tries to create). Run by ext-runner-isolation.sh (container)
- * and ext-runner-systemd.sh (real systemd); on its own it proves nothing.
+ * the extension tries to create). Run by ext-runner-isolation.sh (container),
+ * ext-runner-systemd.sh (real systemd) and ext-runner-compose.sh (the compose
+ * overlay); on its own it proves nothing.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -60,6 +61,8 @@ export default {
       environ: await read('/proc/${process.pid}/environ'),
       fetch: fetched,
       write: wrote,
+      // process.getuid is not there inside the runtime; the kernel says.
+      uid: Number.parseInt((await read('/proc/self/status')).split('Uid:')[1] ?? ''),
     }));
   },
 };
