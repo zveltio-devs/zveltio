@@ -19,6 +19,7 @@ import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
 import { fieldTypeRegistry, renderSqlDefault } from './field-type-registry.js';
+import { invalidateRulesCache } from '../validation-engine.js';
 
 const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
@@ -239,6 +240,23 @@ export async function alterField(
           .where('target_field', '=', fieldName)
           .execute();
       }
+      // The rules written against the field name it by column. Left on the old
+      // name, a column hidden from a role was shown to it under the new one
+      // (column permissions deny by name), and its row and validation rules
+      // stopped applying. Rules already naming `newName` belong to a field
+      // dropped earlier — no field has that name — and would otherwise collide
+      // with, or attach to, this one.
+      for (const [table, col, field] of [
+        ['zvd_column_permissions', 'collection_name', 'column_name'],
+        ['zvd_rls_policies', 'collection', 'filter_field'],
+        ['zv_validation_rules', 'collection', 'field_name'],
+      ] as const) {
+        await sql`DELETE FROM ${sql.id(table)} WHERE ${sql.id(col)} = ${name} AND ${sql.id(field)} = ${newName}`.execute(
+          trx,
+        );
+        await sql`UPDATE ${sql.id(table)} SET ${sql.id(field)} = ${newName}
+                   WHERE ${sql.id(col)} = ${name} AND ${sql.id(field)} = ${fieldName}`.execute(trx);
+      }
       updatedFieldShape = { ...updatedFieldShape, name: newName };
       actions.push(`renamed ${fieldName}→${newName}`);
     }
@@ -247,6 +265,14 @@ export async function alterField(
     const updatedFields = fields.map((f) => (f.name === fieldName ? updatedFieldShape : f));
     await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields as never });
   });
+
+  if (newName && newName !== fieldName) {
+    // After the commit: a read in between would cache the old names again.
+    const tenancy = await import('../tenancy/index.js');
+    await tenancy.invalidateColumnPermCache(name);
+    await tenancy.invalidateRlsCache(name);
+    invalidateRulesCache(name);
+  }
 
   if (keyChanges.length) {
     const shape: FieldDef = { ...updatedFieldShape };
