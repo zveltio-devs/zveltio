@@ -373,6 +373,8 @@ export function buildRestrictedContext(
   capabilities: readonly string[] = [],
   /** Declared-but-unapproved capabilities — for the denial message only. */
   pendingCapabilities: readonly string[] = [],
+  /** Manifest `dependencies` + `optionalDependencies`: whose services it may read. */
+  serviceDeps: readonly string[] = [],
 ): ExtensionContext {
   const hasAdminDb = capabilities.includes('db:admin');
   // Drop any health checks this extension registered on a previous load so a
@@ -465,8 +467,9 @@ export function buildRestrictedContext(
     // `DDLManager`, and `??` handed every extension that, not this.
     DDLManager: engineSqlHelper(announcingDDLManager),
     // Hand each extension a scoped view of the registry so its register()
-    // calls are tagged for cleanup on unload. Idempotent on hot-reload.
-    services: serviceRegistry.scope(extName),
+    // calls are tagged for cleanup on unload, and held — like a worker's at the
+    // broker — to its namespace and to the owners its manifest declares.
+    services: serviceRegistry.scope(extName, serviceDeps),
     queryAlter: queryAlterRegistry.scope(extName),
     entityAccess: entityAccessRegistry.scope(extName),
     // Subsystem health checks (H-1.4). Namespaced + cleared here so a hot-reload
@@ -651,7 +654,12 @@ async function registerExtensionRoutes(
   restrictedCtx: ExtensionContext,
   app: Hono,
   extName: string,
-  isolation: { entry: string; extDir: string; dependencies?: string[] } | null,
+  isolation: {
+    entry: string;
+    extDir: string;
+    dependencies?: string[];
+    optionalDependencies?: string[];
+  } | null,
   db: Database,
 ): Promise<void> {
   const mountStrategy = extension.mountStrategy ?? 'global';
@@ -666,7 +674,13 @@ async function registerExtensionRoutes(
     // running, so first load is unaffected. The proxy routes are re-mounted by
     // the new worker, and the old ones are unmounted by stop().
     await host.stop(extName);
-    await host.start(extName, isolation.extDir, isolation.entry, isolation.dependencies);
+    await host.start(
+      extName,
+      isolation.extDir,
+      isolation.entry,
+      isolation.dependencies,
+      isolation.optionalDependencies,
+    );
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();
     subApp.onError(problemOnError);
@@ -802,6 +816,13 @@ export async function finalizeExtensionLoad(
   // Pass a RestrictedDb proxy — extensions cannot query zv_* system tables.
   // Also inject the full public API (checkPermission, auth, DDLManager…) and
   // ctx.internals.* so extensions never have to relative-import engine modules.
+  const dependencies = (manifest?.dependencies ?? []).map((d) => d.name);
+  const optionalDependencies = (manifest?.optionalDependencies ?? []).map((d) => d.name);
+  const serviceDeps = [...dependencies, ...optionalDependencies];
+  const workerIsolation =
+    manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
+      ? { entry: manifest.engine.entry, extDir, dependencies, optionalDependencies }
+      : undefined;
   const restrictedCtx = buildRestrictedContext(
     ctx,
     extName,
@@ -810,6 +831,7 @@ export async function finalizeExtensionLoad(
     true,
     effective,
     pending,
+    serviceDeps,
   );
 
   // Register routes — if the live app's Hono matcher is already built (happens
@@ -834,13 +856,7 @@ export async function finalizeExtensionLoad(
       restrictedCtx,
       app,
       extName,
-      manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
-        ? {
-            entry: manifest.engine.entry,
-            extDir,
-            dependencies: (manifest.dependencies ?? []).map((d) => d.name),
-          }
-        : null,
+      workerIsolation ?? null,
       ctx.db,
     );
   } catch (regErr: unknown) {
@@ -894,14 +910,8 @@ export async function finalizeExtensionLoad(
     capabilitiesGrandfathered: grandfathered,
     publicRoutes,
     apiKeyRoutes,
-    workerIsolation:
-      manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
-        ? {
-            entry: manifest.engine.entry,
-            extDir,
-            dependencies: (manifest.dependencies ?? []).map((d) => d.name),
-          }
-        : undefined,
+    workerIsolation,
+    serviceDeps,
   });
   console.log(`🔌 Extension loaded: ${extName}`);
 
@@ -944,6 +954,7 @@ export async function reRegisterExtension(
     false,
     loaded?.permissions ?? [],
     loaded?.pendingCapabilities ?? [],
+    loaded?.serviceDeps ?? [],
   );
 
   try {

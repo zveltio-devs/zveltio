@@ -24,6 +24,7 @@
  *     which can call validate as a sub-step.
  */
 
+import type { ManifestDependency } from '../extension/index.js';
 import { parseMigrationSql } from './migration-parse.js';
 
 export { SHARED_MESSAGE_KEYS } from './shared-message-keys.js';
@@ -151,6 +152,45 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
         `zveltioMaxVersion "${obj.zveltioMaxVersion}" is not valid semver`,
       ),
     );
+  }
+
+  // Required and optional extension dependencies share one shape; the broker
+  // lets an extension call services only of the extensions named in either.
+  const depNames = new Map<string, string>();
+  for (const field of ['dependencies', 'optionalDependencies'] as const) {
+    const list = obj[field];
+    if (list === undefined) continue;
+    if (!Array.isArray(list)) {
+      out.push(
+        err('MANIFEST_BAD_DEPENDENCY', `"${field}" must be an array of { name, minVersion? }`),
+      );
+      continue;
+    }
+    for (const d of list as Array<Partial<Record<keyof ManifestDependency, unknown>>>) {
+      const depName = d && typeof d === 'object' ? d.name : undefined;
+      const min = d && typeof d === 'object' ? d.minVersion : undefined;
+      if (typeof depName !== 'string' || depName.trim() === '') {
+        out.push(
+          err('MANIFEST_BAD_DEPENDENCY', `"${field}" entry ${JSON.stringify(d)} has no name`),
+        );
+        continue;
+      }
+      if (min !== undefined && (typeof min !== 'string' || !SEMVER_RE.test(min))) {
+        out.push(
+          err(
+            'MANIFEST_BAD_DEPENDENCY',
+            `"${field}" ${depName}: minVersion ${JSON.stringify(min)} is not semver`,
+          ),
+        );
+      }
+      const seen = depNames.get(depName);
+      if (seen) {
+        out.push(
+          err('MANIFEST_BAD_DEPENDENCY', `"${depName}" is listed in "${seen}" and "${field}"`),
+        );
+      }
+      depNames.set(depName, field);
+    }
   }
 
   // The engine's manifest schema refuses the whole extension (422) on a bad entry.

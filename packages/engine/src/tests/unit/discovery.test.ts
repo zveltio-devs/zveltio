@@ -10,13 +10,21 @@ import { join } from 'node:path';
 import { getActiveExtensionNames, topoSortExtensions } from '../../lib/extensions/discovery.js';
 
 /** Build a base dir with `<name>/manifest.json` declaring the given deps. */
-function baseWith(specs: Record<string, string[]>): string {
+function baseWith(
+  specs: Record<string, string[]>,
+  optional: Record<string, string[]> = {},
+): string {
   const base = mkdtempSync(join(tmpdir(), 'zv-disco-'));
   for (const [name, deps] of Object.entries(specs)) {
     mkdirSync(join(base, name), { recursive: true });
     writeFileSync(
       join(base, name, 'manifest.json'),
-      JSON.stringify({ name, version: '1.0.0', dependencies: deps.map((d) => ({ name: d })) }),
+      JSON.stringify({
+        name,
+        version: '1.0.0',
+        dependencies: deps.map((d) => ({ name: d })),
+        optionalDependencies: (optional[name] ?? []).map((d) => ({ name: d })),
+      }),
     );
   }
   return base;
@@ -54,6 +62,33 @@ describe('topoSortExtensions', () => {
     const base = baseWith({ a: ['ghost'], b: [] });
     const sorted = await topoSortExtensions(['a', 'b'], base);
     expect(sorted.sort()).toEqual(['a', 'b']);
+  });
+
+  it('orders an installed optional dependency first', async () => {
+    const base = baseWith({ a: [], b: [] }, { a: ['b'] });
+    expect(await topoSortExtensions(['a', 'b'], base)).toEqual(['b', 'a']);
+  });
+
+  it('ignores an optional dependency that is not in the load set', async () => {
+    const base = baseWith({ a: [], c: [] }, { a: ['absent'] });
+    const refused = new Map<string, string>();
+    expect(await topoSortExtensions(['a', 'c'], base, refused)).toEqual(['a', 'c']);
+    expect(refused.size).toBe(0);
+  });
+
+  it('gives up the optional edge rather than refuse a cycle through it', async () => {
+    // b needs a; a would like b first — a must still load before b.
+    const base = baseWith({ a: [], b: ['a'] }, { a: ['b'] });
+    const refused = new Map<string, string>();
+    expect(await topoSortExtensions(['a', 'b'], base, refused)).toEqual(['a', 'b']);
+    expect(refused.size).toBe(0);
+  });
+
+  it('loads an extension whose optional dependency is refused', async () => {
+    const base = baseWith({ a: [], x: ['y'], y: ['x'] }, { a: ['x'] });
+    const refused = new Map<string, string>();
+    expect(await topoSortExtensions(['a', 'x', 'y'], base, refused)).toEqual(['a']);
+    expect([...refused.keys()].sort()).toEqual(['x', 'y']);
   });
 
   it('treats a missing manifest as no dependencies', async () => {

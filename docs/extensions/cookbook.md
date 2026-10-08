@@ -162,7 +162,10 @@ ctx.services.register('crm.contacts.findByEmail', async (email: string) => {
 });
 ```
 
-**Consume** — always treat it as optional; the provider may not be installed:
+**Consume** — declare `crm` in `optionalDependencies` (or `dependencies`, if
+you cannot work without it); `ctx.services.get` refuses a service whose owner
+your manifest does not name. Treat it as optional — the provider may not be
+installed:
 ```ts
 const lookup = ctx.services.get('crm.contacts.findByEmail');
 const contact = lookup ? await lookup(email) : null;

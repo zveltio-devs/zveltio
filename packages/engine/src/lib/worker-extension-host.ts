@@ -49,7 +49,7 @@ import {
   spawnProcessRunner,
   connectRunner,
 } from './worker-extension-transport.js';
-import { serviceRegistry } from './service-registry.js';
+import { serviceCallRefusal, serviceRegistry } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
 import { activationMiddlewareFor, extensionLoader } from './extensions/index.js';
 import { ProblemException, problem } from './problem.js';
@@ -149,8 +149,10 @@ interface ManagedWorker {
   /** Service names this worker has registered. Used to unregister on
    *  respawn so stale entries don't shadow the new worker's exports. */
   registeredServices: Set<string>;
-  /** Manifest `dependencies`: the extensions whose services this one may call. */
+  /** Manifest `dependencies`: a call into one that is down answers 503. */
   dependencies: ReadonlySet<string>;
+  /** `dependencies` + `optionalDependencies`: the owners whose services it may call. */
+  mayCall: ReadonlySet<string>;
   /** Between a crash and the fresh spawn: in the map, but answering nothing. */
   respawning?: boolean;
   proxyUnmount: () => void;
@@ -215,11 +217,19 @@ export class WorkerExtensionHost {
     extDir: string,
     bundleEntry: string,
     dependencies: readonly string[] = [],
+    optionalDependencies: readonly string[] = [],
   ): Promise<void> {
     if (this.workers.has(extName)) {
       throw new Error(`Worker for "${extName}" is already running`);
     }
-    const managed = await this.spawn(extName, extDir, bundleEntry, 1, new Set(dependencies));
+    const managed = await this.spawn(
+      extName,
+      extDir,
+      bundleEntry,
+      1,
+      new Set(dependencies),
+      new Set([...dependencies, ...optionalDependencies]),
+    );
     this.workers.set(extName, managed);
     managed.proxyUnmount = this.mountProxyRoutes(managed);
     managed.heartbeatTimer = setInterval(() => this.heartbeat(managed), HEARTBEAT_INTERVAL_MS);
@@ -290,6 +300,7 @@ export class WorkerExtensionHost {
     bundleEntry: string,
     generation: number,
     dependencies: ReadonlySet<string>,
+    mayCall: ReadonlySet<string>,
   ): Promise<ManagedWorker> {
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
     const runtimePath = ensureWorkerRuntimeOnDisk();
@@ -318,6 +329,7 @@ export class WorkerExtensionHost {
       pendingPings: new Map(),
       registeredServices: new Set(),
       dependencies,
+      mayCall,
       proxyUnmount: () => {},
       workerGeneration: generation,
       enabledAt: Date.now(),
@@ -399,6 +411,7 @@ export class WorkerExtensionHost {
           managed.bundleEntry,
           managed.workerGeneration + 1,
           managed.dependencies,
+          managed.mayCall,
         );
         // Carry over the proxy-mount + bookkeeping; the old ManagedWorker
         // is replaced in the registry by the new one.
@@ -541,39 +554,29 @@ export class WorkerExtensionHost {
     try {
       const scope = requestScope(managed, msg.requestId, 'service call') ?? { tenantId: null };
       const { tenantId, actor } = scope;
-      const ownerWorker = this.findServiceOwner(msg.name);
-      const owner = ownerWorker?.name ?? serviceRegistry.ownerOf(msg.name);
+      const name = serviceRegistry.canonical(msg.name);
+      const ownerWorker = this.findServiceOwner(name);
+      const owner = ownerWorker?.name ?? serviceRegistry.ownerOf(name);
       if (owner === null) {
-        // Unregistered. If a dependency is down that is why, and the caller
-        // should hear it as such rather than as a missing name.
+        // Unregistered. If a hard dependency is down that is why, and the caller
+        // should hear it as such rather than as a missing name. An absent
+        // optional one is just not found.
         const down = [...managed.dependencies].filter((d) => !this.isDependencyRunning(d));
-        const named = down.find((d) => msg.name.startsWith(`${d}.`));
+        const named = down.find((d) => name.startsWith(`${d}.`));
         if (named || down.length > 0) throw dependencyDown(named ?? down.join('", "'));
         throw new Error(`service "${msg.name}" not found`);
       }
       // The broker is the only path between extensions, so it is where a worker
       // is held to what its manifest declared — not to whatever got registered.
-      // `engine` is never a dependency: declaring it must not open the engine's own.
-      const allowed =
-        owner === managed.name ||
-        (owner === 'engine'
-          ? ENGINE_PUBLIC_SERVICES.has(msg.name)
-          : managed.dependencies.has(owner));
-      if (!allowed) {
-        throw new Error(
-          `extension "${managed.name}" may not call service "${msg.name}": ` +
-            (owner === 'engine'
-              ? 'it is not an engine-public service'
-              : `declare "${owner}" in its manifest dependencies`),
-        );
-      }
+      const refusal = serviceCallRefusal(managed.name, managed.mayCall, owner, name);
+      if (refusal) throw new Error(refusal);
       if (ownerWorker && ownerWorker.name !== managed.name) {
         const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, scope);
         this.post(managed, { type: 'service:ok', id: msg.id, result });
         return;
       }
       // Fall back to inline registry (host-side services).
-      const impl = serviceRegistry.get<(...args: unknown[]) => unknown>(msg.name);
+      const impl = serviceRegistry.get<(...args: unknown[]) => unknown>(name);
       if (typeof impl !== 'function') throw new Error(`service "${msg.name}" is not callable`);
       const call = () => Promise.resolve(impl(...msg.args));
       // The context an inline extension's code has while serving a request of
@@ -649,15 +652,8 @@ export class WorkerExtensionHost {
     msg: Extract<WorkerToHostMessage, { type: 'service:register' }>,
   ): void {
     try {
-      // Only `<extension>.*`: first-come registration let a worker claim a name
-      // another extension publishes and answer its callers. A dot in the
-      // extension name would make `a.` a prefix of `a.b.`, so such a name gets
-      // no namespace at all.
-      if (managed.name.includes('.') || !msg.name.startsWith(`${managed.name}.`)) {
-        throw new Error(
-          `extension "${managed.name}" may register only services named "${managed.name}.<name>"`,
-        );
-      }
+      // The scope holds it to `<extension>.*`: first-come registration let a
+      // worker claim a name another extension publishes and answer its callers.
       // Publish a stub in the host registry that, when called, forwards
       // to the worker via service:invoke. This is what makes worker-
       // registered services callable from inline extensions / other
@@ -668,7 +664,7 @@ export class WorkerExtensionHost {
         .register(msg.name, (...args: unknown[]) =>
           this.invokeWorkerService(managed, msg.name, args, currentScope(getCurrentDomainOrNull())),
         );
-      managed.registeredServices.add(msg.name);
+      managed.registeredServices.add(serviceRegistry.canonical(msg.name));
       this.post(managed, { type: 'service:register:ok', id: msg.id });
     } catch (err) {
       this.post(managed, {
@@ -892,12 +888,6 @@ function failPendingInvokes(extName: string): void {
     waiter.reject(dependencyDown(extName));
   }
 }
-
-/**
- * Engine-owned services a worker may call without declaring anything. Empty:
- * the engine publishes none today, and one it adds is not public until named here.
- */
-const ENGINE_PUBLIC_SERVICES: ReadonlySet<string> = new Set();
 
 const DEPENDENCY_DOWN = 'extension.dependency_unavailable';
 

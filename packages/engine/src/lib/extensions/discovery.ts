@@ -18,6 +18,8 @@ import { join } from 'path';
  * Read manifest.dependencies for each extension and topologically sort.
  *
  * Behavior:
+ *   - An `optionalDependencies` entry in the load set is ordered first too; one
+ *     not in it is ignored, and one that is refused does not refuse this one.
  *   - Extensions with no manifest or no dependencies retain their relative order.
  *   - If a declared dependency is not in the planned-for-load set, the dependent
  *     extension is skipped with a warning (it can be loaded later via loadFromDB).
@@ -37,20 +39,50 @@ export async function topoSortExtensions(
   if (names.length <= 1) return names;
 
   const depsMap = new Map<string, string[]>();
+  const optionalMap = new Map<string, string[]>();
   for (const name of names) {
     const manifestPath = join(baseDir, name, 'manifest.json');
     let deps: string[] = [];
+    let optional: string[] = [];
     if (existsSync(manifestPath)) {
       try {
         const m = JSON.parse(await Bun.file(manifestPath).text()) as {
           dependencies?: Array<{ name: string }>;
+          optionalDependencies?: Array<{ name: string }>;
         };
         deps = (m.dependencies ?? []).map((d) => d.name);
+        optional = (m.optionalDependencies ?? []).map((d) => d.name);
       } catch {
         /* ignore — extension will fail later in loadExtension with proper error */
       }
     }
     depsMap.set(name, deps);
+    optionalMap.set(name, optional);
+  }
+
+  // An optional dependency in the load set loads first — unless that would close
+  // a cycle, in which case it is the edge given up: two extensions that each
+  // integrate with the other must both still load. Required edges go in first,
+  // so a cycle left in the graph is made of required edges only.
+  const reaches = (from: string, to: string): boolean => {
+    const stack = [from];
+    const seen = new Set<string>();
+    for (let n = stack.pop(); n !== undefined; n = stack.pop()) {
+      if (n === to) return true;
+      if (seen.has(n)) continue;
+      seen.add(n);
+      stack.push(...(depsMap.get(n) ?? []));
+    }
+    return false;
+  };
+  const optionalEdges = new Set<string>();
+  for (const [name, optional] of optionalMap) {
+    for (const dep of optional) {
+      const deps = depsMap.get(name) ?? [];
+      if (!depsMap.has(dep) || deps.includes(dep) || reaches(dep, name)) continue;
+      deps.push(dep);
+      optionalEdges.add(`${name}\0${dep}`);
+    }
   }
 
   const sorted: string[] = [];
@@ -75,7 +107,9 @@ export async function topoSortExtensions(
         );
         continue;
       }
-      if (!visit(dep, [...path, name]) && !refused.has(name)) {
+      // A refused optional dependency is one this extension loads without.
+      const optionalEdge = optionalEdges.has(`${name}\0${dep}`);
+      if (!visit(dep, [...path, name]) && !optionalEdge && !refused.has(name)) {
         refused.set(name, `depends on "${dep}", which is refused (${refused.get(dep)})`);
       }
     }

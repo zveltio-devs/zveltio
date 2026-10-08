@@ -34,6 +34,19 @@ export const ManifestSchema = z
         }),
       )
       .default([]),
+    /**
+     * Extensions this one integrates with when they are there. Not installed is
+     * not a load error — their services read as absent (`null`). Installed, they
+     * load first, and their services are callable as a `dependencies` entry's are.
+     */
+    optionalDependencies: z
+      .array(
+        z.object({
+          name: z.string(),
+          minVersion: z.string().optional(),
+        }),
+      )
+      .default([]),
     /** npm packages auto-installed when extension is activated (e.g. node-saml, ldapts) */
     peerDependencies: z.record(z.string(), z.string()).optional(),
     /** PostgreSQL extensions required in the database (e.g. postgis, pg_trgm) */

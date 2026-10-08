@@ -49,6 +49,7 @@ function makeManaged(
     pendingPings: new Map(),
     registeredServices: new Set<string>(),
     dependencies: new Set(overrides.dependencies ?? []),
+    mayCall: new Set(overrides.dependencies ?? []),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),
@@ -554,7 +555,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     expect(posted.some((m) => m.type === 'service:ok')).toBe(false);
     const errs = posted.filter((m) => m.type === 'service:err');
     expect(errs.map((m) => (m.type === 'service:err' ? m.error : ''))).toEqual([
-      'extension "nodeps" may not call service "inline.echo": declare "inline" in its manifest dependencies',
+      'extension "nodeps" may not call service "inline.echo": declare "inline" in its manifest dependencies or optionalDependencies',
       'extension "nodeps" may not call service "engine.internal": it is not an engine-public service',
     ]);
   });

@@ -44,6 +44,7 @@ describe('WorkerExtensionHost — proxy header forwarding', () => {
       pendingPings: new Map(),
       registeredServices: new Set<string>(),
       dependencies: new Set<string>(),
+      mayCall: new Set<string>(),
       proxyUnmount: () => {},
       workerGeneration: 1,
       enabledAt: Date.now(),
