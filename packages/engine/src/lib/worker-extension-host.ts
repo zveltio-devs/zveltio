@@ -554,7 +554,7 @@ export class WorkerExtensionHost {
     try {
       const scope = requestScope(managed, msg.requestId, 'service call') ?? { tenantId: null };
       const { tenantId, actor } = scope;
-      const name = serviceRegistry.canonical(msg.name);
+      const name = msg.name;
       const ownerWorker = this.findServiceOwner(name);
       const owner = ownerWorker?.name ?? serviceRegistry.ownerOf(name);
       if (owner === null) {
@@ -664,7 +664,7 @@ export class WorkerExtensionHost {
         .register(msg.name, (...args: unknown[]) =>
           this.invokeWorkerService(managed, msg.name, args, currentScope(getCurrentDomainOrNull())),
         );
-      managed.registeredServices.add(serviceRegistry.canonical(msg.name));
+      managed.registeredServices.add(msg.name);
       this.post(managed, { type: 'service:register:ok', id: msg.id });
     } catch (err) {
       this.post(managed, {

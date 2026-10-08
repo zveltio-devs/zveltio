@@ -8,11 +8,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import {
-  SERVICE_ALIASES,
-  ServiceRegistryImpl,
-  serviceRegisterRefusal,
-} from '../../lib/service-registry.js';
+import { ServiceRegistryImpl, serviceRegisterRefusal } from '../../lib/service-registry.js';
 
 describe('register / get / has / list', () => {
   it('stores and retrieves a value by name', () => {
@@ -154,41 +150,17 @@ describe('scope (per-extension view)', () => {
   });
 });
 
-describe('renamed first-party services (engine-reserved aliases)', () => {
-  it('an old name resolves to the new one', () => {
+describe('a third party named like an old first-party service prefix', () => {
+  // The old first-party names (`inventory.*`) were leaf names anyone could
+  // claim. Renamed into `operations/inventory.*`, an extension called
+  // `inventory` owns `inventory.*` only — and no first-party caller reads it,
+  // because the caller may read only the owners it declared.
+  it('can register in its own namespace but is not what a first-party caller reaches', () => {
     const r = new ServiceRegistryImpl();
+    r.scope('inventory').register('inventory.products.list', 'squat');
     r.scope('operations/inventory').register('operations/inventory.products.list', 'list');
-    expect(r.get<string>('inventory.products.list')).toBe('list');
-    expect(r.ownerOf('inventory.products.list')).toBe('operations/inventory');
     const invoicing = r.scope('finance/invoicing', ['operations/inventory']);
-    expect(invoicing.get<string>('inventory.products.list')).toBe('list');
-    expect(() => r.scope('crm').get('inventory.products.list')).toThrow(
-      'declare "operations/inventory"',
-    );
-  });
-
-  it("nobody but the new name's owner may register an old name", () => {
-    const r = new ServiceRegistryImpl();
-    expect(() => r.scope('inventory').register('inventory.products.list', 'squat')).toThrow(
-      'reserved by the engine',
-    );
-    expect(() => r.registerAs('engine', 'hr.employment', 'squat')).toThrow('reserved');
-    expect(r.has('inventory.products.list')).toBe(false);
-  });
-
-  it('an older release of the owner registering the old name gets the new one', () => {
-    const r = new ServiceRegistryImpl();
-    r.scope('compliance/ro/documents').register('identity.nationalId', 'cnp');
-    expect(r.list()).toEqual(['compliance/ro/documents.nationalId']);
-    expect(r.get<string>('compliance/ro/documents.nationalId')).toBe('cnp');
-    r.scope('compliance/ro/documents').unregister('identity.nationalId');
-    expect(r.list()).toEqual([]);
-  });
-
-  it('every alias maps into the namespace of an extension', () => {
-    for (const [from, to] of SERVICE_ALIASES) {
-      expect(serviceRegisterRefusal(to.slice(0, to.indexOf('.')), to)).toBeNull();
-      expect(from).not.toBe(to);
-    }
+    expect(invoicing.get<string>('operations/inventory.products.list')).toBe('list');
+    expect(() => invoicing.get('inventory.products.list')).toThrow('declare "inventory"');
   });
 });
