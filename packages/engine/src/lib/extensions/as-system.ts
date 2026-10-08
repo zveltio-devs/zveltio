@@ -162,7 +162,11 @@ export async function asSystemAs<T>(
  * extension. Audited once per job.
  */
 export async function markSystemJob(caller: string, trx: Database): Promise<void> {
-  await sql`SELECT set_config(${SYSTEM_COLLECTIONS_SETTING}, ',*,', true)`.execute(trx);
+  // An open call for the whole job: an `asSystem` inside it rewrites the mark
+  // from the open calls on exit, and without this one that cleared the `*`.
+  const calls: (readonly string[])[] = [['*']];
+  openCalls.set(trx, calls);
+  await writeMark(trx, calls);
   auditAs(caller, {
     type: 'extension.as_system',
     resourceType: 'collection',

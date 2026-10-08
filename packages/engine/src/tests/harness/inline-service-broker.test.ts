@@ -144,6 +144,21 @@ d('inline service broker: namespace, declared owners, optional dependencies', ()
     expect(out.error).toContain(`declare "${OWNER}" in its manifest dependencies`);
   });
 
+  it('an extension cannot be named "engine", the owner tag of the unrestricted scope', async () => {
+    writeExt(base, 'engine', squatterEntry.replace(`'${SQUATTER}'`, "'engine'"));
+    const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
+    await extensionLoader.loadExtension('engine', app, ctx, base);
+    try {
+      expect(extensionLoader.loaded.has('engine')).toBe(false);
+      expect(extensionLoader.getLastLoadError('engine')).toContain('reserved');
+      expect(serviceRegistry.has(`${OWNER}.other`)).toBe(false);
+    } finally {
+      serviceRegistry.unregisterAs('engine', `${OWNER}.other`);
+      extensionLoader.loaded.delete('engine');
+      await revokeExtensionDbRoles(db, 'engine', true).catch(() => undefined);
+    }
+  });
+
   it('a declared dependency is callable', async () => {
     expect(await attempt(DEPENDENT, `${OWNER}.secret`)).toEqual({ out: 'secret' });
   });

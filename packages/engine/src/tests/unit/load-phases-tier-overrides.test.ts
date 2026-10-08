@@ -58,10 +58,30 @@ describe('enforcePublisherTier — escape hatches', () => {
       const r = await enforcePublisherTier('worker-ext', {
         name: 'worker-ext',
         version: '1.0.0',
-        engine: { isolation: 'worker' },
+        engine: { isolation: 'worker', bundled: true },
       } as never);
       expect(r.ok).toBe(true);
       expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('an unbundled "worker" manifest is held to the inline rule', async () => {
+    // load.ts takes the worker path only for a bundled entry; the gate waved an
+    // unbundled one through as a worker and the loader imported it inline.
+    delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
+      catalogEntry({ name: 'c-ext', publisher_tier: 'community' }),
+    ]);
+    try {
+      const r = await enforcePublisherTier('c-ext', {
+        name: 'c-ext',
+        version: '1.0.0',
+        engine: { isolation: 'worker', bundled: false },
+      } as never);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.lastLoadError).toContain('community');
     } finally {
       spy.mockRestore();
     }
