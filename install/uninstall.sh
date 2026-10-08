@@ -57,7 +57,11 @@ fi
 # ── Stop and disable services ─────────────────────────────────────────────────
 header "Stopping services"
 
-for svc in zveltio zveltio-ext-runner seaweedfs valkey; do
+systemctl stop 'zveltio-ext-runner@*' 2>/dev/null || true
+rm -f '/etc/systemd/system/zveltio-ext-runner@.service' /etc/polkit-1/rules.d/50-zveltio-ext-runner.rules
+rm -rf /etc/systemd/system/zveltio.service.d/ext-runner.conf
+
+for svc in zveltio seaweedfs valkey; do
   if systemctl is-active --quiet "$svc" 2>/dev/null; then
     systemctl stop "$svc"
     success "Stopped $svc"
@@ -108,7 +112,6 @@ if [[ "$PURGE_DATA" == "yes" ]]; then
 
   # Remove system users
   userdel -r zveltio 2>/dev/null || userdel zveltio 2>/dev/null || true
-  userdel zveltio-ext 2>/dev/null || true
   userdel valkey 2>/dev/null || true
   userdel seaweedfs 2>/dev/null || true
   success "Removed system users"

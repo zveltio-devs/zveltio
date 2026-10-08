@@ -13,7 +13,7 @@
  * default (and the development transport) until the runner is the default
  * (RFC step 6). `process` changes the transport, not the isolation: the child
  * runs under the engine's uid. `runner` (step 3) hands the same frames to the
- * `zveltio ext-runner` service, which runs the child under its own uid.
+ * extension's own `zveltio-ext-runner@` service, which runs it under its own uid.
  */
 
 import { connect } from 'node:net';
@@ -96,11 +96,6 @@ export function extensionTransport(): ExtensionTransport {
   return t === 'process' || t === 'runner' ? t : 'worker';
 }
 
-/** Where `zveltio ext-runner` listens, and where the engine connects. */
-export function runnerSocketPath(): string {
-  return process.env.ZVELTIO_EXT_RUNNER_SOCKET || '/run/zveltio-ext/runner.sock';
-}
-
 /**
  * The host side of a frame channel over any byte stream: frames out through
  * `send`, frames in from `chunks`. The end of `chunks`, or a frame the decoder
@@ -178,13 +173,13 @@ export function spawnProcessRunner(
 }
 
 /**
- * Connect to the `zveltio-ext-runner` service (RFC step 3). One connection is
- * one extension process, spawned by the runner under its own uid when the
- * connection is accepted; the connection is the channel, so the identity rule
- * is the same as for a spawned child. The engine sends no environment: the
- * runner starts the runtime with its own minimal one.
+ * Connect to an extension's runner (RFC step 3, lib/ext-runner.ts). The
+ * runner spawns the runtime under its own uid when the connection is
+ * accepted; the connection is the channel, so the identity rule is the same
+ * as for a spawned child. The engine sends no environment: the runner starts
+ * the runtime with its own minimal one.
  */
-export function connectRunner(socketPath: string = runnerSocketPath()): ExtensionChannel {
+export function connectRunner(socketPath: string): ExtensionChannel {
   const sock = connect(socketPath);
   let reason = 'runner closed the connection';
   sock.on('error', (err) => {
