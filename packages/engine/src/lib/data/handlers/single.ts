@@ -20,13 +20,19 @@ import { queryAlterRegistry, TIME_TRAVEL_ALTERED } from '../query-alter.js';
 import { entityAccessRegistry } from '../../tenancy/index.js';
 import { dynamicInsert, dynamicUpdate, dynamicDelete } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
-import { getRlsFilters, applyRlsFilters, resolveUserRole } from '../../tenancy/index.js';
+import {
+  getRlsFilters,
+  applyRlsFilters,
+  matchesRlsFilters,
+  resolveUserRole,
+} from '../../tenancy/index.js';
 import { getColumnAccess, applyColumnAccess, filterWritableFields } from '../../tenancy/index.js';
 import {
   virtualGetOne,
   virtualCreate,
   virtualUpdate,
   virtualDelete,
+  type VirtualConfig,
 } from '../../virtual-collection-adapter.js';
 import type { JsonValue } from '../types.js';
 import { serializeRecord, resolveExpand, applyExpand, computeEtag } from '../shape.js';
@@ -72,6 +78,33 @@ function routeWrite(c: Context): WriteRequest {
     trx: c.get('tenantTrx') ?? undefined,
     tenantId: getTenantId(c),
   };
+}
+
+/**
+ * The before-row probe of a managed write, for a virtual collection's upstream
+ * record — row policies, alters and entity access in memory, as the virtual read
+ * applies them. PUT, PATCH and DELETE proxied any id, so a row its policy hides
+ * from GET was overwritten or deleted by guessing the id. The upstream is asked
+ * for the row only when a gate applies. A Response refuses; null admits.
+ */
+async function virtualWriteRefusal(
+  c: Context,
+  db: Database,
+  config: VirtualConfig,
+  w: Pick<WriteRequest, 'collection' | 'id' | 'user' | 'authType'>,
+  op: 'update' | 'delete',
+): Promise<Response | null> {
+  const scope = await readScope(db, w.collection, w.user, w.authType);
+  const entity = entityAccessRegistry.hasChecksFor(scope.table);
+  if (scope.rls.length === 0 && !scope.altersRestrict && !entity) return null;
+  const before = scope.altersRestrict ? null : await virtualGetOne(config, w.id);
+  if (!before || (scope.rls.length > 0 && !matchesRlsFilters(before, scope.rls))) {
+    return c.json({ error: 'Record not found' }, 404);
+  }
+  if (entity && !(await entityAccessRegistry.isAllowed(scope.table, before, w.user, op))) {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+  return null;
 }
 
 export async function getRecord(c: Context, db: Database): Promise<Response> {
@@ -347,6 +380,14 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
       }
+      const refused = await virtualWriteRefusal(
+        c,
+        db,
+        virtualConfigPut,
+        { collection, id, user, authType: c.get('authType') },
+        'update',
+      );
+      if (refused) return refused;
       const record = await virtualUpdate(virtualConfigPut, id, writable);
       return c.json({ record: applyColumnAccess(record, vColAccess) });
     } catch (err) {
@@ -467,6 +508,8 @@ export async function patchRecord(
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
       }
+      const refused = await virtualWriteRefusal(c, db, virtualConfigPatch, w, 'update');
+      if (refused) return refused;
       const record = await virtualUpdate(virtualConfigPatch, id, writable);
       return c.json({ record: applyColumnAccess(record, vColAccess) });
     } catch (err) {
@@ -583,6 +626,8 @@ export async function deleteRecord(
   const virtualConfigDelete = await getVirtualConfig(db, collection);
   if (virtualConfigDelete) {
     try {
+      const refused = await virtualWriteRefusal(c, db, virtualConfigDelete, w, 'delete');
+      if (refused) return refused;
       await virtualDelete(virtualConfigDelete, id);
       return c.json({ success: true });
     } catch (err) {
