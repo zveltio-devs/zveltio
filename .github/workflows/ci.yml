@@ -586,6 +586,17 @@ jobs:
         #     to picomatch-only matching.
         run: bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm
 
+  ext-runner-isolation:
+    name: Extension runner isolation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Extension runner keeps the engine's secrets out of reach
+        # RFC extension-runner step 3: under the engine's uid the probe reads the
+        # engine's .env and /proc/<pid>/environ; under the runner it reads neither,
+        # and a uid other than the engine's is refused.
+        run: bash packages/engine/scripts/ext-runner-isolation.sh
+
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest

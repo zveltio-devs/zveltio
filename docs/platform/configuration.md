@@ -415,7 +415,7 @@ absent, and `env | grep ZVELTIO_ALLOW` should print nothing.
 | `ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH` | The SSRF guard inside worker extensions, which blocks `fetch` to private address ranges. | Testing a worker extension against a deliberately internal endpoint. |
 | `ZVELTIO_ALLOW_INLINE_THIRD_PARTY` | Forcing third-party extensions into worker isolation. With `=1` they load in the engine process. | Debugging an extension you wrote and trust. |
 | `ZVELTIO_ALLOW_WORKER_EXTENSIONS` | Refusing worker-isolated (third-party) extensions in production. With `=1` they load. The worker is a thread in the engine process and does not keep an extension from the process's files or environment. | Production installs that run third-party extensions you trust. |
-| `ZVELTIO_EXT_TRANSPORT` | `worker`: worker-isolated extensions run as a thread in the engine process and talk to it by `postMessage`. With `=process` each runs as a child process speaking length-prefixed JSON frames on stdin/stdout ([RFC](../engine/rfc-extension-runner.md), step 2). The child still runs as the engine's user: this changes the transport, not the isolation. | Trying the out-of-process runner ahead of its default. |
+| `ZVELTIO_EXT_TRANSPORT` | `worker`: worker-isolated extensions run as a thread in the engine process and talk to it by `postMessage`. With `=process` each runs as a child process speaking length-prefixed JSON frames on stdin/stdout ([RFC](../engine/rfc-extension-runner.md), step 2), still as the engine's user. With `=runner` the engine hands the same frames to the `zveltio-ext-runner` service, which runs each extension under its own uid (step 3); the native installer sets this when it installs the runner, and it needs no `ZVELTIO_ALLOW_WORKER_EXTENSIONS`. | `process`: trying the out-of-process transport without the runner service. |
 | `ZVELTIO_EXT_AUTH_GATE=0` | The fail-closed authentication gate in front of every `/ext/*` route. | Nothing in production. It exists so a single extension's own auth can be exercised in isolation. |
 | `METRICS_ALLOW_UNAUTHENTICATED` | `/metrics` refusing anonymous callers when no `METRICS_TOKEN` is set. | A Prometheus scraper on a private network. |
 | `RATE_LIMIT_ALLOWLIST` | Rate limiting, for the listed CIDRs. | An internal load generator, or a known reverse proxy. |
@@ -481,6 +481,9 @@ because it boots many engines against one Postgres — see the note at the top o
 | `ZVELTIO_IMPORT_LOGS_CONTRACT` | unset | Arms the import-logs reconciler, which is opt-in by design. |
 | `ZVELTIO_TRACE_SQL_ERRORS` | unset | `1` logs the full SQL of every failing statement. Statements may contain data. |
 | `ZVELTIO_TRACE_CONNECTIONS` | unset | `1` logs pool acquire/release, for diagnosing exhaustion. |
+| `ZVELTIO_EXT_RUNNER_SOCKET` | `/run/zveltio-ext/runner.sock` | Unix socket of the extension runner (`zveltio ext-runner`). The runner listens on it; the engine connects with `ZVELTIO_EXT_TRANSPORT=runner`. |
+| `ZVELTIO_ENGINE_UID` | — | Runner only, required: the numeric uid of the engine service. The runner serves no other uid (SO_PEERCRED) and refuses to run as that uid or as root. |
+| `ZVELTIO_EXT_MEMORY_MB` | `1024` | Runner only: address-space limit (RLIMIT_AS) per extension process, in MiB. Bun does not start under 1024. The unit's `MemoryMax` bounds all extensions together. |
 
 ## Electric (optional sync)
 

@@ -37,6 +37,7 @@ import {
   embedPageSchemas,
 } from './manifest-schema.js';
 import { installExtensionNpmDependencies } from './npm-install.js';
+import { extensionTransport } from '../worker-extension-transport.js';
 
 /**
  * Discriminated result for a load phase.
@@ -253,7 +254,8 @@ export async function resolveManifest(
  * from the engine's JavaScript objects, not from the process's files or its
  * environment, so it is not a boundary for untrusted code. Until extensions run
  * out of process, an operator who installs third-party code in production says
- * so with ZVELTIO_ALLOW_WORKER_EXTENSIONS=1. Development and tests are not gated.
+ * so with ZVELTIO_ALLOW_WORKER_EXTENSIONS=1. Development and tests are not gated,
+ * and neither is `ZVELTIO_EXT_TRANSPORT=runner`, which runs them under another uid.
  */
 export function enforceWorkerOptIn(
   extName: string,
@@ -262,6 +264,9 @@ export function enforceWorkerOptIn(
   if (manifest?.engine?.isolation !== 'worker') return { ok: true, value: undefined };
   if (process.env.NODE_ENV !== 'production') return { ok: true, value: undefined };
   if (process.env.ZVELTIO_ALLOW_WORKER_EXTENSIONS === '1') return { ok: true, value: undefined };
+  // Out of process under the runner's own uid (RFC step 3): the boundary the
+  // opt-in stands in for exists, so there is nothing to consent to.
+  if (extensionTransport() === 'runner') return { ok: true, value: undefined };
   const msg =
     `Extension "${extName}" runs in worker isolation, which in production requires ` +
     `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1. The worker is a thread in the engine process and ` +

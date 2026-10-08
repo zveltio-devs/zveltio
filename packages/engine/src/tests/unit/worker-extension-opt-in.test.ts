@@ -18,6 +18,7 @@ const inlineManifest = { engine: { bundled: true } } as never;
 const saved = {
   NODE_ENV: process.env.NODE_ENV,
   ZVELTIO_ALLOW_WORKER_EXTENSIONS: process.env.ZVELTIO_ALLOW_WORKER_EXTENSIONS,
+  ZVELTIO_EXT_TRANSPORT: process.env.ZVELTIO_EXT_TRANSPORT,
 };
 afterEach(() => {
   for (const [k, v] of Object.entries(saved)) {
@@ -38,6 +39,15 @@ describe('enforceWorkerOptIn', () => {
   it('loads it in production when the operator opted in', () => {
     process.env.NODE_ENV = 'production';
     process.env.ZVELTIO_ALLOW_WORKER_EXTENSIONS = '1';
+    expect(enforceWorkerOptIn('acme/thing', workerManifest).ok).toBe(true);
+  });
+
+  it('does not gate the runner transport, which runs it under another uid', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.ZVELTIO_ALLOW_WORKER_EXTENSIONS;
+    process.env.ZVELTIO_EXT_TRANSPORT = 'process';
+    expect(enforceWorkerOptIn('acme/thing', workerManifest).ok).toBe(false);
+    process.env.ZVELTIO_EXT_TRANSPORT = 'runner';
     expect(enforceWorkerOptIn('acme/thing', workerManifest).ok).toBe(true);
   });
 

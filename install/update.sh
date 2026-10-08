@@ -238,6 +238,8 @@ success "Migrations complete"
 
 # ── Track version + restart ───────────────────────────────────────────────────
 echo "$ZVELTIO_VERSION" > "${ZVELTIO_DIR}/.version"
+# Same binary, same frame protocol: the runner restarts with the engine.
+systemctl try-restart zveltio-ext-runner 2>/dev/null || true
 systemctl start zveltio
 sleep 2
 

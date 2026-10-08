@@ -11,10 +11,12 @@
  *
  * `ZVELTIO_EXT_TRANSPORT=process` selects it; the in-thread worker stays the
  * default (and the development transport) until the runner is the default
- * (RFC step 6). This step changes the transport, not the isolation: the child
- * still runs under the engine's uid (step 3 gives it its own).
+ * (RFC step 6). `process` changes the transport, not the isolation: the child
+ * runs under the engine's uid. `runner` (step 3) hands the same frames to the
+ * `zveltio ext-runner` service, which runs the child under its own uid.
  */
 
+import { connect } from 'node:net';
 import type { HostToWorkerMessage, WorkerToHostMessage } from './worker-extension-protocol.js';
 
 /**
@@ -87,10 +89,63 @@ export interface ExtensionChannel {
   onerror: ((e: ErrorEvent) => void) | null;
 }
 
-export type ExtensionTransport = 'worker' | 'process';
+export type ExtensionTransport = 'worker' | 'process' | 'runner';
 
 export function extensionTransport(): ExtensionTransport {
-  return process.env.ZVELTIO_EXT_TRANSPORT === 'process' ? 'process' : 'worker';
+  const t = process.env.ZVELTIO_EXT_TRANSPORT;
+  return t === 'process' || t === 'runner' ? t : 'worker';
+}
+
+/** Where `zveltio ext-runner` listens, and where the engine connects. */
+export function runnerSocketPath(): string {
+  return process.env.ZVELTIO_EXT_RUNNER_SOCKET || '/run/zveltio-ext/runner.sock';
+}
+
+/**
+ * The host side of a frame channel over any byte stream: frames out through
+ * `send`, frames in from `chunks`. The end of `chunks`, or a frame the decoder
+ * refuses, is reported once through `onerror` — the host's respawn path, as
+ * for a crashed worker.
+ */
+function frameChannel(
+  send: (bytes: Uint8Array) => void,
+  kill: () => void,
+  chunks: AsyncIterable<Uint8Array>,
+  endReason: () => Promise<string>,
+): ExtensionChannel {
+  let ended = false;
+  const channel: ExtensionChannel = {
+    onmessage: null,
+    onerror: null,
+    postMessage(msg) {
+      if (!ended) send(encodeFrame(msg));
+    },
+    terminate() {
+      ended = true;
+      kill();
+    },
+  };
+  const fail = (message: string) => {
+    if (ended) return;
+    ended = true;
+    kill();
+    channel.onerror?.(new ErrorEvent('error', { message }));
+  };
+  void (async () => {
+    const frames = new FrameDecoder();
+    try {
+      for await (const chunk of chunks) {
+        for (const data of frames.push(chunk)) {
+          channel.onmessage?.(new MessageEvent('message', { data: data as WorkerToHostMessage }));
+        }
+      }
+    } catch (err) {
+      fail(`runner channel: ${(err as Error).message}`);
+      return;
+    }
+    fail(await endReason());
+  })();
+  return channel;
 }
 
 /**
@@ -100,8 +155,6 @@ export function extensionTransport(): ExtensionTransport {
  * the engine's own executable: under a `bun build --compile` binary that is
  * the engine, and `BUN_BE_BUN` makes it act as `bun`. stderr is inherited, so
  * what the runtime cannot forward as a `log` frame still reaches the journal.
- * An exit, or a frame the decoder refuses, is reported once through `onerror`
- * — the host's respawn path, as for a crashed worker.
  */
 export function spawnProcessRunner(
   runtimePath: string,
@@ -113,39 +166,36 @@ export function spawnProcessRunner(
     stderr: 'inherit',
     env: { ...env, BUN_BE_BUN: '1' },
   });
-  let ended = false;
-  const channel: ExtensionChannel = {
-    onmessage: null,
-    onerror: null,
-    postMessage(msg) {
-      if (ended) return;
-      proc.stdin.write(encodeFrame(msg));
+  return frameChannel(
+    (bytes) => {
+      proc.stdin.write(bytes);
       proc.stdin.flush();
     },
-    terminate() {
-      ended = true;
-      proc.kill();
+    () => proc.kill(),
+    proc.stdout,
+    async () => `runner exited with code ${await proc.exited}`,
+  );
+}
+
+/**
+ * Connect to the `zveltio-ext-runner` service (RFC step 3). One connection is
+ * one extension process, spawned by the runner under its own uid when the
+ * connection is accepted; the connection is the channel, so the identity rule
+ * is the same as for a spawned child. The engine sends no environment: the
+ * runner starts the runtime with its own minimal one.
+ */
+export function connectRunner(socketPath: string = runnerSocketPath()): ExtensionChannel {
+  const sock = connect(socketPath);
+  let reason = 'runner closed the connection';
+  sock.on('error', (err) => {
+    reason = `runner socket ${socketPath}: ${err.message}`;
+  });
+  return frameChannel(
+    (bytes) => {
+      sock.write(bytes);
     },
-  };
-  const fail = (message: string) => {
-    if (ended) return;
-    ended = true;
-    proc.kill();
-    channel.onerror?.(new ErrorEvent('error', { message }));
-  };
-  void (async () => {
-    const frames = new FrameDecoder();
-    try {
-      for await (const chunk of proc.stdout) {
-        for (const data of frames.push(chunk)) {
-          channel.onmessage?.(new MessageEvent('message', { data: data as WorkerToHostMessage }));
-        }
-      }
-    } catch (err) {
-      fail(`runner channel: ${(err as Error).message}`);
-      return;
-    }
-    fail(`runner exited with code ${await proc.exited}`);
-  })();
-  return channel;
+    () => sock.destroy(),
+    sock,
+    async () => reason,
+  );
 }
