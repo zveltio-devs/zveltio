@@ -51,8 +51,8 @@ export function ensureWorkerRuntimeOnDisk(): string {
 type Getsockopt = (fd: number, level: number, name: number, val: unknown, len: unknown) => number;
 let getsockopt: Getsockopt | null = null;
 async function peerUid(socket: Socket): Promise<number | null> {
-  // biome-ignore lint/suspicious/noExplicitAny: Bun keeps the descriptor on the internal handle
-  const fd = (socket as any)._handle?.fd;
+  // Bun keeps the descriptor on the internal handle.
+  const fd = (socket as unknown as { _handle?: { fd?: unknown } })._handle?.fd;
   if (typeof fd !== 'number' || fd < 0) return null;
   const { dlopen, FFIType, ptr } = await import('bun:ffi');
   if (!getsockopt) {
