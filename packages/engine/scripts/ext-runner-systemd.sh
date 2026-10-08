@@ -19,6 +19,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 E="${ROOT}/packages/engine"
+# The engine user cannot read the checkout: every `sudo -u zveltio` keeps the
+# working directory, and posix_spawn fails with EACCES from an unreadable one.
+cd /tmp
 DIR=/opt/zveltio-ci
 URL="${PROBE_PUBLIC_URL:-https://example.com}"
 fail=0
