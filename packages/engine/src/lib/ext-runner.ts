@@ -149,13 +149,14 @@ const RUNNER_DIR = '/run/zveltio-ext';
  * (`acme/my-ext`), and an escaped instance (`acme-my\x2dext`) breaks
  * `RuntimeDirectory=zveltio-ext/%i` — measured: "Failed to deserialize". So
  * the instance is the name reduced to `[a-z0-9_]`, made unique again by a
- * hash of the real name.
+ * hash of the real name. At most 25 characters, so `User=zx_%i` stays within
+ * the 31 a user name may have.
  */
 export function runnerInstance(extName: string): string {
   const readable = extName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
-    .slice(0, 40);
+    .slice(0, 16);
   const hash = createHash('sha256').update(extName).digest('hex').slice(0, 8);
   return `${readable}_${hash}`;
 }
@@ -223,6 +224,10 @@ After=network.target
 [Service]
 Type=simple
 DynamicUser=yes
+# Named per instance. Left to systemd, the name derives from the unit name, and
+# two instances ended up as ONE uid — measured in CI: both runners ran as 63550
+# and one wrote into the other's runner directory.
+User=zx_%i
 ExecStart=${dir}/zveltio ext-runner
 Environment=NODE_ENV=production
 Environment=ZVELTIO_ENGINE_UID=${engineUid}

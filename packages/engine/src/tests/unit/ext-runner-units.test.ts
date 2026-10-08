@@ -13,7 +13,7 @@ import {
 describe('runnerInstance', () => {
   it('is [a-z0-9_] only, whatever the extension name', () => {
     for (const name of ['acme/my-ext.v2', 'Ünïcode ext', '../../etc', 'a'.repeat(300)]) {
-      expect(runnerInstance(name)).toMatch(/^[a-z0-9_]{1,60}$/);
+      expect(runnerInstance(name)).toMatch(/^[a-z0-9_]{1,25}$/);
     }
   });
 
@@ -35,6 +35,8 @@ describe('runnerSetupFiles', () => {
 
   it('runs each instance under its own uid, closed to the network, with the engine uid it serves', () => {
     expect(unit).toContain('DynamicUser=yes');
+    // One user name per instance: without it two instances shared one uid.
+    expect(unit).toContain('User=zx_%i');
     expect(unit).toContain('IPAddressDeny=any');
     expect(unit).toContain('Environment=ZVELTIO_ENGINE_UID=997');
     expect(unit).toContain('BindReadOnlyPaths=/opt/zveltio/zveltio /opt/zveltio/extensions');
