@@ -41,6 +41,7 @@ describe('WorkerExtensionHost — registered service invoke timeout', () => {
       pendingInits: new Map(),
       pendingPings: new Map(),
       registeredServices: new Set<string>(),
+      dependencies: new Set<string>(),
       proxyUnmount: () => {},
       workerGeneration: 1,
       enabledAt: Date.now(),
@@ -54,11 +55,11 @@ describe('WorkerExtensionHost — registered service invoke timeout', () => {
     dispatchMessage(host, managed, {
       type: 'service:register',
       id: 'reg-1',
-      name: 'slow.registered',
+      name: 'reg-timeout.registered',
     });
     await Promise.resolve();
 
-    const callP = serviceRegistry.get<() => Promise<string>>('slow.registered')?.();
+    const callP = serviceRegistry.get<() => Promise<string>>('reg-timeout.registered')?.();
     await Promise.resolve();
     jest.advanceTimersByTime(30_001);
 
@@ -69,7 +70,7 @@ describe('WorkerExtensionHost — registered service invoke timeout', () => {
           typeof m === 'object' &&
           m !== null &&
           (m as { type?: string }).type === 'service:invoke' &&
-          (m as { name?: string }).name === 'slow.registered',
+          (m as { name?: string }).name === 'reg-timeout.registered',
       ),
     ).toBe(true);
   });

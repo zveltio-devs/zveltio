@@ -128,6 +128,8 @@ export interface ServiceCallResponse {
   id: WorkerMessageId;
   result?: unknown;
   error?: string;
+  /** HTTP status the caller's route answers with if it does not catch (503: dependency down). */
+  status?: number;
 }
 
 // ── Log forwarding (worker → host) ──────────────────────────────────

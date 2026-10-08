@@ -247,7 +247,7 @@ interface LoadedExtension {
    * privileges. Any enable/disable triggers a re-register, so this was not a
    * rare path.
    */
-  workerIsolation?: { entry: string; extDir: string };
+  workerIsolation?: { entry: string; extDir: string; dependencies?: string[] };
 }
 
 // ManifestMeta, ExtensionManifest, and embedPageSchemas moved to
@@ -325,7 +325,9 @@ export class ExtensionLoader {
     const envExtensions = getActiveExtensionNames();
     // Before any loads: `a` loading first must already know `a/b` owns `zv_a_b_*`.
     noteExtensionNames(envExtensions);
-    const sortedEnv = await topoSortExtensions(envExtensions, extBase);
+    const refused = new Map<string, string>();
+    const sortedEnv = await topoSortExtensions(envExtensions, extBase, refused);
+    this.noteRefused(refused);
     for (const extName of sortedEnv) {
       await this.loadExtension(extName, app, ctx);
     }
@@ -335,7 +337,9 @@ export class ExtensionLoader {
     if (externalPath && existsSync(externalPath)) {
       const externalExts = await discoverExternal(externalPath);
       noteExtensionNames(externalExts);
-      const sortedExt = await topoSortExtensions(externalExts, externalPath);
+      const refusedExt = new Map<string, string>();
+      const sortedExt = await topoSortExtensions(externalExts, externalPath, refusedExt);
+      this.noteRefused(refusedExt);
       for (const extName of sortedExt) {
         await this.loadExtension(extName, app, ctx, externalPath);
       }
@@ -347,8 +351,20 @@ export class ExtensionLoader {
    * Body extracted to lib/extensions/discovery.ts (H-04 split); kept as a thin
    * delegator because registerMarketplaceRoutes calls it via the loader instance.
    */
-  async topoSortExtensions(names: string[], baseDir: string): Promise<string[]> {
-    return topoSortExtensions(names, baseDir);
+  async topoSortExtensions(
+    names: string[],
+    baseDir: string,
+    refused?: Map<string, string>,
+  ): Promise<string[]> {
+    return topoSortExtensions(names, baseDir, refused);
+  }
+
+  /** Record each extension the sort left out, with why — visible in /api/extensions. */
+  private noteRefused(refused: Map<string, string>): void {
+    for (const [name, reason] of refused) {
+      console.error(`❌ Extension "${name}" not loaded: ${reason}`);
+      this.lastLoadError.set(name, reason);
+    }
   }
 
   /** internal — also called by the extracted lifecycle helpers (loader split). */
@@ -387,9 +403,11 @@ export class ExtensionLoader {
       if (pending.length === 0 || !this.ctx) return;
 
       const extBase = resolveExtensionsBase();
-      const sorted = await this.topoSortExtensions(pending, extBase);
-      for (const name of sorted) {
-        await this.loadExtension(name, app, this.ctx);
+      const refused = new Map<string, string>();
+      const sorted = await this.topoSortExtensions(pending, extBase, refused);
+      this.noteRefused(refused);
+      for (const name of [...sorted, ...refused.keys()]) {
+        if (!refused.has(name)) await this.loadExtension(name, app, this.ctx);
         // Persist the per-extension outcome so a boot-time failure is visible in
         // /api/extensions (red badge + reason) instead of a silent skip, and a
         // recovered one loses its badge. is_enabled is left untouched — a

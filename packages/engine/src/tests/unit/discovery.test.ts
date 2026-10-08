@@ -41,9 +41,13 @@ describe('topoSortExtensions', () => {
     expect(sorted).toEqual(['c', 'b', 'a']);
   });
 
-  it('throws on a circular dependency', async () => {
-    const base = baseWith({ a: ['b'], b: ['a'] });
-    await expect(topoSortExtensions(['a', 'b'], base)).rejects.toThrow(/Circular/);
+  it('refuses a cycle and whatever depends on it, and sorts the rest', async () => {
+    const base = baseWith({ a: ['b'], b: ['a'], c: ['a'], d: [] });
+    const refused = new Map<string, string>();
+    expect(await topoSortExtensions(['a', 'b', 'c', 'd'], base, refused)).toEqual(['d']);
+    expect(refused.get('a')).toBe('Circular extension dependency: a -> b -> a');
+    expect(refused.get('b')).toBe('Circular extension dependency: a -> b -> a');
+    expect(refused.get('c')).toContain('depends on "a"');
   });
 
   it('tolerates a dependency that is not in the load set (warns, still loads)', async () => {

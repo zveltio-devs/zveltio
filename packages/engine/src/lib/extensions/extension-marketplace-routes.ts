@@ -700,9 +700,12 @@ export function registerMarketplaceRoutes(
 
     const extBase = resolveExtensionsBase();
     const names = installed.map((r) => r.name);
-    const ordered = await self.topoSortExtensions(names, extBase).catch(() => names);
+    const refused = new Map<string, string>();
+    const ordered = await self.topoSortExtensions(names, extBase, refused);
 
-    const results: { name: string; ok: boolean; error?: string }[] = [];
+    const results: { name: string; ok: boolean; error?: string }[] = [
+      ...[...refused].map(([name, error]) => ({ name, ok: false, error })),
+    ];
     for (const name of ordered) {
       // Mark enabled regardless of load outcome (self-heal model).
       await db

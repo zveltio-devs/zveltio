@@ -14,6 +14,7 @@ function makeManaged(
   overrides: {
     name: string;
     registeredServices?: string[];
+    dependencies?: string[];
     onPost?: (msg: HostToWorkerMessage) => void;
   },
 ) {
@@ -35,6 +36,7 @@ function makeManaged(
     pendingInits: new Map(),
     pendingPings: new Map(),
     registeredServices: new Set(overrides.registeredServices ?? []),
+    dependencies: new Set(overrides.dependencies ?? []),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),
@@ -69,7 +71,10 @@ describe('WorkerExtensionHost — cross-worker service errors', () => {
       },
     });
 
-    const { managed: caller, posted } = makeManaged(host, { name: 'caller-fail' });
+    const { managed: caller, posted } = makeManaged(host, {
+      name: 'caller-fail',
+      dependencies: ['owner-fail'],
+    });
     dispatchMessage(host, caller, {
       type: 'service:call',
       id: 'cross-err',
