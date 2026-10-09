@@ -20,6 +20,7 @@ import {
   getRlsFilters,
   getSingleTenantId,
   resolveUserRole,
+  withCollectionRead,
 } from '../lib/tenancy/index.js';
 import {
   DDLManager,
@@ -217,6 +218,10 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const createsByCollection = new Map<string, Array<{ recordId: string; payload: any }>>();
     const nonCreateOps: typeof operations = [];
+    // Per table: whether the caller may read it. A caller who may write but not
+    // read gets no RETURNING and no ON CONFLICT outside the engine's read window —
+    // both read the table, and the SELECT policy refused them (migration 058).
+    const readable = new Map<string, boolean>();
 
     for (const op of operations) {
       if (!op.collection || !op.recordId || !op.operation) {
@@ -283,6 +288,9 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         });
         continue;
       }
+      if (!readable.has(op.collection)) {
+        readable.set(op.collection, await checkPermission(user.id, collectionShortName, 'read'));
+      }
 
       // Sanitize payload — strip system fields, validate known columns
       if (op.operation !== 'delete') {
@@ -337,18 +345,28 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         // made every later operation in the same push answer `25P02 current
         // transaction is aborted`, so one bad row lost the other 499 and blamed
         // them for it.
+        const insert = (rows: unknown) =>
+          effectiveDb
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+            .insertInto(collection as any)
+            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+            .values(rows as any)
+            .onConflict((oc) => oc.column('id').doNothing());
         const inserted = await withSavepoint(
           effectiveDb,
           'sync_push_create',
           () =>
-            effectiveDb
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-              .insertInto(collection as any)
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-              .values(records as any)
-              .onConflict((oc) => oc.column('id').doNothing())
-              .returning('id')
-              .execute(),
+            readable.get(collection)
+              ? insert(records).returning('id').execute()
+              : // Without read: one row at a time, each counted instead of returned.
+                withCollectionRead(effectiveDb, collection.slice(4), async () => {
+                  const landed: Array<{ id: string }> = [];
+                  for (const r of records) {
+                    const done = await insert(r).executeTakeFirst();
+                    if (Number(done.numInsertedOrUpdatedRows ?? 0n) > 0) landed.push({ id: r.id });
+                  }
+                  return landed;
+                }),
           (err) => {
             throw err;
           },
@@ -448,8 +466,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
             const touched = await withSavepoint(
               effectiveDb,
               'sync_push_update',
-              () =>
-                applyRlsFilters(
+              () => {
+                const q = applyRlsFilters(
                   effectiveDb
                     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                     .updateTable(collection as any)
@@ -458,15 +476,22 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
                     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                     .where('id' as any, '=', recordId),
                   updateFilters,
-                )
-                  .returning('id')
-                  .execute(),
+                );
+                return readable.get(collection)
+                  ? q
+                      .returning('id')
+                      .execute()
+                      .then((r) => r.length)
+                  : withCollectionRead(effectiveDb, collection.slice(4), () =>
+                      q.executeTakeFirst().then((r) => Number(r.numUpdatedRows)),
+                    );
+              },
               (err) => {
                 throw err;
               },
             );
             results.push(
-              touched.length > 0
+              touched > 0
                 ? { recordId, status: 'ok', serverVersion: Date.now() }
                 : { recordId, status: 'conflict' },
             );
@@ -478,23 +503,30 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
             const removed = await withSavepoint(
               effectiveDb,
               'sync_push_delete',
-              () =>
-                applyRlsFilters(
+              () => {
+                const q = applyRlsFilters(
                   effectiveDb
                     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                     .deleteFrom(collection as any)
                     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
                     .where('id' as any, '=', recordId),
                   deleteFilters,
-                )
-                  .returning('id')
-                  .execute(),
+                );
+                return readable.get(collection)
+                  ? q
+                      .returning('id')
+                      .execute()
+                      .then((r) => r.length)
+                  : withCollectionRead(effectiveDb, collection.slice(4), () =>
+                      q.executeTakeFirst().then((r) => Number(r.numDeletedRows)),
+                    );
+              },
               (err) => {
                 throw err;
               },
             );
             results.push(
-              removed.length > 0
+              removed > 0
                 ? { recordId, status: 'ok', serverVersion: Date.now() }
                 : { recordId, status: 'conflict' },
             );
