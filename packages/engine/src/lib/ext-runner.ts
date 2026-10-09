@@ -144,18 +144,31 @@ export async function runExtRunner(): Promise<never> {
   }
 
   const runtimePath = ensureWorkerRuntimeOnDisk();
-  // The processes run under other uids and must read the runtime.
-  if (uidBase !== null) chmodSync(dirname(runtimePath), 0o755);
-  // Only what the runtime needs. The runner's own environment is the unit's,
-  // and nothing of the engine's ever reaches this process.
-  const childEnv = { NODE_ENV: process.env.NODE_ENV ?? 'production', BUN_BE_BUN: '1' };
+  // Edge functions (RFC step 5) run here too; importing the module writes their
+  // bootstrap, after the checks above made /tmp safe to write into.
+  const { edgeBootstrapPath, serveEdgeConnection } = await import(
+    './edge-functions/subprocess-runner.js'
+  );
+  // The processes run under other uids and must read the runtime and bootstrap.
+  if (uidBase !== null) {
+    chmodSync(dirname(runtimePath), 0o755);
+    chmodSync(dirname(edgeBootstrapPath), 0o755);
+    chmodSync(edgeBootstrapPath, 0o644);
+  }
   // Container mode: each process under a uid of its own, dropped by setpriv.
   const allocate = uidBase === null ? null : uidAllocator(uidBase);
-  const command = (): { argv: string[]; release?: () => void } => {
-    const argv = [process.execPath, runtimePath];
+  const wrap: RouteWrap = (argv) => {
     if (!allocate) return { argv };
     const { uid, release } = allocate();
     return { release, argv: setprivArgv(uid, argv) };
+  };
+  const route = {
+    workerArgv: [process.execPath, runtimePath],
+    // Only what the runtime needs. The runner's own environment is the unit's,
+    // and nothing of the engine's ever reaches this process.
+    childEnv: { NODE_ENV: process.env.NODE_ENV ?? 'production', BUN_BE_BUN: '1' },
+    wrap,
+    serveEdge: serveEdgeConnection,
   };
 
   const server = createServer(async (conn) => {
@@ -165,29 +178,7 @@ export async function runExtRunner(): Promise<never> {
       conn.destroy();
       return;
     }
-    // Memory and tasks are the unit's cgroup limits, per extension.
-    const { argv, release } = command();
-    const child = spawn(argv[0]!, argv.slice(1), {
-      stdio: ['pipe', 'pipe', 'inherit'],
-      env: childEnv,
-      cwd: '/',
-    });
-    if (release) child.on('exit', release);
-    conn.pipe(child.stdin);
-    child.stdout.pipe(conn);
-    // kill() throws EPERM on a child under another uid when the runner lacks
-    // CAP_KILL — measured: the throw took the runner and every extension down.
-    const kill = () => {
-      try {
-        child.kill('SIGKILL');
-      } catch (err) {
-        console.error(`[ext-runner] could not kill pid ${child.pid}: ${(err as Error).message}`);
-      }
-    };
-    conn.on('close', kill);
-    conn.on('error', kill);
-    child.stdin.on('error', () => conn.destroy());
-    child.on('exit', () => conn.destroy());
+    routeConnection(conn, route);
   });
 
   rmSync(path, { force: true });
@@ -207,6 +198,59 @@ export async function runExtRunner(): Promise<never> {
   process.on('SIGINT', stop);
   return new Promise<never>(() => {});
 }
+
+/**
+ * Serve one accepted connection: an edge invocation when it starts with the
+ * edge header, otherwise an extension's frame channel, piped to a runtime
+ * process unchanged. Nothing is spawned until the first bytes say which.
+ */
+export function routeConnection(
+  conn: Socket,
+  opts: {
+    workerArgv: string[];
+    childEnv: Record<string, string>;
+    wrap: RouteWrap;
+    serveEdge: (conn: Socket, first: Buffer, wrap: RouteWrap) => void;
+  },
+): void {
+  conn.once('data', (first: Buffer) => {
+    // Paused before anything else is read: a chunk emitted with no listener
+    // is lost.
+    conn.pause();
+    if (first[0] === EDGE_TAG_BYTE) {
+      opts.serveEdge(conn, first, opts.wrap);
+      return;
+    }
+    // Memory and tasks are the unit's cgroup limits, per extension.
+    const { argv, release } = opts.wrap(opts.workerArgv);
+    const child = spawn(argv[0]!, argv.slice(1), {
+      stdio: ['pipe', 'pipe', 'inherit'],
+      env: opts.childEnv,
+      cwd: '/',
+    });
+    if (release) child.on('exit', release);
+    child.stdin.write(first);
+    conn.pipe(child.stdin);
+    child.stdout.pipe(conn);
+    // kill() throws EPERM on a child under another uid when the runner lacks
+    // CAP_KILL — measured: the throw took the runner and every extension down.
+    const kill = () => {
+      try {
+        child.kill('SIGKILL');
+      } catch (err) {
+        console.error(`[ext-runner] could not kill pid ${child.pid}: ${(err as Error).message}`);
+      }
+    };
+    conn.on('close', kill);
+    conn.on('error', kill);
+    child.stdin.on('error', () => conn.destroy());
+    child.on('exit', () => conn.destroy());
+  });
+}
+
+type RouteWrap = (argv: string[]) => { argv: string[]; release?: () => void };
+// 'E' of the edge header; see EDGE_HEADER_TAG in edge-functions/subprocess-runner.ts.
+const EDGE_TAG_BYTE = 0x45;
 
 /**
  * Container mode: a uid per extension process, from `base` up. A uid stays
@@ -300,14 +344,18 @@ async function systemctl(verb: 'start' | 'stop', unit: string): Promise<void> {
  * unit is `Type=simple`, so `systemctl start` returns before the socket
  * exists; the socket appears when the runner listens.
  */
-export async function startRunner(extName: string): Promise<string> {
+export function startRunner(extName: string): Promise<string> {
+  return startInstance(runnerInstance(extName));
+}
+
+async function startInstance(instance: string): Promise<string> {
   // Containers (RFC step 4): one runner service listens on a socket shared
   // with the engine; there is no systemd to start an instance.
   const shared = process.env.ZVELTIO_EXT_RUNNER_SOCKET;
   if (shared) return shared;
-  const unit = runnerUnit(extName);
+  const unit = `zveltio-ext-runner@${instance}.service`;
   await systemctl('start', unit);
-  const path = runnerSocketPath(extName);
+  const path = join(RUNNER_DIR, instance, 'runner.sock');
   for (let i = 0; i < 100 && !existsSync(path); i++) await Bun.sleep(100);
   if (!existsSync(path)) throw new Error(`${unit} started but ${path} did not appear in 10s`);
   return path;
@@ -317,6 +365,21 @@ export async function stopRunner(extName: string): Promise<void> {
   // The shared runner kills the extension's process when its connection closes.
   if (process.env.ZVELTIO_EXT_RUNNER_SOCKET) return;
   await systemctl('stop', runnerUnit(extName));
+}
+
+/**
+ * Edge functions' runner (RFC step 5): the instance `edge`, which no extension
+ * name can produce — `runnerInstance` always ends in `_<8 hex>`. Started once,
+ * on the first invocation, and again after a failed one.
+ */
+export const EDGE_RUNNER_INSTANCE = 'edge';
+let edgeSocket: Promise<string> | null = null;
+export function edgeRunnerSocket(): Promise<string> {
+  edgeSocket ??= startInstance(EDGE_RUNNER_INSTANCE);
+  return edgeSocket;
+}
+export function forgetEdgeRunner(): void {
+  edgeSocket = null;
 }
 
 // ── `zveltio ext-runner setup` ────────────────────────────────────────────
@@ -380,6 +443,12 @@ TasksMax=64
 
 [Install]
 WantedBy=multi-user.target
+`,
+    [`/etc/systemd/system/zveltio-ext-runner@${EDGE_RUNNER_INSTANCE}.service.d/edge.conf`]: `# Written by \`zveltio ext-runner setup\`: edge functions (ZVELTIO_EDGE_TRANSPORT=runner)
+# run here, one process per invocation and several at once — a Bun process is
+# about ten tasks, so the template's 64 would cap them near six.
+[Service]
+TasksMax=512
 `,
     '/etc/systemd/system/zveltio.service.d/ext-runner.conf': `# Written by \`zveltio ext-runner setup\`: worker-isolated extensions run in
 # zveltio-ext-runner@ instances. .env can override it (EnvironmentFile wins).

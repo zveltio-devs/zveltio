@@ -53,6 +53,10 @@ const IMPORT_RE = /(?:from|import\()\s*['"](\.\.?\/[^'"]+?)\.js['"]/g;
 // ~40 barrel consumers don't eager-load them (coverage + startup cost).
 const OWNER_EXEMPTIONS: Record<string, readonly string[]> = {
   data: ['packages/engine/src/routes/data.ts'],
+  // The extension runner imports subprocess-runner with no node_modules on a
+  // read-only root: the security barrel's npm dependencies make Bun try to
+  // auto-install and die (ReadOnlyFileSystem). url-validator needs node: only.
+  security: ['packages/engine/src/lib/edge-functions/subprocess-runner.ts'],
 };
 
 interface Violation {

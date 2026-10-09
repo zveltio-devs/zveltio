@@ -12,6 +12,11 @@
 # A connection from a uid other than the engine's is refused (SO_PEERCRED), and
 # an extension's process does not outlive its connection.
 #
+# Edge functions (step 5, edge-runner-isolation.ts): under the engine
+# (ZVELTIO_EDGE_TRANSPORT unset) an edge function reaches the network; with
+# ZVELTIO_EDGE_TRANSPORT=runner it does not, and the uid it runs under — read
+# from outside while the invocation is held — cannot read the engine's .env.
+#
 #   bash packages/engine/scripts/ext-runner-compose.sh
 set -euo pipefail
 
@@ -21,7 +26,7 @@ dc() { docker compose --project-directory "$ROOT" -f "$ROOT/docker-compose.ext-r
   -f "$ROOT/packages/engine/scripts/ext-runner-compose.test.yml" "$@"; }
 trap 'dc down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
 
-dc up -d --build --wait engine ext-runner >/dev/null
+dc up -d --build --wait engine ext-runner >/dev/null || { dc logs ext-runner | tail -40; exit 1; }
 
 SOCK=/run/zveltio-ext/runner.sock
 # Both handed over world-writable with no sticky bit (as an emptyDir is).
@@ -51,6 +56,33 @@ for ext in r1 r2; do
   uids+=("$uid")
 done
 [ "${uids[0]}" != "${uids[1]}" ] || { echo "FAIL: two extensions got the same uid"; fail=1; }
+
+EDGE=/src/packages/engine/scripts/edge-runner-isolation.ts
+out=$(dc exec -T -e PROBE_URL="$URL" engine bun "$EDGE" 2>&1 || true)
+echo "edge process: ${out:0:300}"
+grep -q '"fetch":"HTTP' <<<"$out" \
+  || { echo "FAIL: an edge function under the engine's uid should reach $URL (probe broken?)"; fail=1; }
+# Held for 4 s: measured from outside while it lives, under its own uid.
+edge_out=$(mktemp)
+dc exec -T -e PROBE_URL="$URL" -e PROBE_HOLD_MS=4000 -e ZVELTIO_EDGE_TRANSPORT=runner \
+  engine bun "$EDGE" >"$edge_out" 2>&1 &
+edge_pid=$!
+sleep 2
+uid=$(dc exec -T ext-runner sh -c 'cat /proc/[0-9]*/status 2>/dev/null' | awk '/^Uid:/ && $2 >= 200000 {print $2; exit}')
+[ -n "$uid" ] || { echo "FAIL: no edge invocation found on the runner"; fail=1; }
+# Positive control: the runner's image holds the engine's 0600 .env, readable by its owner.
+dc exec -T -u 100 ext-runner cat /opt/zveltio/.env | grep -q hunter2 \
+  || { echo "FAIL: the runner holds no engine secret to test against (probe broken?)"; fail=1; }
+if [ -n "$uid" ]; then
+  [ "$uid" -ge 200000 ] || { echo "FAIL: edge function ran as uid $uid"; fail=1; }
+  dc exec -T -u "$uid" ext-runner cat /opt/zveltio/.env 2>/dev/null | grep -q hunter2 \
+    && { echo "FAIL: the edge function's uid $uid reads an engine secret"; fail=1; }
+fi
+wait "$edge_pid" || true
+out=$(cat "$edge_out"); rm -f "$edge_out"
+echo "edge runner:  $out (uid ${uid:-?})"
+grep -q '"transport":"runner"' <<<"$out" || { echo "FAIL: edge runner probe gave no answer"; fail=1; }
+grep -q '"fetch":"HTTP' <<<"$out" && { echo "FAIL: an edge function on the runner reached $URL"; fail=1; }
 
 # A closed connection ends its extension's process. (The probe exits on EOF by
 # itself; one that ignores EOF is what CAP_KILL in the overlay is for.)

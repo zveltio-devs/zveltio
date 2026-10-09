@@ -340,7 +340,9 @@ generated).
   extra signers go in `REGISTRY_PUBLIC_KEYS_JSON`).
 - Edge functions run in a separate process per invocation with a minimal env,
   a kernel memory ceiling (`EDGE_MEMORY_LIMIT_MB`) and a wall-clock kill. There
-  is no in-process mode; `EDGE_SANDBOX_MODE` is ignored.
+  is no in-process mode; `EDGE_SANDBOX_MODE` is ignored. The process is the
+  engine's uid unless `ZVELTIO_EDGE_TRANSPORT=runner` (opt-in) hands it to the
+  extension runner.
 - Worker isolation is a guard-rail, not an adversarially-tested sandbox —
   treat untrusted community extensions accordingly.
 - Outbound webhooks are HMAC-signed. Audit log covers every write; GDPR
