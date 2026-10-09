@@ -54,6 +54,25 @@ function syncTombstoneTrigger(tableName: string): string {
   );
 }
 
+/** `nonCollectionObjects`, resolved where the engine keeps its extensions. */
+async function nonCollectionObjectsNow(db: Database): Promise<Set<string>> {
+  const [{ nonCollectionObjects }, { resolveExtensionsBase }] = await Promise.all([
+    import('../tenancy/index.js'),
+    import('../extensions/index.js'),
+  ]);
+  return nonCollectionObjects(db, resolveExtensionsBase());
+}
+
+/**
+ * The tables holding rules that name a field by its column: column permissions,
+ * row rules, validation rules — as (table, collection column, field column).
+ */
+export const FIELD_RULE_TABLES = [
+  ['zvd_column_permissions', 'collection_name', 'column_name'],
+  ['zvd_rls_policies', 'collection', 'filter_field'],
+  ['zv_validation_rules', 'collection', 'field_name'],
+] as const;
+
 /** Field types whose values feed a collection's full-text search. */
 export const SEARCH_FIELD_TYPES = new Set(['text', 'richtext', 'email']);
 
@@ -440,6 +459,8 @@ export class DDLManager {
 
   static async createCollection(db: Database, definition: CollectionDefinition): Promise<void> {
     const validated = CollectionSchema.parse(definition);
+    const reserved = await this.reservedName(db, validated.name);
+    if (reserved) throw new Error(reserved);
 
     for (const field of validated.fields) {
       if (!fieldTypeRegistry.has(field.type)) {
@@ -695,6 +716,18 @@ export class DDLManager {
     return result.rows;
   }
 
+  /**
+   * Why `name` cannot be a collection, or null. Collections share the Casbin
+   * object column with the objects in `nonCollectionObjects`: under one of those
+   * names a collection was read by grants written for something else, and
+   * dropping it deleted them (a collection called `data` took every
+   * `data:view_all` grant on the instance with it).
+   */
+  static async reservedName(db: Database, name: string): Promise<string | null> {
+    if (!(await nonCollectionObjectsNow(db)).has(name)) return null;
+    return `"${name}" is reserved: it names a permission object that is not a collection.`;
+  }
+
   // ── dropCollection ───────────────────────────────────────────────────────────
 
   /**
@@ -704,6 +737,9 @@ export class DDLManager {
    * `forgetDroppedCollection` once it has committed; until then — or until the
    * next policy reconcile, if it never does — the grants are gone from the table
    * but not from the live permission model.
+   *
+   * Its Casbin rules stay when its name is also an object that is not a
+   * collection (`reservedName`): they guard that object too.
    */
   static async dropCollection(
     db: Database,
@@ -716,7 +752,7 @@ export class DDLManager {
     if (!(db as unknown as { isTransaction?: boolean }).isTransaction) {
       await db.transaction().execute((trx) => DDLManager.dropInTransaction(trx, name, opts));
       DDLManager.invalidateCache(name);
-      await DDLManager.forgetDroppedCollection(name);
+      await DDLManager.forgetDroppedCollection(name, db);
       return;
     }
     await DDLManager.dropInTransaction(db, name, opts);
@@ -732,13 +768,20 @@ export class DDLManager {
    * only memory stale, which the policy reconcile corrects; it is logged, not
    * thrown, since the drop has already happened.
    */
-  static async forgetDroppedCollection(name: string): Promise<void> {
+  static async forgetDroppedCollection(name: string, db: Database): Promise<void> {
     try {
       const tenancy = await import('../tenancy/index.js');
       // Filtered, not rule by rule: it reaches the table and the watcher whether
       // or not this instance's model holds the rule, and the receivers apply it
-      // to their own models.
-      await (await tenancy.getEnforcer()).removeFilteredPolicy(2, name);
+      // to their own models. Not when the drop kept the rules (`reservedName`):
+      // it would delete them.
+      const kept = await db
+        .selectFrom('zvd_permissions')
+        .select('id')
+        .where('ptype', '=', 'p')
+        .where('v2', '=', name)
+        .executeTakeFirst();
+      if (!kept) await (await tenancy.getEnforcer()).removeFilteredPolicy(2, name);
       await tenancy.invalidateAllPermissionCaches();
       await tenancy.invalidateRlsCache(name);
       await tenancy.invalidateColumnPermCache(name);
@@ -772,6 +815,12 @@ export class DDLManager {
           `Retry with force=true to DROP ... CASCADE.`,
       );
     }
+
+    // Before anything is dropped: a registry that cannot be read must stop the
+    // drop, not let it delete rules it cannot attribute. A collection made under
+    // a reserved name before the reservation, or one an extension adopted under
+    // a resource it declares, shares its rules with that object; they stay.
+    const keepGrants = (await nonCollectionObjectsNow(db)).has(name);
 
     // Drop m2m junction tables before dropping the main table
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -839,11 +888,13 @@ export class DDLManager {
     // Left behind, a collection created again under this name inherited it all:
     // a grant made in any tenant's domain on the old collection read the new one,
     // and the old row rules, hidden columns and validation applied to it.
-    await db
-      .deleteFrom('zvd_permissions')
-      .where('ptype', '=', 'p')
-      .where('v2', '=', name)
-      .execute();
+    if (!keepGrants) {
+      await db
+        .deleteFrom('zvd_permissions')
+        .where('ptype', '=', 'p')
+        .where('v2', '=', name)
+        .execute();
+    }
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${name}`.execute(db);
     await db.deleteFrom('zvd_column_permissions').where('collection_name', '=', name).execute();
     await db.deleteFrom('zv_validation_rules').where('collection', '=', name).execute();
@@ -1252,6 +1303,35 @@ export class DDLManager {
     this.invalidateCache(collectionName);
   }
 
+  /**
+   * Deletes the rules naming a field that is being dropped and rebuilds the
+   * row-rule policy without them — in the drop's transaction, before the DROP
+   * COLUMN: Postgres refuses to drop a column the policy names. Left behind,
+   * the rules reached a field later added under the same name. Caches go after
+   * the commit (`forgetFieldRules`).
+   */
+  static async dropFieldRules(db: Database, collection: string, field: string): Promise<void> {
+    let rowRules = 0;
+    for (const [table, col, fieldCol] of FIELD_RULE_TABLES) {
+      const gone = await sql`DELETE FROM ${sql.id(table)}
+                              WHERE ${sql.id(col)} = ${collection} AND ${sql.id(fieldCol)} = ${field}
+                              RETURNING 1`.execute(db);
+      if (table === 'zvd_rls_policies') rowRules = gone.rows.length;
+    }
+    if (rowRules > 0) {
+      const { applyRowRulePolicy } = await import('../tenancy/index.js');
+      await applyRowRulePolicy(db, collection);
+    }
+  }
+
+  /** After the commit that changed a collection's field rules: a read before it would re-cache the old ones. */
+  static async forgetFieldRules(collection: string): Promise<void> {
+    const tenancy = await import('../tenancy/index.js');
+    await tenancy.invalidateColumnPermCache(collection);
+    await tenancy.invalidateRlsCache(collection);
+    invalidateRulesCache(collection);
+  }
+
   // ── removeField ──────────────────────────────────────────────────────────────
 
   static async removeField(db: Database, collectionName: string, fieldName: string): Promise<void> {
@@ -1266,6 +1346,7 @@ export class DDLManager {
       throw new Error(`Collection '${collectionName}' not found`);
     }
     await withLockTimeout(db, async (trx) => {
+      await DDLManager.dropFieldRules(trx, collectionName, fieldName);
       await sql`ALTER TABLE ${sql.id(tableName)} DROP COLUMN IF EXISTS ${sql.id(fieldName)}`.execute(
         trx,
       );
@@ -1280,6 +1361,10 @@ export class DDLManager {
       await this.updateCollectionMetadata(db, collectionName, { fields: updated });
     }
     this.invalidateCache(collectionName);
+    // Handed a transaction (the DDL queue), its owner does this after the commit.
+    if (!(db as unknown as { isTransaction?: boolean }).isTransaction) {
+      await DDLManager.forgetFieldRules(collectionName);
+    }
   }
 
   // ── previewCollection ────────────────────────────────────────────────────────

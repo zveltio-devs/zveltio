@@ -15,11 +15,10 @@ import {
   dynamicRenameColumn,
   dynamicSetColumnRequired,
 } from '../../db/dynamic.js';
-import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
+import { DDLManager, FIELD_RULE_TABLES, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
 import { fieldTypeRegistry, renderSqlDefault } from './field-type-registry.js';
-import { invalidateRulesCache } from '../validation-engine.js';
 
 const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
@@ -246,11 +245,7 @@ export async function alterField(
       // stopped applying. Rules already naming `newName` belong to a field
       // dropped earlier — no field has that name — and would otherwise collide
       // with, or attach to, this one.
-      for (const [table, col, field] of [
-        ['zvd_column_permissions', 'collection_name', 'column_name'],
-        ['zvd_rls_policies', 'collection', 'filter_field'],
-        ['zv_validation_rules', 'collection', 'field_name'],
-      ] as const) {
+      for (const [table, col, field] of FIELD_RULE_TABLES) {
         await sql`DELETE FROM ${sql.id(table)} WHERE ${sql.id(col)} = ${name} AND ${sql.id(field)} = ${newName}`.execute(
           trx,
         );
@@ -266,13 +261,7 @@ export async function alterField(
     await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields as never });
   });
 
-  if (newName && newName !== fieldName) {
-    // After the commit: a read in between would cache the old names again.
-    const tenancy = await import('../tenancy/index.js');
-    await tenancy.invalidateColumnPermCache(name);
-    await tenancy.invalidateRlsCache(name);
-    invalidateRulesCache(name);
-  }
+  if (newName && newName !== fieldName) await DDLManager.forgetFieldRules(name);
 
   if (keyChanges.length) {
     const shape: FieldDef = { ...updatedFieldShape };
@@ -313,7 +302,9 @@ export async function dropField(db: Database, name: string, fieldName: string): 
 
   // DROP and metadata in one transaction: separately, a failed metadata write
   // left the collection describing a column the table no longer has.
+  const ruled = [name];
   await db.transaction().execute(async (trx) => {
+    await DDLManager.dropFieldRules(trx, name, fieldName);
     if (fieldDef?.type === 'o2m') {
       // o2m: FK column lives in TARGET table — look up and drop it there
       const relation = await trx
@@ -324,6 +315,8 @@ export async function dropField(db: Database, name: string, fieldName: string): 
         .executeTakeFirst();
       if (relation?.target_collection && relation?.target_field) {
         const targetTable = DDLManager.getTableName(relation.target_collection);
+        await DDLManager.dropFieldRules(trx, relation.target_collection, relation.target_field);
+        ruled.push(relation.target_collection);
         await dynamicDropColumn(trx, targetTable, relation.target_field);
       }
     } else if (fieldDef?.type === 'm2m') {
@@ -353,5 +346,6 @@ export async function dropField(db: Database, name: string, fieldName: string): 
     await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields as never });
   });
   DDLManager.invalidateCache(name);
+  for (const c of ruled) await DDLManager.forgetFieldRules(c);
   announceSchemaChange(name, 'alter');
 }

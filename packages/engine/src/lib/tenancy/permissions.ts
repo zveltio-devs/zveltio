@@ -617,6 +617,16 @@ export async function initPermissions(db: Database): Promise<void> {
 }
 
 /**
+ * The Casbin objects the engine itself asks about that are not collections:
+ * `admin` (`requireInstanceAdmin`, `isTenantAdmin`, every extension's
+ * `checkPermission(uid, 'admin', '*')`) and `data` (`view_all`,
+ * `view_all_columns`). Collections share the object column with them — see
+ * `nonCollectionObjects`. `engine-casbin-objects.test.ts` holds this to the
+ * literals the engine's `checkPermission` calls name.
+ */
+export const ENGINE_CASBIN_OBJECTS: readonly string[] = ['admin', 'data'];
+
+/**
  * Resources that do not receive a default grant when they come into existence.
  *
  * Under deny-by-default (see the matcher) every resource starts closed, and

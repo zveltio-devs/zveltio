@@ -198,6 +198,11 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       }
     }
 
+    // Before the metadata row: the queued CREATE would refuse it and leave that
+    // row behind as a ghost collection.
+    const reserved = await DDLManager.reservedName(db, data.name);
+    if (reserved) return c.json({ error: reserved }, 409);
+
     // Reject duplicate names immediately
     const existing = await db
       .selectFrom('zvd_collections')

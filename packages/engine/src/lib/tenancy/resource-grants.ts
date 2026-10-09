@@ -32,6 +32,7 @@ import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  ENGINE_CASBIN_OBJECTS,
   getEnforcer,
   invalidateAllPermissionCaches,
   isSensitiveResource,
@@ -187,6 +188,65 @@ async function writeDefaultGrants(db: Database, targets: string[]): Promise<numb
  * older version, or one belonging to an extension installed since, is picked up
  * here rather than needing its own migration.
  */
+async function installedExtensions(db: Database): Promise<string[]> {
+  const rows = await sql<{ name: string }>`
+    SELECT name FROM zv_extension_registry WHERE is_installed = true
+  `.execute(db);
+  return rows.rows.map((r) => r.name);
+}
+
+/** `manifest.resources` of `installed`, and which of them declare none. */
+async function declaredBy(
+  base: string,
+  installed: string[],
+): Promise<{ out: string[]; silent: string[] }> {
+  const out: string[] = [];
+  const silent: string[] = [];
+  for (const name of installed) {
+    const manifestPath = join(base, name, 'manifest.json');
+    if (!(await Bun.file(manifestPath).exists())) {
+      silent.push(name);
+      continue;
+    }
+    try {
+      const manifest = JSON.parse(await Bun.file(manifestPath).text()) as { resources?: unknown };
+      const declared = Array.isArray(manifest.resources)
+        ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
+        : [];
+      if (declared.length === 0) silent.push(name);
+      out.push(...declared);
+    } catch (err) {
+      silent.push(name);
+      console.warn(
+        `[resource-grants] ${name}: manifest.json could not be read; its resources are ` +
+          'not in this reconcile:',
+        (err as Error).message,
+      );
+    }
+  }
+  return { out, silent };
+}
+
+/**
+ * Every Casbin object that is not only a collection: the engine's own
+ * (`ENGINE_CASBIN_OBJECTS`) and each installed extension's `manifest.resources`
+ * — the declarations the boot reconcile grants on.
+ *
+ * Collections share the policy's object column with these. A collection may not
+ * be created under one of them, and dropping a collection that already shares
+ * one keeps the rules: they also guard something that is not the collection.
+ *
+ * Throws when the registry cannot be read: an unknown set must refuse a name,
+ * not allow it, and must not let a drop take rules it cannot attribute.
+ */
+export async function nonCollectionObjects(
+  db: Database,
+  extensionsBase: string,
+): Promise<Set<string>> {
+  const { out } = await declaredBy(extensionsBase, await installedExtensions(db));
+  return new Set([...ENGINE_CASBIN_OBJECTS, ...out]);
+}
+
 export async function listKnownResources(db: Database, extensionsBase?: string): Promise<string[]> {
   const collections = await sql<{ name: string }>`
     SELECT name FROM zvd_collections
@@ -216,10 +276,7 @@ async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<stri
 
   let installed: string[];
   try {
-    const rows = await sql<{ name: string }>`
-      SELECT name FROM zv_extension_registry WHERE is_installed = true
-    `.execute(db);
-    installed = rows.rows.map((r) => r.name);
+    installed = await installedExtensions(db);
   } catch (err) {
     // Before the registry table exists there is nothing to read. There is no
     // longer a frozen list behind this, so the reconcile simply covers fewer
@@ -233,30 +290,7 @@ async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<stri
     return [];
   }
 
-  const out: string[] = [];
-  const silent: string[] = [];
-  for (const name of installed) {
-    const manifestPath = join(base, name, 'manifest.json');
-    if (!(await Bun.file(manifestPath).exists())) {
-      silent.push(name);
-      continue;
-    }
-    try {
-      const manifest = JSON.parse(await Bun.file(manifestPath).text()) as { resources?: unknown };
-      const declared = Array.isArray(manifest.resources)
-        ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
-        : [];
-      if (declared.length === 0) silent.push(name);
-      out.push(...declared);
-    } catch (err) {
-      silent.push(name);
-      console.warn(
-        `[resource-grants] ${name}: manifest.json could not be read; its resources are ` +
-          'not in this reconcile:',
-        (err as Error).message,
-      );
-    }
-  }
+  const { out, silent } = await declaredBy(base, installed);
 
   // Named, not counted. Deny-by-default refuses access to a resource nobody
   // granted, and the refusal carries no hint about why — so an operator whose
