@@ -45,6 +45,11 @@ type SessionEntry = {
   date: string;
   agent: string;
   branch?: string;
+  /**
+   * The commit the files were read at (`git rev-parse origin/master`). A file
+   * changed after it is unread again. Without it, the session date stands in.
+   */
+  commit?: string;
   /** Source files read line by line in this session. */
   files: string[];
   /** Test files opened to check whether they would catch a real break. */
@@ -449,6 +454,8 @@ const SECTIONS: Section[] = [
       'The SQL allowlist, the reserved connection, the role with no grants. Allowlist, never denylist.',
     match: [
       `${E}lib/worker-extension-host.ts`,
+      `${E}lib/worker-extension-transport.ts`,
+      `${E}lib/ext-runner.ts`,
       `${E}lib/worker-extension-runtime.ts`,
       `${E}lib/worker-extension-protocol.ts`,
       `${E}lib/extensions/worker-sql-policy.ts`,
@@ -1116,6 +1123,23 @@ function sectionFor(file: string): Section | undefined {
   );
 }
 
+async function git(args: string[]): Promise<string | null> {
+  const proc = Bun.spawn(['git', ...args], { stdout: 'pipe', stderr: 'ignore' });
+  const out = await new Response(proc.stdout).text();
+  return (await proc.exited) === 0 ? out : null;
+}
+
+/** Newest commit date (YYYY-MM-DD) of every file, from one walk of the log. */
+async function lastChanged(): Promise<Map<string, string>> {
+  const out = (await git(['log', '--format=%x00%cs', '--name-only', 'HEAD'])) ?? '';
+  const dates = new Map<string, string>();
+  for (const block of out.split('\0')) {
+    const [date, ...names] = block.split('\n');
+    for (const n of names) if (n && !dates.has(n)) dates.set(n, date);
+  }
+  return dates;
+}
+
 /** Files git knows about but the working tree does not — a staged deletion, or
  *  a mid-merge state. Counted as zero rather than crashing the whole run: this
  *  script is read in shared checkouts while somebody else is editing. */
@@ -1210,14 +1234,38 @@ async function main() {
   const ledger: Ledger = { updated, sessions: orderSessions(entries) };
 
   const sessionsBySection = new Map<string, SessionEntry[]>();
-  const reviewed = new Set<string>();
   const testsRead = new Set<string>();
+  // A tick used to mean "some session once named this file". The file could
+  // then be rewritten by any number of releases and still read as reviewed, so
+  // "100%" went false the day after it was reached. A read now holds only for
+  // the content it saw: changed since the session's commit — or, for sessions
+  // that recorded none (or one this clone lacks), committed on a later day than
+  // the session — the file is
+  // unread again.
+  // ponytail: date fallback is per day, so a change merged the same day as a
+  // commit-less session still counts as read; record `commit` to close it.
   for (const s of ledger.sessions) {
     if (!sessionsBySection.has(s.section)) sessionsBySection.set(s.section, []);
     sessionsBySection.get(s.section)!.push(s);
-    for (const f of s.files) reviewed.add(f);
     for (const t of s.tests ?? []) testsRead.add(t);
   }
+  const changedOn = await lastChanged();
+  const changedSince = new Map<string, Set<string> | null>();
+  for (const c of new Set(ledger.sessions.flatMap((s) => s.commit ?? []))) {
+    const out = await git(['diff', '--name-only', c, 'HEAD']);
+    changedSince.set(c, out === null ? null : new Set(out.split('\n')));
+  }
+  // Any one session whose read still holds is enough.
+  const reviewed = new Set<string>();
+  const readOnce = new Set<string>();
+  for (const s of ledger.sessions) {
+    const since = s.commit ? changedSince.get(s.commit) : null;
+    for (const f of s.files) {
+      readOnce.add(f);
+      if (!(since ? since.has(f) : (changedOn.get(f) ?? '') > s.date)) reviewed.add(f);
+    }
+  }
+  const stale = new Set([...readOnce].filter((f) => !reviewed.has(f)));
 
   const inScope = (id: string) => !id.startsWith('X') && id !== 'T01';
   const sum = (fs: string[]) => fs.reduce((n, f) => n + (loc.get(f) ?? 0), 0);
@@ -1301,6 +1349,10 @@ async function main() {
   md.push(
     `- Lines in scope: **${sum(doneFiles).toLocaleString()} / ` +
       `${sum(scopedFiles).toLocaleString()}** (${locPct}%)`,
+  );
+  md.push(
+    `- Read once, changed since (↻, unread again): ` +
+      `**${scopedFiles.filter((f) => stale.has(f)).length}**`,
   );
   const allTests = bySection.get('T01') ?? [];
   md.push(
@@ -1397,7 +1449,8 @@ async function main() {
     md.push('| ✓ | File | Lines |');
     md.push('| --- | --- | --: |');
     for (const f of fs.sort()) {
-      md.push(`| ${reviewed.has(f) ? '✅' : '·'} | \`${f}\` | ${loc.get(f)} |`);
+      const mark = reviewed.has(f) ? '✅' : stale.has(f) ? '↻' : '·';
+      md.push(`| ${mark} | \`${f}\` | ${loc.get(f)} |`);
     }
     md.push('');
     const sess = sessionsBySection.get(s.id) ?? [];
@@ -1427,7 +1480,8 @@ async function main() {
 
   console.log(
     `${OUTPUT_MD}: ${scoped.length} sections, ` +
-      `${doneFiles.length}/${scopedFiles.length} files reviewed (${pct}%).`,
+      `${doneFiles.length}/${scopedFiles.length} files reviewed (${pct}%), ` +
+      `${scopedFiles.filter((f) => stale.has(f)).length} changed since they were read (↻).`,
   );
   console.log(next ? `NEXT SECTION: ${next}` : `NEXT SECTION: T01 (${testsLeft} test files left)`);
   if (missingFromOrder.length > 0) {
