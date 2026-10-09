@@ -105,7 +105,12 @@ export interface DbQueryResponse {
   type: 'db:ok' | 'db:err';
   id: WorkerMessageId;
   rows?: unknown[];
+  /** Rows the statement affected — what Bun puts on its result array as `count`. */
+  count?: number;
   error?: string;
+  /** The SQLSTATE, and the driver's code, set on the error the worker rethrows. */
+  errno?: string;
+  code?: string;
 }
 
 // ── Services ────────────────────────────────────────────────────────

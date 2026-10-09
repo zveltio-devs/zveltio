@@ -57,6 +57,7 @@ import {
   serviceRegistry,
 } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
+import { sqlState } from '../db/bun-sql-quirks.js';
 import { activationMiddlewareFor, extensionLoader } from './extensions/index.js';
 import { ProblemException, problem } from './problem.js';
 import {
@@ -273,6 +274,19 @@ export class WorkerExtensionHost {
 
   isRunning(extName: string): boolean {
     return this.workers.has(extName);
+  }
+
+  /**
+   * Mount a running worker's proxy routes on the current app, keeping the worker.
+   * False when none runs, or it is between a crash and a respawn (the caller
+   * restarts it). A rebuild of the app re-registers code the worker already
+   * runs; restarting it there spawned every worker twice at boot.
+   */
+  remount(extName: string): boolean {
+    const managed = this.workers.get(extName);
+    if (!managed || managed.respawning) return false;
+    managed.proxyUnmount = this.mountProxyRoutes(managed);
+    return true;
   }
 
   /** Per-extension health snapshot — used by /api/admin/extensions/health. */
@@ -535,9 +549,25 @@ export class WorkerExtensionHost {
       // query naming a request that is over is refused (`requestScope`).
       const scope = requestScope(managed, msg.requestId, 'query');
       const rows = await runRawWithParams(managed.name, msg.sql, msg.params, scope);
-      this.post(managed, { type: 'db:ok', id: msg.id, rows });
+      // The affected-row count rides on Bun's result array, which neither
+      // transport carries across: an UPDATE without RETURNING reported 0.
+      const count = (rows as { count?: unknown }).count;
+      this.post(managed, {
+        type: 'db:ok',
+        id: msg.id,
+        rows,
+        ...(typeof count === 'number' ? { count } : {}),
+      });
     } catch (err) {
-      this.post(managed, { type: 'db:err', id: msg.id, error: (err as Error).message });
+      // The SQLSTATE, as the inline driver puts it on the error: without it a
+      // unique violation the extension answers with 400 was a 500.
+      const errno = sqlState(err);
+      this.post(managed, {
+        type: 'db:err',
+        id: msg.id,
+        error: (err as Error).message,
+        ...(errno ? { errno, code: (err as { code?: string }).code } : {}),
+      });
     }
   }
 
@@ -1004,7 +1034,7 @@ async function runRawWithParams(
   const tenantId = scope?.tenantId;
   assertWorkerSqlAllowed(extName, sql, await workerSqlEngineTables());
 
-  const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
+  const { encodeArrayParams, getActiveBunPool } = await import('../db/bun-sql-dialect.js');
   const pool = getActiveBunPool();
   if (!pool) throw new Error('BunSQL pool not initialized — host cannot run worker queries');
 
@@ -1102,7 +1132,10 @@ async function runRawWithParams(
         ],
       );
     }
-    const rows = (await reserved.unsafe(sql, params.length > 0 ? params : undefined)) as unknown[];
+    const rows = (await reserved.unsafe(
+      sql,
+      params.length > 0 ? encodeArrayParams(params) : undefined,
+    )) as unknown[];
     await reserved.unsafe('COMMIT');
     inTransaction = false;
     return rows;

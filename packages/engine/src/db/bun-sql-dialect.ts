@@ -467,6 +467,26 @@ class BunSqlDriver implements Driver {
   }
 }
 
+/**
+ * JS arrays as Postgres array literals (`{"a","b",NULL}`).
+ *
+ * Bun's `unsafe()` sends a JS array as its comma-joined text, so `= ANY($1)`
+ * failed with a protocol error and a `text[]` column with `malformed array
+ * literal`. Shared by Kysely's queries and the worker SQL bridge, so an
+ * extension's array parameter means the same thing inline and out of process.
+ */
+export function encodeArrayParams(params: readonly unknown[]): unknown[] {
+  return params.map((p) => {
+    if (!Array.isArray(p)) return p;
+    const escaped = (p as unknown[]).map((item) => {
+      if (item === null || item === undefined) return 'NULL';
+      const s = String(item);
+      return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    });
+    return `{${escaped.join(',')}}`;
+  });
+}
+
 // ─── Param inlining (simple-query fallback) ─────────────────────────────────
 /** Postgres-style literal escape used as a last-resort fallback when prepared
  *  statements fail with SQLSTATE 0A000. Inputs are values Kysely produced from
@@ -593,15 +613,7 @@ class BunSqlSmartConnection implements DatabaseConnection {
   }
 
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
-    const params = (compiledQuery.parameters as unknown[]).map((p) => {
-      if (!Array.isArray(p)) return p;
-      const escaped = (p as unknown[]).map((item) => {
-        if (item === null || item === undefined) return 'NULL';
-        const s = String(item);
-        return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-      });
-      return `{${escaped.join(',')}}`;
-    });
+    const params = encodeArrayParams(compiledQuery.parameters as unknown[]);
 
     const runPrepared = async (): Promise<QueryResult<R>> => {
       if (this.#reserved) {

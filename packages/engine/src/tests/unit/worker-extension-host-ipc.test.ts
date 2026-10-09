@@ -281,6 +281,80 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     poolSpy.mockRestore();
   });
 
+  it('answers db:query as the inline driver does: arrays encoded, count and SQLSTATE carried', async () => {
+    const bunSql = await import('../../db/bun-sql-dialect.js');
+    const sent: unknown[][] = [];
+    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
+      reserve: async () => ({
+        unsafe: async (sql: string, params?: unknown[]) => {
+          if (sql.includes('FROM pg_roles')) return [{ role: 'zveltio_worker' }];
+          if (sql.startsWith('UPDATE')) {
+            sent.push(params ?? []);
+            return Object.assign([], { count: 3 });
+          }
+          if (sql.startsWith('INSERT')) {
+            throw Object.assign(new Error('duplicate key'), {
+              errno: '23505',
+              code: 'ERR_POSTGRES_SERVER_ERROR',
+            });
+          }
+          return [];
+        },
+        release: () => undefined,
+      }),
+    } as never);
+    try {
+      const host = new WorkerExtensionHost(new Hono());
+      const { managed, posted } = makeManaged(host, { name: 'db-fidelity' });
+      dispatchMessage(host, managed, {
+        type: 'db:query',
+        id: 'db-u',
+        sql: 'UPDATE zvd_t SET x = 1 WHERE tag = ANY($1)',
+        params: [['a', 'b"c', null]],
+      });
+      dispatchMessage(host, managed, {
+        type: 'db:query',
+        id: 'db-i',
+        sql: 'INSERT INTO zvd_t VALUES (1)',
+        params: [],
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      // Bun sends a JS array as its comma-joined text: `malformed array literal`.
+      expect(sent).toEqual([['{"a","b\\"c",NULL}']]);
+      expect(posted.find((m) => m.type === 'db:ok' && m.id === 'db-u')).toMatchObject({
+        count: 3,
+      });
+      expect(posted.find((m) => m.type === 'db:err' && m.id === 'db-i')).toMatchObject({
+        error: 'duplicate key',
+        errno: '23505',
+        code: 'ERR_POSTGRES_SERVER_ERROR',
+      });
+    } finally {
+      poolSpy.mockRestore();
+    }
+  });
+
+  it('remounts a running worker on the current app and keeps it; none running, or respawning, is false', async () => {
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed } = makeManaged(host, {
+      name: 'remount-ext',
+      routes: [{ method: 'GET', path: '/x' }],
+    });
+    const app = new Hono();
+    host.rebindApp(app);
+    expect(host.remount('remount-ext')).toBe(true);
+    expect(managed.worker.terminate).not.toHaveBeenCalled();
+    // The proxy is on the new app: a request reaches the worker, not a 404.
+    const res = app.request('/ext/remount-ext/x');
+    await new Promise((r) => setTimeout(r, 0));
+    const [id] = managed.pendingInvokes.keys();
+    managed.pendingInvokes.get(id!)?.({ type: 'route:ok', id: id!, status: 204 });
+    expect((await res).status).toBe(204);
+    expect(host.remount('absent-ext')).toBe(false);
+    (managed as { respawning?: boolean }).respawning = true;
+    expect(host.remount('remount-ext')).toBe(false);
+  });
+
   it('rejects pending route invokes on route:err', async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = makeManaged(host, { name: 'route-err-ext' });

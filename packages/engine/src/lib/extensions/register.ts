@@ -973,17 +973,21 @@ export async function reRegisterExtension(
 
   try {
     // Carry the first-load isolation decision across the reload, so a
-    // worker-confined extension is restarted in its worker rather than
-    // quietly re-registered inline.
-    await registerExtensionRoutes(
-      extension,
-      restrictedCtx,
-      app,
-      name,
-      loaded?.workerIsolation ?? null,
-      loader.ctx.db,
-      loaded?.serviceDeps ?? new Map(),
-    );
+    // worker-confined extension is served by its worker rather than quietly
+    // re-registered inline. The module is the one the worker already runs
+    // (only a load replaces it), so a running worker is kept, not respawned.
+    const kept = loaded?.workerIsolation ? _getWorkerHost(app).remount(name) : false;
+    if (!kept) {
+      await registerExtensionRoutes(
+        extension,
+        restrictedCtx,
+        app,
+        name,
+        loaded?.workerIsolation ?? null,
+        loader.ctx.db,
+        loaded?.serviceDeps ?? new Map(),
+      );
+    }
 
     // Re-register schedules on hot-reload. unregisterAll is idempotent and
     // we want the new definitions to win.

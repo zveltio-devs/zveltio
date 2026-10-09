@@ -87,7 +87,8 @@ for (const level of ['log', 'warn', 'error'] as const) {
     send({
       type: 'log',
       level,
-      message: args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '),
+      // As the console prints it: JSON.stringify made an Error `{}`.
+      message: args.map((a) => (typeof a === 'string' ? a : Bun.inspect(a))).join(' '),
     });
   };
 }
@@ -110,17 +111,22 @@ if (asProcess) {
 const invocation = new AsyncLocalStorage<string>();
 
 /**
- * Kysely-style executor that crosses the worker boundary for every query.
- * Returns a CompiledQuery-result-shape object.
+ * A query across the worker boundary, answered in the inline driver's shape:
+ * the rows carry the affected-row `count`, and an error its SQLSTATE in `errno`
+ * (and the driver's `code`), as Bun.SQL does.
  */
-async function dbExecute(sql: string, params: unknown[]): Promise<{ rows: unknown[] }> {
+async function dbExecute(sql: string, params: unknown[]): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const id = rpcId('db');
     pendingDbQueries.set(id, (res) => {
       if (res.type === 'db:ok') {
-        resolve({ rows: res.rows ?? [] });
+        const rows = res.rows ?? [];
+        resolve(res.count === undefined ? rows : Object.assign(rows, { count: res.count }));
       } else {
-        reject(new Error(res.error ?? 'db query failed'));
+        const { errno, code } = res;
+        reject(
+          Object.assign(new Error(res.error ?? 'db query failed'), errno ? { errno, code } : {}),
+        );
       }
     });
     send({ type: 'db:query', id, sql, params, requestId: invocation.getStore() });
@@ -160,10 +166,8 @@ function buildShadowCtx() {
   return {
     db: {
       // Raw query helper for extensions that build SQL themselves.
-      query: async <R = unknown>(sql: string, ...params: unknown[]): Promise<R[]> => {
-        const r = await dbExecute(sql, params);
-        return r.rows as R[];
-      },
+      query: <R = unknown>(sql: string, ...params: unknown[]): Promise<R[]> =>
+        dbExecute(sql, params) as Promise<R[]>,
     },
     services: {
       register: (name: string, impl: (...args: unknown[]) => unknown): void => {

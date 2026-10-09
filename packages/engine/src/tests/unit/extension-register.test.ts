@@ -263,9 +263,11 @@ describe('reRegisterExtension — worker isolation across a hot-reload', () => {
     // failure: start() refuses to spawn a second worker for the same name, the
     // throw aborted re-registration, and the extension's routes were never
     // mounted — /ext/<name>/* returned 404 after any enable. The release smoke
-    // test caught it. stop() before start() is what makes the reload a restart.
+    // test caught it. stop() before start() is what makes the reload a restart
+    // — when no worker runs; a running one is kept (next test).
     const calls: string[] = [];
     const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      remount: () => false,
       start: mock(async () => {
         calls.push('start');
       }),
@@ -296,6 +298,32 @@ describe('reRegisterExtension — worker isolation across a hot-reload', () => {
       expect(calls).toEqual(['stop', 'start']);
       // The whole point: it must NOT fall back to registering in-process.
       expect(calls).not.toContain('inline-register');
+    } finally {
+      hostSpy.mockRestore();
+    }
+  });
+
+  it('keeps a running worker and remounts it, rather than spawning it again', async () => {
+    // Boot loads every extension into a throwaway app, then re-registers it on
+    // the app that serves: a restart there spawned each worker twice.
+    const calls: string[] = [];
+    const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      remount: (name: string) => calls.push(`remount ${name}`) > 0,
+      start: mock(async () => calls.push('start')),
+      stop: mock(async () => calls.push('stop')),
+    } as never);
+    try {
+      const loader = fakeLoader();
+      loader.modules.set('worker-ext', { name: 'worker-ext', category: 'custom' } as never);
+      loader.loaded.set('worker-ext', {
+        name: 'worker-ext',
+        registeredRoutes: true,
+        workerIsolation: { entry: 'index.js', extDir: '/tmp/worker-ext' },
+      } as never);
+
+      await reRegisterExtension(loader, 'worker-ext', new Hono());
+
+      expect(calls).toEqual(['remount worker-ext']);
     } finally {
       hostSpy.mockRestore();
     }
