@@ -214,9 +214,12 @@ class PgDriver implements Driver {
 
 /** The worker bridge's view of a `pg` pool. */
 function rawPool(pool: pg.Pool): RawPool {
+  // Bun's result array carries the affected-row count as `.count`; the bridge
+  // forwards it, so this view carries `rowCount` the same way.
   const rows = <T>(r: pg.QueryResult): T[] => {
     const last = (Array.isArray(r) ? r[r.length - 1] : r) as pg.QueryResult | undefined;
-    return (last?.rows ?? []) as T[];
+    const out = (last?.rows ?? []) as T[];
+    return last?.rowCount == null ? out : Object.assign(out, { count: last.rowCount });
   };
   const once = async <T>(text: string, params?: unknown[]): Promise<T[]> => {
     const client = await pool.connect().catch((err) => {
