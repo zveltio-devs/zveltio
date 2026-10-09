@@ -894,7 +894,7 @@ function toRunResult(o: Outcome, duration_ms: number): RunResult {
 // A separate switch from ZVELTIO_EXT_TRANSPORT on purpose: `ext-runner setup`
 // already sets that one on every bare-metal install, and the runner denies
 // every address until the operator allows one — tying the two would cut edge
-// functions off the network on the next update. Default flip is RFC step 6.
+// functions off the network on the next update. Default flip is RFC step 10.
 
 /** `runner`, or `process` (the default: the engine's own child). */
 export function edgeTransport(): 'process' | 'runner' {
