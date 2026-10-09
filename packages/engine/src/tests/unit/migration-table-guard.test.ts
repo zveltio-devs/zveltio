@@ -22,9 +22,9 @@ import { describe, expect, it } from 'bun:test';
 import { runExtensionMigrations } from '../../lib/extensions/migration-runner.js';
 import type { Database } from '../../db/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 function migrationFile(sqlText: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'zv-extmig-'));
@@ -149,5 +149,38 @@ describe('extension migration table guard', () => {
     // named on those tables. Being one of several owners is what grants access.
     const f = migrationFile('ALTER TABLE zv_media_files ADD COLUMN checksum text;');
     await expect(runExtensionMigrations(ext('storage/cloud', [f]), db())).resolves.toBeUndefined();
+  });
+});
+
+// The guard is static, so the real first-party catalogue can be put through it
+// without a database: `content/media` creates `zv_media_favorites`, the grants
+// named only `storage/cloud` as its owner, and the media library could not be
+// installed at all.
+const CATALOGUE = join(import.meta.dir, '../../../../../../zveltio-extensions');
+// Only a real checkout: CI's unit job has none, and there a bare directory of
+// that name made the scan throw between tests.
+const HAS_CATALOGUE = existsSync(join(CATALOGUE, 'package.json'));
+describe.skipIf(!HAS_CATALOGUE)('first-party migrations meet the table guard', () => {
+  // One to three levels (`crm`, `content/media`, `compliance/ro/saft`):
+  // explicit depths, so the scan never walks node_modules.
+  const manifests = HAS_CATALOGUE
+    ? ['*', '*/*', '*/*/*']
+        .flatMap((d) => [...new Bun.Glob(`${d}/manifest.json`).scanSync({ cwd: CATALOGUE })])
+        .filter((p) => existsSync(join(CATALOGUE, dirname(p), 'engine/migrations')))
+    : [];
+  it.each(manifests)('%s', async (manifestPath) => {
+    const dir = join(CATALOGUE, dirname(manifestPath));
+    const { name } = JSON.parse(readFileSync(join(CATALOGUE, manifestPath), 'utf8')) as {
+      name: string;
+    };
+    const files = [...new Bun.Glob('*.sql').scanSync({ cwd: join(dir, 'engine/migrations') })]
+      .sort()
+      .map((f) => join(dir, 'engine/migrations', f));
+    const err = await runExtensionMigrations(ext(name, files), db()).then(
+      () => null,
+      (e: Error) => e.message,
+    );
+    // Anything past the guard fails on the canned database; only the guard's refusal counts.
+    expect(err ?? '').not.toContain('has a migration that alters or drops');
   });
 });

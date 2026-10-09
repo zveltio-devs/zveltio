@@ -187,7 +187,9 @@ describe('resolveManifest', () => {
 
 describe('enforcePublisherTier — fast paths', () => {
   it('worker isolation → ok (no catalog fetch)', async () => {
-    const r = await enforcePublisherTier('ext', { engine: { isolation: 'worker' } } as Any);
+    const r = await enforcePublisherTier('ext', {
+      engine: { isolation: 'worker', bundled: true },
+    } as Any);
     expect(r.ok).toBe(true);
   });
 

@@ -304,7 +304,7 @@ export function gateInternals<T extends object>(
   const bound: Record<string, unknown> =
     callerBound.get(internals)?.(`ext:${extName}`, granted) ?? {};
 
-  return new Proxy(internals, {
+  const handler: ProxyHandler<T> = {
     get(target, prop, receiver) {
       if (typeof prop !== 'string') return Reflect.get(target, prop, receiver);
       const value = Object.hasOwn(bound, prop) ? bound[prop] : Reflect.get(target, prop, receiver);
@@ -324,5 +324,18 @@ export function gateInternals<T extends object>(
       }
       throw new CapabilityDeniedError(extName, required, prop, unapproved);
     },
-  });
+    // Without this trap `Object.getOwnPropertyDescriptor(ctx.internals, m).value`
+    // read the raw bag: every gated member ungated, every bound one caller-less.
+    getOwnPropertyDescriptor(target, prop) {
+      const desc = Reflect.getOwnPropertyDescriptor(target, prop);
+      if (!desc || typeof prop !== 'string' || !('value' in desc)) return desc;
+      try {
+        return { ...desc, value: handler.get?.(target, prop, target) };
+      } catch {
+        // A denied non-function member: describe it as absent of a value.
+        return { ...desc, value: undefined };
+      }
+    },
+  };
+  return new Proxy(internals, handler);
 }

@@ -305,9 +305,11 @@ export async function enforcePublisherTier(
   //   ZVELTIO_REQUIRE_CATALOG=1 — fail-closed: if catalog fetch
   //     fails (network, registry down) refuse rather than
   //     fall through to local-only assumptions
+  // Worker only when bundled too: `load.ts` takes the worker path for nothing
+  // else, and imported an unbundled "worker" extension inline, past this gate.
   if (
     process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY === '1' ||
-    manifest?.engine?.isolation === 'worker'
+    (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true)
   ) {
     return { ok: true, value: undefined };
   }
@@ -355,7 +357,7 @@ export async function enforcePublisherTier(
         : `is not in the marketplace catalog (treated as ${tier})`;
       const msg =
         `Extension "${extName}" ${what} but does ` +
-        `not declare engine.isolation: "worker". Per ` +
+        `not run in worker isolation (engine.isolation: "worker", bundled). Per ` +
         `marketplace-policy.md §2, ${tier} extensions must run in ` +
         `worker isolation. Republish with isolation: "worker" ` +
         `or, for trusted self-hosted installs, set ` +

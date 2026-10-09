@@ -14,6 +14,7 @@ import {
   CAPABILITY_CONTRACT_VERSION,
   CapabilityDeniedError,
   INTERNALS_CAPABILITY,
+  bindsCaller,
   declaredNetHosts,
   gateInternals,
   isKnownCapability,
@@ -81,6 +82,23 @@ describe('gateInternals', () => {
     // but the gate cannot assume it was the only way in.
     const g = gateInternals('ai', fakeInternals(), ['secret', 'db-admin', 'SECRETS']);
     expect(() => g.decryptSecret()).toThrow(CapabilityDeniedError);
+  });
+
+  it('is not bypassed by reading the property descriptor', () => {
+    // The Proxy had a `get` trap only, so the descriptor came straight off the
+    // raw bag: the ungated member, or the caller-less copy of a bound one.
+    const bag = bindsCaller(
+      { ...fakeInternals(), withTenantIsolation: () => 'any tenant' },
+      (caller) => ({ withTenantIsolation: () => `bound to ${caller}` }),
+    );
+    const g = gateInternals('ai', bag, []);
+    const one = Object.getOwnPropertyDescriptor(g, 'decryptSecret')?.value as () => unknown;
+    expect(() => one()).toThrow(CapabilityDeniedError);
+    const all = Object.getOwnPropertyDescriptors(g);
+    expect(() => (all.createBetterAuthSession.value as () => unknown)()).toThrow(
+      CapabilityDeniedError,
+    );
+    expect((all.withTenantIsolation.value as () => unknown)()).toBe('bound to ext:ai');
   });
 });
 

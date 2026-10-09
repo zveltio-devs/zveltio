@@ -59,6 +59,15 @@ export async function loadExtensionFromDir(
   ctx: ExtensionContext,
   basePath?: string,
 ): Promise<void> {
+  // `engine` is the owner tag of the engine's own registrations: an extension
+  // under that name got the unrestricted `ctx.services` scope, registered
+  // outside any namespace, and on unload removed the engine's entries.
+  if (extName === 'engine') {
+    const msg = '"engine" is reserved for the engine and cannot name an extension';
+    console.error(`❌ Extension "${extName}" not loaded: ${msg}`);
+    loader.lastLoadError.set(extName, msg);
+    return;
+  }
   try {
     // Resolve extension directory.
     // Priority: explicit basePath > resolveExtensionsBase() (EXTENSIONS_DIR, CWD, dev sibling).

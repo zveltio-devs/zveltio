@@ -148,6 +148,9 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     'zv_media_folders',
     'zv_media_tags',
     'zv_media_file_tags',
+    // It creates this one; named under `storage/cloud` alone, the migration
+    // guard read that as another extension's table and refused the install.
+    'zv_media_favorites',
   ],
   // `content/page-builder` and `content/portals` merged into `content/pages`.
   // The four `zvd_*` tables from portals are migrated into this set by the

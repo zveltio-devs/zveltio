@@ -14,7 +14,7 @@ import { _settleAuditWrites } from '../../lib/audit.js';
 import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionInternals } from '../../lib/extensions/internals.js';
-import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import { runWithDomain, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -124,6 +124,21 @@ d('ctx.internals.asSystem', () => {
       return mark(trx);
     });
     expect(after).toBe('');
+  });
+
+  it('keeps a data:system job system after an asSystem call inside it', async () => {
+    // The job's `*` mark was not one of the open calls, so the first asSystem
+    // inside the job rewrote the mark to its own collections and then to ''.
+    const seen = await runWithDomain(A, () =>
+      granted.withTenantIsolation(A, async (trx) => {
+        const before = await mark(trx);
+        const inside = await granted.asSystem(['products'], async () => mark(trx));
+        return { before, inside, after: await mark(trx) };
+      }),
+    );
+    expect(seen.before).toBe(',*,');
+    expect(seen.inside).toContain(',*,');
+    expect(seen.after).toBe(',*,');
   });
 
   it('refuses outside a tenant, and anything that is not a collection name', async () => {
