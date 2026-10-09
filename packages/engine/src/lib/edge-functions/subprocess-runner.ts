@@ -57,24 +57,53 @@ const SUBPROCESS_BOOTSTRAP = String.raw`
 // even though 'require'/'process' are blocked for the untrusted body below.
 import { lookup as _dnsLookupImpl } from 'node:dns/promises';
 
-const BLOCKED = ['Bun','process','require','module','exports','__dirname','__filename','Worker','importScripts','eval','Function'];
+const BLOCKED = ['Bun','process','require','module','exports','__dirname','__filename','Worker','importScripts','eval','Function',
+  // A fresh realm carries its own fetch, Bun and process; a WebSocket connects
+  // where the SSRF guard would have refused.
+  'ShadowRealm','WebSocket',
+  // Every route back to the global object itself. Bun defines 'Bun' on it as
+  // non-configurable and non-writable, so the getter above cannot replace it
+  // there: the global object has to stay out of reach, under every name. An
+  // event dispatched on it hands it over as event.target, so the EventTarget
+  // methods and on* handlers that make it one are blocked too.
+  'global','globalThis','self','window','addEventListener','removeEventListener','dispatchEvent','onmessage','onerror'];
 
 function buildThrower(name) {
   return () => { throw new Error('[sandbox] access to "' + name + '" is blocked'); };
 }
 
-function lockdownGlobals(stashed) {
+function lockdownGlobals(sandboxFetch) {
+  // Bare 'fetch' is the sandboxed one, and so is anything that still reads the
+  // property off the global object from inside the runtime.
+  Object.defineProperty(globalThis, 'fetch', {
+    value: sandboxFetch, configurable: false, writable: false, enumerable: false,
+  });
+  const g = globalThis;
   for (const name of BLOCKED) {
     try {
-      Object.defineProperty(globalThis, name, {
+      Object.defineProperty(g, name, {
         get: buildThrower(name),
         set: buildThrower(name),
         configurable: false,
         enumerable: false,
       });
     } catch (_) {
-      try { globalThis[name] = buildThrower(name); } catch (_) {}
+      try { g[name] = buildThrower(name); } catch (_) {}
     }
+  }
+  // Called with no receiver, the EventTarget methods fall back to the global
+  // object, and the event they dispatch hands it over as event.target. Measured.
+  for (const m of ['addEventListener','removeEventListener','dispatchEvent']) {
+    const real = EventTarget.prototype[m];
+    try {
+      Object.defineProperty(EventTarget.prototype, m, {
+        value: function(...args) {
+          if (this == null) throw new Error('[sandbox] ' + m + ' needs an event target');
+          return real.apply(this, args);
+        },
+        configurable: false, writable: false, enumerable: false,
+      });
+    } catch (_) {}
   }
   const throwingCtor = function() { throw new Error('[sandbox] dynamic code construction is blocked'); };
   function lockProto(proto) {
@@ -167,7 +196,7 @@ const _procExit = process.exit.bind(process);
     // (SSRF): the shared sandbox safeFetch validates the target, connects to
     // the address it validated, and re-validates every redirect hop.
     ${buildSandboxSafeFetchSource()}
-    lockdownGlobals();
+    lockdownGlobals(safeFetch);
 
     // 'eval' is intentionally absent from this shadow-parameter list: it is an
     // illegal strict-mode parameter name, and the body below is '"use strict"',
