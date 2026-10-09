@@ -5,6 +5,9 @@
  * be a WHERE. The list and single handlers applied column permissions and
  * nothing else: a row its policy hides was served whole. They now run the
  * row gates in memory (`scope.admits`), as `?as_of=` does.
+ *
+ * Writes too: PUT, PATCH and DELETE proxied any id upstream, so a row its
+ * policy hides from GET was still overwritten or deleted by guessing its id.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
@@ -49,7 +52,7 @@ d('virtual collection row policies (in-process)', () => {
     ({ app, db } = await getTestApp());
     godCookie = await createGodSession(app, db);
     ({ cookie: memberCookie } = await createMemberSession(app, db, {
-      grants: [{ collection: COLLECTION, actions: ['read'] }],
+      grants: [{ collection: COLLECTION, actions: ['read', 'update', 'delete'] }],
     }));
     await db
       .insertInto('zvd_collections')
@@ -147,5 +150,47 @@ d('virtual collection row policies (in-process)', () => {
       headers: { cookie: memberCookie },
     });
     expect(res.status).toBe(200);
+  });
+
+  for (const method of ['PUT', 'PATCH', 'DELETE'] as const) {
+    it(`a ${method} of a hidden row is not found, and never reaches upstream`, async () => {
+      const writes: string[] = [];
+      globalThis.fetch = (async (_url: unknown, init?: { method?: string }) => {
+        if (init?.method && init.method !== 'GET') writes.push(init.method);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => UPSTREAM[1],
+          text: async () => JSON.stringify(UPSTREAM[1]),
+        };
+      }) as unknown as typeof fetch;
+      const res = await app.request(`/api/data/${COLLECTION}/${UPSTREAM[1]!.id}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', cookie: memberCookie },
+        body: method === 'DELETE' ? undefined : JSON.stringify({ title: 'overwritten' }),
+      });
+      expect(res.status).toBe(404);
+      expect(writes).toEqual([]);
+    });
+  }
+
+  it('a PATCH of a visible row still reaches upstream', async () => {
+    const writes: string[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: { method?: string }) => {
+      if (init?.method && init.method !== 'GET') writes.push(init.method);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => UPSTREAM[0],
+        text: async () => JSON.stringify(UPSTREAM[0]),
+      };
+    }) as unknown as typeof fetch;
+    const res = await app.request(`/api/data/${COLLECTION}/${UPSTREAM[0]!.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie: memberCookie },
+      body: JSON.stringify({ title: 'renamed' }),
+    });
+    expect(res.status).toBe(200);
+    expect(writes).toEqual(['PATCH']);
   });
 });
