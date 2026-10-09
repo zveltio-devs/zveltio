@@ -14,7 +14,8 @@
 #     one cannot write into the other's runner directory;
 #   - the engine user may start its runners through polkit and no other unit;
 #   - an edge function (ZVELTIO_EDGE_TRANSPORT=runner, step 5) runs in the
-#     `edge` instance: no secret, no address, a uid that is not the engine's.
+#     `edge` instance: no address, a uid that is not the engine's and cannot
+#     read the engine's .env (measured from outside while the invocation lives).
 #
 #   bash packages/engine/scripts/ext-runner-systemd.sh
 set -euo pipefail
@@ -94,15 +95,25 @@ check "engine user may not manage other units" 'grep -qiE "access denied|authent
 # ── edge functions: the `edge` instance, started by the engine on first use ───
 # The process-transport half of this probe is in ext-runner-compose.sh: run by
 # a compiled binary as `bun`, a local spawn would start an engine instead.
-out=$(sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp \
-  SECRET=hunter2-process-env BUN_BE_BUN=1 PROBE_URL="$URL" ZVELTIO_EDGE_TRANSPORT=runner \
-  "${DIR}/zveltio" "${DIR}/edge-probe.mjs" "${DIR}/.env" 2>&1 || true)
-echo "edge runner: $out"
-check "edge runner answered" 'grep -q "\"transport\":\"runner\"" <<<"$out"'
-check "edge function reads no engine secret" '! grep -q hunter2 <<<"$out"'
-check "edge function reaches no address" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
-UEDGE=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
+# Held for 4 s, so the invocation's uid is read from outside while it lives:
+# the JS lockdown leaves the function itself no way to the filesystem.
+edge_out=$(mktemp)
+sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp \
+  BUN_BE_BUN=1 PROBE_URL="$URL" PROBE_HOLD_MS=4000 ZVELTIO_EDGE_TRANSPORT=runner \
+  "${DIR}/zveltio" "${DIR}/edge-probe.mjs" >"$edge_out" 2>&1 &
+edge_pid=$!
+sleep 2
+CG=$(systemctl show -p ControlGroup --value zveltio-ext-runner@edge.service)
+UEDGE=$(for p in $(cat "/sys/fs/cgroup${CG}/cgroup.procs" 2>/dev/null); do ps -o uid= -p "$p"; done | tr -d ' ' | sort -u | head -1)
 check "edge function runs under a uid of its own" '[ -n "$UEDGE" ] && [ "$UEDGE" != "$UE" ] && [ "$UEDGE" != 0 ]'
+check "the .env holds the secret (probe control)" 'sudo cat "${DIR}/.env" | grep -q hunter2'
+check "edge function's uid reads no engine secret" \
+  '[ -n "$UEDGE" ] && ! sudo setpriv --reuid="$UEDGE" --regid="$UEDGE" --clear-groups cat "${DIR}/.env" 2>/dev/null | grep -q hunter2'
+wait "$edge_pid" || true
+out=$(cat "$edge_out"); rm -f "$edge_out"
+echo "edge runner: $out (uid ${UEDGE:-?})"
+check "edge runner answered" 'grep -q "\"transport\":\"runner\"" <<<"$out"'
+check "edge function reaches no address" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
 check "edge instance has room for concurrent invocations" \
   '[ "$(systemctl show -p TasksMax --value zveltio-ext-runner@edge.service)" = 512 ]'
 

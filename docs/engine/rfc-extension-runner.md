@@ -288,10 +288,13 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      update. The default stays the local child until step 6.
    - Proof: `ext-runner-compose.sh` runs `scripts/edge-runner-isolation.ts`
      through `runEdgeFunctionInSubprocess`. As the engine's child the function
-     reads the engine's `.env`, its environment and a public URL; on the runner
-     it reads none of them and runs under a uid ≥ the base. The function gets
-     at files through `global.fetch('file://…')`, a lockdown escape that works
-     today — exactly what the uid boundary is for. `ext-runner-systemd.sh`
+     reaches a public URL; on the runner it does not. The function is held
+     alive while the script finds its process from outside, takes its uid
+     (≥ the base, not the engine's) and checks that this uid cannot read the
+     engine's 0600 `.env`, which its owner can. The function itself reads
+     nothing: since #1002 the JS lockdown leaves it no way to the filesystem,
+     and the uid boundary is what holds when that lockdown fails.
+     `ext-runner-systemd.sh`
      checks the same on the `edge` instance; `edge-runner-transport.test.ts`
      checks that both transports return the same results and that the
      wall-clock kill leaves no process behind.
