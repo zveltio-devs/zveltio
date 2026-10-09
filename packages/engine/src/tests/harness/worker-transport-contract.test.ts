@@ -38,7 +38,7 @@ export default {
     });
     app.get('/sql', async (c) => c.json(await ctx.db.query('SELECT 1 + 1 AS two')));
     ctx.services.register('${name}.double', (n) => n * 2);
-    app.get('/svc', async (c) => c.json({ out: await ctx.services.get('${name}.double', [21]) }));
+    app.get('/svc', async (c) => c.json({ out: await ctx.services.get('${name}.double')(21) }));
     app.get('/big', (c) => c.text('z'.repeat(3 * 1024 * 1024)));
     app.get('/boom', () => { throw new Error('boom'); });
     app.get('/env', (c) => c.json(Object.keys(Bun.env)));

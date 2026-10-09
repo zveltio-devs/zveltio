@@ -73,7 +73,7 @@ export default {
     // An inline service, called while serving this request.
     app.get('/inline-svc', async (c) => {
       try {
-        return c.json({ ok: true, out: await ctx.services.get('${INLINE_SVC}', []) });
+        return c.json({ ok: true, out: await ctx.services.get('${INLINE_SVC}')() });
       } catch (e) { return c.json({ ok: false, error: e.message }, 500); }
     });
     // The same call, made after the request is over.
@@ -81,7 +81,7 @@ export default {
     app.get('/later-svc', (c) => {
       lateSvc = null;
       setTimeout(() => {
-        ctx.services.get('${INLINE_SVC}', []).then(
+        ctx.services.get('${INLINE_SVC}')().then(
           (out) => { lateSvc = { ok: true, out }; },
           (e) => { lateSvc = { ok: false, error: e.message }; },
         );
@@ -99,7 +99,7 @@ export default {
   async register(app, ctx) {
     app.get('/fwd', async (c) => {
       try {
-        return c.json({ ok: true, rows: await ctx.services.get('${WORKER}.rows', []) });
+        return c.json({ ok: true, rows: await ctx.services.get('${WORKER}.rows')() });
       } catch (e) { return c.json({ ok: false, error: e.message }, 500); }
     });
   },

@@ -49,9 +49,9 @@ const callerEntry = (name: string) => `
 export default {
   name: '${name}',
   async register(app, ctx) {
-    app.get('/call/:svc', async (c) => c.json({ out: await ctx.services.get(c.req.param('svc'), []) }));
+    app.get('/call/:svc', async (c) => c.json({ out: await ctx.services.get(c.req.param('svc'))() }));
     app.get('/try/:svc', async (c) => {
-      try { return c.json({ out: await ctx.services.get(c.req.param('svc'), []) }); }
+      try { return c.json({ out: await ctx.services.get(c.req.param('svc'))() }); }
       catch (e) { return c.json({ error: e.message }); }
     });
   },

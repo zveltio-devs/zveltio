@@ -136,9 +136,9 @@ What worker isolation does NOT give:
   not a subprocess — RSS is per-process).
 - OS-level sandboxing of filesystem / network. Use platform
   permissions to constrain capabilities, not the worker boundary.
-- Cross-process transactions. Each `ctx.db.query()` from a worker is
-  independent — `BEGIN`/`COMMIT` across multiple worker queries is
-  not supported.
+- Cross-process transactions. Each statement a worker's `ctx.db` runs is
+  independent — `BEGIN`/`COMMIT` across them is not supported, and
+  `ctx.db.transaction()` is refused.
 - Streaming responses. Bodies are buffered as text across the IPC
   hop.
 

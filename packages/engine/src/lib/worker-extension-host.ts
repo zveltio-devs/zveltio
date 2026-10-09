@@ -32,7 +32,8 @@
  *     DEVELOPER-GUIDE.md §"Isolation tiers" for the threat model.
  */
 
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { ensureWorkerRuntimeOnDisk, startRunner, stopRunner } from './ext-runner.js';
@@ -58,8 +59,9 @@ import {
 } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
-import { activationMiddlewareFor, extensionLoader } from './extensions/index.js';
-import { ProblemException, problem } from './problem.js';
+import { activationMiddlewareFor, extensionLoader, guardEventHandler } from './extensions/index.js';
+import { ProblemException, problem, problemOnError } from './problem.js';
+import { engineEvents } from './runtime/index.js';
 import {
   assertWorkerSqlAllowed,
   workerDbRoleFor,
@@ -131,6 +133,23 @@ export interface WorkerHealth {
 interface InvokeScope {
   tenantId: string | null;
   actor?: RequestActor;
+  /** `c.get('user')` as the `/ext/*` gate left it: the one user `checkPermission` answers for. */
+  user?: { id?: string };
+  /** The request's async context — domain, tenant, the API key the gate admitted. */
+  run?: <R>(fn: () => R) => R;
+  /** The request's own session, looked up with its own headers. */
+  session?: () => Promise<unknown>;
+}
+
+/**
+ * What a worker's `ctx` asks the host for (RFC extension-runner, step 7): the
+ * members `buildRestrictedContext` gives the same extension inline, so a host
+ * call is answered by the inline code itself.
+ */
+export interface WorkerCtxSource {
+  config?: unknown;
+  checkPermission?: (userId: string, resource: string, action: string) => Promise<boolean>;
+  auth?: { api: { getSession(args: { headers: Headers }): Promise<unknown> } };
 }
 
 interface ManagedWorker {
@@ -162,6 +181,9 @@ interface ManagedWorker {
   mayCall: ServiceDeps;
   /** Between a crash and the fresh spawn: in the map, but answering nothing. */
   respawning?: boolean;
+  source?: WorkerCtxSource;
+  /** Its `ctx.events.on` subscriptions on the engine bus, by listener key. */
+  listeners?: Map<string, () => void>;
   proxyUnmount: () => void;
   // Health bookkeeping
   workerGeneration: number;
@@ -226,6 +248,7 @@ export class WorkerExtensionHost {
     dependencies: readonly string[] = [],
     /** Its `ServiceDeps`: `dependencies` + `optionalDependencies`, absent ones marked. */
     mayCall: ServiceDeps = callableDeps(dependencies),
+    source: WorkerCtxSource = {},
   ): Promise<void> {
     if (this.workers.has(extName)) {
       throw new Error(`Worker for "${extName}" is already running`);
@@ -237,6 +260,7 @@ export class WorkerExtensionHost {
       1,
       new Set(dependencies),
       mayCall,
+      source,
     );
     this.workers.set(extName, managed);
     managed.proxyUnmount = this.mountProxyRoutes(managed);
@@ -256,6 +280,7 @@ export class WorkerExtensionHost {
     for (const svc of managed.registeredServices) {
       serviceRegistry.unregisterAs(extName, svc);
     }
+    dropListeners(managed);
     failPendingInvokes(extName);
     managed.worker.terminate();
     this.workers.delete(extName);
@@ -322,6 +347,7 @@ export class WorkerExtensionHost {
     generation: number,
     dependencies: ReadonlySet<string>,
     mayCall: ServiceDeps,
+    source: WorkerCtxSource,
   ): Promise<ManagedWorker> {
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
     const runtimePath = ensureWorkerRuntimeOnDisk();
@@ -351,6 +377,8 @@ export class WorkerExtensionHost {
       registeredServices: new Set(),
       dependencies,
       mayCall,
+      source,
+      listeners: new Map(),
       proxyUnmount: () => {},
       workerGeneration: generation,
       enabledAt: Date.now(),
@@ -383,6 +411,7 @@ export class WorkerExtensionHost {
           NODE_ENV: process.env.NODE_ENV ?? 'production',
           extensionPath: extDir,
         },
+        config: source.config,
       });
     });
 
@@ -416,6 +445,8 @@ export class WorkerExtensionHost {
       serviceRegistry.unregisterAs(managed.name, svc);
     }
     managed.registeredServices.clear();
+    // The fresh worker's register() subscribes again.
+    dropListeners(managed);
     // A caller waiting on the dead worker would otherwise sit out the 30s timeout.
     failPendingInvokes(managed.name);
     const prevBackoff = this.respawnBackoff.get(managed.name) ?? 500;
@@ -433,6 +464,7 @@ export class WorkerExtensionHost {
           managed.workerGeneration + 1,
           managed.dependencies,
           managed.mayCall,
+          managed.source ?? {},
         );
         // Carry over the proxy-mount + bookkeeping; the old ManagedWorker
         // is replaced in the registry by the new one.
@@ -504,6 +536,9 @@ export class WorkerExtensionHost {
         break;
       case 'service:register':
         this.handleServiceRegister(managed, msg);
+        break;
+      case 'host:call':
+        void this.handleHostCall(managed, msg);
         break;
       case 'service:invoke:ok':
       case 'service:invoke:err': {
@@ -639,6 +674,89 @@ export class WorkerExtensionHost {
     }
   }
 
+  /**
+   * A `ctx` member only the host can answer (RFC step 7), answered as the request
+   * the call names — from the host's own record of it, never from the worker.
+   * `checkPermission` answers for that request's user and no other, with the
+   * inline extension's own check run in the request's async context (its tenant,
+   * and the API key the gate admitted); outside a request it answers false.
+   */
+  private async handleHostCall(
+    managed: ManagedWorker,
+    msg: Extract<WorkerToHostMessage, { type: 'host:call' }>,
+  ): Promise<void> {
+    try {
+      const scope = requestScope(managed, msg.requestId, msg.op);
+      const run = scope?.run ?? (<R>(fn: () => R) => fn());
+      const session = async () => (scope?.session ? await run(scope.session) : null) ?? null;
+      const [a, b, c] = msg.args;
+      const { op } = msg;
+      let result: unknown;
+      switch (op) {
+        case 'getSession':
+          result = await session();
+          break;
+        case 'checkPermission': {
+          const check = managed.source?.checkPermission;
+          const who =
+            scope?.user?.id ?? ((await session()) as { user?: { id?: string } } | null)?.user?.id;
+          result =
+            !!check &&
+            typeof a === 'string' &&
+            a === who &&
+            (await run(() => check(a, String(b), String(c))));
+          break;
+        }
+        case 'emit': {
+          const event = refuseEvent(managed, a, 'emit');
+          if (c) await run(() => engineEvents.emitAsync(event as never, b as never));
+          else run(() => engineEvents.emit(event as never, b as never));
+          break;
+        }
+        case 'on':
+          this.subscribe(managed, refuseEvent(managed, a, 'on'), String(b));
+          break;
+        case 'off':
+          managed.listeners?.get(String(a))?.();
+          managed.listeners?.delete(String(a));
+          break;
+        default:
+          throw new Error(`unknown host call "${String(msg.op)}"`);
+      }
+      this.post(managed, { type: 'host:ok', id: msg.id, result });
+    } catch (err) {
+      this.post(managed, {
+        type: 'host:err',
+        id: msg.id,
+        error: (err as Error).message,
+        ...(err instanceof ProblemException ? { status: err.status } : {}),
+      });
+    }
+  }
+
+  /**
+   * Deliver `event` to the worker's listener `key`, as the tenant and caller it
+   * was emitted for, and only where the extension is active for that tenant
+   * (`guardEventHandler`, as an inline listener).
+   */
+  private subscribe(managed: ManagedWorker, event: string, key: string): void {
+    const deliver = (payload: unknown) =>
+      this.invokeWorkerService(
+        managed,
+        key,
+        [payload],
+        currentScope(getCurrentDomainOrNull()),
+        'event:deliver',
+      ).catch((err: Error) =>
+        console.error(`[worker:${managed.name}] listener for "${event}" failed: ${err.message}`),
+      );
+    const listener = (payload: unknown) =>
+      guardEventHandler(deliver, managed.name, getDb())(payload);
+    managed.listeners ??= new Map();
+    managed.listeners.get(key)?.();
+    managed.listeners.set(key, engineEvents.on(event as never, listener as never));
+  }
+
   /** A worker dependency counts as running only while its worker is up; an
    *  inline one while the loader has it. */
   private isDependencyRunning(name: string): boolean {
@@ -663,6 +781,7 @@ export class WorkerExtensionHost {
     name: string,
     args: unknown[],
     scope: InvokeScope,
+    type: 'service:invoke' | 'event:deliver' = 'service:invoke',
   ): Promise<unknown> {
     const invokeId = rpcId('inv-svc');
     target.invokeTenants.set(invokeId, scope);
@@ -677,7 +796,7 @@ export class WorkerExtensionHost {
             reject(new Error(`service "${name}" call timeout (30s)`));
           }
         }, 30_000);
-        this.post(target, { type: 'service:invoke', id: invokeId, name, args });
+        this.post(target, { type, id: invokeId, name, args });
       });
       if (reply.type === 'service:invoke:err') {
         throw new Error(reply.error ?? 'service call failed');
@@ -753,7 +872,14 @@ export class WorkerExtensionHost {
           });
           const id = rpcId('inv');
           const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
-          live.invokeTenants.set(id, currentScope(reqTenantId));
+          const user = (c.get('user') ?? undefined) as { id?: string } | undefined;
+          const auth = live.source?.auth;
+          live.invokeTenants.set(id, {
+            ...currentScope(reqTenantId),
+            user,
+            run: AsyncLocalStorage.snapshot(),
+            session: async () => auth?.api.getSession({ headers: c.req.raw.headers }) ?? null,
+          });
           live.inFlightRequests++;
           live.totalRequests++;
           try {
@@ -774,9 +900,15 @@ export class WorkerExtensionHost {
                 query: c.req.query(),
                 body: bodyText || undefined,
                 tenantId: reqTenantId ?? undefined,
+                user,
               });
             });
             if (resp.type === 'route:err') {
+              // An uncaught SQLSTATE answers as an inline route's (22P02 → 400, 55P03 → 503).
+              if (resp.errno) {
+                const err = Object.assign(new Error(resp.error), { errno: resp.errno });
+                return problemOnError(err, c as unknown as Context);
+              }
               return new Response(resp.error ?? 'worker error', { status: 500 });
             }
             return new Response(resp.body ?? '', {
@@ -920,6 +1052,37 @@ const invokeWaiters = new Map<
     reject: (err: Error) => void;
   }
 >();
+
+const ENGINE_EVENT = /^(record|schema|user|flow)\.|^ai\.task\./;
+
+/** Unsubscribe every `ctx.events.on` a worker made. */
+function dropListeners(managed: ManagedWorker): void {
+  for (const off of managed.listeners?.values() ?? []) off();
+  managed.listeners?.clear();
+}
+
+/**
+ * `event` if the worker may emit it or listen to it: its own `<name>.*` events,
+ * and for `on` those of an extension it declared it depends on. Never the
+ * engine's — a `record.*` payload carries rows the worker's own reads would not
+ * return — and never another extension's emit, which listeners would believe.
+ */
+function refuseEvent(managed: ManagedWorker, event: unknown, op: 'emit' | 'on'): string {
+  const owners = op === 'emit' ? [managed.name] : [managed.name, ...managed.mayCall.keys()];
+  if (
+    typeof event === 'string' &&
+    // The engine's own (`EngineEventMap`), whatever an extension is named.
+    !ENGINE_EVENT.test(event) &&
+    owners.some((o) => o !== 'engine' && event.startsWith(`${o}.`))
+  ) {
+    return event;
+  }
+  throw new Error(
+    `extension "${managed.name}" may not ${op === 'emit' ? 'emit' : 'listen to'} ` +
+      `"${String(event)}": a worker-isolated extension ${op === 'emit' ? 'emits' : 'listens to'} ` +
+      `only "<extension>.*" events of its own${op === 'on' ? ' or of its declared dependencies' : ''}`,
+  );
+}
 
 /** Settle every call waiting on `extName`'s worker: it will not answer. */
 function failPendingInvokes(extName: string): void {
