@@ -9,10 +9,14 @@ function bridge(over: Partial<WorkerBridge> = {}) {
   const queries: Call[] = [];
   const hosts: Call[] = [];
   const services: Call[] = [];
+  const savepoints: string[] = [];
   const b: WorkerBridge = {
     query: async (sql, params) => {
       queries.push([sql, params]);
       return Object.assign([{ n: 1 }], { count: 3 });
+    },
+    savepoint: async (op) => {
+      savepoints.push(op);
     },
     host: async (op, args) => {
       hosts.push([op, args]);
@@ -28,7 +32,7 @@ function bridge(over: Partial<WorkerBridge> = {}) {
     ...over,
   };
   const { ctx, settled } = buildWorkerCtx(b);
-  return { ctx: ctx as any, settled, b, queries, hosts, services };
+  return { ctx: ctx as any, settled, b, queries, hosts, services, savepoints };
 }
 
 describe('worker ctx: db', () => {
@@ -56,11 +60,35 @@ describe('worker ctx: db', () => {
     expect(queries).toEqual([['SELECT $1', [7]]]);
   });
 
-  it('refuses a transaction by name: each bridged statement commits on its own', async () => {
-    const { ctx } = bridge();
-    await expect(ctx.db.transaction().execute(async () => 1)).rejects.toThrow(
-      'ctx.db.transaction() is not available to a worker-isolated extension',
-    );
+  it('db.transaction() is a savepoint the host names, nested, released or rolled back', async () => {
+    const { ctx, savepoints, queries } = bridge();
+    const out = await ctx.db.transaction().execute(async () => {
+      await ctx.db.transaction().execute(async (trx: any) => {
+        await trx.selectFrom('zv_x_items').selectAll().execute();
+      });
+      await ctx.db
+        .transaction()
+        .execute(async () => {
+          throw new Error('inner');
+        })
+        .catch(() => undefined);
+      return 1;
+    });
+    expect(out).toBe(1);
+    expect(savepoints).toEqual(['begin', 'begin', 'release', 'begin', 'rollback', 'release']);
+    // No transaction-control text crosses the bridge.
+    expect(queries.map(([q]) => q)).toEqual(['select * from "zv_x_items"']);
+  });
+
+  it('refuses transaction settings a savepoint cannot carry', async () => {
+    const { ctx, savepoints } = bridge();
+    await expect(
+      ctx.db
+        .transaction()
+        .setIsolationLevel('serializable')
+        .execute(async () => 1),
+    ).rejects.toThrow('ctx.db.transaction() settings is not available');
+    expect(savepoints).toEqual([]);
   });
 
   it('reqDb is the same request-scoped db', () => {

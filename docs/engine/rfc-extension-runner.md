@@ -2,12 +2,12 @@
 
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
 [Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension), 4
-(container runner), 5 (edge functions, opt-in), 6 (a faithful SQL bridge) and 7 (one `ctx`
-contract) are done. Decision 5 (2026-10-09,
+(container runner), 5 (edge functions, opt-in), 6 (a faithful SQL bridge), 7 (one `ctx`
+contract) and 8 (one transaction per request) are done. Decision 5 (2026-10-09,
 from a measured experiment) keeps first-party extensions inline and puts three
 steps before the default flip: a faithful SQL bridge (6), the same `ctx` contract
 out of process as inline (7) and one database transaction per request across the
-bridge (8). Step 7 is done; step 8 is next.
+bridge (8). Steps 6–8 are done; the default flip (9) is next.
 
 ## Problem
 
@@ -353,7 +353,7 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    process throw by name when touched, so `register()` fails the load; an
    uncaught SQLSTATE answers as inline (22P02 → 400, 55P03 → 503)
    (`tests/harness/worker-ctx-parity.test.ts`: the same extension inline and on
-   both transports). Still open: `db.transaction()` is refused until step 8;
+   both transports). Still open: (`db.transaction()`, refused here, is step 8, done);
    `services.get` cannot answer `null` synchronously for a service that is not
    there, so the call fails instead; `getUserRoles`, `describeDenial`,
    `services.has|waitFor|list` and the other `auth.api` methods are absent.
@@ -366,6 +366,31 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    request, maps `db.transaction()` to savepoints, and commits or rolls back
    with the response — with a hard timeout and a release on connection loss.
    This also removes most of the per-statement overhead.
+   **Done:** the host opens the request's transaction on the first bridged
+   statement of a `route:invoke` (keyed by the id it minted), on one reserved
+   connection with `SET LOCAL` role, `statement_timeout` and tenant GUCs, and
+   ends it once, with the answer. The rule is `tenantMiddleware`'s for an inline
+   request: COMMIT unless the handler threw (`c.error`, carried back as
+   `threw`), whatever status it answered — so a caught 23505 answered 400 stands,
+   and a failed statement left uncaught still aborts the whole request. ROLLBACK
+   also on the 30 s hard timeout (the connection is released mid-request; later
+   statements are refused and the answer becomes the inline "could not be
+   committed" 500), on a COMMIT that fails (same 500), and when the worker dies,
+   is stopped or its transport drops (its pending requests are answered at once,
+   not after the 30 s route timeout). `db.transaction()` is a savepoint the host
+   names (`zv_sp_<depth>`, nested); the worker still cannot send
+   BEGIN/COMMIT/SAVEPOINT text. A worker service called during the request joins
+   its transaction under the callee's own role. Statements outside a route
+   request — `register()`, timers, event deliveries, a service an inline caller
+   invokes — keep one transaction per statement: no answer exists to commit them
+   with, and `db.transaction()` there is refused by name
+   (`tests/harness/worker-request-transaction.test.ts`: the burned invoice
+   number, the orphan contact, savepoints, a throw, a caught SQL error, the
+   timeout, a killed worker, no role or GUC leak — both transports, both
+   drivers). Measured in the [experiment](rfc-extension-runner-experiment.md) §6.
+   Still open: a worker request holds two connections (the request's tenant
+   transaction and its own); an inline service a worker calls runs in a
+   transaction of its own, not the request's.
 9. **Default flip:** production uses the runner for third-party extensions, and
    the in-thread worker is removed: development uses the runner protocol over a
    local child (`ZVELTIO_EXT_TRANSPORT=process`), so there are two mechanisms,

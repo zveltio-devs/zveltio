@@ -25,6 +25,8 @@ type Fn = (...args: unknown[]) => unknown;
 export interface WorkerBridge {
   /** One statement through `db:query`: rows carrying `count`, or an error carrying `errno`. */
   query(sql: string, params: unknown[]): Promise<unknown[]>;
+  /** `db.transaction()`: a savepoint in the request's transaction, named by the host. */
+  savepoint(op: 'begin' | 'release' | 'rollback'): Promise<unknown>;
   host(op: HostCallOp, args: unknown[]): Promise<unknown>;
   serviceCall(name: string, args: unknown[]): Promise<unknown>;
   registerService(name: string, impl: Fn): void;
@@ -58,7 +60,7 @@ export function refused(member: string, why = 'it runs inside the engine process
  * Kysely's own Postgres compiler and adapter, as `BunSqlDialect` uses them, over
  * a driver that sends each compiled statement across the bridge.
  */
-function bridgeDialect(query: WorkerBridge['query']): Dialect {
+function bridgeDialect({ query, savepoint }: WorkerBridge): Dialect {
   const connection: DatabaseConnection = {
     async executeQuery(compiled) {
       const rows = (await query(compiled.sql, [...compiled.parameters])) as unknown[] & {
@@ -73,17 +75,22 @@ function bridgeDialect(query: WorkerBridge['query']): Dialect {
       throw refused('db stream()', 'rows cross the bridge whole');
     },
   };
-  const noTransaction = async () => {
-    throw refused('db.transaction()', 'each bridged statement commits on its own until step 8');
-  };
+  // The request is already one transaction on the host (RFC step 8), so
+  // `db.transaction()` nests in it as a savepoint, as it would inside an
+  // inline request's transaction.
   const driver: Driver = {
     async init() {},
     async acquireConnection() {
       return connection;
     },
-    beginTransaction: noTransaction,
-    commitTransaction: noTransaction,
-    rollbackTransaction: noTransaction,
+    async beginTransaction(_conn, settings) {
+      if (settings.isolationLevel || settings.accessMode) {
+        throw refused('db.transaction() settings', 'a savepoint cannot change them');
+      }
+      await savepoint('begin');
+    },
+    commitTransaction: () => savepoint('release').then(() => undefined),
+    rollbackTransaction: () => savepoint('rollback').then(() => undefined),
     async releaseConnection() {},
     async destroy() {},
   };
@@ -105,7 +112,7 @@ export function buildWorkerCtx(bridge: WorkerBridge): {
   ctx: Record<string, unknown>;
   settled: () => Promise<void>;
 } {
-  const db = Object.assign(new Kysely<unknown>({ dialect: bridgeDialect(bridge.query) }), {
+  const db = Object.assign(new Kysely<unknown>({ dialect: bridgeDialect(bridge) }), {
     // The raw form worker extensions had before Kysely.
     query: (sql: string, ...params: unknown[]) => bridge.query(sql, params),
   });

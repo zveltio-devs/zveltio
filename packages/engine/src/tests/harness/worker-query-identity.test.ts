@@ -79,6 +79,9 @@ export default {
   async register(app, ctx) {
     app.get('/fwd', async (c) => {
       try {
+        // Opens the request's transaction as this extension: the service's
+        // statements join it, switched to the callee's role (RFC step 8).
+        await ctx.db.query('SELECT 1');
         return c.json({ ok: true, rows: await ctx.services.get('${WORKER}.rows')() });
       } catch (e) { return c.json({ ok: false, error: e.message }, 500); }
     });

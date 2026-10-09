@@ -121,6 +121,54 @@ Cause: the bridge runs each statement in its own transaction and refuses BEGIN/C
 - Engine events: B0 has no `ctx.events`; with the shim `emit` is a fire-and-forget host call and `emitAsync` runs listeners in a separate transaction from the writes (inline, invoicing awaits `invoice.created` inside the request transaction on purpose). DB-level NOTIFY is unchanged.
 - Errors: zod 400s pass through; unhandled errors come back as Hono's plain "Internal Server Error" (normalized to a problem 500 by the engine), not the engine's own onError mapping.
 
+## 6. After RFC step 8 (one transaction per request), 2026-10-09
+
+Re-run on the step-8 branch (base bef2bb12, steps 6 and 7 in), process transport,
+same machine, no shim — steps 6 and 7 replaced it. "Before" is bef2bb12, "after"
+the step-8 change, same database, two runs each, 200 requests per route.
+
+What could run: **sms** loads. **crm** does not: its `register()` touches
+`ctx.DDLManager`, which step 7 refuses at load, so case 2 (orphan contact) and
+`txn2.ts` cannot be re-run against crm — the harness reproduces it instead
+(`tests/harness/worker-request-transaction.test.ts`, red on bef2bb12, green after,
+both transports, both drivers). **invoicing** loads, but no `POST /invoices`
+succeeds out of process: before, `db.transaction()` is refused; after, it runs and
+the route then fails at `ctx.events.emitAsync('record.created')`, which step 7
+refuses a worker (it emits only its own `<name>.*` events). `sms POST /send` was
+dropped from the bench: the child no longer gets the shim's `HTTPS_PROXY`, so it
+would reach the real Twilio.
+
+Case 1, invoicing, `issue_date: "not-a-date"`:
+- before: 500, `next_number` 3 → 4 — burned. Over the bench's ~220 failing creates
+  the series advanced to 224 with 0 invoices written.
+- after: 500, 1 → 1 and 447 → 447 — rolled back. Over ~440 failing creates (each
+  now writes the invoice and its lines, then fails at the event) not one number
+  was burned and no invoice row was kept.
+
+Database round-trips per request with N bridged statements (from the code path):
+before 7·N (BEGIN, `statement_timeout`, role pick, `SET ROLE`, GUCs, the
+statement, COMMIT — each on its own reserved connection, plus `DISCARD TEMP` where
+the role kept TEMPORARY); after N + 6 on one connection, opened on the first
+statement and ended with the response.
+
+Latency, p50 / p95 ms (run 1 from a fresh boot; run 2 warm):
+
+| route | before run 1 | before run 2 | after run 1 | after run 2 |
+|---|---|---|---|---|
+| sms GET /messages | 6.81 / 10.76 | 4.86 / 9.44 | 7.53 / 13.05 | 5.02 / 8.41 |
+| inv GET /invoices | 5.93 / 9.42 | 4.15 / 8.42 | 4.92 / 9.81 | 4.37 / 8.48 |
+| inv POST /invoices (500, see above) | 6.98 / 12.51 | 5.45 / 9.58 | 8.97 / 18.26 | 7.34 / 14.08 |
+
+Reads are unchanged within run-to-run noise: on loopback a Postgres round-trip is
+far cheaper than the worker IPC, so the removed per-statement overhead does not
+show. The POST is not comparable — after, it does the inserts it never reached
+before. RSS after step 8 (engine; sms and invoicing children): idle 158 104;
+59 820, 64 048 kB, after two bench runs 271 908; 70 244, 90 400 kB — the same
+range as §3.
+
+Not run: the container runner (needs docker) and the bare-metal systemd runner;
+nothing in step 8 is transport-specific (both transports are in the harness).
+
 ## Re-run
 
 The scripts (bench, transaction cases, RSS sampler, mocked Twilio, runner compose

@@ -32,6 +32,7 @@ import type {
   WorkerToHostMessage,
   RouteDescriptor,
   RouteInvokeRequest,
+  DbQueryRequest,
   DbQueryResponse,
   ServiceCallResponse,
   ServiceInvokeRequest,
@@ -115,14 +116,18 @@ if (asProcess) {
  * The protocol always had the field and the host always looked it up; this side
  * never sent it, so every worker query ran with no tenant.
  */
-const invocation = new AsyncLocalStorage<{ id: string; user?: unknown }>();
+const invocation = new AsyncLocalStorage<{ id: string; user?: unknown; threw?: boolean }>();
 
 /**
  * A query across the worker boundary, answered in the inline driver's shape:
  * the rows carry the affected-row `count`, and an error its SQLSTATE in `errno`
  * (and the driver's `code`), as Bun.SQL does.
  */
-async function dbExecute(sql: string, params: unknown[]): Promise<unknown[]> {
+async function dbExecute(
+  sql: string,
+  params: unknown[],
+  savepoint?: DbQueryRequest['savepoint'],
+): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const id = rpcId('db');
     pendingDbQueries.set(id, (res) => {
@@ -136,7 +141,8 @@ async function dbExecute(sql: string, params: unknown[]): Promise<unknown[]> {
         );
       }
     });
-    send({ type: 'db:query', id, sql, params, requestId: invocation.getStore()?.id });
+    const requestId = invocation.getStore()?.id;
+    send({ type: 'db:query', id, sql, params, requestId, ...(savepoint ? { savepoint } : {}) });
   });
 }
 
@@ -265,9 +271,11 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     const app = new Hono();
     // What `c.get('user')` reads inline: the principal the `/ext/*` gate admitted.
     app.use('*', async (c, next) => {
-      const user = invocation.getStore()?.user;
-      if (user) c.set('user' as never, user as never);
+      const store = invocation.getStore();
+      if (store?.user) c.set('user' as never, store.user as never);
       await next();
+      // Hono rendered a throw: the host rolls the request back, as inline.
+      if (c.error && store) store.threw = true;
     });
     app.onError(onRouteError);
     // A router from the extension's own bundled Hono keeps that copy's default
@@ -279,6 +287,7 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     }) as typeof app.route;
     const { ctx, settled } = buildWorkerCtx({
       query: dbExecute,
+      savepoint: (op) => dbExecute('', [], op),
       host: hostCall,
       serviceCall,
       registerService,
@@ -331,7 +340,8 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       body: msg.body,
     });
     const app = shadowApp;
-    const res = await invocation.run({ id: msg.id, user: msg.user }, () => app.fetch(req));
+    const store: { id: string; user?: unknown; threw?: boolean } = { id: msg.id, user: msg.user };
+    const res = await invocation.run(store, () => app.fetch(req));
     const body = await res.text();
     const headers: Record<string, string> = {};
     res.headers.forEach((v, k) => {
@@ -343,6 +353,7 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       status: res.status,
       headers,
       body,
+      ...(store.threw ? { threw: true } : {}),
     });
   } catch (err) {
     const errno = sqlState(err);

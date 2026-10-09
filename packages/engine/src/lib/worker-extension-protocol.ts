@@ -85,6 +85,11 @@ export interface RouteInvokeResponse {
   error?: string;
   /** The SQLSTATE of an error the handler did not catch, for the host's `problemOnError`. */
   errno?: string;
+  /**
+   * The handler threw and Hono rendered the error (`c.error`): the host rolls
+   * the request's transaction back, as `tenantMiddleware` does inline.
+   */
+  threw?: boolean;
 }
 
 // ── DB ──────────────────────────────────────────────────────────────
@@ -107,6 +112,12 @@ export interface DbQueryRequest {
    * the untrusted party here, so a tenant it asserts is a tenant it chose.
    */
   requestId?: WorkerMessageId;
+  /**
+   * `db.transaction()` (RFC step 8): open, release or roll back a savepoint in
+   * the request's transaction, with `sql` empty. The host names the savepoint;
+   * the worker never sends transaction-control text.
+   */
+  savepoint?: 'begin' | 'release' | 'rollback';
 }
 
 export interface DbQueryResponse {

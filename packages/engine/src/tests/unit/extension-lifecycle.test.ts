@@ -151,6 +151,7 @@ describe('unloadExtension', () => {
       stopped: false,
       heartbeatTimer: undefined,
       registeredServices: new Set<string>(),
+      pendingInvokes: new Map(),
       proxyUnmount: () => {
         unmounted = true;
       },
@@ -179,6 +180,7 @@ describe('unloadExtension', () => {
       name: 'e-stuck',
       stopped: false,
       registeredServices: new Set<string>(),
+      pendingInvokes: new Map(),
       proxyUnmount: () => {
         throw new Error('unmount boom');
       },
