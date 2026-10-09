@@ -208,6 +208,8 @@ export function templatesRoutes(db: Database, auth: any): Hono {
         'search_vector',
       ]);
       for (const coll of renamed) {
+        const reserved = await DDLManager.reservedName(db, coll.name);
+        if (reserved) return c.json({ error: reserved }, 409);
         for (const f of coll.fields) {
           if (!fieldTypeRegistry.has(f.type)) {
             return c.json(

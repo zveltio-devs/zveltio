@@ -71,13 +71,17 @@ export async function addFieldToCollection(
     .execute();
 }
 
-/** Remove a field from collection.fields JSON (row-locked). */
+/**
+ * Remove a field from collection.fields JSON (row-locked), with the rules that
+ * name it. Before the field's column is dropped: see `DDLManager.dropFieldRules`.
+ */
 export async function removeFieldFromCollection(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   trx: any,
   collectionName: string,
   fieldName: string,
 ): Promise<void> {
+  await DDLManager.dropFieldRules(trx, collectionName, fieldName);
   const locked = await trx
     .selectFrom('zvd_collections')
     .select(['fields'])

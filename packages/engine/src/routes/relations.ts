@@ -150,23 +150,27 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       // DROP, fields and relation row in one transaction (all transactional DDL):
       // separately, a failure left a relation row naming a column already gone.
       await db.transaction().execute(async (trx) => {
+        // The field before its column: its row rule's policy names the column.
         if (relation.type === 'm2o') {
-          await dynamicDropColumn(trx, sourceTable, relation.source_field);
           await removeFieldFromCollection(trx, relation.source_collection, relation.source_field);
+          await dynamicDropColumn(trx, sourceTable, relation.source_field);
         } else if (relation.type === 'o2m') {
           const fkInTarget = relation.target_field || `${relation.source_collection}_id`;
-          await dynamicDropColumn(trx, targetTable, fkInTarget);
           await removeFieldFromCollection(trx, relation.source_collection, relation.source_field);
           await removeFieldFromCollection(trx, relation.target_collection, fkInTarget);
+          await dynamicDropColumn(trx, targetTable, fkInTarget);
         } else if (relation.type === 'm2m' && relation.junction_table) {
-          await DDLManager.dropJunctionTable(trx, relation.junction_table);
           await removeFieldFromCollection(trx, relation.source_collection, relation.source_field);
+          await DDLManager.dropJunctionTable(trx, relation.junction_table);
         }
         // m2a: no DDL to undo
 
         await trx.deleteFrom('zvd_relations').where('id', '=', relation.id).execute();
       });
       fieldsChanged(relation.source_collection, relation.target_collection);
+      for (const c of new Set([relation.source_collection, relation.target_collection])) {
+        await DDLManager.forgetFieldRules(c);
+      }
 
       return c.json({ success: true });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
