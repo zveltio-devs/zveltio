@@ -95,16 +95,24 @@ check "engine user may not manage other units" 'grep -qiE "access denied|authent
 # ── edge functions: the `edge` instance, started by the engine on first use ───
 # The process-transport half of this probe is in ext-runner-compose.sh: run by
 # a compiled binary as `bun`, a local spawn would start an engine instead.
-# Held for 4 s, so the invocation's uid is read from outside while it lives:
+# Held for 10 s, so the invocation's uid is read from outside while it lives:
 # the JS lockdown leaves the function itself no way to the filesystem.
 edge_out=$(mktemp)
 sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp \
-  BUN_BE_BUN=1 PROBE_URL="$URL" PROBE_HOLD_MS=4000 ZVELTIO_EDGE_TRANSPORT=runner \
+  BUN_BE_BUN=1 PROBE_URL="$URL" PROBE_HOLD_MS=10000 ZVELTIO_EDGE_TRANSPORT=runner \
   "${DIR}/zveltio" "${DIR}/edge-probe.mjs" >"$edge_out" 2>&1 &
 edge_pid=$!
-sleep 2
-CG=$(systemctl show -p ControlGroup --value zveltio-ext-runner@edge.service)
-UEDGE=$(for p in $(cat "/sys/fs/cgroup${CG}/cgroup.procs" 2>/dev/null); do ps -o uid= -p "$p"; done | tr -d ' ' | sort -u | head -1)
+# Polled: the engine starts the instance on first use.
+UEDGE=
+for _ in 1 2 3 4 5 6 7 8; do
+  sleep 1
+  CG=$(systemctl show -p ControlGroup --value zveltio-ext-runner@edge.service 2>/dev/null || true)
+  [ -n "$CG" ] || continue
+  UEDGE=$(for p in $(cat "/sys/fs/cgroup${CG}/cgroup.procs" 2>/dev/null || true); do
+    ps -o uid= -p "$p" 2>/dev/null || true
+  done | tr -d ' ' | sort -u | awk 'NR == 1')
+  [ -n "$UEDGE" ] && break
+done
 check "edge function runs under a uid of its own" '[ -n "$UEDGE" ] && [ "$UEDGE" != "$UE" ] && [ "$UEDGE" != 0 ]'
 check "the .env holds the secret (probe control)" 'sudo cat "${DIR}/.env" | grep -q hunter2'
 check "edge function's uid reads no engine secret" \
