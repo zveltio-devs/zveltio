@@ -335,15 +335,10 @@ export class ExtensionLoader {
       console.warn('[extensions] Core dep install failed (non-fatal):', err.message);
     });
 
-    const envExtensions = getActiveExtensionNames();
-    // Before any loads: `a` loading first must already know `a/b` owns `zv_a_b_*`.
-    noteExtensionNames(envExtensions);
-    const refused = new Map<string, string>();
-    const sortedEnv = await topoSortExtensions(envExtensions, extBase, refused);
-    this.noteRefused(refused);
-    for (const extName of sortedEnv) {
-      await this.loadExtension(extName, app, ctx);
-    }
+    // ZVELTIO_EXTENSIONS and the registry's enabled rows are ONE load set, sorted
+    // once: two batches (env first) loaded an env extension before a dependency
+    // that was enabled only in the registry.
+    await this.loadFromDB(ctx.db, app, getActiveExtensionNames());
 
     // Also load from external path if configured
     const externalPath = process.env.ZVELTIO_EXTENSIONS_PATH;
@@ -404,37 +399,50 @@ export class ExtensionLoader {
     return purgeExtensionData(extensionName, db);
   }
 
-  async loadFromDB(db: Database, app: Hono): Promise<void> {
+  /**
+   * Load `envNames` (ZVELTIO_EXTENSIONS) together with every extension enabled
+   * in the registry, deduplicated and topologically sorted as one set. The
+   * per-extension outcome is persisted on registry rows only.
+   */
+  async loadFromDB(db: Database, app: Hono, envNames: string[] = []): Promise<void> {
+    let enabled: string[] = [];
     try {
       const rows = await db
         .selectFrom('zv_extension_registry')
         .select(['name'])
         .where('is_enabled', '=', true)
         .execute();
-
-      const pending = rows.map((r) => r.name).filter((name) => !this.loaded.has(name));
-      if (pending.length === 0 || !this.ctx) return;
-
-      const extBase = resolveExtensionsBase();
-      const refused = new Map<string, string>();
-      const sorted = await this.topoSortExtensions(pending, extBase, refused);
-      this.noteRefused(refused);
-      for (const name of [...sorted, ...refused.keys()]) {
-        if (!refused.has(name)) await this.loadExtension(name, app, this.ctx);
-        // Persist the per-extension outcome so a boot-time failure is visible in
-        // /api/extensions (red badge + reason) instead of a silent skip, and a
-        // recovered one loses its badge. is_enabled is left untouched — a
-        // failing extension stays enabled and retries on the next boot.
-        const err = this.isActive(name) ? null : (this.lastLoadError.get(name) ?? 'load failed');
-        await db
-          .updateTable('zv_extension_registry')
-          .set({ last_load_error: err, last_load_at: new Date() })
-          .where('name', '=', name)
-          .execute()
-          .catch(() => {});
-      }
+      enabled = rows.map((r) => r.name);
     } catch {
-      // Table may not exist on first run — silently skip
+      // Table may not exist on first run — the env list still loads.
+    }
+
+    const pending = [...new Set([...envNames, ...enabled])].filter(
+      (name) => !this.loaded.has(name),
+    );
+    if (pending.length === 0 || !this.ctx) return;
+
+    // Before any loads: `a` loading first must already know `a/b` owns `zv_a_b_*`.
+    noteExtensionNames(pending);
+    const extBase = resolveExtensionsBase();
+    const refused = new Map<string, string>();
+    const sorted = await this.topoSortExtensions(pending, extBase, refused);
+    this.noteRefused(refused);
+    const inRegistry = new Set(enabled);
+    for (const name of [...sorted, ...refused.keys()]) {
+      if (!refused.has(name)) await this.loadExtension(name, app, this.ctx);
+      if (!inRegistry.has(name)) continue;
+      // Persist the per-extension outcome so a boot-time failure is visible in
+      // /api/extensions (red badge + reason) instead of a silent skip, and a
+      // recovered one loses its badge. is_enabled is left untouched — a
+      // failing extension stays enabled and retries on the next boot.
+      const err = this.isActive(name) ? null : (this.lastLoadError.get(name) ?? 'load failed');
+      await db
+        .updateTable('zv_extension_registry')
+        .set({ last_load_error: err, last_load_at: new Date() })
+        .where('name', '=', name)
+        .execute()
+        .catch(() => {});
     }
   }
 

@@ -269,6 +269,10 @@ Examples: `ai.providers`, `ai.embed`, `ai.chat`, `crm.contacts.lookup`, `pdf.gen
 
 The engine topologically sorts extensions before loading, guaranteeing the AI extension is
 fully loaded (and `ai.providers` is registered) before any consumer's `register()` runs.
+At boot, the extensions listed in `ZVELTIO_EXTENSIONS` and the ones enabled in the
+registry (marketplace) are one set, sorted once — a dependency enabled only in the
+registry still loads before an extension listed in the environment. Extensions found
+under `ZVELTIO_EXTENSIONS_PATH` are sorted separately, after that set.
 
 ### Engine internals — `ctx.internals.*`
 
