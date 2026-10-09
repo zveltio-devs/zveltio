@@ -15,6 +15,9 @@ name: zveltio
 # Egress: `network_mode: none` denies every address. To let extensions reach an
 # API, replace it with a network that routes only there — the allowance is for
 # every extension in the runner, not per extension as on bare metal.
+#
+# Edge functions (step 5) run here too once the engine sets
+# ZVELTIO_EDGE_TRANSPORT: runner — with the same egress, so none by default.
 
 services:
   engine:

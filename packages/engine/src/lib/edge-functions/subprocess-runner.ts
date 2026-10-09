@@ -41,6 +41,7 @@ import { runnerInterpreterArgs, runningAsCompiledBinary } from './runner-sentine
 import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { connect, type Socket } from 'node:net';
 import type { EdgeRequest, EdgeResponse, RunResult } from '../edge-function-runner.js';
 
 // Max user-supplied code size handed to a subprocess. 1 MiB is generous
@@ -446,27 +447,44 @@ export function __limitedCmdForTests(memoryLimitMb: number): string[] {
 }
 
 function limitedCmd(memoryLimitMb: number): string[] {
-  const direct = [BUN_BIN, ...interpreterArgs(), bootstrapPath];
-  if (memoryLimitMb === 0 && CPU_LIMIT_S === 0) return direct;
-  if (BUN_BIN.includes("'") || bootstrapPath.includes("'")) return direct;
+  const useCgroup = memoryLimitMb > 0 && cgroupLimitAvailable();
+  const floored = Math.max(memoryLimitMb, RLIMIT_AS_FLOOR_MB);
+  if (memoryLimitMb > 0 && !useCgroup && floored !== memoryLimitMb && !flooredWarningShown) {
+    flooredWarningShown = true;
+    console.warn(
+      `[edge-functions] memory budget ${memoryLimitMb} MB raised to ${floored} MB: ` +
+        'no cgroup scope on this host, and RLIMIT_AS cannot express less — Bun does ' +
+        'not start in under ~1 GiB of address space.',
+    );
+  }
+  return limitedCommand(
+    [BUN_BIN, ...interpreterArgs(), bootstrapPath],
+    memoryLimitMb,
+    CPU_LIMIT_S,
+    useCgroup,
+  );
+}
+
+/**
+ * `argv` under the ceilings, as a shell that sets them on itself and `exec`s it.
+ * Pure, so the engine (which may have a cgroup scope) and the extension runner
+ * (which never has one) build the same command.
+ */
+export function limitedCommand(
+  argv: string[],
+  memoryLimitMb: number,
+  cpuLimitS: number,
+  useCgroup: boolean,
+): string[] {
+  if (memoryLimitMb === 0 && cpuLimitS === 0) return argv;
+  if (argv.some((a) => a.includes("'"))) return argv;
 
   // CPU stays on RLIMIT_CPU even under a cgroup: the cgroup CPU controls
   // throttle rather than stop, which is not what a runaway needs.
   const ulimits: string[] = [];
-  if (CPU_LIMIT_S > 0) ulimits.push(`ulimit -t ${CPU_LIMIT_S} 2>/dev/null`);
-
-  const useCgroup = memoryLimitMb > 0 && cgroupLimitAvailable();
+  if (cpuLimitS > 0) ulimits.push(`ulimit -t ${cpuLimitS} 2>/dev/null`);
   if (memoryLimitMb > 0 && !useCgroup) {
-    const floored = Math.max(memoryLimitMb, RLIMIT_AS_FLOOR_MB);
-    ulimits.push(`ulimit -v ${floored * 1024} 2>/dev/null`);
-    if (floored !== memoryLimitMb && !flooredWarningShown) {
-      flooredWarningShown = true;
-      console.warn(
-        `[edge-functions] memory budget ${memoryLimitMb} MB raised to ${floored} MB: ` +
-          'no cgroup scope on this host, and RLIMIT_AS cannot express less — Bun does ' +
-          'not start in under ~1 GiB of address space.',
-      );
-    }
+    ulimits.push(`ulimit -v ${Math.max(memoryLimitMb, RLIMIT_AS_FLOOR_MB) * 1024} 2>/dev/null`);
   }
 
   // `systemd-run` needs the session bus to create a scope, and it hands its own
@@ -474,7 +492,8 @@ function limitedCmd(memoryLimitMb: number): string[] {
   // land in the sandbox. The inner shell drops them before `exec`, which keeps
   // the child's environment exactly as minimal as it is without a cgroup.
   const prelude = useCgroup ? 'unset DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR; ' : '';
-  const inner = `${prelude}${ulimits.join('; ')}${ulimits.length ? '; ' : ''}exec '${BUN_BIN}' ${interpreterArgs().join(' ')} '${bootstrapPath}'`;
+  const [bin, ...rest] = argv;
+  const inner = `${prelude}${ulimits.join('; ')}${ulimits.length ? '; ' : ''}exec '${bin}' ${rest.map((a) => `'${a}'`).join(' ')}`;
   if (!useCgroup) return ['/bin/sh', '-c', inner];
 
   // MemorySwapMax=0 matters: without it the budget is memory PLUS swap, and a
@@ -729,10 +748,34 @@ export async function runEdgeFunctionInSubprocess(
   }
 
   const budgetMb = opts.memoryLimitMb ?? MEMORY_LIMIT_MB;
-  const proc = takeRunner(budgetMb, POOL_SIZE > 0 && opts.memoryLimitMb === undefined);
-
-  // Write the envelope to stdin, then close.
   const envelope = JSON.stringify({ code: jsCode, request, env: envVars, timeoutMs }) + '\n';
+  const outcome =
+    edgeTransport() === 'runner'
+      ? await invokeOverRunner(budgetMb, envelope, timeoutMs)
+      : await invokeLocally(budgetMb, envelope, timeoutMs, opts.memoryLimitMb === undefined);
+  return toRunResult(outcome, Date.now() - start);
+}
+
+/** What one invocation left behind, wherever it ran. */
+interface Outcome {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  signal: string | null;
+  cpuSeconds: number | null;
+  timedOut: boolean;
+  /** The invocation never produced an outcome (spawn or channel failure). */
+  error?: string;
+}
+
+async function invokeLocally(
+  budgetMb: number,
+  envelope: string,
+  timeoutMs: number,
+  pooled: boolean,
+): Promise<Outcome> {
+  const proc = takeRunner(budgetMb, POOL_SIZE > 0 && pooled);
+
   proc.stdin.write(envelope);
   proc.stdin.end();
 
@@ -747,32 +790,47 @@ export async function runEdgeFunctionInSubprocess(
     }
   }, timeoutMs + 3000);
 
-  let stdoutText = '';
-  let stderrText = '';
   try {
-    [stdoutText, stderrText] = await Promise.all([
+    const [stdout, stderr] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
     await proc.exited;
-  } catch (err) {
-    clearTimeout(killTimer);
     return {
-      ok: false,
-      error: `Subprocess error: ${(err as Error).message}`,
-      logs: [],
-      duration_ms: Date.now() - start,
+      stdout,
+      stderr,
+      exitCode: proc.exitCode,
+      signal: proc.signalCode ?? null,
+      cpuSeconds: cpuSecondsOf(proc),
+      timedOut,
     };
+  } catch (err) {
+    return emptyOutcome(`Subprocess error: ${(err as Error).message}`);
+  } finally {
+    clearTimeout(killTimer);
   }
-  clearTimeout(killTimer);
+}
 
-  const duration_ms = Date.now() - start;
+function emptyOutcome(error: string): Outcome {
+  return {
+    stdout: '',
+    stderr: '',
+    exitCode: null,
+    signal: null,
+    cpuSeconds: null,
+    timedOut: false,
+    error,
+  };
+}
+
+function toRunResult(o: Outcome, duration_ms: number): RunResult {
+  if (o.error) return { ok: false, error: o.error, logs: [], duration_ms };
 
   // The handler protocol writes EXACTLY one JSON line on stdout. Anything
   // else (`console.log` from a user that imported a polluted polyfill,
   // engine crashes, …) becomes logs. The FIRST line that parses as JSON is
   // the envelope; anything before or after it is kept as a log line.
-  const lines = stdoutText.split('\n').filter((l) => l.trim().length > 0);
+  const lines = o.stdout.split('\n').filter((l) => l.trim().length > 0);
   let envelopeOut: {
     ok: boolean;
     response?: EdgeResponse;
@@ -792,16 +850,16 @@ export async function runEdgeFunctionInSubprocess(
     leftover.push(line);
   }
 
-  const stderrLines = stderrText.split('\n').filter((l) => l.trim().length > 0);
+  const stderrLines = o.stderr.split('\n').filter((l) => l.trim().length > 0);
   const extraLogs = [...leftover, ...stderrLines.map((l) => `[stderr] ${l}`)];
 
   if (!envelopeOut) {
     return {
       ok: false,
       error:
-        proc.exitCode === 0
+        o.exitCode === 0
           ? 'Subprocess returned no envelope'
-          : deathCause(proc.signalCode ?? null, proc.exitCode, timedOut, cpuSecondsOf(proc)),
+          : deathCause(o.signal, o.exitCode, o.timedOut, o.cpuSeconds),
       logs: extraLogs,
       duration_ms,
     };
@@ -814,4 +872,184 @@ export async function runEdgeFunctionInSubprocess(
     logs: [...(envelopeOut.logs ?? []), ...extraLogs],
     duration_ms,
   };
+}
+
+// ── The runner placement (RFC extension-runner, step 5) ─────────────────────
+//
+// `ZVELTIO_EDGE_TRANSPORT=runner` runs each invocation in the extension runner
+// (lib/ext-runner.ts) instead of as the engine's child: under a uid that cannot
+// read the engine's files, environment or process state. One connection is one
+// invocation. The engine writes a header line and the envelope; the runner
+// spawns the same bootstrap under the same ceilings, waits for it, and answers
+// one JSON line carrying what a local spawn would have observed — stdout,
+// stderr, exit code, signal, CPU seconds — so the result is built by the same
+// `toRunResult`. Closing the connection kills the invocation.
+//
+// A separate switch from ZVELTIO_EXT_TRANSPORT on purpose: `ext-runner setup`
+// already sets that one on every bare-metal install, and the runner denies
+// every address until the operator allows one — tying the two would cut edge
+// functions off the network on the next update. Default flip is RFC step 6.
+
+/** `runner`, or `process` (the default: the engine's own child). */
+export function edgeTransport(): 'process' | 'runner' {
+  return process.env.ZVELTIO_EDGE_TRANSPORT === 'runner' ? 'runner' : 'process';
+}
+
+/**
+ * The first line on an edge connection: `EDGE <memory MiB> <cpu s>`. The
+ * runner tells it from an extension's channel by its first byte — a frame
+ * starts with its length's top byte, at most 0x02 under the 32 MiB frame cap,
+ * never `E`.
+ */
+export const EDGE_HEADER_TAG = 'EDGE';
+
+export function parseEdgeHeader(line: string): { memoryMb: number; cpuS: number } | null {
+  const m = /^EDGE (\d{1,7}) (\d{1,7})$/.exec(line);
+  return m ? { memoryMb: Number(m[1]), cpuS: Number(m[2]) } : null;
+}
+
+async function invokeOverRunner(
+  budgetMb: number,
+  envelope: string,
+  timeoutMs: number,
+): Promise<Outcome> {
+  const { edgeRunnerSocket, forgetEdgeRunner } = await import('../ext-runner.js');
+  let socketPath: string;
+  try {
+    socketPath = await edgeRunnerSocket();
+  } catch (err) {
+    return emptyOutcome(`Edge runner unavailable: ${(err as Error).message}`);
+  }
+  const outcome = await exchangeWithRunner(
+    socketPath,
+    `${EDGE_HEADER_TAG} ${budgetMb} ${CPU_LIMIT_S}\n${envelope}`,
+    timeoutMs + 3000,
+  );
+  // A runner that went away (restarted, stopped) is started again next time.
+  if (outcome.error) forgetEdgeRunner();
+  return outcome;
+}
+
+/** One invocation over a runner socket; exported for the transport test. */
+export function exchangeWithRunner(
+  socketPath: string,
+  request: string,
+  killAfterMs: number,
+): Promise<Outcome> {
+  return new Promise((resolve) => {
+    const sock = connect(socketPath);
+    const chunks: Buffer[] = [];
+    let timedOut = false;
+    let failure: string | null = null;
+    // Same leeway as the local kill; closing the connection is the kill.
+    const killTimer = setTimeout(() => {
+      timedOut = true;
+      sock.destroy();
+    }, killAfterMs);
+    sock.on('connect', () => sock.write(request));
+    sock.on('data', (c: Buffer) => chunks.push(c));
+    sock.on('error', (err) => {
+      failure = `Edge runner ${socketPath}: ${err.message}`;
+    });
+    sock.on('close', () => {
+      clearTimeout(killTimer);
+      const text = Buffer.concat(chunks).toString('utf8');
+      try {
+        const r = JSON.parse(text) as Omit<Outcome, 'timedOut'>;
+        resolve({ ...r, timedOut });
+      } catch {
+        const lost = emptyOutcome(failure ?? 'Edge runner closed the connection without a result');
+        // Our own kill: report it as the local runner does, not as a lost channel.
+        resolve(timedOut ? { ...lost, error: undefined, timedOut } : lost);
+      }
+    });
+  });
+}
+
+/** The bootstrap this process wrote, for the runner to hand to its own uids. */
+export const edgeBootstrapPath = bootstrapPath;
+
+/**
+ * Runner side of one edge connection (`first` holds the bytes read so far):
+ * spawn the bootstrap under the requested ceilings, through `wrap` (setpriv in
+ * containers), feed it the envelope, and answer with what it left behind.
+ */
+export function serveEdgeConnection(
+  conn: Socket,
+  first: Buffer,
+  wrap: (argv: string[]) => { argv: string[]; release?: () => void },
+): void {
+  let buf = first;
+  let proc: Runner | null = null;
+  let done = false;
+  const onData = (chunk: Buffer) => {
+    if (done) return;
+    if (proc) {
+      proc.stdin.write(chunk);
+      proc.stdin.flush();
+      return;
+    }
+    buf = Buffer.concat([buf, chunk]);
+    const nl = buf.indexOf(10);
+    if (nl === -1) {
+      if (buf.length > 64) conn.destroy();
+      return;
+    }
+    const header = parseEdgeHeader(buf.subarray(0, nl).toString('latin1'));
+    if (!header) {
+      conn.destroy();
+      return;
+    }
+    const { argv, release } = wrap(
+      limitedCommand(
+        [BUN_BIN, ...interpreterArgs(), bootstrapPath],
+        header.memoryMb,
+        header.cpuS,
+        false,
+      ),
+    );
+    const started: Runner = spawn({
+      cmd: argv,
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { PATH: '/usr/local/bin:/usr/bin:/bin', TMPDIR: tmpdir() },
+      cwd: '/',
+    });
+    proc = started;
+    void started.exited.then(() => release?.());
+    started.stdin.write(buf.subarray(nl + 1));
+    started.stdin.flush();
+    void (async () => {
+      const [stdout, stderr] = await Promise.all([
+        new Response(started.stdout).text(),
+        new Response(started.stderr).text(),
+      ]);
+      await started.exited;
+      done = true;
+      conn.end(
+        `${JSON.stringify({
+          stdout,
+          stderr,
+          exitCode: started.exitCode,
+          signal: started.signalCode ?? null,
+          cpuSeconds: cpuSecondsOf(started),
+        })}\n`,
+      );
+    })();
+  };
+  const kill = () => {
+    if (done || !proc) return;
+    try {
+      proc.kill('SIGKILL');
+    } catch (err) {
+      console.error(`[ext-runner] could not kill edge pid ${proc.pid}: ${(err as Error).message}`);
+    }
+  };
+  conn.on('close', kill);
+  conn.on('error', kill);
+  conn.on('data', onData);
+  // The router paused the connection to read its first chunk.
+  conn.resume();
+  onData(Buffer.alloc(0));
 }

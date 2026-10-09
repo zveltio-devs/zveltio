@@ -253,6 +253,12 @@ The engine spawns a fresh Bun process per invocation (`Bun.spawn`) with:
   `tls.serverName`) so a name cannot resolve twice and answer differently the
   second time.
 
+All of that runs under the engine's uid, so a function that escapes the JS
+lockdown can read what the engine can. `ZVELTIO_EDGE_TRANSPORT=runner` moves
+each invocation into the extension runner, under another uid with no access to
+the engine's files, environment or processes (RFC extension-runner, step 5);
+it is opt-in until step 6.
+
 Trade-off: ~30 ms per-spawn vs. ~1 ms for Worker. Use Worker (the
 default) for admin-authored edge functions, subprocess for marketplace
 / end-user-authored code.

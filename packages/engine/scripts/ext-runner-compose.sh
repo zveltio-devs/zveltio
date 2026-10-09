@@ -12,6 +12,11 @@
 # A connection from a uid other than the engine's is refused (SO_PEERCRED), and
 # an extension's process does not outlive its connection.
 #
+# Edge functions (step 5, edge-runner-isolation.ts) run the same way: under the
+# engine's uid (ZVELTIO_EDGE_TRANSPORT unset) an edge function reads the .env,
+# the environment and the network; with ZVELTIO_EDGE_TRANSPORT=runner it reads
+# none of them and runs under a uid of its own.
+#
 #   bash packages/engine/scripts/ext-runner-compose.sh
 set -euo pipefail
 
@@ -51,6 +56,19 @@ for ext in r1 r2; do
   uids+=("$uid")
 done
 [ "${uids[0]}" != "${uids[1]}" ] || { echo "FAIL: two extensions got the same uid"; fail=1; }
+
+EDGE=/src/packages/engine/scripts/edge-runner-isolation.ts
+out=$(dc exec -T -e PROBE_URL="$URL" engine bun "$EDGE" /opt/zveltio/.env 2>&1 || true)
+echo "edge process: ${out:0:300}"
+[ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] && grep -q '"fetch":"HTTP' <<<"$out" \
+  || { echo "FAIL: an edge function under the engine's uid should read both secrets and reach $URL (probe broken?)"; fail=1; }
+out=$(dc exec -T -e PROBE_URL="$URL" -e ZVELTIO_EDGE_TRANSPORT=runner engine bun "$EDGE" /opt/zveltio/.env 2>&1 || true)
+echo "edge runner:  $out"
+grep -q '"transport":"runner"' <<<"$out" || { echo "FAIL: edge runner probe gave no answer"; fail=1; }
+grep -q hunter2 <<<"$out" && { echo "FAIL: an edge function on the runner read an engine secret"; fail=1; }
+grep -q '"fetch":"HTTP' <<<"$out" && { echo "FAIL: an edge function on the runner reached $URL"; fail=1; }
+uid=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
+[ -n "$uid" ] && [ "$uid" -ge 200000 ] || { echo "FAIL: edge function ran as uid ${uid:-?}"; fail=1; }
 
 # A closed connection ends its extension's process. (The probe exits on EOF by
 # itself; one that ignores EOF is what CAP_KILL in the overlay is for.)

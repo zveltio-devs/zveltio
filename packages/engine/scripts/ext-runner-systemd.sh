@@ -12,7 +12,9 @@
 #   - the operator's IPAddressAllow opens egress for that extension only;
 #   - two extensions run under two different uids, neither the engine's, and
 #     one cannot write into the other's runner directory;
-#   - the engine user may start its runners through polkit and no other unit.
+#   - the engine user may start its runners through polkit and no other unit;
+#   - an edge function (ZVELTIO_EDGE_TRANSPORT=runner, step 5) runs in the
+#     `edge` instance: no secret, no address, a uid that is not the engine's.
 #
 #   bash packages/engine/scripts/ext-runner-systemd.sh
 set -euo pipefail
@@ -32,9 +34,11 @@ command -v pkaction >/dev/null || sudo apt-get install -y -qq polkitd >/dev/null
 id -u zveltio &>/dev/null || sudo useradd -r -M -s /bin/false zveltio
 bun build --compile "${E}/src/binary-entry.ts" --outfile /tmp/zveltio-ci-bin >/dev/null
 bun build --target bun "${E}/scripts/ext-runner-isolation.ts" --outfile /tmp/zveltio-ci-probe.mjs >/dev/null
+bun build --target bun "${E}/scripts/edge-runner-isolation.ts" --outfile /tmp/zveltio-ci-edge-probe.mjs >/dev/null
 sudo mkdir -p "${DIR}/extensions"
 sudo install -m 755 /tmp/zveltio-ci-bin "${DIR}/zveltio"
 sudo install -m 644 /tmp/zveltio-ci-probe.mjs "${DIR}/probe.mjs"
+sudo install -m 644 /tmp/zveltio-ci-edge-probe.mjs "${DIR}/edge-probe.mjs"
 echo "SECRET=hunter2-env-file" | sudo tee "${DIR}/.env" >/dev/null
 sudo chown -R zveltio:zveltio "${DIR}"
 sudo chmod 600 "${DIR}/.env"
@@ -86,6 +90,21 @@ check "B stays closed" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
 err=$(sudo -u zveltio systemctl stop --no-ask-password "$UNIT_A" 2>&1) && echo "engine stopped A" || { echo "$err"; fail=1; }
 err=$(sudo -u zveltio systemctl restart --no-ask-password cron.service 2>&1 || true)
 check "engine user may not manage other units" 'grep -qiE "access denied|authentication" <<<"$err"'
+
+# ── edge functions: the `edge` instance, started by the engine on first use ───
+# The process-transport half of this probe is in ext-runner-compose.sh: run by
+# a compiled binary as `bun`, a local spawn would start an engine instead.
+out=$(sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp \
+  SECRET=hunter2-process-env BUN_BE_BUN=1 PROBE_URL="$URL" ZVELTIO_EDGE_TRANSPORT=runner \
+  "${DIR}/zveltio" "${DIR}/edge-probe.mjs" "${DIR}/.env" 2>&1 || true)
+echo "edge runner: $out"
+check "edge runner answered" 'grep -q "\"transport\":\"runner\"" <<<"$out"'
+check "edge function reads no engine secret" '! grep -q hunter2 <<<"$out"'
+check "edge function reaches no address" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
+UEDGE=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
+check "edge function runs under a uid of its own" '[ -n "$UEDGE" ] && [ "$UEDGE" != "$UE" ] && [ "$UEDGE" != 0 ]'
+check "edge instance has room for concurrent invocations" \
+  '[ "$(systemctl show -p TasksMax --value zveltio-ext-runner@edge.service)" = 512 ]'
 
 sudo systemctl stop 'zveltio-ext-runner@*' 2>/dev/null || true
 [ "$fail" = 0 ] && echo "PASS: ext-runner on systemd"

@@ -1,8 +1,8 @@
 # RFC: third-party extensions run out of process
 
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
-[Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension) and 4
-(container runner) are done; step 5 (edge functions) is next.
+[Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension), 4
+(container runner) and 5 (edge functions, opt-in) are done; step 6 (default flip) is next.
 
 ## Problem
 
@@ -137,10 +137,10 @@ config. The manifest can request it, and the operator grants it.
 
 ### Edge functions
 
-`lib/edge-functions/subprocess-runner.ts` already spawns a process per invocation
-with a minimal environment and a memory ceiling, but under the engine's uid. It
-moves onto the same runner placement, which closes the same-uid gap for edge
-functions too.
+`lib/edge-functions/subprocess-runner.ts` spawns a process per invocation with a
+minimal environment and a memory ceiling, by default under the engine's uid.
+With `ZVELTIO_EDGE_TRANSPORT=runner` it runs on the same runner placement
+instead, which closes the same-uid gap for edge functions too (step 5).
 
 ## Migration plan
 
@@ -265,7 +265,47 @@ functions too.
      outlives its connection, and that a foreign uid is refused.
    - Egress in compose is all or nothing for the runner: per-extension rules
      (decision 2) exist on bare metal only.
-5. **Edge functions** move to the runner.
+5. **Done — edge functions on the runner** (opt-in, `ZVELTIO_EDGE_TRANSPORT=runner`):
+   - One connection is one invocation. The engine writes a header line,
+     `EDGE <memory MiB> <cpu s>`, then the envelope it would have written to a
+     local child. The runner tells this from an extension's channel by the
+     first byte (a frame starts with its length's top byte, at most `0x02`
+     under the 32 MiB cap), spawns the same generated bootstrap under the same
+     `ulimit` ceilings, feeds it the envelope, and answers one JSON line with
+     what a local spawn would have observed: stdout, stderr, exit code, signal
+     and CPU seconds. The engine builds the `RunResult` from it with the same
+     code as for a local child, so callers (the edge route, flow scripts) see
+     the same results, logs and failure messages. The engine's wall-clock kill
+     closes the connection, and the runner kills the process.
+   - Placement: on bare metal the `zveltio-ext-runner@edge` instance (a name
+     `runnerInstance` cannot produce), started on the first invocation and
+     again after a failed one; `setup` gives it `TasksMax=512`, since a Bun
+     process is about ten tasks. In containers, the shared runner, which runs
+     each invocation under a uid of its own, as it does an extension.
+   - Its own switch: `ext-runner setup` already sets `ZVELTIO_EXT_TRANSPORT`
+     on every bare-metal install, and the runner denies every address, so
+     reusing it would have cut edge functions off the network on the next
+     update. The default stays the local child until step 6.
+   - Proof: `ext-runner-compose.sh` runs `scripts/edge-runner-isolation.ts`
+     through `runEdgeFunctionInSubprocess`. As the engine's child the function
+     reads the engine's `.env`, its environment and a public URL; on the runner
+     it reads none of them and runs under a uid ≥ the base. The function gets
+     at files through `global.fetch('file://…')`, a lockdown escape that works
+     today — exactly what the uid boundary is for. `ext-runner-systemd.sh`
+     checks the same on the `edge` instance; `edge-runner-transport.test.ts`
+     checks that both transports return the same results and that the
+     wall-clock kill leaves no process behind.
+   - Still open:
+     - no per-invocation cgroup on the runner: a budget under 1024 MiB is
+       floored to the RLIMIT_AS minimum, and the instance's `MemoryMax` bounds
+       all invocations together;
+     - no pre-spawned pool on the runner: each invocation pays the spawn
+       (~30 ms) the local pool saves;
+     - on bare metal every invocation shares the `edge` instance's uid, so two
+       invocations running at once are not isolated from each other (in
+       containers each gets its own uid);
+     - egress is the runner's: closed until the operator opens the `edge`
+       instance or the runner container's network.
 6. **Default flip:** production uses the runner, and the in-thread worker is
    development only. The #906 opt-in variable then guards the dev transport
    instead.
