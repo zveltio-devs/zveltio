@@ -24,6 +24,8 @@ import {
   dynamicDb,
   runAtomic,
   isUuid,
+  engineRead,
+  writeUnread,
 } from '../write-pipeline.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { serializeRecord } from '../shape.js';
@@ -62,6 +64,8 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   // Column-level write permission — mirror single createRecord. Without it the
   // bulk endpoint was an escalation hole around read-only columns.
   const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
+  // Create without read: ids only in the answer (see `writeUnread`).
+  const canRead = await checkAccess(db, user, collection, 'read');
   const created: DynamicRecord[] = [];
   const errors: Array<{ index: number; errors: string[] }> = [];
 
@@ -115,10 +119,12 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
           throw err;
         }
 
-        const record = await dynamicInsert(trx, tableName, finalInsert, {
-          created_by: author,
-          updated_by: author,
-        });
+        const system = { created_by: author, updated_by: author };
+        const record = canRead
+          ? await dynamicInsert(trx, tableName, finalInsert, system)
+          : await writeUnread(trx, collection, () =>
+              dynamicInsert(trx, tableName, finalInsert, system, { returning: false }),
+            );
         created.push(record as DynamicRecord);
       }
     });
@@ -161,7 +167,9 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   return c.json(
     {
       created: created.length,
-      records: await Promise.all(created.map((r) => serializeRecord(r, collectionDef, colAccess))),
+      records: canRead
+        ? await Promise.all(created.map((r) => serializeRecord(r, collectionDef, colAccess)))
+        : created.map((r) => ({ id: r.id })),
       errors,
     },
     errors.length > 0 ? 207 : 201,
@@ -198,6 +206,8 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
   // Column-level write permission — mirror single patchRecord.
   const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
+  // Update without read: the engine reads in the window, the answer names rows.
+  const canRead = await checkAccess(db, user, collection, 'read');
   const updated: DynamicRecord[] = [];
   const errors: Array<{ index: number; id: string; errors: string[] }> = [];
 
@@ -243,16 +253,22 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         // three, and the only one this file did not mirror -- so a row an
         // extension hid (soft-delete, tenant isolation) answered 404 to
         // `PATCH /:id` and was rewritten by `PATCH /bulk`. Measured, both.
-        const beforeRow = await queryAlterRegistry
-          .applyAll(
-            applyRlsFilters(
-              dynamicDb(trx).selectFrom(tableName).selectAll().where('id', '=', id),
-              rlsFilters,
-            ),
-            tableName,
-            user,
-          )
-          .executeTakeFirst();
+        const beforeRow = await engineRead<DynamicRecord | undefined>(
+          canRead,
+          trx,
+          collection,
+          () =>
+            queryAlterRegistry
+              .applyAll(
+                applyRlsFilters(
+                  dynamicDb(trx).selectFrom(tableName).selectAll().where('id', '=', id),
+                  rlsFilters,
+                ),
+                tableName,
+                user,
+              )
+              .executeTakeFirst(),
+        );
         if (!beforeRow) {
           errors.push({ index: i, id, errors: ['Record not found'] });
           continue;
@@ -283,9 +299,12 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           throw err;
         }
 
-        const record = await dynamicUpdate(trx, tableName, id, finalPatch, {
-          updated_by: author,
-        });
+        const system = { updated_by: author };
+        const record = canRead
+          ? await dynamicUpdate(trx, tableName, id, finalPatch, system)
+          : await writeUnread(trx, collection, () =>
+              dynamicUpdate(trx, tableName, id, finalPatch, system, { returning: false }),
+            );
         if (record) updated.push(record as DynamicRecord);
         else errors.push({ index: i, id, errors: ['Record not found'] });
       }
@@ -314,7 +333,9 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   return c.json(
     {
       updated: updated.length,
-      records: await Promise.all(updated.map((r) => serializeRecord(r, collectionDef, colAccess))),
+      records: canRead
+        ? await Promise.all(updated.map((r) => serializeRecord(r, collectionDef, colAccess)))
+        : updated.map((r) => ({ id: r.id })),
       errors,
     },
     errors.length > 0 ? 207 : 200,
@@ -346,22 +367,27 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
 
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = getDb(c, db);
+  // Delete without read: the lookup and the DELETE run in the read window.
+  const canRead = await checkAccess(db, user, collection, 'read');
 
   // Same RLS conditions as the single delete path — rows the caller cannot see
   // never enter the delete set.
   // ...and the extension query alters the single delete path applies to its own
   // lookup. A row hidden by an alter never enters the delete set; without this
   // the batch endpoint deleted rows `DELETE /:id` answers 404 for.
-  const existing = await queryAlterRegistry
-    .applyAll(
-      applyRlsFilters(
-        dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', 'in', body.ids),
-        await getRlsFilters(collection, user, c.get('authType')),
-      ),
-      tableName,
-      user,
-    )
-    .execute();
+  const deleteFilters = await getRlsFilters(collection, user, c.get('authType'));
+  const existing = await engineRead<DynamicRecord[]>(canRead, effectiveDb, collection, () =>
+    queryAlterRegistry
+      .applyAll(
+        applyRlsFilters(
+          dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', 'in', body.ids),
+          deleteFilters,
+        ),
+        tableName,
+        user,
+      )
+      .execute(),
+  );
 
   // Per-row pre-delete hook. Aborted IDs drop out of the delete set and
   // are reported back as per-row errors (so the caller can distinguish
@@ -397,14 +423,16 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
     // A foreign key that refuses one of these rows is a 422, not a 500 -- the
     // single delete path says so too.
     const failed = await handlePgErrors(c, async () => {
-      await dynamicDb(effectiveDb)
-        .deleteFrom(tableName)
-        .where(
-          'id',
-          'in',
-          allowed.map((r) => r.id),
-        )
-        .execute();
+      await engineRead(canRead, effectiveDb, collection, () =>
+        dynamicDb(effectiveDb)
+          .deleteFrom(tableName)
+          .where(
+            'id',
+            'in',
+            allowed.map((r) => r.id),
+          )
+          .execute(),
+      );
       return null;
     });
     if (failed) return failed as Response;

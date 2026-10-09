@@ -32,7 +32,8 @@ import { DEFAULT_TENANT_ID } from '../route-db.js';
 import { normalizeFields, withheldColumns } from './shape.js';
 import type { CollectionDef } from './types.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
-import type { DynamicDB } from '../../db/dynamic-types.js';
+import type { DynamicDB, DynamicRecord } from '../../db/dynamic-types.js';
+import { withCollectionRead } from '../tenancy/index.js';
 import type { VirtualConfig } from '../virtual-collection-adapter.js';
 
 /** Returns the tenant-isolated transaction DB when in multi-tenant mode, else
@@ -53,6 +54,46 @@ export function getTenantId(c: Context): string | null {
  * scattering `as any` across every handler. */
 export function dynamicDb(db: Database): DynamicDB {
   return db as unknown as DynamicDB;
+}
+
+/**
+ * The engine's own statements on a collection, for a caller who may write it
+ * but not read it (`canRead` false): run inside `withCollectionRead`, or the
+ * SELECT policy filters the before-row and the `WHERE id = …` of an update or
+ * delete to nothing. A caller who can read needs no window.
+ */
+export function engineRead<T>(
+  canRead: boolean,
+  db: Database,
+  collection: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return canRead ? fn() : withCollectionRead(db, collection, fn);
+}
+
+/**
+ * A write for a caller who cannot read `collection`. `write` runs without
+ * RETURNING (`{ returning: false }`) and answers the id it touched, or null;
+ * the engine then reads the stored row back, inside the read window, for what
+ * follows the write — revisions, webhooks, flows, realtime, listeners. That row
+ * is the engine's: the handler answers the caller with the id alone.
+ */
+export function writeUnread(
+  db: Database,
+  collection: string,
+  write: () => Promise<{ id?: unknown } | null>,
+): Promise<DynamicRecord | null> {
+  return withCollectionRead(db, collection, async () => {
+    const done = await write();
+    if (!done) return null;
+    const row = await dynamicDb(db)
+      .selectFrom(DDLManager.getTableName(collection))
+      .selectAll()
+      .where('id', '=', String(done.id))
+      .executeTakeFirst();
+    // A row rule can still hide what was written; the side effects get the id.
+    return (row ?? { id: String(done.id) }) as DynamicRecord;
+  });
 }
 
 /**

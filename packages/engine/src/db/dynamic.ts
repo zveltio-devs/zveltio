@@ -454,6 +454,18 @@ const RESERVED = new Set([
  */
 export type SystemColumns = Record<string, unknown>;
 
+/**
+ * How a write answers. `returning: false` is for a caller who cannot read the
+ * collection: Postgres checks the table's SELECT policy for `RETURNING`, so with
+ * it a `create`-only grant was refused 42501 (migration 058). Without it the
+ * insert's id is generated here, so the row can still be named; an update or
+ * delete reports whether it touched a row. The row itself is not returned —
+ * the caller could not have read it.
+ */
+export interface WriteOptions {
+  returning?: boolean;
+}
+
 export async function dynamicInsert(
   db: Database,
   tableName: string,
@@ -461,18 +473,27 @@ export async function dynamicInsert(
   data: Record<string, any>,
   /** Engine-supplied columns — see `SystemColumns`. Applied after the filter. */
   system: SystemColumns = {},
+  { returning = true }: WriteOptions = {},
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 ): Promise<Record<string, any>> {
   const table = sql.id(sanitizeIdentifier(tableName));
-  const clean = {
+  const clean: Record<string, unknown> = {
     ...Object.fromEntries(Object.entries(data).filter(([k]) => !RESERVED.has(k))),
     ...system,
   };
+  if (!returning) clean.id = crypto.randomUUID();
 
   const jsonb = await jsonbColumnsFor(db, sanitizeIdentifier(tableName));
   const cols = Object.keys(clean).map((k) => sql.id(sanitizeIdentifier(k)));
   const vals = Object.entries(clean).map(([k, v]) => bindValue(v, k, jsonb));
 
+  if (!returning) {
+    await sql`
+      INSERT INTO ${table} (${sql.join(cols, sql`, `)})
+      VALUES (${sql.join(vals, sql`, `)})
+    `.execute(db);
+    return { id: clean.id };
+  }
   const result = await sql`
     INSERT INTO ${table} (${sql.join(cols, sql`, `)})
     VALUES (${sql.join(vals, sql`, `)})
@@ -502,6 +523,7 @@ export async function dynamicUpdate(
    * value that looks right is harder to notice than a missing one.
    */
   system: SystemColumns = {},
+  { returning = true }: WriteOptions = {},
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 ): Promise<Record<string, any> | null> {
   const table = sql.id(sanitizeIdentifier(tableName));
@@ -520,6 +542,16 @@ export async function dynamicUpdate(
     ([k, v]) => sql`${sql.id(sanitizeIdentifier(k))} = ${bindValue(v, k, jsonb)}`,
   );
 
+  if (!returning) {
+    // `WHERE id` reads the row too, so the caller runs this inside the engine's
+    // read window (`withCollectionRead`), or it matches nothing.
+    const done = await sql`
+      UPDATE ${table}
+      SET ${sql.join(setClauses, sql`, `)}, updated_at = NOW()
+      WHERE id = ${id}
+    `.execute(db);
+    return Number(done.numAffectedRows ?? 0n) > 0 ? { id } : null;
+  }
   const result = await sql`
     UPDATE ${table}
     SET ${sql.join(setClauses, sql`, `)}, updated_at = NOW()
@@ -533,8 +565,19 @@ export async function dynamicUpdate(
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 
-export async function dynamicDelete(db: Database, tableName: string, id: string): Promise<boolean> {
+export async function dynamicDelete(
+  db: Database,
+  tableName: string,
+  id: string,
+  { returning = true }: WriteOptions = {},
+): Promise<boolean> {
   const table = sql.id(sanitizeIdentifier(tableName));
+
+  if (!returning) {
+    // Inside the read window, as `dynamicUpdate`'s: the WHERE reads the row.
+    const done = await sql`DELETE FROM ${table} WHERE id = ${id}`.execute(db);
+    return Number(done.numAffectedRows ?? 0n) > 0;
+  }
 
   const result = await sql`
     DELETE FROM ${table} WHERE id = ${id} RETURNING id

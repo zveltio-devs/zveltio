@@ -76,6 +76,68 @@ export async function applyCollectionPermissions(db: Database, table: string): P
   return true;
 }
 
+/** Per transaction: the grants as published, and the collections read-opened over them. */
+const readWindows = new WeakMap<object, { base: Promise<string>; open: string[] }>();
+
+function writeReadWindow(trx: Database, w: { base: Promise<string>; open: string[] }) {
+  return w.base.then((base) => {
+    const extra = [...new Set(w.open)].map((c) => `${c}:read`).join(',');
+    const grants = extra ? `${base || ','}${extra},` : base;
+    return sql`SELECT set_config('zveltio.collection_grants', ${grants}, true)`.execute(trx);
+  });
+}
+
+/**
+ * Run the engine's OWN statements on `collection` as if the caller could read it.
+ *
+ * A caller with `create`, `update` or `delete` but not `read` is refused by the
+ * SELECT policy wherever Postgres reads the table on a write's behalf: the
+ * before-row the handlers check rules and hooks against, `UPDATE`/`DELETE …
+ * WHERE id = …` (filtered to nothing, silently), `ON CONFLICT`, `RETURNING`. So
+ * the engine adds `<collection>:read` to the published grants for `fn` and puts
+ * them back after. Only `read`, only this collection; the tenant policy and the
+ * row rules still apply.
+ *
+ * What runs inside must not reach the caller — it is the engine reading for
+ * itself (revisions, hooks, side effects). Keep `fn` to the engine's own
+ * statements: an extension hook awaited inside it would read under the window.
+ * Overlapping windows on one transaction widen and restore together, as
+ * `asSystem`'s do. Outside a transaction there is no actor, so nothing to open.
+ */
+export async function withCollectionRead<T>(
+  trx: Database,
+  collection: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!(trx as unknown as { isTransaction?: boolean }).isTransaction) return fn();
+  let w = readWindows.get(trx);
+  if (!w) {
+    // Issued before any set_config of this window: statements on a transaction
+    // run in the order they are issued, so the base is the published value.
+    w = {
+      base: sql<{ g: string | null }>`
+        SELECT current_setting('zveltio.collection_grants', true) AS g
+      `
+        .execute(trx)
+        .then((r) => r.rows[0]?.g ?? ''),
+      open: [],
+    };
+    readWindows.set(trx, w);
+  }
+  const win = w;
+  win.open.push(collection);
+  try {
+    await writeReadWindow(trx, win);
+    return await fn();
+  } finally {
+    win.open.splice(win.open.indexOf(collection), 1);
+    // Re-read next time: the actor may be republished (an API key) in between.
+    if (win.open.length === 0) readWindows.delete(trx);
+    // An aborted transaction fails this too, and its rollback discards the setting.
+    await writeReadWindow(trx, win).catch(() => undefined);
+  }
+}
+
 /**
  * An API key's scopes as the grants the policies read — the same union
  * `checkAccess` computes: an entry naming the collection or `*` grants its

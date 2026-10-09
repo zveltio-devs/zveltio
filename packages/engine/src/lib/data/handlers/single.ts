@@ -39,11 +39,14 @@ import {
   getTenantId,
   dynamicDb,
   isUuid,
+  engineRead,
+  writeUnread,
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
 import type { RequestUser } from '../types.js';
+import type { DynamicRecord } from '../../../db/dynamic-types.js';
 
 /**
  * What a single-record write acts on, and as whom. The route builds it from its
@@ -272,6 +275,8 @@ export async function createRecord(
   }
 
   const effectiveDb = w.trx ?? db;
+  // A caller who may create but not read gets the id alone — see `writeUnread`.
+  const canRead = await checkAccess(db, user, collection, 'read');
   // Authorship travels as `system` on the insert, not inside the payload. It
   // used to be merged here and then stripped by `dynamicInsert`'s RESERVED
   // filter, so every row landed with NULL authorship. Keeping it out of
@@ -298,8 +303,14 @@ export async function createRecord(
   }
 
   const result = await handlePgErrors(c, async () => {
-    const record = await tracedQuery(`${tableName}.create`, () =>
-      dynamicInsert(effectiveDb, tableName, finalInsert, systemColumns),
+    const record = await tracedQuery(`${tableName}.create`, async () =>
+      canRead
+        ? dynamicInsert(effectiveDb, tableName, finalInsert, systemColumns)
+        : (await writeUnread(effectiveDb, collection, () =>
+            dynamicInsert(effectiveDb, tableName, finalInsert, systemColumns, {
+              returning: false,
+            }),
+          ))!,
     );
     await afterWrite(effectiveDb, {
       collection,
@@ -310,6 +321,7 @@ export async function createRecord(
       author: rowAuthorId(user),
       tenantId: w.tenantId,
     });
+    if (!canRead) return c.json({ id: record.id }, 201);
     const serialized: Record<string, unknown> = await serializeRecord(
       record,
       collectionDef,
@@ -375,6 +387,9 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
 
   const effectiveDb = getDb(c, db);
   const toUpdate = { ...allowedPut, updated_by: author };
+  // Update without read: the engine's statements run in the read window, and
+  // the answer names the row without returning it.
+  const canRead = await checkAccess(db, user, collection, 'read');
 
   // Pre-update hooks need the current row for the `before` field. Read it
   // once — if the record doesn't exist (or extension query alters hide it)
@@ -387,7 +402,12 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
     await getRlsFilters(collection, user, c.get('authType')),
   );
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
-  const beforeRow = await beforeQuery.executeTakeFirst();
+  const beforeRow = await engineRead<DynamicRecord | undefined>(
+    canRead,
+    effectiveDb,
+    collection,
+    () => beforeQuery.executeTakeFirst(),
+  );
   if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
 
   // Entity-access enforcement: a row visible to query-alter still needs
@@ -416,7 +436,18 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.update`, () =>
-      dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author }),
+      canRead
+        ? dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author })
+        : writeUnread(effectiveDb, collection, () =>
+            dynamicUpdate(
+              effectiveDb,
+              tableName,
+              id,
+              finalPatch,
+              { updated_by: author },
+              { returning: false },
+            ),
+          ),
     );
     if (!record) return c.json({ error: 'Record not found' }, 404);
     await afterWrite(effectiveDb, {
@@ -428,6 +459,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
       author: rowAuthorId(user),
       tenantId: getTenantId(c),
     });
+    if (!canRead) return c.json({ success: true, id });
     const serialized: Record<string, unknown> = await serializeRecord(
       record,
       collectionDef,
@@ -499,6 +531,9 @@ export async function patchRecord(
 
   const effectiveDb = w.trx ?? db;
   const toUpdate = { ...allowedPatch, updated_by: author };
+  // As in replaceRecord: without read, the engine reads in the window and the
+  // answer names the row.
+  const canRead = await checkAccess(db, user, collection, 'read');
 
   // The before-row fetch doubles as the authorisation probe: run the caller's
   // RLS conditions on it, so a row they are not allowed to see is simply not
@@ -507,7 +542,12 @@ export async function patchRecord(
   let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
   beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, w.authType));
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
-  const beforeRow = await beforeQuery.executeTakeFirst();
+  const beforeRow = await engineRead<DynamicRecord | undefined>(
+    canRead,
+    effectiveDb,
+    collection,
+    () => beforeQuery.executeTakeFirst(),
+  );
   if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
 
   if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
@@ -532,9 +572,18 @@ export async function patchRecord(
   }
 
   const result = await handlePgErrors(c, async () => {
-    const record = await dynamicUpdate(effectiveDb, tableName, id, finalPatch, {
-      updated_by: author,
-    });
+    const record = canRead
+      ? await dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author })
+      : await writeUnread(effectiveDb, collection, () =>
+          dynamicUpdate(
+            effectiveDb,
+            tableName,
+            id,
+            finalPatch,
+            { updated_by: author },
+            { returning: false },
+          ),
+        );
     if (!record) return c.json({ error: 'Record not found' }, 404);
     await afterWrite(effectiveDb, {
       collection,
@@ -556,6 +605,7 @@ export async function patchRecord(
       author: rowAuthorId(user),
       tenantId: w.tenantId,
     });
+    if (!canRead) return c.json({ success: true, id });
     const serialized: Record<string, unknown> = await serializeRecord(
       record,
       collectionDef,
@@ -596,6 +646,8 @@ export async function deleteRecord(
 
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = w.trx ?? db;
+  // Delete without read: the lookup and the DELETE run in the read window.
+  const canRead = await checkAccess(db, user, collection, 'read');
 
   // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
   // Fetch existing for revision log, then delete atomically. Apply query
@@ -603,7 +655,12 @@ export async function deleteRecord(
   let existingQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
   existingQuery = applyRlsFilters(existingQuery, await getRlsFilters(collection, user, w.authType));
   existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
-  const existing = await existingQuery.executeTakeFirst();
+  const existing = await engineRead<DynamicRecord | undefined>(
+    canRead,
+    effectiveDb,
+    collection,
+    () => existingQuery.executeTakeFirst(),
+  );
 
   if (!existing) return c.json({ error: 'Record not found' }, 404);
 
@@ -631,7 +688,9 @@ export async function deleteRecord(
   // routes answers 422 and names the field.
   const result = await handlePgErrors(c, async () => {
     const deleted = await tracedQuery(`${tableName}.delete`, () =>
-      dynamicDelete(effectiveDb, tableName, id),
+      engineRead(canRead, effectiveDb, collection, () =>
+        dynamicDelete(effectiveDb, tableName, id, { returning: canRead }),
+      ),
     );
     if (!deleted) return c.json({ error: 'Record not found' }, 404);
 
