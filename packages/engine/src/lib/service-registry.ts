@@ -45,12 +45,35 @@ export function serviceRegisterRefusal(extName: string, name: string): string | 
 }
 
 /**
+ * The owners an extension declared — manifest `dependencies` +
+ * `optionalDependencies` — each mapped to whether it is there to call. `false`
+ * marks an optional dependency treated as absent: installed below the
+ * `minVersion` the manifest asks for (`resolveManifest`).
+ */
+export type ServiceDeps = ReadonlyMap<string, boolean>;
+
+/** `names`, every one callable — the shape `scope` and the broker take. */
+export function callableDeps(names: Iterable<string>): ServiceDeps {
+  return new Map(Array.from(names, (n) => [n, true]));
+}
+
+/**
+ * The owner of a service as `mayCall` sees it: null when nobody registered it —
+ * an optional dependency that is not installed — and null too when its owner is
+ * an optional dependency treated as absent. One decision for both, so a
+ * dependency too old to use answers exactly as an uninstalled one does.
+ */
+export function reachableOwner(mayCall: ServiceDeps, owner: string | null): string | null {
+  return owner !== null && mayCall.get(owner) === false ? null : owner;
+}
+
+/**
  * Why `caller` may not use `name`, owned by `owner`, or null. `mayCall` is its
  * manifest `dependencies` + `optionalDependencies`; `engine` in it opens nothing.
  */
 export function serviceCallRefusal(
   caller: string,
-  mayCall: ReadonlySet<string>,
+  mayCall: ServiceDeps,
   owner: string,
   name: string,
 ): string | null {
@@ -154,9 +177,10 @@ export class ServiceRegistryImpl {
    * the owners in `mayCall` (manifest `dependencies` + `optionalDependencies`)
    * — the rule the worker broker applies, so an inline extension is under it too.
    * A name nobody registered reads as absent (`null`): an optional dependency
-   * that is not installed. The engine's own scope is unrestricted.
+   * that is not installed, or one too old to use (`reachableOwner`). The
+   * engine's own scope is unrestricted.
    */
-  scope(extName: string, mayCall: Iterable<string> = []): ServiceRegistry {
+  scope(extName: string, mayCall: ServiceDeps = new Map()): ServiceRegistry {
     if (extName === 'engine') {
       return {
         register: <T>(name: string, value: T) => this.registerAs(extName, name, value),
@@ -167,12 +191,15 @@ export class ServiceRegistryImpl {
         list: () => this.list(),
       };
     }
-    const allowed = new Set(mayCall);
-    /** Throws when the registered `name` belongs to an owner `extName` did not declare. */
-    const check = (name: string): void => {
-      const owner = this.ownerOf(name);
-      const refusal = owner && serviceCallRefusal(extName, allowed, owner, name);
+    /**
+     * Whether `name` is there for `extName` to read. Throws when its owner is
+     * one `extName` did not declare.
+     */
+    const check = (name: string): boolean => {
+      const owner = reachableOwner(mayCall, this.ownerOf(name));
+      const refusal = owner && serviceCallRefusal(extName, mayCall, owner, name);
       if (refusal) throw new Error(refusal);
+      return owner !== null;
     };
     return {
       register: <T>(name: string, value: T) => {
@@ -181,17 +208,11 @@ export class ServiceRegistryImpl {
         this.registerAs(extName, name, value);
       },
       unregister: (name: string) => this.unregisterAs(extName, name),
-      get: <T>(name: string) => {
-        check(name);
-        return this.get<T>(name);
-      },
-      has: (name: string) => {
-        check(name);
-        return this.has(name);
-      },
+      get: <T>(name: string) => (check(name) ? this.get<T>(name) : null),
+      has: (name: string) => check(name),
       waitFor: async <T>(name: string, timeoutMs?: number) => {
         const value = await this.waitFor<T>(name, timeoutMs);
-        check(name);
+        if (!check(name)) throw new Error(`service "${name}" not found`);
         return value;
       },
       list: () => this.list(),

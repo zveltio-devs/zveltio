@@ -8,7 +8,11 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { ServiceRegistryImpl, serviceRegisterRefusal } from '../../lib/service-registry.js';
+import {
+  callableDeps,
+  ServiceRegistryImpl,
+  serviceRegisterRefusal,
+} from '../../lib/service-registry.js';
 
 describe('register / get / has / list', () => {
   it('stores and retrieves a value by name', () => {
@@ -127,7 +131,7 @@ describe('scope (per-extension view)', () => {
     r.registerAs('crm', 'crm.contacts.lookup', 'crm');
     r.registerAs('ai', 'ai.providers', 'ai');
     r.registerAs('engine', 'engine.internal', 'engine');
-    const pos = r.scope('operations/pos', ['crm']);
+    const pos = r.scope('operations/pos', callableDeps(['crm']));
     expect(pos.get<string>('crm.contacts.lookup')).toBe('crm');
     expect(pos.has('crm.contacts.lookup')).toBe(true);
     await expect(pos.waitFor('crm.contacts.lookup')).resolves.toBe('crm');
@@ -137,10 +141,21 @@ describe('scope (per-extension view)', () => {
     expect(() => pos.has('ai.providers')).toThrow('may not call service "ai.providers"');
     await expect(pos.waitFor('ai.providers')).rejects.toThrow('may not call');
     // declaring `engine` opens nothing of the engine's own
-    expect(() => r.scope('x', ['engine']).get('engine.internal')).toThrow('not an engine-public');
+    expect(() => r.scope('x', callableDeps(['engine'])).get('engine.internal')).toThrow(
+      'not an engine-public',
+    );
     // a name nobody registered is absent — an optional dependency not installed
     expect(pos.get('crm.contacts.create')).toBeNull();
     expect(pos.list()).toContain('ai.providers');
+  });
+
+  it('an optional dependency too old to use reads as absent, as an uninstalled one does', async () => {
+    const r = new ServiceRegistryImpl();
+    r.registerAs('crm', 'crm.contacts.lookup', 'crm');
+    const pos = r.scope('operations/pos', new Map([['crm', false]]));
+    expect(pos.get('crm.contacts.lookup')).toBeNull();
+    expect(pos.has('crm.contacts.lookup')).toBe(false);
+    await expect(pos.waitFor('crm.contacts.lookup')).rejects.toThrow('not found');
   });
 
   it('the engine scope is unrestricted', () => {
@@ -159,7 +174,7 @@ describe('a third party named like an old first-party service prefix', () => {
     const r = new ServiceRegistryImpl();
     r.scope('inventory').register('inventory.products.list', 'squat');
     r.scope('operations/inventory').register('operations/inventory.products.list', 'list');
-    const invoicing = r.scope('finance/invoicing', ['operations/inventory']);
+    const invoicing = r.scope('finance/invoicing', callableDeps(['operations/inventory']));
     expect(invoicing.get<string>('operations/inventory.products.list')).toBe('list');
     expect(() => invoicing.get('inventory.products.list')).toThrow('declare "inventory"');
   });

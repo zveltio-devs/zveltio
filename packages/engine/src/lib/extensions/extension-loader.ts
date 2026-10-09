@@ -47,6 +47,7 @@ import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
 import { purgeExtensionData } from './migration-runner.js';
 import type { ManifestMeta } from './manifest-schema.js';
+import type { ServiceDeps } from '../service-registry.js';
 import { isSupportedLocaleName, loadExtensionMessages } from './manifest-schema.js';
 // resolveManifest/enforcePublisherTier/resolveEntryPath + finalizeExtensionLoad
 // + buildAllowedTables/EXTENSION_TABLE_GRANTS + embedPageSchemas (internal use)
@@ -215,6 +216,8 @@ export type { ExtensionContext, ExtensionInternals };
 
 interface LoadedExtension {
   name: string;
+  /** Manifest `version` it loaded at — what a dependent's `minVersion` is held to. */
+  version?: string;
   /** Cleanup callback captured from the extension module, if exported. */
   cleanup?: () => Promise<void>;
   /** True if the extension registered HTTP routes — unload requires restart. */
@@ -251,10 +254,13 @@ interface LoadedExtension {
     entry: string;
     extDir: string;
     dependencies?: string[];
-    optionalDependencies?: string[];
   };
-  /** Manifest `dependencies` + `optionalDependencies`, for `ctx.services` on a reload. */
-  serviceDeps?: string[];
+  /**
+   * Manifest `dependencies` + `optionalDependencies` as resolved at load — an
+   * optional one too old to use marked absent — for `ctx.services` and the
+   * worker broker, on first load and on a reload alike.
+   */
+  serviceDeps?: ServiceDeps;
 }
 
 // ManifestMeta, ExtensionManifest, and embedPageSchemas moved to

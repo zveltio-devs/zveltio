@@ -49,7 +49,13 @@ import {
   spawnProcessRunner,
   connectRunner,
 } from './worker-extension-transport.js';
-import { serviceCallRefusal, serviceRegistry } from './service-registry.js';
+import {
+  callableDeps,
+  reachableOwner,
+  type ServiceDeps,
+  serviceCallRefusal,
+  serviceRegistry,
+} from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
 import { activationMiddlewareFor, extensionLoader } from './extensions/index.js';
 import { ProblemException, problem } from './problem.js';
@@ -152,7 +158,7 @@ interface ManagedWorker {
   /** Manifest `dependencies`: a call into one that is down answers 503. */
   dependencies: ReadonlySet<string>;
   /** `dependencies` + `optionalDependencies`: the owners whose services it may call. */
-  mayCall: ReadonlySet<string>;
+  mayCall: ServiceDeps;
   /** Between a crash and the fresh spawn: in the map, but answering nothing. */
   respawning?: boolean;
   proxyUnmount: () => void;
@@ -217,7 +223,8 @@ export class WorkerExtensionHost {
     extDir: string,
     bundleEntry: string,
     dependencies: readonly string[] = [],
-    optionalDependencies: readonly string[] = [],
+    /** Its `ServiceDeps`: `dependencies` + `optionalDependencies`, absent ones marked. */
+    mayCall: ServiceDeps = callableDeps(dependencies),
   ): Promise<void> {
     if (this.workers.has(extName)) {
       throw new Error(`Worker for "${extName}" is already running`);
@@ -228,7 +235,7 @@ export class WorkerExtensionHost {
       bundleEntry,
       1,
       new Set(dependencies),
-      new Set([...dependencies, ...optionalDependencies]),
+      mayCall,
     );
     this.workers.set(extName, managed);
     managed.proxyUnmount = this.mountProxyRoutes(managed);
@@ -300,7 +307,7 @@ export class WorkerExtensionHost {
     bundleEntry: string,
     generation: number,
     dependencies: ReadonlySet<string>,
-    mayCall: ReadonlySet<string>,
+    mayCall: ServiceDeps,
   ): Promise<ManagedWorker> {
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
     const runtimePath = ensureWorkerRuntimeOnDisk();
@@ -556,7 +563,11 @@ export class WorkerExtensionHost {
       const { tenantId, actor } = scope;
       const name = msg.name;
       const ownerWorker = this.findServiceOwner(name);
-      const owner = ownerWorker?.name ?? serviceRegistry.ownerOf(name);
+      // An optional dependency too old to use is absent, as an uninstalled one is.
+      const owner = reachableOwner(
+        managed.mayCall,
+        ownerWorker?.name ?? serviceRegistry.ownerOf(name),
+      );
       if (owner === null) {
         // Unregistered. If a hard dependency is down that is why, and the caller
         // should hear it as such rather than as a missing name. An absent

@@ -38,13 +38,18 @@ export function isCompatible(
 }
 
 /**
- * Checks that all declared extension dependencies are installed and enabled.
+ * Checks that every declared extension dependency is available and new enough.
+ *
+ * `missing` is the operator-facing reason per unmet dependency; `tooOld` names
+ * the ones that are there but below their `minVersion` (or whose version cannot
+ * be told). Required dependencies refuse the dependent on either; an optional
+ * one in `tooOld` is treated as absent (see `resolveManifest`).
  */
 export async function checkExtensionDependencies(
   db: Database,
   dependencies: Array<{ name: string; minVersion?: string }>,
   /**
-   * Extensions already loaded in THIS boot.
+   * Extensions already loaded in THIS boot, with the version each loaded at.
    *
    * The registry table is the record of what an operator installed through the
    * marketplace. It is not the record of what is running: an install driven by
@@ -57,59 +62,57 @@ export async function checkExtensionDependencies(
    * that were entirely satisfied.
    *
    * Passing the loader's own view fixes the question being asked: not "did
-   * someone install this" but "is this available to depend on". Version
-   * constraints still fall back to the table, which is the only place a version
-   * is recorded.
+   * someone install this" but "is this available to depend on". It used to be a
+   * set of names, and a loaded dependency skipped the check whole — `minVersion`
+   * included, so a dependency loaded at 1.0.0 satisfied `minVersion: "2.0.0"`.
+   * The version it loaded at is the one answering calls, so that is the one held
+   * to `minVersion`; the table is read only when the loader does not know it.
    */
-  alreadyLoaded?: ReadonlySet<string>,
-): Promise<{ satisfied: boolean; missing: string[] }> {
+  alreadyLoaded?: ReadonlyMap<string, string | undefined>,
+): Promise<{ satisfied: boolean; missing: string[]; tooOld: string[] }> {
   const missing: string[] = [];
+  const tooOld: string[] = [];
 
   for (const dep of dependencies) {
-    // Loaded in this boot: available regardless of what the table says.
-    if (alreadyLoaded?.has(dep.name)) continue;
+    const loaded = alreadyLoaded?.has(dep.name) === true;
+    // Loaded in this boot and no version to meet: available whatever the table says.
+    if (loaded && !dep.minVersion) continue;
 
-    // No `.catch(() => null)`. It fell into the `missing.push(... not installed)`
-    // branch below, so a failed read told an operator a dependency was NOT
-    // INSTALLED when the truth was that it could not be checked — and they go and
-    // install something that is already there.
-    //
-    // Letting it throw is safe and says the right thing: `loadExtensionFromDir`
-    // wraps this in a per-extension boundary that logs
-    // `❌ Failed to load extension "<name>"` and records the database's own error
-    // as `lastLoadError`. So this extension still refuses to load, which is the
-    // correct direction, and the reason recorded is the read failure rather than
-    // a fabricated claim about what is installed. One extension's boot fails, not
-    // the boot.
-    const installed = await db
-      .selectFrom('zv_extension_registry')
-      .select(['version', 'is_enabled'])
-      .where('name', '=', dep.name)
-      .where('is_enabled', '=', true)
-      .executeTakeFirst();
-
-    if (!installed) {
-      missing.push(`${dep.name} (not installed)`);
-      continue;
+    let version = alreadyLoaded?.get(dep.name);
+    if (version === undefined) {
+      // No `.catch(() => null)`. It fell into the "not installed" branch below,
+      // so a failed read told an operator a dependency was NOT INSTALLED when
+      // the truth was that it could not be checked — and they go and install
+      // something that is already there.
+      //
+      // Letting it throw is safe and says the right thing: `loadExtensionFromDir`
+      // wraps this in a per-extension boundary that logs
+      // `❌ Failed to load extension "<name>"` and records the database's own
+      // error as `lastLoadError`. So this extension still refuses to load, which
+      // is the correct direction, and the reason recorded is the read failure
+      // rather than a fabricated claim about what is installed. One extension's
+      // boot fails, not the boot.
+      const installed = await db
+        .selectFrom('zv_extension_registry')
+        .select(['version', 'is_enabled'])
+        .where('name', '=', dep.name)
+        .where('is_enabled', '=', true)
+        .executeTakeFirst();
+      if (!installed && !loaded) {
+        missing.push(`${dep.name} (not installed)`);
+        continue;
+      }
+      version = installed?.version ?? undefined;
     }
 
-    if (dep.minVersion) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const current = (installed as any).version || '0.0.0';
-      if (compareVersions(current, dep.minVersion) < 0) {
-        missing.push(
-          // `version`, not `installed_version`: the query above selects
-          // `['version', 'is_enabled']` and nothing else, so the other name read
-          // `undefined` on every call and the operator was told
-          // "installed: undefined" for every unsatisfied dependency.
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          `${dep.name} >= ${dep.minVersion} (installed: ${(installed as any).version})`,
-        );
-      }
+    // A version nobody recorded cannot be shown to meet the minimum.
+    if (dep.minVersion && (!version || compareVersions(version, dep.minVersion) < 0)) {
+      missing.push(`${dep.name} >= ${dep.minVersion} (installed: ${version ?? 'unknown'})`);
+      tooOld.push(dep.name);
     }
   }
 
-  return { satisfied: missing.length === 0, missing };
+  return { satisfied: missing.length === 0, missing, tooOld };
 }
 
 export function getEngineVersion(): string {

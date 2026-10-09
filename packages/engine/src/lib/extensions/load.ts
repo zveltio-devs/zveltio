@@ -151,6 +151,7 @@ export async function loadExtensionFromDir(
     if (early?.contributes?.engine === false) {
       loader.loaded.set(extName, {
         name: extName,
+        version: extVersion,
         registeredRoutes: false,
         allowedTables: new Set<string>(),
       });
@@ -183,7 +184,7 @@ export async function loadExtensionFromDir(
       extName,
       extDir,
       ctx.db,
-      new Set(loader.loaded.keys()),
+      new Map(Array.from(loader.loaded, ([name, l]) => [name, l.version])),
     );
     if (!manifestPhase.ok) {
       if (manifestPhase.logLevel !== 'none') {
@@ -194,8 +195,16 @@ export async function loadExtensionFromDir(
       }
       return;
     }
-    const { manifest, migrationsLimit, extCategory, extRuntime, manifestMeta } =
-      manifestPhase.value;
+    const {
+      manifest,
+      migrationsLimit,
+      extCategory,
+      extRuntime,
+      manifestMeta,
+      absentOptional,
+      absentWarning,
+    } = manifestPhase.value;
+    if (absentWarning !== null) console.warn(absentWarning);
     // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint.
     // Computed inside the phase (including embedPageSchemas); the state write
     // stays here so the phase is loader-state-free.
@@ -468,6 +477,7 @@ export async function loadExtensionFromDir(
       ctx,
       manifest ?? null,
       allowedTables,
+      absentOptional,
     );
   } catch (err) {
     const errMsg = (err as Error).message ?? String(err);

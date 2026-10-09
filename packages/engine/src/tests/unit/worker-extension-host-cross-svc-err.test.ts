@@ -37,7 +37,7 @@ function makeManaged(
     pendingPings: new Map(),
     registeredServices: new Set(overrides.registeredServices ?? []),
     dependencies: new Set(overrides.dependencies ?? []),
-    mayCall: new Set(overrides.dependencies ?? []),
+    mayCall: new Map((overrides.dependencies ?? []).map((d) => [d, true])),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),

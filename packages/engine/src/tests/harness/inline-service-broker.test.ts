@@ -25,7 +25,10 @@ const DEPENDENT = `ibd${SFX}`;
 const OPTIONAL = `ibp${SFX}`;
 const ABSENT = `iba${SFX}`;
 const SQUATTER = `ibq${SFX}`;
-const ALL = [OWNER, STRANGER, DEPENDENT, OPTIONAL, SQUATTER];
+// Ask OWNER (loaded at 1.0.0) for 2.0.0 — one as an optional dependency, one required.
+const STALE_OPT = `ibv${SFX}`;
+const STALE_REQ = `ibr${SFX}`;
+const ALL = [OWNER, STRANGER, DEPENDENT, OPTIONAL, SQUATTER, STALE_OPT, STALE_REQ];
 
 const ownerEntry = `
 export default {
@@ -66,6 +69,7 @@ function writeExt(
   entry: string,
   deps: string[] = [],
   optional: string[] = [],
+  minVersion?: string,
 ): void {
   const dir = join(base, name);
   mkdirSync(join(dir, 'engine'), { recursive: true });
@@ -74,8 +78,8 @@ function writeExt(
     JSON.stringify({
       name,
       version: '1.0.0',
-      dependencies: deps.map((n) => ({ name: n })),
-      optionalDependencies: optional.map((n) => ({ name: n })),
+      dependencies: deps.map((n) => ({ name: n, minVersion })),
+      optionalDependencies: optional.map((n) => ({ name: n, minVersion })),
       engine: { entry: 'engine/index.js', bundled: true },
     }),
   );
@@ -104,9 +108,14 @@ d('inline service broker: namespace, declared owners, optional dependencies', ()
     writeExt(base, DEPENDENT, callerEntry(DEPENDENT), [OWNER]);
     writeExt(base, OPTIONAL, callerEntry(OPTIONAL), [], [OWNER, ABSENT]);
     writeExt(base, SQUATTER, squatterEntry);
+    writeExt(base, STALE_OPT, callerEntry(STALE_OPT), [], [OWNER], '2.0.0');
+    writeExt(base, STALE_REQ, callerEntry(STALE_REQ), [OWNER], [], '2.0.0');
     const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
     // Dependents first in the input: the sort must put OWNER ahead of both.
-    const order = await topoSortExtensions([OPTIONAL, DEPENDENT, STRANGER, OWNER, SQUATTER], base);
+    const order = await topoSortExtensions(
+      [OPTIONAL, DEPENDENT, STRANGER, OWNER, SQUATTER, STALE_OPT, STALE_REQ],
+      base,
+    );
     expect(order.indexOf(OWNER)).toBeLessThan(order.indexOf(OPTIONAL));
     expect(order.indexOf(OWNER)).toBeLessThan(order.indexOf(DEPENDENT));
     for (const name of order) await extensionLoader.loadExtension(name, app, ctx, base);
@@ -171,5 +180,20 @@ d('inline service broker: namespace, declared owners, optional dependencies', ()
   it('an absent optional dependency is no load error, and its service reads as null', async () => {
     expect(extensionLoader.loaded.has(OPTIONAL)).toBe(true);
     expect(await attempt(OPTIONAL, `${ABSENT}.anything`)).toEqual({ out: null });
+  });
+
+  // `minVersion` was never checked for a dependency loaded in this boot: both of
+  // these loaded against OWNER 1.0.0 and STALE_OPT read its service.
+  it('a required dependency loaded below its minVersion refuses the dependent', () => {
+    expect(extensionLoader.loaded.has(STALE_REQ)).toBe(false);
+    expect(extensionLoader.getLastLoadError(STALE_REQ)).toBe(
+      `Missing required extensions: ${OWNER} >= 2.0.0 (installed: 1.0.0). Enable them first.`,
+    );
+  });
+
+  it('an optional dependency loaded below its minVersion is absent: its service reads as null', async () => {
+    expect(extensionLoader.getLastLoadError(STALE_OPT)).toBeUndefined();
+    expect(extensionLoader.loaded.has(STALE_OPT)).toBe(true);
+    expect(await attempt(STALE_OPT, `${OWNER}.secret`)).toEqual({ out: null });
   });
 });

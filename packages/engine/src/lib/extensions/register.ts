@@ -49,7 +49,7 @@ import {
   guardPublicHandler,
   guardScheduleHandler,
 } from './activation.js';
-import { serviceRegistry } from '../service-registry.js';
+import { type ServiceDeps, serviceRegistry } from '../service-registry.js';
 import { clearExtensionHealthChecks, registerHealthCheck } from '../health-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
@@ -377,7 +377,7 @@ export function buildRestrictedContext(
   /** Declared-but-unapproved capabilities — for the denial message only. */
   pendingCapabilities: readonly string[] = [],
   /** Manifest `dependencies` + `optionalDependencies`: whose services it may read. */
-  serviceDeps: readonly string[] = [],
+  serviceDeps: ServiceDeps = new Map(),
 ): ExtensionContext {
   const hasAdminDb = capabilities.includes('db:admin');
   // Drop any health checks this extension registered on a previous load so a
@@ -661,9 +661,9 @@ async function registerExtensionRoutes(
     entry: string;
     extDir: string;
     dependencies?: string[];
-    optionalDependencies?: string[];
   } | null,
   db: Database,
+  serviceDeps: ServiceDeps,
 ): Promise<void> {
   const mountStrategy = extension.mountStrategy ?? 'global';
   if (isolation) {
@@ -682,7 +682,7 @@ async function registerExtensionRoutes(
       isolation.extDir,
       isolation.entry,
       isolation.dependencies,
-      isolation.optionalDependencies,
+      serviceDeps,
     );
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();
@@ -766,6 +766,8 @@ export async function finalizeExtensionLoad(
   ctx: ExtensionContext,
   manifest: ExtensionManifest | null,
   allowedTables: Set<string>,
+  /** Optional dependencies `resolveManifest` found too old to use: absent to this one. */
+  absentOptional: readonly string[] = [],
 ): Promise<void> {
   // What the manifest DECLARES is only a request. What an administrator
   // consented to is what the gate enforces — otherwise an extension widens its
@@ -820,11 +822,18 @@ export async function finalizeExtensionLoad(
   // Also inject the full public API (checkPermission, auth, DDLManager…) and
   // ctx.internals.* so extensions never have to relative-import engine modules.
   const dependencies = (manifest?.dependencies ?? []).map((d) => d.name);
-  const optionalDependencies = (manifest?.optionalDependencies ?? []).map((d) => d.name);
-  const serviceDeps = [...dependencies, ...optionalDependencies];
+  // An optional dependency too old to use is declared but absent: its services
+  // read as unregistered to this extension, inline and through the broker alike.
+  const serviceDeps: ServiceDeps = new Map([
+    ...dependencies.map((d): [string, boolean] => [d, true]),
+    ...(manifest?.optionalDependencies ?? []).map((d): [string, boolean] => [
+      d.name,
+      !absentOptional.includes(d.name),
+    ]),
+  ]);
   const workerIsolation =
     manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
-      ? { entry: manifest.engine.entry, extDir, dependencies, optionalDependencies }
+      ? { entry: manifest.engine.entry, extDir, dependencies }
       : undefined;
   const restrictedCtx = buildRestrictedContext(
     ctx,
@@ -861,6 +870,7 @@ export async function finalizeExtensionLoad(
       extName,
       workerIsolation ?? null,
       ctx.db,
+      serviceDeps,
     );
   } catch (regErr: unknown) {
     if ((regErr as Error)?.message?.includes('matcher is already built')) {
@@ -901,6 +911,7 @@ export async function finalizeExtensionLoad(
 
   loader.loaded.set(extName, {
     name: extName,
+    version: manifest?.version,
     cleanup:
       typeof extension.cleanup === 'function' ? extension.cleanup.bind(extension) : undefined,
     registeredRoutes: true,
@@ -957,7 +968,7 @@ export async function reRegisterExtension(
     false,
     loaded?.permissions ?? [],
     loaded?.pendingCapabilities ?? [],
-    loaded?.serviceDeps ?? [],
+    loaded?.serviceDeps,
   );
 
   try {
@@ -971,6 +982,7 @@ export async function reRegisterExtension(
       name,
       loaded?.workerIsolation ?? null,
       loader.ctx.db,
+      loaded?.serviceDeps ?? new Map(),
     );
 
     // Re-register schedules on hot-reload. unregisterAll is idempotent and

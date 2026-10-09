@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { Hono } from 'hono';
 import { WorkerExtensionHost, _internalForTests } from '../../lib/worker-extension-host.js';
+import { callableDeps } from '../../lib/service-registry.js';
 
 const { dispatchMessage, mountProxy, resetInvokeWaiters } = _internalForTests;
 
@@ -35,7 +36,7 @@ function makeManaged(
     pendingPings: new Map(),
     registeredServices: new Set(overrides.registeredServices ?? []),
     dependencies: new Set(overrides.dependencies ?? []),
-    mayCall: new Set(overrides.dependencies ?? []),
+    mayCall: callableDeps(overrides.dependencies ?? []),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),
@@ -109,7 +110,7 @@ describe('WorkerExtensionHost — invoke timeouts', () => {
       pendingPings: new Map(),
       registeredServices: new Set<string>(),
       dependencies: new Set<string>(),
-      mayCall: new Set<string>(),
+      mayCall: new Map<string, boolean>(),
       proxyUnmount: () => {},
       workerGeneration: 1,
       enabledAt: Date.now(),
