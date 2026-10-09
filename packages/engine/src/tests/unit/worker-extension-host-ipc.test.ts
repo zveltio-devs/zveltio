@@ -5,7 +5,7 @@ import type {
   WorkerToHostMessage,
 } from '../../lib/worker-extension-protocol.js';
 import { workerSqlEngineTables } from '../../lib/extensions/worker-sql-policy.js';
-import { serviceRegistry } from '../../lib/service-registry.js';
+import { callableDeps, serviceRegistry } from '../../lib/service-registry.js';
 import {
   WorkerExtensionHost,
   _internalForTests,
@@ -49,7 +49,7 @@ function makeManaged(
     pendingPings: new Map(),
     registeredServices: new Set<string>(),
     dependencies: new Set(overrides.dependencies ?? []),
-    mayCall: new Set(overrides.dependencies ?? []),
+    mayCall: callableDeps(overrides.dependencies ?? []),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),

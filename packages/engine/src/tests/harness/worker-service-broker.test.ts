@@ -22,6 +22,8 @@ const STRANGER = `wbc${SFX}`;
 const DEPENDENT = `wbd${SFX}`;
 const OPTIONAL = `wbp${SFX}`;
 const ABSENT = `wba${SFX}`;
+// Declares OWNER (1.0.0) optional at minVersion 2.0.0: too old, so absent.
+const STALE_OPT = `wbv${SFX}`;
 
 const ownerEntry = `
 export default {
@@ -62,6 +64,7 @@ function writeExt(
   entry: string,
   deps: string[] = [],
   optional: string[] = [],
+  minVersion?: string,
 ): void {
   const dir = join(base, name);
   mkdirSync(join(dir, 'engine'), { recursive: true });
@@ -71,7 +74,7 @@ function writeExt(
       name,
       version: '1.0.0',
       dependencies: deps.map((n) => ({ name: n })),
-      optionalDependencies: optional.map((n) => ({ name: n })),
+      optionalDependencies: optional.map((n) => ({ name: n, minVersion })),
       engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
     }),
   );
@@ -91,10 +94,11 @@ d('worker service broker: namespace, dependency allowlist, fail-fast', () => {
     writeExt(base, STRANGER, callerEntry(STRANGER));
     writeExt(base, DEPENDENT, callerEntry(DEPENDENT), [OWNER]);
     writeExt(base, OPTIONAL, callerEntry(OPTIONAL), [], [OWNER, ABSENT]);
+    writeExt(base, STALE_OPT, callerEntry(STALE_OPT), [], [OWNER], '2.0.0');
     _resetWorkerHostForTests();
     getWorkerHost(app);
     const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
-    for (const name of [SQUATTER, OWNER, STRANGER, DEPENDENT, OPTIONAL]) {
+    for (const name of [SQUATTER, OWNER, STRANGER, DEPENDENT, OPTIONAL, STALE_OPT]) {
       await extensionLoader.loadExtension(name, app, ctx, base);
       expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
     }
@@ -103,7 +107,7 @@ d('worker service broker: namespace, dependency allowlist, fail-fast', () => {
   afterAll(async () => {
     await getWorkerHost(app).stopAll();
     _resetWorkerHostForTests();
-    for (const name of [OWNER, SQUATTER, STRANGER, DEPENDENT, OPTIONAL]) {
+    for (const name of [OWNER, SQUATTER, STRANGER, DEPENDENT, OPTIONAL, STALE_OPT]) {
       extensionLoader.loaded.delete(name);
       await revokeExtensionDbRoles(db, name, true).catch(() => undefined);
     }
@@ -143,6 +147,12 @@ d('worker service broker: namespace, dependency allowlist, fail-fast', () => {
     expect(await attempt(OPTIONAL, `${OWNER}.secret`)).toEqual({ out: 'secret' });
     expect(await attempt(OPTIONAL, `${ABSENT}.x`)).toEqual({
       error: `service "${ABSENT}.x" not found`,
+    });
+  });
+
+  it('an optional dependency below its minVersion is not found, as an absent one is', async () => {
+    expect(await attempt(STALE_OPT, `${OWNER}.secret`)).toEqual({
+      error: `service "${OWNER}.secret" not found`,
     });
   });
 

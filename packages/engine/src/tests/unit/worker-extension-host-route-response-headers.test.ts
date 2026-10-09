@@ -42,7 +42,7 @@ describe('WorkerExtensionHost — route response headers', () => {
       pendingPings: new Map(),
       registeredServices: new Set<string>(),
       dependencies: new Set<string>(),
-      mayCall: new Set<string>(),
+      mayCall: new Map<string, boolean>(),
       proxyUnmount: () => {},
       workerGeneration: 1,
       enabledAt: Date.now(),

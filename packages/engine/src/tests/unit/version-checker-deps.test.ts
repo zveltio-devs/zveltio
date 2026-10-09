@@ -24,7 +24,7 @@ describe('checkExtensionDependencies', () => {
     const db = new CannedDb();
     db.when(/from "zv_extension_registry"/i, [{ version: '2.0.0', is_enabled: true }]);
     const result = await checkExtensionDependencies(asDb(db), [{ name: 'forms' }]);
-    expect(result).toEqual({ satisfied: true, missing: [] });
+    expect(result).toEqual({ satisfied: true, missing: [], tooOld: [] });
   });
 
   it('flags an installed version below the required minVersion', async () => {
@@ -48,7 +48,7 @@ describe('checkExtensionDependencies', () => {
     const result = await checkExtensionDependencies(asDb(db), [
       { name: 'analytics', minVersion: '3.0.0' },
     ]);
-    expect(result).toEqual({ satisfied: true, missing: [] });
+    expect(result).toEqual({ satisfied: true, missing: [], tooOld: [] });
   });
 
   /**
@@ -82,5 +82,53 @@ describe('checkExtensionDependencies', () => {
     const result = await checkExtensionDependencies(asDb(db), [{ name: 'forms' }]);
     expect(result.satisfied).toBe(false);
     expect(result.missing).toEqual(['forms (not installed)']);
+  });
+
+  /**
+   * A dependency loaded in this boot skipped the check whole, `minVersion`
+   * included: `alreadyLoaded` was a set of names, so a dependency running at
+   * 1.0.0 satisfied `minVersion: "2.0.0"` and the dependent loaded against it.
+   * The registry row here says 3.0.0 on purpose — the loaded version is the one
+   * answering calls, so it is the one held to the minimum.
+   */
+  it('holds a dependency loaded in this boot to minVersion, at the version it loaded', async () => {
+    const db = new CannedDb();
+    db.when(/from "zv_extension_registry"/i, [{ version: '3.0.0', is_enabled: true }]);
+    const result = await checkExtensionDependencies(
+      asDb(db),
+      [{ name: 'forms', minVersion: '2.0.0' }],
+      new Map([['forms', '1.0.0']]),
+    );
+    expect(result).toEqual({
+      satisfied: false,
+      missing: ['forms >= 2.0.0 (installed: 1.0.0)'],
+      tooOld: ['forms'],
+    });
+  });
+
+  it('accepts a loaded dependency at or above minVersion without reading the table', async () => {
+    const db = new CannedDb();
+    db.fail(/from "zv_extension_registry"/i, new Error('must not be read'));
+    const result = await checkExtensionDependencies(
+      asDb(db),
+      [{ name: 'forms', minVersion: '2.0.0' }, { name: 'crm' }],
+      new Map<string, string | undefined>([
+        ['forms', '2.0.0'],
+        ['crm', undefined],
+      ]),
+    );
+    expect(result).toEqual({ satisfied: true, missing: [], tooOld: [] });
+  });
+
+  it('refuses a loaded dependency whose version nobody recorded when a minimum is asked', async () => {
+    const db = new CannedDb();
+    db.when(/from "zv_extension_registry"/i, []);
+    const result = await checkExtensionDependencies(
+      asDb(db),
+      [{ name: 'forms', minVersion: '2.0.0' }],
+      new Map([['forms', undefined]]),
+    );
+    expect(result.missing).toEqual(['forms >= 2.0.0 (installed: unknown)']);
+    expect(result.tooOld).toEqual(['forms']);
   });
 });

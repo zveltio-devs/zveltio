@@ -75,6 +75,13 @@ export interface ManifestResolution {
    * self-contained; the actual state write stays in the caller.
    */
   manifestMeta: ManifestMeta | null;
+  /**
+   * Optional dependencies installed below the `minVersion` this manifest asks
+   * for. Treated as absent — the caller logs `absentWarning` and hands these to
+   * `finalizeExtensionLoad`, which marks them so in the extension's ServiceDeps.
+   */
+  absentOptional: string[];
+  absentWarning: string | null;
 }
 
 /**
@@ -90,14 +97,16 @@ export async function resolveManifest(
   extName: string,
   extDir: string,
   db: Database,
-  /** Names already loaded in this boot — see checkExtensionDependencies. */
-  alreadyLoaded?: ReadonlySet<string>,
+  /** Extensions already loaded in this boot → their version — see checkExtensionDependencies. */
+  alreadyLoaded?: ReadonlyMap<string, string | undefined>,
 ): Promise<PhaseResult<ManifestResolution>> {
   let migrationsLimit: number = DEFAULT_QUOTAS.migrationsMax;
   let extCategory = 'custom';
   let extRuntime: 'js' | 'wasm' = 'js';
   let manifest: ExtensionManifest | null = null;
   let manifestMeta: ManifestMeta | null = null;
+  let absentOptional: string[] = [];
+  let absentWarning: string | null = null;
 
   const manifestPath = join(extDir, 'manifest.json');
   if (existsSync(manifestPath)) {
@@ -159,6 +168,21 @@ export async function resolveManifest(
           logArgs: [`⚠️  Extension "${extName}" ${msg}`],
           lastLoadError: msg,
         };
+      }
+    }
+
+    // Optional dependencies: one that is not installed is simply absent. One that
+    // is installed below its `minVersion` is decided by the same check that
+    // refuses a required one, and is absent too — a version this extension says
+    // it cannot work with is not one it gets to call.
+    const pinnedOptional = manifest.optionalDependencies.filter((d) => d.minVersion);
+    if (pinnedOptional.length > 0) {
+      const opt = await checkExtensionDependencies(db, pinnedOptional, alreadyLoaded);
+      absentOptional = opt.tooOld;
+      if (opt.tooOld.length > 0) {
+        absentWarning =
+          `⚠️  Extension "${extName}": optional extensions treated as absent: ` +
+          opt.missing.filter((m) => !m.endsWith(' (not installed)')).join(', ');
       }
     }
 
@@ -242,7 +266,15 @@ export async function resolveManifest(
 
   return {
     ok: true,
-    value: { manifest, migrationsLimit, extCategory, extRuntime, manifestMeta },
+    value: {
+      manifest,
+      migrationsLimit,
+      extCategory,
+      extRuntime,
+      manifestMeta,
+      absentOptional,
+      absentWarning,
+    },
   };
 }
 
