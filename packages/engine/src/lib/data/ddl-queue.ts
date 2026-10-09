@@ -465,7 +465,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
     if (!ran) return;
     // This transaction is the queue's own, which `onAfterCommit` cannot see, so
     // the grants leave the live permission model here, once it has committed.
-    await DDLManager.forgetDroppedCollection(payload.name);
+    await DDLManager.forgetDroppedCollection(payload.name, db);
     announceSchemaChange(payload.name, 'drop');
   });
 
@@ -495,7 +495,9 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
       await DDLManager.removeField(trx, payload.collection, payload.fieldName);
       return true;
     });
-    if (ran) announceSchemaChange(payload.collection, 'alter');
+    if (!ran) return;
+    await DDLManager.forgetFieldRules(payload.collection);
+    announceSchemaChange(payload.collection, 'alter');
   });
 }
 
