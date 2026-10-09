@@ -26,7 +26,7 @@ dc() { docker compose --project-directory "$ROOT" -f "$ROOT/docker-compose.ext-r
   -f "$ROOT/packages/engine/scripts/ext-runner-compose.test.yml" "$@"; }
 trap 'dc down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
 
-dc up -d --build --wait engine ext-runner >/dev/null
+dc up -d --build --wait engine ext-runner >/dev/null || { dc logs ext-runner | tail -40; exit 1; }
 
 SOCK=/run/zveltio-ext/runner.sock
 # Both handed over world-writable with no sticky bit (as an emptyDir is).
