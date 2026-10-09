@@ -3,8 +3,12 @@
  */
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Hono } from 'hono';
 import { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
+import type { Database } from '../../db/index.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -80,6 +84,52 @@ describe('ExtensionLoader.loadAll', () => {
     } finally {
       warn.mockRestore();
       depsSpy.mockRestore();
+    }
+  });
+});
+
+describe('ExtensionLoader boot order — ZVELTIO_EXTENSIONS and the registry together', () => {
+  it('loads a registry-enabled dependency before the env-listed extension that needs it', async () => {
+    // `env-ext` (in ZVELTIO_EXTENSIONS) depends on `db-ext` (enabled only in the
+    // registry). Env and registry were sorted as two batches and the env batch
+    // went first, so `env-ext` registered while `db-ext` was not loaded yet.
+    const base = mkdtempSync(join(tmpdir(), 'zv-boot-order-'));
+    for (const [name, deps] of Object.entries({ 'env-ext': ['db-ext'], 'db-ext': [] })) {
+      mkdirSync(join(base, name));
+      writeFileSync(
+        join(base, name, 'manifest.json'),
+        JSON.stringify({ name, dependencies: deps.map((d) => ({ name: d })) }),
+      );
+    }
+    savedExtensions = process.env.ZVELTIO_EXTENSIONS;
+    savedExternalPath = process.env.ZVELTIO_EXTENSIONS_PATH;
+    const savedDir = process.env.EXTENSIONS_DIR;
+    process.env.ZVELTIO_EXTENSIONS = 'env-ext';
+    process.env.EXTENSIONS_DIR = base;
+    delete process.env.ZVELTIO_EXTENSIONS_PATH;
+    const deps = await import('../../lib/extensions/extension-deps.js');
+    const depsSpy = spyOn(deps, 'ensureExtensionCoreDeps').mockResolvedValue(undefined as never);
+    try {
+      const db = new CannedDb();
+      db.when(/from "zv_extension_registry"/i, [{ name: 'db-ext' }, { name: 'env-ext' }]);
+      const loader = new ExtensionLoader();
+      const order: string[] = [];
+      loader.loadExtension = async (name) => {
+        order.push(name);
+        loader.loaded.set(name, { registeredRoutes: false } as never);
+      };
+
+      // The boot sequence index.ts runs.
+      await loader.loadAll(noApp, { db: db.kysely } as ExtensionContext);
+      await loader.loadFromDB(db.kysely as unknown as Database, noApp);
+
+      // Once each, dependency first.
+      expect(order).toEqual(['db-ext', 'env-ext']);
+    } finally {
+      depsSpy.mockRestore();
+      if (savedDir === undefined) delete process.env.EXTENSIONS_DIR;
+      else process.env.EXTENSIONS_DIR = savedDir;
+      rmSync(base, { recursive: true, force: true });
     }
   });
 });

@@ -20,9 +20,16 @@ import { join } from 'path';
  * Behavior:
  *   - An `optionalDependencies` entry in the load set is ordered first too; one
  *     not in it is ignored, and one that is refused does not refuse this one.
- *   - Extensions with no manifest or no dependencies retain their relative order.
- *   - If a declared dependency is not in the planned-for-load set, the dependent
- *     extension is skipped with a warning (it can be loaded later via loadFromDB).
+ *   - Order is depth-first in input order: each extension follows its
+ *     dependencies; extensions that do not depend on each other keep their
+ *     relative order.
+ *   - A required dependency that is not in `names` cannot be ordered: it is
+ *     ignored with a warning and the dependent stays in the result. Whether the
+ *     dependent then loads is the load-time check's call
+ *     (`checkExtensionDependencies`): yes if the dependency is already loaded or
+ *     enabled in the registry, refused otherwise. Boot passes ZVELTIO_EXTENSIONS
+ *     and the registry's enabled rows as one set, so at boot this only happens
+ *     for a dependency that is not enabled anywhere.
  *   - A cycle is refused, not thrown: its members, and whatever depends on one,
  *     are left out of the result and named in `refused` with the reason. A throw
  *     here took every other extension in the batch down with the cycle.
@@ -103,7 +110,7 @@ export async function topoSortExtensions(
     for (const dep of depsMap.get(name) ?? []) {
       if (!depsMap.has(dep)) {
         console.warn(
-          `[extensions] "${name}" depends on "${dep}" which is not in the load set — "${name}" will load anyway, but ctx.services.get('${dep}.*') may return null until "${dep}" is also activated.`,
+          `[extensions] "${name}" depends on "${dep}", which is not in this load set — not ordered; "${name}" loads only if "${dep}" is already loaded or enabled in the registry.`,
         );
         continue;
       }
