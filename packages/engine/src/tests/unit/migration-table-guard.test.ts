@@ -157,12 +157,17 @@ describe('extension migration table guard', () => {
 // named only `storage/cloud` as its owner, and the media library could not be
 // installed at all.
 const CATALOGUE = join(import.meta.dir, '../../../../../../zveltio-extensions');
-describe.skipIf(!existsSync(CATALOGUE))('first-party migrations meet the table guard', () => {
-  const glob = new Bun.Glob('**/manifest.json');
-  const manifests = [...glob.scanSync({ cwd: CATALOGUE })].filter(
-    (p) =>
-      !p.includes('node_modules') && existsSync(join(CATALOGUE, dirname(p), 'engine/migrations')),
-  );
+// Only a real checkout: CI's unit job has none, and there a bare directory of
+// that name made the scan throw between tests.
+const HAS_CATALOGUE = existsSync(join(CATALOGUE, 'package.json'));
+describe.skipIf(!HAS_CATALOGUE)('first-party migrations meet the table guard', () => {
+  // One to three levels (`crm`, `content/media`, `compliance/ro/saft`):
+  // explicit depths, so the scan never walks node_modules.
+  const manifests = HAS_CATALOGUE
+    ? ['*', '*/*', '*/*/*']
+        .flatMap((d) => [...new Bun.Glob(`${d}/manifest.json`).scanSync({ cwd: CATALOGUE })])
+        .filter((p) => existsSync(join(CATALOGUE, dirname(p), 'engine/migrations')))
+    : [];
   it.each(manifests)('%s', async (manifestPath) => {
     const dir = join(CATALOGUE, dirname(manifestPath));
     const { name } = JSON.parse(readFileSync(join(CATALOGUE, manifestPath), 'utf8')) as {
