@@ -596,6 +596,10 @@ jobs:
         # engine's .env and /proc/<pid>/environ; under the runner it reads neither,
         # and a uid other than the engine's is refused.
         run: bash packages/engine/scripts/ext-runner-isolation.sh
+      - name: Container runner keeps them out of reach on the compose network
+        # RFC step 4, against docker-compose.ext-runner.yml itself: no secret,
+        # no egress, a uid per extension, a socket no extension can replace.
+        run: bash packages/engine/scripts/ext-runner-compose.sh
 
   ext-runner-systemd:
     name: Extension runner on systemd

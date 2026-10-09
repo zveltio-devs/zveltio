@@ -1,0 +1,64 @@
+name: zveltio
+
+# Opt-in overlay: worker-isolated extensions run in their own container
+# (RFC extension-runner, step 4 — docs/engine/rfc-extension-runner.md).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ext-runner.yml up
+#
+# The runner container holds nothing worth stealing: none of the engine's
+# environment or volumes (only the extensions, read-only), no network at all,
+# and no database connection — `db:query` crosses to the engine over the
+# socket. It starts as root with only CAP_SETUID/SETGID/KILL and runs every
+# extension under a uid of its own, from ZVELTIO_EXT_RUNNER_UID_BASE up, so one
+# extension cannot read another's process or replace the runner's socket.
+#
+# Egress: `network_mode: none` denies every address. To let extensions reach an
+# API, replace it with a network that routes only there — the allowance is for
+# every extension in the runner, not per extension as on bare metal.
+
+services:
+  engine:
+    environment:
+      ZVELTIO_EXT_TRANSPORT: runner
+      ZVELTIO_EXT_RUNNER_SOCKET: /run/zveltio-ext/runner.sock
+    volumes:
+      - engine_extensions:/data/extensions
+      - ext_runner_socket:/run/zveltio-ext
+    depends_on:
+      ext-runner:
+        condition: service_healthy
+
+  ext-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zveltio-ext-runner
+    restart: unless-stopped
+    command: ['ext-runner']
+    user: '0:0'
+    environment:
+      NODE_ENV: production
+      ZVELTIO_ENGINE_UID: '100'
+      ZVELTIO_EXT_RUNNER_SOCKET: /run/zveltio-ext/runner.sock
+      ZVELTIO_EXT_RUNNER_UID_BASE: '200000'
+    volumes:
+      - engine_extensions:/data/extensions:ro
+      - ext_runner_socket:/run/zveltio-ext
+    network_mode: none
+    cap_drop: [ALL]
+    # KILL: ending an extension's process, which runs under another uid.
+    cap_add: [SETUID, SETGID, KILL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs: ['/tmp']
+    mem_limit: 1g
+    pids_limit: 256
+    healthcheck:
+      test: ['CMD', 'test', '-S', '/run/zveltio-ext/runner.sock']
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  engine_extensions:
+  ext_runner_socket:

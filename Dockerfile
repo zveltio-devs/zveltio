@@ -72,7 +72,9 @@ LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
 # Numeric ids, pinned to what `adduser -S` assigned in every image so far, so
 # existing volumes stay writable. Kubernetes `runAsNonRoot` refuses an image
 # whose USER is a name ("cannot verify user is non-root").
-RUN apk add --no-cache curl tzdata && \
+# setpriv: the extension runner (docker-compose.ext-runner.yml) drops each
+# extension to a uid of its own with it; Bun's spawn ignores `uid`.
+RUN apk add --no-cache curl tzdata setpriv && \
     addgroup -S -g 101 zveltio && \
     adduser -S -u 100 -G zveltio zveltio
 
@@ -96,6 +98,9 @@ WORKDIR /data
 # /data/storage exists in the image so a fresh named volume mounted there
 # inherits zveltio ownership instead of root's.
 RUN mkdir -p /data/extensions /data/storage && chown -R zveltio:zveltio /data
+# The extension runner's socket directory: root's, so neither the engine nor an
+# extension can replace the socket. A fresh volume mounted there inherits it.
+RUN mkdir -p /run/zveltio-ext && chmod 0755 /run/zveltio-ext
 
 ENV PORT=3000
 ENV NODE_ENV=production

@@ -44,7 +44,9 @@ jobs:
             --set postgresql.enabled=true --set postgresql.auth.password=p \
             --set redis.enabled=true --set ingress.enabled=true \
             --set podDisruptionBudget.enabled=true --set migrationJob.enabled=true \
-            --set autoscaling.enabled=true --set persistence.accessMode=ReadWriteMany > full.yaml
+            --set autoscaling.enabled=true --set persistence.accessMode=ReadWriteMany \
+            --set extRunner.enabled=true > full.yaml
+          grep -q 'name: ext-runner$' full.yaml || { echo "::error::extRunner.enabled rendered no runner"; exit 1; }
           /tmp/kubeconform -strict -summary default.yaml full.yaml
       - name: Refuse multi-replica on a ReadWriteOnce claim
         run: |
@@ -69,6 +71,8 @@ jobs:
           docker run --rm --entrypoint sh zveltio-engine:ci -c \
             'test -f "$STUDIO_DIST_PATH/index.html" && test -f "$CLIENT_DIST_PATH/index.html" &&
              case "$STUDIO_DIST_PATH:$CLIENT_DIST_PATH" in /data*|*:/data*) exit 1;; esac'
+          # The extension runner (compose overlay, Helm sidecar) drops uids with setpriv.
+          docker run --rm --entrypoint setpriv zveltio-engine:ci --version >/dev/null
           # The binary runs and knows `migrate` (the chart's migration Job).
           docker run --rm zveltio-engine:ci --help | grep -q migrate
 
@@ -94,7 +98,7 @@ jobs:
           ELECTRIC_SECRET: x
         run: |
           docker compose -f docker-compose.yml config -q
-          for o in ai dev electric; do
+          for o in ai dev electric ext-runner; do
             docker compose -f docker-compose.yml -f "docker-compose.$o.yml" config -q
           done
           mkdir -p gen && bash scripts/generate-compose.sh 0.0.0-ci gen/

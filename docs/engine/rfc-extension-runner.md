@@ -1,8 +1,8 @@
 # RFC: third-party extensions run out of process
 
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
-[Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension) are done;
-step 4 (container runner) is next.
+[Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension) and 4
+(container runner) are done; step 5 (edge functions) is next.
 
 ## Problem
 
@@ -222,8 +222,49 @@ functions too.
    - Still open: approving egress from the manifest at install (decision 2) is
      manual — the operator writes `IPAddressAllow`.
 
-4. **Container runner:** compose and Helm, with the same isolation test run in CI
-   against the compose stack.
+4. **Done — container runner:**
+   - Compose: the opt-in overlay `docker-compose.ext-runner.yml` adds one
+     `ext-runner` container beside the engine. It shares only two volumes with
+     it: the socket directory and the extensions (read-only). It has none of
+     the engine's environment, `network_mode: none`, a read-only root, and
+     `no-new-privileges`. The engine sets `ZVELTIO_EXT_TRANSPORT=runner` and
+     `ZVELTIO_EXT_RUNNER_SOCKET` and connects to that socket; there is no
+     systemd to start an instance, and closing the connection ends the process.
+   - A uid per extension, as 3b has: there is one runner, so the runner gives
+     it. It starts as root with only `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL`
+     and runs every process through `setpriv` under a uid of its own from
+     `ZVELTIO_EXT_RUNNER_UID_BASE` up. Bun's `spawn` ignores its `uid` option
+     without a word (measured: the child ran as root). Without CAP_KILL,
+     `kill()` on another uid threw EPERM and took the runner down with every
+     extension (measured; the runner now logs it instead).
+     Without a uid per extension, one extension could replace the runner's
+     socket and be handed the next extension's channel, and with it that
+     extension's `db:query` role. For the same reason the socket directory and
+     `/tmp` (where the runner writes the runtime) must belong to root: the
+     runner closes the first to 0755 and gives the second the sticky bit,
+     and refuses to start otherwise. A Kubernetes `emptyDir` is 0777 with no
+     sticky bit, which would let an extension rename the runtime's directory
+     and plant its own runtime for the next one. `chmod(1)` does it: Bun's
+     `chmodSync` drops the sticky bit without a word (measured).
+   - Helm: `extRunner.enabled` adds the same runner as a sidecar (an
+     `emptyDir` for the socket, the PVC's `extensions/` read-only,
+     `RuntimeDefault` seccomp). **Limit:** a sidecar shares the pod's network,
+     so the pod's NetworkPolicy is also the extensions' egress policy; a
+     separate Deployment would need a network transport with its own
+     authentication, since SO_PEERCRED only works on one host. The sidecar
+     needs the `baseline` Pod Security level, not `restricted` (root, added
+     capabilities).
+   - `packages/engine/scripts/ext-runner-compose.sh` (CI job *Extension runner
+     isolation*) runs the probe against the overlay itself, with only the
+     runner image swapped for Bun + source. Under the engine's uid the probe reads
+     the `.env`, the environment and a public URL; through the runner it reads
+     none of them. It also checks that two extensions run under two uids
+     ≥ the base, that neither can write into the socket directory, that the
+     runner closed it and `/tmp` (both handed over 0777, as an `emptyDir`
+     is), that no extension process
+     outlives its connection, and that a foreign uid is refused.
+   - Egress in compose is all or nothing for the runner: per-extension rules
+     (decision 2) exist on bare metal only.
 5. **Edge functions** move to the runner.
 6. **Default flip:** production uses the runner, and the in-thread worker is
    development only. The #906 opt-in variable then guards the dev transport

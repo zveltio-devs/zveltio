@@ -481,7 +481,8 @@ because it boots many engines against one Postgres — see the note at the top o
 | `ZVELTIO_IMPORT_LOGS_CONTRACT` | unset | Arms the import-logs reconciler, which is opt-in by design. |
 | `ZVELTIO_TRACE_SQL_ERRORS` | unset | `1` logs the full SQL of every failing statement. Statements may contain data. |
 | `ZVELTIO_TRACE_CONNECTIONS` | unset | `1` logs pool acquire/release, for diagnosing exhaustion. |
-| `ZVELTIO_EXT_RUNNER_SOCKET` | — | Runner only, set by its unit: the unix socket one `zveltio-ext-runner@<instance>` listens on (`/run/zveltio-ext/<instance>/runner.sock`). The engine derives the same path from the extension name. |
+| `ZVELTIO_EXT_RUNNER_SOCKET` | — | On the runner, set by its unit: the unix socket one `zveltio-ext-runner@<instance>` listens on (`/run/zveltio-ext/<instance>/runner.sock`); the engine derives the same path from the extension name. In containers (`docker-compose.ext-runner.yml`, Helm `extRunner.enabled`) it is set on **both** the engine and the one runner container, and the engine connects to it instead of starting systemd units. |
+| `ZVELTIO_EXT_RUNNER_UID_BASE` | unset | Container runner only: it starts as root with only `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` and runs each extension process under its own uid from this value up (65536 reserved, ≥ 1000). Set, the runner refuses to run as anything but root; unset, it refuses root. Its socket directory must belong to root. |
 | `ZVELTIO_ENGINE_UID` | — | Runner only, required: the numeric uid of the engine service. The runner serves no other uid (SO_PEERCRED) and refuses to run as that uid or as root. |
 
 ## Electric (optional sync)
