@@ -569,7 +569,7 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
     // exists; a failure here is a real one and is said out loud.
     //
     // Caught per default rather than thrown, though. This function sits in a
-    // `.then()` chain immediately before `extensionLoader.loadFromDB`, so
+    // `.then()` chain immediately before `extensionLoader.loadAll`, so
     // throwing skips it and NO extension loads at all — one unreadable row for
     // one default would take out the whole catalogue. Skipping this default and
     // continuing costs at most one auto-activation.
@@ -1264,35 +1264,36 @@ async function bootstrap() {
   await Promise.all([
     // AI providers are now initialised by the `ai` extension itself when it loads.
 
-    // Extensions — env-var configured + DB marketplace
-    extensionLoader
-      .loadAll(_tempApp, {
-        db,
-        auth,
-        fieldTypeRegistry,
-        events: engineEvents,
-        checkPermission,
-        getUserRoles,
-        DDLManager,
-        // Each extension gets a scoped view via serviceRegistry.scope(extName) inside
-        // the loader; this top-level value is just a type placeholder for the bootstrap
-        // ExtensionContext shape and is overridden per-extension.
-        services: serviceRegistry.scope('engine'),
-        queryAlter: queryAlterRegistry.scope('engine'),
-        entityAccess: entityAccessRegistry.scope('engine'),
-        onHealthCheck: (name, run, opts) => registerHealthCheck(name, run, opts),
-        // Bootstrap context: routes registered through this stub during load
-        // are tagged as engine-owned, not extension-owned. Real extensions
-        // get an `app`-bound version from extension-loader's loadExtension.
-        registerPublicRoute: () => {
-          console.warn(
-            '[extension-loader] registerPublicRoute called from engine bootstrap context — no-op',
-          );
-        },
-        internals: buildExtensionInternals(),
-      })
-      .then(() => ensureDefaultExtensions(db))
-      .then(() => extensionLoader.loadFromDB(db, _tempApp))
+    // Extensions — ZVELTIO_EXTENSIONS ∪ registry-enabled, sorted as one set. The
+    // defaults are registered first so they are part of that set.
+    ensureDefaultExtensions(db)
+      .then(() =>
+        extensionLoader.loadAll(_tempApp, {
+          db,
+          auth,
+          fieldTypeRegistry,
+          events: engineEvents,
+          checkPermission,
+          getUserRoles,
+          DDLManager,
+          // Each extension gets a scoped view via serviceRegistry.scope(extName) inside
+          // the loader; this top-level value is just a type placeholder for the bootstrap
+          // ExtensionContext shape and is overridden per-extension.
+          services: serviceRegistry.scope('engine'),
+          queryAlter: queryAlterRegistry.scope('engine'),
+          entityAccess: entityAccessRegistry.scope('engine'),
+          onHealthCheck: (name, run, opts) => registerHealthCheck(name, run, opts),
+          // Bootstrap context: routes registered through this stub during load
+          // are tagged as engine-owned, not extension-owned. Real extensions
+          // get an `app`-bound version from extension-loader's loadExtension.
+          registerPublicRoute: () => {
+            console.warn(
+              '[extension-loader] registerPublicRoute called from engine bootstrap context — no-op',
+            );
+          },
+          internals: buildExtensionInternals(),
+        }),
+      )
       .then(() => {
         console.log(`✅ Extensions loaded: ${extensionLoader.getActive().join(', ') || 'none'}`);
       })
