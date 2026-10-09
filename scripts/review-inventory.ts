@@ -458,6 +458,7 @@ const SECTIONS: Section[] = [
       `${E}lib/ext-runner.ts`,
       `${E}lib/worker-extension-runtime.ts`,
       `${E}lib/worker-extension-protocol.ts`,
+      `${E}lib/worker-extension-ctx.ts`,
       `${E}lib/extensions/worker-sql-policy.ts`,
       `${E}lib/extensions/extension-sandbox.ts`,
       `${E}lib/wasm-extension-host.ts`,
