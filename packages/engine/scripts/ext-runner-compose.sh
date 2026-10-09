@@ -62,20 +62,28 @@ out=$(dc exec -T -e PROBE_URL="$URL" engine bun "$EDGE" 2>&1 || true)
 echo "edge process: ${out:0:300}"
 grep -q '"fetch":"HTTP' <<<"$out" \
   || { echo "FAIL: an edge function under the engine's uid should reach $URL (probe broken?)"; fail=1; }
-# Held for 4 s: measured from outside while it lives, under its own uid.
+# Held for 10 s: measured from outside while it lives, under its own uid.
 edge_out=$(mktemp)
-dc exec -T -e PROBE_URL="$URL" -e PROBE_HOLD_MS=4000 -e ZVELTIO_EDGE_TRANSPORT=runner \
+dc exec -T -e PROBE_URL="$URL" -e PROBE_HOLD_MS=10000 -e ZVELTIO_EDGE_TRANSPORT=runner \
   engine bun "$EDGE" >"$edge_out" 2>&1 &
 edge_pid=$!
-sleep 2
-uid=$(dc exec -T ext-runner sh -c 'cat /proc/[0-9]*/status 2>/dev/null' | awk '/^Uid:/ && $2 >= 200000 {print $2; exit}')
+# Polled: the invocation may take a moment to start. awk reads to the end (an
+# early `exit` makes docker exec die of EPIPE, 255 under pipefail), and a
+# process that ends between the glob and the read is not an error.
+uid=
+for _ in 1 2 3 4 5 6 7 8; do
+  sleep 1
+  uid=$( { dc exec -T ext-runner sh -c 'cat /proc/[0-9]*/status 2>/dev/null; true' || true; } \
+    | awk '/^Uid:/ && $2 >= 200000 && !u {u=$2} END {print u}')
+  [ -n "$uid" ] && break
+done
 [ -n "$uid" ] || { echo "FAIL: no edge invocation found on the runner"; fail=1; }
 # Positive control: the runner's image holds the engine's 0600 .env, readable by its owner.
-dc exec -T -u 100 ext-runner cat /opt/zveltio/.env | grep -q hunter2 \
+{ dc exec -T -u 100 ext-runner cat /opt/zveltio/.env || true; } | grep -q hunter2 \
   || { echo "FAIL: the runner holds no engine secret to test against (probe broken?)"; fail=1; }
 if [ -n "$uid" ]; then
   [ "$uid" -ge 200000 ] || { echo "FAIL: edge function ran as uid $uid"; fail=1; }
-  dc exec -T -u "$uid" ext-runner cat /opt/zveltio/.env 2>/dev/null | grep -q hunter2 \
+  { dc exec -T -u "$uid" ext-runner cat /opt/zveltio/.env 2>/dev/null || true; } | grep -q hunter2 \
     && { echo "FAIL: the edge function's uid $uid reads an engine secret"; fail=1; }
 fi
 wait "$edge_pid" || true
