@@ -133,20 +133,13 @@ export async function runExtRunner(): Promise<never> {
     // or its own runtime under the next extension, and be handed that
     // extension's channel. Both directories must be root's; the socket's is
     // closed to 0755, /tmp gets the sticky bit.
-    for (const [dir, mode] of [
+    const refused = closeSharedDirs([
       [dirname(path), 0o755],
       [tmpdir(), 0o1777],
-    ] as const) {
-      // chmod(1): Bun's chmodSync drops the sticky bit without a word
-      // (measured: 0o1777 left the directory at 777).
-      Bun.spawnSync(['chmod', mode.toString(8), dir]);
-      const st = statSync(dir);
-      if (st.uid !== 0 || (st.mode & 0o7777) !== mode) {
-        console.error(
-          `[ext-runner] ${dir} must belong to root and be mode ${mode.toString(8)} in container mode`,
-        );
-        process.exit(1);
-      }
+    ]);
+    if (refused) {
+      console.error(`[ext-runner] ${refused}`);
+      process.exit(1);
     }
   }
 
@@ -156,30 +149,13 @@ export async function runExtRunner(): Promise<never> {
   // Only what the runtime needs. The runner's own environment is the unit's,
   // and nothing of the engine's ever reaches this process.
   const childEnv = { NODE_ENV: process.env.NODE_ENV ?? 'production', BUN_BE_BUN: '1' };
-  // Bun's spawn ignores the `uid` option without a word (measured: the child
-  // ran as root), so the drop is setpriv's. A uid stays taken while its
-  // process lives; ponytail: 65536 concurrent extensions before a wrap blocks.
-  const liveUids = new Set<number>();
-  let nextUid = 0;
-  const command = (): { argv: string[]; uid?: number } => {
+  // Container mode: each process under a uid of its own, dropped by setpriv.
+  const allocate = uidBase === null ? null : uidAllocator(uidBase);
+  const command = (): { argv: string[]; release?: () => void } => {
     const argv = [process.execPath, runtimePath];
-    if (uidBase === null) return { argv };
-    let uid = uidBase + nextUid;
-    for (let i = 0; liveUids.has(uid) && i < 65536; i++) uid = uidBase + (++nextUid % 65536);
-    nextUid = (nextUid + 1) % 65536;
-    liveUids.add(uid);
-    return {
-      uid,
-      argv: [
-        'setpriv',
-        `--reuid=${uid}`,
-        `--regid=${uid}`,
-        '--clear-groups',
-        '--no-new-privs',
-        '--',
-        ...argv,
-      ],
-    };
+    if (!allocate) return { argv };
+    const { uid, release } = allocate();
+    return { release, argv: setprivArgv(uid, argv) };
   };
 
   const server = createServer(async (conn) => {
@@ -190,13 +166,13 @@ export async function runExtRunner(): Promise<never> {
       return;
     }
     // Memory and tasks are the unit's cgroup limits, per extension.
-    const { argv, uid: childUid } = command();
+    const { argv, release } = command();
     const child = spawn(argv[0]!, argv.slice(1), {
       stdio: ['pipe', 'pipe', 'inherit'],
       env: childEnv,
       cwd: '/',
     });
-    if (childUid !== undefined) child.on('exit', () => liveUids.delete(childUid));
+    if (release) child.on('exit', release);
     conn.pipe(child.stdin);
     child.stdout.pipe(conn);
     // kill() throws EPERM on a child under another uid when the runner lacks
@@ -230,6 +206,53 @@ export async function runExtRunner(): Promise<never> {
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
   return new Promise<never>(() => {});
+}
+
+/**
+ * Container mode: a uid per extension process, from `base` up. A uid stays
+ * taken until `release`; ponytail: 65536 concurrent processes before a wrap
+ * hands out a live one.
+ */
+export function uidAllocator(base: number): () => { uid: number; release: () => void } {
+  const live = new Set<number>();
+  let next = 0;
+  return () => {
+    let offset = next;
+    for (let i = 0; live.has(base + offset) && i < 65536; i++) offset = (offset + 1) % 65536;
+    next = (offset + 1) % 65536;
+    const uid = base + offset;
+    live.add(uid);
+    return { uid, release: () => live.delete(uid) };
+  };
+}
+
+/** Bun's spawn ignores `uid` without a word (measured: the child ran as root). */
+export function setprivArgv(uid: number, argv: string[]): string[] {
+  return [
+    'setpriv',
+    `--reuid=${uid}`,
+    `--regid=${uid}`,
+    '--clear-groups',
+    '--no-new-privs',
+    '--',
+    ...argv,
+  ];
+}
+
+/**
+ * Give each directory its mode and check it belongs to root; the refusal, or
+ * null. chmod(1): Bun's chmodSync drops the sticky bit without a word
+ * (measured: 0o1777 left the directory at 777).
+ */
+export function closeSharedDirs(dirs: ReadonlyArray<readonly [string, number]>): string | null {
+  for (const [dir, mode] of dirs) {
+    Bun.spawnSync(['chmod', mode.toString(8), dir]);
+    const st = statSync(dir);
+    if (st.uid !== 0 || (st.mode & 0o7777) !== mode) {
+      return `${dir} must belong to root and be mode ${mode.toString(8)} in container mode`;
+    }
+  }
+  return null;
 }
 
 // ── Engine side: one unit instance per extension ─────────────────────────
