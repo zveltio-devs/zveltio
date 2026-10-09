@@ -257,7 +257,7 @@ All of that runs under the engine's uid, so a function that escapes the JS
 lockdown can read what the engine can. `ZVELTIO_EDGE_TRANSPORT=runner` moves
 each invocation into the extension runner, under another uid with no access to
 the engine's files, environment or processes (RFC extension-runner, step 5);
-it is opt-in until step 6.
+it is opt-in until step 10 (after egress approval exists for edge functions).
 
 Trade-off: ~30 ms per-spawn vs. ~1 ms for Worker. Use Worker (the
 default) for admin-authored edge functions, subprocess for marketplace

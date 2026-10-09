@@ -11,7 +11,7 @@
  *
  * `ZVELTIO_EXT_TRANSPORT=process` selects it; the in-thread worker stays the
  * default (and the development transport) until the runner is the default
- * (RFC step 6). `process` changes the transport, not the isolation: the child
+ * (RFC step 9, which removes the in-thread worker). `process` changes the transport, not the isolation: the child
  * runs under the engine's uid. `runner` (step 3) hands the same frames to the
  * extension's own `zveltio-ext-runner@` service, which runs it under its own uid.
  */

@@ -2,7 +2,11 @@
 
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
 [Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension), 4
-(container runner) and 5 (edge functions, opt-in) are done; step 6 (default flip) is next.
+(container runner) and 5 (edge functions, opt-in) are done. Decision 5 (2026-10-09,
+from a measured experiment) keeps first-party extensions inline and puts three
+steps before the default flip: a faithful SQL bridge (6), the same `ctx` contract
+out of process as inline (7) and one database transaction per request across the
+bridge (8). Step 6 is next.
 
 ## Problem
 
@@ -309,9 +313,42 @@ instead, which closes the same-uid gap for edge functions too (step 5).
        containers each gets its own uid);
      - egress is the runner's: closed until the operator opens the `edge`
        instance or the runner container's network.
-6. **Default flip:** production uses the runner, and the in-thread worker is
-   development only. The #906 opt-in variable then guards the dev transport
-   instead.
+6. **A faithful SQL bridge.** Measured in the
+   [experiment](rfc-extension-runner-experiment.md): today the bridge
+   - passes JS arrays to Postgres unconverted (`malformed array literal`), where
+     the inline driver encodes them;
+   - drops the SQLSTATE (`new Error(message)`), so a unique violation the
+     extension maps to 400 becomes a 500;
+   - returns rows only, so an UPDATE/DELETE without RETURNING reports 0 affected;
+   - logs worker errors as `{}`;
+   - and every worker extension is spawned twice at boot (registered into a
+     temporary app, then again).
+   These are defects for third-party extensions now; fix them first.
+7. **One `ctx` contract, inline and out of process.** A worker extension gets a
+   `{ query() }` instead of Kysely, no `auth` (session or API key), no
+   `checkPermission`, no `events`, no `config`, and a `services.get` that calls
+   instead of returning the function. An extension must not need to know where it
+   runs: the worker side gets the same surface, each capability carried over the
+   broker with the same rules it has inline. What cannot cross the boundary
+   (field types, engine-side hooks, `ctx.internals`) is refused at load with a
+   clear error, not discovered as a 500.
+8. **One transaction per request across the bridge.** Each bridged statement runs
+   today in its own host transaction (≈7 database round-trips where inline does 1)
+   and BEGIN/COMMIT/SAVEPOINT are refused, so a multi-statement write is not
+   atomic: in the experiment an invoice number was burned (a gap in a fiscal
+   series) and an orphan contact was left behind. The host opens the request's
+   transaction on the first statement, keeps it on a reserved connection for the
+   request, maps `db.transaction()` to savepoints, and commits or rolls back
+   with the response — with a hard timeout and a release on connection loss.
+   This also removes most of the per-statement overhead.
+9. **Default flip:** production uses the runner for third-party extensions, and
+   the in-thread worker is removed: development uses the runner protocol over a
+   local child (`ZVELTIO_EXT_TRANSPORT=process`), so there are two mechanisms,
+   inline for trusted code and the runner for everything else. The #906 opt-in
+   variable goes with the in-thread worker.
+10. **Edge functions default to the runner** once egress approval (decision 2)
+    exists for them; until then the runner's closed network would cut off every
+    edge function that calls out.
 
 ## Alternatives considered
 
@@ -335,7 +372,7 @@ goal 1 for the reason given above.
 
 ## Decisions
 
-The owner settled the four open questions on 2026-10-06.
+The owner settled the four open questions on 2026-10-06; decision 5 followed on 2026-10-09.
 
 1. **Compose: a separate runner service.** The `zveltio-ext-runner` service from
    the table above is the compose target. No second uid inside the engine
@@ -351,6 +388,20 @@ The owner settled the four open questions on 2026-10-06.
    engine-side hooks can run out of process too, which shrinks the trusted
    surface over time. Opting in is the extension's choice; staying in process
    remains allowed for first-party code.
+
+5. **First-party extensions stay inline (2026-10-09, revises 4).** Measured on
+   sms, crm and finance/invoicing — the easiest candidates of the 55, none uses
+   `ctx.internals` or an in-transaction hook ([experiment](rfc-extension-runner-experiment.md)):
+   out of process they did not work at all on today's engine; with a shim they ran
+   at 1.8–2.7x the p50 latency, each cost 50–65 MB RSS idle while the engine saved
+   13–16 MB, and multi-statement writes lost atomicity. Thirty more first-party
+   extensions also use `ctx.internals` or in-transaction hooks. The runner is the
+   boundary for code the operator does not trust — third-party extensions and edge
+   functions. First-party code is trusted like the engine; its real exposure is
+   its npm dependencies, which a dependency policy covers (pinned lockfile, no
+   install scripts, `bun audit` in CI), not a process boundary. Opting a
+   first-party extension into the runner stays possible once steps 6–8 make the
+   contract equal, and is then a per-extension choice backed by a measurement.
 
 The questions, as they were asked:
 
