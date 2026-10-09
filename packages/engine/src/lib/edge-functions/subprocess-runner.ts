@@ -36,7 +36,13 @@
 
 import { spawn, type Subprocess } from 'bun';
 import { findDynamicImport } from './no-dynamic-import.js';
-import { buildSandboxSafeFetchSource, buildSandboxSsrfGuardSource } from '../security/index.js';
+// Not the security barrel: the runner imports this module, and runs with no
+// node_modules on a read-only root — a barrel dependency makes Bun try to
+// auto-install and die (ReadOnlyFileSystem).
+import {
+  buildSandboxSafeFetchSource,
+  buildSandboxSsrfGuardSource,
+} from '../security/url-validator.js';
 import { runnerInterpreterArgs, runningAsCompiledBinary } from './runner-sentinel.js';
 import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
