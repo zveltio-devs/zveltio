@@ -23,7 +23,10 @@
 -- parseEgress split them, and the key leaves `env_vars`: one source. An entry
 -- that is not a host is dropped with a NOTICE — parseEgress refused the whole
 -- list at invocation, so such a function failed every call; dropping the entry
--- can only narrow what it reaches. The table is under FORCE RLS, so a plain
+-- can only narrow what it reaches. A row whose env_vars is a jsonb STRING
+-- holding the object (what `JSON.stringify` bound under Bun.SQL stores, as the
+-- extension's PATCH did) is read through the string and written back as the
+-- object. The table is under FORCE RLS, so a plain
 -- owner role writes each row as its tenant (as 043 does). Re-runnable.
 
 ALTER TABLE zv_edge_functions ADD COLUMN IF NOT EXISTS egress text[];
@@ -33,26 +36,41 @@ DECLARE
   entry constant text :=
     '(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:[0-9]{1,5})?';
   r record;
+  ev jsonb;
+  raw text;
 BEGIN
   PERFORM set_config(
     'zveltio.visible_tenants',
     coalesce((SELECT string_agg(id::text, ',') FROM zv_tenants), ''),
     true);
   FOR r IN
-    SELECT id, tenant_id, name, lower(env_vars->>'ZVELTIO_EGRESS') AS raw
+    SELECT id, tenant_id, name, env_vars
       FROM zv_edge_functions
      WHERE env_vars ? 'ZVELTIO_EGRESS'
+        OR (jsonb_typeof(env_vars) = 'string' AND env_vars #>> '{}' LIKE '%ZVELTIO_EGRESS%')
   LOOP
+    ev := r.env_vars;
+    IF jsonb_typeof(ev) = 'string' THEN
+      BEGIN
+        ev := (ev #>> '{}')::jsonb;
+      EXCEPTION WHEN others THEN
+        CONTINUE;
+      END;
+      IF jsonb_typeof(ev) <> 'object' OR NOT ev ? 'ZVELTIO_EGRESS' THEN
+        CONTINUE;
+      END IF;
+    END IF;
+    raw := lower(ev->>'ZVELTIO_EGRESS');
     PERFORM set_config('zveltio.current_tenant', r.tenant_id::text, true);
     UPDATE zv_edge_functions
        SET egress = ARRAY(
-             SELECT e FROM regexp_split_to_table(coalesce(r.raw, ''), '[\s,]+') AS e
+             SELECT e FROM regexp_split_to_table(coalesce(raw, ''), '[\s,]+') AS e
               WHERE e ~ ('^' || entry || '$')
            ),
-           env_vars = env_vars - 'ZVELTIO_EGRESS'
+           env_vars = ev - 'ZVELTIO_EGRESS'
      WHERE id = r.id;
     IF EXISTS (
-      SELECT 1 FROM regexp_split_to_table(coalesce(r.raw, ''), '[\s,]+') AS e
+      SELECT 1 FROM regexp_split_to_table(coalesce(raw, ''), '[\s,]+') AS e
        WHERE e <> '' AND e !~ ('^' || entry || '$')
     ) THEN
       RAISE NOTICE '061: edge function % — ZVELTIO_EGRESS entries that are not hosts were dropped', r.name;
