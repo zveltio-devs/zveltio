@@ -16,6 +16,14 @@ import { join } from 'path';
 import { z } from 'zod';
 import { CAPABILITIES, isKnownCapability } from './capabilities.js';
 
+/** Request headers that carry the caller's credentials; never handed to a worker unasked. */
+export const CREDENTIAL_HEADERS = [
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+  'x-api-key',
+] as const;
+
 export const ManifestSchema = z
   .object({
     name: z.string().min(1),
@@ -120,6 +128,16 @@ export const ManifestSchema = z
      * is null for a key.
      */
     apiKeyRoutes: z.array(z.string().regex(/^(GET|POST|PUT|PATCH|DELETE) \S+$/)).default([]),
+    /**
+     * Credentials a worker-isolated extension receives on a PUBLIC route, keyed
+     * by its `publicRoutes` entry: `{ "/scim/*": ["authorization"] }`.
+     *
+     * The host strips `CREDENTIAL_HEADERS` from every request it hands a worker:
+     * an untrusted extension that saw the caller's cookie or key could replay it
+     * as them. A public route that authenticates on its own (an IdP's bearer
+     * token) names the header it needs; the operator sees it at install.
+     */
+    forwardCredentials: z.record(z.string(), z.array(z.enum(CREDENTIAL_HEADERS))).default({}),
     /**
      * Routes this extension mounts on the GLOBAL app via
      * `ctx.registerPublicRoute`, outside `/ext/<name>` and therefore outside
@@ -278,7 +296,18 @@ export const ManifestSchema = z
       })
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((m, ctx) => {
+    for (const route of Object.keys(m.forwardCredentials)) {
+      if (!m.publicRoutes.includes(route)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['forwardCredentials', route],
+          message: `forwardCredentials names "${route}", which is not a publicRoutes entry`,
+        });
+      }
+    }
+  });
 
 export interface ManifestMeta {
   displayName?: string;

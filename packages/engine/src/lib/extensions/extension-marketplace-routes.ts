@@ -330,6 +330,17 @@ export function registerMarketplaceRoutes(
       }
     };
 
+    /** Public routes the worker is handed the caller's credentials on (manifest `forwardCredentials`). */
+    const readForwarded = (name: string): Record<string, string[]> => {
+      try {
+        const m = JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8'));
+        const f = m.forwardCredentials;
+        return f && typeof f === 'object' && !Array.isArray(f) ? f : {};
+      } catch {
+        return {};
+      }
+    };
+
     const extensions = catalog.map((entry) => {
       const dbEntry = dbMap.get(entry.name);
       const runtimeActive = self.isActive(entry.name);
@@ -353,6 +364,7 @@ export function registerMarketplaceRoutes(
         // is the honest answer: unknown provenance is not a lesser claim than
         // known-untrusted.
         publisher_tier: resolvePublisherTier(entry),
+        forwarded_credentials: readForwarded(entry.name),
         is_installed: dbEntry?.is_installed ?? runtimeActive,
         is_enabled: dbEntry?.is_enabled ?? runtimeActive,
         is_running: runtimeActive,

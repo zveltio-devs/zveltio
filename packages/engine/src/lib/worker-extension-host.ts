@@ -60,7 +60,13 @@ import {
 import { getDb, type Database } from '../db/index.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
 import type { RawPool } from '../db/bun-sql-dialect.js';
-import { activationMiddlewareFor, extensionLoader, guardEventHandler } from './extensions/index.js';
+import {
+  CREDENTIAL_HEADERS,
+  activationMiddlewareFor,
+  extensionLoader,
+  guardEventHandler,
+} from './extensions/index.js';
+import { compilePattern } from '../middleware/extension-auth-gate.js';
 import { ProblemException, problem, problemOnError } from './problem.js';
 import { engineEvents } from './runtime/index.js';
 import {
@@ -69,8 +75,10 @@ import {
   workerSqlEngineTables,
 } from './extensions/index.js';
 import {
+  NO_UNITS,
   getCurrentDomainOrNull,
   getRequestActor,
+  getResolvedMembership,
   type RequestActor,
   runWithDomain,
   temporaryObjectsRestricted,
@@ -134,6 +142,8 @@ export interface WorkerHealth {
 interface InvokeScope {
   tenantId: string | null;
   actor?: RequestActor;
+  /** The caller's reach in the tenant resolved to no unit: every assignment lapsed. */
+  noUnits?: boolean;
   /** `c.get('user')` as the `/ext/*` gate left it: the one user `checkPermission` answers for. */
   user?: { id?: string };
   /** The request's async context — domain, tenant, the API key the gate admitted. */
@@ -156,6 +166,30 @@ export interface WorkerCtxSource {
   config?: unknown;
   checkPermission?: (userId: string, resource: string, action: string) => Promise<boolean>;
   auth?: { api: { getSession(args: { headers: Headers }): Promise<unknown> } };
+  /** Manifest `forwardCredentials`: public route pattern → credential headers it receives. */
+  forwardCredentials?: Record<string, readonly string[]>;
+}
+
+/**
+ * The request headers a worker is handed: all of them but the caller's
+ * credentials (`CREDENTIAL_HEADERS`), save those in `forward`.
+ *
+ * The worker is the extension the platform chose not to trust. Handed the
+ * caller's cookie or API key, it could replay them and act as the caller on
+ * every route of the instance. It needs neither: the host resolves the session
+ * itself (`ctx.auth`), and signature headers (`stripe-signature`, …) still pass.
+ */
+export function workerRequestHeaders(
+  raw: Headers,
+  forward: ReadonlySet<string> = new Set(),
+): Record<string, string> {
+  const strip = new Set<string>(CREDENTIAL_HEADERS);
+  const headers: Record<string, string> = {};
+  raw.forEach((v, k) => {
+    const name = k.toLowerCase();
+    if (!strip.has(name) || forward.has(name)) headers[name] = v;
+  });
+  return headers;
 }
 
 interface ManagedWorker {
@@ -862,6 +896,9 @@ export class WorkerExtensionHost {
     const sub = new Hono();
     type HonoLike = Record<string, (path: string, handler: unknown) => unknown>;
     const subAny = sub as unknown as HonoLike;
+    const forwarded = Object.entries(managed.source?.forwardCredentials ?? {}).map(
+      ([pattern, names]) => [compilePattern(pattern), names] as const,
+    );
     for (const r of managed.routes) {
       const method = r.method.toLowerCase();
       if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue;
@@ -877,10 +914,11 @@ export class WorkerExtensionHost {
           const live = this.workers.get(managed.name);
           if (!live) return new Response('Extension worker is not running', { status: 503 });
           const bodyText = await c.req.raw.text().catch(() => '');
-          const headers: Record<string, string> = {};
-          c.req.raw.headers.forEach((v, k) => {
-            headers[k] = v;
-          });
+          const subPath = new URL(c.req.raw.url).pathname.replace(`/ext/${live.name}`, '') || '/';
+          const headers = workerRequestHeaders(
+            c.req.raw.headers,
+            new Set(forwarded.filter(([re]) => re.test(subPath)).flatMap(([, h]) => h)),
+          );
           const id = rpcId('inv');
           const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
           const user = (c.get('user') ?? undefined) as { id?: string } | undefined;
@@ -908,7 +946,7 @@ export class WorkerExtensionHost {
                 type: 'route:invoke',
                 id,
                 method: r.method,
-                path: new URL(c.req.raw.url).pathname.replace(`/ext/${live.name}`, '') || '/',
+                path: subPath,
                 headers,
                 query: c.req.query(),
                 body: bodyText || undefined,
@@ -1030,7 +1068,12 @@ export const _internalForTests = {
  * the request is live — the worker never gets a say in who it acts as.
  */
 function currentScope(tenantId: string | null): InvokeScope {
-  return tenantId ? { tenantId, actor: getRequestActor() } : { tenantId };
+  if (!tenantId) return { tenantId };
+  const actor = getRequestActor();
+  // The reach the request's own transaction resolved: `false` is NO_UNITS there.
+  const userId = actor?.userId;
+  const noUnits = !!userId && getResolvedMembership(userId, tenantId) === false;
+  return { tenantId, actor, noUnits };
 }
 
 /**
@@ -1275,6 +1318,8 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
       // reach wider than this tenant (`visible_tenants`/`ancestor_tenants`).
       // Both only widen, and this code is the extension the platform chose not
       // to trust; it keeps the single-tenant, rules-apply view it always had.
+      // A reach NARROWER than the tenant is carried: a caller whose assignments
+      // all lapsed sees NO_UNITS inline, and saw the whole tenant through here.
       //
       // Parameterised: `set_config` takes bind parameters where `SET` does not.
       const id = scope?.actor?.identity;
@@ -1288,7 +1333,8 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
                 set_config('zveltio.rls_bypass', 'off', true),
                 set_config('zveltio.collection_grants', $7, true),
                 set_config('zveltio.collection_all', $8, true),
-                set_config('zveltio.system_collections', '', true)`,
+                set_config('zveltio.system_collections', '', true),
+                set_config('zveltio.visible_tenants', $9, true)`,
         [
           tenantId,
           id?.userId ?? '',
@@ -1301,6 +1347,7 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
           // worker's query gets no collection its caller could not touch.
           id?.collectionGrants ?? '',
           id?.collectionAll ? 'on' : 'off',
+          scope?.noUnits ? NO_UNITS : '',
         ],
       );
     }
