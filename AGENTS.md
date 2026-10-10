@@ -290,12 +290,15 @@ generated).
 - Engine extensions mount Hono routes at `/ext/<name>/`, declare migrations,
   hooks (pre/post-write), cron; Studio extensions are Svelte 5 components
   copied into the Studio route tree on enable.
-- Community extensions run **worker-isolated** (a worker THREAD in the engine
-  process — not a separate process — with a restricted SQL allowlist of user
-  tables + own `zv_<ext>_*` namespace, reserved connection with statement
-  timeout, `zveltio_worker` DB role with no grants on Better-Auth tables).
-  Production loads them only with `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1`.
-  Optional WASM runtime for strict isolation.
+- Community extensions run **worker-isolated**: a process of their own speaking
+  the runner protocol (`ZVELTIO_EXT_TRANSPORT`) — in production the extension
+  runner, under a uid of its own (`lib/ext-runner.ts`; the release compose and
+  `install.sh` ship it), elsewhere a child of the engine under its uid. There is
+  no in-thread worker. Production refuses `process` and refuses the extension
+  when no runner answers. Their SQL crosses to the engine: an allowlist of user
+  tables + own `zv_<ext>_*` namespace, one transaction per request,
+  `zveltio_worker` DB role with no grants on Better-Auth tables. Optional WASM
+  runtime for strict isolation.
 - Extension dev loop, manifest v2 schema, and publishing:
   `docs/extensions/developer-guide.md` (§12 covers the local loop).
   Scaffold with `zveltio extension create <name>`.
@@ -343,8 +346,9 @@ generated).
   is no in-process mode; `EDGE_SANDBOX_MODE` is ignored. The process is the
   engine's uid unless `ZVELTIO_EDGE_TRANSPORT=runner` (opt-in) hands it to the
   extension runner.
-- Worker isolation is a guard-rail, not an adversarially-tested sandbox —
-  treat untrusted community extensions accordingly.
+- The extension runner is an OS boundary (uid, cgroup, network), not an
+  adversarially-tested sandbox — treat untrusted community extensions
+  accordingly.
 - Outbound webhooks are HMAC-signed. Audit log covers every write; GDPR
   right-to-erasure is built in.
 

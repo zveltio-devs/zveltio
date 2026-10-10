@@ -3,13 +3,17 @@
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
 [Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension), 4
 (container runner), 5 (edge functions, opt-in), 6 (a faithful SQL bridge), 7 (one `ctx`
-contract) and 8 (one transaction per request) are done. Decision 5 (2026-10-09,
-from a measured experiment) keeps first-party extensions inline and puts three
-steps before the default flip: a faithful SQL bridge (6), the same `ctx` contract
-out of process as inline (7) and one database transaction per request across the
-bridge (8). Steps 6–8 are done; the default flip (9) is next.
+contract), 8 (one transaction per request) and 9 (the default flip) are done.
+Decision 5 (2026-10-09, from a measured experiment) keeps first-party extensions
+inline and put three steps before the default flip: a faithful SQL bridge (6), the
+same `ctx` contract out of process as inline (7) and one database transaction per
+request across the bridge (8). Third-party extensions now run on the runner in
+production and the in-thread worker is gone; edge functions on the runner by
+default (10) is next.
 
 ## Problem
+
+(As it stood before step 9, which removed the in-thread worker.)
 
 Community-tier (third-party) extensions run in a worker
 (`lib/worker-extension-host.ts`), and the worker is a thread inside the engine
@@ -113,7 +117,7 @@ The runner never holds a connection string.
 | Docker / compose | A separate `zveltio-ext-runner` service. The engine spawns extension processes in it over a control channel. | Separate container: no engine volumes or env, own network with egress policy, cgroup limits per container (or per process via a cgroup v2 subtree). |
 | Kubernetes / Helm | A sidecar container in the engine pod, or a separate Deployment. | As above, plus `NetworkPolicy` for egress, `securityContext` (non-root, read-only rootfs, no privilege escalation, seccomp `RuntimeDefault`). |
 | Bare metal (single binary) | One systemd service per extension, `zveltio-ext-runner@<instance>`, with `DynamicUser=yes`. The engine starts it through polkit and connects to its unix socket (steps 3, 3b). | A uid per extension (so the engine's files, environment and process state, and other extensions, are out of reach), the unit's sandbox (`TemporaryFileSystem`, `ProtectProc=invisible`, `IPAddressDeny`) and its cgroup limits. |
-| Development | The current in-thread worker. | Nothing. The engine logs a warning, and the production gate from #906 keeps it out of production. |
+| Development | A child of the engine speaking the runner protocol (`ZVELTIO_EXT_TRANSPORT=process`, the default outside production; step 9). | Nothing: the engine's uid. Production refuses it. |
 
 A child under the **same** uid with an empty environment is *not* enough. Processes
 of one user can inspect each other, and they share file permissions. The table
@@ -155,8 +159,8 @@ instead, which closes the same-uid gap for edge functions too (step 5).
 2. **Done — transport:**
    - `lib/worker-extension-transport.ts`: 4-byte big-endian length + UTF-8 JSON
      frames (32 MiB cap) over the child's stdin/stdout, selected by
-     `ZVELTIO_EXT_TRANSPORT=process`; the in-thread worker stays the default and
-     the development transport. stdout belongs to the runtime: an extension's
+     `ZVELTIO_EXT_TRANSPORT=process`; the in-thread worker stayed the default and
+     the development transport until step 9 removed it. stdout belongs to the runtime: an extension's
      `console.log` and `process.stdout.write` are redirected, and a raw write to
      fd 1 corrupts the channel, which ends the runner (respawned like a crash);
    - `tests/harness/worker-transport-contract.test.ts` runs the same extension
@@ -228,8 +232,9 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      manual — the operator writes `IPAddressAllow`.
 
 4. **Done — container runner:**
-   - Compose: the opt-in overlay `docker-compose.ext-runner.yml` adds one
-     `ext-runner` container beside the engine. It shares only two volumes with
+   - Compose: the opt-in overlay `docker-compose.ext-runner.yml` added one
+     `ext-runner` container beside the engine (since step 9, the `ext-runner`
+     service of the release compose, `scripts/generate-compose.sh`). It shares only two volumes with
      it: the socket directory and the extensions (read-only). It has none of
      the engine's environment, `network_mode: none`, a read-only root, and
      `no-new-privileges`. The engine sets `ZVELTIO_EXT_TRANSPORT=runner` and
@@ -396,6 +401,40 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    local child (`ZVELTIO_EXT_TRANSPORT=process`), so there are two mechanisms,
    inline for trusted code and the runner for everything else. The #906 opt-in
    variable goes with the in-thread worker.
+   **Done:**
+   - `extensionTransport()` defaults to `runner` when `NODE_ENV=production` and
+     to `process` everywhere else; an explicit `ZVELTIO_EXT_TRANSPORT` still
+     wins. The `Worker` transport and the runtime's `postMessage` branch are
+     deleted, and with them `ZVELTIO_ALLOW_WORKER_EXTENSIONS`: nothing loads an
+     extension into the engine's thread or process any more.
+   - Fail closed in production. `ZVELTIO_EXT_TRANSPORT=process` there is refused
+     at load (`enforceRunnerInProduction`), by name. A runner that cannot be
+     reached — no socket, `systemctl start` failing, a channel that ends before
+     `init` answers — fails the load at once with `extension runner unreachable
+     (<reason>)`: logged, the extension's `loadError` in
+     `/api/admin/extensions/health`, an `extension.load_failed` audit row. The
+     load used to wait out the 15 s init timeout. Nothing falls back to a local
+     child or inline. A worker that does not init in 15 s is now terminated,
+     not left running.
+   - Compose: the overlay is folded into `scripts/generate-compose.sh`, which
+     writes the `ext-runner` service, the engine's transport and socket, and an
+     `engine_extensions` volume (`/data/extensions`, read-only in the runner)
+     into the full-stack and engine-only release composes; the overlay file is
+     gone. `ext-runner-compose.sh` runs against the generated engine-only
+     compose, and `release-compose-assets.test.ts` checks both ship the runner.
+     The repository's source-built `docker-compose.yml` starts no runner, so it
+     refuses third-party extensions.
+   - The release smoke boots the binary in production against a runner it
+     starts (container mode, as root with a uid base).
+   - Tests that compared the thread with the process
+     (`worker-transport-contract`, `-sql-bridge-fidelity`,
+     `-request-transaction`, `-request-boundary`, `-ctx-parity`) run on the
+     process transport; `worker-extension-runner-default.test.ts` pins the
+     defaults and the fail-closed paths.
+   - Still open: Helm keeps `extRunner.enabled: false` by default (the sidecar
+     needs the `baseline` Pod Security level), so a chart install refuses
+     third-party extensions until the operator enables it; the
+     `process` transport outside production has no boundary, by design.
 10. **Edge functions default to the runner** once egress approval (decision 2)
     exists for them; until then the runner's closed network would cut off every
     edge function that calls out.
