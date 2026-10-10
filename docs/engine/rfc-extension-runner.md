@@ -3,7 +3,8 @@
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
 [Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension), 4
 (container runner), 5 (edge functions, opt-in), 6 (a faithful SQL bridge), 7 (one `ctx`
-contract), 8 (one transaction per request) and 9 (the default flip) are done.
+contract), 8 (one transaction per request), 9 (the default flip) and 9b (the runner in
+one container: Fly.io, Railway, Render, `docker run`) are done.
 Decision 5 (2026-10-09, from a measured experiment) keeps first-party extensions
 inline and put three steps before the default flip: a faithful SQL bridge (6), the
 same `ctx` contract out of process as inline (7) and one database transaction per
@@ -117,6 +118,7 @@ The runner never holds a connection string.
 | Docker / compose | A separate `zveltio-ext-runner` service. The engine spawns extension processes in it over a control channel. | Separate container: no engine volumes or env, own network with egress policy, cgroup limits per container (or per process via a cgroup v2 subtree). |
 | Kubernetes / Helm | A sidecar container in the engine pod, or a separate Deployment. | As above, plus `NetworkPolicy` for egress, `securityContext` (non-root, read-only rootfs, no privilege escalation, seccomp `RuntimeDefault`). |
 | Bare metal (single binary) | One systemd service per extension, `zveltio-ext-runner@<instance>`, with `DynamicUser=yes`. The engine starts it through polkit and connects to its unix socket (steps 3, 3b). | A uid per extension (so the engine's files, environment and process state, and other extensions, are out of reach), the unit's sandbox (`TemporaryFileSystem`, `ProtectProc=invisible`, `IPAddressDeny`) and its cgroup limits. |
+| One container (Fly.io, Railway, Render, `docker run`) | The same runner, started beside the engine by the image's entrypoint when the container starts as root (the Dockerfile's default target; step 9b). | A uid per extension, the runner with only `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` and none of the container's environment, the engine dropped to uid 100 with no capabilities, `/data` (but `extensions/`) and the engine's `TMPDIR` closed to the extensions. **Not** the network, memory or tasks: those are the container's, shared with the engine. |
 | Development | A child of the engine speaking the runner protocol (`ZVELTIO_EXT_TRANSPORT=process`, the default outside production; step 9). | Nothing: the engine's uid. Production refuses it. |
 
 A child under the **same** uid with an empty environment is *not* enough. Processes
@@ -458,6 +460,48 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      `ZVELTIO_ALLOW_WORKER_EXTENSIONS` is still set.
    - Still open: the `process` transport outside production has no boundary,
      by design.
+9b. **Done — one container** (owner decision 6): Fly.io, Railway and Render run
+   one container built from the repository's Dockerfile, so there is no second
+   container for the runner, and before this they refused every third-party
+   extension.
+   - The Dockerfile's default target, `standalone`, is the `production` stage
+     started as `root` (a name: Fly.io's init resolves it in `/etc/passwd`).
+     `fly.toml`, `railway.json` and `render.yaml` build it. The image
+     `release.yml` publishes is `--target production`, still `USER 100:101`,
+     which the chart and the release compose rely on; `docker run --user 0:0`
+     gives it the same behaviour.
+   - `docker/zveltio-entrypoint.sh`, the image's entrypoint: as uid 100 it is
+     the binary. As root, for `start`, it starts `zveltio ext-runner` under
+     `env -i` (none of the container's secrets) with its bounding set cut to
+     `CAP_SETUID`, `CAP_SETGID`, `CAP_KILL`, restarted if it dies, waits for the
+     socket, and `exec`s the engine through `setpriv` as 100:101 with no
+     capabilities and the runner transport. An external runner
+     (`ZVELTIO_EXT_RUNNER_SOCKET` already set) is used as it is.
+   - The extensions share the engine's filesystem here, so the entrypoint
+     makes `/data` 0711 with everything but `extensions/` closed to group and
+     others (local storage was 0644 files in 0755 directories), and gives the
+     engine a 0700 `TMPDIR`. A root-owned `/data` (a Railway volume, a
+     container that ran as root) is handed to uid 100 first.
+   - The runner now checks at start that it can run a process as both ends of
+     the uid range it hands out and refuses otherwise: without `CAP_SETUID`, it
+     used to say it was listening and fail every extension at load
+     (measured), and a user namespace that maps 65536 ids cannot reach
+     `base + 65535`.
+   - Proof: `ext-runner-standalone.sh` (CI job *Extension runner isolation*)
+     starts the real entrypoint as root and checks the engine's uid and
+     capabilities, the runner's capabilities and environment, a uid per
+     extension, and that an extension reads neither the engine's environment,
+     a 0644 file in `/data/storage` nor the engine's `TMPDIR`. Measured on the
+     built image with `NODE_ENV=production`: `hello-ext-worker` installs,
+     enables and answers `/ext/hello-ext-worker/health` (the image before this
+     refused it: `extension runner unreachable (… "systemctl")`).
+   - **Limits:** the extensions share the container's network (they can reach
+     whatever the engine reaches, without its credentials), its memory and its
+     process table (`/proc` entries other uids may read, such as command
+     lines); a runaway extension can exhaust the container and take the engine
+     with it. A platform that denies root or `CAP_SETUID` in the container gets
+     a runner that refuses to start, and the engine refuses third-party
+     extensions with `extension runner unreachable`.
 10. **Edge functions default to the runner** once egress approval (decision 2)
     exists for them; until then the runner's closed network would cut off every
     edge function that calls out.
@@ -484,7 +528,8 @@ goal 1 for the reason given above.
 
 ## Decisions
 
-The owner settled the four open questions on 2026-10-06; decision 5 followed on 2026-10-09.
+The owner settled the four open questions on 2026-10-06; decision 5 followed on 2026-10-09,
+decision 6 on 2026-10-10.
 
 1. **Compose: a separate runner service.** The `zveltio-ext-runner` service from
    the table above is the compose target. No second uid inside the engine
@@ -514,6 +559,11 @@ The owner settled the four open questions on 2026-10-06; decision 5 followed on 
    install scripts, `bun audit` in CI), not a process boundary. Opting a
    first-party extension into the runner stays possible once steps 6–8 make the
    contract equal, and is then a per-extension choice backed by a measurement.
+
+6. **One container where there is no second one (2026-10-10).** Fly.io, Railway,
+   Render and a plain `docker run` get the runner inside the engine's container
+   (step 9b): the image starts as root, starts the runner and drops the engine.
+   Compose and Helm keep the separate runner of decision 1.
 
 The questions, as they were asked:
 

@@ -145,6 +145,8 @@ describe('loadExtensionFromDir in production', () => {
     const r = await loadWorkerExtension();
     expect(r.loaded).toBe(false);
     expect(r.error).toContain('extension runner unreachable');
+    // A PaaS has none of the three runners above it; the message names its way.
+    expect(r.error).toContain('one container — Fly.io, Railway, Render, docker run');
     // Not the 15 s init timeout: the socket error ends the load.
     expect(r.ms).toBeLessThan(5_000);
   }, 20_000);
