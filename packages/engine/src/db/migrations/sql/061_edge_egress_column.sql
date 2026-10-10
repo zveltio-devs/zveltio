@@ -61,11 +61,16 @@ BEGIN
   PERFORM set_config('zveltio.current_tenant', '', true);
   PERFORM set_config('zveltio.visible_tenants', '', true);
 
+  -- The pattern reads the entries joined by commas, so the list must be one
+  -- that joining cannot disguise: one dimension, from 1 (Bun.SQL cannot read
+  -- any other), and no entry holding a comma (as many pieces as entries).
   ALTER TABLE zv_edge_functions DROP CONSTRAINT IF EXISTS zv_edge_functions_egress_check;
   EXECUTE format(
     'ALTER TABLE zv_edge_functions ADD CONSTRAINT zv_edge_functions_egress_check CHECK ('
     || 'egress IS NULL OR cardinality(egress) = 0 '
-    || 'OR array_to_string(egress, '','', '''') ~ %L)',
+    || 'OR (array_ndims(egress) = 1 AND array_lower(egress, 1) = 1 '
+    || 'AND cardinality(string_to_array(array_to_string(egress, '','', ''''), '','')) = cardinality(egress) '
+    || 'AND array_to_string(egress, '','', '''') ~ %L))',
     '^' || entry || '(,' || entry || ')*$'
   );
 END $$;

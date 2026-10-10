@@ -1302,7 +1302,7 @@ table zv_edge_functions
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col timeout_ms                     integer NOT NULL DEFAULT 30000
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zv_edge_functions_egress_check CHECK (((egress IS NULL) OR (cardinality(egress) = 0) OR (array_to_string(egress, ','::text, ''::text) ~ '^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:[0-9]{1,5})?(,(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:[0-9]{1,5})?)*$'::text)))
+  ck  zv_edge_functions_egress_check CHECK (((egress IS NULL) OR (cardinality(egress) = 0) OR ((array_ndims(egress) = 1) AND (array_lower(egress, 1) = 1) AND (cardinality(string_to_array(array_to_string(egress, ','::text, ''::text), ','::text)) = cardinality(egress)) AND (array_to_string(egress, ','::text, ''::text) ~ '^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:[0-9]{1,5})?(,(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:[0-9]{1,5})?)*$'::text))))
   pk  zv_edge_functions_pkey PRIMARY KEY (id)
   uq  zv_edge_functions_tenant_name_key UNIQUE (tenant_id, name)
   rls enabled forced

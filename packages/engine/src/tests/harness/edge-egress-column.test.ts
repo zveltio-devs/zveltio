@@ -99,6 +99,12 @@ d('edge function egress column (061)', () => {
       `'{""}'`,
       `'{a.test,NULL}'`,
       `'{"a.test b.test"}'`,
+      // One entry holding a comma, a nested list, a list not starting at 1: each
+      // joins to a string the per-host pattern accepts, and parseEgress refuses
+      // the first two while Bun.SQL cannot read the third at all.
+      `'{"a.test,b.test"}'`,
+      `'{{a.test},{b.test}}'`,
+      `'[0:1]={a.test,b.test}'`,
     ]) {
       const err = await sql
         .raw(`UPDATE zv_edge_functions SET egress = ${bad}::text[] WHERE name = '${FN}'`)
