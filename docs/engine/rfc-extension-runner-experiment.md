@@ -169,6 +169,110 @@ range as §3.
 Not run: the container runner (needs docker) and the bare-metal systemd runner;
 nothing in step 8 is transport-specific (both transports are in the harness).
 
+## 7. End to end on a live engine, 2026-10-10
+
+After steps 6–9 and the host-owned `db.transaction()`: one third-party extension
+through every path the RFC changed, over HTTP, against engines started for the
+purpose — `packages/engine/src/tests/integration/extension-runner-e2e.integration.test.ts`,
+run by the Integration Tests job (`bun run test:integration`).
+
+Engine origin/master f49fa929 (ccd9d072 before #1017; both green). Bun 1.3.14,
+PostgreSQL 18.6 local, Docker 29, no Valkey.
+
+**What ran.** Two extensions written by the test, bundled,
+`engine.isolation: "worker"`, in a catalogue (`<EXTENSIONS_DIR>/catalog.json`) as
+`is_official: false`, `publisher_tier: "community"` — i.e. a third party.
+Installed and enabled with `POST /api/marketplace/<name>/install|enable` as the god,
+the dependency first; the files were already on disk (the air-gapped path), so no
+download and no signature check ran. The main extension declares the other in
+`dependencies`, has its own migration (`zv_<name>_notes`, `zv_<name>_log`), public
+routes `/hook` and `/fwd` (`forwardCredentials: { "/fwd": ["authorization"] }`) and
+four `apiKeyRoutes`. Three more are only enabled, to be refused: the dependency's
+bundle without `isolation: "worker"`, and two workers that listen where they may
+not. Callers: a member of the default tenant (session), an API key holding
+`$ext:<name>` read+create, an anonymous sender. A tenant collection (RLS, created
+through `/api/collections`) and the member's grants come from the API too.
+
+**Legs.** The engine is started per leg (`bun src/index.ts`, NODE_ENV=test, own port,
+`DB_POOL_MAX=10`) on TEST_DATABASE_URL — not the lane's engine on :3099, because the
+driver, the transport, `EXTENSIONS_DIR` and the catalogue are boot settings.
+
+| Leg | `ZVELTIO_DB_DRIVER` | Transport | How |
+|---|---|---|---|
+| bun:process | bun | process | nothing set: the default outside production |
+| pg:process | pg | process | same |
+| bun:runner | bun | runner | `ZVELTIO_EXT_TRANSPORT=runner` + socket; `zveltio ext-runner` in Docker as the release compose runs it: root, `ZVELTIO_EXT_RUNNER_UID_BASE=200000`, `--cap-drop ALL` + SETUID/SETGID/KILL (+ CHOWN for the socket directory), `--network none`, read-only bundle mount, engine on the host |
+| pg:runner | pg | runner | same |
+
+The runner legs name the transport because the engine is not in production; the
+production default (`runner`) is pinned by `worker-extension-runner-default.test.ts`
+and booted against a runner by the release smoke. Without Docker the runner legs
+are skipped by name; with `CI` set the file fails instead.
+
+**Results: 53/53 on all four legs, 37 s** (13 tests a leg plus the Docker check; 20 s
+before the restart was added). The full integration lane, run as CI runs it (engine
+on :3099, 38 files): 229 pass, 33 skip (other suites' opt-ins), 0 fail.
+
+| Group | Asserted (every leg) |
+|---|---|
+| Third party | both workers install 200 and enable `success: true`; the non-worker twin is refused 422, "must run in worker isolation" |
+| Out of process | the extension's pid is not the engine's; on the runner its uid is ≥ 200000 (on `process` it is the engine's — no boundary, by design) |
+| Restart | after a restart the enabled extensions load at boot, on the same transport, and answer |
+| Auth | `c.get('user')` and `ctx.auth.api.getSession()` are the member; a key is `apikey:<id>` with no session; a key on a route not in `apiKeyRoutes` is 403 |
+| checkPermission | read true, delete false, for session and key; asked about the god by id: false |
+| CRUD via `ctx.db` | Kysely insert/select (text[] round trip) on its own table as session and as key; insert/select/update/delete with affected-row counts on the tenant collection |
+| Request transaction | a rolled-back `db.transaction()` (savepoint) keeps the outer write; a handler that throws answers 500 and keeps nothing |
+| Host-owned transaction | in `register()`, a `setTimeout` from it, and an event delivery: the committing callback's row stays, the throwing one's is gone |
+| Events | `emitAsync('<own>.ping')` reaches its own listener; the dependency's `<dep>.tick` reaches it; `record.created` is refused ("may not emit"); a listener on an undeclared extension's event or on `record.created` fails the enable (422, "may not listen to") |
+| Services | `<dep>.echo` (declared) answers; `<dep>.squat` registered by the main extension is refused by the host, so it is "not found"; the dependency calling `<main>.double` (undeclared) is refused, "declare … in its manifest dependencies" |
+| Credentials | `/hook` sees no `cookie`, `authorization`, `proxy-authorization`, `x-api-key`, and does see `stripe-signature`; `/fwd` sees `authorization` only |
+| Lapsed member | in force: reads 2, inserts; with every assignment past `valid_to`: reads 0, update/delete touch 0, insert refused by the policy (SQLSTATE 42501), the table keeps its 2 rows and no new one |
+
+**Every group bites.** Each guard broken in the engine (or the fixture), one leg run,
+then restored — each run failed exactly the group named:
+
+| Break | Leg | Failed |
+|---|---|---|
+| `enforcePublisherTier` lets every tier inline | bun:process | Third party |
+| runner leg started without the runner transport | pg:runner | Out of process |
+| proxy sends `user: undefined` | bun:process | Auth, checkPermission |
+| proxy's `session` answers null | bun:process | Auth |
+| `checkPermission` drops `a === who` | bun:process | checkPermission |
+| bridge drops the affected-row `count` | pg:process | CRUD |
+| bridge skips `encodeArrayParams` | bun:process | CRUD (on pg nothing: node-postgres encodes arrays itself) |
+| savepoint rollback skips `ROLLBACK TO` | bun:process | Request transaction |
+| request commits although the handler threw | pg:process | Request transaction |
+| host-owned transaction commits on `rollback` | bun:process | Host-owned transaction |
+| `refuseEvent` lets any emit through | bun:process | Events (emit) |
+| `refuseEvent` lets any listener through | bun:process | Events (listen) |
+| host never subscribes a worker listener | bun:process | Events, Host-owned transaction (event) |
+| `serviceCallRefusal` returns null | bun:process | Services (undeclared) |
+| `serviceRegisterRefusal` returns null | bun:process | Services (squat) |
+| `workerRequestHeaders` strips nothing | bun:runner | Credentials |
+| `forwardCredentials` ignored | bun:process | Credentials (`/fwd`) |
+| bridge does not carry the lapsed caller's NO_UNITS | pg:process | Lapsed member (read 2; insert kept, and `/touch` deleted both rows) |
+| registry row disabled before the restart | bun:runner | Restart |
+
+**Defects found in the engine: none.** Traps met on the way (all in the test):
+
+- the `oven/bun` image's workdir `/home/bun/app` is closed to a root without
+  `CAP_DAC_*`; the runner's own `Bun.spawnSync(['chmod', …])` then fails with
+  EACCES before it listens. `--workdir /` fixes it (the release image is unaffected);
+- the runner refuses a socket directory that is not root's 0755 (`closeSharedDirs`):
+  a host bind mount is chowned inside the container, and handed back before removal;
+- `initDatabase()` opens its whole pool at once — 60 connections on a server with
+  `max_connections = 200` — so a fresh pool per leg beside four engines ran
+  PostgreSQL out of connections; the file shares one;
+- dropping a collection with SQL leaves its `zvd_permissions` rows (the role defaults
+  seeded on create and the member's grants); the file deletes them, and the two
+  accounts. A full run leaves no row, role or table behind.
+
+**Not covered:** the bare-metal systemd runner (`ext-runner-systemd.sh` checks its
+isolation, not the `ctx` contract); a download from a registry with its signature
+check; a tenant other than the default; egress; the production default end to end
+on a live engine with this contract (only `hello-ext-worker`'s health route in the
+release smoke).
+
 ## Re-run
 
 The scripts (bench, transaction cases, RSS sampler, mocked Twilio, runner compose

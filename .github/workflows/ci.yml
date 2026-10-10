@@ -1026,6 +1026,11 @@ jobs:
       - name: Show engine logs (always)
         if: always()
         run: cat /tmp/engine.log || true
+      - name: Show the extension-runner e2e engines' logs (always)
+        # extension-runner-e2e.integration.test.ts starts its own engines, one per
+        # driver and transport, and leaves each log here.
+        if: always()
+        run: tail -n 200 /tmp/zv-e2e-engine-*.log || true
 
   handler-coverage:
     name: Handler Coverage (in-process harness)
