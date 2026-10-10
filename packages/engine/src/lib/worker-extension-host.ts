@@ -75,8 +75,10 @@ import {
   workerSqlEngineTables,
 } from './extensions/index.js';
 import {
+  NO_UNITS,
   getCurrentDomainOrNull,
   getRequestActor,
+  getResolvedMembership,
   type RequestActor,
   runWithDomain,
   temporaryObjectsRestricted,
@@ -140,6 +142,8 @@ export interface WorkerHealth {
 interface InvokeScope {
   tenantId: string | null;
   actor?: RequestActor;
+  /** The caller's reach in the tenant resolved to no unit: every assignment lapsed. */
+  noUnits?: boolean;
   /** `c.get('user')` as the `/ext/*` gate left it: the one user `checkPermission` answers for. */
   user?: { id?: string };
   /** The request's async context — domain, tenant, the API key the gate admitted. */
@@ -1064,7 +1068,12 @@ export const _internalForTests = {
  * the request is live — the worker never gets a say in who it acts as.
  */
 function currentScope(tenantId: string | null): InvokeScope {
-  return tenantId ? { tenantId, actor: getRequestActor() } : { tenantId };
+  if (!tenantId) return { tenantId };
+  const actor = getRequestActor();
+  // The reach the request's own transaction resolved: `false` is NO_UNITS there.
+  const userId = actor?.userId;
+  const noUnits = !!userId && getResolvedMembership(userId, tenantId) === false;
+  return { tenantId, actor, noUnits };
 }
 
 /**
@@ -1309,6 +1318,8 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
       // reach wider than this tenant (`visible_tenants`/`ancestor_tenants`).
       // Both only widen, and this code is the extension the platform chose not
       // to trust; it keeps the single-tenant, rules-apply view it always had.
+      // A reach NARROWER than the tenant is carried: a caller whose assignments
+      // all lapsed sees NO_UNITS inline, and saw the whole tenant through here.
       //
       // Parameterised: `set_config` takes bind parameters where `SET` does not.
       const id = scope?.actor?.identity;
@@ -1322,7 +1333,8 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
                 set_config('zveltio.rls_bypass', 'off', true),
                 set_config('zveltio.collection_grants', $7, true),
                 set_config('zveltio.collection_all', $8, true),
-                set_config('zveltio.system_collections', '', true)`,
+                set_config('zveltio.system_collections', '', true),
+                set_config('zveltio.visible_tenants', $9, true)`,
         [
           tenantId,
           id?.userId ?? '',
@@ -1335,6 +1347,7 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
           // worker's query gets no collection its caller could not touch.
           id?.collectionGrants ?? '',
           id?.collectionAll ? 'on' : 'off',
+          scope?.noUnits ? NO_UNITS : '',
         ],
       );
     }

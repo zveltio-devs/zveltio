@@ -6,6 +6,10 @@
 //     API key and could replay them as the caller. A public route gets back only
 //     the ones its manifest names in `forwardCredentials`; signature headers
 //     (`stripe-signature`, `x-hub-signature-256`) always pass.
+//   - The caller's reach does, when it is narrower than the tenant: a member
+//     whose default-tenant assignment lapsed reads nothing inline (NO_UNITS), and
+//     read and wrote the whole tenant through a worker, which published only
+//     `zveltio.current_tenant`.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -86,7 +90,7 @@ function writeExt(base: string, name: string, worker: boolean) {
   writeFileSync(join(dir, 'engine', 'index.js'), entry(name));
 }
 
-d('a worker extension is not handed the caller credentials', () => {
+d('a worker extension is handed neither the caller credentials nor a wider reach', () => {
   let db: Database;
   let base = '';
   const app = new Hono();
@@ -178,6 +182,23 @@ d('a worker extension is not handed the caller credentials', () => {
         rowsInForce: await call(mode, '/rows', asMember),
       };
     }
+    // Every assignment of the member in the default tenant lapses.
+    await sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 day'
+              WHERE tenant_id = ${DEFAULT_TENANT_ID}::uuid AND user_id = ${memberId}`.execute(db);
+    // Each mode on the same two rows, so one mode's leak cannot hide the next one's.
+    for (const mode of MODES) {
+      await sql`DELETE FROM ${sql.table(TABLE)}`.execute(db);
+      await sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
+                VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`.execute(
+        db,
+      );
+      out[mode]!.rowsLapsed = await call(mode, '/rows', asMember);
+      out[mode]!.touchLapsed = await call(mode, '/touch', asMember, 'POST');
+      out[mode]!.left = (
+        await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
+                                 WHERE title IN ('a', 'b')`.execute(db)
+      ).rows[0]?.n;
+    }
   }, 180_000);
 
   afterAll(async () => {
@@ -209,6 +230,13 @@ d('a worker extension is not handed the caller credentials', () => {
       status: 200,
       body: { authorization: 'Bearer caller-token', 'x-api-key': 'caller-api-key' },
     });
+  });
+
+  it('inline: a lapsed member reads and writes nothing (the reach worker mode must match)', () => {
+    expect(out.inline.rowsInForce).toEqual({ status: 200, body: 2 });
+    expect(out.inline.rowsLapsed).toEqual({ status: 200, body: 0 });
+    expect(out.inline.touchLapsed).toEqual({ status: 200, body: { updated: 0, deleted: 0 } });
+    expect(out.inline.left).toBe(2);
   });
 
   for (const m of ['worker', 'process'] as const) {
@@ -243,6 +271,12 @@ d('a worker extension is not handed the caller credentials', () => {
 
       it('an in-force member reads the tenant (the control)', () => {
         expect(out[m]?.rowsInForce).toEqual({ status: 200, body: 2 });
+      });
+
+      it('a lapsed member reads nothing and its update and delete touch nothing', () => {
+        expect(out[m]?.rowsLapsed).toEqual(out.inline.rowsLapsed);
+        expect(out[m]?.touchLapsed).toEqual(out.inline.touchLapsed);
+        expect(out[m]?.left).toBe(2);
       });
     });
   }

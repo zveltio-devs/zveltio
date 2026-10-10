@@ -3,6 +3,7 @@
 // permissions, and the RBAC/permissions engine. Public API; outside (non-test)
 // code imports from `lib/tenancy`, never the deep files. Grouped by H-08.
 export * from './tenant-context.js';
+export { NO_UNITS } from './tenant-scope.js';
 export * from './tenant-manager.js';
 export * from './fail-closed-tenant.js';
 export * from './rls.js';
