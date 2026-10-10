@@ -1006,6 +1006,8 @@ export const _internalForTests = {
   resetNoWorkerSqlRoleWarning(): void {
     _warnedNoWorkerSqlRole = false;
   },
+  newRequestTxn,
+  requestSavepoint,
   /** The request transaction's hard timeout; no argument restores the default. */
   setRequestTxnTimeoutMs(ms = REQUEST_TXN_TIMEOUT_MS): void {
     requestTxnTimeoutMs = ms;
@@ -1412,8 +1414,11 @@ interface RequestTxn {
   conn?: Reserved;
   /** The extension whose role the transaction is SET to now. */
   ext?: string;
-  /** Open `db.transaction()` savepoints, named `zv_sp_<depth>` by the host. */
-  savepoints: number;
+  /**
+   * Open `db.transaction()` savepoints, innermost last, each with the extension
+   * that opened it; named `zv_sp_<depth>` by the host.
+   */
+  savepoints: string[];
   /** Statements run one at a time, in arrival order, on the one connection. */
   tail: Promise<unknown>;
   /** Why statements are refused from now on. */
@@ -1423,7 +1428,7 @@ interface RequestTxn {
 }
 
 function newRequestTxn(): RequestTxn {
-  return { savepoints: 0, tail: Promise.resolve() };
+  return { savepoints: [], tail: Promise.resolve() };
 }
 
 /** Run `fn` on the request's transaction, opening it on the first statement. */
@@ -1498,15 +1503,23 @@ async function requestSavepoint(
   const txn = scope.txn;
   return inRequestTxn(txn, extName, scope, async (conn) => {
     if (op === 'begin') {
-      await conn.unsafe(`SAVEPOINT zv_sp_${txn.savepoints + 1}`);
-      txn.savepoints++;
+      await conn.unsafe(`SAVEPOINT zv_sp_${txn.savepoints.length + 1}`);
+      txn.savepoints.push(extName);
       return [];
     }
-    if (txn.savepoints === 0) throw new Error('no db.transaction() is open');
-    const name = `zv_sp_${txn.savepoints}`;
-    if (op === 'rollback') await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+    // Only the extension that opened the innermost savepoint ends it: another
+    // one could otherwise roll back work it does not own.
+    if (txn.savepoints.at(-1) !== extName) throw new Error('no db.transaction() is open');
+    const name = `zv_sp_${txn.savepoints.length}`;
+    if (op === 'rollback') {
+      // ROLLBACK TO also undoes every SET LOCAL ROLE since the savepoint, so the
+      // role the connection is in may no longer be `txn.ext`'s: forget it, and
+      // the next statement sets its own.
+      txn.ext = undefined;
+      await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+    }
     await conn.unsafe(`RELEASE SAVEPOINT ${name}`);
-    txn.savepoints--;
+    txn.savepoints.pop();
     return [];
   });
 }

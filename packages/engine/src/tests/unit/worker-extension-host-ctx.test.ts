@@ -230,3 +230,38 @@ describe('worker route error', () => {
     expect(((await res.json()) as { code: string }).code).toBe('invalid_parameter');
   });
 });
+
+describe('db.transaction() savepoints across extensions', () => {
+  const { newRequestTxn, requestSavepoint } = _internalForTests;
+  function fakeConn(log: string[]) {
+    return {
+      unsafe: async (q: string, params?: unknown[]) => {
+        log.push(q.trim().split(/\s+/).slice(0, 4).join(' '));
+        return q.includes('pg_roles') ? [{ role: `zvx_${String(params?.[0] ?? '')}` }] : [];
+      },
+      release: () => {},
+    };
+  }
+
+  it('refuses to end a savepoint another extension opened, and re-sets the role after a rollback', async () => {
+    const log: string[] = [];
+    const txn = newRequestTxn();
+    txn.conn = fakeConn(log) as never;
+    txn.ext = 'a';
+    const scope = { txn } as never;
+
+    await requestSavepoint('a', scope, 'begin');
+    // b runs inside a's savepoint (a service call), then tries to end it.
+    await expect(requestSavepoint('b', scope, 'rollback')).rejects.toThrow(
+      'no db.transaction() is open',
+    );
+    expect(txn.savepoints).toEqual(['a']);
+
+    await requestSavepoint('a', scope, 'rollback');
+    expect(txn.savepoints).toEqual([]);
+    // ROLLBACK TO undid whatever SET LOCAL ROLE came after the savepoint, so the
+    // cached role is forgotten and the next statement sets its own.
+    expect(txn.ext).toBeUndefined();
+    expect(log).toContain('ROLLBACK TO SAVEPOINT zv_sp_1');
+  });
+});
