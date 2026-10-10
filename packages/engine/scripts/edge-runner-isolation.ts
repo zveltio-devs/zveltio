@@ -4,6 +4,7 @@
  * `runEdgeFunctionInSubprocess`, as the edge route does, over whichever
  * transport ZVELTIO_EDGE_TRANSPORT selects. The function stays alive for
  * PROBE_HOLD_MS, then tries to reach PROBE_URL through the sandboxed fetch.
+ * PROBE_EGRESS, when set, is the function's ZVELTIO_EGRESS (step 10).
  * Prints one JSON line: { transport, fetch }.
  *
  *   bun scripts/edge-runner-isolation.ts
@@ -18,8 +19,10 @@
  * nothing.
  */
 
+import { parseEgress } from '../src/lib/edge-functions/egress.js';
 import {
   drainRunnerPool,
+  edgeTransport,
   runEdgeFunctionInSubprocess,
 } from '../src/lib/edge-functions/subprocess-runner.js';
 
@@ -30,15 +33,17 @@ const code = `async function handler(request, env) {
   let fetched = 'skipped';
   if (env.url) {
     try { fetched = 'HTTP ' + (await fetch(env.url, { signal: AbortSignal.timeout(3000) })).status; }
-    catch (e) { fetched = 'DENIED ' + (e.code ?? e.name ?? e.message); }
+    catch (e) { fetched = 'DENIED ' + (e.code ?? e.name) + ' ' + e.message; }
   }
   return { fetch: fetched };
 }`;
 
+const env: Record<string, string> = { url: process.env.PROBE_URL ?? '', holdMs: String(holdMs) };
+if (process.env.PROBE_EGRESS !== undefined) env.ZVELTIO_EGRESS = process.env.PROBE_EGRESS;
 const res = await runEdgeFunctionInSubprocess(
   code,
   { method: 'GET', headers: {}, query: {}, body: null, path: '/' },
-  { url: process.env.PROBE_URL ?? '', holdMs: String(holdMs) },
+  env,
   holdMs + 10_000,
 );
 await drainRunnerPool();
@@ -46,8 +51,7 @@ if (!res.ok) {
   console.error(`probe: ${res.error} ${JSON.stringify(res.logs)}`);
   process.exit(1);
 }
-// The variable, not edgeTransport(): run against an engine that predates the
-// runner, the probe must still answer — and show what it reaches there.
-const transport = process.env.ZVELTIO_EDGE_TRANSPORT === 'runner' ? 'runner' : 'process';
+// Where the engine sent it; the caller checks the uid from outside.
+const transport = edgeTransport(parseEgress(env));
 console.log(JSON.stringify({ transport, ...(res.response?.body as object) }));
 process.exit(0);

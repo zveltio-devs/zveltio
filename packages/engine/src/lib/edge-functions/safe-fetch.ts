@@ -11,7 +11,9 @@
  * by tenant admins, which is precisely the threat model.
  */
 
-import { assertPublicUrl, validatePublicUrl } from '../security/index.js';
+// Not the barrel: the edge egress bridge imports this module, and the compose
+// probe runs it from source with no node_modules (the barrel pulls hono, kysely).
+import { assertPublicUrl, validatePublicUrl } from '../security/url-validator.js';
 export { validatePublicUrl, assertPublicUrl };
 
 /**
@@ -91,7 +93,15 @@ export const pinnedRequestForTests = pinnedRequest;
  * would call itself. Resolved per request, not captured, so a test that swaps
  * `globalThis.fetch` still sees its stub.
  */
-export function createSafeFetch(baseFetch: () => typeof fetch) {
+export function createSafeFetch(
+  baseFetch: () => typeof fetch,
+  /**
+   * Throws to refuse a URL, called on every hop before anything is resolved —
+   * so a redirect is held to it too, and a refused host is not even looked up.
+   * The edge egress bridge passes the function's allowlist here.
+   */
+  allowUrl?: (url: URL) => void,
+) {
   return async function safeFetch(
     input: string | URL | Request,
     init?: RequestInit,
@@ -99,6 +109,8 @@ export function createSafeFetch(baseFetch: () => typeof fetch) {
   ): Promise<Response> {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+    allowUrl?.(new URL(url));
 
     // DNS-aware: also rejects hostnames that RESOLVE into private space, which a
     // literal-text blocklist cannot see. Returns the address to connect to.

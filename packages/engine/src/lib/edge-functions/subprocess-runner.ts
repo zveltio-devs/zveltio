@@ -44,6 +44,14 @@ import {
   buildSandboxSsrfGuardSource,
 } from '../security/url-validator.js';
 import { runnerInterpreterArgs, runningAsCompiledBinary } from './runner-sentinel.js';
+import {
+  createEgressBridge,
+  EGRESS_LIMITS,
+  FETCH_LINE,
+  parseEgress,
+  splitFetchLines,
+} from './egress.js';
+import { extensionTransport } from '../worker-extension-transport.js';
 import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -166,28 +174,84 @@ ${buildSandboxSsrfGuardSource('_dnsLookupImpl')}
 const _procWrite = process.stdout.write.bind(process.stdout);
 const _procExit = process.exit.bind(process);
 
+// Captured before lockdown: the egress bridge below encodes bodies with them.
+const _Buffer = Buffer;
+const _Request = Request;
+const _Response = Response;
+
 (async () => {
-  // Read a single line of JSON from stdin (the parent sends one envelope)
+  // stdin carries the envelope line, then — when the engine bridges egress —
+  // one answer line per FETCH line this process wrote.
   const reader = Bun.stdin.stream().getReader();
   const decoder = new TextDecoder();
   let buf = '';
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const nl = buf.indexOf('\n');
-    if (nl !== -1) { buf = buf.slice(0, nl); break; }
+  async function readLine() {
+    while (true) {
+      const nl = buf.indexOf('\n');
+      if (nl !== -1) { const line = buf.slice(0, nl); buf = buf.slice(nl + 1); return line; }
+      const { value, done } = await reader.read();
+      if (done) { const rest = buf; buf = ''; return rest.length ? rest : null; }
+      buf += decoder.decode(value, { stream: true });
+    }
   }
 
   let envelope;
   try {
-    envelope = JSON.parse(buf);
+    envelope = JSON.parse((await readLine()) ?? '');
   } catch (err) {
     process.stdout.write(JSON.stringify({ ok: false, error: 'Bad envelope: ' + err.message, logs: [] }) + '\n');
     process.exit(2);
   }
 
-  const { code, request, env, timeoutMs } = envelope;
+  const { code, request, env, timeoutMs, bridge } = envelope;
+
+  // Egress through the engine (lib/edge-functions/egress.ts): the request goes
+  // out as a FETCH line, the engine checks the function's allowlist and the
+  // SSRF guard and answers on stdin. This process needs no network for it.
+  const _pending = new Map();
+  let _nextId = 0;
+  let _pumping = false;
+  function _pump() {
+    if (_pumping) return;
+    _pumping = true;
+    (async () => {
+      for (;;) {
+        const line = await readLine();
+        if (line === null) break;
+        let m;
+        try { m = JSON.parse(line); } catch (_) { continue; }
+        const settle = _pending.get(m.id);
+        if (settle) { _pending.delete(m.id); settle(m); }
+      }
+      for (const settle of _pending.values()) settle({ ok: false, error: '[egress] channel closed' });
+      _pending.clear();
+    })();
+  }
+  async function bridgeFetch(input, init) {
+    const req = new _Request(input, init);
+    const body = req.method === 'GET' || req.method === 'HEAD'
+      ? null : new Uint8Array(await req.arrayBuffer());
+    if (body && body.byteLength > ${EGRESS_LIMITS.requestBytes}) {
+      throw new TypeError('[egress] request body exceeds ${EGRESS_LIMITS.requestBytes} bytes');
+    }
+    const id = ++_nextId;
+    const answered = new Promise((resolve) => _pending.set(id, resolve));
+    _procWrite('${FETCH_LINE}' + JSON.stringify({
+      id, url: req.url, method: req.method, headers: [...req.headers],
+      body: body ? _Buffer.from(body).toString('base64') : null,
+    }) + '\n');
+    _pump();
+    const aborted = new Promise((_, reject) => {
+      if (req.signal.aborted) reject(req.signal.reason);
+      req.signal.addEventListener('abort', () => reject(req.signal.reason), { once: true });
+    });
+    const m = await Promise.race([answered, aborted]);
+    if (!m.ok) throw new TypeError(m.error);
+    const nullBody = m.status === 101 || m.status === 204 || m.status === 205 || m.status === 304;
+    return new _Response(nullBody ? null : _Buffer.from(m.body, 'base64'), {
+      status: m.status, statusText: m.statusText, headers: m.headers,
+    });
+  }
   const logs = [];
   const _console = {
     log:   (...a) => logs.push(a.map(String).join(' ')),
@@ -203,7 +267,8 @@ const _procExit = process.exit.bind(process);
     // (SSRF): the shared sandbox safeFetch validates the target, connects to
     // the address it validated, and re-validates every redirect hop.
     ${buildSandboxSafeFetchSource()}
-    lockdownGlobals(safeFetch);
+    const _sandboxFetch = bridge ? bridgeFetch : safeFetch;
+    lockdownGlobals(_sandboxFetch);
 
     // 'eval' is intentionally absent from this shadow-parameter list: it is an
     // illegal strict-mode parameter name, and the body below is '"use strict"',
@@ -223,7 +288,7 @@ const _procExit = process.exit.bind(process);
     );
 
     const raw = await Promise.race([
-      userFn(request, env, _console, safeFetch,
+      userFn(request, env, _console, _sandboxFetch,
         undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined,undefined),
       timeout,
     ]);
@@ -753,13 +818,75 @@ export async function runEdgeFunctionInSubprocess(
     };
   }
 
+  let egress: string[] | null;
+  try {
+    egress = parseEgress(envVars);
+  } catch (err) {
+    return { ok: false, error: (err as Error).message, logs: [], duration_ms: 0 };
+  }
+  const transport = edgeTransport(egress);
+  // On the runner every fetch crosses to the engine — an undeclared function's
+  // is refused there, with a reason, instead of dying on a closed network. A
+  // declared function is held to its list wherever it runs.
+  const bridged = transport === 'runner' || egress !== null;
+  if (transport === 'process' && egress === null) warnUndeclaredEgress();
+
   const budgetMb = opts.memoryLimitMb ?? MEMORY_LIMIT_MB;
-  const envelope = JSON.stringify({ code: jsCode, request, env: envVars, timeoutMs }) + '\n';
+  const envelope =
+    JSON.stringify({ code: jsCode, request, env: envVars, timeoutMs, bridge: bridged }) + '\n';
+  const bridge = bridged ? { list: egress ?? [], timeoutMs } : null;
   const outcome =
-    edgeTransport() === 'runner'
-      ? await invokeOverRunner(budgetMb, envelope, timeoutMs)
-      : await invokeLocally(budgetMb, envelope, timeoutMs, opts.memoryLimitMb === undefined);
+    transport === 'runner'
+      ? await invokeOverRunner(budgetMb, envelope, timeoutMs, bridge!)
+      : await invokeLocally(
+          budgetMb,
+          envelope,
+          timeoutMs,
+          opts.memoryLimitMb === undefined,
+          bridge,
+        );
   return toRunResult(outcome, Date.now() - start);
+}
+
+/** How the engine serves one invocation's egress: the declared hosts, and its time. */
+interface BridgeSpec {
+  list: string[];
+  timeoutMs: number;
+}
+
+/**
+ * Wire an invocation's FETCH lines to the engine's egress bridge. `kill` ends the
+ * invocation; the reason it gives replaces whatever the death would have read as.
+ */
+function bridgeFor(
+  spec: BridgeSpec | null,
+  reply: (line: string) => void,
+  kill: () => void,
+): { onFetch: ((json: string) => void) | null; close: () => void; violation: () => string | null } {
+  if (!spec) return { onFetch: null, close: () => undefined, violation: () => null };
+  let violation: string | null = null;
+  const b = createEgressBridge(spec.list, spec.timeoutMs, reply, (why) => {
+    violation ??= why;
+    kill();
+  });
+  return { onFetch: b.line, close: b.close, violation: () => violation };
+}
+
+let undeclaredWarningShown = false;
+/**
+ * Transition (RFC step 10): where third-party extensions go to the runner, an
+ * edge function that declares no egress still runs as the engine's child, with
+ * the engine's network — moving it would cut it off. Said once per process.
+ */
+function warnUndeclaredEgress(): void {
+  if (undeclaredWarningShown || extensionTransport() !== 'runner') return;
+  undeclaredWarningShown = true;
+  console.warn(
+    "[edge-functions] an edge function without ZVELTIO_EGRESS ran as the engine's child, " +
+      "with the engine's network. Declare the hosts it calls in its ZVELTIO_EGRESS env var " +
+      '(an empty value for none) to move it to the extension runner; ' +
+      'ZVELTIO_EDGE_TRANSPORT=runner moves every function and cuts off the undeclared ones.',
+  );
 }
 
 /** What one invocation left behind, wherever it ran. */
@@ -779,29 +906,49 @@ async function invokeLocally(
   envelope: string,
   timeoutMs: number,
   pooled: boolean,
+  bridgeSpec: BridgeSpec | null = null,
 ): Promise<Outcome> {
   const proc = takeRunner(budgetMb, POOL_SIZE > 0 && pooled);
-
-  proc.stdin.write(envelope);
-  proc.stdin.end();
-
-  // Hard wall-clock kill: timeoutMs + 3s leeway for IPC/JSON encoding.
-  let timedOut = false;
-  const killTimer = setTimeout(() => {
-    timedOut = true;
+  const killProc = () => {
     try {
       proc.kill('SIGKILL');
     } catch {
       /* already exited */
     }
+  };
+  const bridge = bridgeFor(
+    bridgeSpec,
+    (line) => {
+      try {
+        proc.stdin.write(line);
+        proc.stdin.flush();
+      } catch {
+        /* exited meanwhile */
+      }
+    },
+    killProc,
+  );
+
+  proc.stdin.write(envelope);
+  // A bridged invocation's answers follow the envelope, so its stdin stays open.
+  if (bridgeSpec) proc.stdin.flush();
+  else proc.stdin.end();
+
+  // Hard wall-clock kill: timeoutMs + 3s leeway for IPC/JSON encoding.
+  let timedOut = false;
+  const killTimer = setTimeout(() => {
+    timedOut = true;
+    killProc();
   }, timeoutMs + 3000);
 
   try {
     const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
+      splitFetchLines(proc.stdout, bridge.onFetch),
       new Response(proc.stderr).text(),
     ]);
     await proc.exited;
+    const violation = bridge.violation();
+    if (violation) return emptyOutcome(`Killed: ${violation}`);
     return {
       stdout,
       stderr,
@@ -814,6 +961,14 @@ async function invokeLocally(
     return emptyOutcome(`Subprocess error: ${(err as Error).message}`);
   } finally {
     clearTimeout(killTimer);
+    bridge.close();
+    if (bridgeSpec) {
+      try {
+        proc.stdin.end();
+      } catch {
+        /* already closed */
+      }
+    }
   }
 }
 
@@ -896,9 +1051,17 @@ function toRunResult(o: Outcome, duration_ms: number): RunResult {
 // every address until the operator allows one — tying the two would cut edge
 // functions off the network on the next update. Default flip is RFC step 10.
 
-/** `runner`, or `process` (the default: the engine's own child). */
-export function edgeTransport(): 'process' | 'runner' {
-  return process.env.ZVELTIO_EDGE_TRANSPORT === 'runner' ? 'runner' : 'process';
+/**
+ * Where one invocation runs. `ZVELTIO_EDGE_TRANSPORT` when it names a transport;
+ * otherwise (RFC step 10) a function that declares its egress goes where
+ * third-party extensions go — the runner in production, a local child on a
+ * development machine, which has no runner — and one that declares none stays
+ * the engine's child, since the runner's closed network would cut it off.
+ */
+export function edgeTransport(egress: string[] | null = null): 'process' | 'runner' {
+  const t = process.env.ZVELTIO_EDGE_TRANSPORT;
+  if (t === 'runner' || t === 'process') return t;
+  return egress !== null ? extensionTransport() : 'process';
 }
 
 /**
@@ -918,6 +1081,7 @@ async function invokeOverRunner(
   budgetMb: number,
   envelope: string,
   timeoutMs: number,
+  bridge: BridgeSpec,
 ): Promise<Outcome> {
   const { edgeRunnerSocket, forgetEdgeRunner } = await import('../ext-runner.js');
   let socketPath: string;
@@ -930,36 +1094,62 @@ async function invokeOverRunner(
     socketPath,
     `${EDGE_HEADER_TAG} ${budgetMb} ${CPU_LIMIT_S}\n${envelope}`,
     timeoutMs + 3000,
+    bridge,
   );
   // A runner that went away (restarted, stopped) is started again next time.
   if (outcome.error) forgetEdgeRunner();
   return outcome;
 }
 
-/** One invocation over a runner socket; exported for the transport test. */
+/**
+ * One invocation over a runner socket; exported for the transport test. The
+ * runner forwards the sandbox's FETCH lines as they come and ends with one
+ * outcome line; the bridge's answers go back down the same socket.
+ */
 export function exchangeWithRunner(
   socketPath: string,
   request: string,
   killAfterMs: number,
+  bridgeSpec: BridgeSpec | null = null,
 ): Promise<Outcome> {
   return new Promise((resolve) => {
     const sock = connect(socketPath);
-    const chunks: Buffer[] = [];
     let timedOut = false;
     let failure: string | null = null;
+    const bridge = bridgeFor(
+      bridgeSpec,
+      (line) => {
+        if (!sock.destroyed) sock.write(line);
+      },
+      () => sock.destroy(),
+    );
     // Same leeway as the local kill; closing the connection is the kill.
     const killTimer = setTimeout(() => {
       timedOut = true;
       sock.destroy();
     }, killAfterMs);
     sock.on('connect', () => sock.write(request));
-    sock.on('data', (c: Buffer) => chunks.push(c));
+    const received = splitFetchLines(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          sock.on('data', (c: Buffer) => controller.enqueue(new Uint8Array(c)));
+          sock.on('close', () => controller.close());
+        },
+      }),
+      bridge.onFetch,
+    );
     sock.on('error', (err) => {
       failure = `Edge runner ${socketPath}: ${err.message}`;
     });
-    sock.on('close', () => {
+    sock.on('close', async () => {
       clearTimeout(killTimer);
-      const text = Buffer.concat(chunks).toString('utf8');
+      bridge.close();
+      const text = await received;
+      const violation = bridge.violation();
+      if (violation) {
+        resolve(emptyOutcome(`Killed: ${violation}`));
+        return;
+      }
       try {
         const r = JSON.parse(text) as Omit<Outcome, 'timedOut'>;
         resolve({ ...r, timedOut });
@@ -991,8 +1181,13 @@ export function serveEdgeConnection(
   const onData = (chunk: Buffer) => {
     if (done) return;
     if (proc) {
-      proc.stdin.write(chunk);
-      proc.stdin.flush();
+      // An egress answer can land after the process exited, before `done`.
+      try {
+        proc.stdin.write(chunk);
+        proc.stdin.flush();
+      } catch {
+        /* exited meanwhile */
+      }
       return;
     }
     buf = Buffer.concat([buf, chunk]);
@@ -1028,7 +1223,11 @@ export function serveEdgeConnection(
     started.stdin.flush();
     void (async () => {
       const [stdout, stderr] = await Promise.all([
-        new Response(started.stdout).text(),
+        // The sandbox's egress requests go to the engine as they come; the
+        // runner itself has no network to serve them with.
+        splitFetchLines(started.stdout, (json) => {
+          if (!done) conn.write(`${FETCH_LINE}${json}\n`);
+        }),
         new Response(started.stderr).text(),
       ]);
       await started.exited;

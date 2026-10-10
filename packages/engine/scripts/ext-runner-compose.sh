@@ -17,6 +17,9 @@
 # (ZVELTIO_EDGE_TRANSPORT unset) an edge function reaches the network; with
 # ZVELTIO_EDGE_TRANSPORT=runner it does not, and the uid it runs under — read
 # from outside while the invocation is held — cannot read the engine's .env.
+# Step 10: a function that declares ZVELTIO_EGRESS goes to the runner by
+# default and reaches a listed host through the engine; an unlisted host, a
+# private address it lists, and a function that lists nothing reach nothing.
 #
 #   bash packages/engine/scripts/ext-runner-compose.sh
 set -euo pipefail
@@ -97,6 +100,42 @@ out=$(cat "$edge_out"); rm -f "$edge_out"
 echo "edge runner:  $out (uid ${uid:-?})"
 grep -q '"transport":"runner"' <<<"$out" || { echo "FAIL: edge runner probe gave no answer"; fail=1; }
 grep -q '"fetch":"HTTP' <<<"$out" && { echo "FAIL: an edge function on the runner reached $URL"; fail=1; }
+grep -q 'declares no egress' <<<"$out" || { echo "FAIL: an undeclared function's fetch was not refused by the engine"; fail=1; }
+
+# Step 10: egress through the engine. HOST is $URL's host, listed.
+HOST=$(sed -E 's#^[a-z]+://([^/:]+).*#\1#' <<<"$URL")
+egress() { dc exec -T -e PROBE_URL="$1" -e PROBE_EGRESS="$2" -e ZVELTIO_EDGE_TRANSPORT=runner \
+  engine bun "$EDGE" 2>&1 || true; }
+out=$(egress "$URL" "$HOST")
+echo "edge egress listed:   ${out:0:300}"
+grep -q '"fetch":"HTTP' <<<"$out" || { echo "FAIL: a listed host was not reached through the engine"; fail=1; }
+out=$(egress "http://example.org/" "$HOST")
+echo "edge egress unlisted: ${out:0:300}"
+grep -q 'is not in this function' <<<"$out" || { echo "FAIL: an unlisted host was not refused"; fail=1; }
+out=$(egress "http://169.254.169.254/latest/meta-data/" "$HOST 169.254.169.254")
+echo "edge egress private:  ${out:0:300}"
+grep -q 'internal/private address blocked' <<<"$out" \
+  || { echo "FAIL: a private address was not refused by the SSRF guard"; fail=1; }
+
+# And by default (no ZVELTIO_EDGE_TRANSPORT), a declared function is sent to
+# the runner: held, its uid is read from outside, as above.
+edge_out=$(mktemp)
+dc exec -T -e PROBE_URL="$URL" -e PROBE_HOLD_MS=6000 -e PROBE_EGRESS="$HOST" \
+  engine bun "$EDGE" >"$edge_out" 2>&1 &
+edge_pid=$!
+duid=
+for _ in 1 2 3 4 5; do
+  sleep 1
+  duid=$( { dc exec -T ext-runner sh -c 'cat /proc/[0-9]*/status 2>/dev/null; true' || true; } \
+    | awk '/^Uid:/ && $2 >= 200000 && !u {u=$2} END {print u}')
+  [ -n "$duid" ] && break
+done
+wait "$edge_pid" || true
+out=$(cat "$edge_out"); rm -f "$edge_out"
+echo "edge egress default:  ${out:0:300} (uid ${duid:-?})"
+[ -n "$duid" ] || { echo "FAIL: a declared function did not run on the runner by default"; fail=1; }
+grep -q '"transport":"runner"' <<<"$out" && grep -q '"fetch":"HTTP' <<<"$out" \
+  || { echo "FAIL: a declared function on the default transport did not reach $HOST"; fail=1; }
 
 # A closed connection ends its extension's process. (The probe exits on EOF by
 # itself; one that ignores EOF is what CAP_KILL in the overlay is for.)

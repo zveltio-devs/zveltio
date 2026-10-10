@@ -56,7 +56,12 @@ const OWNER_EXEMPTIONS: Record<string, readonly string[]> = {
   // The extension runner imports subprocess-runner with no node_modules on a
   // read-only root: the security barrel's npm dependencies make Bun try to
   // auto-install and die (ReadOnlyFileSystem). url-validator needs node: only.
-  security: ['packages/engine/src/lib/edge-functions/subprocess-runner.ts'],
+  // safe-fetch too: the engine side of the edge egress bridge, which the
+  // compose probe runs from source with no node_modules.
+  security: [
+    'packages/engine/src/lib/edge-functions/subprocess-runner.ts',
+    'packages/engine/src/lib/edge-functions/safe-fetch.ts',
+  ],
 };
 
 interface Violation {
