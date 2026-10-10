@@ -125,4 +125,53 @@ describe('release compose assets', () => {
     const missing = names.filter((n) => !catalog.includes(`"name": "${n}"`));
     expect(missing).toEqual([]);
   });
+
+  // RFC extension-runner step 9: production runs third-party extensions only on
+  // the runner and refuses them without one, so every compose that runs the
+  // engine must ship the runner, wired to the engine, with its isolation intact.
+  it.each(['docker-compose.yml', 'docker-compose.engine.yml'])(
+    '%s runs the extension runner beside the engine',
+    (file) => {
+      type Svc = Record<string, unknown> & {
+        environment: Record<string, unknown>;
+        volumes?: string[];
+      };
+      const doc = Bun.YAML.parse(readFileSync(join(OUT, file), 'utf8')) as {
+        services: Record<string, Svc>;
+        volumes: Record<string, unknown>;
+      };
+      const { engine, 'ext-runner': runner } = doc.services;
+      expect(runner).toBeDefined();
+      expect(runner!.image).toBe(engine!.image);
+      expect(runner!.command).toEqual(['ext-runner']);
+      expect(runner!.network_mode).toBe('none');
+      expect(runner!.read_only).toBe(true);
+      expect(runner!.cap_drop).toEqual(['ALL']);
+      expect(runner!.cap_add).toEqual(['SETUID', 'SETGID', 'KILL']);
+      expect(runner!.env_file).toBeUndefined();
+      expect(Object.keys(runner!.environment).sort()).toEqual([
+        'NODE_ENV',
+        'ZVELTIO_ENGINE_UID',
+        'ZVELTIO_EXT_RUNNER_SOCKET',
+        'ZVELTIO_EXT_RUNNER_UID_BASE',
+      ]);
+      expect(runner!.volumes).toEqual([
+        'engine_extensions:/data/extensions:ro',
+        'ext_runner_socket:/run/zveltio-ext',
+      ]);
+
+      expect(engine!.environment.ZVELTIO_EXT_TRANSPORT).toBe('runner');
+      expect(engine!.environment.ZVELTIO_EXT_RUNNER_SOCKET).toBe(
+        runner!.environment.ZVELTIO_EXT_RUNNER_SOCKET,
+      );
+      expect(engine!.volumes).toEqual([
+        'engine_extensions:/data/extensions',
+        'ext_runner_socket:/run/zveltio-ext',
+      ]);
+      expect(engine!.depends_on).toMatchObject({ 'ext-runner': { condition: 'service_healthy' } });
+      expect(Object.keys(doc.volumes)).toEqual(
+        expect.arrayContaining(['engine_extensions', 'ext_runner_socket']),
+      );
+    },
+  );
 });

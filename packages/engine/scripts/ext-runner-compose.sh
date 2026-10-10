@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Isolation test for the container runner (RFC extension-runner, step 4),
-# against docker-compose.ext-runner.yml itself — its user, capabilities,
-# network and volumes — with the test stack in ext-runner-compose.test.yml.
+# Isolation test for the container runner (RFC extension-runner, steps 4 and 9),
+# against the runner the release compose ships — scripts/generate-compose.sh's
+# docker-compose.engine.yml: its user, capabilities, network and volumes — with
+# the test stack in ext-runner-compose.test.yml.
 #
 # The probe extension (ext-runner-isolation.ts) runs twice from the "engine":
 #   process — a child under the engine's uid: MUST read the .env and the
@@ -22,9 +23,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 export ZV_SRC="$ROOT"
-dc() { docker compose --project-directory "$ROOT" -f "$ROOT/docker-compose.ext-runner.yml" \
+GEN=$(mktemp -d)
+bash "$ROOT/scripts/generate-compose.sh" 0.0.0-test "$GEN" >/dev/null
+# The engine service's required settings; the test stack replaces that service.
+export DATABASE_URL=postgres://x VALKEY_URL=redis://x S3_ENDPOINT=http://x S3_ACCESS_KEY=x S3_SECRET_KEY=x \
+  BETTER_AUTH_SECRET=x BETTER_AUTH_URL=http://x
+dc() { docker compose --project-directory "$ROOT" -f "$GEN/docker-compose.engine.yml" \
   -f "$ROOT/packages/engine/scripts/ext-runner-compose.test.yml" "$@"; }
-trap 'dc down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
+trap 'dc down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$GEN"' EXIT
 
 dc up -d --build --wait engine ext-runner >/dev/null || { dc logs ext-runner | tail -40; exit 1; }
 

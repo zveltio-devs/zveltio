@@ -83,6 +83,7 @@ jobs:
       - name: Compose files parse
         # Users download the files generate-compose.sh writes at release, not
         # the repo's docker-compose.yml — parse both, plus the opt-in overlays.
+        # The extension runner is in the generated files, not an overlay.
         env:
           POSTGRES_PASSWORD: x
           VALKEY_PASSWORD: x
@@ -98,7 +99,7 @@ jobs:
           ELECTRIC_SECRET: x
         run: |
           docker compose -f docker-compose.yml config -q
-          for o in ai dev electric ext-runner; do
+          for o in ai dev electric; do
             docker compose -f docker-compose.yml -f "docker-compose.$o.yml" config -q
           done
           mkdir -p gen && bash scripts/generate-compose.sh 0.0.0-ci gen/
