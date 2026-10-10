@@ -9,6 +9,7 @@ import { finalizeExtensionLoad } from '../../lib/extensions/register.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function fakeLoader(): ExtensionLoader {
   const db = new CannedDb();
@@ -23,12 +24,12 @@ function fakeLoader(): ExtensionLoader {
 }
 
 afterEach(() => {
-  process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = undefined;
+  _setInlineForTests(false);
 });
 
 describe('finalizeExtensionLoad — register failure', () => {
   it('rethrows register errors that are not the built-matcher deferral', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const loader = fakeLoader();
     const extension: ZveltioExtension = {
       name: 'boom-ext',

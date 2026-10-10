@@ -10,6 +10,7 @@ import { cronRunner } from '../../lib/runtime/index.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function fakeLoader(over: Record<string, unknown> = {}): ExtensionLoader {
   const db = new CannedDb();
@@ -30,7 +31,7 @@ function baseCtx(): ExtensionContext {
 }
 
 afterEach(() => {
-  process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = undefined;
+  _setInlineForTests(false);
 });
 
 describe('buildRestrictedContext — db:admin capability', () => {
@@ -69,7 +70,7 @@ describe('buildRestrictedContext — db:admin capability', () => {
 
 describe('finalizeExtensionLoad — deferred matcher + schedule errors', () => {
   it('still marks loaded when route registration hits a built matcher', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const app = new Hono();
     const loader = fakeLoader();
     const extension: ZveltioExtension = {
@@ -94,7 +95,7 @@ describe('finalizeExtensionLoad — deferred matcher + schedule errors', () => {
   });
 
   it('warns and continues when schedules() throws', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     const registerSpy = spyOn(cronRunner, 'register').mockImplementation(() => {});
     try {

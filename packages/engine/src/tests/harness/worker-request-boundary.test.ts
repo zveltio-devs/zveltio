@@ -34,6 +34,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -99,7 +100,6 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
   let memberId = '';
   const saved = {
     transport: process.env.ZVELTIO_EXT_TRANSPORT,
-    inline: process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY,
     ctx: extensionLoader.ctx,
   };
 
@@ -143,7 +143,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     app.use('/ext/*', extensionAuthGate(getAuth() as never, db));
     _resetWorkerHostForTests();
     getWorkerHost(app);
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const ctx = {
       ...(extensionLoader.ctx ?? {}),
       db,
@@ -203,14 +203,12 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
 
   afterAll(async () => {
     await getWorkerHost(app).stopAll();
-    for (const [k, v] of [
-      ['ZVELTIO_EXT_TRANSPORT', saved.transport],
-      ['ZVELTIO_ALLOW_INLINE_THIRD_PARTY', saved.inline],
-    ] as const) {
+    for (const [k, v] of [['ZVELTIO_EXT_TRANSPORT', saved.transport]] as const) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
     extensionLoader.ctx = saved.ctx;
+    _setInlineForTests(false);
     _resetWorkerHostForTests();
     for (const m of MODES) {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${extName(m)}`.execute(db);

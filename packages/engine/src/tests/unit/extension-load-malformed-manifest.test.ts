@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function fakeLoader(): any {
   const db = new CannedDb();
@@ -28,12 +29,12 @@ function fakeLoader(): any {
 }
 
 afterEach(() => {
-  delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+  _setInlineForTests(false);
 });
 
 describe('loadExtensionFromDir — malformed early manifest', () => {
   it('falls through when the early manifest.json is invalid JSON', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = mkdtempSync(join(tmpdir(), 'zv-bad-manifest-'));
     const extName = 'bad-json';
     const extDir = join(base, extName);

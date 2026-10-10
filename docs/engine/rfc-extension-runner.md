@@ -404,9 +404,11 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    `zv_sp_<depth>` savepoints. It rolls back on the request's 30 s hard timeout
    (the same constant), when the worker dies or is stopped, and when its
    invocation is over; a statement naming another invocation is refused. Each
-   callback has its own connection, so two at once are isolated; one worker
-   holds at most 4 open (`MAX_HOST_TXNS`), since each holds a pooled
-   connection. `db.startTransaction()` outside a request stays refused.
+   callback has its own connection, so two at once are isolated; since each holds a
+   pooled connection, all workers together get a quarter of the pool, shared
+   evenly by the extensions on the runner and never under one each
+   (`hostTxnCap`, read at every `begin`: a load or unload moves it for new
+   transactions only). `db.startTransaction()` outside a request stays refused.
    (`tests/harness/worker-host-transaction.test.ts`: commit, throw, timeout,
    killed worker, two concurrent, no role or GUC leak — process transport, both
    drivers; `tests/unit/worker-extension-host-txn.test.ts` for the bookkeeping.)
@@ -448,10 +450,14 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      `-request-transaction`, `-request-boundary`, `-ctx-parity`) run on the
      process transport; `worker-extension-runner-default.test.ts` pins the
      defaults and the fail-closed paths.
-   - Still open: Helm keeps `extRunner.enabled: false` by default (the sidecar
-     needs the `baseline` Pod Security level), so a chart install refuses
-     third-party extensions until the operator enables it; the
-     `process` transport outside production has no boundary, by design.
+   - Helm turns `extRunner.enabled` on by default (owner decision,
+     2026-10-10); a namespace enforcing the `restricted` Pod Security level
+     sets it to `false` and runs first-party extensions only.
+     `ZVELTIO_ALLOW_INLINE_THIRD_PARTY` is removed: no switch loads a third
+     party in the engine process, and the engine warns at boot when it or
+     `ZVELTIO_ALLOW_WORKER_EXTENSIONS` is still set.
+   - Still open: the `process` transport outside production has no boundary,
+     by design.
 10. **Edge functions default to the runner** once egress approval (decision 2)
     exists for them; until then the runner's closed network would cut off every
     edge function that calls out.

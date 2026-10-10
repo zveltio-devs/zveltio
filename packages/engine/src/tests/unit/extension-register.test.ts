@@ -21,6 +21,7 @@ import { cronRunner } from '../../lib/runtime/index.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function fakeLoader(over: Record<string, unknown> = {}): ExtensionLoader {
   const db = new CannedDb();
@@ -90,11 +91,11 @@ describe('buildRestrictedContext', () => {
 
 describe('finalizeExtensionLoad', () => {
   afterEach(() => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = undefined;
+    _setInlineForTests(false);
   });
 
   it('registers a subapp-mounted extension under /ext/<name>', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const app = new Hono();
     const loader = fakeLoader();
     const extension: ZveltioExtension = {
@@ -122,7 +123,7 @@ describe('finalizeExtensionLoad', () => {
   });
 
   it('registers a global-mounted extension directly on the host app', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const app = new Hono();
     const loader = fakeLoader();
     const extension: ZveltioExtension = {
@@ -149,7 +150,7 @@ describe('finalizeExtensionLoad', () => {
   });
 
   it('delegates to WorkerExtensionHost when isolation=worker', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const startMock = mock(async () => {});
     // stop() is called before start() on every mount, so a worker-isolated
     // extension can be re-registered on hot-reload — start() refuses to spawn a
@@ -189,7 +190,7 @@ describe('finalizeExtensionLoad', () => {
   });
 
   it('registers cron schedules from extension.schedules()', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const registerSpy = spyOn(cronRunner, 'register').mockImplementation(() => {});
     try {
       const app = new Hono();

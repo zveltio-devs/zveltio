@@ -16,6 +16,7 @@ import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { topoSortExtensions } from '../../lib/extensions/discovery.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -90,11 +91,10 @@ d('inline service broker: namespace, declared owners, optional dependencies', ()
   let db: Database;
   let base = '';
   const app = new Hono();
-  const inlineBefore = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     // Enabled, so `/ext/<name>/*` answers rather than 404 "not active".
     for (const name of ALL) {
       await sql`
@@ -122,8 +122,7 @@ d('inline service broker: namespace, declared owners, optional dependencies', ()
   }, 60_000);
 
   afterAll(async () => {
-    if (inlineBefore === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-    else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = inlineBefore;
+    _setInlineForTests(false);
     for (const name of ALL) {
       serviceRegistry.unregisterAll(name);
       extensionLoader.loaded.delete(name);

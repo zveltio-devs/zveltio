@@ -237,8 +237,7 @@ export async function loadExtensionFromDir(
     // branch and sends nothing anywhere. It refuses.)
     //
     // Hoisting changes nothing for the other two: the helper already returns ok
-    // for `isolation: 'worker'` and for ZVELTIO_ALLOW_INLINE_THIRD_PARTY, so
-    // the inline and worker paths see the same answer they saw before, just
+    // for `isolation: 'worker'`, so the inline and worker paths see the same answer they saw before, just
     // sooner.
     const tierPhase = await enforcePublisherTier(extName, manifest);
     if (!tierPhase.ok) {

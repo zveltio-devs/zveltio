@@ -253,3 +253,23 @@ export async function reportConcurrencyCeiling(db: {
     // Diagnostics must never be the reason a boot fails.
   }
 }
+
+/**
+ * Variables this engine no longer reads. Left set, they still promise the
+ * behaviour they once switched on, and nothing said otherwise: an operator who
+ * set one to run a third-party extension inline learned it was gone only when the
+ * extension refused to load.
+ */
+const REMOVED_VARIABLES: Record<string, string> = {
+  ZVELTIO_ALLOW_INLINE_THIRD_PARTY:
+    'third-party extensions run in the extension runner; nothing loads them in the engine process',
+  ZVELTIO_ALLOW_WORKER_EXTENSIONS:
+    'the in-process worker is gone; worker extensions run in the extension runner',
+};
+
+/** One warning per removed variable that is still set, whatever its value. */
+export function removedVariableWarnings(env: Record<string, string | undefined>): string[] {
+  return Object.entries(REMOVED_VARIABLES)
+    .filter(([name]) => env[name] !== undefined)
+    .map(([name, why]) => `${name} is set but no longer read: ${why}. Unset it.`);
+}

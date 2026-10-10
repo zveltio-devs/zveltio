@@ -29,6 +29,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -43,7 +44,6 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
   let internals: ExtensionInternals;
   let extDb: Database;
   const files: Record<string, string> = {};
-  const inlineBefore = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
 
   const fileIn = async (tenant: string, label: string) =>
     (
@@ -66,7 +66,7 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
   beforeAll(async () => {
     let engine: Hono;
     ({ app: engine, db } = await getTestApp());
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     member = await createMemberSession(engine, db);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
@@ -124,8 +124,7 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
   }, 60_000);
 
   afterAll(async () => {
-    if (inlineBefore === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-    else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = inlineBefore;
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);

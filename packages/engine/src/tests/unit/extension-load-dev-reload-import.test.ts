@@ -11,6 +11,7 @@ import { CORE_NPM_PACKAGES } from '../../lib/extensions/extension-deps.js';
 import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function seedCoreDeps(extBase: string): void {
   for (const pkg of CORE_NPM_PACKAGES) {
@@ -28,11 +29,11 @@ beforeEach(() => {
     EXTENSIONS_DIR: process.env.EXTENSIONS_DIR,
     ZVELTIO_EXTENSION_DEV_RELOAD: process.env.ZVELTIO_EXTENSION_DEV_RELOAD,
     NODE_ENV: process.env.NODE_ENV,
-    ZVELTIO_ALLOW_INLINE_THIRD_PARTY: process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY,
   };
 });
 
 afterEach(() => {
+  _setInlineForTests(false);
   for (const [k, v] of Object.entries(savedEnv)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -45,7 +46,7 @@ describe('loadExtensionFromDir — dev reload import path', () => {
     seedCoreDeps(extBase);
     process.env.EXTENSIONS_DIR = extBase;
     process.env.ZVELTIO_EXTENSION_DEV_RELOAD = '1';
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     process.env.NODE_ENV = 'development';
 
     const extDir = join(extBase, 'dev-reload');
@@ -97,7 +98,7 @@ describe('loadExtensionFromDir — dev reload import path', () => {
     seedCoreDeps(extBase);
     process.env.EXTENSIONS_DIR = extBase;
     process.env.ZVELTIO_EXTENSION_DEV_RELOAD = '1';
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     process.env.NODE_ENV = 'development';
 
     const extDir = join(extBase, 'dev-reload-2');
@@ -165,7 +166,7 @@ describe('loadExtensionFromDir — dev reload import path', () => {
     seedCoreDeps(extBase);
     process.env.EXTENSIONS_DIR = extBase;
     process.env.ZVELTIO_EXTENSION_DEV_RELOAD = '1';
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     process.env.NODE_ENV = 'development';
 
     const extDir = join(extBase, 'dev-reload-3');

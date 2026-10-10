@@ -58,7 +58,7 @@ import {
   serviceCallRefusal,
   serviceRegistry,
 } from './service-registry.js';
-import { getDb, type Database } from '../db/index.js';
+import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
 import type { RawPool } from '../db/bun-sql-dialect.js';
 import {
@@ -676,7 +676,13 @@ export class WorkerExtensionHost {
       // transaction (RFC step 8), and the worker cannot open a second one in it.
       const rows =
         msg.txn && !scope?.txn
-          ? await hostTxnStatement(managed, msg, msg.txn, scope)
+          ? await hostTxnStatement(
+              managed,
+              msg,
+              msg.txn,
+              scope,
+              hostTxnCap(activePoolMax(), this.workers.size),
+            )
           : msg.savepoint
             ? await requestSavepoint(managed.name, scope, msg.savepoint)
             : await runRawWithParams(managed.name, msg.sql, msg.params, scope);
@@ -1642,14 +1648,23 @@ interface HostTxn {
   requestId?: string;
 }
 
-/** Host transactions one worker may hold open at once: each holds a pooled connection. */
-const MAX_HOST_TXNS = 4;
+/**
+ * Host transactions one worker may hold open at once. Each holds a pooled
+ * connection, so all of them together get a quarter of the pool, shared evenly
+ * by the extensions on the runner, and never less than one each (owner decision,
+ * 2026-10-10). Read at every `begin`: a load or unload moves the cap for the next
+ * transaction, and ones already open are never cut short.
+ */
+export function hostTxnCap(poolMax: number, extensions: number): number {
+  return Math.max(1, Math.floor(Math.floor(poolMax / 4) / Math.max(1, extensions)));
+}
 
 async function hostTxnStatement(
   managed: ManagedWorker,
   msg: Extract<WorkerToHostMessage, { type: 'db:query' }>,
   id: string,
   scope: InvokeScope | undefined,
+  cap: number,
 ): Promise<unknown[]> {
   managed.hostTxns ??= new Map();
   const { savepoint: op } = msg;
@@ -1662,9 +1677,9 @@ async function hostTxnStatement(
     if (op === 'rollback') return [];
     if (op !== 'begin') throw new Error(`database transaction ${id} is over (or was never opened)`);
     for (const [k, t] of managed.hostTxns) if (t.txn.over) managed.hostTxns.delete(k);
-    if (managed.hostTxns.size >= MAX_HOST_TXNS) {
+    if (managed.hostTxns.size >= cap) {
       throw new Error(
-        `db.transaction() refused: "${managed.name}" already holds ${MAX_HOST_TXNS} open ` +
+        `db.transaction() refused: "${managed.name}" already holds ${cap} open ` +
           'transactions outside a request',
       );
     }

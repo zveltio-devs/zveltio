@@ -2086,8 +2086,8 @@ you never get surprised late:
    and returns `422 ISOLATION_POLICY_VIOLATION` rather than letting an
    un-enable-able extension into the review queue.
 4. **engine enable** — final backstop: the loader refuses inline for a
-   community/unknown publisher (`ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1`
-   overrides this on trusted self-hosted installs only).
+   community/unknown publisher. No switch overrides it: third-party code
+   runs in the extension runner.
 
 #### Before your first publish
 

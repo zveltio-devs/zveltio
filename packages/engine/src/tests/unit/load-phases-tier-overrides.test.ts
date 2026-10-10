@@ -9,11 +9,9 @@
  */
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { enforcePublisherTier } from '../../lib/extensions/load-phases.js';
 import * as extensionDownload from '../../lib/extensions/extension-download.js';
 import type { ExtensionCatalogEntry } from '../../lib/extensions/extension-catalog.js';
-
-const savedAllowInline = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+import { _setInlineForTests, enforcePublisherTier } from '../../lib/extensions/load-phases.js';
 
 function catalogEntry(over: Partial<ExtensionCatalogEntry>): ExtensionCatalogEntry {
   return {
@@ -30,29 +28,28 @@ function catalogEntry(over: Partial<ExtensionCatalogEntry>): ExtensionCatalogEnt
 }
 
 afterEach(() => {
-  if (savedAllowInline === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-  else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = savedAllowInline;
+  _setInlineForTests(false);
 });
 
 describe('enforcePublisherTier — escape hatches', () => {
-  it('ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 skips the gate entirely (no catalog fetch)', async () => {
+  it('the removed ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 no longer lets a sideloaded extension inline', async () => {
     process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
-    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog');
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
     try {
       const r = await enforcePublisherTier('sideloaded-ext', {
         name: 'sideloaded-ext',
         version: '1.0.0',
       } as never);
-      expect(r.ok).toBe(true);
-      // the override short-circuits before any registry call
-      expect(spy).not.toHaveBeenCalled();
+      expect(r.ok).toBe(false);
+      expect(spy).toHaveBeenCalled();
     } finally {
       spy.mockRestore();
+      delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
     }
   });
 
   it('a manifest declaring engine.isolation "worker" is allowed without a catalog', async () => {
-    delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+    _setInlineForTests(false);
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog');
     try {
       const r = await enforcePublisherTier('worker-ext', {
@@ -70,7 +67,7 @@ describe('enforcePublisherTier — escape hatches', () => {
   it('an unbundled "worker" manifest is held to the inline rule', async () => {
     // load.ts takes the worker path only for a bundled entry; the gate waved an
     // unbundled one through as a worker and the loader imported it inline.
-    delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+    _setInlineForTests(false);
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       catalogEntry({ name: 'c-ext', publisher_tier: 'community' }),
     ]);
@@ -90,7 +87,7 @@ describe('enforcePublisherTier — escape hatches', () => {
 
 describe('enforcePublisherTier — tiers allowed inline', () => {
   afterEach(() => {
-    delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+    _setInlineForTests(false);
   });
 
   it('a first-party catalog entry may run inline', async () => {

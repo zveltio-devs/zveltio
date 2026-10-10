@@ -1,5 +1,9 @@
 import { describe, expect, it, spyOn } from 'bun:test';
-import { assertProductionConfig, productionGuardViolations } from '../../lib/startup-guards.js';
+import {
+  assertProductionConfig,
+  productionGuardViolations,
+  removedVariableWarnings,
+} from '../../lib/startup-guards.js';
 
 /**
  * Every test below is about ONE control, so each supplies a cache and the
@@ -221,5 +225,22 @@ describe('Valkey is a requirement, not a preference', () => {
     // would only teach people to set the hatch permanently.
     expect(productionGuardViolations({ NODE_ENV: 'development' })).toEqual([]);
     expect(productionGuardViolations({})).toEqual([]);
+  });
+});
+
+describe('removedVariableWarnings', () => {
+  it('names each removed variable still set, whatever its value', () => {
+    const w = removedVariableWarnings({
+      ZVELTIO_ALLOW_INLINE_THIRD_PARTY: '0',
+      ZVELTIO_ALLOW_WORKER_EXTENSIONS: '1',
+      NODE_ENV: 'production',
+    });
+    expect(w).toHaveLength(2);
+    expect(w[0]).toStartWith('ZVELTIO_ALLOW_INLINE_THIRD_PARTY is set but no longer read');
+    expect(w[1]).toStartWith('ZVELTIO_ALLOW_WORKER_EXTENSIONS is set but no longer read');
+  });
+
+  it('says nothing when none is set', () => {
+    expect(removedVariableWarnings({ NODE_ENV: 'production' })).toEqual([]);
   });
 });

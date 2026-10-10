@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import * as bunSql from '../../db/bun-sql-dialect.js';
 import { workerSqlEngineTables } from '../../lib/extensions/worker-sql-policy.js';
-import { _internalForTests, WorkerExtensionHost } from '../../lib/worker-extension-host.js';
+import {
+  _internalForTests,
+  hostTxnCap,
+  WorkerExtensionHost,
+} from '../../lib/worker-extension-host.js';
 import type { DbQueryRequest, HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
 
 await workerSqlEngineTables();
@@ -60,7 +64,7 @@ function managed() {
     }
     return posted.find((p) => 'id' in p && p.id === id) as { type: string; error?: string };
   };
-  return { m, send };
+  return { host, m, send };
 }
 
 describe('host transaction outside a request', () => {
@@ -118,16 +122,40 @@ describe('host transaction outside a request', () => {
     expect(ran).not.toContain('SELECT 1');
   });
 
-  it('caps the transactions one worker holds open', async () => {
+  it('caps each worker at its fair share of a quarter of the pool', async () => {
     recordingPool();
-    const { send } = managed();
-    for (const t of ['a', 'b', 'c', 'd']) {
-      expect((await send({ txn: t, savepoint: 'begin' })).type).toBe('db:ok');
+    const before = process.env.DB_POOL_MAX;
+    process.env.DB_POOL_MAX = '40';
+    try {
+      const { host, send } = managed();
+      // Alone on the runner: the whole budget, floor(40 * 0.25) = 10.
+      for (let i = 0; i < 10; i++) {
+        expect((await send({ txn: `t${i}`, savepoint: 'begin' })).type).toBe('db:ok');
+      }
+      expect((await send({ txn: 'over', savepoint: 'begin' })).error).toContain('already holds 10');
+      // Four more extensions load: floor(10 / 5) = 2. Open ones stay, new ones wait.
+      const workers = (host as unknown as { workers: Map<string, unknown> }).workers;
+      for (const n of ['a', 'b', 'c', 'd', 'e']) workers.set(n, {});
+      expect((await send({ txn: 't0', sql: 'SELECT 1' })).type).toBe('db:ok');
+      for (let i = 0; i < 9; i++) await send({ txn: `t${i}`, savepoint: 'rollback' });
+      expect((await send({ txn: 'n1', savepoint: 'begin' })).type).toBe('db:ok');
+      expect((await send({ txn: 'n2', savepoint: 'begin' })).error).toContain('already holds 2');
+      // They unload again: the share grows back.
+      for (const n of ['b', 'c', 'd', 'e']) workers.delete(n);
+      expect((await send({ txn: 'n2', savepoint: 'begin' })).type).toBe('db:ok');
+    } finally {
+      if (before === undefined) delete process.env.DB_POOL_MAX;
+      else process.env.DB_POOL_MAX = before;
     }
-    expect((await send({ txn: 'e', savepoint: 'begin' })).error).toContain('already holds 4');
-    // One ended frees a slot.
-    await send({ txn: 'a', savepoint: 'rollback' });
-    expect((await send({ txn: 'e', savepoint: 'begin' })).type).toBe('db:ok');
+  });
+
+  it('hostTxnCap: never below one, however many extensions share the budget', () => {
+    expect(hostTxnCap(40, 1)).toBe(10);
+    expect(hostTxnCap(40, 3)).toBe(3);
+    expect(hostTxnCap(40, 0)).toBe(10);
+    expect(hostTxnCap(10, 1)).toBe(2);
+    expect(hostTxnCap(2, 1)).toBe(1);
+    expect(hostTxnCap(40, 50)).toBe(1);
   });
 
   it('a begin that fails leaves nothing open', async () => {

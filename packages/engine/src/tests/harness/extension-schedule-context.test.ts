@@ -25,6 +25,7 @@ import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { cronRunner } from '../../lib/runtime/index.js';
 import type { ExtensionSchedule } from '../../lib/runtime/cron-runner.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `schedctx-${Date.now()}`;
@@ -33,7 +34,6 @@ const OTHER = crypto.randomUUID();
 d('an extension schedule runs with its own restricted context', () => {
   let db: Database;
   let probed: Record<string, string> = {};
-  const inlineBefore = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
 
   /** What each reach answered: `ok`, or the error's name. */
   const attempt = async (fn: () => unknown) => {
@@ -47,7 +47,7 @@ d('an extension schedule runs with its own restricted context', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
     await sql`
       INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
@@ -97,8 +97,7 @@ d('an extension schedule runs with its own restricted context', () => {
   }, 60_000);
 
   afterAll(async () => {
-    if (inlineBefore === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-    else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = inlineBefore;
+    _setInlineForTests(false);
     cronRunner.unregisterAll(NAME);
     invalidateActivationCache();
     if (db) await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
