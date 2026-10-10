@@ -707,6 +707,8 @@ export interface ZvEdgeFunctionsTable {
   is_active: boolean;
   timeout_ms: number;
   env_vars: unknown; // JSONB
+  /** Hosts the function may reach (061); NULL declares nothing. */
+  egress: string[] | null;
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;

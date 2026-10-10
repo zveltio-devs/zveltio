@@ -781,9 +781,10 @@ export async function runEdgeFunctionInSubprocess(
   /**
    * Per-invocation overrides. `memoryLimitMb` asks for a tighter budget than the
    * instance default — honoured exactly where a cgroup scope exists, raised to
-   * the RLIMIT_AS floor with one warning where it does not.
+   * the RLIMIT_AS floor with one warning where it does not. `egress` is the
+   * function's `egress` column (see egress.ts); absent, it declares nothing.
    */
-  opts: { memoryLimitMb?: number } = {},
+  opts: { memoryLimitMb?: number; egress?: readonly unknown[] | null } = {},
 ): Promise<RunResult> {
   const start = Date.now();
 
@@ -820,7 +821,7 @@ export async function runEdgeFunctionInSubprocess(
 
   let egress: string[] | null;
   try {
-    egress = parseEgress(envVars);
+    egress = parseEgress(opts.egress);
   } catch (err) {
     return { ok: false, error: (err as Error).message, logs: [], duration_ms: 0 };
   }
@@ -882,9 +883,9 @@ function warnUndeclaredEgress(): void {
   if (undeclaredWarningShown || extensionTransport() !== 'runner') return;
   undeclaredWarningShown = true;
   console.warn(
-    "[edge-functions] an edge function without ZVELTIO_EGRESS ran as the engine's child, " +
-      "with the engine's network. Declare the hosts it calls in its ZVELTIO_EGRESS env var " +
-      '(an empty value for none) to move it to the extension runner; ' +
+    "[edge-functions] an edge function that declares no egress ran as the engine's child, " +
+      "with the engine's network. Declare the hosts it calls in its egress field " +
+      '(an empty list for none) to move it to the extension runner; ' +
       'ZVELTIO_EDGE_TRANSPORT=runner moves every function and cuts off the undeclared ones.',
   );
 }

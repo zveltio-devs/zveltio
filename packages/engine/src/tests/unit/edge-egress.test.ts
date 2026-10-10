@@ -1,6 +1,6 @@
 /**
  * RFC extension-runner step 10: an edge function's fetch goes through the
- * ENGINE, held to the function's ZVELTIO_EGRESS list and the SSRF guard on
+ * ENGINE, held to the function's egress column and the SSRF guard on
  * every hop. The runner is `routeConnection` on a socket in this process, as in
  * edge-runner-transport.test.ts; the network under the guard is a stub on this
  * process's globalThis.fetch, which the sandbox cannot see — so a request only
@@ -92,8 +92,10 @@ interface Probed {
   error?: string;
 }
 
-async function call(env: Record<string, string>): Promise<Probed> {
-  const res = await runEdgeFunctionInSubprocess(PROBE, REQ, env, 5000);
+/** `egress` is the function's column, written as a comma-separated string here. */
+async function call({ egress, ...env }: Record<string, string>): Promise<Probed> {
+  const list = egress === undefined ? undefined : egress.split(/[\s,]+/).filter(Boolean);
+  const res = await runEdgeFunctionInSubprocess(PROBE, REQ, env, 5000, { egress: list });
   if (!res.ok) return { error: res.error };
   return res.response?.body as Probed;
 }
@@ -142,7 +144,7 @@ for (const transport of ['runner', 'process'] as const) {
 
     it('reaches a listed host: method, body, headers and the answer cross the bridge', async () => {
       const out = await call({
-        ZVELTIO_EGRESS: 'api.allowed.test, hooks.allowed.test',
+        egress: 'api.allowed.test, hooks.allowed.test',
         url: 'https://api.allowed.test/x',
         method: 'POST',
         body: 'ping',
@@ -156,19 +158,19 @@ for (const transport of ['runner', 'process'] as const) {
     }, 20_000);
 
     it('refuses a host that is not listed, before it is resolved or reached', async () => {
-      const out = await call({ ZVELTIO_EGRESS: 'api.allowed.test', url: 'https://other.test/' });
-      expect(out.denied).toContain("other.test is not in this function's ZVELTIO_EGRESS");
+      const out = await call({ egress: 'api.allowed.test', url: 'https://other.test/' });
+      expect(out.denied).toContain("other.test is not in this function's egress");
       expect(seen).toEqual([]);
     }, 20_000);
 
     it('refuses a private address even when it is listed (SSRF guard)', async () => {
-      const out = await call({ ZVELTIO_EGRESS: '127.0.0.1', url: 'http://127.0.0.1/' });
+      const out = await call({ egress: '127.0.0.1', url: 'http://127.0.0.1/' });
       expect(out.denied).toContain('internal/private address blocked');
       expect(seen).toEqual([]);
     }, 20_000);
 
     it('holds every redirect hop to the list and the guard', async () => {
-      const list = { ZVELTIO_EGRESS: 'api.allowed.test, 169.254.169.254' };
+      const list = { egress: 'api.allowed.test, 169.254.169.254' };
       const unlisted = await call({ ...list, url: 'https://api.allowed.test/to-unlisted' });
       expect(unlisted.denied).toContain('other.test is not in');
       const metadata = await call({ ...list, url: 'https://api.allowed.test/to-metadata' });
@@ -181,17 +183,17 @@ for (const transport of ['runner', 'process'] as const) {
 
     it('matches the port exactly: a bare host is the default port only', async () => {
       const bare = await call({
-        ZVELTIO_EGRESS: 'api.allowed.test',
+        egress: 'api.allowed.test',
         url: 'https://api.allowed.test:8443/',
       });
       expect(bare.denied).toContain('api.allowed.test:8443 is not in');
       const ported = await call({
-        ZVELTIO_EGRESS: 'api.allowed.test:8443',
+        egress: 'api.allowed.test:8443',
         url: 'https://api.allowed.test:8443/p',
       });
       expect(ported).toMatchObject({ status: 201 });
       const scheme = await call({
-        ZVELTIO_EGRESS: 'api.allowed.test',
+        egress: 'api.allowed.test',
         url: 'ftp://api.allowed.test/',
       });
       expect(scheme.denied).toBeDefined();
@@ -200,7 +202,7 @@ for (const transport of ['runner', 'process'] as const) {
 
     it('bounds the response it hands back', async () => {
       const out = await call({
-        ZVELTIO_EGRESS: 'api.allowed.test',
+        egress: 'api.allowed.test',
         url: 'https://api.allowed.test/huge',
       });
       expect(out.denied).toContain('response exceeds');
@@ -209,18 +211,29 @@ for (const transport of ['runner', 'process'] as const) {
 }
 
 describe('egress declarations', () => {
-  it('a function without ZVELTIO_EGRESS reaches nothing on the runner', async () => {
+  it('a function without egress reaches nothing on the runner', async () => {
     process.env.ZVELTIO_EDGE_TRANSPORT = 'runner';
     const out = await call({ url: 'https://api.allowed.test/' });
     expect(out.denied).toContain('declares no egress');
-    const empty = await call({ ZVELTIO_EGRESS: '', url: 'https://api.allowed.test/' });
+    const empty = await call({ egress: '', url: 'https://api.allowed.test/' });
     expect(empty.denied).toContain('declares no egress');
+    // The column is the one source: the env var #1022 read grants nothing.
+    const envVar = await call({
+      ZVELTIO_EGRESS: 'api.allowed.test',
+      url: 'https://api.allowed.test/',
+    });
+    expect(envVar.denied).toContain('declares no egress');
     expect(seen).toEqual([]);
   }, 20_000);
 
   it('refuses to run with an entry that is not a host', async () => {
-    for (const bad of ['https://api.allowed.test', '*.allowed.test', 'api.allowed.test/x']) {
-      const out = await call({ ZVELTIO_EGRESS: bad, url: 'https://api.allowed.test/' });
+    for (const bad of [
+      'https://api.allowed.test',
+      '*.allowed.test',
+      'api.allowed.test/x',
+      'API.allowed.test',
+    ]) {
+      const out = await call({ egress: bad, url: 'https://api.allowed.test/' });
       expect(out).toEqual({ error: expect.stringContaining('is not a host') });
     }
   }, 20_000);
@@ -236,8 +249,9 @@ describe('egress declarations', () => {
         return { ok, refused };
       }`,
       REQ,
-      { ZVELTIO_EGRESS: 'api.allowed.test' },
+      {},
       10_000,
+      { egress: ['api.allowed.test'] },
     );
     expect(res.response?.body).toEqual({
       ok: 50,
@@ -269,7 +283,7 @@ describe('egress declarations', () => {
     // which proves it was sent there, and an undeclared one still runs locally.
     process.env.ZVELTIO_EXT_RUNNER_SOCKET = join(dir, 'missing.sock');
     const declared = await call({
-      ZVELTIO_EGRESS: 'api.allowed.test',
+      egress: 'api.allowed.test',
       url: 'https://api.allowed.test/',
     });
     expect(declared).toEqual({ error: expect.stringContaining('missing.sock') });

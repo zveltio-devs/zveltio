@@ -4,7 +4,7 @@
  * `runEdgeFunctionInSubprocess`, as the edge route does, over whichever
  * transport ZVELTIO_EDGE_TRANSPORT selects. The function stays alive for
  * PROBE_HOLD_MS, then tries to reach PROBE_URL through the sandboxed fetch.
- * PROBE_EGRESS, when set, is the function's ZVELTIO_EGRESS (step 10).
+ * PROBE_EGRESS, when set, is the function's egress, comma separated (step 10).
  * Prints one JSON line: { transport, fetch }.
  *
  *   bun scripts/edge-runner-isolation.ts
@@ -39,12 +39,16 @@ const code = `async function handler(request, env) {
 }`;
 
 const env: Record<string, string> = { url: process.env.PROBE_URL ?? '', holdMs: String(holdMs) };
-if (process.env.PROBE_EGRESS !== undefined) env.ZVELTIO_EGRESS = process.env.PROBE_EGRESS;
+const egress =
+  process.env.PROBE_EGRESS === undefined
+    ? null
+    : process.env.PROBE_EGRESS.split(/[\s,]+/).filter(Boolean);
 const res = await runEdgeFunctionInSubprocess(
   code,
   { method: 'GET', headers: {}, query: {}, body: null, path: '/' },
   env,
   holdMs + 10_000,
+  { egress },
 );
 await drainRunnerPool();
 if (!res.ok) {
@@ -52,6 +56,6 @@ if (!res.ok) {
   process.exit(1);
 }
 // Where the engine sent it; the caller checks the uid from outside.
-const transport = edgeTransport(parseEgress(env));
+const transport = edgeTransport(parseEgress(egress));
 console.log(JSON.stringify({ transport, ...(res.response?.body as object) }));
 process.exit(0);

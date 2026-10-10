@@ -258,8 +258,9 @@ lockdown can read what the engine can. The extension runner runs an invocation
 under another uid with no access to the engine's files, environment or
 processes, and with no network (RFC extension-runner, steps 5 and 10): its
 `fetch` crosses to the engine, which performs it through the SSRF guard and only
-to the hosts the function lists in its `ZVELTIO_EGRESS` env var — saved, like
-`ZVELTIO_PUBLIC`, by the admin who saves the function, which is the approval.
+to the hosts the function lists in its `egress` field — saved by the admin who
+saves the function, which is the approval, validated at save and audited on
+every change.
 A function that lists its egress runs there by default wherever third-party
 extensions do; one that lists nothing stays the engine's child until it does,
 or until `ZVELTIO_EDGE_TRANSPORT=runner` moves every function.

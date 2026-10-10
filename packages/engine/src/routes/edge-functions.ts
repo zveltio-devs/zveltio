@@ -171,7 +171,7 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       path: c.req.path,
     };
     const envVars = typeof fn.env_vars === 'string' ? JSON.parse(fn.env_vars) : (fn.env_vars ?? {});
-    const runResult = await runEdgeFunction(fn.code, request, envVars, fn.timeout_ms);
+    const runResult = await runEdgeFunction(fn.code, request, envVars, fn.timeout_ms, fn.egress);
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     void (reqDb(c, db) as any)
