@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import {
   checkUidRange,
   closeSharedDirs,
+  limitArgv,
   runnerInstance,
   startRunner,
   stopRunner,
@@ -114,6 +115,16 @@ describe('container runner', () => {
       '/bin/zveltio',
       'rt.mjs',
     ]);
+  });
+
+  // One container has no cgroup per extension: the limits are rlimits, set as
+  // root before the drop so the extension's uid cannot raise them.
+  it('caps tasks and address space before the drop, through sh', () => {
+    const argv = limitArgv(setprivArgv(200005, ['/bin/zveltio', 'rt.mjs']));
+    expect(argv.slice(0, 2)).toEqual(['sh', '-c']);
+    expect(argv[2]).toBe('ulimit -u 64 -v 1048576 && exec "$@"');
+    expect(argv.slice(3, 5)).toEqual(['sh', 'setpriv']);
+    expect(argv.at(-1)).toBe('rt.mjs');
   });
 
   // A runner that cannot switch uids, or whose range runs past the ids a user

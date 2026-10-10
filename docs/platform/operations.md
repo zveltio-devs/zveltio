@@ -12,7 +12,7 @@ links to the document that carries the detail.
 | **Single binary** | One organisation, one machine, up to a few hundred users. The default. | [installation.md](installation.md) |
 | **Docker Compose** | You want the full stack — Postgres, PgDog, Valkey, SeaweedFS, Prometheus, Grafana — in one file. | [deployment.md](deployment.md) |
 | **Kubernetes** | Multiple replicas, existing cluster, Helm-managed config. | [deployment-k8s.md](deployment-k8s.md) |
-| **PaaS** | `fly.toml`, `railway.json`, `render.yaml` are in the repository root. They build the Dockerfile's default target, which starts as root, runs the extension runner in the same container and drops the engine to uid 100 ([RFC](../engine/rfc-extension-runner.md), step 9b); the extensions share that container's network and memory. | [deployment.md](deployment.md) |
+| **PaaS** | `fly.toml`, `railway.json`, `render.yaml` are in the repository root. They build the Dockerfile's default target, which starts as root, runs the extension runner in the same container and drops the engine to uid 100 ([RFC](../engine/rfc-extension-runner.md), step 9b); the extensions share that container's network and memory, each process capped at 64 tasks and 1024 MB of address space. | [deployment.md](deployment.md) |
 
 Compiled binaries are published for linux-x64, linux-x64-baseline, linux-arm64,
 macos-x64 and macos-arm64. **There is no Windows binary.**

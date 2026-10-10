@@ -6,8 +6,8 @@
  * `.env`, the engine's process environment, a network address, and a path
  * outside its own (another extension's runner directory). It reports through
  * `console.log`, which the runtime forwards as `log` frames. Prints one JSON
- * line: { transport, env, environ, fetch, write, uid } — each what it got, or
- * `DENIED <code>`.
+ * line: { transport, env, environ, fetch, write, forks, threads, addressSpace,
+ * uid } — each what it got, or `DENIED <code>`.
  *
  *   bun scripts/ext-runner-isolation.ts process <env path> <ext dir>
  *   bun scripts/ext-runner-isolation.ts runner  <env path> <ext dir> <socket path>
@@ -57,11 +57,24 @@ export default {
     if (write) {
       try { await Bun.write(write, 'x'); wrote = 'WROTE'; } catch (e) { wrote = denied(e); }
     }
+    let forks = 'skipped';
+    if (${JSON.stringify(process.env.PROBE_FORKS ?? '')}) {
+      // A shell's fork loop: Bun.spawn past the limit hangs instead of throwing.
+      const out = Bun.spawnSync(['sh', '-c', 'n=0; while [ $n -lt 200 ]; do sleep 3 & n=$((n+1)); echo $n; done']);
+      forks = Number(out.stdout.toString().trim().split('\\n').at(-1) || 0);
+    }
+    if (${JSON.stringify(process.env.PROBE_ALLOC ?? '')}) {
+      const hog = [];
+      for (;;) hog.push(new Uint8Array(8 << 20).fill(1));
+    }
     console.log(JSON.stringify({
       env: await read(${JSON.stringify(envPath)}),
       environ: await read('/proc/${process.pid}/environ'),
       fetch: fetched,
       write: wrote,
+      forks,
+      addressSpace: (await read('/proc/self/limits')).match(/Max address space\\s+(\\S+)/)?.[1],
+      threads: Number.parseInt((await read('/proc/self/status')).split('Threads:')[1] ?? ''),
       // process.getuid is not there inside the runtime; the kernel says.
       uid: Number.parseInt((await read('/proc/self/status')).split('Uid:')[1] ?? ''),
     }));
