@@ -163,7 +163,7 @@ export async function runExtRunner(): Promise<never> {
   const wrap: RouteWrap = (argv) => {
     if (!allocate) return { argv };
     const { uid, release } = allocate();
-    return { release, argv: setprivArgv(uid, argv) };
+    return { release, argv: limitArgv(setprivArgv(uid, argv)) };
   };
   const route = {
     workerArgv: [process.execPath, runtimePath],
@@ -224,7 +224,8 @@ export function routeConnection(
       opts.serveEdge(conn, first, opts.wrap);
       return;
     }
-    // Memory and tasks are the unit's cgroup limits, per extension.
+    // Memory and tasks: the unit's cgroup limits, per extension, or in
+    // container mode the rlimits `wrap` sets (limitArgv).
     const { argv, release } = opts.wrap(opts.workerArgv);
     const child = spawn(argv[0]!, argv.slice(1), {
       stdio: ['pipe', 'pipe', 'inherit'],
@@ -281,6 +282,40 @@ export function setprivArgv(uid: number, argv: string[]): string[] {
     `--regid=${uid}`,
     '--clear-groups',
     '--no-new-privs',
+    '--',
+    ...argv,
+  ];
+}
+
+/**
+ * Threads count against RLIMIT_NPROC, and a runtime process idles at 6 to 10
+ * (measured); 64 leaves room for Workers and the odd child, not a fork bomb.
+ */
+const EXT_MAX_TASKS = 64;
+/**
+ * Measured on Bun 1.3.14 (alpine, 8 MB buffers until failure): 1024 MB of
+ * address space leaves about 300 MB of heap; 1152-1408 MB crash at start,
+ * 2500 MB leaves 48 MB, 4096 MB 1.2 GB. Not monotonic, so not a setting: the
+ * value edge functions already use (EDGE_MEMORY_LIMIT_MB's floor).
+ */
+const EXT_ADDRESS_SPACE_MB = 1024;
+
+/**
+ * Container mode: a container gives no cgroup per extension (a PaaS gives one
+ * container in all), so each process gets rlimits instead — tasks against a
+ * fork bomb, address space against a runaway heap, which then kills that
+ * process alone (measured: Bun aborts on the failed allocation). Set by
+ * prlimit(1), as root, before setpriv drops the uid, so the extension cannot
+ * raise them. Not a shell's `ulimit`: dash spells the task limit `-p`, busybox
+ * and bash `-u`.
+ * ponytail: RLIMIT_AS bounds virtual memory, not RSS, and the container's
+ * memory is still shared; a cgroup per extension (systemd mode) is the limit.
+ */
+export function limitArgv(argv: string[]): string[] {
+  return [
+    'prlimit',
+    `--nproc=${EXT_MAX_TASKS}`,
+    `--as=${EXT_ADDRESS_SPACE_MB * 1024 * 1024}`,
     '--',
     ...argv,
   ];

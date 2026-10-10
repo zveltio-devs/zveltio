@@ -60,6 +60,9 @@ describe('one-container image (Fly.io, Railway, Render, docker build .)', () => 
     expect(sh).toContain('--bounding-set=-all,+setuid,+setgid,+kill');
     expect(sh).toMatch(/env -i PATH="\$PATH" NODE_ENV=/);
     expect(sh).toMatch(/exec setpriv --reuid=100 --regid=101 [^\n]*--bounding-set=-all/);
+    // PID 1 reaps the orphans of a runner that died.
+    expect(sh).toMatch(/--no-new-privs -- \/sbin\/tini -- "\$BIN" "\$@"\n/);
+    expect(read('Dockerfile')).toMatch(/apk add --no-cache [^\n]*\btini util-linux-misc\b/);
   });
 
   it('each platform builds that default target and leaves its user and command alone', () => {

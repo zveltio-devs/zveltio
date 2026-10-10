@@ -41,8 +41,9 @@ if [ -z "${ZVELTIO_EXT_RUNNER_SOCKET:-}" ]; then
   export ZVELTIO_EXT_TRANSPORT="${ZVELTIO_EXT_TRANSPORT:-runner}"
 fi
 
-# ponytail: the engine becomes PID 1 and does not reap orphans; a runner that
-# dies leaves its extensions' zombies until the container restarts.
+# tini is PID 1, under the engine's uid: it forwards signals to the engine and
+# reaps orphans — the extension processes of a runner that died — which the
+# engine would leave as zombies. Reaping needs no privilege.
 export HOME=/home/zveltio TMPDIR="$tmp"
 exec setpriv --reuid=100 --regid=101 --clear-groups --inh-caps=-all --bounding-set=-all \
-  --no-new-privs -- "$BIN" "$@"
+  --no-new-privs -- /sbin/tini -- "$BIN" "$@"

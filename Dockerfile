@@ -74,7 +74,10 @@ LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
 # whose USER is a name ("cannot verify user is non-root").
 # setpriv: the extension runner (ext-runner in the release compose) drops each
 # extension to a uid of its own with it; Bun's spawn ignores `uid`.
-RUN apk add --no-cache curl tzdata setpriv && \
+# tini: PID 1 when the entrypoint runs the runner beside the engine, to reap
+# the extension processes a dead runner leaves behind. util-linux-misc: the
+# runner's prlimit, which caps each extension's tasks and address space.
+RUN apk add --no-cache curl tzdata setpriv tini util-linux-misc && \
     addgroup -S -g 101 zveltio && \
     adduser -S -u 100 -G zveltio zveltio
 
