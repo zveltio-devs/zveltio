@@ -176,6 +176,14 @@ async function copyReveal() {
 let showForm = $state(false);
 let saving = $state(false);
 let editingId = $state<string | null>(null);
+/**
+ * Fields the row being edited did not carry, with the blank value the form gave
+ * them. The edit form is filled from the LIST row, and a list leaves columns out
+ * on purpose — an edge function's `env_vars` holds secrets — so sending the
+ * blank back replaced the stored value: editing a function wiped its env vars.
+ * Such a field is sent only once someone changes it.
+ */
+let unloaded = new Map<string, unknown>();
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let formData = $state<Record<string, any>>({});
 // foreign-key / relation select options, loaded lazily per field
@@ -733,6 +741,7 @@ function jsonPayload(): Record<string, any> {
   const out: Record<string, any> = {};
   for (const f of allFields(active)) {
     if (!fieldVisible(f)) continue;
+    if (editingId && unloaded.has(f.name) && formData[f.name] === unloaded.get(f.name)) continue;
     let v = formData[f.name];
     if (f.type === 'json') {
       try {
@@ -751,6 +760,7 @@ function jsonPayload(): Record<string, any> {
 
 function openCreate() {
   editingId = null;
+  unloaded = new Map();
   formData = blankForm(active);
   loadRelations(active);
   showForm = true;
@@ -759,7 +769,19 @@ function openCreate() {
 function openEdit(row: any) {
   editingId = row.id;
   const d = blankForm(active);
-  for (const k of Object.keys(d)) if (row[k] !== undefined) d[k] = row[k];
+  const json = new Set(
+    allFields(active)
+      .filter((f) => f.type === 'json')
+      .map((f) => f.name),
+  );
+  unloaded = new Map();
+  for (const k of Object.keys(d)) {
+    if (row[k] === undefined) unloaded.set(k, d[k]);
+    // A json field is edited as text: a row's object or array goes in as JSON,
+    // not as `[object Object]`, so the payload can parse it back.
+    else
+      d[k] = json.has(k) && typeof row[k] !== 'string' ? JSON.stringify(row[k], null, 2) : row[k];
+  }
   formData = d;
   loadRelations(active);
   showForm = true;
