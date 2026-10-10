@@ -46,7 +46,6 @@ import {
   dynamicDb,
   isUuid,
   engineRead,
-  writeUnread,
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
@@ -308,7 +307,7 @@ export async function createRecord(
   }
 
   const effectiveDb = w.trx ?? db;
-  // A caller who may create but not read gets the id alone — see `writeUnread`.
+  // A caller who may create but not read gets the id alone — see `engineRead`.
   const canRead = await checkAccess(db, user, collection, 'read');
   // Authorship travels as `system` on the insert, not inside the payload. It
   // used to be merged here and then stripped by `dynamicInsert`'s RESERVED
@@ -337,13 +336,9 @@ export async function createRecord(
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.create`, async () =>
-      canRead
-        ? dynamicInsert(effectiveDb, tableName, finalInsert, systemColumns)
-        : (await writeUnread(effectiveDb, collection, () =>
-            dynamicInsert(effectiveDb, tableName, finalInsert, systemColumns, {
-              returning: false,
-            }),
-          ))!,
+      engineRead(canRead, effectiveDb, collection, () =>
+        dynamicInsert(effectiveDb, tableName, finalInsert, systemColumns),
+      ),
     );
     await afterWrite(effectiveDb, {
       collection,
@@ -477,18 +472,9 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.update`, () =>
-      canRead
-        ? dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author })
-        : writeUnread(effectiveDb, collection, () =>
-            dynamicUpdate(
-              effectiveDb,
-              tableName,
-              id,
-              finalPatch,
-              { updated_by: author },
-              { returning: false },
-            ),
-          ),
+      engineRead(canRead, effectiveDb, collection, () =>
+        dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author }),
+      ),
     );
     if (!record) return c.json({ error: 'Record not found' }, 404);
     await afterWrite(effectiveDb, {
@@ -615,18 +601,9 @@ export async function patchRecord(
   }
 
   const result = await handlePgErrors(c, async () => {
-    const record = canRead
-      ? await dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author })
-      : await writeUnread(effectiveDb, collection, () =>
-          dynamicUpdate(
-            effectiveDb,
-            tableName,
-            id,
-            finalPatch,
-            { updated_by: author },
-            { returning: false },
-          ),
-        );
+    const record = await engineRead(canRead, effectiveDb, collection, () =>
+      dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author }),
+    );
     if (!record) return c.json({ error: 'Record not found' }, 404);
     await afterWrite(effectiveDb, {
       collection,

@@ -25,7 +25,6 @@ import {
   runAtomic,
   isUuid,
   engineRead,
-  writeUnread,
 } from '../write-pipeline.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { serializeRecord } from '../shape.js';
@@ -64,7 +63,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   // Column-level write permission — mirror single createRecord. Without it the
   // bulk endpoint was an escalation hole around read-only columns.
   const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
-  // Create without read: ids only in the answer (see `writeUnread`).
+  // Create without read: ids only in the answer (see `engineRead`).
   const canRead = await checkAccess(db, user, collection, 'read');
   const created: DynamicRecord[] = [];
   const errors: Array<{ index: number; errors: string[] }> = [];
@@ -120,11 +119,9 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
         }
 
         const system = { created_by: author, updated_by: author };
-        const record = canRead
-          ? await dynamicInsert(trx, tableName, finalInsert, system)
-          : await writeUnread(trx, collection, () =>
-              dynamicInsert(trx, tableName, finalInsert, system, { returning: false }),
-            );
+        const record = await engineRead(canRead, trx, collection, () =>
+          dynamicInsert(trx, tableName, finalInsert, system),
+        );
         created.push(record as DynamicRecord);
       }
     });
@@ -300,11 +297,9 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         }
 
         const system = { updated_by: author };
-        const record = canRead
-          ? await dynamicUpdate(trx, tableName, id, finalPatch, system)
-          : await writeUnread(trx, collection, () =>
-              dynamicUpdate(trx, tableName, id, finalPatch, system, { returning: false }),
-            );
+        const record = await engineRead(canRead, trx, collection, () =>
+          dynamicUpdate(trx, tableName, id, finalPatch, system),
+        );
         if (record) updated.push(record as DynamicRecord);
         else errors.push({ index: i, id, errors: ['Record not found'] });
       }
