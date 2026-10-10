@@ -121,13 +121,7 @@ describe('container runner', () => {
   // root before the drop so the extension's uid cannot raise them.
   it('caps tasks and address space before the drop, through prlimit', () => {
     const argv = limitArgv(setprivArgv(200005, ['/bin/zveltio', 'rt.mjs']));
-    expect(argv.slice(0, 5)).toEqual([
-      'prlimit',
-      '--nproc=64',
-      '--as=1073741824',
-      '--',
-      'setpriv',
-    ]);
+    expect(argv.slice(0, 5)).toEqual(['prlimit', '--nproc=64', '--as=1073741824', '--', 'setpriv']);
     expect(argv.at(-1)).toBe('rt.mjs');
   });
 
