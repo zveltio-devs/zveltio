@@ -336,6 +336,75 @@ d('writes by a principal that cannot read the collection', () => {
     }
   });
 
+  // The same lapsed member on every write path, not only the REST create whose
+  // RETURNING happened to refuse it. UPDATE and DELETE were already refused by
+  // the policy's USING (the reach is NO_UNITS); an INSERT that reads nothing
+  // back — an extension's plain `ctx.db` insert — passed WITH CHECK, because
+  // `zveltio_tenant_write_ok` asked only "is this the current unit?". Migration
+  // 060 gives it the reach's verdict too.
+  it('a lapsed member is refused create, update and delete on every path', async () => {
+    const m = await createMemberSession(app, db, {
+      grants: [{ collection: COLL, actions: ['create', 'update', 'delete'] }],
+    });
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
+      VALUES (${TENANT}::uuid, ${m.userId}, 'member', now() - interval '2 days', now() - interval '1 day')
+      ON CONFLICT (tenant_id, user_id) DO UPDATE
+        SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`.execute(db);
+    const who = { cookie: m.cookie };
+    const created = crypto.randomUUID();
+    const victim = await seed('lapsed-victim');
+    const results = async (operations: unknown[]) =>
+      (
+        (await (await req('POST', '/api/sync/push', who, { operations })).json()) as {
+          results: Array<{ status: string }>;
+        }
+      ).results.map((r) => r.status);
+
+    // create
+    expect((await req('POST', `/api/data/${COLL}`, who, { title: 'lapsed-rest' })).status).toBe(
+      403,
+    );
+    await results([
+      { collection: COLL, recordId: created, operation: 'create', payload: { title: 'lapsed-s' } },
+    ]);
+    // update and delete
+    await req('PATCH', `/api/data/${COLL}/${victim}`, who, { title: 'lapsed-patched' });
+    await results([
+      { collection: COLL, recordId: victim, operation: 'update', payload: { title: 'lapsed-s2' } },
+    ]);
+    await req('DELETE', `/api/data/${COLL}/${victim}`, who);
+    await results([{ collection: COLL, recordId: victim, operation: 'delete', payload: {} }]);
+
+    // The database itself, as an extension's ctx.db writes: no RETURNING, no read.
+    const raw = (q: (trx: Database) => Promise<unknown>) =>
+      withTenantIsolation(TENANT, q, { userId: m.userId }).then(
+        () => 'ok',
+        (e: { errno?: string; code?: string }) => String(e.errno ?? e.code),
+      );
+    const rawInsert = await raw((trx) =>
+      sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
+        VALUES ('lapsed-raw', ${TENANT}::uuid)`.execute(trx),
+    );
+    await raw((trx) =>
+      sql`UPDATE ${sql.table(TABLE)} SET title = 'lapsed-raw-upd' WHERE id = ${victim}::uuid`.execute(
+        trx,
+      ),
+    );
+    await raw((trx) =>
+      sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${victim}::uuid`.execute(trx),
+    );
+
+    const landed = await sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)}
+      WHERE title LIKE 'lapsed-%' AND title <> 'lapsed-victim' OR id = ${created}::uuid`.execute(
+      db,
+    );
+    expect({
+      rawInsert,
+      landed: landed.rows.map((r) => r.title),
+      victim: (await row(victim))?.title,
+    }).toEqual({ rawInsert: '42501', landed: [], victim: 'lapsed-victim' });
+  });
+
   it('a caller who can read keeps the full row', async () => {
     const res = await req(
       'POST',

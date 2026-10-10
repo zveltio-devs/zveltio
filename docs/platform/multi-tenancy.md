@@ -257,6 +257,7 @@ real regression.
 ```
 read : tenant_id ∈ zveltio_visible_tenants()   — may be a whole subtree
 write: tenant_id  = zveltio.current_tenant     — the own node ONLY
+       AND the reach is not NO_UNITS            — a lapsed member writes nowhere
 ```
 
 A parent with `read_scope = 'subtree'` **reads** its children and **does not
@@ -264,6 +265,11 @@ write** into them. That is intentional: consolidation is a read operation. The
 data belong to the subordinate, and a level above reads and approves rather than
 correcting in someone else's place. Putting the read predicate back into
 `WITH CHECK` would let a parent write into a child's rows.
+
+The write half still carries the reach's verdict (migration 060): a member whose
+assignments have all lapsed reads nothing, and since 060 cannot INSERT either —
+the membership door admits everyone to the default tenant, and an insert that
+read nothing back used to land there.
 
 ### What a request can see — `zveltio_visible_tenants()`
 
