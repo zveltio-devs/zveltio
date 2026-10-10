@@ -260,9 +260,11 @@ then restored — each run failed exactly the group named:
   EACCES before it listens. `--workdir /` fixes it (the release image is unaffected);
 - the runner refuses a socket directory that is not root's 0755 (`closeSharedDirs`):
   a host bind mount is chowned inside the container, and handed back before removal;
-- `initDatabase()` opens its whole pool at once — 60 connections on a server with
-  `max_connections = 200` — so a fresh pool per leg beside four engines ran
-  PostgreSQL out of connections; the file shares one;
+- a fresh pool per leg beside four engines ran PostgreSQL out of connections:
+  autosizing gave each 60 of `max_connections = 200` (it assumes one instance
+  unless `ZVELTIO_INSTANCES` says otherwise), and `Bun.SQL` opens its whole pool
+  on the first query — it has no minimum, so the engine cannot open fewer
+  (the `pg` driver opens on demand); the file shares one pool;
 - dropping a collection with SQL leaves its `zvd_permissions` rows (the role defaults
   seeded on create and the member's grants); the file deletes them, and the two
   accounts. A full run leaves no row, role or table behind.
