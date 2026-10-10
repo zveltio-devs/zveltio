@@ -304,17 +304,19 @@ const EXT_ADDRESS_SPACE_MB = 1024;
  * Container mode: a container gives no cgroup per extension (a PaaS gives one
  * container in all), so each process gets rlimits instead — tasks against a
  * fork bomb, address space against a runaway heap, which then kills that
- * process alone (measured: Bun aborts on the failed allocation). Set by a root
- * shell before setpriv drops the uid, so the extension cannot raise them.
+ * process alone (measured: Bun aborts on the failed allocation). Set by
+ * prlimit(1), as root, before setpriv drops the uid, so the extension cannot
+ * raise them. Not a shell's `ulimit`: dash spells the task limit `-p`, busybox
+ * and bash `-u`.
  * ponytail: RLIMIT_AS bounds virtual memory, not RSS, and the container's
  * memory is still shared; a cgroup per extension (systemd mode) is the limit.
  */
 export function limitArgv(argv: string[]): string[] {
   return [
-    'sh',
-    '-c',
-    `ulimit -u ${EXT_MAX_TASKS} -v ${EXT_ADDRESS_SPACE_MB * 1024} && exec "$@"`,
-    'sh',
+    'prlimit',
+    `--nproc=${EXT_MAX_TASKS}`,
+    `--as=${EXT_ADDRESS_SPACE_MB * 1024 * 1024}`,
+    '--',
     ...argv,
   ];
 }

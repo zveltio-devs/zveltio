@@ -14,7 +14,7 @@ x-image: &image
       FROM oven/bun:1.3-alpine
       # /run/zveltio-ext and /tmp 0777 with no sticky bit, as a Kubernetes emptyDir
       # is: the runner must close both.
-      RUN apk add --no-cache setpriv && mkdir -p /run/zveltio-ext /data/extensions /opt/zveltio && \
+      RUN apk add --no-cache setpriv util-linux-misc && mkdir -p /run/zveltio-ext /data/extensions /opt/zveltio && \
           chmod 0777 /run/zveltio-ext && \
           chown 100:101 /data/extensions /opt/zveltio && \
           echo SECRET=hunter2-env-file > /opt/zveltio/.env && chown 100:101 /opt/zveltio/.env && \

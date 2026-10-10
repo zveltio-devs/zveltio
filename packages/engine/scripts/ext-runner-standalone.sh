@@ -25,7 +25,7 @@ trap 'docker rm -f "$C" "$C-user" >/dev/null 2>&1 || true' EXIT
 
 docker build -q -t "$IMG" -f - "$ROOT" >/dev/null <<'EOF'
 FROM oven/bun:1.3-alpine
-RUN apk add --no-cache setpriv tini && addgroup -S -g 101 zveltio && adduser -S -u 100 -G zveltio zveltio && \
+RUN apk add --no-cache setpriv tini util-linux-misc && addgroup -S -g 101 zveltio && adduser -S -u 100 -G zveltio zveltio && \
     mkdir -p /data/extensions /data/storage /run/zveltio-ext && chown -R 100:101 /data && \
     echo hunter2-upload > /data/storage/upload && chown 100:101 /data/storage/upload && \
     chmod 0644 /data/storage/upload && \
@@ -44,6 +44,8 @@ docker rm -f "$C" "$C-user" >/dev/null 2>&1 || true
 docker run -d --name "$C" --memory 2g -e SECRET=hunter2-process-env -v "$ROOT:/src:ro" "$IMG" >/dev/null
 SOCK=/run/zveltio-ext/runner.sock
 for _ in $(seq 1 40); do docker exec "$C" test -S "$SOCK" && break; sleep 0.5; done
+# The socket appears before the entrypoint execs into tini.
+for _ in $(seq 1 20); do docker exec "$C" grep -q '^/sbin/tini' /proc/1/cmdline && break; sleep 0.25; done
 fail=0
 status() { docker exec "$C" sh -c "awk '/^($2):/{print \$2}' /proc/$1/status"; }
 
