@@ -59,6 +59,7 @@ import {
 } from './service-registry.js';
 import { getDb, type Database } from '../db/index.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
+import type { RawPool } from '../db/bun-sql-dialect.js';
 import { activationMiddlewareFor, extensionLoader, guardEventHandler } from './extensions/index.js';
 import { ProblemException, problem, problemOnError } from './problem.js';
 import { engineEvents } from './runtime/index.js';
@@ -139,6 +140,11 @@ interface InvokeScope {
   run?: <R>(fn: () => R) => R;
   /** The request's own session, looked up with its own headers. */
   session?: () => Promise<unknown>;
+  /**
+   * The route request's database transaction (RFC step 8). Shared with a
+   * worker service it calls, which joins it as an inline service would.
+   */
+  txn?: RequestTxn;
 }
 
 /**
@@ -282,6 +288,7 @@ export class WorkerExtensionHost {
     }
     dropListeners(managed);
     failPendingInvokes(extName);
+    failPendingRoutes(managed);
     managed.worker.terminate();
     this.workers.delete(extName);
     this.respawnBackoff.delete(extName);
@@ -449,6 +456,8 @@ export class WorkerExtensionHost {
     dropListeners(managed);
     // A caller waiting on the dead worker would otherwise sit out the 30s timeout.
     failPendingInvokes(managed.name);
+    // And so would its HTTP requests, holding their transactions open.
+    failPendingRoutes(managed);
     const prevBackoff = this.respawnBackoff.get(managed.name) ?? 500;
     const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
     this.respawnBackoff.set(managed.name, backoff);
@@ -583,7 +592,9 @@ export class WorkerExtensionHost {
       // predicate resolves to the default tenant rather than to everything. A
       // query naming a request that is over is refused (`requestScope`).
       const scope = requestScope(managed, msg.requestId, 'query');
-      const rows = await runRawWithParams(managed.name, msg.sql, msg.params, scope);
+      const rows = msg.savepoint
+        ? await requestSavepoint(managed.name, scope, msg.savepoint)
+        : await runRawWithParams(managed.name, msg.sql, msg.params, scope);
       // The affected-row count rides on Bun's result array, which neither
       // transport carries across: an UPDATE without RETURNING reported 0.
       const count = (rows as { count?: unknown }).count;
@@ -874,11 +885,13 @@ export class WorkerExtensionHost {
           const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
           const user = (c.get('user') ?? undefined) as { id?: string } | undefined;
           const auth = live.source?.auth;
+          const txn = newRequestTxn();
           live.invokeTenants.set(id, {
             ...currentScope(reqTenantId),
             user,
             run: AsyncLocalStorage.snapshot(),
             session: async () => auth?.api.getSession({ headers: c.req.raw.headers }) ?? null,
+            txn,
           });
           live.inFlightRequests++;
           live.totalRequests++;
@@ -903,6 +916,12 @@ export class WorkerExtensionHost {
                 user,
               });
             });
+            // The rule `tenantMiddleware` applies to an inline request: commit
+            // unless the handler threw — whatever status it answered with.
+            const commit = resp.type === 'route:ok' && !resp.threw;
+            if (!(await endRequestTxn(txn, commit)) && commit) {
+              return Response.json({ error: NOT_COMMITTED }, { status: 500 });
+            }
             if (resp.type === 'route:err') {
               // An uncaught SQLSTATE answers as an inline route's (22P02 → 400, 55P03 → 503).
               if (resp.errno) {
@@ -918,6 +937,8 @@ export class WorkerExtensionHost {
           } catch (err) {
             return new Response((err as Error).message, { status: 500 });
           } finally {
+            // Timed out, or the worker died: nothing it wrote is kept.
+            await endRequestTxn(txn, false);
             live.inFlightRequests--;
             // The request is over, so the id can no longer name a tenant. Left
             // behind, this map grows for the lifetime of the process and a
@@ -984,6 +1005,12 @@ export const _internalForTests = {
   /** The once-only "no worker SQL role" warning, so a test can see it fire. */
   resetNoWorkerSqlRoleWarning(): void {
     _warnedNoWorkerSqlRole = false;
+  },
+  newRequestTxn,
+  requestSavepoint,
+  /** The request transaction's hard timeout; no argument restores the default. */
+  setRequestTxnTimeoutMs(ms = REQUEST_TXN_TIMEOUT_MS): void {
+    requestTxnTimeoutMs = ms;
   },
   /**
    * The tenant the host would apply to a `db:query` naming `requestId`.
@@ -1093,6 +1120,19 @@ function failPendingInvokes(extName: string): void {
   }
 }
 
+/**
+ * Answer every route request the worker will not: it died or was stopped. Each
+ * request then rolls its transaction back and releases the connection.
+ */
+function failPendingRoutes(managed: ManagedWorker): void {
+  for (const [id, resolve] of managed.pendingInvokes) {
+    managed.pendingInvokes.delete(id);
+    resolve({ type: 'route:err', id, error: `worker "${managed.name}" exited mid-request` });
+  }
+}
+
+const NOT_COMMITTED = 'The request could not be committed; nothing it wrote was kept.';
+
 const DEPENDENCY_DOWN = 'extension.dependency_unavailable';
 
 /** 503, so the HTTP caller sees "try again", not a server fault. */
@@ -1188,21 +1228,18 @@ function noWorkerSqlRole(extName: string): Error {
   );
 }
 
-async function runRawWithParams(
-  extName: string,
-  sql: string,
-  params: unknown[],
-  scope?: InvokeScope,
-): Promise<unknown[]> {
-  const tenantId = scope?.tenantId;
-  assertWorkerSqlAllowed(extName, sql, await workerSqlEngineTables());
+type Reserved = Awaited<ReturnType<RawPool['reserve']>>;
 
-  const { encodeArrayParams, getActiveBunPool } = await import('../db/bun-sql-dialect.js');
+/**
+ * A reserved connection in a transaction set up for `extName`'s SQL, as the
+ * caller in `scope`. On failure it is rolled back and released.
+ */
+async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Reserved> {
+  const tenantId = scope?.tenantId;
+  const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
   const pool = getActiveBunPool();
   if (!pool) throw new Error('BunSQL pool not initialized — host cannot run worker queries');
-
   const reserved = await pool.reserve();
-  let inTransaction = false;
   try {
     // Everything below runs in a transaction so the role and the tenant GUC are
     // `SET LOCAL` and unwind themselves — on COMMIT, on ROLLBACK, and on any
@@ -1224,37 +1261,9 @@ async function runRawWithParams(
     // `SET LOCAL` cannot leak, because Postgres unwinds it. Statements that
     // would end this transaction early are refused by `assertWorkerSqlAllowed`.
     await reserved.unsafe('BEGIN');
-    inTransaction = true;
+    // Per statement: a request's transaction (RFC step 8) runs many.
     await reserved.unsafe(`SET LOCAL statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
-    // `zveltio_worker`, not `zveltio_rls`. The latter holds SELECT, INSERT,
-    // UPDATE and DELETE on every table in `public` — including Better-Auth's
-    // `user`, `session`, `account`, `verification` and `twoFactor`, none of
-    // which has RLS. This bridge exists to sandbox extension code the platform
-    // has decided not to trust, and it was running under a role that could
-    // read every live session token on the instance.
-    //
-    // `zveltio_worker` is granted collection tables only — by applyTenantRLS,
-    // once FORCE RLS and the policy are on the table — and is
-    // NOSUPERUSER/NOBYPASSRLS, so tenant isolation on `zvd_*` holds exactly
-    // as it does for a request. The engine's own `zvd_*` metadata tables are
-    // revoked at boot (reconcileTenantRLS).
-    //
-    // Where a managed Postgres would not let migration 001 create it, fall back
-    // to `zveltio_rls` rather than take every worker extension down, and let the
-    // allowlist in worker-sql-policy.ts be the layer that holds. ASKED which role
-    // exists rather than attempting `SET ROLE` and catching: a refused statement
-    // aborts this transaction, so the old `catch` fallback ran its second
-    // `SET ROLE` — and then the extension's query — on an aborted transaction,
-    // and every worker query on such a deployment failed with 25P02. Measured.
-    //
-    // No usable role is refused, never run as the engine's own login: that role
-    // owns every table and, on a superuser, bypasses RLS — measured, a worker
-    // under tenant A read tenant B's rows. Only a broken install gets here:
-    // migration 001 creates both roles wherever it may (superuser, CREATEROLE),
-    // and scripts/bootstrap-db-role.sh does it where it may not.
-    const role = await pickWorkerSqlRole(reserved, workerDbRoleFor(extName));
-    if (!role) throw noWorkerSqlRole(extName);
-    await reserved.unsafe(`SET LOCAL ROLE ${role}`);
+    await setWorkerRole(reserved, extName);
     if (tenantId) {
       // The tenant and the caller, from the host's own record — the settings
       // `withTenantIsolation` publishes for the request, so the row rules keyed
@@ -1295,45 +1304,251 @@ async function runRawWithParams(
         ],
       );
     }
-    const rows = (await reserved.unsafe(
-      sql,
-      params.length > 0 ? encodeArrayParams(params) : undefined,
-    )) as unknown[];
-    await reserved.unsafe('COMMIT');
-    inTransaction = false;
-    return rows;
-  } finally {
-    // Reset before returning the connection to the pool — these are per-SESSION
-    // settings, not per-transaction, so leaking either would silently cap or
-    // de-privilege unrelated engine queries that reuse this connection.
-    // Order matters: RESET ROLE last, because resetting the tenant GUC needs
-    // the privileges the role may not have.
-    // ROLLBACK is what returns the connection clean when the statement threw. If
-    // even that fails the connection is in an unknown state, and the one thing it
-    // must not be is reused: a borrower inheriting a role or a tenant id is the
-    // failure this block exists to prevent. Losing a connection is cheaper than
-    // handing out a contaminated one.
-    if (inTransaction) {
-      try {
-        await reserved.unsafe('ROLLBACK');
-      } catch {
-        try {
-          (reserved as unknown as { close?: () => void }).close?.();
-        } catch {
-          /* nothing left to try — the release below still drops our hold */
-        }
-      }
-    }
-    // A temp table the role created outlives the transaction on this pooled
-    // connection, and pg_temp is searched first by the next borrower's
-    // unqualified names. Only where boot could not take TEMPORARY from the role.
-    if (!temporaryObjectsRestricted()) {
-      try {
-        await reserved.unsafe('DISCARD TEMP');
-      } catch {
-        (reserved as unknown as { close?: () => void }).close?.();
-      }
-    }
-    reserved.release();
+    return reserved;
+  } catch (err) {
+    await endWorkerTxn(reserved, false);
+    throw err;
   }
+}
+
+/**
+ * `SET LOCAL ROLE` to `extName`'s role on a connection in a transaction. With
+ * `switching`, from another extension's role first: a worker-to-worker service
+ * call joins its caller's request transaction (RFC step 8), and the callee's SQL
+ * runs as the callee.
+ */
+async function setWorkerRole(
+  conn: Pick<Reserved, 'unsafe'>,
+  extName: string,
+  switching = false,
+): Promise<void> {
+  // The pick runs as the login: `pg_has_role(current_user, …)` from another
+  // extension's role answers for that role.
+  if (switching) await conn.unsafe('SET LOCAL ROLE NONE');
+  // `zveltio_worker`, not `zveltio_rls`. The latter holds SELECT, INSERT,
+  // UPDATE and DELETE on every table in `public` — including Better-Auth's
+  // `user`, `session`, `account`, `verification` and `twoFactor`, none of
+  // which has RLS. This bridge exists to sandbox extension code the platform
+  // has decided not to trust, and it was running under a role that could
+  // read every live session token on the instance.
+  //
+  // `zveltio_worker` is granted collection tables only — by applyTenantRLS,
+  // once FORCE RLS and the policy are on the table — and is
+  // NOSUPERUSER/NOBYPASSRLS, so tenant isolation on `zvd_*` holds exactly
+  // as it does for a request. The engine's own `zvd_*` metadata tables are
+  // revoked at boot (reconcileTenantRLS).
+  //
+  // Where a managed Postgres would not let migration 001 create it, fall back
+  // to `zveltio_rls` rather than take every worker extension down, and let the
+  // allowlist in worker-sql-policy.ts be the layer that holds. ASKED which role
+  // exists rather than attempting `SET ROLE` and catching: a refused statement
+  // aborts this transaction, so the old `catch` fallback ran its second
+  // `SET ROLE` — and then the extension's query — on an aborted transaction,
+  // and every worker query on such a deployment failed with 25P02. Measured.
+  //
+  // No usable role is refused, never run as the engine's own login: that role
+  // owns every table and, on a superuser, bypasses RLS — measured, a worker
+  // under tenant A read tenant B's rows. Only a broken install gets here:
+  // migration 001 creates both roles wherever it may (superuser, CREATEROLE),
+  // and scripts/bootstrap-db-role.sh does it where it may not.
+  const role = await pickWorkerSqlRole(conn, workerDbRoleFor(extName));
+  if (!role) throw noWorkerSqlRole(extName);
+  await conn.unsafe(`SET LOCAL ROLE ${role}`);
+}
+
+/**
+ * End a transaction `openWorkerTxn` began and give the connection back clean.
+ * Throws when COMMIT failed — after the cleanup, so nothing it wrote was kept.
+ */
+async function endWorkerTxn(reserved: Reserved, commit: boolean): Promise<void> {
+  let failed: unknown;
+  try {
+    await reserved.unsafe(commit ? 'COMMIT' : 'ROLLBACK');
+  } catch (err) {
+    failed = err;
+    // ROLLBACK is what returns the connection clean. If even that fails the
+    // connection is in an unknown state, and the one thing it must not be is
+    // reused: a borrower inheriting a role or a tenant id is the failure this
+    // block exists to prevent. Losing a connection is cheaper than handing out
+    // a contaminated one.
+    try {
+      await reserved.unsafe('ROLLBACK');
+    } catch {
+      try {
+        (reserved as unknown as { close?: () => void }).close?.();
+      } catch {
+        /* nothing left to try — the release below still drops our hold */
+      }
+    }
+  }
+  // A temp table the role created outlives the transaction on this pooled
+  // connection, and pg_temp is searched first by the next borrower's
+  // unqualified names. Only where boot could not take TEMPORARY from the role.
+  if (!temporaryObjectsRestricted()) {
+    try {
+      await reserved.unsafe('DISCARD TEMP');
+    } catch {
+      (reserved as unknown as { close?: () => void }).close?.();
+    }
+  }
+  reserved.release();
+  if (commit && failed) throw failed;
+}
+
+/** Ceiling on a request's transaction across the bridge (RFC step 8). */
+const REQUEST_TXN_TIMEOUT_MS = 30_000;
+let requestTxnTimeoutMs = REQUEST_TXN_TIMEOUT_MS;
+
+/**
+ * The database transaction of one worker request (RFC extension-runner, step 8):
+ * opened on the request's first bridged statement, held on one reserved
+ * connection, ended once by `endRequestTxn` — committed when the handler
+ * answered without throwing, rolled back otherwise, on the hard timeout, and
+ * when the worker dies or is stopped mid-request.
+ *
+ * It used to be one transaction per statement, so a request that wrote twice and
+ * failed in between kept the first write: a burned invoice number, an orphan
+ * contact (docs/engine/rfc-extension-runner-experiment.md §4).
+ */
+interface RequestTxn {
+  conn?: Reserved;
+  /** The extension whose role the transaction is SET to now. */
+  ext?: string;
+  /**
+   * Open `db.transaction()` savepoints, innermost last, each with the extension
+   * that opened it; named `zv_sp_<depth>` by the host.
+   */
+  savepoints: string[];
+  /** Statements run one at a time, in arrival order, on the one connection. */
+  tail: Promise<unknown>;
+  /** Why statements are refused from now on. */
+  over?: string;
+  closing?: Promise<boolean>;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+function newRequestTxn(): RequestTxn {
+  return { savepoints: [], tail: Promise.resolve() };
+}
+
+/** Run `fn` on the request's transaction, opening it on the first statement. */
+function inRequestTxn<T>(
+  txn: RequestTxn,
+  extName: string,
+  scope: InvokeScope,
+  fn: (conn: Reserved) => Promise<T>,
+): Promise<T> {
+  const run = txn.tail.then(async () => {
+    if (txn.over) throw new Error(`the request's database transaction is over (${txn.over})`);
+    if (!txn.conn) {
+      txn.conn = await openWorkerTxn(extName, scope);
+      txn.ext = extName;
+      const ms = requestTxnTimeoutMs;
+      txn.timer = setTimeout(
+        () => void endRequestTxn(txn, false, `rolled back: timed out after ${ms} ms`),
+        ms,
+      );
+    } else if (txn.ext !== extName) {
+      // Cleared first: a failed switch must not leave a statement to run as
+      // whatever role the switch stopped at.
+      txn.ext = undefined;
+      await setWorkerRole(txn.conn, extName, true);
+      txn.ext = extName;
+    }
+    return fn(txn.conn);
+  });
+  txn.tail = run.catch(() => undefined);
+  return run;
+}
+
+/**
+ * End the request's transaction, once: COMMIT with `commit`, else ROLLBACK, and
+ * release the connection. Resolves true when what the request wrote stands —
+ * committed, or nothing was written — and false when it was rolled back, here
+ * or earlier (the timeout), or COMMIT failed. Later calls get the first answer.
+ */
+function endRequestTxn(txn: RequestTxn, commit: boolean, why?: string): Promise<boolean> {
+  if (txn.closing) return txn.closing;
+  txn.over = why ?? (commit ? 'committed' : 'rolled back');
+  clearTimeout(txn.timer);
+  txn.closing = txn.tail.then(async () => {
+    const conn = txn.conn;
+    if (!conn) return commit;
+    try {
+      await endWorkerTxn(conn, commit);
+      return commit;
+    } catch (err) {
+      console.error('[worker-host] a request transaction failed to commit:', err);
+      return false;
+    }
+  });
+  return txn.closing;
+}
+
+/**
+ * `db.transaction()` in a worker: a savepoint in its request's transaction,
+ * named here — the worker never sends transaction-control text.
+ */
+async function requestSavepoint(
+  extName: string,
+  scope: InvokeScope | undefined,
+  op: 'begin' | 'release' | 'rollback',
+): Promise<unknown[]> {
+  if (!scope?.txn) {
+    throw new Error(
+      'db.transaction() is available to a worker-isolated extension only while it serves ' +
+        'a request; outside one each statement commits on its own',
+    );
+  }
+  const txn = scope.txn;
+  return inRequestTxn(txn, extName, scope, async (conn) => {
+    if (op === 'begin') {
+      await conn.unsafe(`SAVEPOINT zv_sp_${txn.savepoints.length + 1}`);
+      txn.savepoints.push(extName);
+      return [];
+    }
+    // Only the extension that opened the innermost savepoint ends it: another
+    // one could otherwise roll back work it does not own.
+    if (txn.savepoints.at(-1) !== extName) throw new Error('no db.transaction() is open');
+    const name = `zv_sp_${txn.savepoints.length}`;
+    if (op === 'rollback') {
+      // ROLLBACK TO also undoes every SET LOCAL ROLE since the savepoint, so the
+      // role the connection is in may no longer be `txn.ext`'s: forget it, and
+      // the next statement sets its own.
+      txn.ext = undefined;
+      await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+    }
+    await conn.unsafe(`RELEASE SAVEPOINT ${name}`);
+    txn.savepoints.pop();
+    return [];
+  });
+}
+
+/**
+ * One statement for `extName`: inside its request's transaction when it serves a
+ * route (RFC step 8), else in a transaction of its own — background work
+ * (`register()`, timers, events, a service an inline caller invoked) has no
+ * request whose answer could commit it.
+ */
+async function runRawWithParams(
+  extName: string,
+  sql: string,
+  params: unknown[],
+  scope?: InvokeScope,
+): Promise<unknown[]> {
+  assertWorkerSqlAllowed(extName, sql, await workerSqlEngineTables());
+  const { encodeArrayParams } = await import('../db/bun-sql-dialect.js');
+  const args = params.length > 0 ? encodeArrayParams(params) : undefined;
+  const exec = (conn: Reserved) => conn.unsafe(sql, args) as Promise<unknown[]>;
+  if (scope?.txn) return inRequestTxn(scope.txn, extName, scope, exec);
+  const reserved = await openWorkerTxn(extName, scope);
+  let rows: unknown[];
+  try {
+    rows = await exec(reserved);
+  } catch (err) {
+    await endWorkerTxn(reserved, false);
+    throw err;
+  }
+  await endWorkerTxn(reserved, true);
+  return rows;
 }

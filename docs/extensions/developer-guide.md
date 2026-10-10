@@ -2009,10 +2009,13 @@ proxies SQL queries through its own pool.
   `queryAlter`, `entityAccess`, `adminDb`, `DDLManager`,
   `registerPublicRoute`, `onHealthCheck`, `getUserRoles`,
   `events.onBefore` — fail the load by name
+- **Transactions:** a route request is one database transaction, as
+  inline: committed when the handler answers, rolled back when it throws,
+  times out (30 s) or the worker dies; `db.transaction()` is a savepoint in
+  it. Outside a request (`register()`, timers, events) each statement
+  commits on its own and `db.transaction()` is refused
 - **Limitations:** no streaming responses (body buffered as text),
-  no cross-process transactions (each statement commits on its own, and
-  `db.transaction()` is refused), worker-published services routed via
-  the host registry bridge
+  worker-published services routed via the host registry bridge
 - **Use for:** third-party / community extensions where the
   publisher isn't audited, code where crash isolation matters more
   than the latency cost
