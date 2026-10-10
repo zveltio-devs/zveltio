@@ -10,6 +10,7 @@ function bridge(over: Partial<WorkerBridge> = {}) {
   const hosts: Call[] = [];
   const services: Call[] = [];
   const savepoints: string[] = [];
+  const txns: string[] = [];
   const b: WorkerBridge = {
     query: async (sql, params) => {
       queries.push([sql, params]);
@@ -17,6 +18,11 @@ function bridge(over: Partial<WorkerBridge> = {}) {
     },
     savepoint: async (op) => {
       savepoints.push(op);
+    },
+    // Records the callbacks run through it; the runtime binds them to a transaction id.
+    transaction: async (run) => {
+      txns.push('run');
+      return run();
     },
     host: async (op, args) => {
       hosts.push([op, args]);
@@ -32,7 +38,7 @@ function bridge(over: Partial<WorkerBridge> = {}) {
     ...over,
   };
   const { ctx, settled } = buildWorkerCtx(b);
-  return { ctx: ctx as any, settled, b, queries, hosts, services, savepoints };
+  return { ctx: ctx as any, settled, b, queries, hosts, services, savepoints, txns };
 }
 
 describe('worker ctx: db', () => {
@@ -61,7 +67,7 @@ describe('worker ctx: db', () => {
   });
 
   it('db.transaction() is a savepoint the host names, nested, released or rolled back', async () => {
-    const { ctx, savepoints, queries } = bridge();
+    const { ctx, savepoints, queries, txns } = bridge();
     const out = await ctx.db.transaction().execute(async () => {
       await ctx.db.transaction().execute(async (trx: any) => {
         await trx.selectFrom('zv_x_items').selectAll().execute();
@@ -76,6 +82,8 @@ describe('worker ctx: db', () => {
     });
     expect(out).toBe(1);
     expect(savepoints).toEqual(['begin', 'begin', 'release', 'begin', 'rollback', 'release']);
+    // Each callback runs through the bridge, which names its transaction.
+    expect(txns).toEqual(['run', 'run', 'run']);
     // No transaction-control text crosses the bridge.
     expect(queries.map(([q]) => q)).toEqual(['select * from "zv_x_items"']);
   });

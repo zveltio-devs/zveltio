@@ -118,6 +118,13 @@ export interface DbQueryRequest {
    * the worker never sends transaction-control text.
    */
   savepoint?: 'begin' | 'release' | 'rollback';
+  /**
+   * The `db.transaction()` callback this statement runs in, by an id the worker
+   * mints. Inside a request the host ignores it: the request is the transaction.
+   * Outside one (owner decision 4) the host opens a transaction of its own under
+   * it on `begin`, and ends it on the outermost `release` or `rollback`.
+   */
+  txn?: WorkerMessageId;
 }
 
 export interface DbQueryResponse {

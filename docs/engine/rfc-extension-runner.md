@@ -388,11 +388,28 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    its transaction under the callee's own role. Statements outside a route
    request — `register()`, timers, event deliveries, a service an inline caller
    invokes — keep one transaction per statement: no answer exists to commit them
-   with, and `db.transaction()` there is refused by name
-   (`tests/harness/worker-request-transaction.test.ts`: the burned invoice
+   with (`tests/harness/worker-request-transaction.test.ts`: the burned invoice
    number, the orphan contact, savepoints, a throw, a caught SQL error, the
    timeout, a killed worker, no role or GUC leak — both transports, both
    drivers). Measured in the [experiment](rfc-extension-runner-experiment.md) §6.
+   **Done — `db.transaction()` outside a request** (owner decision 2026-10-10;
+   it was refused by name): the runtime binds each callback to an id it mints
+   (`txn` on `db:query`; inside a request the host ignores it). On `begin` the
+   host opens a transaction of its own for that id, on a reserved connection set
+   up as a request's (`SET LOCAL` role, `statement_timeout`, and the tenant and
+   caller GUCs of the invocation it runs in — an event's or a service's — or
+   none, exactly what a lone statement of the same work gets), and routes every
+   statement the callback makes, through `trx` or `db`, into it. The outermost
+   `release` commits, the outermost `rollback` rolls back, nested callbacks are
+   `zv_sp_<depth>` savepoints. It rolls back on the request's 30 s hard timeout
+   (the same constant), when the worker dies or is stopped, and when its
+   invocation is over; a statement naming another invocation is refused. Each
+   callback has its own connection, so two at once are isolated; one worker
+   holds at most 4 open (`MAX_HOST_TXNS`), since each holds a pooled
+   connection. `db.startTransaction()` outside a request stays refused.
+   (`tests/harness/worker-host-transaction.test.ts`: commit, throw, timeout,
+   killed worker, two concurrent, no role or GUC leak — process transport, both
+   drivers; `tests/unit/worker-extension-host-txn.test.ts` for the bookkeeping.)
    Still open: a worker request holds two connections (the request's tenant
    transaction and its own); an inline service a worker calls runs in a
    transaction of its own, not the request's.

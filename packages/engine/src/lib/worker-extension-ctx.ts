@@ -27,6 +27,12 @@ export interface WorkerBridge {
   query(sql: string, params: unknown[]): Promise<unknown[]>;
   /** `db.transaction()`: a savepoint in the request's transaction, named by the host. */
   savepoint(op: 'begin' | 'release' | 'rollback'): Promise<unknown>;
+  /**
+   * Runs a `db.transaction()` callback, so every statement made in it names the
+   * one transaction — the request's, or outside a request one the host opens
+   * (owner decision 4).
+   */
+  transaction<T>(run: () => Promise<T>): Promise<T>;
   host(op: HostCallOp, args: unknown[]): Promise<unknown>;
   serviceCall(name: string, args: unknown[]): Promise<unknown>;
   registerService(name: string, impl: Fn): void;
@@ -112,9 +118,20 @@ export function buildWorkerCtx(bridge: WorkerBridge): {
   ctx: Record<string, unknown>;
   settled: () => Promise<void>;
 } {
-  const db = Object.assign(new Kysely<unknown>({ dialect: bridgeDialect(bridge) }), {
+  const kysely = new Kysely<unknown>({ dialect: bridgeDialect(bridge) });
+  const transaction = kysely.transaction.bind(kysely);
+  const db = Object.assign(kysely, {
     // The raw form worker extensions had before Kysely.
     query: (sql: string, ...params: unknown[]) => bridge.query(sql, params),
+    // Every statement the callback makes, through `trx` or `db`, joins it.
+    transaction: () => {
+      const builder = transaction();
+      const execute = builder.execute.bind(builder);
+      return Object.assign(builder, {
+        execute: ((callback) =>
+          bridge.transaction(() => execute(callback))) as typeof builder.execute,
+      });
+    },
   });
   // Collected during `register()` only; a subscription made later reports itself.
   let pending: Promise<unknown>[] | null = [];
