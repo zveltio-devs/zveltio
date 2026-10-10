@@ -210,6 +210,11 @@ interface ManagedWorker {
    * asserts is one it picked.
    */
   invokeTenants: Map<string, InvokeScope>;
+  /**
+   * `db.transaction()` callbacks running outside a request (owner decision 4),
+   * by the id the worker minted for each: one host transaction, one connection.
+   */
+  hostTxns?: Map<string, HostTxn>;
   pendingInits: Map<string, (res: InitResponse) => void>;
   pendingPings: Map<string, () => void>;
   /** Service names this worker has registered. Used to unregister on
@@ -659,10 +664,22 @@ export class WorkerExtensionHost {
       // names no id and runs with no tenant context, which the isolation
       // predicate resolves to the default tenant rather than to everything. A
       // query naming a request that is over is refused (`requestScope`).
-      const scope = requestScope(managed, msg.requestId, 'query');
-      const rows = msg.savepoint
-        ? await requestSavepoint(managed.name, scope, msg.savepoint)
-        : await runRawWithParams(managed.name, msg.sql, msg.params, scope);
+      let scope: InvokeScope | undefined;
+      try {
+        scope = requestScope(managed, msg.requestId, 'query');
+      } catch (err) {
+        // A transaction outliving the invocation it was opened in ends with it.
+        if (msg.txn) endHostTxn(managed, msg.txn, 'rolled back: its invocation is over');
+        throw err;
+      }
+      // Inside a request the transaction id names nothing: the request is the
+      // transaction (RFC step 8), and the worker cannot open a second one in it.
+      const rows =
+        msg.txn && !scope?.txn
+          ? await hostTxnStatement(managed, msg, msg.txn, scope)
+          : msg.savepoint
+            ? await requestSavepoint(managed.name, scope, msg.savepoint)
+            : await runRawWithParams(managed.name, msg.sql, msg.params, scope);
       // The affected-row count rides on Bun's result array, which neither
       // transport carries across: an UPDATE without RETURNING reported 0.
       const count = (rows as { count?: unknown }).count;
@@ -1079,6 +1096,7 @@ export const _internalForTests = {
     _warnedNoWorkerSqlRole = false;
   },
   newRequestTxn,
+  failPendingRoutes,
   requestSavepoint,
   /** The request transaction's hard timeout; no argument restores the default. */
   setRequestTxnTimeoutMs(ms = REQUEST_TXN_TIMEOUT_MS): void {
@@ -1205,6 +1223,10 @@ function failPendingRoutes(managed: ManagedWorker): void {
   for (const [id, resolve] of managed.pendingInvokes) {
     managed.pendingInvokes.delete(id);
     resolve({ type: 'route:err', id, error: `worker "${managed.name}" exited mid-request` });
+  }
+  // And its transactions outside a request: no callback is left to end them.
+  for (const id of managed.hostTxns?.keys() ?? []) {
+    endHostTxn(managed, id, 'rolled back: the worker exited');
   }
 }
 
@@ -1520,7 +1542,7 @@ function inRequestTxn<T>(
   fn: (conn: Reserved) => Promise<T>,
 ): Promise<T> {
   const run = txn.tail.then(async () => {
-    if (txn.over) throw new Error(`the request's database transaction is over (${txn.over})`);
+    if (txn.over) throw new Error(`the database transaction is over (${txn.over})`);
     if (!txn.conn) {
       txn.conn = await openWorkerTxn(extName, scope);
       txn.ext = extName;
@@ -1577,8 +1599,8 @@ async function requestSavepoint(
 ): Promise<unknown[]> {
   if (!scope?.txn) {
     throw new Error(
-      'db.transaction() is available to a worker-isolated extension only while it serves ' +
-        'a request; outside one each statement commits on its own',
+      'no database transaction is open to take a savepoint in: outside a request only ' +
+        'db.transaction().execute() opens one',
     );
   }
   const txn = scope.txn;
@@ -1606,10 +1628,91 @@ async function requestSavepoint(
 }
 
 /**
+ * A `db.transaction()` callback outside a request — `register()`, a timer, an
+ * event delivery, a service an inline caller invoked (owner decision 4): the
+ * host's own transaction, on a connection of its own, as the scope a lone
+ * statement of the same work runs as (the invocation's tenant and caller, or
+ * none). `begin` opens it, the outermost `release` commits it, the outermost
+ * `rollback` rolls it back; nested ones are savepoints, as in a request. The
+ * request's hard timeout and its role and GUC hygiene apply unchanged.
+ */
+interface HostTxn {
+  txn: RequestTxn;
+  /** The invocation it was opened in; every statement on it must name the same. */
+  requestId?: string;
+}
+
+/** Host transactions one worker may hold open at once: each holds a pooled connection. */
+const MAX_HOST_TXNS = 4;
+
+async function hostTxnStatement(
+  managed: ManagedWorker,
+  msg: Extract<WorkerToHostMessage, { type: 'db:query' }>,
+  id: string,
+  scope: InvokeScope | undefined,
+): Promise<unknown[]> {
+  managed.hostTxns ??= new Map();
+  const { savepoint: op } = msg;
+  let open = managed.hostTxns.get(id);
+  if (open && open.requestId !== msg.requestId) {
+    throw new Error(`database transaction ${id} belongs to other work`);
+  }
+  if (!open) {
+    // Ended already (timed out, its worker work over): nothing left to undo.
+    if (op === 'rollback') return [];
+    if (op !== 'begin') throw new Error(`database transaction ${id} is over (or was never opened)`);
+    for (const [k, t] of managed.hostTxns) if (t.txn.over) managed.hostTxns.delete(k);
+    if (managed.hostTxns.size >= MAX_HOST_TXNS) {
+      throw new Error(
+        `db.transaction() refused: "${managed.name}" already holds ${MAX_HOST_TXNS} open ` +
+          'transactions outside a request',
+      );
+    }
+    open = { txn: newRequestTxn(), requestId: msg.requestId };
+    managed.hostTxns.set(id, open);
+    try {
+      // BEGIN now, so the hard timeout counts from the callback's start.
+      return await inRequestTxn(
+        open.txn,
+        managed.name,
+        scope ?? { tenantId: null },
+        async () => [],
+      );
+    } catch (err) {
+      endHostTxn(managed, id);
+      throw err;
+    }
+  }
+  const inTxn = { tenantId: null, ...scope, txn: open.txn };
+  if (!op) return runRawWithParams(managed.name, msg.sql, msg.params, inTxn);
+  if (op === 'begin' || open.txn.savepoints.length > 0) {
+    return requestSavepoint(managed.name, inTxn, op);
+  }
+  managed.hostTxns.delete(id);
+  const commit = op === 'release';
+  const earlier = open.txn.over;
+  if (!(await endRequestTxn(open.txn, commit)) && commit) {
+    throw new Error(
+      'the database transaction could not be committed; nothing it wrote was kept ' +
+        `(${earlier ?? 'COMMIT failed'})`,
+    );
+  }
+  return [];
+}
+
+/** Roll back and forget a host transaction, if it is still open. */
+function endHostTxn(managed: ManagedWorker, id: string, why?: string): void {
+  const open = managed.hostTxns?.get(id);
+  if (!open) return;
+  managed.hostTxns?.delete(id);
+  void endRequestTxn(open.txn, false, why);
+}
+
+/**
  * One statement for `extName`: inside its request's transaction when it serves a
  * route (RFC step 8), else in a transaction of its own — background work
  * (`register()`, timers, events, a service an inline caller invoked) has no
- * request whose answer could commit it.
+ * request whose answer could commit it, unless it opened one (`hostTxnStatement`).
  */
 async function runRawWithParams(
   extName: string,

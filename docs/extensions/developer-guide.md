@@ -2014,7 +2014,10 @@ proxies SQL queries through its own pool.
   inline: committed when the handler answers, rolled back when it throws,
   times out (30 s) or the worker dies; `db.transaction()` is a savepoint in
   it. Outside a request (`register()`, timers, events) each statement
-  commits on its own and `db.transaction()` is refused
+  commits on its own, and `db.transaction().execute(cb)` is a transaction
+  the engine holds for the callback: committed when `cb` resolves, rolled
+  back when it throws, times out (30 s) or the worker dies; nested calls
+  are savepoints. At most 4 open at once per extension
 - **Limitations:** no streaming responses (body buffered as text),
   worker-published services routed via the host registry bridge
 - **Use for:** third-party / community extensions where the

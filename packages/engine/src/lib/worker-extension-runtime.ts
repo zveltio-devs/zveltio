@@ -102,6 +102,19 @@ console.debug = console.log;
 const invocation = new AsyncLocalStorage<{ id: string; user?: unknown; threw?: boolean }>();
 
 /**
+ * The `db.transaction()` callback a statement runs in, by an id minted here. The
+ * host decides what it names: inside a request, nothing (the request is the
+ * transaction, and a nested callback a savepoint); outside one, a transaction
+ * the host opens for this callback alone (owner decision 4).
+ */
+const transaction = new AsyncLocalStorage<string>();
+
+/** Run a `db.transaction()` callback; one nested in another keeps the outer id. */
+function inTransaction<T>(run: () => Promise<T>): Promise<T> {
+  return transaction.getStore() ? run() : transaction.run(rpcId('txn'), run);
+}
+
+/**
  * A query across the worker boundary, answered in the inline driver's shape:
  * the rows carry the affected-row `count`, and an error its SQLSTATE in `errno`
  * (and the driver's `code`), as Bun.SQL does.
@@ -125,7 +138,16 @@ async function dbExecute(
       }
     });
     const requestId = invocation.getStore()?.id;
-    send({ type: 'db:query', id, sql, params, requestId, ...(savepoint ? { savepoint } : {}) });
+    const txn = transaction.getStore();
+    send({
+      type: 'db:query',
+      id,
+      sql,
+      params,
+      requestId,
+      ...(savepoint ? { savepoint } : {}),
+      ...(txn ? { txn } : {}),
+    });
   });
 }
 
@@ -270,6 +292,7 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     const { ctx, settled } = buildWorkerCtx({
       query: dbExecute,
       savepoint: (op) => dbExecute('', [], op),
+      transaction: inTransaction,
       host: hostCall,
       serviceCall,
       registerService,
