@@ -178,12 +178,32 @@ jobs:
         # All three are self-contained bundles committed in this repo
         # so the smoke job doesn't depend on registry.zveltio.com or
         # zveltio-extensions sibling clones.
+        # Outside the workspace and world-readable: hello-ext-worker runs on the
+        # extension runner under a uid of its own, which must read its bundle.
         run: |
-          mkdir -p ./extensions
-          cp -r packages/engine/src/tests/fixtures/hello-ext ./extensions/hello-ext
-          cp -r packages/engine/src/tests/fixtures/hello-ext-worker ./extensions/hello-ext-worker
-          cp -r packages/engine/src/tests/fixtures/hello-ext-global ./extensions/hello-ext-global
-          cp -r packages/engine/src/tests/fixtures/hello-ext-uionly ./extensions/hello-ext-uionly
+          sudo install -d -o "$(id -u)" -m 0755 /opt/zveltio-smoke/extensions
+          for f in hello-ext hello-ext-worker hello-ext-global hello-ext-uionly; do
+            cp -r "packages/engine/src/tests/fixtures/$f" "/opt/zveltio-smoke/extensions/$f"
+          done
+          chmod -R a+rX /opt/zveltio-smoke/extensions
+
+      - name: Start the extension runner
+        # Production runs worker-isolated extensions only on the runner (RFC
+        # extension-runner, step 9) and refuses them without one. Container
+        # mode, as the release compose runs it: root, a uid per extension from
+        # the base, serving only the engine's uid. The binary is copied where
+        # those uids can execute it.
+        run: |
+          sudo install -m 0755 zveltio-linux-x64 /usr/local/bin/zveltio-smoke-runner
+          sudo install -d -m 0755 /run/zveltio-ext
+          sudo env ZVELTIO_ENGINE_UID="$(id -u)" ZVELTIO_EXT_RUNNER_UID_BASE=200000 \
+            ZVELTIO_EXT_RUNNER_SOCKET=/run/zveltio-ext/runner.sock NODE_ENV=production \
+            /usr/local/bin/zveltio-smoke-runner ext-runner >/tmp/ext-runner.log 2>&1 &
+          for i in $(seq 1 30); do
+            [ -S /run/zveltio-ext/runner.sock ] && exit 0
+            sleep 1
+          done
+          echo "::error::the extension runner did not listen in 30s"; cat /tmp/ext-runner.log; exit 1
 
       - name: Boot binary + smoke marketplace enable
         env:
@@ -192,7 +212,8 @@ jobs:
           BETTER_AUTH_SECRET: smoke-secret-32-chars-long-zzzzzz
           BETTER_AUTH_URL: http://localhost:3000
           ENCRYPTION_KEY: smoke-encryption-key-32-bytes-aaaaaaaaaaaaaaaa
-          EXTENSIONS_DIR: ${{ github.workspace }}/extensions
+          EXTENSIONS_DIR: /opt/zveltio-smoke/extensions
+          ZVELTIO_EXT_RUNNER_SOCKET: /run/zveltio-ext/runner.sock
           PORT: '3000'
           NODE_ENV: production
         run: |
@@ -290,6 +311,7 @@ jobs:
           if ! grep -q '"success":true' /tmp/enable-worker.json; then
             echo "::error::hello-ext-worker enable failed — likely a worker-host wiring regression."
             echo "::error::Body: $(cat /tmp/enable-worker.json)"
+            cat /tmp/ext-runner.log
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
 
