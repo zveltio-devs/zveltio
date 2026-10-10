@@ -2000,9 +2000,19 @@ proxies SQL queries through its own pool.
   per-extension memory limits.
 - **DB credentials:** ✅ — worker never sees `DATABASE_URL`. Every
   query crosses the IPC boundary; the host gatekeeps execution
+- **The same `ctx`:** `db` (Kysely, plus the raw `db.query()`), `auth`,
+  `checkPermission`, `events` (`on`/`emit`/`emitAsync`), `config` and
+  `services`, each answered by the host with the inline rules. A worker's
+  `checkPermission` answers for the request's user only, and its events are
+  its own `<name>.*` (and, for `on`, its declared dependencies'). Members
+  that act inside the engine — `internals`, `fieldTypeRegistry`,
+  `queryAlter`, `entityAccess`, `adminDb`, `DDLManager`,
+  `registerPublicRoute`, `onHealthCheck`, `getUserRoles`,
+  `events.onBefore` — fail the load by name
 - **Limitations:** no streaming responses (body buffered as text),
-  no cross-process transactions (each `db.query()` is independent),
-  worker-published services routed via the host registry bridge
+  no cross-process transactions (each statement commits on its own, and
+  `db.transaction()` is refused), worker-published services routed via
+  the host registry bridge
 - **Use for:** third-party / community extensions where the
   publisher isn't audited, code where crash isolation matters more
   than the latency cost

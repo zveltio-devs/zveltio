@@ -66,7 +66,7 @@ export default {
     );
     app.get('/inline-svc', async (c) => {
       try {
-        return c.json({ ok: true, out: await ctx.services.get('${INLINE_SVC}', []) });
+        return c.json({ ok: true, out: await ctx.services.get('${INLINE_SVC}')() });
       } catch (e) { return c.json({ ok: false, error: e.message }, 500); }
     });
   },
@@ -79,7 +79,7 @@ export default {
   async register(app, ctx) {
     app.get('/fwd', async (c) => {
       try {
-        return c.json({ ok: true, rows: await ctx.services.get('${WORKER}.rows', []) });
+        return c.json({ ok: true, rows: await ctx.services.get('${WORKER}.rows')() });
       } catch (e) { return c.json({ ok: false, error: e.message }, 500); }
     });
   },

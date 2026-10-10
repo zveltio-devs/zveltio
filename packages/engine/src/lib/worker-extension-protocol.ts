@@ -36,6 +36,8 @@ export interface InitRequest {
     NODE_ENV?: string;
     extensionPath: string;
   };
+  /** The extension's own `ctx.config`, as `buildRestrictedContext` resolved it inline. */
+  config?: unknown;
 }
 
 export interface InitResponse {
@@ -65,8 +67,12 @@ export interface RouteInvokeRequest {
   headers: Record<string, string>;
   query: Record<string, string>;
   body?: string; // JSON or text; binary not supported in C-minimal
-  // Identity surface the host stitched in. Worker treats as read-only.
-  user?: { id: string; email: string };
+  /**
+   * What `c.get('user')` reads inline: the session user or API-key principal
+   * the `/ext/*` gate admitted. The worker's handlers see it; the host never
+   * reads it back — host calls are answered from its own record of the request.
+   */
+  user?: unknown;
   tenantId?: string;
 }
 
@@ -77,6 +83,8 @@ export interface RouteInvokeResponse {
   headers?: Record<string, string>;
   body?: string;
   error?: string;
+  /** The SQLSTATE of an error the handler did not catch, for the host's `problemOnError`. */
+  errno?: string;
 }
 
 // ── DB ──────────────────────────────────────────────────────────────
@@ -137,6 +145,32 @@ export interface ServiceCallResponse {
   status?: number;
 }
 
+// ── Host calls (worker → host): the ctx members only the host can answer ──
+
+/**
+ * `ctx.checkPermission`, `ctx.auth.api.getSession`, `ctx.events.emit|on|off`
+ * (RFC extension-runner step 7). Identity is never an argument: the host answers
+ * as the request `requestId` names, from its own record of it, as for a query.
+ */
+export type HostCallOp = 'checkPermission' | 'getSession' | 'emit' | 'on' | 'off';
+
+export interface HostCallRequest {
+  type: 'host:call';
+  id: WorkerMessageId;
+  op: HostCallOp;
+  args: unknown[];
+  requestId?: WorkerMessageId;
+}
+
+export interface HostCallResponse {
+  type: 'host:ok' | 'host:err';
+  id: WorkerMessageId;
+  result?: unknown;
+  error?: string;
+  /** As on `ServiceCallResponse`: the status a route answers with if it does not catch. */
+  status?: number;
+}
+
 // ── Log forwarding (worker → host) ──────────────────────────────────
 
 export interface LogMessage {
@@ -179,7 +213,8 @@ export interface ServiceRegisterResponse {
  * service's queries and calls name it as `requestId`.
  */
 export interface ServiceInvokeRequest {
-  type: 'service:invoke';
+  /** `event:deliver`: an event the worker subscribed to with `ctx.events.on`, `name` its listener. */
+  type: 'service:invoke' | 'event:deliver';
   id: WorkerMessageId;
   name: string;
   args: unknown[];
@@ -202,7 +237,8 @@ export type HostToWorkerMessage =
   | ServiceCallResponse
   | PingRequest
   | ServiceRegisterResponse
-  | ServiceInvokeRequest;
+  | ServiceInvokeRequest
+  | HostCallResponse;
 
 export type WorkerToHostMessage =
   | InitResponse
@@ -212,4 +248,5 @@ export type WorkerToHostMessage =
   | LogMessage
   | PongResponse
   | ServiceRegisterRequest
-  | ServiceInvokeResponse;
+  | ServiceInvokeResponse
+  | HostCallRequest;

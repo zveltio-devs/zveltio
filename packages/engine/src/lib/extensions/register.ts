@@ -683,6 +683,12 @@ async function registerExtensionRoutes(
       isolation.entry,
       isolation.dependencies,
       serviceDeps,
+      // The worker's ctx members the host answers, from this same inline context.
+      {
+        config: restrictedCtx.config,
+        checkPermission: restrictedCtx.checkPermission,
+        auth: restrictedCtx.auth,
+      },
     );
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();

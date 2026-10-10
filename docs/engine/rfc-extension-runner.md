@@ -2,11 +2,12 @@
 
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
 [Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension), 4
-(container runner), 5 (edge functions, opt-in) and 6 (a faithful SQL bridge) are done. Decision 5 (2026-10-09,
+(container runner), 5 (edge functions, opt-in), 6 (a faithful SQL bridge) and 7 (one `ctx`
+contract) are done. Decision 5 (2026-10-09,
 from a measured experiment) keeps first-party extensions inline and puts three
 steps before the default flip: a faithful SQL bridge (6), the same `ctx` contract
 out of process as inline (7) and one database transaction per request across the
-bridge (8). Step 7 is next.
+bridge (8). Step 7 is done; step 8 is next.
 
 ## Problem
 
@@ -338,6 +339,24 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    broker with the same rules it has inline. What cannot cross the boundary
    (field types, engine-side hooks, `ctx.internals`) is refused at load with a
    clear error, not discovered as a 500.
+   **Done:** the worker's `ctx` (`lib/worker-extension-ctx.ts`) is Kysely over a
+   driver that sends each compiled statement across the bridge (Kysely's own
+   Postgres compiler, bundled into the runtime; `db.query()` kept), the request's
+   `c.get('user')` (session or API-key principal) and `auth.api.getSession()`,
+   `checkPermission`, `events.on|emit|emitAsync`, its own `config` and a
+   `services.get` that returns the function. The host answers each `host:call`
+   with the inline context's own member, run in the request's async context and
+   only for the request the host recorded: `checkPermission` refuses any user but
+   the request's, and a worker emits only its own `<name>.*` events and listens
+   only to those and its declared dependencies' (an engine `record.*` payload
+   carries rows its reads would not return). Members that act inside the engine
+   process throw by name when touched, so `register()` fails the load; an
+   uncaught SQLSTATE answers as inline (22P02 → 400, 55P03 → 503)
+   (`tests/harness/worker-ctx-parity.test.ts`: the same extension inline and on
+   both transports). Still open: `db.transaction()` is refused until step 8;
+   `services.get` cannot answer `null` synchronously for a service that is not
+   there, so the call fails instead; `getUserRoles`, `describeDenial`,
+   `services.has|waitFor|list` and the other `auth.api` methods are absent.
 8. **One transaction per request across the bridge.** Each bridged statement runs
    today in its own host transaction (≈7 database round-trips where inline does 1)
    and BEGIN/COMMIT/SAVEPOINT are refused, so a multi-statement write is not

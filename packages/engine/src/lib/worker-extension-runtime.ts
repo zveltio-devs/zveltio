@@ -9,8 +9,8 @@
  *      `ZveltioExtension`.
  *   2. Constructs a shadow Hono — every route registered against it
  *      lands in `this.routes` rather than mounting at the engine root.
- *   3. Constructs a shadow `ExtensionContext` whose `db` and `services`
- *      proxy each call back to the host via postMessage.
+ *   3. Constructs the extension's `ctx` (worker-extension-ctx.ts): the
+ *      inline surface, each member a message to the host.
  *   4. Calls `extension.register(shadowApp, shadowCtx)`.
  *   5. Posts the route table back via `InitResponse`.
  *
@@ -20,10 +20,14 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { sqlState } from '../db/bun-sql-quirks.js';
 import { createSafeFetch } from './edge-functions/safe-fetch.js';
+import { buildWorkerCtx } from './worker-extension-ctx.js';
 import type {
+  HostCallOp,
+  HostCallResponse,
   HostToWorkerMessage,
   WorkerToHostMessage,
   RouteDescriptor,
@@ -42,11 +46,14 @@ declare const self: {
 
 let nextId = 0;
 const pendingDbQueries = new Map<string, (res: DbQueryResponse) => void>();
-const pendingServiceCalls = new Map<string, (res: ServiceCallResponse) => void>();
+/** `service:call` and `host:call`, answered alike. */
+const pendingCalls = new Map<string, (res: ServiceCallResponse | HostCallResponse) => void>();
 const pendingServiceRegistrations = new Map<string, (res: ServiceRegisterResponse) => void>();
 
 /** Services this worker registered. Host invokes them via service:invoke. */
 const localServices = new Map<string, (...args: unknown[]) => unknown>();
+/** `ctx.events.on` listeners, by the key the host delivers them under. */
+const localListeners = new Map<string, (...args: unknown[]) => unknown>();
 
 /**
  * In a worker thread the host talks through `postMessage`; as a runner process
@@ -108,7 +115,7 @@ if (asProcess) {
  * The protocol always had the field and the host always looked it up; this side
  * never sent it, so every worker query ran with no tenant.
  */
-const invocation = new AsyncLocalStorage<string>();
+const invocation = new AsyncLocalStorage<{ id: string; user?: unknown }>();
 
 /**
  * A query across the worker boundary, answered in the inline driver's shape:
@@ -129,69 +136,60 @@ async function dbExecute(sql: string, params: unknown[]): Promise<unknown[]> {
         );
       }
     });
-    send({ type: 'db:query', id, sql, params, requestId: invocation.getStore() });
+    send({ type: 'db:query', id, sql, params, requestId: invocation.getStore()?.id });
   });
 }
 
-/** Service call across the boundary. Stringly-typed by design. */
-async function serviceCall(name: string, args: unknown[]): Promise<unknown> {
+/** A call the host answers; `send` names the request it serves. */
+function call(send: (id: string) => void): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const id = rpcId('svc');
-    pendingServiceCalls.set(id, (res) => {
-      if (res.type === 'service:ok') {
+    const id = rpcId('call');
+    pendingCalls.set(id, (res) => {
+      if (res.type === 'service:ok' || res.type === 'host:ok') {
         resolve(res.result);
       } else if (res.status) {
         // Hono answers an uncaught HTTPException with its own status.
         reject(new HTTPException(res.status as 503, { message: res.error }));
       } else {
-        reject(new Error(res.error ?? 'service call failed'));
+        reject(new Error(res.error ?? 'call failed'));
       }
     });
-    // The request it serves, as for a query: the host answers the call as that
-    // request's tenant, looked up in its own record.
-    send({ type: 'service:call', id, name, args, requestId: invocation.getStore() });
+    send(id);
   });
 }
 
-/**
- * Build a minimal ExtensionContext shape that proxies to the host.
- * Extension code sees a normal-looking ctx; under the hood every
- * db/services call crosses IPC.
- */
-function buildShadowCtx() {
-  // We deliberately don't ship a full Kysely instance here — most
-  // worker-mode extensions interact via raw SQL through ctx.db.raw()
-  // or through services published by other extensions. A future
-  // iteration can wire a Kysely proxy dialect on top of dbExecute.
-  return {
-    db: {
-      // Raw query helper for extensions that build SQL themselves.
-      query: <R = unknown>(sql: string, ...params: unknown[]): Promise<R[]> =>
-        dbExecute(sql, params) as Promise<R[]>,
-    },
-    services: {
-      register: (name: string, impl: (...args: unknown[]) => unknown): void => {
-        // Bridge through to the host registry — the host wraps this
-        // worker so other extensions can call back via service:invoke.
-        if (typeof impl !== 'function') {
-          throw new Error(`ctx.services.register("${name}"): impl must be a function`);
-        }
-        localServices.set(name, impl);
-        const id = rpcId('reg');
-        // Fire-and-forget — register() returns void synchronously in
-        // the SDK contract. Failures are surfaced via console; the
-        // service simply won't be reachable.
-        pendingServiceRegistrations.set(id, (res) => {
-          if (res.type === 'service:register:err') {
-            console.error(`[worker] failed to register service "${name}" with host: ${res.error}`);
-            localServices.delete(name);
-          }
-        });
-        send({ type: 'service:register', id, name });
-      },
-      get: serviceCall,
-    },
-  };
+/** Service call across the boundary. Stringly-typed by design. */
+function serviceCall(name: string, args: unknown[]): Promise<unknown> {
+  // The request it serves, as for a query: the host answers the call as that
+  // request's tenant, looked up in its own record.
+  const requestId = invocation.getStore()?.id;
+  return call((id) => send({ type: 'service:call', id, name, args, requestId }));
+}
+
+/** A ctx member only the host can answer (worker-extension-ctx.ts). */
+function hostCall(op: HostCallOp, args: unknown[]): Promise<unknown> {
+  const requestId = invocation.getStore()?.id;
+  return call((id) => send({ type: 'host:call', id, op, args, requestId }));
+}
+
+function registerService(name: string, impl: (...args: unknown[]) => unknown): void {
+  // Bridge through to the host registry — the host wraps this worker so other
+  // extensions can call back via service:invoke.
+  if (typeof impl !== 'function') {
+    throw new Error(`ctx.services.register("${name}"): impl must be a function`);
+  }
+  localServices.set(name, impl);
+  const id = rpcId('reg');
+  // Fire-and-forget — register() returns void synchronously in the SDK
+  // contract. Failures are surfaced via console; the service simply won't be
+  // reachable.
+  pendingServiceRegistrations.set(id, (res) => {
+    if (res.type === 'service:register:err') {
+      console.error(`[worker] failed to register service "${name}" with host: ${res.error}`);
+      localServices.delete(name);
+    }
+  });
+  send({ type: 'service:register', id, name });
 }
 
 let shadowApp: Hono | null = null;
@@ -200,7 +198,8 @@ function collectRoutes(app: Hono): RouteDescriptor[] {
   // Hono v4 exposes `.routes` as an array of { method, path, handler }.
   const out: RouteDescriptor[] = [];
   for (const r of (app as unknown as { routes: { method: string; path: string }[] }).routes) {
-    out.push({ method: r.method, path: r.path });
+    // Middleware (`use`, and the runtime's own below): nothing the host mounts.
+    if (r.method !== 'ALL') out.push({ method: r.method, path: r.path });
   }
   return out;
 }
@@ -263,8 +262,32 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
       });
       return;
     }
-    shadowApp = new Hono();
-    await extension.register(shadowApp, buildShadowCtx());
+    const app = new Hono();
+    // What `c.get('user')` reads inline: the principal the `/ext/*` gate admitted.
+    app.use('*', async (c, next) => {
+      const user = invocation.getStore()?.user;
+      if (user) c.set('user' as never, user as never);
+      await next();
+    });
+    app.onError(onRouteError);
+    // A router from the extension's own bundled Hono keeps that copy's default
+    // handler (the identity check `propagateErrorHandler` in register.ts explains).
+    const route = app.route.bind(app);
+    app.route = ((path: string, sub: { onError?: (h: typeof onRouteError) => unknown }) => {
+      sub?.onError?.(onRouteError);
+      return route(path, sub as Hono);
+    }) as typeof app.route;
+    const { ctx, settled } = buildWorkerCtx({
+      query: dbExecute,
+      host: hostCall,
+      serviceCall,
+      registerService,
+      listeners: localListeners,
+      config: msg.config,
+    });
+    await extension.register(app, ctx);
+    await settled();
+    shadowApp = app;
     send({
       type: 'init:ok',
       id: msg.id,
@@ -277,6 +300,18 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
       error: (err as Error).message,
     });
   }
+}
+
+/**
+ * An uncaught error carrying a SQLSTATE goes to the host's `problemOnError`, as
+ * an inline route's does (22P02 → 400, 55P03 → 503); anything else as Hono's
+ * default answers it.
+ */
+function onRouteError(err: Error, c: Context): Response {
+  if (sqlState(err)) throw err;
+  if ('getResponse' in err) return (err as HTTPException).getResponse();
+  console.error(err);
+  return c.text('Internal Server Error', 500);
 }
 
 async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
@@ -296,7 +331,7 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       body: msg.body,
     });
     const app = shadowApp;
-    const res = await invocation.run(msg.id, () => app.fetch(req));
+    const res = await invocation.run({ id: msg.id, user: msg.user }, () => app.fetch(req));
     const body = await res.text();
     const headers: Record<string, string> = {};
     res.headers.forEach((v, k) => {
@@ -310,24 +345,30 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       body,
     });
   } catch (err) {
-    send({ type: 'route:err', id: msg.id, error: (err as Error).message });
+    const errno = sqlState(err);
+    send({
+      type: 'route:err',
+      id: msg.id,
+      error: (err as Error).message,
+      ...(errno ? { errno } : {}),
+    });
   }
 }
 
 async function handleServiceInvoke(msg: ServiceInvokeRequest): Promise<void> {
-  const impl = localServices.get(msg.name);
+  const impl = (msg.type === 'event:deliver' ? localListeners : localServices).get(msg.name);
   if (!impl) {
     send({
       type: 'service:invoke:err',
       id: msg.id,
-      error: `service "${msg.name}" not registered in this worker`,
+      error: `${msg.type === 'event:deliver' ? 'listener' : 'service'} "${msg.name}" not registered in this worker`,
     });
     return;
   }
   try {
     // The host minted this id as an invocation of its own, recorded under the
     // CALLER's tenant, so the service's queries name it exactly as a route's do.
-    const result = await invocation.run(msg.id, () => Promise.resolve(impl(...msg.args)));
+    const result = await invocation.run({ id: msg.id }, () => Promise.resolve(impl(...msg.args)));
     send({ type: 'service:invoke:ok', id: msg.id, result });
   } catch (err) {
     send({ type: 'service:invoke:err', id: msg.id, error: (err as Error).message });
@@ -352,6 +393,7 @@ function dispatch(msg: HostToWorkerMessage): void {
       send({ type: 'pong', id: msg.id });
       break;
     case 'service:invoke':
+    case 'event:deliver':
       void handleServiceInvoke(msg);
       break;
     case 'service:register:ok':
@@ -373,10 +415,12 @@ function dispatch(msg: HostToWorkerMessage): void {
       break;
     }
     case 'service:ok':
-    case 'service:err': {
-      const cb = pendingServiceCalls.get(msg.id);
+    case 'service:err':
+    case 'host:ok':
+    case 'host:err': {
+      const cb = pendingCalls.get(msg.id);
       if (cb) {
-        pendingServiceCalls.delete(msg.id);
+        pendingCalls.delete(msg.id);
         cb(msg);
       }
       break;
