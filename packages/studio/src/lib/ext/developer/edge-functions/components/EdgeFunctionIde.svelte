@@ -9,17 +9,32 @@ import { toast } from '$lib/stores/toast.svelte.js';
 const API = '/ext/developer/edge-functions';
 
 type FnMeta = { id: string; name: string; is_active?: boolean; description?: string | null };
-type FnFull = FnMeta & { code?: string | null };
+type FnFull = FnMeta & { code?: string | null; egress?: string[] | null };
+
+/**
+ * What the function may reach — its `egress`. Saving it is the approval, so the
+ * three answers are spelled out rather than folded into an empty field:
+ * undeclared keeps the engine's network, `none` and `hosts` move it to the
+ * extension runner where the engine performs its fetch, held to the list.
+ */
+type EgressMode = 'undeclared' | 'none' | 'hosts';
 
 let list = $state<FnMeta[]>([]);
 let activeId = $state<string | null>(null);
 let code = $state('export default async function handler(ctx) {\n  return { ok: true };\n}\n');
 let name = $state('');
+let egressMode = $state<EgressMode>('undeclared');
+let egressHosts = $state('');
 let invokeBody = $state('{}');
 let invokeOut = $state('');
 let loading = $state(true);
 let saving = $state(false);
 let invoking = $state(false);
+
+const egressList = $derived(egressHosts.split(/[\s,]+/).filter(Boolean));
+const egressPayload = $derived(
+  egressMode === 'undeclared' ? null : egressMode === 'none' ? [] : egressList,
+);
 
 async function loadList(): Promise<void> {
   loading = true;
@@ -41,6 +56,8 @@ async function openFn(id: string): Promise<void> {
     const fn = (r as { function?: FnFull }).function ?? (r as FnFull);
     name = fn.name ?? '';
     code = fn.code ?? '';
+    egressMode = fn.egress == null ? 'undeclared' : fn.egress.length ? 'hosts' : 'none';
+    egressHosts = (fn.egress ?? []).join(', ');
     invokeOut = '';
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to open');
@@ -67,7 +84,7 @@ async function save(): Promise<void> {
   if (!activeId || saving) return;
   saving = true;
   try {
-    await api.patch(`${API}/${activeId}`, { code, name });
+    await api.patch(`${API}/${activeId}`, { code, name, egress: egressPayload });
     toast.success('Saved');
     await loadList();
   } catch (err) {
@@ -146,6 +163,33 @@ $effect(() => {
           <Play size={14} /> Invoke
         </button>
       </header>
+      <div class="px-3 py-2 border-b border-base-300 flex flex-wrap gap-2 items-center text-xs">
+        <label class="flex items-center gap-2">
+          <span class="opacity-70">Network</span>
+          <select class="select select-bordered select-xs" bind:value={egressMode} aria-label="Network access">
+            <option value="undeclared">Not declared</option>
+            <option value="none">No network</option>
+            <option value="hosts">Only these hosts</option>
+          </select>
+        </label>
+        {#if egressMode === 'hosts'}
+          <input
+            class="input input-bordered input-xs font-mono flex-1 min-w-[12rem]"
+            placeholder="api.stripe.com, hooks.slack.com:8443"
+            aria-label="Hosts this function may reach"
+            bind:value={egressHosts}
+          />
+        {/if}
+        <span class="w-full opacity-70" role="status">
+          {#if egressMode === 'undeclared'}
+            Runs with the engine's network. Declare its hosts to run it isolated.
+          {:else if egressMode === 'none' || egressList.length === 0}
+            Can reach: nothing.
+          {:else}
+            Can reach: <span class="font-mono">{egressList.join(', ')}</span> — saving approves this.
+          {/if}
+        </span>
+      </div>
       <textarea class="textarea rounded-none border-0 border-b border-base-300 font-mono text-xs flex-1 min-h-[12rem]" bind:value={code}></textarea>
       <div class="grid grid-cols-2 gap-0 min-h-[8rem] border-t border-base-300">
         <div class="p-2 border-r border-base-300 flex flex-col">
