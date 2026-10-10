@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function tmpExt(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), 'zv-entry-deps-'));
@@ -24,7 +25,6 @@ function tmpExt(files: Record<string, string>): string {
 let savedExtDir: string | undefined;
 let savedDevReload: string | undefined;
 let savedNodeEnv: string | undefined;
-let savedInline: string | undefined;
 
 afterEach(() => {
   if (savedExtDir === undefined) delete process.env.EXTENSIONS_DIR;
@@ -33,8 +33,7 @@ afterEach(() => {
   else process.env.ZVELTIO_EXTENSION_DEV_RELOAD = savedDevReload;
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = savedNodeEnv;
-  if (savedInline === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-  else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = savedInline;
+  _setInlineForTests(false);
 });
 
 describe('loadExtensionFromDir — entry path failure', () => {
@@ -42,10 +41,9 @@ describe('loadExtensionFromDir — entry path failure', () => {
     savedExtDir = process.env.EXTENSIONS_DIR;
     savedDevReload = process.env.ZVELTIO_EXTENSION_DEV_RELOAD;
     savedNodeEnv = process.env.NODE_ENV;
-    savedInline = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
     process.env.EXTENSIONS_DIR = mkdtempSync(join(tmpdir(), 'zv-extbase-empty-'));
     process.env.ZVELTIO_EXTENSION_DEV_RELOAD = '1';
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     process.env.NODE_ENV = 'development';
 
     const base = tmpExt({

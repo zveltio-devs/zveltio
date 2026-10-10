@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function tmpExt(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), 'zv-ft-'));
@@ -44,12 +45,12 @@ function fakeLoader(): any {
 const app = new Hono();
 
 afterEach(() => {
-  delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+  _setInlineForTests(false);
 });
 
 describe('loadExtensionFromDir — field types', () => {
   it('calls registerFieldTypes on the shared field type registry', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = tmpExt({
       'ft-ext/manifest.json': JSON.stringify({
         name: 'ft-ext',

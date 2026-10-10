@@ -10,6 +10,7 @@ import { cronRunner } from '../../lib/runtime/index.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function fakeLoader(): ExtensionLoader {
   const db = new CannedDb();
@@ -24,13 +25,13 @@ function fakeLoader(): ExtensionLoader {
 }
 
 afterEach(() => {
-  process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = undefined;
+  _setInlineForTests(false);
   cronRunner.unregisterAll('sched-ok');
 });
 
 describe('finalizeExtensionLoad — schedules success log', () => {
   it('logs how many schedules were registered when schedules() returns entries', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const log = spyOn(console, 'log').mockImplementation(() => {});
     const registerSpy = spyOn(cronRunner, 'register').mockImplementation(() => {});
     try {

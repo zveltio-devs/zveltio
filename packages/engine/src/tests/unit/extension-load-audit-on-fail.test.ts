@@ -12,6 +12,7 @@ import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function fakeLoader(): ExtensionLoader {
   const db = new CannedDb();
@@ -40,12 +41,12 @@ function tmpExt(files: Record<string, string>): string {
 }
 
 afterEach(() => {
-  delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+  _setInlineForTests(false);
 });
 
 describe('loadExtensionFromDir — audit on load failure', () => {
   it('records lastLoadError when import fails even if the failure audit log rejects', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
     const auditSpy = spyOn(audit, 'auditLog').mockRejectedValue(new Error('audit unavailable'));
     try {

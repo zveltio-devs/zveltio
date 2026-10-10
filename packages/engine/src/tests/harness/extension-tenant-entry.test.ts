@@ -30,6 +30,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -47,7 +48,6 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
   const bags: Record<string, ExtensionInternals> = {};
   const adminDbs: Record<string, Database> = {};
   let later: Promise<unknown> = Promise.resolve();
-  const inlineBefore = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
 
   /** Rows of the seeded table the entered transaction can see, by firm. */
   const peek = (internals: ExtensionInternals, tenant: string) =>
@@ -120,7 +120,7 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
     _resetExtensionDbRoleForTests();
     let engine: Hono;
     ({ app: engine, db } = await getTestApp());
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     member = await createMemberSession(engine, db);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
@@ -140,8 +140,7 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
   }, 60_000);
 
   afterAll(async () => {
-    if (inlineBefore === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-    else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = inlineBefore;
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${NOCAP}, ${ADMIN}, ${ENTER})`.execute(

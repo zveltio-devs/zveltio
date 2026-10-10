@@ -10,6 +10,7 @@ import * as audit from '../../lib/audit.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function fakeLoader(): ExtensionLoader {
   const db = new CannedDb();
@@ -24,12 +25,12 @@ function fakeLoader(): ExtensionLoader {
 }
 
 afterEach(() => {
-  process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = undefined;
+  _setInlineForTests(false);
 });
 
 describe('finalizeExtensionLoad — audit resilience', () => {
   it('still marks the extension loaded when the success audit log rejects', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
     const auditSpy = spyOn(audit, 'auditLog').mockRejectedValue(new Error('audit down'));
     try {

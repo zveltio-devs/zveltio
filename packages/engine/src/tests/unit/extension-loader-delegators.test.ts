@@ -17,18 +17,17 @@ import * as marketplaceRoutes from '../../lib/extensions/extension-marketplace-r
 import * as migrationRunner from '../../lib/extensions/migration-runner.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const { triggerReload } = _internalForTests;
 const noApp = new Hono();
 
 let savedNodeEnv: string | undefined;
-let savedInline: string | undefined;
 
 afterEach(() => {
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = savedNodeEnv;
-  if (savedInline === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-  else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = savedInline;
+  _setInlineForTests(false);
   delete process.env.EXTENSIONS_DIR;
   setReloadCallback(async () => {});
 });
@@ -97,8 +96,7 @@ describe('ExtensionLoader delegators', () => {
   });
 
   it('loadExtension loads a bundled inline extension end-to-end', async () => {
-    savedInline = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = mkdtempSync(join(tmpdir(), 'zv-deleg-'));
     process.env.EXTENSIONS_DIR = base;
     const name = 'deleg-inline';

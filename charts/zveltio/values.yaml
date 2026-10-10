@@ -222,10 +222,11 @@ podDisruptionBudget:
 # connection. Limit: a sidecar shares the pod's network, so the pod's
 # NetworkPolicy is also the extensions' egress policy.
 # Production runs third-party extensions only here (step 9): disabled, the
-# engine refuses them. Off by default because the sidecar needs the `baseline`
-# Pod Security level (root with SETUID/SETGID/KILL).
+# engine refuses them. On by default; the sidecar needs the `baseline` Pod
+# Security level (root with SETUID/SETGID/KILL), so a namespace enforcing
+# `restricted` sets `enabled: false` and runs first-party extensions only.
 extRunner:
-  enabled: false
+  enabled: true
   # First uid given to an extension process; the next 65535 are reserved.
   uidBase: 200000
   resources:

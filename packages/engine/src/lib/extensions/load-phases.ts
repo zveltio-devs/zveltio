@@ -302,6 +302,19 @@ export function enforceRunnerInProduction(
   return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
 }
 
+let inlineForTests = false;
+
+/**
+ * Tests only: let any extension load inline, as the removed
+ * ZVELTIO_ALLOW_INLINE_THIRD_PARTY did. Returns the previous value to restore.
+ * Not an operator switch — nothing outside the test suite calls it.
+ */
+export function _setInlineForTests(on: boolean): boolean {
+  const was = inlineForTests;
+  inlineForTests = on;
+  return was;
+}
+
 /**
  * Phase 2 — marketplace-policy.md §2 publisher-tier gate. When the manifest did
  * NOT opt into worker isolation (and no operator inline override is set), fetch
@@ -326,16 +339,16 @@ export async function enforcePublisherTier(
   //   first-party / verified → inline allowed
   //   community (or unknown) → worker REQUIRED
   //
-  // Two operator overrides:
-  //   ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 — trusted self-hosted,
-  //     accept inline for any extension (skip the gate entirely)
+  // No operator override lets a third party run inline: the switch that did,
+  // ZVELTIO_ALLOW_INLINE_THIRD_PARTY, is gone (owner decision, 2026-10-10) —
+  // the runner is how untrusted code runs. One operator knob remains:
   //   ZVELTIO_REQUIRE_CATALOG=1 — fail-closed: if catalog fetch
   //     fails (network, registry down) refuse rather than
   //     fall through to local-only assumptions
   // Worker only when bundled too: `load.ts` takes the worker path for nothing
   // else, and imported an unbundled "worker" extension inline, past this gate.
   if (
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY === '1' ||
+    inlineForTests ||
     (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true)
   ) {
     return { ok: true, value: undefined };
@@ -373,9 +386,7 @@ export async function enforcePublisherTier(
     // published would slip past the gate. The local hardcoded
     // catalog (the 54 first-party + smoke fixtures) is merged in
     // by fetchRegistryCatalog(), so genuine first-party
-    // extensions are always found. Trusted self-hosted installs
-    // that deliberately sideload inline code use
-    // ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.
+    // extensions are always found.
     const catEntry = catalog.find((e) => e.name === extName);
     const tier = catEntry ? resolvePublisherTier(catEntry) : 'community';
     if (!tierAllowsInline(tier)) {
@@ -386,9 +397,7 @@ export async function enforcePublisherTier(
         `Extension "${extName}" ${what} but does ` +
         `not run in worker isolation (engine.isolation: "worker", bundled). Per ` +
         `marketplace-policy.md §2, ${tier} extensions must run in ` +
-        `worker isolation. Republish with isolation: "worker" ` +
-        `or, for trusted self-hosted installs, set ` +
-        `ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1.`;
+        `worker isolation. Republish with isolation: "worker" (bundled).`;
       return {
         ok: false,
         logLevel: 'error',

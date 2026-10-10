@@ -23,6 +23,7 @@ import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import * as workerExtensionHost from '../../lib/worker-extension-host.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function tmpExt(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), 'zv-wni-'));
@@ -71,12 +72,12 @@ function workerFixture(marker: string, isolation: 'worker' | 'inline') {
 }
 
 afterEach(() => {
-  delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+  _setInlineForTests(false);
 });
 
 describe('loadExtensionFromDir — worker isolation does not import in-process', () => {
   it('never evaluates the entry module when isolation=worker', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const marker = join(mkdtempSync(join(tmpdir(), 'zv-mark-')), 'imported.txt');
     const base = workerFixture(marker, 'worker');
 
@@ -98,7 +99,7 @@ describe('loadExtensionFromDir — worker isolation does not import in-process',
   it('still evaluates it for an inline extension — the control case', async () => {
     // Proves the fixture would record the import if one happened, so the
     // assertion above is not passing for an unrelated reason.
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const marker = join(mkdtempSync(join(tmpdir(), 'zv-mark-')), 'imported.txt');
     const base = workerFixture(marker, 'inline');
 
@@ -112,7 +113,7 @@ describe('loadExtensionFromDir — worker isolation does not import in-process',
   it('still discovers migrations for a worker extension, from disk', async () => {
     // The engine has to run them, and it can no longer ask the module for the
     // list — so it reads the conventional engine/migrations/*.sql directory.
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const marker = join(mkdtempSync(join(tmpdir(), 'zv-mark-')), 'imported.txt');
     const base = tmpExt({
       'mig-ext/manifest.json': JSON.stringify({

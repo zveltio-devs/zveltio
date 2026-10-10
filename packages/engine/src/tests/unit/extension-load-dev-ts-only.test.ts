@@ -11,6 +11,7 @@ import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function fakeLoader() {
   const db = new CannedDb();
@@ -29,12 +30,12 @@ function fakeLoader() {
 }
 
 afterEach(() => {
-  delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+  _setInlineForTests(false);
 });
 
 describe('loadExtensionFromDir — dev TypeScript entry only', () => {
   it('does not warn-and-return when only engine/index.ts is present', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = mkdtempSync(join(tmpdir(), 'zv-ts-only-'));
     const extDir = join(base, 'ts-only');
     mkdirSync(join(extDir, 'engine'), { recursive: true });

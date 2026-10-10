@@ -12,6 +12,7 @@ import * as extensionDownload from '../../lib/extensions/extension-download.js';
 import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 /** Minimal valid WASM exporting register(). */
 const WASM_EXPORTS_REGISTER = new Uint8Array([
@@ -48,7 +49,7 @@ function tmpExt(files: Record<string, string>): string {
 const app = new Hono();
 
 afterEach(() => {
-  delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+  _setInlineForTests(false);
   delete process.env.EXTENSIONS_DIR;
 });
 
@@ -116,7 +117,7 @@ describe('loadExtensionFromDir', () => {
   it('records lastLoadError when wasm runtime is declared but .wasm is missing', async () => {
     // The override isolates what this case is about — the missing artifact —
     // now that the tier gate runs before the runtime is chosen.
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = tmpExt({
       'wasm-miss/manifest.json': JSON.stringify({
         name: 'wasm-miss',
@@ -131,7 +132,7 @@ describe('loadExtensionFromDir', () => {
   });
 
   it('loads a bundled inline extension when inline third-party override is set', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = tmpExt({
       'inline-probe/manifest.json': JSON.stringify({
         name: 'inline-probe',
@@ -158,7 +159,7 @@ describe('loadExtensionFromDir', () => {
   });
 
   it('loads a wasm runtime extension when extension.wasm is present', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = tmpExt({
       'wasm-ok/manifest.json': JSON.stringify({
         name: 'wasm-ok',
@@ -175,7 +176,7 @@ describe('loadExtensionFromDir', () => {
   });
 
   it('warns when the module has no register() function', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = tmpExt({
       'no-register/manifest.json': JSON.stringify({
         name: 'no-register',
@@ -190,7 +191,7 @@ describe('loadExtensionFromDir', () => {
   });
 
   it('records lastLoadError when migrations exceed the quota', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = tmpExt({
       'many-mig/manifest.json': JSON.stringify({
         name: 'many-mig',
@@ -243,7 +244,7 @@ describe('loadExtensionFromDir', () => {
   });
 
   it('records lastLoadError and audits when dynamic import throws', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const base = tmpExt({
       'import-boom/manifest.json': JSON.stringify({
         name: 'import-boom',

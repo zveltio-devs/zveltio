@@ -30,6 +30,7 @@ import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import type { Database } from '../../db/index.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -43,7 +44,7 @@ d('a firm that switched an extension off is not served by it (in-process)', () =
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     for (const name of [SUB, GLOB]) {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${name}`.execute(db);
       // god installs for the instance...

@@ -31,6 +31,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -48,7 +49,7 @@ d('asSystem names the API key that asked for it', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     godCookie = await createGodSession(engine, db);
     await DDLManager.createCollection(db, {
       name: C,

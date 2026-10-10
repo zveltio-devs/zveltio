@@ -10,6 +10,7 @@ import { Hono } from 'hono';
 import { loadExtensionFromDir } from '../../lib/extensions/load.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 function tmpExt(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), 'zv-grant-'));
@@ -40,12 +41,12 @@ function fakeLoader(): any {
 const app = new Hono();
 
 afterEach(() => {
-  delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
+  _setInlineForTests(false);
 });
 
 describe('loadExtensionFromDir — table grants', () => {
   it('merges EXTENSION_TABLE_GRANTS into allowedTables for known extensions', async () => {
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     const migDir = mkdtempSync(join(tmpdir(), 'zv-mig-grant-'));
     const migPath = join(migDir, '001.sql');
     writeFileSync(migPath, 'CREATE TABLE zv_drafts_items (id uuid);');

@@ -193,18 +193,6 @@ describe('enforcePublisherTier — fast paths', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('ZVELTIO_ALLOW_INLINE_THIRD_PARTY=1 → ok', async () => {
-    const prev = process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
-    try {
-      const r = await enforcePublisherTier('ext', null);
-      expect(r.ok).toBe(true);
-    } finally {
-      if (prev === undefined) delete process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY;
-      else process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = prev;
-    }
-  });
-
   it('community catalog entry without worker isolation → PhaseFail', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       {

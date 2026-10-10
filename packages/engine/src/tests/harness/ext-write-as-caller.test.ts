@@ -38,6 +38,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -105,7 +106,7 @@ d('an extension writes records as the request caller, and only as them', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
-    process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
+    _setInlineForTests(true);
     godCookie = await createGodSession(engine, db);
     godId = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
       .rows[0]!.id;
