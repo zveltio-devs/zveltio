@@ -67,6 +67,14 @@ export default {
       const d = await ctx.db.deleteFrom('${TABLE}').executeTakeFirst();
       return c.json({ updated: Number(u.numUpdatedRows), deleted: Number(d.numDeletedRows) });
     });
+    app.post('/add', async (c) => {
+      try {
+        await ctx.db.insertInto('${TABLE}').values({ title: 'added' }).execute();
+        return c.json({ added: true });
+      } catch {
+        return c.json({ added: false });
+      }
+    });
   },
 };
 `;
@@ -131,7 +139,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       db,
     );
     const member = await createMemberSession(engine, db, {
-      grants: [{ collection: COLL, actions: ['read', 'update', 'delete'] }],
+      grants: [{ collection: COLL, actions: ['read', 'create', 'update', 'delete'] }],
     });
     memberId = member.userId;
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from)
@@ -182,6 +190,8 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
         rowsInForce: await call(mode, '/rows', asMember),
       };
     }
+    // After every mode has counted, so one mode's insert is not the next one's row.
+    for (const mode of MODES) out[mode]!.addInForce = await call(mode, '/add', asMember, 'POST');
     // Every assignment of the member in the default tenant lapses.
     await sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 day'
               WHERE tenant_id = ${DEFAULT_TENANT_ID}::uuid AND user_id = ${memberId}`.execute(db);
@@ -194,6 +204,11 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       );
       out[mode]!.rowsLapsed = await call(mode, '/rows', asMember);
       out[mode]!.touchLapsed = await call(mode, '/touch', asMember, 'POST');
+      out[mode]!.addLapsed = await call(mode, '/add', asMember, 'POST');
+      out[mode]!.added = (
+        await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
+                                 WHERE title = 'added'`.execute(db)
+      ).rows[0]?.n;
       out[mode]!.left = (
         await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
                                  WHERE title IN ('a', 'b')`.execute(db)
@@ -235,6 +250,10 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     expect(out.inline.rowsLapsed).toEqual({ status: 200, body: 0 });
     expect(out.inline.touchLapsed).toEqual({ status: 200, body: { updated: 0, deleted: 0 } });
     expect(out.inline.left).toBe(2);
+    // Migration 060: the write check uses the read reach, so an insert is refused too.
+    expect(out.inline.addInForce).toEqual({ status: 200, body: { added: true } });
+    expect(out.inline.addLapsed).toEqual({ status: 200, body: { added: false } });
+    expect(out.inline.added).toBe(0);
   });
 
   for (const m of ['process'] as const) {
@@ -275,6 +294,12 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
         expect(out[m]?.rowsLapsed).toEqual(out.inline.rowsLapsed);
         expect(out[m]?.touchLapsed).toEqual(out.inline.touchLapsed);
         expect(out[m]?.left).toBe(2);
+      });
+
+      it('a lapsed member inserts nothing (migration 060)', () => {
+        expect(out[m]?.addInForce).toEqual({ status: 200, body: { added: true } });
+        expect(out[m]?.addLapsed).toEqual({ status: 200, body: { added: false } });
+        expect(out[m]?.added).toBe(0);
       });
     });
   }
