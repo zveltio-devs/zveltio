@@ -831,6 +831,7 @@ export interface ZvEdgeFunctionsTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: string | null;
+  egress: string[] | null;
 }
 
 export interface ZvEfacturaDailyStatsTable {

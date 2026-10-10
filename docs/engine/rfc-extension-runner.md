@@ -505,15 +505,19 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      extensions with `extension runner unreachable`.
 10. **Done — edge functions default to the runner** once they declare their
     egress (decision 2, for edge functions):
-    - Declaration and approval: the function's env var `ZVELTIO_EGRESS`
-      (`api.stripe.com, hooks.slack.com`), beside `ZVELTIO_PUBLIC`. An edge
-      function has no install step and no manifest: the admin who writes its
-      code and saves it is the operator approving it, so the save (the
-      `developer/edge-functions` API and Studio env editor, whose response
-      carries the list back) is the consent point. An env var rather than a
-      column so that every caller already hands it over — the engine's
-      `/api/fn/:name`, the extension's test invoke and custom-path mounts — with
-      no migration and no extension release. An empty value declares none.
+    - Declaration and approval: the function's `egress` column
+      (`zv_edge_functions.egress text[]`, migration 061:
+      `{api.stripe.com,hooks.slack.com}`). An edge function has no install
+      step and no manifest: the admin who writes its code and saves it is the
+      operator approving it, so the save is the consent point — the
+      `developer/edge-functions` API refuses a host that is not one, Studio
+      shows the list as "can reach", and every change is audited (who, when,
+      the hosts before and after). The column's CHECK holds every writer to
+      the form the engine reads. NULL declares nothing; `{}` declares no
+      egress. #1022 first read it from an env var `ZVELTIO_EGRESS`; 061 moved
+      those values into the column and the env var grants nothing (owner
+      decision 2026-10-10: validated at save, queryable, and a permission kept
+      apart from the secrets beside it).
     - The runner keeps no network. In the sandbox, `fetch` writes one
       `FETCH <json>` line on stdout; the runner forwards it on the edge
       connection as it comes, the engine answers one JSON line back down it,

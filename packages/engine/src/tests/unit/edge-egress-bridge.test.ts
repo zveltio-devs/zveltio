@@ -49,14 +49,19 @@ describe('egress bridge bounds', () => {
 });
 
 describe('egress declarations', () => {
-  it('reads hosts and host:port, lower-cased, comma or space separated', () => {
-    expect(parseEgress({})).toBeNull();
-    expect(parseEgress({ ZVELTIO_EGRESS: '' })).toEqual([]);
-    expect(parseEgress({ ZVELTIO_EGRESS: 'API.x.com, b.y.io:8443 [2001:db8::1]' })).toEqual([
+  it('reads the column: NULL declares nothing, every entry a lower-case host', () => {
+    expect(parseEgress(null)).toBeNull();
+    expect(parseEgress(undefined)).toBeNull();
+    expect(parseEgress([])).toEqual([]);
+    expect(parseEgress(['api.x.com', 'b.y.io:8443', '[2001:db8::1]'])).toEqual([
       'api.x.com',
       'b.y.io:8443',
       '[2001:db8::1]',
     ]);
+    for (const bad of [['API.x.com'], ['a.com', ''], ['a.com b.com'], [null], [7]]) {
+      expect(() => parseEgress(bad)).toThrow('is not a host');
+    }
+    expect(() => parseEgress('a.com' as unknown as string[])).toThrow('not a list');
   });
 
   it('matches the authority exactly', () => {

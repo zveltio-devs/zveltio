@@ -52,7 +52,9 @@ export async function runEdgeFunction(
   request: EdgeRequest,
   envVars: Record<string, string>,
   timeoutMs: number,
+  /** The function's `egress` column: NULL (or absent) declares nothing. */
+  egress: readonly unknown[] | null = null,
 ): Promise<RunResult> {
   const { runEdgeFunctionInSubprocess } = await import('./edge-functions/subprocess-runner.js');
-  return runEdgeFunctionInSubprocess(code, request, envVars, timeoutMs);
+  return runEdgeFunctionInSubprocess(code, request, envVars, timeoutMs, { egress });
 }

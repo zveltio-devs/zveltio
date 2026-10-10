@@ -1,9 +1,11 @@
 /**
  * Egress for edge functions (RFC extension-runner, step 10).
  *
- * A function declares the hosts it may reach in its env var `ZVELTIO_EGRESS`
- * ("api.stripe.com, hooks.slack.com"), beside `ZVELTIO_PUBLIC`: the admin who
- * saves the function writes both, so saving it is the approval. A function that
+ * A function declares the hosts it may reach in its `egress` column
+ * (`zv_edge_functions.egress`, migration 061): NULL declares nothing, `{}`
+ * declares no egress, `{api.stripe.com,hooks.slack.com}` those hosts. The admin
+ * who saves the function writes it, so saving it is the approval; the column's
+ * CHECK holds every row to the form read here. A function that
  * declares it calls `fetch` through the ENGINE: the sandbox writes one
  * `FETCH <json>` line on stdout, the engine performs the request with the
  * shared SSRF guard, held to the list on every redirect hop, and answers one
@@ -21,7 +23,6 @@
 
 import { createSafeFetch } from './safe-fetch.js';
 
-export const EGRESS_ENV = 'ZVELTIO_EGRESS';
 /** The line prefix a sandbox's egress request carries on stdout. */
 export const FETCH_LINE = 'FETCH ';
 
@@ -42,26 +43,23 @@ const ENTRY_RE =
   /^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:\d{1,5})?$/;
 
 /**
- * The function's declared hosts, or null when it declares none. An empty value
- * is a declaration too: no egress, and the runner by default. Throws on an entry
- * that is not a host, so a mistyped list fails the invocation instead of being
- * read as something wider or narrower than the admin wrote.
+ * The function's declared hosts — its `egress` column — or null when it
+ * declares none. An empty list is a declaration too: no egress, and the runner
+ * by default. Throws on an entry that is not a host, so a list the column's
+ * CHECK did not hold (a caller that built it by hand) fails the invocation
+ * instead of being read as something wider or narrower than the admin wrote.
  */
-export function parseEgress(env: Record<string, string> | null | undefined): string[] | null {
-  const raw = env?.[EGRESS_ENV];
-  if (raw === undefined || raw === null) return null;
-  const entries = String(raw)
-    .toLowerCase()
-    .split(/[\s,]+/)
-    .filter(Boolean);
-  for (const e of entries) {
-    if (!ENTRY_RE.test(e)) {
+export function parseEgress(egress: readonly unknown[] | null | undefined): string[] | null {
+  if (egress === undefined || egress === null) return null;
+  if (!Array.isArray(egress)) throw new Error('egress: not a list of hosts');
+  for (const e of egress) {
+    if (typeof e !== 'string' || !ENTRY_RE.test(e)) {
       throw new Error(
-        `${EGRESS_ENV}: "${e}" is not a host — list host names or host:port, no scheme, path or wildcard`,
+        `egress: "${String(e)}" is not a host — list lower-case host names or host:port, no scheme, path or wildcard`,
       );
     }
   }
-  return entries;
+  return [...egress] as string[];
 }
 
 /** Whether `url` is in `list` — exact authority, see the module comment. */
@@ -158,8 +156,8 @@ export async function performEgress(
         if (!egressAllows(list, u)) {
           throw new Error(
             list.length
-              ? `[egress] ${u.host} is not in this function's ${EGRESS_ENV} (${list.join(', ')})`
-              : `[egress] this function declares no egress (${EGRESS_ENV})`,
+              ? `[egress] ${u.host} is not in this function's egress (${list.join(', ')})`
+              : '[egress] this function declares no egress',
           );
         }
       },

@@ -68,6 +68,7 @@ import m051 from './sql/057_tenant_reach_function.sql' with { type: 'text' };
 import m052 from './sql/058_collection_permissions.sql' with { type: 'text' };
 import m053 from './sql/059_member_role_in_casbin.sql' with { type: 'text' };
 import m054 from './sql/060_tenant_write_reach.sql' with { type: 'text' };
+import m055 from './sql/061_edge_egress_column.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -126,4 +127,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '058_collection_permissions.sql': m052,
   '059_member_role_in_casbin.sql': m053,
   '060_tenant_write_reach.sql': m054,
+  '061_edge_egress_column.sql': m055,
 };

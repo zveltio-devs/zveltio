@@ -17,7 +17,7 @@
 # (ZVELTIO_EDGE_TRANSPORT unset) an edge function reaches the network; with
 # ZVELTIO_EDGE_TRANSPORT=runner it does not, and the uid it runs under — read
 # from outside while the invocation is held — cannot read the engine's .env.
-# Step 10: a function that declares ZVELTIO_EGRESS goes to the runner by
+# Step 10: a function that declares its egress goes to the runner by
 # default and reaches a listed host through the engine; an unlisted host, a
 # private address it lists, and a function that lists nothing reach nothing.
 #
