@@ -1,9 +1,10 @@
 // One `ctx` contract, inline and out of process (RFC extension-runner, step 7).
-// The same extension source is loaded three times through the real loader, behind
-// the real `/ext/*` chain (prefetch, tenant transaction, auth gate): inline, in a
-// worker thread and as a runner process. Each capability must answer the same —
-// Kysely on `ctx.db`, the request's `auth` (session and API key),
-// `checkPermission`, `events`, `config`, `services.get` and an uncaught SQLSTATE.
+// The same extension source is loaded twice through the real loader, behind
+// the real `/ext/*` chain (prefetch, tenant transaction, auth gate): inline and
+// as a runner process (the in-thread worker is gone since step 9). Each
+// capability must answer the same — Kysely on `ctx.db`, the request's `auth`
+// (session and API key), `checkPermission`, `events`, `config`, `services.get`
+// and an uncaught SQLSTATE.
 // Before step 7 a worker got `{ query() }`, no auth, no checkPermission, no
 // events, no config and a `services.get` that called instead of returning.
 //
@@ -35,7 +36,7 @@ import {
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
-const MODES = ['inline', 'worker', 'process'] as const;
+const MODES = ['inline', 'process'] as const;
 type Mode = (typeof MODES)[number];
 const extName = (m: string) => `wkctx${m[0]}${SFX}`;
 const table = (m: string) => `zv_${extName(m)}_items`;
@@ -252,7 +253,7 @@ d('a worker extension gets the inline ctx contract', () => {
     if (base) rmSync(base, { recursive: true, force: true });
   });
 
-  it('loads the same extension in all three modes', () => {
+  it('loads the same extension in both modes', () => {
     for (const m of MODES) expect(loadErrors[extName(m)]).toBeUndefined();
   });
 
@@ -272,7 +273,7 @@ d('a worker extension gets the inline ctx contract', () => {
     });
   });
 
-  for (const m of ['worker', 'process'] as const) {
+  for (const m of ['process'] as const) {
     describe(m, () => {
       const same = [
         'whoSession',

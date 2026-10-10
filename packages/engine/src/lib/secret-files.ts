@@ -3,10 +3,10 @@
  *
  * A value passed in the environment is in `/proc/self/environ` for the life of
  * the process, and deleting it from `process.env` does not remove it from
- * there. Every thread in the process can read that file, a worker-isolated
- * extension included: the `env` option of `new Worker()` hides variables from
- * `process.env`, not from the filesystem. A value read from a file and set here
- * never reaches `/proc/self/environ`.
+ * there. Everything running as the engine's uid can read that file — a child it
+ * spawns with an empty environment included (an edge function, a worker
+ * extension on the local `process` transport). A value read from a file and set
+ * here never reaches `/proc/self/environ`.
  *
  * Imported first by every entry point, before any module reads its config at
  * import time.

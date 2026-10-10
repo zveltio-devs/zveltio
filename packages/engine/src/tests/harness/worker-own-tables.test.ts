@@ -8,7 +8,7 @@
  * denied`; and the boot reconcile revokes every non-collection `zvd_*` table.
  *
  * Driven end to end: the real loader runs the extension's migration, spawns the
- * real Bun.Worker, mounts its proxy routes; the route's `ctx.db.query` crosses
+ * runtime as a process, mounts its proxy routes; the route's `ctx.db.query` crosses
  * the IPC bridge to `runRawWithParams` and `SET LOCAL ROLE` to the extension's
  * own role under `zveltio_worker`.
  */

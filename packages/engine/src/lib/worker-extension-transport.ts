@@ -1,19 +1,19 @@
 /**
- * Byte-stream transport for worker-isolated extensions (RFC extension-runner,
- * step 2).
+ * Byte-stream transport for worker-isolated (third-party) extensions (RFC
+ * extension-runner, steps 2 and 9).
  *
- * The protocol (worker-extension-protocol.ts) is unchanged; only how a message
- * crosses changes. A frame is a 4-byte big-endian length followed by that many
- * bytes of UTF-8 JSON. The runner is a child process whose stdin carries the
- * host's frames and whose stdout carries its own — pipes created at spawn and
- * inherited by that child only, so the channel itself is the identity: every
- * frame read from it is the extension the runner was spawned for.
+ * The protocol (worker-extension-protocol.ts) is the messages; this is how they
+ * cross. A frame is a 4-byte big-endian length followed by that many bytes of
+ * UTF-8 JSON. The runtime is a process whose stdin carries the host's frames and
+ * whose stdout carries its own — pipes created at spawn and inherited by that
+ * child only, so the channel itself is the identity: every frame read from it is
+ * the extension the process was spawned for.
  *
- * `ZVELTIO_EXT_TRANSPORT=process` selects it; the in-thread worker stays the
- * default (and the development transport) until the runner is the default
- * (RFC step 9, which removes the in-thread worker). `process` changes the transport, not the isolation: the child
- * runs under the engine's uid. `runner` (step 3) hands the same frames to the
- * extension's own `zveltio-ext-runner@` service, which runs it under its own uid.
+ * Two transports, both a process (RFC step 9 removed the in-thread worker):
+ * `runner`, the production default, hands the frames to the extension runner,
+ * which runs the extension under a uid of its own; `process`, the default
+ * outside production, spawns the runtime as the engine's own child — the same
+ * protocol, under the engine's uid, so no boundary.
  */
 
 import { connect } from 'node:net';
@@ -79,8 +79,8 @@ export class FrameDecoder {
 }
 
 /**
- * What the host holds for a running extension: the surface of a `Worker` it
- * uses, so the in-thread worker and the runner process are interchangeable.
+ * What the host holds for a running extension, whichever process runs it. Shaped
+ * like a `Worker` because the in-thread worker was the first implementation.
  */
 export interface ExtensionChannel {
   postMessage(msg: HostToWorkerMessage): void;
@@ -89,11 +89,20 @@ export interface ExtensionChannel {
   onerror: ((e: ErrorEvent) => void) | null;
 }
 
-export type ExtensionTransport = 'worker' | 'process' | 'runner';
+export type ExtensionTransport = 'process' | 'runner';
 
-export function extensionTransport(): ExtensionTransport {
-  const t = process.env.ZVELTIO_EXT_TRANSPORT;
-  return t === 'process' || t === 'runner' ? t : 'worker';
+/**
+ * `ZVELTIO_EXT_TRANSPORT` when it names a transport, else the runner in
+ * production and a local child everywhere else. Production never picks `process`
+ * on its own: an operator who sets it is refused at load
+ * (`enforceRunnerInProduction`), never served without a boundary.
+ */
+export function extensionTransport(
+  env: Record<string, string | undefined> = process.env,
+): ExtensionTransport {
+  const t = env.ZVELTIO_EXT_TRANSPORT;
+  if (t === 'process' || t === 'runner') return t;
+  return env.NODE_ENV === 'production' ? 'runner' : 'process';
 }
 
 /**
@@ -146,7 +155,7 @@ function frameChannel(
 /**
  * Spawn the runtime as a child process speaking frames on stdin/stdout.
  *
- * `env` REPLACES the environment, as the worker's `env` option does. Run with
+ * `env` REPLACES the environment: none of the engine's variables reach it. Run with
  * the engine's own executable: under a `bun build --compile` binary that is
  * the engine, and `BUN_BE_BUN` makes it act as `bun`. stderr is inherited, so
  * what the runtime cannot forward as a `log` frame still reaches the journal.

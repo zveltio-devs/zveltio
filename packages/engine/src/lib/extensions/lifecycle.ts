@@ -62,7 +62,7 @@ export async function unloadExtension(
     }
   }
 
-  // Terminate the worker thread, for extensions that have one.
+  // End the worker process, for extensions that have one.
   //
   // Unloading dropped every main-thread trace of the extension — services,
   // query alters, cron — and left its worker running. That worker is the whole

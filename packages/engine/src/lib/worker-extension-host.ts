@@ -1,6 +1,8 @@
 /**
- * WorkerExtensionHost — spawns one Bun.Worker per isolated extension and
- * coordinates the RPC bridge described in worker-extension-protocol.ts.
+ * WorkerExtensionHost — runs each worker-isolated (third-party) extension in a
+ * process of its own (the runner in production, a local child elsewhere:
+ * worker-extension-transport.ts) and coordinates the RPC bridge described in
+ * worker-extension-protocol.ts.
  *
  * Lifecycle:
  *   1. `start(name, bundleUrl, ctx)` spawns the worker, sends `init`,
@@ -9,7 +11,7 @@
  *      back → response written to client.
  *   3. Worker DB queries arrive as `db:query` → host executes via the
  *      real shared pool → posts `db:ok` / `db:err` back.
- *   4. `stop(name)` calls Worker.terminate() and removes proxy routes.
+ *   4. `stop(name)` ends the process and removes proxy routes.
  *
  * Reliability (alpha.122):
  *   - Crash auto-recovery: worker.onerror / unexpected exit → respawn
@@ -26,10 +28,9 @@
  *   - Worker never receives DATABASE_URL or any other env credential.
  *   - All SQL is executed by the host with the host's pool — RLS still
  *     applies, tenant scoping still works.
- *   - Worker is a THREAD (Bun.Worker), not a subprocess. V8 heap is
- *     isolated; OS RSS is shared with the engine. Crashes are isolated;
- *     per-extension RSS / OOM limits are not. See docs/EXTENSION-
- *     DEVELOPER-GUIDE.md §"Isolation tiers" for the threat model.
+ *   - The extension is a process. On the runner it runs under a uid of
+ *     its own with kernel limits (RFC extension-runner); as a local child
+ *     (`process`, development) under the engine's uid, with no boundary.
  */
 
 import type { Context, Hono } from 'hono';
@@ -115,9 +116,8 @@ export function _resetWorkerHostForTests(): void {
   _instance = null;
 }
 
-/** Per-extension health surface returned by getHealth(). No RSS field
- *  by design — Bun.Worker is a thread, so per-extension RSS isn't
- *  measurable. processRssMb at the host level is reported separately. */
+/** Per-extension health surface returned by getHealth(). No RSS field: the
+ *  extension's process may be the runner's, which the engine cannot read. */
 export interface WorkerHealth {
   name: string;
   isolation: 'worker';
@@ -196,7 +196,7 @@ interface ManagedWorker {
   name: string;
   extDir: string;
   bundleEntry: string;
-  /** The in-thread `Worker`, or the runner process (worker-extension-transport.ts). */
+  /** Its process: the runner's, or a local child (worker-extension-transport.ts). */
   worker: ExtensionChannel;
   routes: RouteDescriptor[];
   pendingInvokes: Map<string, (res: RouteInvokeResponse) => void>;
@@ -248,6 +248,38 @@ interface ManagedWorker {
  * answer it. The sender check below is the real defence; unpredictable ids mean
  * an attacker cannot even name someone else's pending call.
  */
+/**
+ * The load error for an extension whose runner cannot be reached. Fail closed:
+ * the extension is not loaded (its `loadError` in /api/admin/extensions/health,
+ * an `extension.load_failed` audit row), never run in or beside the engine.
+ */
+export function runnerUnreachable(err: unknown): Error {
+  const why = err instanceof Error || err instanceof ErrorEvent ? err.message : String(err);
+  return new Error(
+    `extension runner unreachable (${why}). Third-party extensions run only on the ` +
+      `runner in production: start it (compose: the ext-runner service; bare metal: ` +
+      `\`zveltio ext-runner setup\`; Helm: extRunner.enabled).`,
+  );
+}
+
+/**
+ * The channel to a new process for the extension: the runner, or a local child
+ * of the engine outside production. Never a local child in the runner's place —
+ * an unreachable runner is a load error (`enforceRunnerInProduction` refuses
+ * `process` in production before this).
+ */
+async function openExtensionChannel(extName: string): Promise<ExtensionChannel> {
+  if (extensionTransport() === 'runner') {
+    const socket = await startRunner(extName).catch((err) => {
+      throw runnerUnreachable(err);
+    });
+    return connectRunner(socket);
+  }
+  return spawnProcessRunner(ensureWorkerRuntimeOnDisk(), {
+    NODE_ENV: process.env.NODE_ENV ?? 'production',
+  });
+}
+
 function rpcId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
@@ -260,7 +292,11 @@ export class WorkerExtensionHost {
   private readonly workers = new Map<string, ManagedWorker>();
   private respawnBackoff = new Map<string, number>();
 
-  constructor(private app: Hono) {}
+  constructor(
+    private app: Hono,
+    /** Opens a new extension process's channel; tests pass a fake one. */
+    private readonly open: (extName: string) => Promise<ExtensionChannel> = openExtensionChannel,
+  ) {}
 
   /**
    * Point the host at the CURRENT Hono app.
@@ -391,20 +427,8 @@ export class WorkerExtensionHost {
     source: WorkerCtxSource,
   ): Promise<ManagedWorker> {
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
-    const runtimePath = ensureWorkerRuntimeOnDisk();
-    // `env` is what keeps the engine's variables out of `process.env`,
-    // `import('node:process')` and `Bun.env` (59 inherited variables before, 1
-    // after). It does not keep them from the process: this is a thread, and it can
-    // read what the process can read. Hence the production opt-in
-    // (`enforceWorkerOptIn`) until extensions run out of process.
-    const env = { NODE_ENV: process.env.NODE_ENV ?? 'production' };
     const transport = extensionTransport();
-    const worker: ExtensionChannel =
-      transport === 'runner'
-        ? connectRunner(await startRunner(extName))
-        : transport === 'process'
-          ? spawnProcessRunner(runtimePath, env)
-          : new Worker(pathToFileURL(runtimePath).href, { type: 'module', env } as WorkerOptions);
+    const worker = await this.open(extName);
     const managed: ManagedWorker = {
       name: extName,
       extDir,
@@ -428,18 +452,27 @@ export class WorkerExtensionHost {
       stopped: false,
     };
 
+    // A channel that ends before `init` answers fails the load at once, with its
+    // reason (an unreachable runner's socket error), not after the 15 s timeout.
+    let failInit: ((err: Error) => void) | null = null;
     worker.onmessage = (e) => this.handleWorkerMessage(managed, e.data);
     worker.onerror = (e) => {
       console.error(`[worker:${extName}] error:`, e.message);
-      this.scheduleRespawn(managed, `onerror: ${e.message}`);
+      if (failInit) failInit(transport === 'runner' ? runnerUnreachable(e) : new Error(e.message));
+      else this.scheduleRespawn(managed, `onerror: ${e.message}`);
     };
 
     const initId = rpcId('init');
     const init = await new Promise<InitResponse>((resolve, reject) => {
+      failInit = (err) => {
+        managed.pendingInits.delete(initId);
+        reject(err);
+      };
       managed.pendingInits.set(initId, resolve);
       setTimeout(() => {
         if (managed.pendingInits.has(initId)) {
           managed.pendingInits.delete(initId);
+          worker.terminate();
           reject(new Error(`worker "${extName}" did not init within 15s`));
         }
       }, 15_000);
@@ -455,6 +488,7 @@ export class WorkerExtensionHost {
         config: source.config,
       });
     });
+    failInit = null;
 
     if (init.type === 'init:err') {
       worker.terminate();

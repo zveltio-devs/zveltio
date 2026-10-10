@@ -279,31 +279,26 @@ export async function resolveManifest(
 }
 
 /**
- * Worker-isolated extensions load in production only with the operator's
- * explicit consent.
+ * In production a worker-isolated (third-party) extension runs on the extension
+ * runner or not at all (RFC extension-runner, step 9).
  *
- * The worker is a thread inside the engine process: it keeps an extension away
- * from the engine's JavaScript objects, not from the process's files or its
- * environment, so it is not a boundary for untrusted code. Until extensions run
- * out of process, an operator who installs third-party code in production says
- * so with ZVELTIO_ALLOW_WORKER_EXTENSIONS=1. Development and tests are not gated,
- * and neither is `ZVELTIO_EXT_TRANSPORT=runner`, which runs them under another uid.
+ * `extensionTransport()` picks the runner in production unless
+ * ZVELTIO_EXT_TRANSPORT says `process`, which spawns the extension as the
+ * engine's own child: same uid, so it reads the engine's files and environment.
+ * That is refused here, by name — never a quiet fallback to no boundary. An
+ * unreachable runner fails the load later, in the worker host (`runnerUnreachable`).
  */
-export function enforceWorkerOptIn(
+export function enforceRunnerInProduction(
   extName: string,
   manifest: ExtensionManifest | null,
 ): PhaseResult<void> {
   if (manifest?.engine?.isolation !== 'worker') return { ok: true, value: undefined };
   if (process.env.NODE_ENV !== 'production') return { ok: true, value: undefined };
-  if (process.env.ZVELTIO_ALLOW_WORKER_EXTENSIONS === '1') return { ok: true, value: undefined };
-  // Out of process under the runner's own uid (RFC step 3): the boundary the
-  // opt-in stands in for exists, so there is nothing to consent to.
   if (extensionTransport() === 'runner') return { ok: true, value: undefined };
   const msg =
-    `Extension "${extName}" runs in worker isolation, which in production requires ` +
-    `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1. The worker is a thread in the engine process and ` +
-    `does not keep an extension from the process's files or environment; set the variable ` +
-    `only for third-party code you trust.`;
+    `Extension "${extName}" runs in worker isolation, which in production runs only on the ` +
+    `extension runner. ZVELTIO_EXT_TRANSPORT=process would run it as a child of the engine, ` +
+    `under the engine's uid, with access to its files and environment; unset it.`;
   return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
 }
 

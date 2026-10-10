@@ -1,9 +1,10 @@
 /**
  * Worker-side runtime for isolated extensions.
  *
- * Bootstrapped via `new Worker(<this file URL>, { type: 'module' })` from
- * worker-extension-host.ts. The host then sends an `InitRequest` with
- * the bundle URL and the worker:
+ * Runs as its own process — the extension runner's, or a local child of the
+ * engine (worker-extension-transport.ts) — speaking frames on stdin/stdout to
+ * worker-extension-host.ts. The host sends an `InitRequest` with the bundle URL
+ * and the runtime:
  *
  *   1. Dynamically imports the bundle to get the default-exported
  *      `ZveltioExtension`.
@@ -40,11 +41,6 @@ import type {
 } from './worker-extension-protocol.js';
 import { encodeFrame, FrameDecoder } from './worker-extension-transport.js';
 
-declare const self: {
-  postMessage: (msg: WorkerToHostMessage) => void;
-  onmessage: ((e: MessageEvent<HostToWorkerMessage>) => void) | null;
-};
-
 let nextId = 0;
 const pendingDbQueries = new Map<string, (res: DbQueryResponse) => void>();
 /** `service:call` and `host:call`, answered alike. */
@@ -57,41 +53,30 @@ const localServices = new Map<string, (...args: unknown[]) => unknown>();
 const localListeners = new Map<string, (...args: unknown[]) => unknown>();
 
 /**
- * In a worker thread the host talks through `postMessage`; as a runner process
- * (`ZVELTIO_EXT_TRANSPORT=process`) through frames on stdin and stdout.
- */
-const asProcess = Bun.isMainThread;
-
-/**
  * stdout is the channel. The runtime keeps the only writer to it, and an
  * extension's `process.stdout.write` goes to stderr; a raw write to fd 1 still
  * corrupts the channel, which ends the runner (the host respawns it).
  */
-const writeChannel = asProcess ? process.stdout.write.bind(process.stdout) : null;
+const writeChannel = process.stdout.write.bind(process.stdout);
 // Captured before `handleInit` swaps `globalThis.process` for its shim.
 const exit = process.exit.bind(process);
-if (asProcess) {
-  process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
-}
+process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
 
 function send(msg: WorkerToHostMessage): void {
-  if (writeChannel) writeChannel(encodeFrame(msg));
-  else self.postMessage(msg);
+  writeChannel(encodeFrame(msg));
 }
 
 function rpcId(prefix: string): string {
   return `${prefix}-${++nextId}`;
 }
 
-// Forward console output so operators see worker logs in the engine
-// journal. Without this, console.log inside the extension only goes
-// to the worker's stdout (which is captured by Bun but not exposed).
-// As a runner process `console.log` would write to the channel: it is only
+// Forward console output so operators see extension logs in the engine
+// journal. `console.log` would write to the channel (stdout): it is only
 // forwarded (and `info`/`debug`, which also write to stdout, with it).
 for (const level of ['log', 'warn', 'error'] as const) {
   const orig = console[level].bind(console);
   console[level] = (...args: unknown[]) => {
-    if (!asProcess || level !== 'log') orig(...args);
+    if (level !== 'log') orig(...args);
     send({
       type: 'log',
       level,
@@ -100,10 +85,8 @@ for (const level of ['log', 'warn', 'error'] as const) {
     });
   };
 }
-if (asProcess) {
-  console.info = console.log;
-  console.debug = console.log;
-}
+console.info = console.log;
+console.debug = console.log;
 
 /**
  * The route invocation a piece of work belongs to — the host's id for the
@@ -214,13 +197,12 @@ function collectRoutes(app: Hono): RouteDescriptor[] {
  * Route the worker's `fetch` through the engine's SSRF validator.
  *
  * Read the limit first, because the name invites the wrong reading: this is
- * NOT a security boundary, and nothing here contains malicious code. A
- * Bun.Worker is a thread with the full Node API — `node:http` and `node:net`
- * are one import away, and an extension that wants to reach 169.254.169.254
- * simply does not call `fetch`. That was measured, not assumed: `Bun.plugin`
- * cannot block builtin imports, and a probe read `/etc/hostname` from inside
- * a worker. Containment against hostile code needs WASM or OS-level process
- * isolation; see the WASM decision note.
+ * NOT a security boundary, and nothing here contains malicious code. The
+ * runtime has the full Node API — `node:http` and `node:net` are one import
+ * away, and an extension that wants to reach 169.254.169.254 simply does not
+ * call `fetch`. That was measured, not assumed: `Bun.plugin` cannot block
+ * builtin imports. Containment against hostile code is the runner's network
+ * (`network_mode: none`, `IPAddressDeny=any`), not this.
  *
  * What it does buy, and the reason it ships: an extension that takes a URL
  * from its own configuration and fetches it — a webhook target, an API base
@@ -250,8 +232,8 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     // Convenience only — NOT the boundary. This assignment is reachable through
     // `globalThis.process`, but `await import('node:process')` bypasses it
     // entirely, so on its own it kept nothing out. The real restriction is the
-    // `env` option the host passes to the Worker constructor, which is what
-    // actually stops the extension seeing DATABASE_URL and the engine secrets.
+    // process's environment, which the host or the runner sets to NODE_ENV alone,
+    // so DATABASE_URL and the engine secrets never reach it.
     if (msg.env.NODE_ENV) {
       (globalThis as { process?: { env?: Record<string, string> } }).process = {
         env: { NODE_ENV: msg.env.NODE_ENV },
@@ -439,16 +421,12 @@ function dispatch(msg: HostToWorkerMessage): void {
   }
 }
 
-if (asProcess) {
-  // The host closing stdin (or dying) ends the runner; a frame the decoder
-  // refuses means the host is not who is talking, and so does the runner.
-  void (async () => {
-    const frames = new FrameDecoder();
-    for await (const chunk of Bun.stdin.stream()) {
-      for (const msg of frames.push(chunk)) dispatch(msg as HostToWorkerMessage);
-    }
-    exit(0);
-  })().catch(() => exit(1));
-} else {
-  self.onmessage = (e) => dispatch(e.data);
-}
+// The host closing stdin (or dying) ends the runner; a frame the decoder
+// refuses means the host is not who is talking, and so does the runner.
+void (async () => {
+  const frames = new FrameDecoder();
+  for await (const chunk of Bun.stdin.stream()) {
+    for (const msg of frames.push(chunk)) dispatch(msg as HostToWorkerMessage);
+  }
+  exit(0);
+})().catch(() => exit(1));
