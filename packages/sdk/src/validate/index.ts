@@ -29,6 +29,9 @@ import { parseMigrationSql } from './migration-parse.js';
 
 export { SHARED_MESSAGE_KEYS } from './shared-message-keys.js';
 
+/** Headers the engine keeps from a worker-isolated extension unless `forwardCredentials` names them. */
+const CREDENTIAL_HEADERS = ['authorization', 'cookie', 'proxy-authorization', 'x-api-key'];
+
 export interface ValidationError {
   /** Stable machine-readable code (e.g. `MANIFEST_NAME_MISMATCH`). */
   code: string;
@@ -204,6 +207,39 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
             `apiKeyRoutes entry ${JSON.stringify(r)} must be "<GET|POST|PUT|PATCH|DELETE> <pattern>"`,
           ),
         );
+      }
+    }
+  }
+
+  // The host strips these from a worker's request; a public route may ask for some back.
+  if (obj.forwardCredentials !== undefined) {
+    const fwd = obj.forwardCredentials;
+    const publicRoutes = Array.isArray(obj.publicRoutes) ? obj.publicRoutes : [];
+    if (!fwd || typeof fwd !== 'object' || Array.isArray(fwd)) {
+      out.push(
+        err('MANIFEST_BAD_FORWARD_CREDENTIALS', '"forwardCredentials" must map a route to headers'),
+      );
+    } else {
+      for (const [route, names] of Object.entries(fwd)) {
+        if (!publicRoutes.includes(route)) {
+          out.push(
+            err(
+              'MANIFEST_BAD_FORWARD_CREDENTIALS',
+              `forwardCredentials names "${route}", which is not a publicRoutes entry`,
+            ),
+          );
+        }
+        const list: unknown[] = Array.isArray(names) ? names : [names];
+        for (const n of list) {
+          if (typeof n !== 'string' || !CREDENTIAL_HEADERS.includes(n)) {
+            out.push(
+              err(
+                'MANIFEST_BAD_FORWARD_CREDENTIALS',
+                `forwardCredentials "${route}": ${JSON.stringify(n)} is not one of ${CREDENTIAL_HEADERS.join(', ')}`,
+              ),
+            );
+          }
+        }
       }
     }
   }

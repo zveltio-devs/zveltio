@@ -2634,6 +2634,7 @@
   "mkt.purchaseAt": "Erhältlich auf",
   "mkt.rebuildTakes": "Dauert ~30 Sekunden. Die Seitenleiste aktualisiert sich danach automatisch.",
   "mkt.rebuilding": "Studio wird nach dem Aktivieren von {name} neu gebaut",
+  "mkt.receivesCredential": "Erhält Ihren {header}-Header auf {route}.",
   "mkt.requestFailed": "Anfrage fehlgeschlagen",
   "mkt.requestsNewPerms": "Fordert neue Berechtigungen an",
   "mkt.restart": "Neustart",

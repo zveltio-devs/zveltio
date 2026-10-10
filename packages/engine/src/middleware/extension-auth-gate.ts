@@ -166,7 +166,7 @@ export function keyAwareCheckPermission(
  * `"/public/*"` and `"public/*"` work. Patterns are matched against the
  * sub-path AFTER the `/ext/<name>` mount (which always starts with `/`).
  */
-function compilePattern(pattern: string): RegExp {
+export function compilePattern(pattern: string): RegExp {
   const normalized = pattern.startsWith('/') ? pattern : `/${pattern}`;
   // Split on '*' so each literal chunk is regex-escaped independently, then
   // rejoin with '.*' (the wildcard matches across '/'). No placeholder char.

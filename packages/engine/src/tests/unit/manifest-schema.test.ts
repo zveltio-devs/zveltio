@@ -109,3 +109,24 @@ describe('ManifestSchema — apiKeyRoutes', () => {
       expect(ManifestSchema.safeParse({ name: 'x', apiKeyRoutes: [bad] }).success).toBe(false);
   });
 });
+
+describe('ManifestSchema — forwardCredentials', () => {
+  it('takes credential headers on a declared public route and defaults to none', () => {
+    expect(ManifestSchema.parse({ name: 'x' }).forwardCredentials).toEqual({});
+    const m = ManifestSchema.parse({
+      name: 'x',
+      publicRoutes: ['/scim/*'],
+      forwardCredentials: { '/scim/*': ['authorization'] },
+    });
+    expect(m.forwardCredentials).toEqual({ '/scim/*': ['authorization'] });
+  });
+
+  it('refuses an unknown header name, and a route that is not public', () => {
+    const parse = (forwardCredentials: unknown) =>
+      ManifestSchema.safeParse({ name: 'x', publicRoutes: ['/scim/*'], forwardCredentials })
+        .success;
+    expect(parse({ '/scim/*': ['stripe-signature'] })).toBe(false);
+    expect(parse({ '/scim/*': ['Authorization'] })).toBe(false);
+    expect(parse({ '/admin/*': ['authorization'] })).toBe(false);
+  });
+});

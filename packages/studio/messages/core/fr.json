@@ -854,6 +854,7 @@
   "mkt.purchaseAt": "Achetez-la sur",
   "mkt.rebuildTakes": "Cela prend ~30 secondes. La barre latérale se mettra à jour automatiquement.",
   "mkt.rebuilding": "Le Studio se reconstruit après l'activation de {name}",
+  "mkt.receivesCredential": "Reçoit votre en-tête {header} sur {route}.",
   "mkt.requestFailed": "Échec de la requête",
   "mkt.requestsNewPerms": "Demande de nouvelles permissions",
   "mkt.restart": "Redémarrage",

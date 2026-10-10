@@ -854,6 +854,7 @@
   "mkt.purchaseAt": "Koop deze op",
   "mkt.rebuildTakes": "Dit duurt ~30 seconden. De zijbalk wordt daarna automatisch bijgewerkt.",
   "mkt.rebuilding": "Studio wordt opnieuw gebouwd na het inschakelen van {name}",
+  "mkt.receivesCredential": "Ontvangt je {header}-header op {route}.",
   "mkt.requestFailed": "Verzoek mislukt",
   "mkt.requestsNewPerms": "Vraagt nieuwe machtigingen",
   "mkt.restart": "Herstart",

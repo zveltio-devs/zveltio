@@ -109,6 +109,8 @@ interface Extension {
    * must not be able to widen an extension's power on its own say-so.
    */
   pending_capabilities?: string[];
+  /** Public route pattern → caller credential headers its worker is handed (manifest `forwardCredentials`). */
+  forwarded_credentials?: Record<string, string[]>;
 }
 
 // ── License key modal state ────────────────────────────────────────────────
@@ -614,6 +616,17 @@ onMount(loadCatalog);
                   {:else}
                     <div class="mb-4"></div>
                   {/if}
+
+                  <!-- The engine keeps the caller's cookie and keys from a worker
+                       extension; these routes asked for some back. -->
+                  {#each Object.entries(ext.forwarded_credentials ?? {}) as [route, headers]}
+                    {#each headers as header}
+                      <p class="text-xs text-warning flex items-center gap-1 mb-1">
+                        <Key size={12} class="shrink-0" />
+                        {m['mkt.receivesCredential']({ header, route })}
+                      </p>
+                    {/each}
+                  {/each}
 
                   <!-- Pending capability request. Shown whenever this version
                        asks for more than was approved: it is running WITHOUT

@@ -854,6 +854,7 @@
   "mkt.purchaseAt": "Cómprala en",
   "mkt.rebuildTakes": "Tarda ~30 segundos. La barra lateral se actualizará automáticamente al terminar.",
   "mkt.rebuilding": "Studio se está reconstruyendo tras activar {name}",
+  "mkt.receivesCredential": "Recibe tu cabecera {header} en {route}.",
   "mkt.requestFailed": "La solicitud falló",
   "mkt.requestsNewPerms": "Solicita permisos nuevos",
   "mkt.restart": "Reinicio",

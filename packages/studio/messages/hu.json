@@ -2634,6 +2634,7 @@
   "mkt.purchaseAt": "Megvásárolható itt:",
   "mkt.rebuildTakes": "Kb. 30 másodpercig tart. Az oldalsáv a végén automatikusan frissül.",
   "mkt.rebuilding": "A Studio újraépül a(z) {name} engedélyezése után",
+  "mkt.receivesCredential": "Megkapja a {header} fejlécedet ezen: {route}.",
   "mkt.requestFailed": "A kérés sikertelen",
   "mkt.requestsNewPerms": "Új engedélyeket kér",
   "mkt.restart": "Újraindítás",

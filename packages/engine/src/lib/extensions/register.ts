@@ -661,6 +661,7 @@ async function registerExtensionRoutes(
     entry: string;
     extDir: string;
     dependencies?: string[];
+    forwardCredentials?: Record<string, string[]>;
   } | null,
   db: Database,
   serviceDeps: ServiceDeps,
@@ -688,6 +689,7 @@ async function registerExtensionRoutes(
         config: restrictedCtx.config,
         checkPermission: restrictedCtx.checkPermission,
         auth: restrictedCtx.auth,
+        forwardCredentials: isolation.forwardCredentials,
       },
     );
   } else if (mountStrategy === 'subapp') {
@@ -839,7 +841,12 @@ export async function finalizeExtensionLoad(
   ]);
   const workerIsolation =
     manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
-      ? { entry: manifest.engine.entry, extDir, dependencies }
+      ? {
+          entry: manifest.engine.entry,
+          extDir,
+          dependencies,
+          forwardCredentials: manifest.forwardCredentials,
+        }
       : undefined;
   const restrictedCtx = buildRestrictedContext(
     ctx,

@@ -173,6 +173,7 @@ export type { EventBus };
 // import between the per-phase load helpers and the loader. Re-exported here
 // so existing import sites keep working.
 export {
+  CREDENTIAL_HEADERS,
   ManifestSchema,
   embedPageSchemas,
   isSupportedLocaleName,
@@ -254,6 +255,8 @@ interface LoadedExtension {
     entry: string;
     extDir: string;
     dependencies?: string[];
+    /** Manifest `forwardCredentials`: the only credentials its worker is handed. */
+    forwardCredentials?: Record<string, string[]>;
   };
   /**
    * Manifest `dependencies` + `optionalDependencies` as resolved at load — an

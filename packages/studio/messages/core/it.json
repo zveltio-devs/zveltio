@@ -854,6 +854,7 @@
   "mkt.purchaseAt": "Acquistala su",
   "mkt.rebuildTakes": "Richiede ~30 secondi. La barra laterale si aggiornerà automaticamente al termine.",
   "mkt.rebuilding": "Studio si sta ricostruendo dopo l'attivazione di {name}",
+  "mkt.receivesCredential": "Riceve la tua intestazione {header} su {route}.",
   "mkt.requestFailed": "Richiesta non riuscita",
   "mkt.requestsNewPerms": "Richiede nuovi permessi",
   "mkt.restart": "Riavvio",

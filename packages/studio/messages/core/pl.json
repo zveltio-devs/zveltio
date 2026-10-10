@@ -854,6 +854,7 @@
   "mkt.purchaseAt": "Kup go na",
   "mkt.rebuildTakes": "Trwa to ~30 sekund. Pasek boczny zaktualizuje się automatycznie po zakończeniu.",
   "mkt.rebuilding": "Studio przebudowuje się po włączeniu {name}",
+  "mkt.receivesCredential": "Otrzymuje Twój nagłówek {header} na {route}.",
   "mkt.requestFailed": "Żądanie nie powiodło się",
   "mkt.requestsNewPerms": "Prosi o nowe uprawnienia",
   "mkt.restart": "Restart",
