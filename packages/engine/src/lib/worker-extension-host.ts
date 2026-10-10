@@ -263,7 +263,9 @@ export function runnerUnreachable(err: unknown): Error {
   return new Error(
     `extension runner unreachable (${why}). Third-party extensions run only on the ` +
       `runner in production: start it (compose: the ext-runner service; bare metal: ` +
-      `\`zveltio ext-runner setup\`; Helm: extRunner.enabled).`,
+      `\`zveltio ext-runner setup\`; Helm: extRunner.enabled; one container — Fly.io, ` +
+      `Railway, Render, docker run: start the image as root, the Dockerfile's default ` +
+      `target or \`--user 0:0\`).`,
   );
 }
 

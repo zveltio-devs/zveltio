@@ -292,8 +292,9 @@ generated).
   copied into the Studio route tree on enable.
 - Community extensions run **worker-isolated**: a process of their own speaking
   the runner protocol (`ZVELTIO_EXT_TRANSPORT`) — in production the extension
-  runner, under a uid of its own (`lib/ext-runner.ts`; the release compose and
-  `install.sh` ship it), elsewhere a child of the engine under its uid. There is
+  runner, under a uid of its own (`lib/ext-runner.ts`; the release compose,
+  `install.sh` and, for one-container platforms, the image's root entrypoint
+  `docker/zveltio-entrypoint.sh` ship it), elsewhere a child of the engine under its uid. There is
   no in-thread worker. Production refuses `process` and refuses the extension
   when no runner answers. Their SQL crosses to the engine: an allowlist of user
   tables + own `zv_<ext>_*` namespace, one transaction per request,

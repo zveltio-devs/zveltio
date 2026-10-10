@@ -16,8 +16,9 @@
  * `managed` starts the extension's `zveltio-ext-runner@` unit through systemd,
  * as the engine does. Optional env: PROBE_URL (fetched), PROBE_WRITE (a file
  * the extension tries to create). Run by ext-runner-isolation.sh (container),
- * ext-runner-systemd.sh (real systemd) and ext-runner-compose.sh (the release
- * compose); on its own it proves nothing.
+ * ext-runner-systemd.sh (real systemd), ext-runner-compose.sh (the release
+ * compose) and ext-runner-standalone.sh (one container); on its own it proves
+ * nothing.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';

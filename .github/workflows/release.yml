@@ -494,6 +494,7 @@ jobs:
           for attempt in 1 2 3; do
             eval docker buildx build \
               --platform linux/amd64,linux/arm64 \
+              --target production \
               --push \
               $TAG_ARGS \
               $LABEL_ARGS \

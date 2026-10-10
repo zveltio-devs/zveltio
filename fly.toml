@@ -1,6 +1,9 @@
 app = "zveltio"
 primary_region = "ams"
 
+# The Dockerfile's default target (`standalone`) starts as root: the extension
+# runner runs in the machine beside the engine, which drops to uid 100.
+# Third-party extensions run only on that runner in production.
 [build]
   dockerfile = "Dockerfile"
 

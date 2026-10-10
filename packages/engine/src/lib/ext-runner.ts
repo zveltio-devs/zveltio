@@ -28,7 +28,9 @@
  * (`ZVELTIO_EXT_RUNNER_SOCKET` set on both sides), starts as root with only
  * CAP_SETUID, CAP_SETGID and CAP_KILL, and gives every process a uid of its own from
  * `ZVELTIO_EXT_RUNNER_UID_BASE`. Its network is the container's
- * (`network_mode: none` in compose).
+ * (`network_mode: none` in compose). One container (Fly.io, Railway, Render,
+ * `docker run --user 0:0`): `docker/zveltio-entrypoint.sh` starts it beside
+ * the engine, which it drops to the engine's uid.
  */
 
 import {
@@ -133,10 +135,11 @@ export async function runExtRunner(): Promise<never> {
     // or its own runtime under the next extension, and be handed that
     // extension's channel. Both directories must be root's; the socket's is
     // closed to 0755, /tmp gets the sticky bit.
-    const refused = closeSharedDirs([
-      [dirname(path), 0o755],
-      [tmpdir(), 0o1777],
-    ]);
+    const refused =
+      closeSharedDirs([
+        [dirname(path), 0o755],
+        [tmpdir(), 0o1777],
+      ]) ?? checkUidRange(uidBase);
     if (refused) {
       console.error(`[ext-runner] ${refused}`);
       process.exit(1);
@@ -281,6 +284,32 @@ export function setprivArgv(uid: number, argv: string[]): string[] {
     '--',
     ...argv,
   ];
+}
+
+type SpawnSync = (argv: string[]) => { exitCode: number | null; stdout: Buffer; stderr?: Buffer };
+
+/**
+ * Container mode: check the kernel lets the runner switch to both ends of the
+ * range `uidAllocator` hands out; the refusal, or null. Without CAP_SETUID, or
+ * in a user namespace that maps fewer ids (docker userns-remap maps 65536), an
+ * extension would fail at load long after the runner said it was listening.
+ */
+export function checkUidRange(
+  base: number,
+  run: SpawnSync = (argv) => Bun.spawnSync(argv, { stderr: 'pipe' }),
+): string | null {
+  for (const uid of [base, base + 65535]) {
+    const r = run(setprivArgv(uid, ['id', '-u']));
+    const got = r.stdout.toString().trim();
+    if (r.exitCode !== 0 || got !== String(uid)) {
+      const why = r.stderr?.toString().trim() || `it ran as ${got || 'nothing'}`;
+      return (
+        `cannot run a process as uid ${uid} (${why}): the runner needs root with ` +
+        `CAP_SETUID and CAP_SETGID, and uids ${base}-${base + 65535} usable`
+      );
+    }
+  }
+  return null;
 }
 
 /**

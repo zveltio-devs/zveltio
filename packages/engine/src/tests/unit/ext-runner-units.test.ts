@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  checkUidRange,
   closeSharedDirs,
   runnerInstance,
   startRunner,
@@ -113,6 +114,35 @@ describe('container runner', () => {
       '/bin/zveltio',
       'rt.mjs',
     ]);
+  });
+
+  // A runner that cannot switch uids, or whose range runs past the ids a user
+  // namespace maps, must refuse to start, not fail every extension later.
+  it('checks both ends of the uid range it hands out', () => {
+    const asked: number[] = [];
+    const ok = checkUidRange(200000, (argv) => {
+      const uid = Number(argv[1]!.split('=')[1]);
+      asked.push(uid);
+      expect(argv.slice(-2)).toEqual(['id', '-u']);
+      return { exitCode: 0, stdout: Buffer.from(`${uid}\n`) };
+    });
+    expect(ok).toBeNull();
+    expect(asked).toEqual([200000, 265535]);
+  });
+
+  it('refuses a range whose top is not usable, or a drop that did not happen', () => {
+    const unmapped = checkUidRange(200000, (argv) =>
+      argv[1] === '--reuid=265535'
+        ? {
+            exitCode: 1,
+            stdout: Buffer.from(''),
+            stderr: Buffer.from('setresuid failed: Invalid argument'),
+          }
+        : { exitCode: 0, stdout: Buffer.from(argv[1]!.split('=')[1]!) },
+    );
+    expect(unmapped).toContain('uid 265535 (setresuid failed: Invalid argument)');
+    const ignored = checkUidRange(200000, () => ({ exitCode: 0, stdout: Buffer.from('0') }));
+    expect(ignored).toContain('uid 200000 (it ran as 0)');
   });
 
   it('refuses a shared directory that is not root-owned at the mode it needs', () => {

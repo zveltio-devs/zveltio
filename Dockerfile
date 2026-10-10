@@ -79,7 +79,8 @@ RUN apk add --no-cache curl tzdata setpriv && \
     adduser -S -u 100 -G zveltio zveltio
 
 COPY --from=engine-builder /zveltio /usr/local/bin/zveltio
-RUN chmod +x /usr/local/bin/zveltio
+COPY docker/zveltio-entrypoint.sh /usr/local/bin/zveltio-entrypoint
+RUN chmod +x /usr/local/bin/zveltio /usr/local/bin/zveltio-entrypoint
 
 # Static files live outside /data: a volume mounted on /data (the Helm chart's
 # PVC) hid them, and /admin served the "Studio UI files are missing" page.
@@ -112,5 +113,17 @@ EXPOSE 3000
 
 USER 100:101
 
-ENTRYPOINT ["/usr/local/bin/zveltio"]
+# As uid 100 it runs the binary; as root it also starts the extension runner
+# in this container and drops the engine to 100:101 (docker/zveltio-entrypoint.sh).
+ENTRYPOINT ["/usr/local/bin/zveltio-entrypoint"]
 CMD ["start"]
+
+# ── Stage 4: one container, extension runner included ─────────
+# The default target: what fly.toml, railway.json and render.yaml build, and
+# what `docker build .` gives. Those platforms cannot run the runner as a
+# second container, and third-party extensions run only on the runner in
+# production. The published image is `production` (release.yml), whose user
+# the chart and the release compose rely on; `docker run --user 0:0` gives it
+# this behaviour. A name, not 0: Fly.io's init looks the user up in /etc/passwd.
+FROM production AS standalone
+USER root

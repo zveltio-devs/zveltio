@@ -601,6 +601,11 @@ jobs:
         # (scripts/generate-compose.sh): no secret, no egress, a uid per
         # extension, a socket no extension can replace.
         run: bash packages/engine/scripts/ext-runner-compose.sh
+      - name: Runner in one container keeps them out of reach (Fly.io, Railway, Render)
+        # The Dockerfile's default target, started as root through its real
+        # entrypoint: the engine dropped to 100, the runner root with three
+        # capabilities, a uid per extension, /data and TMPDIR closed to them.
+        run: bash packages/engine/scripts/ext-runner-standalone.sh
 
   ext-runner-systemd:
     name: Extension runner on systemd

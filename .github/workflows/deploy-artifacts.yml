@@ -63,7 +63,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Build (amd64, not pushed)
-        run: docker build -t zveltio-engine:ci .
+        # `production` is what release.yml publishes; the default target
+        # (`standalone`) is what fly.toml, railway.json and render.yaml build.
+        run: |
+          docker build --target production -t zveltio-engine:ci .
+          docker build -t zveltio-engine:standalone .
       - name: Check what the chart and compose rely on
         run: |
           # Numeric USER: the kubelet cannot verify runAsNonRoot for a name.
@@ -77,6 +81,11 @@ jobs:
           docker run --rm --entrypoint setpriv zveltio-engine:ci --version >/dev/null
           # The binary runs and knows `migrate` (the chart's migration Job).
           docker run --rm zveltio-engine:ci --help | grep -q migrate
+          # The PaaS image starts as root, so the entrypoint can start the
+          # extension runner in the container and drop the engine to 100:101.
+          [ "$(docker inspect -f '{{.Config.User}}' zveltio-engine:standalone)" = root ] \
+            || { echo "::error::the default target does not start as root"; exit 1; }
+          docker run --rm zveltio-engine:standalone --help | grep -q migrate
 
   compose-and-installers:
     runs-on: ubuntu-latest
