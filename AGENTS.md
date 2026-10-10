@@ -344,9 +344,11 @@ generated).
   extra signers go in `REGISTRY_PUBLIC_KEYS_JSON`).
 - Edge functions run in a separate process per invocation with a minimal env,
   a kernel memory ceiling (`EDGE_MEMORY_LIMIT_MB`) and a wall-clock kill. There
-  is no in-process mode; `EDGE_SANDBOX_MODE` is ignored. The process is the
-  engine's uid unless `ZVELTIO_EDGE_TRANSPORT=runner` (opt-in) hands it to the
-  extension runner.
+  is no in-process mode; `EDGE_SANDBOX_MODE` is ignored. A function that lists
+  its hosts in its `ZVELTIO_EGRESS` env var runs on the extension runner where
+  third-party extensions do, and its `fetch` crosses to the engine
+  (`lib/edge-functions/egress.ts`); one that lists none stays the engine's
+  child unless `ZVELTIO_EDGE_TRANSPORT=runner`.
 - The extension runner is an OS boundary (uid, cgroup, network), not an
   adversarially-tested sandbox — treat untrusted community extensions
   accordingly.

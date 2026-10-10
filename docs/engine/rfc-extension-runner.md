@@ -320,7 +320,8 @@ instead, which closes the same-uid gap for edge functions too (step 5).
        invocations running at once are not isolated from each other (in
        containers each gets its own uid);
      - egress is the runner's: closed until the operator opens the `edge`
-       instance or the runner container's network.
+       instance or the runner container's network. (Step 10: the runner keeps
+       it closed, and a function's `fetch` crosses to the engine.)
 6. **A faithful SQL bridge.** Measured in the
    [experiment](rfc-extension-runner-experiment.md): today the bridge
    - passes JS arrays to Postgres unconverted (`malformed array literal`), where
@@ -502,9 +503,53 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      with it. A platform that denies root or `CAP_SETUID` in the container gets
      a runner that refuses to start, and the engine refuses third-party
      extensions with `extension runner unreachable`.
-10. **Edge functions default to the runner** once egress approval (decision 2)
-    exists for them; until then the runner's closed network would cut off every
-    edge function that calls out.
+10. **Done — edge functions default to the runner** once they declare their
+    egress (decision 2, for edge functions):
+    - Declaration and approval: the function's env var `ZVELTIO_EGRESS`
+      (`api.stripe.com, hooks.slack.com`), beside `ZVELTIO_PUBLIC`. An edge
+      function has no install step and no manifest: the admin who writes its
+      code and saves it is the operator approving it, so the save (the
+      `developer/edge-functions` API and Studio env editor, whose response
+      carries the list back) is the consent point. An env var rather than a
+      column so that every caller already hands it over — the engine's
+      `/api/fn/:name`, the extension's test invoke and custom-path mounts — with
+      no migration and no extension release. An empty value declares none.
+    - The runner keeps no network. In the sandbox, `fetch` writes one
+      `FETCH <json>` line on stdout; the runner forwards it on the edge
+      connection as it comes, the engine answers one JSON line back down it,
+      and the sandbox builds the `Response`. The engine performs the request
+      with the shared `createSafeFetch` (`lib/edge-functions/egress.ts`), whose
+      new per-hop hook holds every hop — redirects included — to the list
+      BEFORE the SSRF guard resolves it, so an unlisted name is never looked up.
+    - Matching: exact authority. `api.x.com` is that name on the scheme's
+      default port, `api.x.com:8443` that port only; http and https only; no
+      wildcards or suffixes; an IDN in its `xn--` form. An entry that is not a
+      host fails the invocation rather than being read wider or narrower.
+    - Bounds per invocation: request body 1 MiB, response body 5 MiB (the
+      engine stops reading), one FETCH line 2 MiB (past it the invocation is
+      killed), 50 requests, 6 in flight; each request ends with the
+      invocation's own timeout.
+    - Placement, with `ZVELTIO_EDGE_TRANSPORT` unset: a declared function goes
+      where third-party extensions go (`extensionTransport()`: the runner in
+      production, a local child in development, which has no runner); an
+      undeclared one stays the engine's child with the engine's network, and
+      the engine warns once where extensions are on the runner. `=runner`
+      moves every function (an undeclared one's `fetch` is refused by the
+      engine, with that reason); `=process` keeps every function local. A
+      declared function is held to its list wherever it runs — locally, too,
+      its `fetch` crosses to the engine.
+    - Proof: `edge-egress.test.ts` (both transports: a listed host reached
+      through the engine, an unlisted one refused before it is resolved, a
+      listed private address refused by the SSRF guard, every redirect hop
+      checked, ports exact, the bounds, the default placement);
+      `ext-runner-compose.sh` on the real runner container (`network_mode:
+      none`): a listed host answers through the engine, an unlisted host and
+      a listed metadata address are refused, an undeclared function reaches
+      nothing, and with no `ZVELTIO_EDGE_TRANSPORT` a declared function runs
+      under a runner uid.
+    - Still open: flow scripts (`script-runner.ts`) declare no egress and stay
+      local; the systemd proof (`ext-runner-systemd.sh`) checks the closed
+      network only, not the bridge.
 
 ## Alternatives considered
 

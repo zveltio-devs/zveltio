@@ -254,10 +254,15 @@ The engine spawns a fresh Bun process per invocation (`Bun.spawn`) with:
   second time.
 
 All of that runs under the engine's uid, so a function that escapes the JS
-lockdown can read what the engine can. `ZVELTIO_EDGE_TRANSPORT=runner` moves
-each invocation into the extension runner, under another uid with no access to
-the engine's files, environment or processes (RFC extension-runner, step 5);
-it is opt-in until step 10 (after egress approval exists for edge functions).
+lockdown can read what the engine can. The extension runner runs an invocation
+under another uid with no access to the engine's files, environment or
+processes, and with no network (RFC extension-runner, steps 5 and 10): its
+`fetch` crosses to the engine, which performs it through the SSRF guard and only
+to the hosts the function lists in its `ZVELTIO_EGRESS` env var — saved, like
+`ZVELTIO_PUBLIC`, by the admin who saves the function, which is the approval.
+A function that lists its egress runs there by default wherever third-party
+extensions do; one that lists nothing stays the engine's child until it does,
+or until `ZVELTIO_EDGE_TRANSPORT=runner` moves every function.
 
 Trade-off: ~30 ms per-spawn vs. ~1 ms for Worker. Use Worker (the
 default) for admin-authored edge functions, subprocess for marketplace
