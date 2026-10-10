@@ -289,6 +289,19 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
     }
   });
 
+  it('catches an aliased table', async () => {
+    const r = root(
+      "export const p = (poolDb: D) => poolDb.selectFrom('zv_api_keys as k').execute();\n",
+    );
+    try {
+      const { code, out } = await run(r, GATE);
+      expect(out).toContain('zv_api_keys');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
   it('ignores a commented-out site, and says how many it actually saw', async () => {
     const r = root(
       "// poolDb.selectFrom('zv_api_keys')\nexport const p = (poolDb: D) => poolDb.selectFrom('zv_tenants').execute();\n",
