@@ -104,7 +104,10 @@ function tsFiles(dir: string): string[] {
  * `audit-gates.ts` catches on one line stayed green when broken across two, and
  * every real call site in this codebase is long enough to wrap.
  */
-const QUERY = /\bpoolDb\s*\.\s*(selectFrom|insertInto|updateTable|deleteFrom)\(\s*'([\w]+)'/g;
+// An alias (`'zv_api_keys as k'`) is the same table: it used to end the match
+// at the space and leave the site uncounted.
+const QUERY =
+  /\bpoolDb\s*\.\s*(selectFrom|insertInto|updateTable|deleteFrom)\(\s*'([\w]+)(?:\s+as\s+\w+)?'/g;
 
 /**
  * Sites read and understood, keyed `file:table`. Empty, and meant to stay that
