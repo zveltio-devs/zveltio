@@ -7,8 +7,16 @@ primary_region = "ams"
 [build]
   dockerfile = "Dockerfile"
 
+# One machine. The image runs in single-instance mode (no Valkey), so a second
+# machine would only stand by: deploy with `fly deploy --ha=false`, or
+# `fly scale count 1`. To run several, add Valkey (`fly redis create`) and set
+# its URL as the VALKEY_URL secret.
+# Secrets: `fly secrets set DATABASE_URL=... BETTER_AUTH_SECRET=$(openssl rand -hex 32)`.
+# PostgreSQL 18 or newer is required.
 [env]
   PORT = "8080"
+  # The URL browsers use; change it with the app name.
+  BETTER_AUTH_URL = "https://zveltio.fly.dev"
 
 [http_service]
   internal_port = 8080
