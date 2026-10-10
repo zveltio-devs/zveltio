@@ -172,13 +172,14 @@ Ordered from most to least trusted:
    keys.
 3. **First-party extensions** — run in-process (`inline` isolation) by default.
    They are trusted code, reviewed in the `zveltio-extensions` repository.
-4. **Community extensions** — run **worker-isolated**: a worker thread inside
-   the engine process, a restricted SQL allowlist, a reserved connection with a
-   statement timeout, and the `zveltio_worker` database role which holds no
-   grants on Better-Auth tables. Worker isolation is a guard-rail, not a
-   sandbox: the thread shares the engine's process, so production loads such
-   extensions only with `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1`. An out-of-process
-   runner is planned (RFC zveltio#907).
+4. **Community extensions** — run **worker-isolated**: in production on the
+   extension runner, a process under a uid of its own with no engine files,
+   environment or database connection ([RFC](../engine/rfc-extension-runner.md));
+   their SQL crosses to the engine, restricted to an allowlist on a reserved
+   connection with a statement timeout, as the `zveltio_worker` database role
+   which holds no grants on Better-Auth tables. Without a reachable runner,
+   production refuses them. Outside production they run as a child of the
+   engine, under its uid — the same protocol, no boundary.
 5. **Edge functions** — a separate process per invocation with a minimal
    environment and a kernel memory ceiling. One runner: the in-process Worker
    mode was removed because a thread cannot be given that ceiling.

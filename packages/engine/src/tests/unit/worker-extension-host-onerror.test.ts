@@ -6,17 +6,18 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import type { HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
 import { WorkerExtensionHost, _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
+import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
 
-const OriginalWorker = globalThis.Worker;
+/** A fake extension process: the host's channel opener returns it. */
+const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as ExtensionChannel;
 
 afterEach(() => {
-  globalThis.Worker = OriginalWorker;
   _resetWorkerHostForTests();
 });
 
 describe('WorkerExtensionHost — worker onerror', () => {
   it('logs and schedules a respawn when a running worker fires onerror', async () => {
-    globalThis.Worker = class MockWorker {
+    const MockWorker = class {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
       postMessage(msg: HostToWorkerMessage) {
@@ -29,7 +30,7 @@ describe('WorkerExtensionHost — worker onerror', () => {
         }
       }
       terminate() {}
-    } as unknown as typeof Worker;
+    };
 
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
@@ -40,7 +41,7 @@ describe('WorkerExtensionHost — worker onerror', () => {
     }) as typeof setTimeout);
 
     const app = new Hono();
-    const host = new WorkerExtensionHost(app);
+    const host = new WorkerExtensionHost(app, fakeChannel(MockWorker));
     try {
       await host.start('crash-ext', '/tmp/crash', 'engine/index.js');
       // @ts-expect-error — test seam into private map

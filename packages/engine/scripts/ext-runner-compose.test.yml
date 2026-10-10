@@ -1,9 +1,10 @@
-# Test stack for ext-runner-compose.sh — layered on the real overlay:
-#   docker compose -f docker-compose.ext-runner.yml -f packages/engine/scripts/ext-runner-compose.test.yml
-# The runner keeps every isolation setting of docker-compose.ext-runner.yml;
-# only its image becomes Bun + the source tree instead of a release build. The
-# "engine" is the probe, under the engine's uid, with a secret in a 0600 .env,
-# a secret in its environment, and a network.
+# Test stack for ext-runner-compose.sh — layered on the release compose:
+#   docker compose -f <generate-compose.sh output>/docker-compose.engine.yml \
+#     -f packages/engine/scripts/ext-runner-compose.test.yml
+# The runner keeps every isolation setting the release compose gives it; only its
+# image becomes Bun + the source tree instead of a release build. The "engine"
+# is the probe, under the engine's uid, with a secret in a 0600 .env, a secret
+# in its environment, and a network.
 name: zveltio-ext-runner-test
 
 x-image: &image
@@ -22,6 +23,9 @@ x-image: &image
 services:
   engine:
     <<: *image
+    container_name: !reset null
+    ports: !reset []
+    healthcheck: !reset {}
     user: '100:101'
     working_dir: /tmp
     command: ['sleep', 'infinity']
@@ -32,6 +36,7 @@ services:
 
   ext-runner:
     <<: *image
+    container_name: !reset null
     command: ['bun', '/src/packages/engine/src/binary-entry.ts', 'ext-runner']
     tmpfs: !override ['/tmp:mode=0777']
     volumes:

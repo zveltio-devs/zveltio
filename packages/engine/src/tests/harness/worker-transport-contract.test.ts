@@ -1,14 +1,15 @@
-// The same extension over both transports gives the same answers (RFC
-// extension-runner, step 2).
+// The frame transport carries the whole protocol (RFC extension-runner, steps 2
+// and 9).
 //
 // `ZVELTIO_EXT_TRANSPORT=process` runs the runtime as a child process speaking
-// length-prefixed JSON frames on stdin/stdout instead of an in-thread worker
-// speaking `postMessage`. Everything the protocol carries is exercised once per
-// transport — init and the route table, a route with query, headers and a
-// body, a `db:query`, a service the extension registers and calls, a large
-// body, a log line, and an error — and the two transcripts must be identical.
-// The last case is what only the process can show: the runner does not share
-// the engine's process.
+// length-prefixed JSON frames on stdin/stdout — the frames the runner pipes
+// unchanged, so the runner carries the same. Everything the protocol carries is
+// exercised — init and the route table, a route with query, headers and a body,
+// a `db:query`, a service the extension registers and calls, a large body, a log
+// line, and an error — and the transcript must be what the extension answers.
+// The extension runs in a process of its own, without the engine's environment.
+// (Step 2 compared this transcript with the in-thread worker's; step 9 removed
+// the thread.)
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -67,7 +68,7 @@ async function transcript(app: Hono, name: string) {
   };
 }
 
-d('worker transport contract: thread and process answer alike', () => {
+d('worker transport contract: the process transport carries the protocol', () => {
   let db: Database;
   let base = '';
   const results: Record<string, unknown> = {};
@@ -78,7 +79,7 @@ d('worker transport contract: thread and process answer alike', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'wkr-transport-'));
-    for (const transport of ['worker', 'process'] as const) {
+    for (const transport of ['process'] as const) {
       const name = `wkrtp${transport[0]}${SFX}`;
       const dir = join(base, name);
       mkdirSync(join(dir, 'engine'), { recursive: true });
@@ -121,8 +122,8 @@ d('worker transport contract: thread and process answer alike', () => {
     if (base) rmSync(base, { recursive: true, force: true });
   });
 
-  it('the worker transcript is what the extension answers (the setup is real)', () => {
-    expect(results.worker).toEqual({
+  it('the transcript is what the extension answers', () => {
+    expect(results.process).toEqual({
       echo: {
         status: 201,
         ext: 'yes',
@@ -135,22 +136,16 @@ d('worker transport contract: thread and process answer alike', () => {
     });
   });
 
-  it('the process transcript is identical', () => {
-    expect(results.process).toEqual(results.worker);
-  });
-
-  it("neither sees the engine's environment", () => {
+  it("it does not see the engine's environment", () => {
     expect(process.env.DATABASE_URL).toBeTruthy();
-    for (const keys of [envs.worker, envs.process]) {
-      expect(keys).toContain('NODE_ENV');
-      expect(keys).not.toContain('DATABASE_URL');
-      expect(keys).not.toContain('BETTER_AUTH_SECRET');
-      expect(keys).not.toContain('FIELD_ENCRYPTION_KEY');
-    }
+    expect(envs.process).toContain('NODE_ENV');
+    expect(envs.process).not.toContain('DATABASE_URL');
+    expect(envs.process).not.toContain('BETTER_AUTH_SECRET');
+    expect(envs.process).not.toContain('FIELD_ENCRYPTION_KEY');
   });
 
-  it('the thread shares the engine process; the runner does not', () => {
-    expect(pids.worker).toBe(process.pid);
+  it("it runs outside the engine's process", () => {
+    expect(pids.process).toBeGreaterThan(0);
     expect(pids.process).not.toBe(process.pid);
   });
 });

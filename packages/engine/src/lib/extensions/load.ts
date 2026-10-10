@@ -30,7 +30,7 @@ import { grantExtensionDbRole, grantWorkerDbRole } from './ext-db-role.js';
 import { embedPageSchemas, type ManifestMeta } from './manifest-schema.js';
 import {
   enforcePublisherTier,
-  enforceWorkerOptIn,
+  enforceRunnerInProduction,
   resolveEntryPath,
   resolveManifest,
 } from './load-phases.js';
@@ -250,11 +250,11 @@ export async function loadExtensionFromDir(
       }
       return;
     }
-    const optInPhase = enforceWorkerOptIn(extName, manifest);
-    if (!optInPhase.ok) {
-      if (optInPhase.logLevel !== 'none') console[optInPhase.logLevel](...optInPhase.logArgs);
-      if (optInPhase.lastLoadError !== null) {
-        loader.lastLoadError.set(extName, optInPhase.lastLoadError);
+    const runnerPhase = enforceRunnerInProduction(extName, manifest);
+    if (!runnerPhase.ok) {
+      if (runnerPhase.logLevel !== 'none') console[runnerPhase.logLevel](...runnerPhase.logArgs);
+      if (runnerPhase.lastLoadError !== null) {
+        loader.lastLoadError.set(extName, runnerPhase.lastLoadError);
       }
       return;
     }

@@ -5,7 +5,7 @@ import { WorkerExtensionHost, _resetWorkerHostForTests } from '../../lib/worker-
 /**
  * WorkerExtensionHost unit tests — alpha.122 reliability features.
  *
- * The full IPC chain (real Bun.Worker spawning the embedded runtime,
+ * The full IPC chain (a real process running the embedded runtime,
  * Hono dispatch, DB proxy) is exercised by the release-binary smoke
  * job. These tests pin the host-side bookkeeping that the smoke can't
  * easily inspect:
@@ -109,7 +109,7 @@ describe('WorkerExtensionHost — health record shape', () => {
     expect(h.enabledAt).toBe('2026-05-31T10:00:00.000Z');
     expect(h.lastCrashAt).toBe('2026-05-31T10:15:00.000Z');
     expect(h.lastHangAt).toBeUndefined();
-    // Honest: there is NO per-extension RSS field. Bun.Worker is a thread.
+    // Honest: there is NO per-extension RSS field (the runner's process is not the engine's).
     expect('rssBytes' in h).toBe(false);
     expect('memoryMb' in h).toBe(false);
   });

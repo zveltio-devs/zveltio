@@ -5,7 +5,7 @@
 // to 400 became a 500), UPDATE/DELETE without RETURNING reported no affected
 // rows, an Error logged by the extension reached the engine log as `{}`, and
 // boot spawned every worker twice (once into the throwaway app, once more on
-// the real one). Driven through the real loader, over both transports.
+// the real one). Driven through the real loader, over the process transport.
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,7 +20,7 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
-const TRANSPORTS = ['worker', 'process'] as const;
+const TRANSPORTS = ['process'] as const;
 const extName = (t: string) => `wkrsql${t[0]}${SFX}`;
 const table = (t: string) => `zv_${extName(t)}_items`;
 

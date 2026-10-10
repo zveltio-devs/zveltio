@@ -6,17 +6,18 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import type { HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
 import { WorkerExtensionHost, _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
+import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
 
-const OriginalWorker = globalThis.Worker;
+/** A fake extension process: the host's channel opener returns it. */
+const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as ExtensionChannel;
 
 afterEach(() => {
-  globalThis.Worker = OriginalWorker;
   _resetWorkerHostForTests();
 });
 
 describe('WorkerExtensionHost — init failures', () => {
   it('throws when the worker responds with init:err', async () => {
-    globalThis.Worker = class MockWorker {
+    const MockWorker = class {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
       postMessage(msg: HostToWorkerMessage) {
@@ -29,9 +30,9 @@ describe('WorkerExtensionHost — init failures', () => {
         }
       }
       terminate() {}
-    } as unknown as typeof Worker;
+    };
 
-    const host = new WorkerExtensionHost(new Hono());
+    const host = new WorkerExtensionHost(new Hono(), fakeChannel(MockWorker));
     await expect(host.start('init-err-ext', '/tmp/init-err', 'engine/index.js')).rejects.toThrow(
       /init failed: bad manifest/,
     );
@@ -39,14 +40,14 @@ describe('WorkerExtensionHost — init failures', () => {
   });
 
   it('rejects when the worker does not init within 15s', async () => {
-    globalThis.Worker = class MockWorker {
+    const MockWorker = class {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
       postMessage(_msg: HostToWorkerMessage) {
         /* never responds */
       }
       terminate() {}
-    } as unknown as typeof Worker;
+    };
 
     const realSetTimeout = globalThis.setTimeout;
     const timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
@@ -60,7 +61,7 @@ describe('WorkerExtensionHost — init failures', () => {
       return realSetTimeout(fn, ms, ...args);
     }) as typeof setTimeout);
 
-    const host = new WorkerExtensionHost(new Hono());
+    const host = new WorkerExtensionHost(new Hono(), fakeChannel(MockWorker));
     try {
       await expect(
         host.start('init-timeout-ext', '/tmp/timeout', 'engine/index.js'),

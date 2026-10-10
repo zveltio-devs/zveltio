@@ -8,7 +8,7 @@
 // back keeps the outer work, a thrown handler rolls back, the hard timeout
 // releases the connection, a worker killed mid-request rolls back and gives the
 // connection back, and no role or tenant GUC reaches the next pooled query.
-// Driven through the real loader, as a request to a tenant, over both transports.
+// Driven through the real loader, as a request to a tenant, over the process transport.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,7 +30,7 @@ import { ALL_COLLECTIONS_ACTOR, getTestApp, harnessAvailable } from '../../testi
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
-const TRANSPORTS = ['worker', 'process'] as const;
+const TRANSPORTS = ['process'] as const;
 const TENANT = crypto.randomUUID();
 const extName = (t: string) => `wkrtx${t[0]}${SFX}`;
 const tbl = (t: string, s: string) => `zv_${extName(t)}_${s}`;

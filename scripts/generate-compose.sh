@@ -11,6 +11,60 @@ IMAGE="${REGISTRY}:${VERSION}"
 
 mkdir -p "$OUTPUT_DIR"
 
+# ── The extension runner (RFC extension-runner, steps 4 and 9) ─
+# Third-party (worker-isolated) extensions run only here in production: the
+# engine refuses to load one when it cannot reach this runner, never runs it in
+# its own process. One definition, written into every compose that runs the
+# engine. The runner holds nothing worth stealing: none of the engine's
+# environment or volumes (only the extensions, read-only), no network at all,
+# and no database connection — `db:query` crosses to the engine over the socket.
+# It starts as root with only CAP_SETUID/SETGID/KILL and runs every extension
+# under a uid of its own, from ZVELTIO_EXT_RUNNER_UID_BASE up, so one extension
+# cannot read another's process or replace the runner's socket.
+# Egress: `network_mode: none` denies every address. To let extensions reach an
+# API, replace it with a network that routes only there — the allowance is for
+# every extension in the runner, not per extension as on bare metal. Edge
+# functions run here too once the engine sets ZVELTIO_EDGE_TRANSPORT: runner.
+EXT_RUNNER_SERVICE="  ext-runner:
+    image: ${IMAGE}
+    container_name: zveltio-ext-runner
+    restart: unless-stopped
+    command: ['ext-runner']
+    user: '0:0'
+    environment:
+      NODE_ENV: production
+      ZVELTIO_ENGINE_UID: '100'
+      ZVELTIO_EXT_RUNNER_SOCKET: /run/zveltio-ext/runner.sock
+      ZVELTIO_EXT_RUNNER_UID_BASE: '200000'
+    volumes:
+      - engine_extensions:/data/extensions:ro
+      - ext_runner_socket:/run/zveltio-ext
+    network_mode: none
+    cap_drop: [ALL]
+    # KILL: ending an extension's process, which runs under another uid.
+    cap_add: [SETUID, SETGID, KILL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs: ['/tmp']
+    mem_limit: 1g
+    pids_limit: 256
+    healthcheck:
+      test: ['CMD', 'test', '-S', '/run/zveltio-ext/runner.sock']
+      interval: 2s
+      timeout: 2s
+      retries: 15"
+# What the engine adds to reach it: the transport, the socket, and the
+# extensions it shares (read-only on the runner's side).
+ENGINE_RUNNER_ENV="      ZVELTIO_EXT_TRANSPORT: runner
+      ZVELTIO_EXT_RUNNER_SOCKET: /run/zveltio-ext/runner.sock"
+ENGINE_RUNNER_VOLUMES="    volumes:
+      - engine_extensions:/data/extensions
+      - ext_runner_socket:/run/zveltio-ext"
+ENGINE_RUNNER_DEPENDS="      ext-runner:
+        condition: service_healthy"
+RUNNER_VOLUMES="  engine_extensions:
+  ext_runner_socket:"
+
 # ── docker-compose.yml (Full Stack) ───────────────────────────
 cat > "${OUTPUT_DIR}/docker-compose.yml" << EOF
 # Zveltio ${VERSION} — Full Stack
@@ -195,6 +249,8 @@ services:
       FIELD_ENCRYPTION_KEY: \${FIELD_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
       ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/pages,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
+${ENGINE_RUNNER_ENV}
+${ENGINE_RUNNER_VOLUMES}
     depends_on:
       postgres:
         condition: service_healthy
@@ -204,6 +260,7 @@ services:
         condition: service_started
       seaweedfs-filer:
         condition: service_started
+${ENGINE_RUNNER_DEPENDS}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 30s
@@ -213,6 +270,8 @@ services:
     networks:
       - zveltio
 
+${EXT_RUNNER_SERVICE}
+
 volumes:
   postgres_data:
   valkey_data:
@@ -220,6 +279,7 @@ volumes:
   seaweedfs_volume:
   seaweedfs_config:
   pgdog_config:
+${RUNNER_VOLUMES}
 
 networks:
   zveltio:
@@ -389,12 +449,21 @@ services:
       FIELD_ENCRYPTION_KEY: \${FIELD_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
       ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/pages,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
+${ENGINE_RUNNER_ENV}
+${ENGINE_RUNNER_VOLUMES}
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    depends_on:
+${ENGINE_RUNNER_DEPENDS}
+
+${EXT_RUNNER_SERVICE}
+
+volumes:
+${RUNNER_VOLUMES}
 EOF
 
 echo "✅ Generated compose files in ${OUTPUT_DIR}"

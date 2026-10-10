@@ -72,7 +72,7 @@ LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
 # Numeric ids, pinned to what `adduser -S` assigned in every image so far, so
 # existing volumes stay writable. Kubernetes `runAsNonRoot` refuses an image
 # whose USER is a name ("cannot verify user is non-root").
-# setpriv: the extension runner (docker-compose.ext-runner.yml) drops each
+# setpriv: the extension runner (ext-runner in the release compose) drops each
 # extension to a uid of its own with it; Bun's spawn ignores `uid`.
 RUN apk add --no-cache curl tzdata setpriv && \
     addgroup -S -g 101 zveltio && \

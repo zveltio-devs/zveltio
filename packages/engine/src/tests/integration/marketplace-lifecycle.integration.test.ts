@@ -114,7 +114,7 @@ describe.skipIf(skipAll)('Marketplace lifecycle — worker isolation (hello-ext-
     expect(body.success).toBe(true);
   });
 
-  it('enable → success:true (spawns Bun.Worker)', async () => {
+  it('enable → success:true (spawns the worker process)', async () => {
     const res = await authedFetch('/api/marketplace/hello-ext-worker/enable', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

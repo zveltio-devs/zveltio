@@ -13,6 +13,10 @@ import {
   getWorkerHost,
   getWorkerHostIfInitialized,
 } from '../../lib/worker-extension-host.js';
+import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
+
+/** A fake extension process: the host's channel opener returns it. */
+const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as ExtensionChannel;
 
 const { dispatchMessage, mountProxy, heartbeat, resetInvokeWaiters } = _internalForTests;
 
@@ -41,7 +45,7 @@ function makeManaged(
         overrides.onPost?.(msg);
       },
       terminate: mock(() => {}),
-    } as unknown as Worker,
+    } as unknown as ExtensionChannel,
     routes: overrides.routes ?? [],
     pendingInvokes: new Map(),
     invokeTenants: new Map(),
@@ -733,16 +737,13 @@ describe('WorkerExtensionHost — stop() teardown', () => {
   });
 });
 
-describe('WorkerExtensionHost — mocked Worker start()', () => {
-  const OriginalWorker = globalThis.Worker;
-
+describe('WorkerExtensionHost — start() over a fake channel', () => {
   afterEach(() => {
-    globalThis.Worker = OriginalWorker;
     _resetWorkerHostForTests();
   });
 
   it('spawns, inits, and mounts proxy routes under /ext/<name>', async () => {
-    globalThis.Worker = class MockWorker {
+    const MockWorker = class {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
       postMessage(msg: HostToWorkerMessage) {
@@ -759,10 +760,10 @@ describe('WorkerExtensionHost — mocked Worker start()', () => {
         }
       }
       terminate() {}
-    } as unknown as typeof Worker;
+    };
 
     const app = new Hono();
-    const host = new WorkerExtensionHost(app);
+    const host = new WorkerExtensionHost(app, fakeChannel(MockWorker));
     await host.start('mock-ext', '/tmp/mock-ext', 'engine/index.js');
     expect(host.isRunning('mock-ext')).toBe(true);
     expect(host.getHealth()[0]?.routes).toBe(1);
@@ -771,17 +772,14 @@ describe('WorkerExtensionHost — mocked Worker start()', () => {
 });
 
 describe('WorkerExtensionHost — heartbeat hang detection', () => {
-  const OriginalWorker = globalThis.Worker;
-
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => {
     jest.useRealTimers();
-    globalThis.Worker = OriginalWorker;
     _resetWorkerHostForTests();
   });
 
   it('records lastHangAt and bumps generation after a heartbeat timeout', async () => {
-    globalThis.Worker = class MockWorker {
+    const MockWorker = class {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
       postMessage(msg: HostToWorkerMessage) {
@@ -794,10 +792,10 @@ describe('WorkerExtensionHost — heartbeat hang detection', () => {
         }
       }
       terminate() {}
-    } as unknown as typeof Worker;
+    };
 
     const app = new Hono();
-    const host = new WorkerExtensionHost(app);
+    const host = new WorkerExtensionHost(app, fakeChannel(MockWorker));
     await host.start('hang-ext', '/tmp/hang', 'engine/index.js');
     const managed = host.getHealth().find((h) => h.name === 'hang-ext');
     expect(managed?.workerGeneration).toBe(1);

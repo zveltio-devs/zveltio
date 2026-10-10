@@ -320,8 +320,8 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
   // Inline extensions return a minimal record because there's no
   // separate runtime to observe.
   //
-  // NOTE: rssBytes is NOT included per-extension. Bun.Worker is a
-  // thread, so per-thread RSS is not measurable from the OS layer.
+  // NOTE: rssBytes is NOT included per-extension: the extension's process
+  // may be the runner's, which the engine cannot read.
   // engine_rss_mb at the response root is the total process RSS —
   // useful for capacity planning, NOT a per-extension breakdown.
   app.get('/extensions/health', async (c) => {

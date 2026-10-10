@@ -1,5 +1,5 @@
-// What crosses from a request into a worker-isolated extension, on both
-// transports (thread and runner process), behind the real `/ext/*` chain.
+// What crosses from a request into a worker-isolated extension, on the process
+// transport (the runner protocol), behind the real `/ext/*` chain.
 //
 //   - The caller's credentials do not: the host proxy handed the worker every
 //     header, so an untrusted extension read the caller's cookie, bearer token or
@@ -37,7 +37,7 @@ import {
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
-const MODES = ['inline', 'worker', 'process'] as const;
+const MODES = ['inline', 'process'] as const;
 type Mode = (typeof MODES)[number];
 const extName = (m: Mode) => `wkbnd${m[0]}${SFX}`;
 const COLL = `wkbnd_${SFX}`;
@@ -221,7 +221,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     if (base) rmSync(base, { recursive: true, force: true });
   });
 
-  it('loads in all three modes', () => {
+  it('loads in both modes', () => {
     for (const m of MODES) expect(loadErrors[extName(m)]).toBeUndefined();
   });
 
@@ -239,7 +239,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     expect(out.inline.left).toBe(2);
   });
 
-  for (const m of ['worker', 'process'] as const) {
+  for (const m of ['process'] as const) {
     describe(m, () => {
       it('the caller credentials do not reach the worker; signatures do', () => {
         expect(out[m]?.hook).toEqual({

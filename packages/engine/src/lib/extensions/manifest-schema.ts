@@ -276,8 +276,9 @@ export const ManifestSchema = z
         /**
          * Isolation strategy. `'inline'` (default) runs the extension
          * in the engine's main thread — same as today, max speed and
-         * full access. `'worker'` spawns a Bun.Worker per enabled
-         * extension; the worker has no DATABASE_URL, no service
+         * full access. `'worker'` runs each enabled extension in a
+         * process of its own (the extension runner in production); it
+         * has no DATABASE_URL, no service
          * registry write access, and all SQL is proxied through the
          * host. Use for third-party / untrusted extensions where
          * security trumps the +0.5-2ms IPC overhead per route hit.

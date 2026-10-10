@@ -1,6 +1,6 @@
 /**
- * The worker runtime's `fetch` guard, exercised through a REAL Bun.Worker
- * running the bundle the engine actually ships.
+ * The worker runtime's `fetch` guard, exercised through a REAL runtime process
+ * (the `process` transport) running the bundle the engine actually ships.
  *
  * A mocked worker would prove nothing here. The guard lives inside
  * `worker-extension-runtime.ts`, which reaches production only after
@@ -9,9 +9,9 @@
  * worker would keep passing if the guard never made it into the bundle. This
  * spawns the generated source and asks it to fetch a private address.
  *
- * Read the guard's own docstring for what it is not: a Bun.Worker is a thread
- * with the full Node API, so this stops accidental SSRF, not hostile code
- * (`node:http` is one import away). These tests pin the accident case.
+ * Read the guard's own docstring for what it is not: the runtime has the full
+ * Node API, so this stops accidental SSRF, not hostile code (`node:http` is one
+ * import away). These tests pin the accident case.
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WORKER_RUNTIME_SOURCE } from '../../lib/worker-extension-runtime-source.generated.js';
+import { spawnProcessRunner } from '../../lib/worker-extension-transport.js';
 
 const dirs: string[] = [];
 
@@ -56,17 +57,16 @@ async function fetchFromWorker(target: string): Promise<string> {
     'utf8',
   );
 
-  const worker = new Worker(pathToFileURL(runtimePath).href, {
-    env: { NODE_ENV: 'test' },
-  } as WorkerOptions);
+  const worker = spawnProcessRunner(runtimePath, { NODE_ENV: 'test' });
 
   try {
     return await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('worker init timed out')), 15_000);
-      worker.onmessage = (e: MessageEvent<{ type: string; error?: string }>) => {
-        clearTimeout(timer);
+      worker.onmessage = (e) => {
         if (e.data.type === 'init:err') resolve(e.data.error ?? '');
         else if (e.data.type === 'init:ok') resolve('INIT-OK-NO-ERROR');
+        else return;
+        clearTimeout(timer);
       };
       worker.onerror = (e: ErrorEvent) => {
         clearTimeout(timer);

@@ -197,13 +197,13 @@ the filesystem, and the worker imports the bundle itself. From there:
   the extension's own `zv_<ext>_*` namespace, runs on a reserved connection (so a
   second statement after a semicolon is rejected by the server) and is capped by
   a statement timeout.
-- The worker's JavaScript environment holds a single variable: `process.env`,
-  `import('node:process')` and `Bun.env` do not show `DATABASE_URL`,
-  `BETTER_AUTH_SECRET` or `FIELD_ENCRYPTION_KEY`. That hides them from the APIs,
-  not from the process: the worker is a thread in the engine process and can read
-  what the process can read. It is therefore not a boundary for untrusted code,
-  and production loads worker-isolated extensions only with
-  `ZVELTIO_ALLOW_WORKER_EXTENSIONS=1`.
+- The extension is a process of its own. In production it runs on the extension
+  runner, under a uid that cannot read the engine's files, environment or
+  processes, with an environment of `NODE_ENV` alone and no network until the
+  operator allows one ([RFC](../engine/rfc-extension-runner.md)). Production
+  refuses a worker-isolated extension when no runner answers, and refuses
+  `ZVELTIO_EXT_TRANSPORT=process` — a child under the engine's own uid, which
+  reads what the engine reads and is the development transport.
 - The isolation decision survives a hot-reload: a re-register restarts the
   worker rather than quietly re-registering the extension in the main thread.
 
