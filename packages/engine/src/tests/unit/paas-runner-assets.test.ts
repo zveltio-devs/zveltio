@@ -77,3 +77,82 @@ describe('one-container image (Fly.io, Railway, Render, docker build .)', () => 
     expect(render).not.toMatch(/dockerCommand|dockerTarget/);
   });
 });
+
+/**
+ * A fresh deploy from each file must pass the production guard
+ * (lib/startup-guards.ts) with only what the file, the image and the platform
+ * set, plus the secrets the operator is told to provide. Before this, none of
+ * the three set VALKEY_URL or ZVELTIO_SINGLE_INSTANCE, so the first boot failed
+ * the guard on every platform.
+ */
+describe('a fresh PaaS deploy passes the production guard', () => {
+  /** ENV lines of the stages the default target inherits (production, standalone). */
+  function imageEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    let inChain = false;
+    for (const line of read('Dockerfile').split('\n')) {
+      const from = line.match(/^FROM\s+(\S+)(?:\s+AS\s+(\S+))?/i);
+      if (from) inChain = from[2] === 'production' || from[2] === 'standalone';
+      const set = line.match(/^ENV\s+([A-Z_]+)=(\S*)/);
+      if (inChain && set) env[set[1]!] = set[2]!.replace(/^"|"$/g, '');
+    }
+    return env;
+  }
+
+  /** `KEY = "value"` lines of fly.toml's [env] table. */
+  function flyEnv(): Record<string, string> {
+    const table = read('fly.toml').match(/\n\[env\]\n([\s\S]*?)(?:\n\[|$)/)?.[1] ?? '';
+    return Object.fromEntries(
+      [...table.matchAll(/^\s*([A-Z_]+)\s*=\s*"([^"]*)"/gm)].map((m) => [m[1]!, m[2]!]),
+    );
+  }
+
+  /** render.yaml envVars of the web service: literal values, and keys the platform fills. */
+  function renderEnv(): Record<string, string> {
+    const env: Record<string, string> = {};
+    const doc = read('render.yaml');
+    for (const m of doc.matchAll(/- key: ([A-Z_]+)\n((?:\s{8,}.*\n)*)/g)) {
+      const body = m[2]!;
+      const value = body.match(/^\s+value: "?([^"\n]*)"?$/m)?.[1];
+      // generateValue, fromDatabase and sync: false (asked at blueprint creation)
+      // are all set before the first boot.
+      env[m[1]!] =
+        value ?? (/generateValue: true|fromDatabase:|sync: false/.test(body) ? 'set' : '');
+    }
+    return env;
+  }
+
+  // What every platform supplies or the docs tell the operator to set as a secret.
+  const secrets = { DATABASE_URL: 'postgres://u@h/db', BETTER_AUTH_SECRET: 'x'.repeat(32) };
+
+  it('Fly.io', async () => {
+    const { productionGuardViolations } = await import('../../lib/startup-guards.js');
+    expect(productionGuardViolations({ ...imageEnv(), ...flyEnv(), ...secrets })).toEqual([]);
+  });
+
+  it('Render', async () => {
+    const { productionGuardViolations } = await import('../../lib/startup-guards.js');
+    expect(productionGuardViolations({ ...imageEnv(), ...renderEnv(), ...secrets })).toEqual([]);
+    expect(read('render.yaml')).toMatch(/numInstances: 1\n/);
+    expect(read('render.yaml')).toMatch(/postgresMajorVersion: "18"/);
+  });
+
+  it('Railway (railway.json carries no variables; BETTER_AUTH_URL is the documented one)', async () => {
+    const { productionGuardViolations } = await import('../../lib/startup-guards.js');
+    const v = productionGuardViolations({ ...imageEnv(), ...secrets });
+    expect(v.map((x) => x.variable)).toEqual(['BETTER_AUTH_URL']);
+    expect(read('docs/platform/deployment.md')).toMatch(
+      /BETTER_AUTH_URL=https:\/\/\$\{\{RAILWAY_PUBLIC_DOMAIN\}\}/,
+    );
+    expect(JSON.parse(read('railway.json')).deploy.numReplicas).toBe(1);
+  });
+
+  it('the image declares one instance only for itself: Valkey turns the mode off', async () => {
+    const { singleInstanceMode } = await import('../../lib/runtime/single-instance.js');
+    expect(imageEnv().ZVELTIO_SINGLE_INSTANCE).toBe('1');
+    expect(singleInstanceMode({ ...imageEnv(), VALKEY_URL: 'redis://c:6379' })).toBe(false);
+    // The published image (chart, release compose) does not get it.
+    const prod = read('Dockerfile').split(/^FROM production AS standalone$/m)[0]!;
+    expect(prod).not.toContain('ZVELTIO_SINGLE_INSTANCE');
+  });
+});

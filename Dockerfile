@@ -127,3 +127,8 @@ CMD ["start"]
 # this behaviour. A name, not 0: Fly.io's init looks the user up in /etc/passwd.
 FROM production AS standalone
 USER root
+# One container is one instance: without Valkey the permission caches live in
+# the process, so the engine runs in single-instance mode (the newest instance
+# serves, lib/runtime/single-instance.ts) and the production guard accepts it.
+# Setting VALKEY_URL turns the mode off; then replicas are safe.
+ENV ZVELTIO_SINGLE_INSTANCE=1

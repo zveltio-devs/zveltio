@@ -14,9 +14,21 @@ services:
           property: connectionString
       - key: PORT
         value: 3000
+      # The service's public URL (https://<name>.onrender.com, or your domain);
+      # asked when the Blueprint is created.
+      - key: BETTER_AUTH_URL
+        sync: false
+      # Optional: a Render Key Value instance's URL. Without it the image runs
+      # in single-instance mode, hence numInstances: 1.
+      # - key: VALKEY_URL
+      #   fromService: { type: keyvalue, name: zveltio-cache, property: connectionString }
+    numInstances: 1
     healthCheckPath: /api/health
 
 databases:
   - name: zveltio-db
     databaseName: zveltio
+    # Zveltio refuses a PostgreSQL older than 18. The free plan offers 18 but
+    # its database expires 30 days after creation; use a paid plan to keep data.
     plan: free
+    postgresMajorVersion: "18"

@@ -10,6 +10,7 @@ Complete guide for deploying Zveltio to production.
 - [Production Requirements](#production-requirements)
 - [Docker Deployment](#docker-deployment)
 - [Environment Configuration](#environment-configuration)
+- [PaaS: Fly.io, Railway, Render](#paas-flyio-railway-render)
 - [SSL/TLS Setup](#ssltls-setup)
 - [Monitoring](#monitoring)
 - [Backup Strategies](#backup-strategies)
@@ -134,6 +135,26 @@ docker compose exec engine bun run -T packages/engine/src/db/migrate.ts
 # Create God user
 docker compose exec engine bun run packages/cli/src/index.ts create-god
 ```
+
+---
+
+## PaaS: Fly.io, Railway, Render
+
+`fly.toml`, `railway.json` and `render.yaml` build the Dockerfile's default
+target (`standalone`): one container with the engine and the extension runner.
+That image sets `ZVELTIO_SINGLE_INSTANCE=1`, so it boots without Valkey and the
+newest instance serves; each file asks for one instance. Add Valkey and set
+`VALKEY_URL` to run several — the mode then turns itself off.
+
+| | Set before the first deploy |
+|---|---|
+| Fly.io | `fly secrets set DATABASE_URL=... BETTER_AUTH_SECRET=...`; change `BETTER_AUTH_URL` in `fly.toml` to your app's URL; deploy with `fly deploy --ha=false` (Fly otherwise starts two machines). |
+| Railway | `railway.json` cannot carry variables. In the service's Variables: `DATABASE_URL` (a PostgreSQL 18 service), `BETTER_AUTH_SECRET`, and `BETTER_AUTH_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`. |
+| Render | The Blueprint generates `BETTER_AUTH_SECRET`, wires `DATABASE_URL` to a PostgreSQL 18 database and asks for `BETTER_AUTH_URL`. The free database plan expires after 30 days. |
+
+PostgreSQL 18 or newer is required on every platform. What these platforms do
+not give the runner — a network or memory limit per extension — is listed in
+[operations.md](operations.md).
 
 ---
 
