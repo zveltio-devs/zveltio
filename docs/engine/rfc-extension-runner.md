@@ -2,11 +2,11 @@
 
 Status: **accepted** (owner, 2026-10-06). The open questions are settled under
 [Decisions](#decisions). Steps 2 (transport), 3 and 3b (bare-metal runner, one per extension), 4
-(container runner) and 5 (edge functions, opt-in) are done. Decision 5 (2026-10-09,
+(container runner), 5 (edge functions, opt-in) and 6 (a faithful SQL bridge) are done. Decision 5 (2026-10-09,
 from a measured experiment) keeps first-party extensions inline and puts three
 steps before the default flip: a faithful SQL bridge (6), the same `ctx` contract
 out of process as inline (7) and one database transaction per request across the
-bridge (8). Step 6 is next.
+bridge (8). Step 7 is next.
 
 ## Problem
 
@@ -324,6 +324,12 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    - and every worker extension is spawned twice at boot (registered into a
      temporary app, then again).
    These are defects for third-party extensions now; fix them first.
+   **Done:** the bridge encodes arrays with the dialect's own encoder
+   (`encodeArrayParams`), carries `errno`/`code` and the affected-row `count`
+   onto what `ctx.db.query` returns or throws, forwards logged values as
+   `Bun.inspect` prints them, and a rebuild of the app remounts a running worker
+   instead of respawning it (`tests/harness/worker-sql-bridge-fidelity.test.ts`,
+   both transports).
 7. **One `ctx` contract, inline and out of process.** A worker extension gets a
    `{ query() }` instead of Kysely, no `auth` (session or API key), no
    `checkPermission`, no `events`, no `config`, and a `services.get` that calls
