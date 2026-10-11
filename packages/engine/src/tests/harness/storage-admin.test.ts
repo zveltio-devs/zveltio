@@ -86,4 +86,19 @@ d('admin storage config (in-process)', () => {
     expect(body.driver).toBe('local');
     expect(body.localDir).toBe(TMP);
   });
+
+  it('PUT /storage/config refuses a cloud-metadata S3 endpoint and persists nothing', async () => {
+    const put = await app.request('/api/admin/storage/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        driver: 's3',
+        s3: { endpoint: 'http://169.254.169.254', bucket: 'b' },
+      }),
+    });
+    expect(put.status).toBe(400);
+    const get = await app.request('/api/admin/storage/config', { headers: { cookie } });
+    const body = (await get.json()) as { s3: { endpoint: string } };
+    expect(body.s3.endpoint).not.toBe('http://169.254.169.254');
+  });
 });
