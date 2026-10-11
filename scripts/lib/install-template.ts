@@ -135,6 +135,10 @@ export async function buildInstallTemplate(admin: SQL, dbName: string): Promise<
     for (const dir of extensionDirs(EXT_ROOT)) {
       const migDir = join(dir, 'engine', 'migrations');
       if (!existsSync(migDir)) continue;
+      // Directory order, as the engine loads a runner extension (manifest
+      // `isolation: 'worker'`, never imported in-process). First-party ones run
+      // inline in getMigrations() order; the extensions repo's
+      // validate-migration-paths holds that list to this same order.
       for (const f of readdirSync(migDir)
         .filter((x) => x.endsWith('.sql'))
         .sort()) {
