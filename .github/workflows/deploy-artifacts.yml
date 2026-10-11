@@ -118,5 +118,18 @@ jobs:
             test -s "gen/$f" || { echo "::error::gen/$f was not generated"; exit 1; }
             docker compose -f "gen/$f" config -q
           done
+      - name: Installer .env starts the compose file it downloads
+        # The step above parses the generated files with every variable set in
+        # the job's environment, so a variable the installer forgets to write
+        # still parses there. Here the .env is the one scripts/install.sh writes
+        # (run up to its download step: nothing is fetched or started), next to
+        # the compose file Docker mode downloads, and nothing else is set.
+        run: |
+          sed '/^# ── Download fișiere/,$d' scripts/install.sh > /tmp/install-env-only.sh
+          grep -q 'cat > .env' /tmp/install-env-only.sh || { echo "::error::install.sh no longer writes .env before its download step"; exit 1; }
+          TERM=xterm bash /tmp/install-env-only.sh --version 0.0.0-ci --mode docker --unattended --dir /tmp/zv-install >/dev/null
+          test -s /tmp/zv-install/.env || { echo "::error::the installer wrote no .env"; exit 1; }
+          bash scripts/generate-compose.sh 0.0.0-ci /tmp/zv-install/
+          cd /tmp/zv-install && env -i PATH="$PATH" HOME="$HOME" docker compose -f docker-compose.yml config -q
       - name: Installer syntax
         run: for f in install/*.sh scripts/install.sh; do bash -n "$f"; done
