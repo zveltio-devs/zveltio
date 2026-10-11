@@ -15,7 +15,9 @@
 #   - the engine user may start its runners through polkit and no other unit;
 #   - an edge function (ZVELTIO_EDGE_TRANSPORT=runner, step 5) runs in the
 #     `edge` instance: no address, a uid that is not the engine's and cannot
-#     read the engine's .env (measured from outside while the invocation lives).
+#     read the engine's .env (measured from outside while the invocation lives);
+#   - its egress goes through the engine: a listed host answers, an unlisted
+#     host and a private address are refused.
 #
 #   bash packages/engine/scripts/ext-runner-systemd.sh
 set -euo pipefail
@@ -124,6 +126,25 @@ check "edge runner answered" 'grep -q "\"transport\":\"runner\"" <<<"$out"'
 check "edge function reaches no address" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
 check "edge instance has room for concurrent invocations" \
   '[ "$(systemctl show -p TasksMax --value zveltio-ext-runner@edge.service)" = 512 ]'
+
+# ── edge egress: the instance has no address, the engine fetches for it ───────
+# Same three cases as ext-runner-compose.sh, here behind IPAddressDeny: a listed
+# host answers only through the engine's bridge.
+HOST=$(sed -E 's#^[a-z]+://([^/:]+).*#\1#' <<<"$URL")
+egress() { # <url> <egress list>
+  sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp BUN_BE_BUN=1 \
+    PROBE_URL="$1" PROBE_EGRESS="$2" ZVELTIO_EDGE_TRANSPORT=runner \
+    "${DIR}/zveltio" "${DIR}/edge-probe.mjs" 2>&1 || true
+}
+out=$(egress "$URL" "$HOST")
+echo "edge egress listed:   ${out:0:300}"
+check "edge egress: a listed host is reached through the engine" 'grep -q "\"fetch\":\"HTTP" <<<"$out"'
+out=$(egress "http://example.org/" "$HOST")
+echo "edge egress unlisted: ${out:0:300}"
+check "edge egress: an unlisted host is refused" 'grep -q "is not in this function" <<<"$out"'
+out=$(egress "http://169.254.169.254/latest/meta-data/" "$HOST 169.254.169.254")
+echo "edge egress private:  ${out:0:300}"
+check "edge egress: a private address is refused" 'grep -q "internal/private address blocked" <<<"$out"'
 
 sudo systemctl stop 'zveltio-ext-runner@*' 2>/dev/null || true
 [ "$fail" = 0 ] && echo "PASS: ext-runner on systemd"
