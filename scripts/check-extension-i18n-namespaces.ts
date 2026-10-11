@@ -50,7 +50,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { SHARED_MESSAGE_KEYS } from '../packages/sdk/src/validate/shared-message-keys.js';
-import { SIBLING_ROOT } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 /**
  * The sibling checkout, overridable by argv.
@@ -104,21 +104,12 @@ function covers(prefix: string, key: string): boolean {
   return key === prefix || key.startsWith(`${prefix}.`);
 }
 
-if (!existsSync(EXT_DIR)) {
-  // A path given on the command line is a claim that it is there. CI passes
-  // one, so a missing directory means the clone step broke — and a gate that
-  // shrugs at that is the failure mode this job's own comment records:
-  // `ext:i18n-ownership` and `check:raw-sql` printed "skipping" on every run
-  // for weeks, and a skipped gate looks exactly like a passing one.
-  if (EXPLICIT_DIR !== undefined) {
-    console.error(
-      `[ext:i18n-ns] extensions checkout not found at ${EXT_DIR} (given as an argument).`,
-    );
-    process.exit(1);
-  }
-  console.log(`[ext:i18n-ns] No extensions checkout at ${EXT_DIR} — skipping (no path given).`);
-  process.exit(0);
-}
+// Every file this gate reads is in the extensions repository, so an absent or
+// empty corpus is a skipped gate, and a skipped gate looks exactly like a
+// passing one. It skipped when no path was given, and an empty directory given
+// as the path read as "0 extensions, no collisions".
+requireSibling(EXT_DIR, 'ext:i18n-ns');
+if (!existsSync(EXT_DIR)) process.exit(0);
 
 const problems: Problem[] = [];
 const extensions = findExtensions(EXT_DIR);

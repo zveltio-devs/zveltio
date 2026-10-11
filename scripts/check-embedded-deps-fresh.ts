@@ -44,7 +44,7 @@
 
 import { readdirSync, existsSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { SIBLING_ROOT } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const LOCK = join(ROOT, 'bun.lock');
@@ -53,6 +53,9 @@ const WORKER_GEN = join(
   'packages/engine/src/lib/worker-extension-runtime-source.generated.ts',
 );
 const EXT_ROOT = SIBLING_ROOT;
+// Pointed at an empty directory it said `(extensions: <dir>)` as if it had
+// read bundles there.
+requireSibling(EXT_ROOT, 'embedded-deps');
 const REPORT_ONLY = process.argv.includes('--report');
 
 /**

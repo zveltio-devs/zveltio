@@ -22,7 +22,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { SIBLING_ROOT } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const targets = process.argv.slice(2).filter((a) => !a.startsWith('-'));
@@ -31,21 +31,18 @@ const DIRS =
   targets.length > 0 ? targets : [join(ROOT, 'packages'), join(ROOT, 'scripts'), EXT_ROOT];
 
 /**
- * Whether the sibling was actually there, so the success line can say so.
+ * The default corpus includes the extensions repository, so it is required like
+ * every other sibling gate.
  *
- * This gate does NOT call `requireSibling`, and after measuring it on
- * 2026-09-04 that stays deliberate: unlike the five gates that do, its subject
- * is this repository — `packages` and `scripts` — with the extensions repo as an
- * extra. Refusing to run for a developer who has only this checkout would cost
- * more than the narrower answer is worth.
- *
- * What was not defensible is the SENTENCE. Run from a checkout with no sibling
- * beside it, the gate printed "OK — no backticks inside SQL template comments"
- * having never opened half its default corpus — the same "absent corpus read as
- * clean corpus" the other five were fixed for, arriving through the success
- * message rather than the exit code. CI's Lint job clones the sibling, so CI was
- * always honest; `prepush` and every local run were not.
+ * This gate used to skip requireSibling on purpose (2026-09-04): its subject is
+ * mostly this repository, and refusing a developer with only this checkout
+ * "would cost more than the narrower answer is worth". That cost was never
+ * real — `prepush` runs check:atomic-writes and check:raw-sql, which refuse
+ * without the sibling — and the NOTE that replaced the refusal keyed on
+ * `existsSync`, so an EMPTY sibling directory got the bare "OK". The narrower
+ * answer is still there: ZVELTIO_ALLOW_MISSING_SIBLING=1.
  */
+if (targets.length === 0) requireSibling(EXT_ROOT, 'sql-backticks');
 const siblingScanned = targets.length > 0 || existsSync(EXT_ROOT);
 
 function tsFiles(dir: string): string[] {
