@@ -289,6 +289,20 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
     }
   });
 
+  it('sees past a regex literal holding an escaped slash on the same line', async () => {
+    // `/\//g` used to read as `\` then a `//` comment, blanking the site after it.
+    const r = root(
+      "export const p = (poolDb: D, s: string) => s.replace(/\\//g, '_') && poolDb.selectFrom('zv_api_keys').execute();\n",
+    );
+    try {
+      const { code, out } = await run(r, GATE);
+      expect(out).toContain('zv_api_keys');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
   it('catches an aliased table', async () => {
     const r = root(
       "export const p = (poolDb: D) => poolDb.selectFrom('zv_api_keys as k').execute();\n",

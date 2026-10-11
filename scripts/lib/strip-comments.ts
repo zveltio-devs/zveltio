@@ -46,6 +46,14 @@ export function stripComments(src: string): string {
       i++;
       continue;
     }
+    // Outside a string, a backslash only appears in a regex literal (or an
+    // identifier's \u escape), so the pair is copied whole: `/\//g` is
+    // `\/` then `/`, not a `//` comment that blanks the rest of the line.
+    if (ch === '\\') {
+      out += ch + (next ?? '');
+      i += 2;
+      continue;
+    }
     if (ch === '/' && next === '/') {
       while (i < src.length && src[i] !== '\n') {
         out += ' ';
