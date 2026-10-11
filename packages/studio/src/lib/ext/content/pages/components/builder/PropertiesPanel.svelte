@@ -114,7 +114,10 @@
   const FILTER_OPS = [
     { value: 'eq',       label: 'equals' },
     { value: 'neq',      label: 'not equals' },
-    { value: 'ilike',    label: 'contains' },
+    { value: 'ilike',        label: 'contains' },
+    { value: 'not_contains', label: 'does not contain' },
+    { value: 'starts_with',  label: 'starts with' },
+    { value: 'ends_with',    label: 'ends with' },
     { value: 'gt',       label: 'greater than' },
     { value: 'gte',      label: 'greater or equal' },
     { value: 'lt',       label: 'less than' },
