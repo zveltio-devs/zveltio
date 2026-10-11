@@ -91,7 +91,9 @@ await posts.delete('uuid');
 | Less than | `{ price: { lt: 500 } }` |
 | Greater or equal | `{ age: { gte: 18 } }` |
 | Less or equal | `{ age: { lte: 65 } }` |
-| Contains (ilike) | `{ name: { like: 'john' } }` |
+| Contains | `{ name: { contains: 'john' } }` |
+| Does not contain | `{ name: { not_contains: 'test' } }` |
+| Starts / ends with | `{ sku: { starts_with: 'RO-' } }` |
 | In array | `{ status: { in: ['active', 'pending'] } }` |
 | Not in array | `{ status: { not_in: ['deleted'] } }` |
 | Is null | `{ deleted_at: { null: true } }` |

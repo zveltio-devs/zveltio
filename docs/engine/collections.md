@@ -89,7 +89,7 @@ DELETE  /api/collections/:name          — Drop collection
 Pass a `filter` query param as a JSON object:
 
 ```
-GET /api/data/products?filter={"category":"electronics","price":{"_gt":100}}
+GET /api/data/products?filter={"category":"electronics","price":{"gt":100}}
 ```
 
 Supported filter operators:
@@ -97,16 +97,16 @@ Supported filter operators:
 | Operator | Description |
 |----------|-------------|
 | *(none)* | Equals |
-| `_gt` | Greater than |
-| `_gte` | Greater than or equal |
-| `_lt` | Less than |
-| `_lte` | Less than or equal |
-| `_in` | In array |
-| `_nin` | Not in array |
-| `_like` | SQL LIKE pattern |
-| `_ilike` | Case-insensitive LIKE |
-| `_null` | Is null / is not null |
-| `_between` | Between two values |
+| `neq` | Not equal |
+| `gt` / `gte` | Greater than / or equal |
+| `lt` / `lte` | Less than / or equal |
+| `in` / `not_in` | In / not in a list |
+| `contains` | Contains the text (aliases `like`, `ilike`) |
+| `not_contains` | Does not contain the text (empty fields included) |
+| `starts_with` / `ends_with` | Starts / ends with the text |
+| `null` / `not_null` | Is empty / is not empty |
+
+Text operators are case-insensitive and literal: `%` and `_` are plain characters.
 
 ## Sorting & Pagination
 

@@ -190,11 +190,13 @@ GET /api/data/products?price[gt]=100&category[eq]=electronics
 
 Both formats can be combined — JSON takes precedence for the same field.
 
-Supported operators: `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `like`, `ilike`, `in`, `not_in`, `null`, `not_null`.
+Supported operators: `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `contains` (alias
+`like`, `ilike`), `not_contains`, `starts_with`, `ends_with`, `in`, `not_in`,
+`null`, `not_null`. An unknown operator in the bracket form is ignored.
 
-`like`, `ilike` and `contains` are the same operator: a case-insensitive
-substring match. The value is literal — `%` and `_` match themselves, not any
-run or any character.
+The four text operators are case-insensitive and literal — `%` and `_` match
+themselves, not any run or any character. `not_contains` keeps rows where the
+field is empty (NULL): an empty value does not contain the text.
 
 ### POST /api/data/:collection
 
