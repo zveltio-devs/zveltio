@@ -465,6 +465,38 @@ describe('check-jsonb-binding reads code, not prose', () => {
     }
   });
 
+  // `.set(updates)` with the object built a key at a time: eleven live sites
+  // (saved-queries PUT among them) sat under a gate that read only literals.
+  for (const [shape, line] of [
+    ['a property assignment', 'u.trigger_config = JSON.stringify(v);'],
+    ['a quoted key', "u['trigger_config'] = JSON.stringify(v);"],
+    ['a computed key naming the column', "u[k] = k === 'trigger_config' ? JSON.stringify(v) : v;"],
+  ]) {
+    it(`catches an update object passed by name, written through ${shape}`, async () => {
+      const r = root(
+        `export const p = (db: any, k: string, v: unknown) => {\n  const u: Record<string, unknown> = {};\n  ${line}\n  return db.updateTable('zv_flows').set(u).execute();\n};\n`,
+      );
+      try {
+        const { code, out } = await run(r, GATE, [], narrow);
+        expect(out).toContain('zv_flows.trigger_config');
+        expect(code).toBe(1);
+      } finally {
+        rmSync(r, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it('does NOT charge a later statement with an object passed to an earlier one', async () => {
+    const r = root(
+      "export const p = async (db: any, v: unknown) => {\n  await db.insertInto('zv_flows').values({ id: 'x' }).execute();\n  const u: Record<string, unknown> = {};\n  u.trigger_config = JSON.stringify(v);\n  return db.updateTable('zv_other').set(u).execute();\n};\n",
+    );
+    try {
+      expect((await run(r, GATE, [], narrow)).code).toBe(0);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
   it('does NOT fire on the wrong form shown inside a comment', async () => {
     // This repository documents the shape it refuses, in the header of the gate
     // that refuses it. A ratchet that counts prose fails on a clean tree.

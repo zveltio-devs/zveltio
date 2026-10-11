@@ -192,9 +192,16 @@ d('saved queries (in-process)', () => {
   it('updates a saved query (PUT /:id)', async () => {
     const res = await app.request(
       `/api/saved-queries/${queryId}`,
-      json('PUT', { name: 'Harness Saved Query (renamed)' }),
+      json('PUT', { name: 'Harness Saved Query (renamed)', config: CONFIG }),
     );
     expect([200, 204]).toContain(res.status);
+    // The PUT built its update object one key at a time and stringified
+    // `config` into it — a jsonb string again, which the gate could not see
+    // because the object was not a literal in `.set(…)`.
+    const kind = await sql<{ t: string }>`
+      SELECT jsonb_typeof(config) AS t FROM zv_saved_queries WHERE id = ${queryId}::uuid
+    `.execute(db);
+    expect(kind.rows[0]?.t).toBe('object');
   });
 
   it('runs a saved query (POST /:id/run)', async () => {
