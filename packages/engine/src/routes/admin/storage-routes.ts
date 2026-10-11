@@ -11,6 +11,7 @@ import type { Database } from '../../db/index.js';
 import { requireInstanceAdmin } from '../../lib/tenancy/index.js';
 import { decryptField, encryptField, isEncryptedValue } from '../../lib/data/index.js';
 import { auditLog } from '../../lib/audit.js';
+import { validateStorageEndpoint } from '../../lib/security/index.js';
 import { probeLocal, probeS3, setStorageOverlay, storageConfig } from '../../lib/storage/index.js';
 
 const SETTINGS_KEY = 'storage_config';
@@ -75,6 +76,15 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
     if (!(await requireInstanceAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
 
     const overlay = normalizeOverlay(await c.req.json().catch(() => ({})));
+    // The driver signs every upload to this endpoint, so the metadata refusal
+    // the "Test connection" probe applies must hold for the saved value too.
+    if (overlay.s3.endpoint) {
+      try {
+        validateStorageEndpoint(overlay.s3.endpoint);
+      } catch (err) {
+        return c.json({ error: (err as Error).message }, 400);
+      }
+    }
     const persisted = JSON.stringify(await withEncryptedSecret(overlay));
     await db
       .insertInto('zv_settings')

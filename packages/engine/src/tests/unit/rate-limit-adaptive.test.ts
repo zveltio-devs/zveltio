@@ -57,18 +57,18 @@ describe('escalationSeconds', () => {
 
 describe('parseCidrList', () => {
   it('is empty for undefined/blank', () => {
-    expect(parseCidrList(undefined)).toHaveLength(0);
-    expect(parseCidrList('')).toHaveLength(0);
-    expect(parseCidrList('  ,  ')).toHaveLength(0);
+    expect(parseCidrList(undefined).size).toBe(0);
+    expect(parseCidrList('').size).toBe(0);
+    expect(parseCidrList('  ,  ').size).toBe(0);
   });
 
   it('accepts bare IPs (implicit /32) and CIDRs, trimming whitespace', () => {
-    expect(parseCidrList('10.0.0.1, 192.168.0.0/16')).toHaveLength(2);
+    expect(parseCidrList('10.0.0.1, 192.168.0.0/16').size).toBe(2);
   });
 
   it('drops malformed entries rather than throwing', () => {
     // A bad list must not take the whole middleware down on boot.
-    expect(parseCidrList('999.1.1.1, 10.0.0.0/33, nonsense, 1.2.3, 10.0.0.0/8')).toHaveLength(1);
+    expect(parseCidrList('999.1.1.1, 10.0.0.0/33, nonsense, 1.2.3, 10.0.0.0/8').size).toBe(1);
   });
 });
 
@@ -91,10 +91,20 @@ describe('ipMatches', () => {
   });
 
   it('never matches on an empty list', () => {
-    expect(ipMatches('10.0.0.1', [])).toBe(false);
+    expect(ipMatches('10.0.0.1', parseCidrList(''))).toBe(false);
   });
 
-  it('returns false (not a crash) for IPv6 and unresolved IPs', () => {
+  it('matches IPv6 CIDRs, and IPv4-mapped clients against IPv4 rules', () => {
+    const v6 = parseCidrList('2001:db8::/32, ::1, 10.0.0.0/8');
+    expect(v6.size).toBe(3);
+    expect(ipMatches('2001:db8:1::5', v6)).toBe(true);
+    expect(ipMatches('2001:db9::5', v6)).toBe(false);
+    expect(ipMatches('::1', v6)).toBe(true);
+    expect(ipMatches('::ffff:10.1.2.3', v6)).toBe(true);
+    expect(parseCidrList('2001:db8::/129, 2001:db8::/, 1.2.3.4/8/1').size).toBe(0);
+  });
+
+  it('returns false (not a crash) for unlisted IPv6 and unresolved IPs', () => {
     expect(ipMatches('::1', list)).toBe(false);
     expect(ipMatches('unknown', list)).toBe(false);
     expect(ipMatches('', list)).toBe(false);

@@ -259,6 +259,13 @@ services:
         condition: service_healthy
     ports:
       - '${PORT:-3000}:3000'
+    # Every .env key reaches the engine (SMTP_*, GOOGLE_/GITHUB_/MICROSOFT_ OAuth,
+    # ...), the way the installer's generated compose does; without it mail and
+    # social login could not be configured without editing this file. Keys under
+    # environment: still win over the file.
+    env_file:
+      - path: .env
+        required: false
     environment:
       PORT: '3000'
       HOST: '0.0.0.0'
