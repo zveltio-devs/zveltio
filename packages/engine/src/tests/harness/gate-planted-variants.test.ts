@@ -354,6 +354,12 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
       'the second table of a comma join',
       'export const p = (poolDb: D) => sql`SELECT k.id FROM zv_tenants t, zv_api_keys k`.execute(poolDb);\n',
     ],
+    [
+      // The callback's end was found by counting parentheses, strings included:
+      // the `)` in ':)' closed it, and the site after it was never read.
+      'a pool transaction whose callback has a parenthesis in a string',
+      "export const p = (poolDb: D) =>\n  poolDb.transaction().execute(async (trx) => {\n    log(':)');\n    await trx.selectFrom('zv_api_keys').execute();\n  });\n",
+    ],
   ]) {
     it(`catches ${shape}`, async () => {
       const r = root(body);
