@@ -1216,7 +1216,17 @@ jobs:
           NODE_ENV: test
           ZVELTIO_REGISTRATION_ENABLED: '1'
           HARNESS_VALKEY_URL: redis://localhost:6379
-        run: cd packages/engine && bun test src/tests/harness/auth-secondary-storage.test.ts
+        # The file skips itself without HARNESS_VALKEY_URL, and `bun test` exits
+        # 0 when every test skipped: a renamed variable would turn this step
+        # into a green no-op. Valkey is a service here, not best-effort like the
+        # S3 step above, so a skip is a failure.
+        run: |
+          set -o pipefail
+          cd packages/engine
+          bun test src/tests/harness/auth-secondary-storage.test.ts 2>&1 | tee /tmp/auth-valkey.log
+          if grep -qE '^ *[1-9][0-9]* skip$' /tmp/auth-valkey.log; then
+            echo '::error::auth-secondary-storage.test.ts skipped tests — Valkey was not reached'; exit 1
+          fi
 
       - name: The suite left nothing behind
         # Not tidiness. Every run left five collections in the database it ran

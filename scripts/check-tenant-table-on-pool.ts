@@ -126,8 +126,16 @@ const TXN =
 function callbackEnd(src: string, from: number): number {
   let depth = 2;
   for (let i = from; i < src.length; i++) {
-    if (src[i] === '(') depth++;
-    else if (src[i] === ')' && --depth === 0) return i;
+    const ch = src[i];
+    // A parenthesis in a string is not code: `log(':)')` closed the callback
+    // there, and every site after it went unread.
+    if (ch === '`') i = templateEnd(src, i) - 1;
+    else if (ch === "'" || ch === '"') {
+      for (i++; i < src.length && src[i] !== ch && src[i] !== '\n'; i++) {
+        if (src[i] === '\\') i++;
+      }
+    } else if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return i;
   }
   return src.length;
 }

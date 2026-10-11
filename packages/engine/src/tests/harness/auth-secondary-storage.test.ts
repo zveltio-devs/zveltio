@@ -5,8 +5,8 @@
  * secondary storage without `getAndDelete` broke password reset, magic links
  * and every OTP for 13 betas while all tests stayed green.
  *
- * Runs only when HARNESS_VALKEY_URL names a reachable Valkey (the CI job
- * "Harness auth on Valkey" provides one); skipped otherwise.
+ * Runs only when HARNESS_VALKEY_URL names a reachable Valkey (the CI step
+ * "Auth on Valkey", which fails on a skip, provides one); skipped otherwise.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
