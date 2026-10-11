@@ -423,4 +423,34 @@ d('writes by a principal that cannot read the collection', () => {
     );
     expect(((await patched.json()) as Record<string, unknown>).title).toBe('r2');
   });
+
+  // A window opened while the last one closes must not take the widened grants
+  // for the published ones: its own restore would then leave `<coll>:read` set
+  // for the rest of the request. `k` microtasks after A's body settles sweeps
+  // the gap between A's bookkeeping and its restore reaching the connection.
+  it('a window opened as another closes restores the published grants', async () => {
+    const BASE = ',other:create,';
+    const ends = await db.transaction().execute(async (trx) => {
+      const out: string[] = [];
+      for (let k = 0; k < 12; k++) {
+        await sql`SELECT set_config('zveltio.collection_grants', ${BASE}, true)`.execute(trx);
+        let settled!: () => void;
+        const aDone = new Promise<void>((r) => (settled = r));
+        await Promise.all([
+          withCollectionRead(trx, COLL, async () => {
+            queueMicrotask(settled);
+          }),
+          aDone.then(async () => {
+            for (let i = 0; i < k; i++) await null;
+            return withCollectionRead(trx, COLL, async () => undefined);
+          }),
+        ]);
+        const r = await sql<{ g: string }>`
+          SELECT current_setting('zveltio.collection_grants', true) AS g`.execute(trx);
+        out.push(`${k}:${r.rows[0]!.g}`);
+      }
+      return out;
+    });
+    expect(ends).toEqual(Array.from({ length: 12 }, (_, k) => `${k}:${BASE}`));
+  });
 });
