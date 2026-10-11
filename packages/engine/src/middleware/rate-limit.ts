@@ -1,3 +1,4 @@
+import { BlockList, isIP } from 'node:net';
 import type { Context, Next } from 'hono';
 import { getCache, RATE_LIMIT_CONFIG_CHANGED_EVENT, realtimeBus } from '../lib/runtime/index.js';
 import { resolveClientIp } from '../lib/security/index.js';
@@ -476,64 +477,40 @@ export function rateLimitIpBucket(ip: string): string {
     .join(':')}::/64`;
 }
 
-type Cidr = { base: number; mask: number };
+type Cidr = { size: number; block: BlockList };
 
-/** Parse a comma-separated IPv4 / CIDR list. Invalid entries are dropped. */
-export function parseCidrList(raw: string | undefined): Cidr[] {
-  if (!raw) return [];
-  const out: Cidr[] = [];
-  for (const partRaw of raw.split(',')) {
-    const part = partRaw.trim();
-    if (!part) continue;
-    const [addr, bitsRaw] = part.split('/');
-    const bits = bitsRaw === undefined ? 32 : Number(bitsRaw);
-    if (!Number.isInteger(bits) || bits < 0 || bits > 32) continue;
-    const octets = (addr ?? '').split('.');
-    if (octets.length !== 4) continue;
-    let base = 0;
-    let ok = true;
-    for (const o of octets) {
-      const n = Number(o);
-      if (!Number.isInteger(n) || n < 0 || n > 255 || o === '') {
-        ok = false;
-        break;
-      }
-      base = (base << 8) | n;
-    }
-    if (!ok) continue;
-    const mask = bits === 0 ? 0 : (-1 << (32 - bits)) >>> 0;
-    // Mask FIRST, then unsign. `(base >>> 0) & mask` looks equivalent but is not:
-    // JS `&` coerces back to int32, so any address with the high bit set
-    // (≥ 128.0.0.0 — i.e. most real IPs) would store a NEGATIVE base and never
-    // match ipMatches(), which compares against an unsigned value.
-    out.push({ base: (base & mask) >>> 0, mask });
+/** Parse a comma-separated IPv4 / IPv6 address-or-CIDR list. Invalid entries are dropped. */
+export function parseCidrList(raw: string | undefined): Cidr {
+  const block = new BlockList();
+  let size = 0;
+  for (const part of (raw ?? '').split(',')) {
+    const [addr = '', bitsRaw, extra] = part.trim().split('/');
+    const family = isIP(addr);
+    if (family === 0 || extra !== undefined) continue;
+    const max = family === 4 ? 32 : 128;
+    const bits = bitsRaw === undefined ? max : Number(bitsRaw);
+    if (!Number.isInteger(bits) || bits < 0 || bits > max || bitsRaw === '') continue;
+    block.addSubnet(addr, bits, family === 4 ? 'ipv4' : 'ipv6');
+    size++;
   }
-  return out;
+  return { size, block };
 }
 
-/** Is `ip` inside any of the parsed CIDRs? IPv6 is never matched (returns false). */
-export function ipMatches(ip: string, list: Cidr[]): boolean {
-  if (list.length === 0) return false;
-  const octets = ip.split('.');
-  if (octets.length !== 4) return false; // IPv6 / 'unknown' — no match, no crash
-  let v = 0;
-  for (const o of octets) {
-    const n = Number(o);
-    if (!Number.isInteger(n) || n < 0 || n > 255) return false;
-    v = (v << 8) | n;
-  }
-  v = v >>> 0;
-  return list.some((c) => (v & c.mask) >>> 0 === c.base);
+/** Is `ip` inside any of the parsed CIDRs? An IPv4-mapped IPv6 client matches its IPv4 rule. */
+export function ipMatches(ip: string, list: Cidr): boolean {
+  const family = isIP(ip);
+  if (list.size === 0 || family === 0) return false; // 'unknown' — no match, no crash
+  return list.block.check(ip, family === 4 ? 'ipv4' : 'ipv6');
 }
 
 // Env lists are parsed once per process — they're deployment config, not per-request.
-let _allowList: Cidr[] | null = null;
-let _denyList: Cidr[] | null = null;
-function allowList(): Cidr[] {
+let _allowList: Cidr | null = null;
+let _denyList: Cidr | null = null;
+function allowList(): Cidr {
   if (_allowList === null) _allowList = parseCidrList(process.env.RATE_LIMIT_ALLOWLIST);
   return _allowList;
 }
-function denyList(): Cidr[] {
+function denyList(): Cidr {
   if (_denyList === null) _denyList = parseCidrList(process.env.RATE_LIMIT_DENYLIST);
   return _denyList;
 }
@@ -598,8 +575,8 @@ export function rateLimit(config: RateLimitConfig) {
     // Skip rate limiting in test environment to allow integration tests to run
     if (process.env.NODE_ENV === 'test') return next();
 
-    // Operator IP lists (RATE_LIMIT_DENYLIST / RATE_LIMIT_ALLOWLIST, CIDR or bare
-    // IPv4, comma-separated). Deny wins — an explicitly blocked source shouldn't
+    // Operator IP lists (RATE_LIMIT_DENYLIST / RATE_LIMIT_ALLOWLIST, IPv4/IPv6 CIDR or
+    // bare address, comma-separated). Deny wins — an explicitly blocked source shouldn't
     // get to spend a cache round-trip. Allow exists for known-good infra
     // (monitoring, an internal gateway) that would otherwise trip shared limits.
     const listedIp = resolveClientIp(c);
