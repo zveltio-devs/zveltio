@@ -32,6 +32,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { stripComments } from './lib/strip-comments.js';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 /**
  * Extension files exempt from the rule, with the reason each is exempt.
@@ -192,9 +193,7 @@ function scan(root: string): Finding[] {
   return findings;
 }
 
-const root =
-  process.argv.slice(2).find((a) => !a.startsWith('--')) ??
-  join(import.meta.dir, '..', '..', 'zveltio-extensions');
+const root = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? SIBLING_ROOT;
 const BASELINE = join(import.meta.dir, '..', 'quality-gates', 'ambient-authority.json');
 const LIST = process.argv.includes('--list');
 

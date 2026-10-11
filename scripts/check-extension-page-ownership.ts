@@ -41,9 +41,10 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
-const EXT_ROOT = process.argv[2] ?? join(ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = process.argv[2] ?? SIBLING_ROOT;
 const ADMIN = join(ROOT, 'packages/studio/src/routes/(admin)');
 
 /** Every `+page.svelte` under the admin route tree. */

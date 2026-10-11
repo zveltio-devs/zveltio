@@ -22,10 +22,11 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const targets = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 const DIRS =
   targets.length > 0 ? targets : [join(ROOT, 'packages'), join(ROOT, 'scripts'), EXT_ROOT];
 

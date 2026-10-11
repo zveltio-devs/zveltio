@@ -52,9 +52,10 @@
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { droppedColumns, droppedTables } from './lib/sql-drops.js';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = process.cwd();
-const EXT_ROOT = process.env.EXTENSIONS_ROOT ?? join(ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 const OUT_PATH = join(ROOT, 'packages', 'engine', 'src', 'db', 'schema.generated.ts');
 
 // Better-Auth tables that don't use a zv_/zvd_ prefix.

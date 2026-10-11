@@ -54,11 +54,11 @@
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { requireSibling } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 import { stripComments } from './lib/strip-comments.js';
 
 const ROOT = join(import.meta.dir, '..');
-const EXT_ROOT = process.env.EXTENSIONS_DIR ?? join(ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 const BASELINE = join(ROOT, 'quality-gates', 'jsonb-binding.json');
 
 // An absent sibling is not a clean sibling.
@@ -70,9 +70,9 @@ const BASELINE = join(ROOT, 'quality-gates', 'jsonb-binding.json');
 // for five other gates, and it lands harder here — every one of the sites this
 // gate's own history is about lived in an extension.
 //
-// EXTENSIONS_DIR is checked like the default path. It used to skip the check,
-// as "a caller asking for a narrower scan", but it is also the engine's own
-// runtime variable: pointed at an empty directory the gate said
+// An explicit EXTENSIONS_DIR (now EXTENSIONS_ROOT, see SIBLING_ROOT) used to
+// skip this check, as "a caller asking for a narrower scan". Pointed at an
+// empty directory the gate said
 // `OK — 0 site(s) across 29 table(s)` (116 with the sibling). A narrower scan on
 // purpose says so with ZVELTIO_ALLOW_MISSING_SIBLING=1, like every other gate.
 requireSibling(EXT_ROOT, 'jsonb-binding');

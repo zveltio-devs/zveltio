@@ -25,9 +25,11 @@
  * reverted by the next build. Scanning both means the gate fires whether the
  * mistake was made at the source or in the copy, and the message says which.
  */
+import { SIBLING_ROOT } from './lib/require-sibling.js';
+
 const ROOTS = [
-  { path: 'packages/studio/src', label: 'Studio' },
-  { path: '../zveltio-extensions', label: 'extensions (source of the generated pages)' },
+  { path: 'packages/studio/src', label: 'Studio', sibling: false },
+  { path: SIBLING_ROOT, label: 'extensions (source of the generated pages)', sibling: true },
 ];
 
 /**
@@ -65,7 +67,7 @@ const EXTS = ['.svelte', '.ts', '.js'];
 
 for (const root of ROOTS) {
   const exists = await Bun.file(`${root.path}/package.json`).exists();
-  if (!exists && root.path.startsWith('..')) {
+  if (!exists && root.sibling) {
     // The extensions checkout is a sibling and may not be present — in a
     // release build, for instance. Skipping is correct; failing would tie the
     // gate to the layout of whoever runs it.
@@ -81,7 +83,7 @@ for (const root of ROOTS) {
     // route called `/extensions/:name/enable` — the removed `developer/database`
     // did — and flagging that would be the gate misreading its own subject. The rule is
     // about what Studio CALLS, so only pages count.
-    if (root.path.startsWith('..') && !rel.includes('/studio/')) continue;
+    if (root.sibling && !rel.includes('/studio/')) continue;
 
     const full = `${root.path}/${rel}`;
     const text = await Bun.file(full).text();

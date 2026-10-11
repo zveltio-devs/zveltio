@@ -2,7 +2,7 @@
 /**
  * CI gate: extension SDUI schema files must declare sduiSchema + title.
  *
- * Scans `EXTENSIONS_DIR` (default: sibling ../zveltio-extensions) for
+ * Scans SIBLING_ROOT (EXTENSIONS_ROOT, default: sibling ../zveltio-extensions) for
  * `studio/schemas/*.json` referenced by manifest studio.pages[].schema.
  *
  * Usage: bun scripts/check-extension-sdui-schemas.ts
@@ -11,10 +11,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-import { requireSibling } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
-const EXT_ROOT = process.env.EXTENSIONS_DIR ?? join(ROOT, '../zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 
 // Was a skip that exited 0, and an explicit EXTENSIONS_DIR bypassed the check
 // entirely: pointed at an empty directory the gate said "extension SDUI schemas

@@ -484,7 +484,7 @@ describe('check-jsonb-binding reads code, not prose', () => {
     return r;
   }
 
-  const narrow = { EXTENSIONS_DIR: '/nonexistent-on-purpose', ZVELTIO_ALLOW_MISSING_SIBLING: '1' };
+  const narrow = { EXTENSIONS_ROOT: '/nonexistent-on-purpose', ZVELTIO_ALLOW_MISSING_SIBLING: '1' };
 
   it('catches JSON.stringify bound to a jsonb column', async () => {
     const r = root(
@@ -608,16 +608,16 @@ describe('check-jsonb-binding reads code, not prose', () => {
     }
   });
 
-  it('refuses an EXTENSIONS_DIR that holds no extension', async () => {
-    // EXTENSIONS_DIR is also the engine's runtime variable. Pointed at an empty
-    // directory it skipped the sibling check and reported OK on the engine alone.
+  it('refuses an EXTENSIONS_ROOT that holds no extension', async () => {
+    // An explicit sibling path skipped the sibling check, and pointed at an
+    // empty directory the gate reported OK on the engine alone.
     const r = root(
       "export const p = (db: any) => db.insertInto('zv_flows').values({ id: '1' }).execute();\n",
     );
     const empty = join(r, 'empty-extensions');
     mkdirSync(empty);
     try {
-      const { code, out } = await run(r, GATE, [], { EXTENSIONS_DIR: empty });
+      const { code, out } = await run(r, GATE, [], { EXTENSIONS_ROOT: empty });
       expect(out).toContain('holds no extension manifest');
       expect(code).toBe(1);
     } finally {

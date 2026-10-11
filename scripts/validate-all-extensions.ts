@@ -8,6 +8,7 @@ import { join, dirname } from 'path';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import { ManifestSchema } from '../packages/engine/src/lib/extensions/manifest-schema.js';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 /**
  * The schema that decides whether an extension loads is the engine's.
@@ -32,7 +33,7 @@ function schemaErrors(manifest: unknown): string[] {
   );
 }
 
-const ROOT = process.argv[2] ?? join(import.meta.dir, '../../zveltio-extensions');
+const ROOT = process.argv[2] ?? SIBLING_ROOT;
 const CLI = join(import.meta.dir, '../packages/cli/src/index.ts');
 
 function findManifests(dir: string, acc: string[] = []): string[] {

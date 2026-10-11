@@ -16,9 +16,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { stripComments } from './lib/strip-comments.js';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
-const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 
 /** Work that takes time and is not a query. Ordered most to least obvious. */
 const SLOW: Array<{ re: RegExp; what: string }> = [

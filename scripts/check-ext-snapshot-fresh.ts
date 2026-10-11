@@ -43,6 +43,7 @@
 import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const STUDIO = join(ROOT, 'packages/studio');
@@ -61,8 +62,7 @@ const SYNCED_TREES = [
   join(CLIENT, 'src/lib/ext'),
 ];
 
-const extRoot =
-  process.argv[2] ?? process.env.EXTENSIONS_DIR ?? join(ROOT, '..', 'zveltio-extensions');
+const extRoot = process.argv[2] ?? SIBLING_ROOT;
 
 if (!existsSync(extRoot)) {
   console.error(

@@ -50,6 +50,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { SHARED_MESSAGE_KEYS } from '../packages/sdk/src/validate/shared-message-keys.js';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 /**
  * The sibling checkout, overridable by argv.
@@ -59,7 +60,7 @@ import { SHARED_MESSAGE_KEYS } from '../packages/sdk/src/validate/shared-message
  * the argument.
  */
 const EXPLICIT_DIR = process.argv[2];
-const EXT_DIR = EXPLICIT_DIR ?? join(import.meta.dir, '../../zveltio-extensions');
+const EXT_DIR = EXPLICIT_DIR ?? SIBLING_ROOT;
 
 interface Problem {
   kind: 'DECLARED' | 'OVERLAP' | 'UNCLAIMED' | 'SQUATTING';
