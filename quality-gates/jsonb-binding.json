@@ -3,5 +3,15 @@
   "_why_it_has_a_gate": "Four columns were found this way and repaired in 03515eb1, which shipped lib/jsonb.ts and no gate. A fifth site existed at the time — zvd_collections.fields, three writers — and nothing would have said so. Readers compensate, so the defect is silent until somebody writes the SQL that assumes the shape.",
   "_how_to_fix": "Use `toJsonb(value)` from lib/jsonb.ts, which binds `${…}::text::jsonb`.",
   "_regenerate": "bun run scripts/check-jsonb-binding.ts --update",
-  "counts": {}
+  "counts": {
+    "zv_content_drafts.draft_data": 1,
+    "zvd_export_templates.filters": 1,
+    "zvd_import_profiles.mappings": 1,
+    "zv_ai_features.config": 1,
+    "zv_forms.fields": 1,
+    "zvd_quality_rules.rule_config": 1,
+    "zv_ro_documents.parties": 1,
+    "zv_ro_documents.metadata": 1,
+    "zv_etransport_declarations.goods": 1
+  }
 }

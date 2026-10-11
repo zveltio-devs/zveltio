@@ -678,8 +678,7 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
       const updates: Record<string, any> = { updated_at: new Date() };
       if (data.name !== undefined) updates.name = data.name;
       if (data.description !== undefined) updates.description = data.description;
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      if (data.config !== undefined) updates.config = JSON.stringify(data.config) as any;
+      if (data.config !== undefined) updates.config = toJsonb(data.config);
       if (data.is_shared !== undefined) updates.is_shared = data.is_shared;
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

@@ -210,6 +210,40 @@ function topLevelPairs(body: string): string[] {
 /** How far past `insertInto('t')` a `.values({…})` is still the same statement. */
 const CHAIN_WINDOW = 6000;
 
+/** The wrong binding `value` names, or null when it is not one of the two. */
+function wrongForm(value: string): string | null {
+  /**
+   * Anywhere in the value, not anchored at its start.
+   *
+   * `^JSON\.stringify` matched the plain case and nothing else. Planted
+   * 2026-09-04, both of these stayed green on a jsonb column:
+   *
+   *   trigger_config: v ? JSON.stringify(v) : null
+   *   trigger_config: JSON.stringify(v) as never   ← this one was caught,
+   *                                                  the ternary was not
+   *
+   * A conditional is the ordinary way to write a nullable jsonb column, so
+   * the miss sat directly on the common shape rather than on an exotic one.
+   *
+   * `::text::jsonb` is excluded because that IS the correct binding —
+   * `toJsonb` is `${…}::text::jsonb`, and someone inlining it by hand is
+   * right, not wrong. Without that carve-out, widening the search would
+   * have started failing correct code, which is the other way to lose a
+   * gate.
+   */
+  const STRINGIFY = /\bJSON\.stringify\s*\(/;
+  const CORRECT_CAST = /::\s*text\s*::\s*jsonb/;
+  if (STRINGIFY.test(value) && !CORRECT_CAST.test(value)) return 'JSON.stringify(…)';
+  if (/^sql`\s*\$\{\s*JSON\.stringify[\s\S]*?\}\s*::\s*jsonb\s*`/.test(value))
+    // Assembled rather than written whole: a literal `${…}` in a string
+    // trips `noTemplateCurlyInString`, and that rule is right — it exists
+    // to catch an interpolation somebody forgot to make a template. Here
+    // the text IS the wrong form, being named. Same answer audit-gates.ts
+    // reached for its probe bodies.
+    return `sql\`${INTERP_OPEN}JSON.stringify(…)}::jsonb\``;
+  return null;
+}
+
 function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
   const src = stripComments(readFileSync(file, 'utf8'));
   const found: Site[] = [];
@@ -239,37 +273,7 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
         const column = kv[1]!.toLowerCase();
         if (!cols.has(column)) continue;
 
-        const value = kv[2]!.trim();
-        let form: string | null = null;
-        /**
-         * Anywhere in the value, not anchored at its start.
-         *
-         * `^JSON\.stringify` matched the plain case and nothing else. Planted
-         * 2026-09-04, both of these stayed green on a jsonb column:
-         *
-         *   trigger_config: v ? JSON.stringify(v) : null
-         *   trigger_config: JSON.stringify(v) as never   ← this one was caught,
-         *                                                  the ternary was not
-         *
-         * A conditional is the ordinary way to write a nullable jsonb column, so
-         * the miss sat directly on the common shape rather than on an exotic one.
-         *
-         * `::text::jsonb` is excluded because that IS the correct binding —
-         * `toJsonb` is `${…}::text::jsonb`, and someone inlining it by hand is
-         * right, not wrong. Without that carve-out, widening the search would
-         * have started failing correct code, which is the other way to lose a
-         * gate.
-         */
-        const STRINGIFY = /\bJSON\.stringify\s*\(/;
-        const CORRECT_CAST = /::\s*text\s*::\s*jsonb/;
-        if (STRINGIFY.test(value) && !CORRECT_CAST.test(value)) form = 'JSON.stringify(…)';
-        else if (/^sql`\s*\$\{\s*JSON\.stringify[\s\S]*?\}\s*::\s*jsonb\s*`/.test(value))
-          // Assembled rather than written whole: a literal `${…}` in a string
-          // trips `noTemplateCurlyInString`, and that rule is right — it exists
-          // to catch an interpolation somebody forgot to make a template. Here
-          // the text IS the wrong form, being named. Same answer audit-gates.ts
-          // reached for its probe bodies.
-          form = `sql\`${INTERP_OPEN}JSON.stringify(…)}::jsonb\``;
+        const form = wrongForm(kv[2]!.trim());
         if (!form) continue;
 
         const abs = m.index + s.index;
@@ -280,6 +284,60 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
           column,
           form,
         });
+      }
+    }
+
+    // The object handed over by name — `.set(updates)` — built elsewhere in
+    // the file: a literal `const updates = { … }`, or one key at a time,
+    // `updates.col = …` / `updates['col'] = …`, or a computed key whose
+    // assignment names the column (`updates[k] = k === 'col' ? JSON.stringify(v)
+    // : v`). Only the literal argument was read, so developer/edge-functions'
+    // PATCH stored env_vars as a jsonb string under this gate's zero (ext#207).
+    const byName = /\.(?:values|set|doUpdateSet)\(\s*([A-Za-z_$][\w$]*)\s*\)/g;
+    // biome-ignore lint/suspicious/noAssignInExpressions: the standard exec loop
+    while ((s = byName.exec(window)) !== null) {
+      // The window runs past the statement: a later insertInto/updateTable owns
+      // whatever follows it.
+      if (/\.(insertInto|updateTable)\(/.test(window.slice(1, s.index))) continue;
+      const name = s[1]!.replace(/\$/g, '\\$');
+      const flag = (at: number, column: string, form: string | null) => {
+        if (form && cols.has(column))
+          found.push({
+            file: relative(ROOT, file),
+            line: src.slice(0, at).split('\n').length,
+            table: m![2]!,
+            column,
+            form,
+          });
+      };
+      // From the name's last declaration before this call to the call: a
+      // second function reusing the name is a different object.
+      const at = m.index + s.index;
+      const decl = new RegExp(`\\b(?:const|let|var)\\s+${name}\\b[^=;]*=\\s*`, 'g');
+      let from = 0;
+      for (const d of src.slice(0, at).matchAll(decl)) from = d.index;
+      const head = decl.exec(src.slice(from, at));
+      if (head && src[from + head[0].length] === '{') {
+        const body = balanced(src, from + head[0].length);
+        for (const pair of body === null ? [] : topLevelPairs(body)) {
+          const kv = /^\s*["'`]?([a-z_][\w]*)["'`]?\s*:\s*([\s\S]+)$/i.exec(pair);
+          if (kv) flag(from, kv[1]!.toLowerCase(), wrongForm(kv[2]!.trim()));
+        }
+      }
+      const assign = new RegExp(
+        `\\b${name}\\s*(?:\\.\\s*(\\w+)|\\[\\s*(?:["'\`](\\w+)["'\`]|[\\w$.]+)\\s*\\])\\s*=(?!=)\\s*([^;\\n]+)`,
+        'g',
+      );
+      let a: RegExpExecArray | null;
+      const region = src.slice(from, at);
+      // biome-ignore lint/suspicious/noAssignInExpressions: the standard exec loop
+      while ((a = assign.exec(region)) !== null) {
+        const value = a[3]!.trim();
+        const named = a[1] ?? a[2];
+        if (named) flag(from + a.index, named.toLowerCase(), wrongForm(value));
+        else
+          for (const q of value.matchAll(/["'`]([a-z_]\w*)["'`]/gi))
+            flag(from + a.index, q[1]!.toLowerCase(), wrongForm(value));
       }
     }
   }
