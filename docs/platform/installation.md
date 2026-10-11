@@ -274,7 +274,7 @@ cat zveltio/zveltio.log
 | `NODE_ENV` | — | `production` / `development` |
 | `MAIL_ENCRYPTION_KEY` | ✅ if using mail | AES-256-GCM key for IMAP/SMTP passwords (`openssl rand -hex 32`) |
 | `AI_KEY_ENCRYPTION_KEY` | ✅ if using AI | AES-256-GCM key for AI provider API keys (`openssl rand -hex 32`) |
-| `METRICS_TOKEN` | — | Bearer token protecting `GET /metrics`. If unset, metrics are public. |
+| `METRICS_TOKEN` | ✅ (Docker) | Bearer token protecting `GET /metrics`, shared with Prometheus; the installer generates it. If unset, `/metrics` returns 403 (and the repository's `docker-compose.yml` refuses to start). |
 | `SLOW_QUERY_THRESHOLD_MS` | — | Log requests slower than this (default: `200`) |
 | `TRUSTED_PROXY` | — | Set to `true` to trust `X-Forwarded-For` headers (behind nginx/ALB) |
 

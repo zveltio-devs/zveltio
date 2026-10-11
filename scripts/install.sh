@@ -371,8 +371,9 @@ FIELD_ENCRYPTION_KEY=$(generate_secret 32)
 MAIL_ENCRYPTION_KEY=$(generate_secret 32)
 # Required if AI extension is enabled (AI API key encryption)
 AI_KEY_ENCRYPTION_KEY=$(generate_secret 32)
-# Optional: uncomment to protect /metrics endpoint
-# METRICS_TOKEN=$(generate_secret 32)
+# Bearer token for /metrics. Without it the engine answers 403 there (fail
+# closed), and the repository's docker-compose.yml refuses to start without it.
+METRICS_TOKEN=$(generate_secret 32)
 
 # ── Monitoring ─────────────────────────────────────────────────
 GRAFANA_ADMIN_PASSWORD=$(generate_secret 24)
@@ -417,6 +418,12 @@ else
   if ! grep -q '^FIELD_ENCRYPTION_KEY=' .env; then
     echo "FIELD_ENCRYPTION_KEY=$(generate_secret 32)" >> .env
     ok "FIELD_ENCRYPTION_KEY generated"
+  fi
+  # Earlier installers left it commented out, so /metrics answered 403 to every
+  # scraper and an .env moved next to the repository's compose file would not start.
+  if ! grep -q '^METRICS_TOKEN=' .env; then
+    echo "METRICS_TOKEN=$(generate_secret 32)" >> .env
+    ok "METRICS_TOKEN generated (protects /metrics; Prometheus reads the same value)"
   fi
   # Earlier installers wrote this. A native engine runs as the invoking user,
   # who cannot create /data — every upload failed. Dropping it falls back to

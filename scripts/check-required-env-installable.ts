@@ -140,9 +140,19 @@ const composeEnvBlocks = (() => {
   return bodies.join('\n');
 })();
 
-/** Supplied or derived by compose — `KEY: '…'` in a service environment block. */
+/**
+ * Supplied or derived by compose — `KEY: '…'` in a service environment block —
+ * unless the value is only the same variable read back from `.env`:
+ * `KEY: '${KEY:?…}'` DEMANDS the value, it does not supply one. Reading every
+ * `KEY:` as supplied reported METRICS_TOKEN as "docker-compose.yml" while no
+ * installer wrote it (found 2026-10-11): `docker compose config` on the .env the
+ * installer writes failed with `required variable METRICS_TOKEN is missing a value`.
+ * `${KEY:-default}` does supply one, and stays counted.
+ */
 const suppliedByCompose = (key: string): boolean =>
-  new RegExp(`^\\s+${key}:\\s`, 'm').test(composeEnvBlocks);
+  [...composeEnvBlocks.matchAll(new RegExp(`^\\s+${key}:\\s*(.*)$`, 'gm'))].some(
+    (m) => !new RegExp(`^['"]?\\$\\{${key}(?::?[?][^}]*)?\\}['"]?\\s*$`).test(m[1]!.trim()),
+  );
 
 const missing = required.filter((k) => !writtenByInstaller(k) && !suppliedByCompose(k));
 
