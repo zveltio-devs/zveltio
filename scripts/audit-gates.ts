@@ -554,6 +554,19 @@ const CASES: Case[] = [
       "  poolDb.selectFrom('zv_api_keys').selectAll().execute();\n",
   },
   {
+    // The same read inside a transaction opened on the pool: `trx` is as
+    // unbound as `poolDb`, and the gate used to match the name `poolDb` only.
+    gate: 'check-tenant-table-on-pool (pool transaction)',
+    cmd: 'bun run scripts/check-tenant-table-on-pool.ts',
+    file: 'packages/engine/src/routes/__gate_probe.ts',
+    body:
+      "import type { Database } from '../db/index.js';\n" +
+      'export const probe = (poolDb: Database) =>\n' +
+      '  poolDb.transaction().execute(async (trx) => {\n' +
+      "    await trx.selectFrom('zv_api_keys').selectAll().execute();\n" +
+      '  });\n',
+  },
+  {
     // A route reading a record-attached table (comments) with no record gate.
     gate: 'check-record-attached-reads',
     cmd: 'bun run scripts/check-record-attached-reads.ts',
@@ -872,6 +885,20 @@ export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
     body:
       '\nexport const __gateProbe = (uid: string, checkPermission: Function) =>\n' +
       "  checkPermission(uid, 'admin', '*');\n",
+    mode: 'append',
+  },
+  {
+    // A new site, wrapped the way the formatter wraps it, below a line comment
+    // that names a glob. The ratchet used to scan line by line (the wrapped form
+    // was invisible) and blank comments with a block regex first, so the `/*`
+    // in `// the /ext/* gate` swallowed everything up to the next `*\/`.
+    gate: 'admin-gate-check (sibling ratchet, wrapped after a glob comment)',
+    cmd: 'bun run scripts/admin-gate-check.ts',
+    file: '../zveltio-extensions/search/engine/routes.ts',
+    body:
+      '\n// the /ext/* gate\n' +
+      'export const __gateProbe = (uid: string, checkPermission: Function) =>\n' +
+      "  checkPermission(\n    uid,\n    'admin',\n    '*',\n  );\n/* end */\n",
     mode: 'append',
   },
   {

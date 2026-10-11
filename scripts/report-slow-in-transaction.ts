@@ -15,6 +15,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { stripComments } from './lib/strip-comments.js';
 
 const ROOT = join(import.meta.dir, '..');
 const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
@@ -28,49 +29,6 @@ const SLOW: Array<{ re: RegExp; what: string }> = [
   { re: /putObject|getObject|deleteObject|S3Client/g, what: 'object storage' },
   { re: /setTimeout\s*\(\s*resolve/g, what: 'sleep' },
 ];
-
-function stripComments(src: string): string {
-  let out = '';
-  let i = 0;
-  let quote: string | null = null;
-  while (i < src.length) {
-    const ch = src[i];
-    const next = src[i + 1];
-    if (quote) {
-      if (ch === '\\') {
-        out += ch + (next ?? '');
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      out += ch;
-      i++;
-      continue;
-    }
-    if (ch === "'" || ch === '"' || ch === '`') {
-      quote = ch;
-      out += ch;
-      i++;
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      while (i < src.length && src[i] !== '\n') i++;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      i += 2;
-      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
-        if (src[i] === '\n') out += '\n';
-        i++;
-      }
-      i += 2;
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return out;
-}
 
 const SPLIT =
   /(?=\.(?:get|post|put|patch|delete)\s*\(\s*['"`]\/|(?:app|router)\.on\s*\(|^[ \t]*(?:export\s+)?(?:async\s+)?function\s+\w+\s*\()/m;

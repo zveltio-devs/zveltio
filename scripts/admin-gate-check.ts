@@ -51,6 +51,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { requireSibling } from './lib/require-sibling.js';
+import { stripComments } from './lib/strip-comments.js';
 
 const ROOT = join(import.meta.dir, '..');
 const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
@@ -69,13 +70,6 @@ requireSibling(EXT_ROOT, 'admin-gate-check');
 const BARE_GATE =
   /checkPermission\(\s*[A-Za-z0-9_.]+\s*,\s*(['"`])admin\1\s*,\s*(['"`])\*\2\s*,?\s*\)/g;
 
-/** Comments blanked, newlines kept, so a match's offset still gives its line. */
-function blankComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/.*$/gm, (c, pre: string) => pre + ' '.repeat(c.length - pre.length));
-}
-
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -91,7 +85,7 @@ const violations: string[] = [];
 for (const root of ROOTS) {
   for (const file of walk(root)) {
     // Comments may quote the pattern — this file's own docs do.
-    const src = blankComments(readFileSync(file, 'utf-8'));
+    const src = stripComments(readFileSync(file, 'utf-8'));
     for (const m of src.matchAll(BARE_GATE)) {
       const line = src.slice(0, m.index).split('\n').length;
       violations.push(`${file}:${line}  ${m[0].replace(/\s+/g, ' ').slice(0, 100)}`);
@@ -123,12 +117,11 @@ const extCounts: Record<string, number> = {};
 for (const file of walk(EXT_ROOT)) {
   if (file.includes('/node_modules/') || file.includes('/tests/') || file.endsWith('.test.ts'))
     continue;
-  let n = 0;
-  for (const line of readFileSync(file, 'utf-8').split('\n')) {
-    const t = line.trim();
-    if (t.startsWith('//') || t.startsWith('*')) continue;
-    if (BARE_GATE.test(line)) n++;
-  }
+  // The same whole-file scan as the engine side. This loop used to test line by
+  // line, so a wrapped call was invisible here too — and `.test()` on the `g`
+  // regex carries `lastIndex` between lines, so a match right after a match was
+  // skipped. Planted 2026-10-11: a new wrapped site passed as "none new".
+  const n = [...stripComments(readFileSync(file, 'utf-8')).matchAll(BARE_GATE)].length;
   if (n > 0) extCounts[file.slice(EXT_ROOT.length + 1).replace(/\\/g, '/')] = n;
 }
 

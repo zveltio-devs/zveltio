@@ -31,6 +31,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { stripComments } from './lib/strip-comments.js';
 
 /**
  * Extension files exempt from the rule, with the reason each is exempt.
@@ -76,19 +77,6 @@ const AUTHORITY_MODULES = [
   'os',
   'repl',
 ];
-
-/** Strip comments so documentation ABOUT `process.env` is not a finding. */
-function stripComments(src: string): string {
-  const noBlocks = src.replace(/\/\*[\s\S]*?\*\//g, '');
-  return noBlocks
-    .split('\n')
-    .map((line) => {
-      const t = line.trimStart();
-      if (t.startsWith('//') || t.startsWith('*')) return '';
-      return line;
-    })
-    .join('\n');
-}
 
 function walk(dir: string, out: string[] = []): string[] {
   let entries: string[];

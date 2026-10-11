@@ -55,6 +55,7 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { requireSibling } from './lib/require-sibling.js';
+import { stripComments } from './lib/strip-comments.js';
 
 const ROOT = join(import.meta.dir, '..');
 const EXT_ROOT = process.env.EXTENSIONS_DIR ?? join(ROOT, '..', 'zveltio-extensions');
@@ -208,74 +209,6 @@ function topLevelPairs(body: string): string[] {
 
 /** How far past `insertInto('t')` a `.values({…})` is still the same statement. */
 const CHAIN_WINDOW = 6000;
-
-/**
- * Line and block comments blanked, newlines and offsets preserved.
- *
- * String-aware, because the naive `replace(/\/\*[\s\S]*?\*\//g, '')` does not
- * know what a string is and a `/*` inside one eats everything to the next
- * `*` + `/`. Same walker as `check-atomic-writes.ts`, for the same reason.
- *
- * Added 2026-09-04 after planting two shapes that both went red on a clean
- * tree: a commented-out write, and — worse — a JSDoc header DOCUMENTING the
- * wrong form. The second is this repository's house style; every gate in E01
- * shows the form it refuses in its own header, and this file has to do it twice
- * (see `INTERP_OPEN` above, which exists precisely so the text can name the
- * wrong form without performing it). So the first person to write
- * `col: JSON.stringify(v)` into a comment explaining this gate would have made
- * the gate fail on a tree with no defect in it — and a ratchet that fires on
- * prose is one somebody switches off.
- *
- * Blanking rather than deleting: every offset downstream, including the line
- * numbers this file reports, stays the file's own.
- */
-function stripComments(src: string): string {
-  let out = '';
-  let i = 0;
-  let quote: string | null = null;
-  while (i < src.length) {
-    const ch = src[i]!;
-    const next = src[i + 1];
-    if (quote) {
-      if (ch === '\\') {
-        out += ch + (next ?? '');
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      out += ch;
-      i++;
-      continue;
-    }
-    if (ch === "'" || ch === '"' || ch === '`') {
-      quote = ch;
-      out += ch;
-      i++;
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      while (i < src.length && src[i] !== '\n') {
-        out += ' ';
-        i++;
-      }
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      out += '  ';
-      i += 2;
-      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) {
-        out += src[i] === '\n' ? '\n' : ' ';
-        i++;
-      }
-      out += '  ';
-      i += 2;
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return out;
-}
 
 function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
   const src = stripComments(readFileSync(file, 'utf8'));
