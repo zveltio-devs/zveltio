@@ -322,11 +322,11 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
   for (const [shape, body] of [
     [
       'a raw sql template run on poolDb',
-      'export const p = (poolDb: D, id: string) =>\n  sql<{ id: string }>`\n    SELECT id FROM zv_api_keys k WHERE k.id = ${id}\n  `.execute(poolDb);\n',
+      `export const p = (poolDb: D, id: string) =>\n  sql<{ id: string }>\`\n    SELECT id FROM zv_api_keys k WHERE k.id = ${INTERP_OPEN}id}\n  \`.execute(poolDb);\n`,
     ],
     [
       'a raw sql template run on a pool transaction',
-      "export const p = (poolDb: D) =>\n  poolDb.transaction().execute(async (trx) => {\n    await sql`UPDATE zv_api_keys SET name = ${'x'}`.execute(trx);\n  });\n",
+      `export const p = (poolDb: D) =>\n  poolDb.transaction().execute(async (trx) => {\n    await sql\`UPDATE zv_api_keys SET name = ${INTERP_OPEN}'x'}\`.execute(trx);\n  });\n`,
     ],
   ]) {
     it(`catches ${shape}`, async () => {
@@ -343,7 +343,7 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
 
   it('does NOT fire on a raw template run on the request handle, or on a table with no tenant', async () => {
     const r = root(
-      'export const p = (db: D, poolDb: D) => {\n  sql`SELECT 1 FROM zv_api_keys`.execute(db);\n  return sql`SELECT ${sql`1`} FROM zv_tenants`.execute(poolDb);\n};\n',
+      `export const p = (db: D, poolDb: D) => {\n  sql\`SELECT 1 FROM zv_api_keys\`.execute(db);\n  return sql\`SELECT ${INTERP_OPEN}sql\`1\`} FROM zv_tenants\`.execute(poolDb);\n};\n`,
     );
     try {
       expect((await run(r, GATE)).code).toBe(0);
