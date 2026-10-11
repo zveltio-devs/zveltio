@@ -7,6 +7,12 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
+  # Dry run: builds Studio and the binaries and runs smoke-binary (runner,
+  # worker isolation, marketplace enable) on any branch, without a tag. Every
+  # job that publishes, pushes an image or reads the tag is skipped
+  # (if: github.event_name == 'push'), so a runner change is proven before the
+  # first tag instead of by it.
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -19,6 +25,7 @@ jobs:
   # with a warning; a STABLE tag must pass every check or publish is blocked.
   release-gate:
     name: Release gate (stable criteria)
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -453,6 +460,7 @@ jobs:
   # ── Job 3: Build Docker Image ────────────────────────────────
   build-docker:
     needs: build-studio
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     # The Docker image is an independent artifact (pushed to its own registry).
     # A QEMU/buildx infra flake must NOT block the binary + Studio release or the
@@ -509,6 +517,7 @@ jobs:
   # ── Job 4: Generate Release Assets ──────────────────────────
   generate-assets:
     needs: [build-binaries]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
