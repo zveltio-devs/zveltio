@@ -328,6 +328,18 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
       'a raw sql template run on a pool transaction',
       `export const p = (poolDb: D) =>\n  poolDb.transaction().execute(async (trx) => {\n    await sql\`UPDATE zv_api_keys SET name = ${INTERP_OPEN}'x'}\`.execute(trx);\n  });\n`,
     ],
+    [
+      'a pool transaction with an isolation level set',
+      "export const p = (poolDb: D) =>\n  poolDb\n    .transaction()\n    .setIsolationLevel('serializable')\n    .execute(async (trx) => trx.selectFrom('zv_api_keys').execute());\n",
+    ],
+    [
+      'a schema-qualified table in a raw template',
+      'export const p = (poolDb: D) => sql`SELECT id FROM public.zv_api_keys`.execute(poolDb);\n',
+    ],
+    [
+      'the second table of a comma join',
+      'export const p = (poolDb: D) => sql`SELECT k.id FROM zv_tenants t, zv_api_keys k`.execute(poolDb);\n',
+    ],
   ]) {
     it(`catches ${shape}`, async () => {
       const r = root(body);
@@ -506,6 +518,7 @@ describe('check-jsonb-binding reads code, not prose', () => {
     ['a property assignment', 'u.trigger_config = JSON.stringify(v);'],
     ['a quoted key', "u['trigger_config'] = JSON.stringify(v);"],
     ['a computed key naming the column', "u[k] = k === 'trigger_config' ? JSON.stringify(v) : v;"],
+    ['Object.assign', 'Object.assign(u, { trigger_config: JSON.stringify(v) });'],
   ]) {
     it(`catches an update object passed by name, written through ${shape}`, async () => {
       const r = root(
@@ -520,6 +533,19 @@ describe('check-jsonb-binding reads code, not prose', () => {
       }
     });
   }
+
+  it('catches an object spread into the literal', async () => {
+    const r = root(
+      "export const p = (db: any, v: unknown) => {\n  const patch = { trigger_config: JSON.stringify(v) };\n  return db.updateTable('zv_flows').set({ ...patch, id: 'x' }).execute();\n};\n",
+    );
+    try {
+      const { code, out } = await run(r, GATE, [], narrow);
+      expect(out).toContain('zv_flows.trigger_config');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
 
   it('does NOT charge a later statement with an object passed to an earlier one', async () => {
     const r = root(

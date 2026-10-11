@@ -118,7 +118,9 @@ const QUERY =
  */
 const allowed = new Map<string, string>();
 
-const TXN = /\bpoolDb\s*\.\s*transaction\(\s*\)\s*\.\s*execute\(\s*async\s*\(\s*(\w+)/g;
+// `.setIsolationLevel(…)` / `.setAccessMode(…)` between the two still opens it on the pool.
+const TXN =
+  /\bpoolDb\s*\.\s*transaction\(\s*\)(?:\s*\.\s*set\w+\([^)]*\))*\s*\.\s*execute\(\s*async\s*\(\s*(\w+)/g;
 
 /** Index of the `)` closing `execute(`, scanning from just after `async (trx` — two open. */
 function callbackEnd(src: string, from: number): number {
@@ -161,8 +163,18 @@ function rawSites(src: string, handle: string, from = 0, to = src.length) {
     const end = templateEnd(src, open);
     if (!run.test(src.slice(end, end + 80))) continue;
     const body = src.slice(open, end);
-    for (const t of body.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+)?"?(\w+)"?/gi)) {
-      out.push({ at: open, text: `sql\`… ${t[0]} …\`.execute(${handle})`, table: t[1]! });
+    const named = new Set(
+      [
+        ...body.matchAll(
+          /\b(?:FROM|JOIN|INTO|UPDATE|USING)\s+(?:ONLY\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi,
+        ),
+      ].map((t) => t[1]!),
+    );
+    // Any word naming a tenant table, wherever it stands: `public.zv_x`, the
+    // second table of `FROM a, zv_x`, a subquery. Planted 2026-10-11, all green.
+    for (const w of body.match(/\w+/g) ?? []) if (tenantScoped.has(w)) named.add(w);
+    for (const table of named) {
+      out.push({ at: open, text: `sql\`… ${table} …\`.execute(${handle})`, table });
     }
   }
   return out;

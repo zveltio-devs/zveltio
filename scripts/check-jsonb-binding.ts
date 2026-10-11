@@ -259,6 +259,8 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
     // follows. `doUpdateSet` matters: an ON CONFLICT branch is a second writer
     // of the same column and was wrong in exactly the same way.
     const window = src.slice(m.index, m.index + CHAIN_WINDOW);
+    /** Objects written by name: `.set(updates)`, or spread, `.set({ ...patch })`. */
+    const handed: { name: string; at: number }[] = [];
     const setter = /\.(values|set|doUpdateSet)\(\s*(?:\([^)]*\)\s*=>\s*[\w.]*\(?\s*)?\{/g;
     let s: RegExpExecArray | null;
     // biome-ignore lint/suspicious/noAssignInExpressions: the standard exec loop
@@ -267,6 +269,8 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
       if (body === null) continue;
 
       for (const pair of topLevelPairs(body)) {
+        const spread = /^\s*\.\.\.\s*([A-Za-z_$][\w$]*)\s*$/.exec(pair);
+        if (spread) handed.push({ name: spread[1]!, at: s.index });
         const kv =
           /^\s*(?:\.\.\.\([^?]*\?\s*\{\s*)?["'`]?([a-z_][\w]*)["'`]?\s*:\s*([\s\S]+)$/i.exec(pair);
         if (!kv) continue;
@@ -293,13 +297,15 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
     // assignment names the column (`updates[k] = k === 'col' ? JSON.stringify(v)
     // : v`). Only the literal argument was read, so developer/edge-functions'
     // PATCH stored env_vars as a jsonb string under this gate's zero (ext#207).
-    const byName = /\.(?:values|set|doUpdateSet)\(\s*([A-Za-z_$][\w$]*)\s*\)/g;
-    // biome-ignore lint/suspicious/noAssignInExpressions: the standard exec loop
-    while ((s = byName.exec(window)) !== null) {
+    // A spread of it, and `Object.assign(updates, { … })`, were not read
+    // either: planted 2026-10-11, both green.
+    for (const b of window.matchAll(/\.(?:values|set|doUpdateSet)\(\s*([A-Za-z_$][\w$]*)\s*\)/g))
+      handed.push({ name: b[1]!, at: b.index });
+    for (const { name: raw, at: offset } of handed) {
       // The window runs past the statement: a later insertInto/updateTable owns
       // whatever follows it.
-      if (/\.(insertInto|updateTable)\(/.test(window.slice(1, s.index))) continue;
-      const name = s[1]!.replace(/\$/g, '\\$');
+      if (/\.(insertInto|updateTable)\(/.test(window.slice(1, offset))) continue;
+      const name = raw.replace(/\$/g, '\\$');
       const flag = (at: number, column: string, form: string | null) => {
         if (form && cols.has(column))
           found.push({
@@ -312,18 +318,23 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
       };
       // From the name's last declaration before this call to the call: a
       // second function reusing the name is a different object.
-      const at = m.index + s.index;
+      const at = m.index + offset;
       const decl = new RegExp(`\\b(?:const|let|var)\\s+${name}\\b[^=;]*=\\s*`, 'g');
       let from = 0;
       for (const d of src.slice(0, at).matchAll(decl)) from = d.index;
       const head = decl.exec(src.slice(from, at));
-      if (head && src[from + head[0].length] === '{') {
-        const body = balanced(src, from + head[0].length);
+      /** The pairs of the object literal whose `{` is at `open`. */
+      const literal = (open: number, site: number) => {
+        const body = balanced(src, open);
         for (const pair of body === null ? [] : topLevelPairs(body)) {
           const kv = /^\s*["'`]?([a-z_][\w]*)["'`]?\s*:\s*([\s\S]+)$/i.exec(pair);
-          if (kv) flag(from, kv[1]!.toLowerCase(), wrongForm(kv[2]!.trim()));
+          if (kv) flag(site, kv[1]!.toLowerCase(), wrongForm(kv[2]!.trim()));
         }
-      }
+      };
+      if (head && src[from + head[0].length] === '{') literal(from + head[0].length, from);
+      const merge = new RegExp(`\\bObject\\.assign\\(\\s*${name}\\s*,\\s*\\{`, 'g');
+      for (const o of src.slice(from, at).matchAll(merge))
+        literal(from + o.index + o[0].length - 1, from + o.index);
       const assign = new RegExp(
         `\\b${name}\\s*(?:\\.\\s*(\\w+)|\\[\\s*(?:["'\`](\\w+)["'\`]|[\\w$.]+)\\s*\\])\\s*=(?!=)\\s*([^;\\n]+)`,
         'g',
