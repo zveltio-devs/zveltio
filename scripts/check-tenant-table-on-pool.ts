@@ -51,6 +51,7 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripComments } from './lib/strip-comments.js';
 
 const ROOT = join(import.meta.dir, '..');
 const SCHEMA = join(ROOT, 'packages/engine/src/db/schema.ts');
@@ -112,40 +113,50 @@ const QUERY =
 /**
  * Sites read and understood, keyed `file:table`. Empty, and meant to stay that
  * way: an entry here is a promise that somebody checked the tenant binding by
- * hand, and the previous version of this file shows how easily that becomes a
- * rubber stamp.
- */
-/**
- * Sites read and understood, keyed `file:table`. Empty, and meant to stay that
- * way: an entry here is a promise that somebody checked the tenant binding by
  * hand, and an earlier version of this file shows how easily that becomes a
  * rubber stamp.
  */
 const allowed = new Map<string, string>();
 
+const TXN = /\bpoolDb\s*\.\s*transaction\(\s*\)\s*\.\s*execute\(\s*async\s*\(\s*(\w+)/g;
+
+/** Index of the `)` closing `execute(`, scanning from just after `async (trx` — two open. */
+function callbackEnd(src: string, from: number): number {
+  let depth = 2;
+  for (let i = from; i < src.length; i++) {
+    if (src[i] === '(') depth++;
+    else if (src[i] === ')' && --depth === 0) return i;
+  }
+  return src.length;
+}
+
 const findings: string[] = [];
 /** Every `poolDb.<op>('t')` seen, matched or not — the gate's reach. */
 let sitesSeen = 0;
-
-/** Line and block comments blanked, newlines kept so line numbers survive. */
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (_m, p1: string) => p1);
-}
 
 for (const file of tsFiles(ROUTES_DIR)) {
   const src = stripComments(readFileSync(file, 'utf8'));
   const rel = file.slice(ROOT.length + 1);
 
-  QUERY.lastIndex = 0;
-  for (const m of src.matchAll(QUERY)) {
+  const sites = [...src.matchAll(QUERY)].map((m) => ({ at: m.index!, text: m[0], table: m[2]! }));
+
+  // A transaction opened on the pool runs on the pool: `trx` inside
+  // `poolDb.transaction().execute(async (trx) => …)` is as unbound as `poolDb`.
+  // Planted on 2026-10-11 — `trx.selectFrom('zv_flows')` there stayed green.
+  for (const t of src.matchAll(TXN)) {
+    const start = t.index! + t[0].length;
+    const op = new RegExp(`\\b${t[1]}${QUERY.source.slice('\\bpoolDb'.length)}`, 'g');
+    for (const m of src.slice(start, callbackEnd(src, start)).matchAll(op)) {
+      sites.push({ at: start + m.index!, text: m[0], table: m[2]! });
+    }
+  }
+
+  for (const { at, text, table } of sites) {
     sitesSeen++;
-    const table = m[2]!;
-    const line = src.slice(0, m.index!).split('\n').length;
+    const line = src.slice(0, at).split('\n').length;
     if (!tenantScoped.has(table)) continue;
     if (allowed.has(`${rel}:${table}`)) continue;
-    findings.push(`${rel}:${line}  ${table}\n      ${m[0].replace(/\s+/g, ' ')}`);
+    findings.push(`${rel}:${line}  ${table}\n      ${text.replace(/\s+/g, ' ')}`);
   }
 }
 

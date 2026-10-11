@@ -65,7 +65,7 @@ function fakeRoot(gate: string): string {
   const root = join(mkdtempSync(join(tmpdir(), 'e01-gate-')), 'repo');
   mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
   copyFileSync(join(SCRIPTS, gate), join(root, 'scripts', gate));
-  for (const lib of ['require-sibling.ts', 'sql-drops.ts']) {
+  for (const lib of ['require-sibling.ts', 'sql-drops.ts', 'strip-comments.ts']) {
     copyFileSync(join(SCRIPTS, 'lib', lib), join(root, 'scripts', 'lib', lib));
   }
   return root;

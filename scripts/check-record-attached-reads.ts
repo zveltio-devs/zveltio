@@ -32,6 +32,7 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { stripComments } from './lib/strip-comments.js';
 
 const ROOT = join(import.meta.dir, '..');
 const MIGRATIONS = join(ROOT, 'packages/engine/src/db/migrations/sql');
@@ -67,18 +68,6 @@ if (tables.length === 0) {
   console.error('✗ record-attached-reads: no record-attached table found in the migrations —');
   console.error('  the gate cannot see what it guards. Check the CREATE TABLE pattern.');
   process.exit(1);
-}
-
-/**
- * The source with its comments blanked, line structure kept. A helper name or
- * `recordReadable(` written in a comment is not a call: it used to count as one,
- * so a route whose only "gate" was a sentence about it passed. `//` after a `:`
- * or a quote is left alone — that is a URL in a string, not a comment.
- */
-function stripComments(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
 }
 
 /**
