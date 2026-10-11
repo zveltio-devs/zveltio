@@ -19,7 +19,7 @@
  * The second is why the guard wraps the handle instead of the prefix.
  */
 
-import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import type { Hono as HonoApp } from 'hono';
 import { sql } from 'kysely';
@@ -62,6 +62,13 @@ d('a firm that switched an extension off is not served by it (in-process)', () =
   });
 
   afterEach(() => {
+    invalidateActivationCache();
+  });
+
+  // An installed row with no files on disk stops every collection create and
+  // drop after this file (`nonCollectionObjects`).
+  afterAll(async () => {
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${SUB}, ${GLOB})`.execute(db);
     invalidateActivationCache();
   });
 
@@ -206,6 +213,11 @@ d('the route a firm admin uses (in-process)', () => {
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME} AND tenant_id IS NOT NULL`.execute(
       db,
     );
+    invalidateActivationCache();
+  });
+
+  afterAll(async () => {
+    await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
     invalidateActivationCache();
   });
 

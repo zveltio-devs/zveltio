@@ -56,6 +56,7 @@ function stubLicenseVerifyOk(): void {
  * EXTENSIONS_DIR is what the resolver is for.
  */
 let TEMP_EXT_BASE: string | null = null;
+const PREV_EXTENSIONS_DIR = process.env.EXTENSIONS_DIR;
 function ensureHelloExtOnDisk(): void {
   if (!TEMP_EXT_BASE) {
     TEMP_EXT_BASE = mkdtempSync(join(tmpdir(), 'zv-marketplace-ext-'));
@@ -89,12 +90,18 @@ d('extension marketplace routes (in-process)', () => {
     ensureHelloExtOnDisk();
   });
 
-  afterAll(() => {
+  // The files go, so the registry row and the directory override go with them:
+  // an installed extension with no manifest on disk stops every collection
+  // create and drop in the files that run after this one (`nonCollectionObjects`).
+  afterAll(async () => {
     globalThis.fetch = originalFetch;
+    await sql`DELETE FROM zv_extension_registry WHERE name = ${HELLO_EXT}`.execute(db);
     if (TEMP_EXT_BASE) {
       rmSync(TEMP_EXT_BASE, { recursive: true, force: true });
       TEMP_EXT_BASE = null;
     }
+    if (PREV_EXTENSIONS_DIR === undefined) delete process.env.EXTENSIONS_DIR;
+    else process.env.EXTENSIONS_DIR = PREV_EXTENSIONS_DIR;
   });
 
   it('requires auth for the marketplace catalog', async () => {
