@@ -1381,10 +1381,10 @@ jobs:
     # from the engine side, against the paired extensions branch when one
     # exists and extensions master otherwise.
     #
-    # Non-blocking while those extensions are still being adapted to #858, so it
-    # does not hold every engine PR hostage to work in the other repository.
-    # Remove `continue-on-error` once it is green on master.
-    continue-on-error: true
+    # Blocking. It ran with `continue-on-error` while the extensions were adapted
+    # to #858; by 2026-10-11 every step had passed on 80 consecutive runs, master
+    # and PRs alike, and a gate nobody has to pass is not a gate. A PR that needs
+    # an extensions change pairs it with a same-named extensions branch.
     services:
       postgres:
         image: pgvector/pgvector:pg18
