@@ -4,6 +4,73 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.79] - 2026-10-11
+
+**Breaking for operators: third-party extensions run on the extension runner.**
+In production (`NODE_ENV=production`) a community or unknown extension runs only
+in the runner, under its own uid with no access to the engine's secrets; the
+in-thread `Worker` transport is gone. Removed variables, named at boot if still
+set: `ZVELTIO_ALLOW_WORKER_EXTENSIONS`, `ZVELTIO_ALLOW_INLINE_THIRD_PARTY`;
+`ZVELTIO_EXT_TRANSPORT=worker` no longer exists and production refuses
+`process`. The runner ships for every deployment: systemd units
+(`zveltio ext-runner setup`), the compose files and the Helm chart (on by
+default), and one container for Fly.io, Railway, Render and `docker run`.
+First-party extensions stay inline.
+
+**Breaking: an edge function's egress is a column, not `ZVELTIO_EGRESS`.**
+Edge functions and flow `run_script` steps reach only the hosts they declare,
+through the engine (SSRF guard included). Migration 061 moves existing
+`ZVELTIO_EGRESS` values into `zv_edge_functions.egress`; the env var no longer
+grants anything. An entry the URL parser would rewrite (`[2001:0db8::1]`,
+`010.0.0.1`) or a port above 65535 is refused with the form to write.
+
+**New: text filters `not_contains`, `starts_with`, `ends_with`.** Literal and
+case-insensitive like `contains`; `not_contains` keeps empty fields. Text field
+types advertised them before, but the data API skipped them and answered every
+row. Saved queries now match literally and case-insensitively too, answer 400
+on a malformed `in`/`between`, and preview a URL the data API reads.
+
+### Extension runner (RFC steps 4-10)
+- Worker extensions get the inline `ctx` contract, their SQL bridge answers as
+  the inline driver does, and a worker request runs as one database transaction;
+  `db.transaction()` outside a request is a host-owned transaction (#1008-#1010,
+  #1013, #1014).
+- A worker extension no longer receives the caller's credentials or a wider
+  tenant reach (#1012). Edge functions can run on the runner (#1001, #1005).
+- Container runner: compose overlay, Helm sidecar, per-extension task and
+  address-space caps, tini reaps (#992, #1015, #1017, #1020).
+
+### Security and correctness
+- A lapsed member cannot insert where they cannot read (migration 060, #1011).
+- Edge functions and flow scripts cannot reach the global object (#1002).
+- Five extension-gate holes from the beta.78 delta review (#996); extension
+  dependencies are held to their `minVersion` (#997); boot sorts env-listed and
+  registry-enabled extensions as one set (#1003).
+- A write-only grant writes again (#999); collection permission policies are
+  re-applied in one transaction (#993); a renamed field keeps its column
+  permissions, row rules and validation rules (#991); dropping a collection keeps
+  rules of same-named non-collection objects (#1004).
+- Virtual collection writes check row rules, alters and entity access (#994);
+  `/files` sandboxes every XML document (#990).
+- A collection create or drop stops while an installed extension's manifest
+  cannot be read (#1034).
+- `safeCss` refuses a closing tag reassembled by its own removal (#1042).
+- S3 endpoint validated on save, IPv6 rate-limit lists, compose `env_file`
+  (#1038). Slow-query and request logs read the status after the request
+  settles (#995).
+- Studio: an SDUI edit form no longer overwrites fields the list row did not
+  carry (#1026).
+
+### Install and deploy
+- The Docker and native installers write `METRICS_TOKEN` (#1028, #1036).
+- A fresh Fly.io, Railway or Render deploy passes the production guard (#1019).
+- `release.yml` has a manual dry run that builds and smoke-tests the binary
+  without a tag (#1040).
+
+### SDK
+- `parseMigrationSql` ends UP only at a line that is exactly `-- DOWN` (#1029).
+- `FilterOp` gains `not_contains`, `starts_with`, `ends_with`.
+
 ## [3.0.0-beta.78] - 2026-10-08
 
 **Removed: the `developer/database` extension (`@zveltio/ext-database`).** It
