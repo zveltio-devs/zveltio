@@ -130,6 +130,44 @@ function callbackEnd(src: string, from: number): number {
   return src.length;
 }
 
+/** Index just past the backtick closing the template that opens at `open`. */
+function templateEnd(src: string, open: number): number {
+  for (let i = open + 1; i < src.length; i++) {
+    if (src[i] === '\\') i++;
+    else if (src[i] === '`') return i + 1;
+    else if (src[i] === '$' && src[i + 1] === '{') {
+      let depth = 1;
+      for (i += 2; i < src.length && depth > 0; i++) {
+        if (src[i] === '{') depth++;
+        else if (src[i] === '}') depth--;
+        else if (src[i] === '`') i = templateEnd(src, i) - 1;
+      }
+      i--;
+    }
+  }
+  return src.length;
+}
+
+/**
+ * The tables a raw `sql` template run on `handle` names — `sql\`…\`.execute(poolDb)`.
+ * The Kysely-chain match above never sees a raw statement, and a raw SELECT on
+ * the pool is exactly as unbound as `poolDb.selectFrom`.
+ */
+function rawSites(src: string, handle: string, from = 0, to = src.length) {
+  const out: { at: number; text: string; table: string }[] = [];
+  const run = new RegExp(`^\\s*\\.\\s*execute\\(\\s*${handle}\\s*\\)`);
+  for (const m of src.slice(from, to).matchAll(/\bsql\s*(?:<[^`]*?>)?\s*`/g)) {
+    const open = from + m.index! + m[0].length - 1;
+    const end = templateEnd(src, open);
+    if (!run.test(src.slice(end, end + 80))) continue;
+    const body = src.slice(open, end);
+    for (const t of body.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:ONLY\s+)?"?(\w+)"?/gi)) {
+      out.push({ at: open, text: `sql\`… ${t[0]} …\`.execute(${handle})`, table: t[1]! });
+    }
+  }
+  return out;
+}
+
 const findings: string[] = [];
 /** Every `poolDb.<op>('t')` seen, matched or not — the gate's reach. */
 let sitesSeen = 0;
@@ -139,6 +177,7 @@ for (const file of tsFiles(ROUTES_DIR)) {
   const rel = file.slice(ROOT.length + 1);
 
   const sites = [...src.matchAll(QUERY)].map((m) => ({ at: m.index!, text: m[0], table: m[2]! }));
+  sites.push(...rawSites(src, 'poolDb'));
 
   // A transaction opened on the pool runs on the pool: `trx` inside
   // `poolDb.transaction().execute(async (trx) => …)` is as unbound as `poolDb`.
@@ -149,6 +188,7 @@ for (const file of tsFiles(ROUTES_DIR)) {
     for (const m of src.slice(start, callbackEnd(src, start)).matchAll(op)) {
       sites.push({ at: start + m.index!, text: m[0], table: m[2]! });
     }
+    sites.push(...rawSites(src, t[1]!, start, callbackEnd(src, start)));
   }
 
   for (const { at, text, table } of sites) {
