@@ -183,6 +183,11 @@ executes:
   connect is not closed, as `fetch` gives no way to pin the connection to
   the validated address.
 - Soft limits: 64 MB heap watchdog, default 5s wall-clock.
+- Egress: an edge function lists the hosts it calls in its `egress` column, a
+  flow `run_script` step in the `egress` list of its config (same format:
+  lower-case `host` or `host:port`). A declared list is served through the
+  engine's egress bridge and nothing else is reached; on the extension runner a
+  script that declares nothing reaches nothing.
 
 ## Extension isolation — what it does and does not guarantee
 
