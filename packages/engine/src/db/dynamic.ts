@@ -272,6 +272,14 @@ export function buildCondition(key: string, condition: FilterCondition): RawBuil
       return sql`${col} LIKE ${'%' + escapeLike(String(value)) + '%'}`;
     case 'ilike':
       return sql`${col} ILIKE ${'%' + escapeLike(String(value)) + '%'}`;
+    // The business set beside `contains`: literal and case-insensitive like it.
+    // An empty value does not contain the text, so NULL is kept.
+    case 'not_contains':
+      return sql`(${col} IS NULL OR ${col} NOT ILIKE ${'%' + escapeLike(String(value)) + '%'})`;
+    case 'starts_with':
+      return sql`${col} ILIKE ${escapeLike(String(value)) + '%'}`;
+    case 'ends_with':
+      return sql`${col} ILIKE ${'%' + escapeLike(String(value))}`;
     // A lone value is a one-element list; bound as-is, PostgreSQL parses it as
     // an array literal and refuses it ("malformed array literal").
     case 'in':

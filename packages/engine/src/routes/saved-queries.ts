@@ -21,6 +21,7 @@ import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { DDLManager, readScope } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { toJsonb } from '../lib/jsonb.js';
+import { escapeLike } from '../db/dynamic.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -124,59 +125,6 @@ interface QueryConfig {
 
 // ── Filter helpers ─────────────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-function applyFilter(query: any, filter: { field: string; operator: string; value?: any }): any {
-  const { field, operator, value } = filter;
-
-  // Sanitizare: permite doar identificatori SQL valizi
-  if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(field) || field.length > 63) {
-    throw new Error(`Invalid field name: "${field}"`);
-  }
-
-  switch (operator) {
-    case 'equals':
-      return query.where(field, '=', value);
-    case 'not_equals':
-      return query.where(field, '!=', value);
-    case 'contains':
-      return query.where(field, 'like', `%${value}%`);
-    case 'not_contains':
-      return query.where(field, 'not like', `%${value}%`);
-    case 'starts_with':
-      return query.where(field, 'like', `${value}%`);
-    case 'ends_with':
-      return query.where(field, 'like', `%${value}`);
-    case 'gt':
-      return query.where(field, '>', value);
-    case 'lt':
-      return query.where(field, '<', value);
-    case 'gte':
-      return query.where(field, '>=', value);
-    case 'lte':
-      return query.where(field, '<=', value);
-    case 'between':
-      if (Array.isArray(value) && value.length === 2)
-        return query.where(field, 'between', [value[0], value[1]]);
-      return query;
-    case 'is_empty':
-    case 'is_null':
-      return query.where(field, 'is', null);
-    case 'is_not_empty':
-    case 'is_not_null':
-      return query.where(field, 'is not', null);
-    case 'is_true':
-      return query.where(field, '=', true);
-    case 'is_false':
-      return query.where(field, '=', false);
-    case 'in':
-      return Array.isArray(value) ? query.where(field, 'in', value) : query;
-    case 'not_in':
-      return Array.isArray(value) ? query.where(field, 'not in', value) : query;
-    default:
-      throw new Error(`Unsupported filter operator: "${operator}"`);
-  }
-}
-
 function buildFilterCondition(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   eb: any,
@@ -195,14 +143,19 @@ function buildFilterCondition(
       return eb(field, '=', value);
     case 'not_equals':
       return eb(field, '!=', value);
+    // Literal and case-insensitive, as the data API's operators of the same
+    // name (db/dynamic.ts): `%` and `_` in the value are text, not wildcards.
     case 'contains':
-      return eb(field, 'like', `%${value}%`);
+      return eb(field, 'ilike', `%${escapeLike(String(value))}%`);
     case 'not_contains':
-      return eb(field, 'not like', `%${value}%`);
+      return eb.or([
+        eb(field, 'is', null),
+        eb(field, 'not ilike', `%${escapeLike(String(value))}%`),
+      ]);
     case 'starts_with':
-      return eb(field, 'like', `${value}%`);
+      return eb(field, 'ilike', `${escapeLike(String(value))}%`);
     case 'ends_with':
-      return eb(field, 'like', `%${value}`);
+      return eb(field, 'ilike', `%${escapeLike(String(value))}`);
     case 'gt':
       return eb(field, '>', value);
     case 'lt':
@@ -214,7 +167,7 @@ function buildFilterCondition(
     case 'between':
       if (Array.isArray(value) && value.length === 2)
         return eb.and([eb(field, '>=', value[0]), eb(field, '<=', value[1])]);
-      return eb(field, '=', field);
+      throw new Error(`Invalid filter value: "${field}" between needs [min, max]`);
     case 'is_empty':
     case 'is_null':
       return eb(field, 'is', null);
@@ -226,47 +179,46 @@ function buildFilterCondition(
     case 'is_false':
       return eb(field, '=', false);
     case 'in':
-      return Array.isArray(value) ? eb(field, 'in', value) : eb(field, '=', field);
+      if (!Array.isArray(value))
+        throw new Error(`Invalid filter value: "${field}" in needs a list`);
+      return eb(field, 'in', value);
     case 'not_in':
-      return Array.isArray(value) ? eb(field, 'not in', value) : eb(field, '=', field);
+      if (!Array.isArray(value))
+        throw new Error(`Invalid filter value: "${field}" not_in needs a list`);
+      return eb(field, 'not in', value);
     default:
       throw new Error(`Unsupported filter operator: "${operator}"`);
   }
 }
 
+/** Saved-query operator → the data API's bracket operator. */
+const API_OP: Record<string, string> = {
+  equals: 'eq',
+  not_equals: 'neq',
+  contains: 'contains',
+  not_contains: 'not_contains',
+  starts_with: 'starts_with',
+  ends_with: 'ends_with',
+  gt: 'gt',
+  lt: 'lt',
+  gte: 'gte',
+  lte: 'lte',
+  in: 'in',
+  not_in: 'not_in',
+  is_null: 'null',
+  is_not_null: 'not_null',
+};
+
 function generateApiUrl(collection: string, config: QueryConfig): string {
   const params = new URLSearchParams();
   for (const filter of config.filters || []) {
     if (filter.group) continue;
-    switch (filter.operator) {
-      case 'equals':
-        params.append(`filter[${filter.field}]`, String(filter.value));
-        break;
-      case 'not_equals':
-        params.append(`filter[${filter.field}][ne]`, String(filter.value));
-        break;
-      case 'contains':
-        params.append(`filter[${filter.field}][like]`, `%${filter.value}%`);
-        break;
-      case 'gt':
-        params.append(`filter[${filter.field}][gt]`, String(filter.value));
-        break;
-      case 'lt':
-        params.append(`filter[${filter.field}][lt]`, String(filter.value));
-        break;
-      case 'gte':
-        params.append(`filter[${filter.field}][gte]`, String(filter.value));
-        break;
-      case 'lte':
-        params.append(`filter[${filter.field}][lte]`, String(filter.value));
-        break;
-      case 'is_null':
-        params.append(`filter[${filter.field}][is]`, 'null');
-        break;
-      case 'is_not_null':
-        params.append(`filter[${filter.field}][not]`, 'null');
-        break;
-    }
+    // The data API's `field[op]=value` syntax (lib/data/query-parse.ts). An
+    // operator it has no bracket form for (between, is_true, ...) is left out.
+    const op = API_OP[filter.operator];
+    if (!op) continue;
+    const value = Array.isArray(filter.value) ? filter.value.join(',') : String(filter.value ?? '');
+    params.append(`${filter.field}[${op}]`, op === 'null' || op === 'not_null' ? 'true' : value);
   }
   if (config.sorts?.length) {
     params.append(
@@ -399,7 +351,10 @@ async function executeQueryConfig(
 
     if (ungrouped.length > 0) {
       if (config.filter_mode === 'AND') {
-        for (const f of ungrouped) baseQuery = applyFilter(baseQuery, f);
+        for (const f of ungrouped) {
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          baseQuery = baseQuery.where((eb: any) => buildFilterCondition(eb, f));
+        }
       } else {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         baseQuery = baseQuery.where((eb: any) =>
@@ -468,7 +423,11 @@ async function executeQueryConfig(
 function statusFor(err: unknown): 400 | 403 | 404 | 500 {
   const m = err instanceof Error ? err.message : '';
   if (m === 'Forbidden' || m.startsWith('Forbidden column:')) return 403;
-  if (m.startsWith('Unsupported filter operator:') || m.startsWith('Invalid field name:'))
+  if (
+    m.startsWith('Unsupported filter operator:') ||
+    m.startsWith('Invalid field name:') ||
+    m.startsWith('Invalid filter value:')
+  )
     return 400;
   if (m === 'Collection not found') return 404;
   return 500;

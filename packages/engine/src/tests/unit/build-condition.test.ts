@@ -68,12 +68,23 @@ describe('buildCondition', () => {
     expect(compiled('c', { op: 'ilike', value: '50%' }).parameters).toEqual(['%50\\%%']);
   });
 
+  it('emits the business text operators: literal, case-insensitive, NULL kept by not_contains', () => {
+    expect(compile('c', { op: 'starts_with', value: 'x' })).toMatch(/"c" ILIKE /);
+    expect(compile('c', { op: 'ends_with', value: 'x' })).toMatch(/"c" ILIKE /);
+    expect(compile('c', { op: 'not_contains', value: 'x' })).toMatch(
+      /\("c" IS NULL OR "c" NOT ILIKE /,
+    );
+    expect(compiled('c', { op: 'starts_with', value: 'A_1%' }).parameters).toEqual(['A\\_1\\%%']);
+    expect(compiled('c', { op: 'ends_with', value: '.pdf' }).parameters).toEqual(['%.pdf']);
+    expect(compiled('c', { op: 'not_contains', value: '50%' }).parameters).toEqual(['%50\\%%']);
+  });
+
   it('refuses an operator it does not know instead of guessing equality', () => {
     // The old default returned `col = value`, so an unrecognised operator
     // quietly became equality — which turns a restrictive condition into a
     // permissive one, and does it on the untyped path (a policy row read from
     // the database) where it is least likely to be noticed.
-    expect(() => compile('c', { op: 'starts_with' as never, value: 'x' })).toThrow(
+    expect(() => compile('c', { op: 'regex' as never, value: 'x' })).toThrow(
       /Unsupported filter operator/,
     );
   });
