@@ -64,6 +64,13 @@ describe('egress declarations', () => {
     expect(() => parseEgress('a.com' as unknown as string[])).toThrow('not a list');
   });
 
+  it('refuses an entry the URL parser rewrites or rejects: it could never match', () => {
+    expect(() => parseEgress(['[2001:0db8::1]'])).toThrow('"[2001:db8::1]"');
+    expect(() => parseEgress(['010.0.0.1'])).toThrow('"8.0.0.1"');
+    expect(() => parseEgress(['a.com:99999'])).toThrow('not a valid host:port');
+    expect(parseEgress(['a.com:80', '10.0.0.1:443'])).toEqual(['a.com:80', '10.0.0.1:443']);
+  });
+
   it('matches the authority exactly', () => {
     const list = ['api.x.com', 'b.y.io:8443'];
     const ok = (u: string) => egressAllows(list, new URL(u));
