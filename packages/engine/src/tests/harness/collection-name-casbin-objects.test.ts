@@ -128,4 +128,50 @@ d('collection names and the Casbin objects that are not collections', () => {
     expect(await grantRows(db, 'data')).toBe(1);
     expect(await (await getEnforcer()).hasPolicy(ROLE, '*', 'data', 'view_all')).toBe(true);
   });
+
+  it('an installed extension whose manifest cannot be read stops creates and drops', async () => {
+    // Its resources are unknown, so any name may be one of them: a create could
+    // land under grants written for it, a drop could take them.
+    const coll = `hunk_${Date.now()}`;
+    const silent = `test/casbin-silent-${Date.now()}`;
+    const missing = `test/casbin-missing-${Date.now()}`;
+    const corrupt = `test/casbin-corrupt-${Date.now()}`;
+    mkdirSync(join(extDir, silent), { recursive: true });
+    writeFileSync(join(extDir, silent, 'manifest.json'), JSON.stringify({ name: silent }));
+    mkdirSync(join(extDir, corrupt), { recursive: true });
+    writeFileSync(join(extDir, corrupt, 'manifest.json'), '{ not json');
+    const install = (name: string) =>
+      sql`INSERT INTO zv_extension_registry (name, display_name, is_installed)
+          VALUES (${name}, ${name}, true)`.execute(db);
+    try {
+      // Declaring no resources is a known, empty set: it blocks nothing.
+      await install(silent);
+      await DDLManager.createCollection(db, { name: coll, fields: FIELDS } as never);
+      await (await getEnforcer()).addPolicy(ROLE, '*', coll, 'read');
+
+      for (const broken of [missing, corrupt]) {
+        await install(broken);
+        await expect(
+          DDLManager.createCollection(db, { name: `${coll}_b`, fields: FIELDS } as never),
+        ).rejects.toThrow(broken);
+        expect(await DDLManager.tableExists(db, `${coll}_b`)).toBe(false);
+
+        await expect(DDLManager.dropCollection(db, coll)).rejects.toThrow(broken);
+        expect(await DDLManager.tableExists(db, coll)).toBe(true);
+        expect(await grantRows(db, coll)).toBe(1);
+        await sql`DELETE FROM zv_extension_registry WHERE name = ${broken}`.execute(db);
+      }
+
+      await DDLManager.dropCollection(db, coll);
+      expect(await grantRows(db, coll)).toBe(0);
+    } finally {
+      await sql`DELETE FROM zv_extension_registry WHERE name IN (${silent}, ${missing}, ${corrupt})`.execute(
+        db,
+      );
+      for (const name of [coll, `${coll}_b`]) {
+        await sql.raw(`DROP TABLE IF EXISTS "zvd_${name}" CASCADE`).execute(db);
+        await db.deleteFrom('zvd_collections').where('name', '=', name).execute();
+      }
+    }
+  }, 60_000);
 });

@@ -195,17 +195,23 @@ async function installedExtensions(db: Database): Promise<string[]> {
   return rows.rows.map((r) => r.name);
 }
 
-/** `manifest.resources` of `installed`, and which of them declare none. */
+/**
+ * `manifest.resources` of `installed`, which of them declare none, and which of
+ * those have no readable manifest (`unreadable`, a subset of `silent`: what
+ * they declare is unknown, not empty).
+ */
 async function declaredBy(
   base: string,
   installed: string[],
-): Promise<{ out: string[]; silent: string[] }> {
+): Promise<{ out: string[]; silent: string[]; unreadable: string[] }> {
   const out: string[] = [];
   const silent: string[] = [];
+  const unreadable: string[] = [];
   for (const name of installed) {
     const manifestPath = join(base, name, 'manifest.json');
     if (!(await Bun.file(manifestPath).exists())) {
       silent.push(name);
+      unreadable.push(`${name} (no manifest.json)`);
       continue;
     }
     try {
@@ -217,6 +223,7 @@ async function declaredBy(
       out.push(...declared);
     } catch (err) {
       silent.push(name);
+      unreadable.push(`${name} (${(err as Error).message})`);
       console.warn(
         `[resource-grants] ${name}: manifest.json could not be read; its resources are ` +
           'not in this reconcile:',
@@ -224,7 +231,7 @@ async function declaredBy(
       );
     }
   }
-  return { out, silent };
+  return { out, silent, unreadable };
 }
 
 /**
@@ -236,14 +243,24 @@ async function declaredBy(
  * be created under one of them, and dropping a collection that already shares
  * one keeps the rules: they also guard something that is not the collection.
  *
- * Throws when the registry cannot be read: an unknown set must refuse a name,
- * not allow it, and must not let a drop take rules it cannot attribute.
+ * Throws when the registry cannot be read, or an installed extension's
+ * manifest cannot: an unknown set must refuse a name, not allow it, and must
+ * not let a drop take rules it cannot attribute. That stops every collection
+ * create and drop until the extension's files are back or it is uninstalled —
+ * the boot reconcile, which only grants, carries on without it.
  */
 export async function nonCollectionObjects(
   db: Database,
   extensionsBase: string,
 ): Promise<Set<string>> {
-  const { out } = await declaredBy(extensionsBase, await installedExtensions(db));
+  const { out, unreadable } = await declaredBy(extensionsBase, await installedExtensions(db));
+  if (unreadable.length > 0) {
+    throw new Error(
+      `Installed extension(s) without a readable manifest under ${extensionsBase}: ` +
+        `${unreadable.join('; ')}. Their resources are unknown, so no collection can be ` +
+        'created or dropped: restore the extension files or uninstall the extension.',
+    );
+  }
   return new Set([...ENGINE_CASBIN_OBJECTS, ...out]);
 }
 
