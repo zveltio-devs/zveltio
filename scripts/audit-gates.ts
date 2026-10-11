@@ -28,6 +28,16 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 
+// Every case plants into `../zveltio-extensions`, and most sibling gates read
+// that path; a few honour EXTENSIONS_DIR instead. Left set, it sent those few to
+// another tree, where the plant was never seen, and the audit called them
+// decoration (2026-10-11, check-extension-sdui-schemas). Make every gate read
+// the tree the plants land in.
+delete process.env.EXTENSIONS_DIR;
+// The same fallback check-test-leftovers uses: a run given only DATABASE_URL
+// handed check-insert-schema-match an empty SEAM_DATABASE_URL.
+process.env.TEST_DATABASE_URL ??= process.env.DATABASE_URL;
+
 type Case = {
   gate: string;
   /** The command that should FAIL once the violation is planted. */

@@ -151,7 +151,9 @@ const composeEnvBlocks = (() => {
  */
 const suppliedByCompose = (key: string): boolean =>
   [...composeEnvBlocks.matchAll(new RegExp(`^\\s+${key}:\\s*(.*)$`, 'gm'))].some(
-    (m) => !new RegExp(`^['"]?\\$\\{${key}(?::?[?][^}]*)?\\}['"]?\\s*$`).test(m[1]!.trim()),
+    // A trailing YAML comment is not part of the value: `KEY: '${KEY:?…}'  # note`
+    // read as supplied until 2026-10-11 (planted, the gate said OK).
+    (m) => !new RegExp(`^['"]?\\$\\{${key}(?::?[?][^}]*)?\\}['"]?\\s*(?:#.*)?$`).test(m[1]!.trim()),
   );
 
 const missing = required.filter((k) => !writtenByInstaller(k) && !suppliedByCompose(k));

@@ -8,23 +8,20 @@
  * Usage: bun scripts/check-extension-sdui-schemas.ts
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { requireSibling } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
-const EXT_ROOT =
-  process.env.EXTENSIONS_DIR ??
-  (statSync(join(ROOT, '../zveltio-extensions'), { throwIfNoEntry: false })
-    ? join(ROOT, '../zveltio-extensions')
-    : null);
+const EXT_ROOT = process.env.EXTENSIONS_DIR ?? join(ROOT, '../zveltio-extensions');
 
-if (!EXT_ROOT) {
-  // Was a skip that exited 0. An absent corpus is not a clean corpus, and this
-  // gate exists to check extension SDUI schema files — of which it then saw none.
-  requireSibling(join(ROOT, '../zveltio-extensions'), 'check-sdui-schemas');
-  console.log('⏭️  check-sdui-schemas: no EXTENSIONS_DIR / zveltio-extensions — skip');
+// Was a skip that exited 0, and an explicit EXTENSIONS_DIR bypassed the check
+// entirely: pointed at an empty directory the gate said "extension SDUI schemas
+// OK" having read no manifest. An absent or empty corpus is not a clean corpus.
+requireSibling(EXT_ROOT, 'check-sdui-schemas');
+if (!existsSync(EXT_ROOT)) {
+  console.log(`⏭️  check-sdui-schemas: no ${EXT_ROOT} — skip`);
   process.exit(0);
 }
 
