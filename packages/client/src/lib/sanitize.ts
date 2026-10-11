@@ -157,8 +157,12 @@ export function safeCss(css: unknown): string {
   // browser and invisible to the replacements above. Nothing legitimate spells
   // them that way, so a stylesheet that still fetches once decoded is refused
   // whole rather than repaired.
-  return CSS_FETCH.test(decodeCssEscapes(out)) ? '' : out;
+  // The removals above run once, so a split tag (`</sty</style>le>`) is
+  // reassembled by its own removal; one that survives refuses the stylesheet.
+  return CSS_FETCH.test(decodeCssEscapes(out)) || CSS_BREAKOUT.test(out) ? '' : out;
 }
+
+const CSS_BREAKOUT = /<\s*\/?\s*(style|script)\b|<!--|-->/i;
 
 const CSS_FETCH =
   /\burl\s*\(|@import|\bimage-set\s*\(|\bexpression\s*\(|javascript\s*:|\bbehavior\s*:/i;
