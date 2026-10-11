@@ -30,6 +30,21 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
+ * Where the gates read the extensions repository: EXTENSIONS_ROOT, else the
+ * sibling checkout beside this one.
+ *
+ * One variable for every gate. They used to split three ways — most hardcoded
+ * the sibling path, five honoured EXTENSIONS_DIR, three EXTENSIONS_ROOT — so
+ * pointing them at another clone moved some of them and not the rest, and the
+ * audit's plants landed in a tree half the gates were not reading.
+ * EXTENSIONS_DIR is not read here on purpose: it is the engine's runtime
+ * directory of INSTALLED extensions, which has manifests too and would pass
+ * requireSibling as if it were the source repository.
+ */
+export const SIBLING_ROOT =
+  process.env.EXTENSIONS_ROOT ?? join(import.meta.dir, '..', '..', '..', 'zveltio-extensions');
+
+/**
  * Does this path hold the extensions repository, or merely exist?
  *
  * `existsSync` was the whole test, and an empty directory passes it. Measured:

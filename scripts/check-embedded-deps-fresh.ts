@@ -44,6 +44,7 @@
 
 import { readdirSync, existsSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const LOCK = join(ROOT, 'bun.lock');
@@ -51,7 +52,7 @@ const WORKER_GEN = join(
   ROOT,
   'packages/engine/src/lib/worker-extension-runtime-source.generated.ts',
 );
-const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 const REPORT_ONLY = process.argv.includes('--report');
 
 /**

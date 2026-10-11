@@ -50,11 +50,11 @@
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { requireSibling } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 import { stripComments } from './lib/strip-comments.js';
 
 const ROOT = join(import.meta.dir, '..');
-const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 const BASELINE = join(ROOT, 'quality-gates', 'admin-gate-baseline.json');
 const UPDATE = process.argv.includes('--update');
 const ROOTS = ['packages/engine/src/routes'];

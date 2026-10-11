@@ -22,11 +22,11 @@
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const EXT_DIR =
-  process.argv.find((a) => !a.startsWith('-') && a.includes('extensions')) ??
-  join(ROOT, '..', 'zveltio-extensions');
+  process.argv.find((a) => !a.startsWith('-') && a.includes('extensions')) ?? SIBLING_ROOT;
 const BASELINE = join(ROOT, 'quality-gates', 'extension-i18n-baseline.json');
 
 /** Keys the host ships for every extension — navigation, buttons, common words. */

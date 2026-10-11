@@ -363,7 +363,10 @@ generated).
   (squawk), `mutation.yml`, `soak.yml`, `release.yml`, `publish-npm.yml`,
   `build.yml`, `upgrade-path.yml`, `dr-smoke.yml`. Actions are pinned by SHA.
 - CI clones `zveltio-extensions` as a sibling (`../zveltio-extensions`),
-  using a paired branch when one exists with the PR's branch name.
+  using a paired branch when one exists with the PR's branch name. Every gate
+  reads it through `SIBLING_ROOT` (`scripts/lib/require-sibling.ts`):
+  `EXTENSIONS_ROOT` points them all at another clone; `EXTENSIONS_DIR` is the
+  engine's runtime variable and the gates ignore it.
 - Versioning: releases are cut by hand by a maintainer (docs/platform/versioning.md).
   Do NOT add release files to a PR — there is no Changesets and no version bot;
   release notes go into CHANGELOG.md when the release is cut.

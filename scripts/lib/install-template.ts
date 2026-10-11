@@ -18,9 +18,10 @@ import {
   splitSqlStatements,
 } from '../../packages/engine/src/db/migrations/index.js';
 import { SQL as Sql } from 'bun';
+import { SIBLING_ROOT } from './require-sibling.js';
 
 export const ROOT = join(import.meta.dir, '..', '..');
-export const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
+export const EXT_ROOT = SIBLING_ROOT;
 export const ENGINE_MIGRATIONS = join(ROOT, 'packages', 'engine', 'src', 'db', 'migrations', 'sql');
 
 /** Admin connection: `SEAM_DATABASE_URL`, or PG* env, or a local default. */

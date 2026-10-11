@@ -39,9 +39,9 @@ import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..');
 const BASELINE = join(ROOT, 'quality-gates', 'fabricated-success.json');
-const DIRS = [join(ROOT, 'packages'), join(ROOT, '..', 'zveltio-extensions')];
-requireSibling(join(ROOT, '..', 'zveltio-extensions'), 'fabricated-success');
-import { requireSibling } from './lib/require-sibling.js';
+const DIRS = [join(ROOT, 'packages'), SIBLING_ROOT];
+requireSibling(SIBLING_ROOT, 'fabricated-success');
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 /**
  * Where the engine INSTALLS extensions at runtime.

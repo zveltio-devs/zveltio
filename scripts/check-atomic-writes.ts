@@ -47,9 +47,9 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { join, relative } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..');
-const EXT_ROOT = join(ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 requireSibling(EXT_ROOT, 'atomic-writes');
-import { requireSibling } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 import { stripComments } from './lib/strip-comments.js';
 const BASELINE = join(ROOT, 'quality-gates', 'atomic-writes.json');
 const UPDATE = process.argv.includes('--update');

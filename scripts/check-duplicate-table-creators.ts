@@ -41,9 +41,9 @@ interface Creator {
 
 const ENGINE_ROOT = join(import.meta.dir, '..');
 const ENGINE_SQL = join(ENGINE_ROOT, 'packages/engine/src/db/migrations/sql');
-const EXT_ROOT = join(ENGINE_ROOT, '..', 'zveltio-extensions');
+const EXT_ROOT = SIBLING_ROOT;
 requireSibling(EXT_ROOT, 'duplicate-creators');
-import { requireSibling } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 /**
  * Duplicates that are accepted, each with the reason.

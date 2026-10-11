@@ -25,9 +25,11 @@
  * reverted by the next build. Scanning both means the gate fires whether the
  * mistake was made at the source or in the copy, and the message says which.
  */
+import { SIBLING_ROOT } from './lib/require-sibling.js';
+
 const ROOTS = [
   { path: 'packages/studio/src', label: 'Studio' },
-  { path: '../zveltio-extensions', label: 'extensions (source of the generated pages)' },
+  { path: SIBLING_ROOT, label: 'extensions (source of the generated pages)' },
 ];
 
 /**

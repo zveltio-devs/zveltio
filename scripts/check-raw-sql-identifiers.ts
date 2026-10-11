@@ -27,21 +27,19 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { requireSibling } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const targets = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 // This repository too, not only the sibling. The default was the extensions repo
 // alone, so a quoted interpolation inside `sql.raw` in the engine or the Studio
 // was never looked at — nine of them exist today and the gate had never seen one.
-const DIRS =
-  targets.length > 0 ? targets : [join(ROOT, 'packages'), join(ROOT, '..', 'zveltio-extensions')];
+const DIRS = targets.length > 0 ? targets : [join(ROOT, 'packages'), SIBLING_ROOT];
 
 // Only when running the default set. An explicit `targets` argument is somebody
 // asking for a narrower scan on purpose; the default is the one that claims to
 // have covered the extensions repo, and it must not make that claim without it.
-if (targets.length === 0)
-  requireSibling(join(ROOT, '..', 'zveltio-extensions'), 'raw-sql-identifiers');
+if (targets.length === 0) requireSibling(SIBLING_ROOT, 'raw-sql-identifiers');
 
 /**
  * What counts as having checked the name before interpolating it.

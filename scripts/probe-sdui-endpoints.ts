@@ -19,8 +19,9 @@
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
-const EXT_ROOT = process.argv[2] ?? join(import.meta.dir, '../../zveltio-extensions');
+const EXT_ROOT = process.argv[2] ?? SIBLING_ROOT;
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3000';
 const EMAIL = process.env.TEST_EMAIL ?? 'admin@zveltio.com';
 const PASS = process.env.TEST_PASS ?? 'Test12345';

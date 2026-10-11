@@ -28,7 +28,9 @@
  * Run: `bun run scripts/check-sdui-contract.ts [extensionsDir]`
  */
 
-const EXT_DIR = process.argv[2] ?? '../zveltio-extensions';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
+
+const EXT_DIR = process.argv[2] ?? SIBLING_ROOT;
 
 interface Problem {
   ext: string;

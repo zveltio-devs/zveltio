@@ -30,10 +30,11 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { SQL } from 'bun';
+import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
 const BASELINE = join(ROOT, 'quality-gates', 'numeric-string-arithmetic.json');
-const EXT_DIR = join(ROOT, '..', 'zveltio-extensions');
+const EXT_DIR = SIBLING_ROOT;
 const DIRS = [join(ROOT, 'packages'), EXT_DIR];
 
 const url = process.env.DATABASE_URL;
