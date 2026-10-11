@@ -479,12 +479,12 @@ describe('check-jsonb-binding reads code, not prose', () => {
       'CREATE TABLE IF NOT EXISTS zv_flows (\n  id uuid PRIMARY KEY,\n  trigger_config jsonb\n);\n',
     );
     write(r, 'packages/engine/src/lib/probe.ts', body);
-    // An explicit EXTENSIONS_DIR is the documented way to ask for a narrower
-    // scan; without it the gate now refuses, which the last case here pins.
+    // ZVELTIO_ALLOW_MISSING_SIBLING=1 is the documented way to ask for a
+    // narrower scan; without it the gate refuses, which the last cases pin.
     return r;
   }
 
-  const narrow = { EXTENSIONS_DIR: '/nonexistent-on-purpose' };
+  const narrow = { EXTENSIONS_DIR: '/nonexistent-on-purpose', ZVELTIO_ALLOW_MISSING_SIBLING: '1' };
 
   it('catches JSON.stringify bound to a jsonb column', async () => {
     const r = root(
@@ -602,6 +602,23 @@ describe('check-jsonb-binding reads code, not prose', () => {
     try {
       const { code, out } = await run(r, GATE);
       expect(out).toContain('no sibling checkout');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an EXTENSIONS_DIR that holds no extension', async () => {
+    // EXTENSIONS_DIR is also the engine's runtime variable. Pointed at an empty
+    // directory it skipped the sibling check and reported OK on the engine alone.
+    const r = root(
+      "export const p = (db: any) => db.insertInto('zv_flows').values({ id: '1' }).execute();\n",
+    );
+    const empty = join(r, 'empty-extensions');
+    mkdirSync(empty);
+    try {
+      const { code, out } = await run(r, GATE, [], { EXTENSIONS_DIR: empty });
+      expect(out).toContain('holds no extension manifest');
       expect(code).toBe(1);
     } finally {
       rmSync(r, { recursive: true, force: true });
