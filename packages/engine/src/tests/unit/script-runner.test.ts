@@ -101,3 +101,24 @@ describe('runScript', () => {
     }
   });
 });
+
+describe('runScript egress', () => {
+  // A flow script could not declare egress: it passed nothing, so under the
+  // runner it reached nothing and on the process transport it ran with the
+  // engine's network. Its step now carries an `egress` list like an edge function.
+  it('a declared list goes through the egress bridge: a host off the list is refused', async () => {
+    const res = await runScript(
+      "await fetch('https://api.not-declared.test/'); return 'reached';",
+      {},
+      5_000,
+      ['api.allowed.test'],
+    );
+    expect(res.output).toBeNull();
+    expect(res.error).toContain('egress');
+  });
+
+  it('an invalid declaration fails the run instead of being read wider or narrower', async () => {
+    const res = await runScript('return 1;', {}, 5_000, ['https://api.x.com/']);
+    expect(res.error).toContain('is not a host');
+  });
+});

@@ -39,6 +39,18 @@ describe('validateStepConfig — per-type happy paths', () => {
     expect(r.config?.timeout_ms).toBe(5_000);
   });
 
+  it('run_script egress is a list of hosts, refused at save when an entry is not one', () => {
+    const ok = validateStepConfig('run_script', {
+      script: 'x',
+      egress: ['api.x.com', 'b.io:8443'],
+    });
+    expect(ok.valid).toBe(true);
+    expect(ok.config?.egress).toEqual(['api.x.com', 'b.io:8443']);
+    const bad = validateStepConfig('run_script', { script: 'x', egress: ['https://api.x.com/'] });
+    expect(bad.valid).toBe(false);
+    expect(bad.errors?.join(' ')).toContain('is not a host');
+  });
+
   it('send_email accepts a literal email or template placeholder', () => {
     expect(
       validateStepConfig('send_email', {

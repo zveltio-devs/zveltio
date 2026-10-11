@@ -278,6 +278,7 @@ async function executeStep(
         source,
         cfg.input ?? prevOutput,
         cfg.timeout_ms ?? 30_000,
+        cfg.egress ?? null,
       );
       if (scriptResult.error) {
         throw new Error(`Script error in step "${step.name}": ${scriptResult.error}`);

@@ -53,6 +53,8 @@ export async function runScript(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   input: Record<string, any> = {},
   timeoutMs = 30_000,
+  /** The step's `egress`: the hosts it may call, as an edge function's column. */
+  egress: readonly unknown[] | null = null,
 ): Promise<ScriptResult> {
   const startTime = Date.now();
 
@@ -85,7 +87,9 @@ async function handler(request, env) {
   };
 
   try {
-    const result = await runEdgeFunctionInSubprocess(wrappedCode, request, {}, timeoutMs);
+    const result = await runEdgeFunctionInSubprocess(wrappedCode, request, {}, timeoutMs, {
+      egress,
+    });
     const logs = result.logs ?? [];
 
     if (!result.ok) {

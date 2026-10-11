@@ -11,6 +11,7 @@
  */
 
 import { z } from 'zod';
+import { parseEgress } from '../edge-functions/egress.js';
 
 // ── Per-type schemas ──────────────────────────────────────────────────────────
 
@@ -62,6 +63,22 @@ export const stepSchemas = {
     /** Handed to the script as its input; the previous step's output when absent. */
     input: z.unknown().optional(),
     timeout_ms: z.number().int().min(100).max(30_000).default(5_000),
+    /**
+     * The hosts the script may call, as an edge function's `egress` column:
+     * absent declares nothing. Under the runner a script that declares nothing
+     * reaches nothing, so a script that calls out must list its hosts here.
+     */
+    egress: z
+      .array(z.string())
+      .nullable()
+      .optional()
+      .superRefine((list, ctx) => {
+        try {
+          parseEgress(list);
+        } catch (err) {
+          ctx.addIssue({ code: 'custom', message: (err as Error).message });
+        }
+      }),
   }),
 
   /** Send a transactional email via the configured mail provider */
