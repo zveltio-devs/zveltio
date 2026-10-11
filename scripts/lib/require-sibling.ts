@@ -27,7 +27,7 @@
  */
 
 import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /**
  * Where the gates read the extensions repository: EXTENSIONS_ROOT, else the
@@ -40,9 +40,15 @@ import { join } from 'node:path';
  * EXTENSIONS_DIR is not read here on purpose: it is the engine's runtime
  * directory of INSTALLED extensions, which has manifests too and would pass
  * requireSibling as if it were the source repository.
+ *
+ * Resolved to an absolute, normalised path: gates compare `file.startsWith(root)`
+ * against paths built with `join`, which normalises. A relative
+ * `EXTENSIONS_ROOT=./../zveltio-extensions` never matched, so check-jsonb-binding
+ * graded extension files as engine files and failed on the sibling's own sites.
  */
-export const SIBLING_ROOT =
-  process.env.EXTENSIONS_ROOT ?? join(import.meta.dir, '..', '..', '..', 'zveltio-extensions');
+export const SIBLING_ROOT = resolve(
+  process.env.EXTENSIONS_ROOT ?? join(import.meta.dir, '..', '..', '..', 'zveltio-extensions'),
+);
 
 /**
  * Does this path hold the extensions repository, or merely exist?
