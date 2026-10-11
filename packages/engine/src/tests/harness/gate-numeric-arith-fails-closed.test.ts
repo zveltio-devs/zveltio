@@ -30,6 +30,7 @@ import { join } from 'node:path';
 
 const REPO = join(import.meta.dir, '..', '..', '..', '..', '..');
 const GATE = join(REPO, 'scripts', 'check-numeric-string-arithmetic.ts');
+const SIBLING_LIB = join(REPO, 'scripts', 'lib', 'require-sibling.ts');
 const BASELINE = join(REPO, 'quality-gates', 'numeric-string-arithmetic.json');
 
 /** Run the gate and report how it exited, without inheriting our own env. */
@@ -103,6 +104,8 @@ d('check-numeric-string-arithmetic fails closed', () => {
       mkdirSync(join(root, 'quality-gates'), { recursive: true });
       mkdirSync(join(root, 'packages'), { recursive: true });
       copyFileSync(GATE, join(root, 'scripts', 'check-numeric-string-arithmetic.ts'));
+      mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
+      copyFileSync(SIBLING_LIB, join(root, 'scripts', 'lib', 'require-sibling.ts'));
       // The real baseline minus `_required_columns`. The gate checks the columns
       // BEFORE the corpus, so on a database without the extension tables — which
       // is what CI's harness has — the column check fires first and this case
@@ -149,6 +152,8 @@ d('check-numeric-string-arithmetic fails closed', () => {
       mkdirSync(join(root, 'quality-gates'), { recursive: true });
       mkdirSync(join(root, 'packages'), { recursive: true });
       copyFileSync(GATE, join(root, 'scripts', 'check-numeric-string-arithmetic.ts'));
+      mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
+      copyFileSync(SIBLING_LIB, join(root, 'scripts', 'lib', 'require-sibling.ts'));
       writeFileSync(
         join(root, 'quality-gates', 'numeric-string-arithmetic.json'),
         JSON.stringify({ _required_columns: ['zz_column_that_cannot_exist'] }),
@@ -179,6 +184,8 @@ d('check-numeric-string-arithmetic fails closed', () => {
       mkdirSync(join(root, 'quality-gates'), { recursive: true });
       mkdirSync(join(root, 'packages'), { recursive: true });
       copyFileSync(GATE, join(root, 'scripts', 'check-numeric-string-arithmetic.ts'));
+      mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
+      copyFileSync(SIBLING_LIB, join(root, 'scripts', 'lib', 'require-sibling.ts'));
       writeFileSync(join(root, 'quality-gates', 'numeric-string-arithmetic.json'), '{}');
 
       const { code, out } = await runGate(
