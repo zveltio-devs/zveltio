@@ -36,7 +36,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -705,17 +705,43 @@ describe('the migration readers grade the half that runs', () => {
 
 // ─── check-sql-template-backticks ────────────────────────────────────────────
 
-describe('check-sql-template-backticks says when it did not scan the sibling', () => {
+describe('check-sql-template-backticks requires the sibling it scans', () => {
   const GATE = 'check-sql-template-backticks.ts';
+  const optOut = { ZVELTIO_ALLOW_MISSING_SIBLING: '1' };
 
-  it('qualifies its OK when there is no sibling checkout', async () => {
+  it('refuses when there is no sibling checkout', async () => {
     const r = fakeRoot(GATE);
     try {
       write(r, 'packages/engine/src/probe.ts', 'export const x = 1;\n');
       const { code, out } = await run(r, GATE);
+      expect(out).toContain('no sibling checkout');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an empty sibling directory, which used to get the bare OK', async () => {
+    const r = fakeRoot(GATE);
+    const empty = join(r, 'empty-extensions');
+    mkdirSync(empty);
+    try {
+      write(r, 'packages/engine/src/probe.ts', 'export const x = 1;\n');
+      const { code, out } = await run(r, GATE, [], { EXTENSIONS_ROOT: empty });
+      expect(out).toContain('holds no extension manifest');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('qualifies its OK when told to scan this repository alone', async () => {
+    const r = fakeRoot(GATE);
+    try {
+      write(r, 'packages/engine/src/probe.ts', 'export const x = 1;\n');
+      const { code, out } = await run(r, GATE, [], optOut);
       expect(code).toBe(0);
       expect(out).toContain('was not scanned');
-      // The sentence that used to stand alone must no longer stand alone.
       expect(out).not.toMatch(/no backticks inside SQL template comments\.\s*$/);
     } finally {
       rmSync(r, { recursive: true, force: true });
@@ -730,9 +756,49 @@ describe('check-sql-template-backticks says when it did not scan the sibling', (
         'packages/engine/src/probe.ts',
         'export const q = sql`\n  -- DML on all of `public` is what made this reachable\n  SELECT 1\n`;\n',
       );
-      const { code, out } = await run(r, GATE);
-      expect(out).toContain('FAIL');
+      const { code, out } = await run(r, GATE, [], optOut);
+      expect(out).toContain('backtick inside an SQL comment');
       expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── sibling-reading scripts that used to answer on an empty corpus ─────────
+
+describe('the last sibling readers refuse an empty corpus', () => {
+  for (const gate of [
+    'check-extension-i18n-namespaces.ts',
+    'check-embedded-deps-fresh.ts',
+    'schema-drift-check.ts',
+  ]) {
+    it(`${gate} refuses an empty EXTENSIONS_ROOT`, async () => {
+      const r = fakeRoot(gate);
+      const empty = join(r, 'empty-extensions');
+      mkdirSync(empty);
+      // i18n-namespaces imports the SDK's shared key list at load time.
+      const keys = 'packages/sdk/src/validate/shared-message-keys.ts';
+      mkdirSync(join(r, keys, '..'), { recursive: true });
+      copyFileSync(join(REPO, keys), join(r, keys));
+      try {
+        const { code, out } = await run(r, gate, [], { EXTENSIONS_ROOT: empty });
+        expect(out).toContain('holds no extension manifest');
+        expect(code).toBe(1);
+      } finally {
+        rmSync(r, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it('schema-codegen refuses even with the opt-out, and writes nothing', async () => {
+    const GATE = 'schema-codegen.ts';
+    const r = fakeRoot(GATE);
+    try {
+      const { code, out } = await run(r, GATE, [], { ZVELTIO_ALLOW_MISSING_SIBLING: '1' });
+      expect(out).toContain('no narrower mode');
+      expect(code).toBe(1);
+      expect(existsSync(join(r, 'packages/engine/src/db/schema.generated.ts'))).toBe(false);
     } finally {
       rmSync(r, { recursive: true, force: true });
     }

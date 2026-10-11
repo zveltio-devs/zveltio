@@ -33,10 +33,13 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { droppedColumns, droppedTables } from './lib/sql-drops.js';
-import { SIBLING_ROOT } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const ROOT = process.cwd();
 const EXT_ROOT = SIBLING_ROOT;
+// Without the sibling the extensions' migrations and code both drop out, and
+// the report reads as if the whole schema had been compared.
+requireSibling(EXT_ROOT, 'schema-drift');
 
 // Tables that are dynamically created at runtime (user collections via
 // DDL queue, tenant schemas, etc.). Referenced in code with dynamic

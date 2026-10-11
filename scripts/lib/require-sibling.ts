@@ -89,12 +89,18 @@ function looksLikeExtensionsRepo(root: string): boolean {
   return walk(root, 2);
 }
 
-export function requireSibling(root: string, gate: string): void {
+/**
+ * `strict` is for a script that WRITES from the corpus rather than judging it:
+ * a narrower answer there is a truncated file, not a narrower verdict, so the
+ * opt-out does not apply. schema-codegen without the sibling rewrote
+ * schema.generated.ts with 76 of 386 tables, and `prepush` runs it.
+ */
+export function requireSibling(root: string, gate: string, { strict = false } = {}): void {
   if (existsSync(root) && looksLikeExtensionsRepo(root)) return;
 
   const empty = existsSync(root);
 
-  if (process.env.ZVELTIO_ALLOW_MISSING_SIBLING === '1') {
+  if (!strict && process.env.ZVELTIO_ALLOW_MISSING_SIBLING === '1') {
     console.warn(
       `[${gate}] WARNING — ${empty ? 'the sibling checkout at ' + root + ' holds no extension manifest' : 'no sibling checkout at ' + root}; ` +
         'scanning this repository only, because ZVELTIO_ALLOW_MISSING_SIBLING=1.',
@@ -106,8 +112,11 @@ export function requireSibling(root: string, gate: string): void {
     `[${gate}] FAIL — ${empty ? `the sibling checkout at ${root} holds no extension manifest (an empty or half-cloned directory)` : `no sibling checkout at ${root}`}.\n` +
       '  This gate reads the extensions repository. Without it the corpus is empty or\n' +
       '  partial, and reporting OK would mean "found nothing" where the truth is "could\n' +
-      '  not look". Clone it beside this one, or set ZVELTIO_ALLOW_MISSING_SIBLING=1 to\n' +
-      '  scan this repository alone and accept the narrower answer.',
+      (strict
+        ? '  not look". This script writes from that corpus, so it has no narrower mode:\n' +
+          '  clone the sibling beside this one, or point EXTENSIONS_ROOT at a clone.'
+        : '  not look". Clone it beside this one, or set ZVELTIO_ALLOW_MISSING_SIBLING=1 to\n' +
+          '  scan this repository alone and accept the narrower answer.'),
   );
   process.exit(1);
 }
