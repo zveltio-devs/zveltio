@@ -58,6 +58,21 @@ export function parseEgress(egress: readonly unknown[] | null | undefined): stri
         `egress: "${String(e)}" is not a host — list lower-case host names or host:port, no scheme, path or wildcard`,
       );
     }
+    // egressAllows compares against the URL parser's hostname, so an entry it
+    // would rewrite ([2001:0db8::1], 010.0.0.1) or a port it refuses (> 65535)
+    // could never match: refused instead of saved as a silent no-op.
+    const host = e.replace(/:\d{1,5}$/, '');
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(`http://${e}`);
+    } catch {}
+    if (!parsed || parsed.hostname !== host) {
+      throw new Error(
+        parsed
+          ? `egress: "${e}" is written "${parsed.hostname}" by the URL parser — list it that way`
+          : `egress: "${e}" is not a valid host:port`,
+      );
+    }
   }
   return [...egress] as string[];
 }
