@@ -41,6 +41,14 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
       db,
       'zv_preview_env',
       async () => {
+        // No tenant predicate, on purpose. A branch is a copy of the SHARED
+        // structure, minted only by an instance admin (`requireInstanceAdmin`),
+        // and `zv_schema_branches` is declared instance-level in
+        // quality-gates/tenant-boundary.json. The token picks a schema, never
+        // whose rows: every branch table carries `public`'s RLS policies
+        // (`mirrorPublicProtections` in routes/schema-branches.ts), so the
+        // caller still reaches only its own tenant. Pinned by
+        // tests/harness/schema-branches.test.ts ("a token minted in one tenant").
         const result = await sql<{ preview_schema: string; preview_expires_at: Date | null }>`
           SELECT preview_schema, preview_expires_at FROM zv_schema_branches
           WHERE preview_token = ${token}
