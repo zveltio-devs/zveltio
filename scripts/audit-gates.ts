@@ -661,6 +661,20 @@ const CASES: Case[] = [
       '  });\n',
   },
   {
+    // The pool handed to a router under another name — `backupRoutes(poolDb)` is
+    // `function backupRoutes(db)` inside. The gate matched the text `poolDb.`
+    // and never judged a site written on `db`.
+    gate: 'check-tenant-table-on-pool (pool under another name)',
+    cmd: 'bun run scripts/check-tenant-table-on-pool.ts',
+    file: 'packages/engine/src/routes/__gate_probe.ts',
+    body:
+      "import type { Database } from '../db/index.js';\n" +
+      'function probeRoutes(db: Database) {\n' +
+      "  return db.selectFrom('zv_api_keys').selectAll().execute();\n" +
+      '}\n' +
+      'export const probe = (poolDb: Database) => probeRoutes(poolDb);\n',
+  },
+  {
     // A route reading a record-attached table (comments) with no record gate.
     gate: 'check-record-attached-reads',
     cmd: 'bun run scripts/check-record-attached-reads.ts',

@@ -10,10 +10,10 @@
  * role, and a tenant-scoped query on it sees every tenant's rows.
  *
  * Scope: `routes/` only, and that boundary is a finding rather than an oversight.
- * Extending it to `lib/` was tried and reverted. There, the unscoped handle is
- * spelled `db` — the same name a transaction is passed under — so the gate either
- * catches nothing (matching only `poolDb`, which `lib/` does not use) or drowns in
- * false positives (matching `db`, which is usually the request transaction). The
+ * Extending it to `lib/` was tried while the gate still matched names, and reverted.
+ * There, the unscoped handle is spelled `db` — the name a transaction is passed under —
+ * so the gate either caught nothing (matching only `poolDb`, which `lib/` does not
+ * use) or drowned in false positives (matching `db`, usually the request one). The
  * first version of the extension took the harmless option and shipped four
  * "reviewed exceptions" for violations that could never fire. A gate whose
  * exception list is the only thing it produces is worse than no gate.
@@ -28,6 +28,13 @@
  * would otherwise pin one connection and reach for a second, which deadlocks at
  * a concurrency equal to the pool size. This gate does not object to `poolDb`.
  * It objects to `poolDb` plus a table that carries a tenant.
+ *
+ * "`poolDb`" is a binding, not a spelling. The pool is followed from
+ * `registerCoreRoutes` into every router and helper it is passed to, under
+ * whatever name the parameter has (`backupRoutes(db)`, `sqlEditorRoutes(db)`),
+ * into `const` aliases, and into the callback of a transaction opened on it.
+ * Until 2026-10-12 the gate matched the text `poolDb.` and so never judged
+ * `backup` or `sql-editor`. It now refuses to pass when it can see nothing.
  *
  * The first version of this gate had the premise backwards: it flagged `db.`,
  * on the belief that a route's `db` was the raw pool. It reported three
@@ -50,8 +57,8 @@
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { stripComments } from './lib/strip-comments.js';
+import { dirname, join } from 'node:path';
+import ts from 'typescript';
 
 const ROOT = join(import.meta.dir, '..');
 const SCHEMA = join(ROOT, 'packages/engine/src/db/schema.ts');
@@ -80,7 +87,7 @@ if (tenantScoped.size === 0) {
   process.exit(1);
 }
 
-// ── scan the route handlers ──────────────────────────────────────────────────
+// ── which handles are the raw pool ───────────────────────────────────────────
 function tsFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -92,23 +99,212 @@ function tsFiles(dir: string): string[] {
 }
 
 /**
- * `\s*` around the dot, not a same-line match.
- *
- * The scan used to run line by line, so it only ever saw `poolDb.selectFrom('t')`
- * written on ONE line — and a chain long enough to wrap is exactly what the
- * formatter turns into
- *
- *     const rows = await poolDb
- *       .selectFrom('zv_api_keys')
- *
- * which was invisible. Planted on 2026-09-04: the same violation the probe in
- * `audit-gates.ts` catches on one line stayed green when broken across two, and
- * every real call site in this codebase is long enough to wrap.
+ * Parsed, not pattern-matched. A regex sees a spelling; the pool reaches a route
+ * under whatever name the router's parameter has. Measured on 2026-09-04 and
+ * again on 2026-10-12: `backupRoutes(poolDb, auth)` is `function backupRoutes(db:
+ * Database)` inside, so a gate matching the text `poolDb.` judged none of its
+ * sites. Comments are trivia to the parser, so nothing has to be stripped.
  */
-// An alias (`'zv_api_keys as k'`) is the same table: it used to end the match
-// at the space and leave the site uncounted.
-const QUERY =
-  /\bpoolDb\s*\.\s*(selectFrom|insertInto|updateTable|deleteFrom)\(\s*'([\w]+)(?:\s+as\s+\w+)?'/g;
+const files = new Map(
+  tsFiles(ROUTES_DIR).map((f) => [
+    f,
+    ts.createSourceFile(f, readFileSync(f, 'utf8'), ts.ScriptTarget.Latest, true),
+  ]),
+);
+const rel = (f: string) => f.slice(ROOT.length + 1);
+
+type Decl = ts.ParameterDeclaration | ts.VariableDeclaration | ts.BindingElement;
+
+/** The declaration binding `text` in `decl`, destructuring included. */
+function bound(decl: Decl, text: string): Decl | undefined {
+  if (ts.isIdentifier(decl.name)) return decl.name.text === text ? decl : undefined;
+  for (const el of decl.name.elements) {
+    const hit = ts.isBindingElement(el) ? bound(el, text) : undefined;
+    if (hit) return hit;
+  }
+}
+
+function declaredIn(scope: ts.Node, text: string): Decl | undefined {
+  if (ts.isFunctionLike(scope)) {
+    for (const p of scope.parameters) {
+      const hit = bound(p, text);
+      if (hit) return hit;
+    }
+  }
+  if (ts.isCatchClause(scope) && scope.variableDeclaration) {
+    return bound(scope.variableDeclaration, text);
+  }
+  const lists: ts.VariableDeclarationList[] = [];
+  if (ts.isBlock(scope) || ts.isSourceFile(scope) || ts.isCaseOrDefaultClause(scope)) {
+    for (const s of scope.statements) if (ts.isVariableStatement(s)) lists.push(s.declarationList);
+  }
+  if (
+    (ts.isForStatement(scope) || ts.isForOfStatement(scope) || ts.isForInStatement(scope)) &&
+    scope.initializer &&
+    ts.isVariableDeclarationList(scope.initializer)
+  ) {
+    lists.push(scope.initializer);
+  }
+  for (const l of lists) {
+    for (const d of l.declarations) {
+      const hit = bound(d, text);
+      if (hit) return hit;
+    }
+  }
+}
+
+/** The nearest declaration of an identifier — so an inner `(db) =>` shadows. */
+function resolve(id: ts.Identifier): Decl | undefined {
+  for (let n: ts.Node | undefined = id.parent; n; n = n.parent) {
+    const hit = declaredIn(n, id.text);
+    if (hit) return hit;
+  }
+}
+
+function strip(e: ts.Expression): ts.Expression {
+  while (
+    ts.isParenthesizedExpression(e) ||
+    ts.isAsExpression(e) ||
+    ts.isNonNullExpression(e) ||
+    ts.isTypeAssertionExpression(e) ||
+    ts.isSatisfiesExpression(e)
+  ) {
+    e = e.expression;
+  }
+  return e;
+}
+
+/**
+ * Declarations that hold the raw pool. Anything named `poolDb` is one — that is
+ * the convention `registerCoreRoutes` hands it under — and so is whatever it is
+ * then passed to or assigned to, followed below.
+ */
+const pool = new Set<ts.Node>();
+function onPool(e: ts.Expression): boolean {
+  const x = strip(e);
+  if (!ts.isIdentifier(x)) return false;
+  const d = resolve(x);
+  return !!d && (pool.has(d) || (ts.isIdentifier(d.name) && d.name.text === 'poolDb'));
+}
+
+/** `<pool>.transaction()` / `.connection()`, any `.setX(…)` between, before `.execute(cb)`. */
+function opensOnPool(e: ts.Expression): boolean {
+  for (
+    let x = strip(e);
+    ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression);
+    x = strip(x.expression.expression)
+  ) {
+    const op = x.expression.name.text;
+    if ((op === 'transaction' || op === 'connection') && onPool(x.expression.expression)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+type Fn = ts.SignatureDeclaration;
+function fnNamed(scope: ts.Node, text: string): Fn | undefined {
+  if (!(ts.isBlock(scope) || ts.isSourceFile(scope))) return undefined;
+  for (const s of scope.statements) {
+    if (ts.isFunctionDeclaration(s) && s.name?.text === text) return s;
+    if (!ts.isVariableStatement(s)) continue;
+    for (const d of s.declarationList.declarations) {
+      const init = d.initializer && strip(d.initializer);
+      if (ts.isIdentifier(d.name) && d.name.text === text && init) {
+        if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init;
+      }
+    }
+  }
+}
+
+/**
+ * The function a call lands in: declared in an enclosing scope, or imported from
+ * another file under `routes/`. `routes` is set when the callee is a route file's
+ * export, so a declaration the gate cannot find is a router left unjudged.
+ */
+function callee(call: ts.CallExpression): { fn?: Fn; name: string; routes: boolean } | undefined {
+  const c = strip(call.expression);
+  if (!ts.isIdentifier(c)) return undefined;
+  for (let n: ts.Node | undefined = call.parent; n; n = n.parent) {
+    const fn = fnNamed(n, c.text);
+    if (fn) return { fn, name: c.text, routes: true };
+  }
+  const sf = call.getSourceFile();
+  for (const s of sf.statements) {
+    if (!ts.isImportDeclaration(s) || !ts.isStringLiteral(s.moduleSpecifier)) continue;
+    const named = s.importClause?.namedBindings;
+    if (!named || !ts.isNamedImports(named) || !s.moduleSpecifier.text.startsWith('.')) continue;
+    const el = named.elements.find((e) => e.name.text === c.text);
+    if (!el) continue;
+    const target = join(dirname(sf.fileName), s.moduleSpecifier.text.replace(/\.js$/, '.ts'));
+    if (!target.startsWith(ROUTES_DIR)) return undefined;
+    const file = files.get(target);
+    return {
+      fn: file && fnNamed(file, (el.propertyName ?? el.name).text),
+      name: c.text,
+      routes: true,
+    };
+  }
+}
+
+/** `file → function` for every router the pool is handed to — the gate's reach. */
+const reached = new Set<string>();
+const unresolved = new Set<string>();
+for (let grew = true; grew; ) {
+  grew = false;
+  const add = (d: ts.Node | undefined) => {
+    if (d && !pool.has(d)) {
+      pool.add(d);
+      grew = true;
+    }
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && n.initializer && ts.isIdentifier(n.name)) {
+      if (onPool(n.initializer)) add(n);
+    }
+    if (ts.isCallExpression(n)) {
+      const cb = n.arguments[0];
+      if (
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === 'execute' &&
+        cb &&
+        (ts.isArrowFunction(cb) || ts.isFunctionExpression(cb)) &&
+        opensOnPool(n.expression.expression)
+      ) {
+        add(cb.parameters[0]);
+      }
+      n.arguments.forEach((a, i) => {
+        if (!onPool(a)) return;
+        const target = callee(n);
+        if (!target?.routes) return;
+        const at = `${rel(n.getSourceFile().fileName)} → ${target.name}`;
+        const p = target.fn?.parameters[i];
+        if (!target.fn) unresolved.add(at);
+        else if (p && !p.dotDotDotToken && ts.isIdentifier(p.name)) {
+          add(p);
+          reached.add(at);
+        }
+      });
+    }
+    ts.forEachChild(n, visit);
+  };
+  for (const sf of files.values()) visit(sf);
+}
+
+// ── the sites on it ──────────────────────────────────────────────────────────
+const OPS = new Set(['selectFrom', 'insertInto', 'updateTable', 'deleteFrom', 'mergeInto']);
+
+/** Every table a raw statement names — `FROM a, zv_x`, `public.zv_x`, a subquery. */
+function rawTables(body: string): Set<string> {
+  const named = new Set(
+    [
+      ...body.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE|USING)\s+(?:ONLY\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi),
+    ].map((t) => t[1]!),
+  );
+  // Any word naming a tenant table, wherever it stands. Planted 2026-10-11, all green.
+  for (const w of body.match(/\w+/g) ?? []) if (tenantScoped.has(w)) named.add(w);
+  return named;
+}
 
 /**
  * Sites read and understood, keyed `file:table`. Empty, and meant to stay that
@@ -118,136 +314,77 @@ const QUERY =
  */
 const allowed = new Map<string, string>();
 
-// `.setIsolationLevel(…)` / `.setAccessMode(…)` between the two still opens it on the pool.
-const TXN =
-  /\bpoolDb\s*\.\s*transaction\(\s*\)(?:\s*\.\s*set\w+\([^)]*\))*\s*\.\s*execute\(\s*async\s*\(\s*(\w+)/g;
-
-/** Index of the `)` closing `execute(`, scanning from just after `async (trx` — two open. */
-function callbackEnd(src: string, from: number): number {
-  let depth = 2;
-  for (let i = from; i < src.length; i++) {
-    const ch = src[i];
-    // A parenthesis in a string is not code: `log(':)')` closed the callback
-    // there, and every site after it went unread.
-    if (ch === '`') i = templateEnd(src, i) - 1;
-    else if (ch === "'" || ch === '"') {
-      for (i++; i < src.length && src[i] !== ch && src[i] !== '\n'; i++) {
-        if (src[i] === '\\') i++;
-      }
-    } else if (ch === '(') depth++;
-    else if (ch === ')' && --depth === 0) return i;
-  }
-  return src.length;
-}
-
-/** Index just past the backtick closing the template that opens at `open`. */
-function templateEnd(src: string, open: number): number {
-  for (let i = open + 1; i < src.length; i++) {
-    if (src[i] === '\\') i++;
-    else if (src[i] === '`') return i + 1;
-    else if (src[i] === '$' && src[i + 1] === '{') {
-      let depth = 1;
-      for (i += 2; i < src.length && depth > 0; i++) {
-        if (src[i] === '{') depth++;
-        else if (src[i] === '}') depth--;
-        else if (src[i] === '`') i = templateEnd(src, i) - 1;
-      }
-      i--;
-    }
-  }
-  return src.length;
-}
-
-/**
- * The tables a raw `sql` template run on `handle` names — `sql\`…\`.execute(poolDb)`.
- * The Kysely-chain match above never sees a raw statement, and a raw SELECT on
- * the pool is exactly as unbound as `poolDb.selectFrom`.
- */
-function rawSites(src: string, handle: string, from = 0, to = src.length) {
-  const out: { at: number; text: string; table: string }[] = [];
-  const run = new RegExp(`^\\s*\\.\\s*execute\\(\\s*${handle}\\s*\\)`);
-  for (const m of src.slice(from, to).matchAll(/\bsql\s*(?:<[^`]*?>)?\s*`/g)) {
-    const open = from + m.index! + m[0].length - 1;
-    const end = templateEnd(src, open);
-    if (!run.test(src.slice(end, end + 80))) continue;
-    const body = src.slice(open, end);
-    const named = new Set(
-      [
-        ...body.matchAll(
-          /\b(?:FROM|JOIN|INTO|UPDATE|USING)\s+(?:ONLY\s+)?(?:"?\w+"?\.)?"?(\w+)"?/gi,
-        ),
-      ].map((t) => t[1]!),
-    );
-    // Any word naming a tenant table, wherever it stands: `public.zv_x`, the
-    // second table of `FROM a, zv_x`, a subquery. Planted 2026-10-11, all green.
-    for (const w of body.match(/\w+/g) ?? []) if (tenantScoped.has(w)) named.add(w);
-    for (const table of named) {
-      out.push({ at: open, text: `sql\`… ${table} …\`.execute(${handle})`, table });
-    }
-  }
-  return out;
-}
-
 const findings: string[] = [];
-/** Every `poolDb.<op>('t')` seen, matched or not — the gate's reach. */
+/** Every query site on the pool, matched or not. */
 let sitesSeen = 0;
 
-for (const file of tsFiles(ROUTES_DIR)) {
-  const src = stripComments(readFileSync(file, 'utf8'));
-  const rel = file.slice(ROOT.length + 1);
-
-  const sites = [...src.matchAll(QUERY)].map((m) => ({ at: m.index!, text: m[0], table: m[2]! }));
-  sites.push(...rawSites(src, 'poolDb'));
-
-  // A transaction opened on the pool runs on the pool: `trx` inside
-  // `poolDb.transaction().execute(async (trx) => …)` is as unbound as `poolDb`.
-  // Planted on 2026-10-11 — `trx.selectFrom('zv_flows')` there stayed green.
-  for (const t of src.matchAll(TXN)) {
-    const start = t.index! + t[0].length;
-    const op = new RegExp(`\\b${t[1]}${QUERY.source.slice('\\bpoolDb'.length)}`, 'g');
-    for (const m of src.slice(start, callbackEnd(src, start)).matchAll(op)) {
-      sites.push({ at: start + m.index!, text: m[0], table: m[2]! });
+for (const [file, sf] of files) {
+  const report = (n: ts.Node, table: string) => {
+    if (!tenantScoped.has(table) || allowed.has(`${rel(file)}:${table}`)) return;
+    const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+    const text = n.getText().replace(/\s+/g, ' ').slice(0, 120);
+    findings.push(`${rel(file)}:${line}  ${table}\n      ${text}`);
+  };
+  const visit = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+      const op = n.expression.name.text;
+      const arg = n.arguments[0];
+      if (OPS.has(op) && onPool(n.expression.expression)) {
+        sitesSeen++;
+        // An alias (`'zv_api_keys as k'`) is the same table.
+        if (arg && ts.isStringLiteralLike(arg)) report(n, arg.text.trim().split(/\s+/)[0]!);
+        // A table joined onto a pool query is read on the pool too.
+        for (let c: ts.Node = n; ts.isPropertyAccessExpression(c.parent); ) {
+          const call = c.parent.parent;
+          if (!ts.isCallExpression(call) || call.expression !== c.parent) break;
+          const j = call.arguments[0];
+          if (/join/i.test(c.parent.name.text) && j && ts.isStringLiteralLike(j)) {
+            report(call, j.text.trim().split(/\s+/)[0]!);
+          }
+          c = call;
+        }
+      }
+      // `sql\`…\`.execute(<pool>)` — a raw statement is exactly as unbound.
+      const tpl = strip(n.expression.expression);
+      if (op === 'execute' && arg && onPool(arg) && ts.isTaggedTemplateExpression(tpl)) {
+        if (ts.isIdentifier(tpl.tag) && tpl.tag.text === 'sql') {
+          sitesSeen++;
+          for (const t of rawTables(tpl.template.getText())) report(n, t);
+        }
+      }
     }
-    sites.push(...rawSites(src, t[1]!, start, callbackEnd(src, start)));
-  }
-
-  for (const { at, text, table } of sites) {
-    sitesSeen++;
-    const line = src.slice(0, at).split('\n').length;
-    if (!tenantScoped.has(table)) continue;
-    if (allowed.has(`${rel}:${table}`)) continue;
-    findings.push(`${rel}:${line}  ${table}\n      ${text.replace(/\s+/g, ' ')}`);
-  }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
 }
 
-if (findings.length > 0) {
-  console.error('[tenant-on-pool] FAIL — tenant-scoped table queried on `poolDb`:\n');
-  for (const f of findings) console.error(`  ${f}\n`);
-  console.error("Use the router's `db` — it is `createRequestScopedDb`, already bound to the");
-  console.error('request transaction and therefore to the tenant policies. `poolDb` is the raw');
-  console.error('pool and is for work that must not join the request transaction at all.');
+// ── blindness ────────────────────────────────────────────────────────────────
+// Not "nothing to check": each of these means the gate is judging an empty set.
+const INDEX = rel(join(ROUTES_DIR, 'index.ts'));
+const blind: string[] = [];
+for (const u of unresolved)
+  blind.push(`the pool is passed to ${u}, whose declaration was not found`);
+if (![...reached].some((r) => r.startsWith(`${INDEX} `))) {
+  blind.push(`${INDEX} hands the pool to no router — mounting changed, or the resolver broke`);
+}
+if (sitesSeen === 0) blind.push('zero query sites on the pool under routes/');
+if (blind.length > 0) {
+  console.error('[tenant-on-pool] FAIL — the gate cannot see what it exists for:\n');
+  for (const b of blind) console.error(`  ${b}`);
   process.exit(1);
 }
 
-// The reach is printed, not implied.
-//
-// "none queried on `poolDb` from a route" reads as "I looked at the sites and
-// they are fine". Measured on 2026-09-04 it meant something else: there are ZERO
-// `poolDb.` query sites under `routes/`, because all four pool-backed routers
-// receive the raw pool under the parameter name `db` — `insightsRoutes(poolDb,
-// auth)` is `function insightsRoutes(db: Database)` inside, and its queries are
-// spelled `db.selectFrom('zv_dashboards')`. So this gate has never judged a
-// single one of the sites it exists for. See the note in the ledger for E01.
-//
-// Closed for `insights` (migration 026) and `flows` (migration 027): their
-// parameter is spelled `poolDb` now, and their policed tables go through
-// `withTenantIsolation`. `backup` and `sql-editor` still take the raw pool as
-// `db` and stay unjudged here.
+if (findings.length > 0) {
+  console.error('[tenant-on-pool] FAIL — tenant-scoped table queried on the raw pool:\n');
+  for (const f of findings) console.error(`  ${f}\n`);
+  console.error("Use the router's request-scoped `db` — `createRequestScopedDb`, bound to the");
+  console.error('request transaction and therefore to the tenant policies. The pool is for');
+  console.error('work that must not join the request transaction at all.');
+  process.exit(1);
+}
+
 console.log(
-  `[tenant-on-pool] OK — ${tenantScoped.size} tenant-scoped table(s) known; ` +
-    `${sitesSeen} \`poolDb.\` query site(s) under routes/, none of them on a tenant table.` +
-    (sitesSeen === 0
-      ? '\n  NOTE: zero sites matched — `insights` and `flows` spell their pool `poolDb`; if they stopped,' +
-        '\n  this gate is judging an empty set again.'
-      : ''),
+  `[tenant-on-pool] OK — ${tenantScoped.size} tenant-scoped table(s) known; the pool reaches ` +
+    `${reached.size} router/helper parameter(s); ${sitesSeen} query site(s) on it under routes/, ` +
+    'none on a tenant table.',
 );
