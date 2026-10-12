@@ -25,4 +25,24 @@ describe('manifest forwardCredentials', () => {
     expect(errors({ '/admin/*': ['cookie'] })).toHaveLength(1);
     expect(errors(['authorization'])).toHaveLength(1);
   });
+
+  // The engine's schema takes arrays only, and refused at load what this passed.
+  it('refuses a bare header name where the engine wants a list', () => {
+    expect(errors({ '/scim/*': 'authorization' })).toHaveLength(1);
+  });
+});
+
+describe('manifest apiKeyRoutes', () => {
+  const routeErrors = (apiKeyRoutes: unknown) =>
+    validateManifest({ manifest: { ...base, apiKeyRoutes } }).filter(
+      (e) => e.code === 'MANIFEST_BAD_API_KEY_ROUTE',
+    );
+
+  it('accepts a list of method + pattern', () => {
+    expect(routeErrors(['GET /items'])).toEqual([]);
+  });
+
+  it('refuses a bare string where the engine wants a list', () => {
+    expect(routeErrors('GET /items')).toHaveLength(1);
+  });
 });
