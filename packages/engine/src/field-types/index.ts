@@ -611,7 +611,9 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
     },
-    typescript: { inputType: 'number', outputType: 'number' },
+    // A string both ways: Postgres prints money in the locale's format
+    // ("$12.50"), which no numeric coercion reads back.
+    typescript: { inputType: 'string', outputType: 'string' },
   });
 
   // ── Additional Text types ─────────────────────────────────────
@@ -789,6 +791,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   });
 
   // ── Range types ───────────────────────────────────────────────
+  //
+  // Typed as the range literal ('[1,5)'), which is what the driver returns and
+  // what the column accepts. `{ lower, upper }` was never true: reads came back
+  // as the literal, and an object write failed with "malformed range literal".
 
   registry.register({
     type: 'int4range',
@@ -800,8 +806,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
     typescript: {
-      inputType: '{ lower: number; upper: number }',
-      outputType: '{ lower: number; upper: number }',
+      inputType: 'string',
+      outputType: 'string',
     },
   });
 
@@ -815,8 +821,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
     typescript: {
-      inputType: '{ lower: number; upper: number }',
-      outputType: '{ lower: number; upper: number }',
+      inputType: 'string',
+      outputType: 'string',
     },
   });
 
@@ -830,8 +836,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
     typescript: {
-      inputType: '{ lower: number; upper: number }',
-      outputType: '{ lower: number; upper: number }',
+      inputType: 'string',
+      outputType: 'string',
     },
   });
 
@@ -845,8 +851,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
     typescript: {
-      inputType: '{ lower: string; upper: string }',
-      outputType: '{ lower: string; upper: string }',
+      inputType: 'string',
+      outputType: 'string',
     },
   });
 
@@ -860,8 +866,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
     typescript: {
-      inputType: '{ lower: string; upper: string }',
-      outputType: '{ lower: string; upper: string }',
+      inputType: 'string',
+      outputType: 'string',
     },
   });
 
@@ -875,8 +881,8 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['contains', 'is_null', 'is_not_null'],
     },
     typescript: {
-      inputType: '{ lower: string; upper: string }',
-      outputType: '{ lower: string; upper: string }',
+      inputType: 'string',
+      outputType: 'string',
     },
   });
 }
