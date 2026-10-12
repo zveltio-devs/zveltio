@@ -20,9 +20,26 @@
  * act on.
  */
 
+import { dirname } from 'node:path';
 import { $ } from 'bun';
 
 const MIGRATIONS_DIR = 'packages/engine/src/db/migrations/sql';
+
+// Which files count as migrations, as a git pathspec. Defaults to the engine's
+// directory; the extensions repository runs this same script (from its engine
+// sibling) over its own layout, so both repos are graded by one rule set:
+//
+//   MIGRATIONS_PATHSPEC=':(glob)**/*.sql' \
+//     bun ../zveltio/scripts/check-migration-safety.ts
+//
+// The extension runner (`lib/extensions/migration-runner.ts`) reads the same
+// `-- DOWN` / `-- NO TRANSACTION` markers and opens its transaction with the
+// same timeout preamble as the engine's, which is what makes the exclusions
+// below valid for both.
+const MIGRATIONS_PATHSPEC = process.env.MIGRATIONS_PATHSPEC || MIGRATIONS_DIR;
+
+/** This script's repository — where `squawk-cli` is installed, whoever runs it. */
+const SCRIPT_ROOT = dirname(import.meta.dir);
 
 /**
  * The same marker the runner splits on — `parseMigration()` in
@@ -96,7 +113,9 @@ const NO_TRANSACTION_MARKER = /^--\s*NO\s+TRANSACTION\s*$/im;
  * migration to make an inconvenient finding go away.
  */
 const BASELINE_MARKER = /^--\s*BASELINE\s+SQUASH\s*$/im;
-const BASELINE_FILE = '001_initial.sql';
+// The full path, not the basename: an extension's `001_initial.sql` runs on a
+// populated instance, so the exemption must not reach it.
+const BASELINE_FILE = `${MIGRATIONS_DIR}/001_initial.sql`;
 
 interface Finding {
   file: string;
@@ -114,7 +133,8 @@ async function changedMigrations(): Promise<string[]> {
   const base = process.env.BASE_REF || 'origin/master';
   const range = `${base}...HEAD`;
   try {
-    const out = await $`git diff --name-only --diff-filter=AM ${range} -- ${MIGRATIONS_DIR}`.text();
+    const out =
+      await $`git diff --name-only --diff-filter=AM ${range} -- ${MIGRATIONS_PATHSPEC}`.text();
     return out
       .split('\n')
       .map((l) => l.trim())
@@ -204,7 +224,10 @@ async function lint(file: string): Promise<Finding[]> {
         'json',
         tmp,
       ],
-      { stdout: 'pipe', stderr: 'pipe' },
+      // From this script's root: run from the extensions repo, `bun x` would
+      // otherwise miss the engine's pinned squawk-cli and fetch a package named
+      // `squawk` from npm instead.
+      { cwd: SCRIPT_ROOT, stdout: 'pipe', stderr: 'pipe' },
     );
     const [out, err] = await Promise.all([
       new Response(proc.stdout).text(),

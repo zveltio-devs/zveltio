@@ -11,7 +11,11 @@
 import { sql as _sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
-import { isNonTransactional, splitSqlStatements } from '../../db/migrations/index.js';
+import {
+  isNonTransactional,
+  migrationTimeoutPreamble,
+  splitSqlStatements,
+} from '../../db/migrations/index.js';
 import { reconcileExtensionTenantRLS } from '../tenancy/index.js';
 import { DownMissingError } from './extension-errors.js';
 import { parseMigrationSql } from './extension-utils.js';
@@ -195,6 +199,8 @@ export async function runExtensionMigrations(
   for (const segment of segments) {
     if (segment.transactional) {
       await db.transaction().execute(async (trx) => {
+        // Same lock_timeout / statement_timeout as the engine's own migrations.
+        for (const stmt of migrationTimeoutPreamble()) await _sql.raw(stmt).execute(trx);
         for (const m of segment.items) {
           await _sql.raw(m.up).execute(trx);
           // Persist DOWN alongside the migration row so a future uninstall with

@@ -305,6 +305,23 @@ export function timeoutAdvice(err: unknown): string | null {
 }
 
 /**
+ * The `SET LOCAL` pair every transactional migration opens with — the engine's
+ * own (`applyMigration()`) and every extension's (`runExtensionMigrations()`).
+ * One definition so the two runners cannot drift: the extension runner went
+ * without it, and an extension ALTER behind one long reader waited forever at
+ * the head of the lock queue with the table's traffic stalled behind it.
+ *
+ * Transactional only: a `-- NO TRANSACTION` migration gets neither (see the
+ * comment on that path in `applyMigration()`).
+ */
+export function migrationTimeoutPreamble(): string[] {
+  return [
+    `SET LOCAL lock_timeout = '${timeoutSetting('ZVELTIO_MIGRATION_LOCK_TIMEOUT', '5s')}'`,
+    `SET LOCAL statement_timeout = '${timeoutSetting('ZVELTIO_MIGRATION_STATEMENT_TIMEOUT', '0')}'`,
+  ];
+}
+
+/**
  * The one method a migration statement needs, present on both a Kysely instance
  * and a transaction — which is the whole point, since the same statement runs
  * on either depending on whether the migration opted out of the wrapper.
@@ -619,14 +636,9 @@ async function applyMigration(
       // table is legitimately slow, and aborting it would leave an operator
       // with an upgrade that can never finish. Instances that would rather
       // fail fast can set a bound.
-      await trx.executeQuery({
-        sql: `SET LOCAL lock_timeout = '${timeoutSetting('ZVELTIO_MIGRATION_LOCK_TIMEOUT', '5s')}'`,
-        parameters: [],
-      });
-      await trx.executeQuery({
-        sql: `SET LOCAL statement_timeout = '${timeoutSetting('ZVELTIO_MIGRATION_STATEMENT_TIMEOUT', '0')}'`,
-        parameters: [],
-      });
+      for (const stmt of migrationTimeoutPreamble()) {
+        await trx.executeQuery({ sql: stmt, parameters: [] });
+      }
 
       for (let si = 0; si < statements.length; si++) {
         await runStatements(trx, si);
