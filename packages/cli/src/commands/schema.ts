@@ -28,10 +28,12 @@ export async function schemaPullCommand(opts: { dir?: string; url?: string }) {
 
   // Every path checked before any is written: a server (or whatever answers at
   // ZVELTIO_URL) naming `../../.bashrc` must not reach outside `dir`.
+  // `resolve` keeps the separator only on a filesystem root (`/`, `C:\`).
   const root = resolve(dir);
+  const inside = root.endsWith(sep) ? root : root + sep;
   const writes = Object.entries(files).map(([path, content]) => {
     const target = resolve(root, path);
-    if (!target.startsWith(root + sep)) {
+    if (!target.startsWith(inside)) {
       console.error(`Schema export named a path outside ${dir}: ${path}`);
       process.exit(1);
     }
