@@ -61,7 +61,7 @@ d('media shares carry the firm of what they share', () => {
     await share(ROOT, 'folder');
     await share(OTHER, 'file');
 
-    await rollbackMigration(db, 30);
+    await rollbackMigration(db, 30, { ignoreBaseline: true });
     await runPending(db);
 
     const rows = await sql<{ token: string; tenant_id: string | null }>`

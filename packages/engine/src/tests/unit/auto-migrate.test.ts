@@ -23,8 +23,11 @@ type Row = { version: number; filename: string; checksum: string };
 
 /** Every migration this build ships, recorded as applied ('baseline' skips the checksum compare). */
 const SHIPPED: Row[] = [
-  ...new Bun.Glob('*.sql').scanSync({ cwd: join(import.meta.dir, '../../db/migrations/sql') }),
+  ...new Bun.Glob('{sql,baseline}/*.sql').scanSync({
+    cwd: join(import.meta.dir, '../../db/migrations'),
+  }),
 ]
+  .map((path) => path.slice(path.indexOf('/') + 1))
   .map((filename) => ({ version: parseInt(filename, 10), filename, checksum: 'baseline' }))
   .sort((a, b) => a.version - b.version);
 

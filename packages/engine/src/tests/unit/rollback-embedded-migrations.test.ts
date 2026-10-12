@@ -42,7 +42,8 @@ describe('migration sources', () => {
       (b) => b.includes('listSqlFilesSync(') && !b.startsWith('function listSqlFilesSync'),
     );
 
-    expect(readers.length).toBeGreaterThanOrEqual(2);
+    // One reader since the baseline: `readShippedFiles` serves all three.
+    expect(readers.length).toBeGreaterThanOrEqual(1);
     for (const body of readers) {
       const name = /function (\w+)/.exec(body)?.[1] ?? '(anonymous)';
       expect(`${name}: ${body.includes('EMBEDDED_MIGRATIONS')}`).toBe(`${name}: true`);

@@ -11,12 +11,13 @@
  * one runs — silently, since nothing re-reads a comment.
  */
 
-import { readdirSync, writeFileSync } from 'fs';
+import { existsSync, readdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 export const SQL_DIR = join(__dir, '..', 'src', 'db', 'migrations', 'sql');
+export const BASELINE_DIR = join(__dir, '..', 'src', 'db', 'migrations', 'baseline');
 export const OUT_FILE = join(__dir, '..', 'src', 'db', 'migrations', 'embedded.ts');
 
 /**
@@ -29,12 +30,25 @@ export const OUT_FILE = join(__dir, '..', 'src', 'db', 'migrations', 'embedded.t
  * advice that does not fit. Refused here, the generator (run by every build)
  * and the embedded-migrations gate (run in CI) both name the clash.
  */
-export function migrationFiles(sqlDir: string = SQL_DIR): string[] {
-  const files = readdirSync(sqlDir)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
+export function migrationFiles(
+  sqlDir: string = SQL_DIR,
+  baselineDir: string = BASELINE_DIR,
+): string[] {
+  // The baseline shares the chain's numbering (it is version 062, after the
+  // 061 it replaces), so a clash is checked across both directories.
+  const list = (dir: string, sub: string) =>
+    existsSync(dir)
+      ? readdirSync(dir)
+          .filter((f) => f.endsWith('.sql'))
+          .map((f) => `${sub}/${f}`)
+      : [];
+  const base = (p: string) => p.slice(p.indexOf('/') + 1);
+  const files = [...list(sqlDir, 'sql'), ...list(baselineDir, 'baseline')].sort((a, b) =>
+    base(a).localeCompare(base(b)),
+  );
   const byNumber = new Map<number, string[]>();
-  for (const f of files) {
+  for (const path of files) {
+    const f = path.slice(path.indexOf('/') + 1);
     const n = Number.parseInt(f, 10);
     byNumber.set(n, [...(byNumber.get(n) ?? []), f]);
   }
@@ -51,9 +65,11 @@ export function migrationFiles(sqlDir: string = SQL_DIR): string[] {
 export function renderEmbedded(files: string[]): string {
   const varName = (i: number) => `m${String(i).padStart(3, '0')}`;
   const imports = files
-    .map((f, i) => `import ${varName(i)} from './sql/${f}' with { type: 'text' };`)
+    .map((f, i) => `import ${varName(i)} from './${f}' with { type: 'text' };`)
     .join('\n');
-  const entries = files.map((f, i) => `  '${f}': ${varName(i)},`).join('\n');
+  const entries = files
+    .map((f, i) => `  '${f.slice(f.indexOf('/') + 1)}': ${varName(i)},`)
+    .join('\n');
 
   return `/**
  * Embedded SQL migrations — bundled at compile time by Bun.
@@ -63,8 +79,10 @@ export function renderEmbedded(files: string[]): string {
  *
  * The runner sorts by filename, so the leading number is what orders them; see
  * the BASELINE SQUASH note at the top of 001_initial.sql for why the chain
- * starts where it does. Adding a migration means dropping a .sql file into
- * sql/ and regenerating — there is no list to hand-edit.
+ * starts where it does. \`baseline/\` holds the GA baseline, which replaces the
+ * beta chain (see \`parseBaseline\` in index.ts); it is keyed by filename like
+ * the rest. Adding a migration means dropping a .sql file into sql/ and
+ * regenerating — there is no list to hand-edit.
  *
  * AUTO-GENERATED — do not edit by hand.
  * Regenerate with: bun scripts/gen-embedded-migrations.ts

@@ -269,6 +269,12 @@ generated).
   a package script, not a root one; regenerates `db/migrations/embedded.ts`).
   `zveltio start` auto-migrates. squawk lints
   DDL safety in CI (`migrate-safety.yml`).
+- `db/migrations/baseline/062_ga_baseline.sql` replaces 001–061 (the chain of
+  v3.0.0-beta.79): a fresh database runs only it, a database with the whole chain
+  records it, a partial chain is refused ("upgrade to v3.0.0-beta.79 first"),
+  rollback below it is refused. It is GENERATED (`scripts/gen-baseline.ts`), never
+  edited; `tests/harness/baseline-equivalence.test.ts` proves both paths build the
+  same database. New migrations go in `sql/` as 063+, as before.
 - Collections are dynamic — routine user schema changes need no code-side
   migration; the DDL manager lives in `packages/engine/src/lib/data/`.
 - **Tenant isolation is Postgres-enforced**: FORCE RLS keyed on a

@@ -1084,6 +1084,19 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Build SDK
         run: cd packages/sdk && bun run build
+      - name: Install Postgres 18 client tools
+        # `baseline-equivalence.test.ts` compares `pg_dump --schema-only` of a
+        # database built by the beta chain with one built by the GA baseline,
+        # and fails rather than skips without pg_dump. Ubuntu's default client
+        # is pg16, which refuses a pg18 server; same step as dr-smoke.yml.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+          # The runner image puts pg16 tools on PATH ahead of the wrapper.
+          echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
@@ -1294,6 +1307,19 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Build SDK
         run: cd packages/sdk && bun run build
+      - name: Install Postgres 18 client tools
+        # `baseline-equivalence.test.ts` compares `pg_dump --schema-only` of a
+        # database built by the beta chain with one built by the GA baseline,
+        # and fails rather than skips without pg_dump. Ubuntu's default client
+        # is pg16, which refuses a pg18 server; same step as dr-smoke.yml.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+          # The runner image puts pg16 tools on PATH ahead of the wrapper.
+          echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test

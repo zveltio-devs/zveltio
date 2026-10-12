@@ -25,16 +25,18 @@ export const MIN_SCHEMA_VERSION = 0;
 /** Computed from SQL files on disk (dev) or embedded migrations (compiled binary). */
 export function getMaxSchemaVersion(): number {
   try {
-    const migrationsDir = join(import.meta.dir, 'db', 'migrations', 'sql');
+    const migrationsDir = join(import.meta.dir, 'db', 'migrations');
     // Bun.Glob is the native equivalent of readdirSync + filter — keeps
     // the lookup synchronous (required because MAX_SCHEMA_VERSION is a
     // module-level const evaluated at import time) without pulling in
     // node:fs. Falls through to EMBEDDED_MIGRATIONS in the compiled
-    // binary, where the dir doesn't exist on disk.
-    const glob = new Bun.Glob('*.sql');
+    // binary, where the dir doesn't exist on disk. The baseline counts: a
+    // database built from it records its number, which must not read as
+    // "newer than this engine".
+    const glob = new Bun.Glob('{sql,baseline}/*.sql');
     const versions: number[] = [];
     for (const f of glob.scanSync({ cwd: migrationsDir, onlyFiles: true })) {
-      const m = f.match(/^(\d+)/);
+      const m = f.match(/\/(\d+)/);
       if (m) versions.push(parseInt(m[1], 10));
     }
     if (versions.length === 0) throw new Error('no migrations on disk');
