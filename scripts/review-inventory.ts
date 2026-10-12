@@ -1245,10 +1245,36 @@ async function main() {
   // unread again.
   // ponytail: date fallback is per day, so a change merged the same day as a
   // commit-less session still counts as read; record `commit` to close it.
+  // A path is credited to the section that owns it, whatever section the
+  // session declared, so a session filed under E02 that read an A05 file is
+  // listed under A05 too. Before, A05 read 1/7 with "last session —": a
+  // section partly reviewed by nobody (finding E04).
+  const addTo = (id: string, s: SessionEntry) => {
+    if (!sessionsBySection.has(id)) sessionsBySection.set(id, []);
+    const list = sessionsBySection.get(id)!;
+    if (!list.includes(s)) list.push(s);
+  };
+  // A path that never existed in this repository is a typo or a note, not a
+  // read, and it used to be accepted silently.
+  const tracked = new Set(files);
+  const everAdded = new Set(
+    ((await git(['log', '--no-renames', '--format=', '--name-only', '--diff-filter=A'])) ?? '').split('\n'),
+  );
+  const unknown: string[] = [];
   for (const s of ledger.sessions) {
-    if (!sessionsBySection.has(s.section)) sessionsBySection.set(s.section, []);
-    sessionsBySection.get(s.section)!.push(s);
+    addTo(s.section, s);
+    for (const f of s.files) {
+      if (!tracked.has(f) && !everAdded.has(f)) unknown.push(`${s.section}: ${f}`);
+      const owner = sectionFor(f)?.id;
+      if (owner && owner !== s.section) addTo(owner, s);
+    }
     for (const t of s.tests ?? []) testsRead.add(t);
+  }
+  if (unknown.length > 0) {
+    console.error('[review-inventory] session files name paths that never existed here:');
+    for (const u of unknown) console.error(`  ${u}`);
+    console.error('List only repository paths; put notes in `ran` or a finding.');
+    process.exit(1);
   }
   const changedOn = await lastChanged();
   const changedSince = new Map<string, Set<string> | null>();
