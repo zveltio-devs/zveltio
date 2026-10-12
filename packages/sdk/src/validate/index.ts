@@ -198,7 +198,12 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
 
   // The engine's manifest schema refuses the whole extension (422) on a bad entry.
   if (obj.apiKeyRoutes !== undefined) {
-    const routes = Array.isArray(obj.apiKeyRoutes) ? obj.apiKeyRoutes : [obj.apiKeyRoutes];
+    // An array, as the engine's manifest schema requires: a bare string passed
+    // here and was then refused at load.
+    const routes = Array.isArray(obj.apiKeyRoutes) ? obj.apiKeyRoutes : [];
+    if (!Array.isArray(obj.apiKeyRoutes)) {
+      out.push(err('MANIFEST_BAD_API_KEY_ROUTE', '"apiKeyRoutes" must be an array'));
+    }
     for (const r of routes) {
       if (typeof r !== 'string' || !/^(GET|POST|PUT|PATCH|DELETE) \S+$/.test(r)) {
         out.push(
@@ -229,8 +234,16 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
             ),
           );
         }
-        const list: unknown[] = Array.isArray(names) ? names : [names];
-        for (const n of list) {
+        if (!Array.isArray(names)) {
+          out.push(
+            err(
+              'MANIFEST_BAD_FORWARD_CREDENTIALS',
+              `forwardCredentials "${route}" must be an array of header names`,
+            ),
+          );
+          continue;
+        }
+        for (const n of names as unknown[]) {
           if (typeof n !== 'string' || !CREDENTIAL_HEADERS.includes(n)) {
             out.push(
               err(
