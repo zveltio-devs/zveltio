@@ -1318,6 +1318,19 @@ export class DDLManager {
    * the commit (`forgetFieldRules`).
    */
   static async dropFieldRules(db: Database, collection: string, field: string): Promise<void> {
+    // A `*` rule's term names the column on every table that has it. Not ours
+    // to delete, nor to rebuild the policy without (that lifts the rule here):
+    // refused before any DDL, instead of Postgres' "other objects depend on it".
+    const { starRulesNamingColumn } = await import('../tenancy/index.js');
+    const blocking = await starRulesNamingColumn(db, collection, field);
+    if (blocking.length > 0) {
+      const { FieldChangeError } = await import('./field-changes.js');
+      throw new FieldChangeError(
+        `Field '${field}' is used by row rule${blocking.length > 1 ? 's' : ''} ` +
+          `${blocking.join(', ')} (collection '*'). Edit or remove the rule first.`,
+        409,
+      );
+    }
     let rowRules = 0;
     for (const [table, col, fieldCol] of FIELD_RULE_TABLES) {
       const gone = await sql`DELETE FROM ${sql.id(table)}

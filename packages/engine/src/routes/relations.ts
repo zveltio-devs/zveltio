@@ -175,6 +175,8 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       return c.json({ success: true });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (error: any) {
+      // A `*` row rule naming the FK column refuses with 409 (dropFieldRules).
+      if (error instanceof FieldChangeError) return c.json({ error: error.message }, error.status);
       return c.json(
         { error: error instanceof Error ? error.message : 'Failed to delete relation' },
         400,
