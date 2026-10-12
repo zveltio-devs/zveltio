@@ -64,6 +64,170 @@ import type { EdgeRequest, EdgeResponse, RunResult } from '../edge-function-runn
 // validate at zod level; this is the second line of defence.
 const MAX_CODE_BYTES = 1024 * 1024;
 
+/**
+ * The globals an edge function may reach. Deny by default: lockdownGlobals()
+ * blocks every other name on the global object and its prototype chain, so a
+ * global a future Bun adds stays unreachable until someone reviews it and lists
+ * it here.
+ *
+ * This is the set an edge function could reach before the switch, measured by
+ * enumerating the global of a bare `bun run` module and calling every function
+ * reachable from it with no receiver (edge-subprocess-global-allowlist.test.ts)
+ * — minus alert/confirm/prompt, which write raw to stdout, the channel this
+ * process answers the engine on, and block on stdin, which carries the egress
+ * answers; and console, which the user function gets as a parameter. `fetch` is
+ * not listed: lockdownGlobals() replaces it with the sandboxed one.
+ */
+export const SANDBOX_GLOBALS: readonly string[] = [
+  'AbortController',
+  'AbortSignal',
+  'AggregateError',
+  'Array',
+  'ArrayBuffer',
+  'AsyncDisposableStack',
+  'Atomics',
+  'BigInt',
+  'BigInt64Array',
+  'BigUint64Array',
+  'Blob',
+  'Boolean',
+  'BroadcastChannel',
+  'Buffer',
+  'BuildError',
+  'BuildMessage',
+  'ByteLengthQueuingStrategy',
+  'CloseEvent',
+  'CompressionStream',
+  'CountQueuingStrategy',
+  'Crypto',
+  'CryptoKey',
+  'CustomEvent',
+  'DOMException',
+  'DataView',
+  'Date',
+  'DecompressionStream',
+  'DisposableStack',
+  'Error',
+  'ErrorEvent',
+  'EvalError',
+  'Event',
+  'EventTarget',
+  'File',
+  'FinalizationRegistry',
+  'Float16Array',
+  'Float32Array',
+  'Float64Array',
+  'FormData',
+  'HTMLRewriter',
+  'Headers',
+  'Infinity',
+  'Int16Array',
+  'Int32Array',
+  'Int8Array',
+  'Intl',
+  'Iterator',
+  'JSON',
+  'Map',
+  'Math',
+  'MessageChannel',
+  'MessageEvent',
+  'MessagePort',
+  'NaN',
+  'Number',
+  'Object',
+  'Performance',
+  'PerformanceEntry',
+  'PerformanceMark',
+  'PerformanceMeasure',
+  'PerformanceObserver',
+  'PerformanceObserverEntryList',
+  'PerformanceResourceTiming',
+  'PerformanceServerTiming',
+  'PerformanceTiming',
+  'Promise',
+  'Proxy',
+  'RangeError',
+  'ReadableByteStreamController',
+  'ReadableStream',
+  'ReadableStreamBYOBReader',
+  'ReadableStreamBYOBRequest',
+  'ReadableStreamDefaultController',
+  'ReadableStreamDefaultReader',
+  'ReferenceError',
+  'Reflect',
+  'RegExp',
+  'Request',
+  'ResolveError',
+  'ResolveMessage',
+  'Response',
+  'Set',
+  'SharedArrayBuffer',
+  'String',
+  'SubtleCrypto',
+  'SuppressedError',
+  'Symbol',
+  'SyntaxError',
+  'TextDecoder',
+  'TextDecoderStream',
+  'TextEncoder',
+  'TextEncoderStream',
+  'TransformStream',
+  'TransformStreamDefaultController',
+  'TypeError',
+  'URIError',
+  'URL',
+  'URLPattern',
+  'URLSearchParams',
+  'Uint16Array',
+  'Uint32Array',
+  'Uint8Array',
+  'Uint8ClampedArray',
+  'WeakMap',
+  'WeakRef',
+  'WeakSet',
+  'WebAssembly',
+  'WritableStream',
+  'WritableStreamDefaultController',
+  'WritableStreamDefaultWriter',
+  '__defineGetter__',
+  '__defineSetter__',
+  '__lookupGetter__',
+  '__lookupSetter__',
+  'atob',
+  'btoa',
+  'clearImmediate',
+  'clearInterval',
+  'clearTimeout',
+  'constructor',
+  'crypto',
+  'decodeURI',
+  'decodeURIComponent',
+  'encodeURI',
+  'encodeURIComponent',
+  'escape',
+  'hasOwnProperty',
+  'isFinite',
+  'isNaN',
+  'isPrototypeOf',
+  'navigator',
+  'parseFloat',
+  'parseInt',
+  'performance',
+  'postMessage',
+  'propertyIsEnumerable',
+  'queueMicrotask',
+  'reportError',
+  'setImmediate',
+  'setInterval',
+  'setTimeout',
+  'structuredClone',
+  'toLocaleString',
+  'toString',
+  'undefined',
+  'unescape',
+  'valueOf',
+];
+
 const SUBPROCESS_BOOTSTRAP = String.raw`
 'use strict';
 
@@ -83,6 +247,8 @@ const BLOCKED = ['Bun','process','require','module','exports','__dirname','__fil
   // methods and on* handlers that make it one are blocked too.
   'global','globalThis','self','window','addEventListener','removeEventListener','dispatchEvent','onmessage','onerror'];
 
+const ALLOWED = new Set(${JSON.stringify(SANDBOX_GLOBALS)});
+
 function buildThrower(name) {
   return () => { throw new Error('[sandbox] access to "' + name + '" is blocked'); };
 }
@@ -94,7 +260,13 @@ function lockdownGlobals(sandboxFetch) {
     value: sandboxFetch, configurable: false, writable: false, enumerable: false,
   });
   const g = globalThis;
-  for (const name of BLOCKED) {
+  // Deny by default: everything on the global's prototype chain that is not in
+  // SANDBOX_GLOBALS, plus the BLOCKED names whether the runtime defines them or not.
+  const names = new Set(BLOCKED);
+  for (let o = g; o; o = Object.getPrototypeOf(o)) {
+    for (const name of Object.getOwnPropertyNames(o)) if (!ALLOWED.has(name) && name !== 'fetch') names.add(name);
+  }
+  for (const name of names) {
     try {
       Object.defineProperty(g, name, {
         get: buildThrower(name),
