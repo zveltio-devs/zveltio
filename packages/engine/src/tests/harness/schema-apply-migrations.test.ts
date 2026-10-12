@@ -189,9 +189,10 @@ d('schema apply migrations', () => {
       },
       true,
     );
-    expect(builtIn.status).toBe(400);
+    // Cleaned up before asserting: a regression must not leave the row behind.
     if (inserted.rows.length)
       await sql`DELETE FROM zv_roles WHERE name = 'tenant_admin'`.execute(db);
+    expect(builtIn.status).toBe(400);
     expect(((await builtIn.json()) as { detail: string }).detail).toContain('not a custom role');
   });
 });

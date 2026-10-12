@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Nazwa zapytania *",
   "savedQueries.run": "Uruchom",
   "savedQueries.saved": "Zapytanie zapisane",
+  "savedQueries.urlOmits": "Brak w tym adresie URL, więc zwraca więcej wierszy niż zapytanie: {filters}",
   "savedQueries.selectOrCreate": "Wybierz zapytanie lub utwórz nowe",
   "savedQueries.shareAll": "Udostępnij wszystkim użytkownikom",
   "savedQueries.shared": "Udostępnione",

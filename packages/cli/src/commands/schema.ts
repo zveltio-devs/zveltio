@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, join, resolve, sep } from 'path';
 import { createInterface } from 'readline';
 
 /**
@@ -26,8 +26,20 @@ export async function schemaPullCommand(opts: { dir?: string; url?: string }) {
   }
   const { files } = (await res.json()) as { files: Record<string, string> };
 
-  for (const [path, content] of Object.entries(files)) {
-    const target = join(dir, path);
+  // Every path checked before any is written: a server (or whatever answers at
+  // ZVELTIO_URL) naming `../../.bashrc` must not reach outside `dir`.
+  // `resolve` keeps the separator only on a filesystem root (`/`, `C:\`).
+  const root = resolve(dir);
+  const inside = root.endsWith(sep) ? root : root + sep;
+  const writes = Object.entries(files).map(([path, content]) => {
+    const target = resolve(root, path);
+    if (!target.startsWith(inside)) {
+      console.error(`Schema export named a path outside ${dir}: ${path}`);
+      process.exit(1);
+    }
+    return [target, content] as const;
+  });
+  for (const [target, content] of writes) {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, content);
   }

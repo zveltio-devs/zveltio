@@ -143,8 +143,34 @@ d('saved queries (in-process)', () => {
       }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(typeof body).toBe('object');
+    expect(await res.json()).toEqual({
+      api_url: `GET /api/data/${COLLECTION}?title%5Beq%5D=x&sort=-title&limit=5`,
+      api_url_omits: [],
+    });
+  });
+
+  it('names the filters the API url cannot carry instead of dropping them silently', async () => {
+    const preview = async (config: Record<string, unknown>) => {
+      const res = await app.request(
+        '/api/saved-queries/preview-url',
+        json('POST', {
+          collection: COLLECTION,
+          config: { filter_groups: [], columns: [], sorts: [], limit: 5, ...config },
+        }),
+      );
+      expect(res.status).toBe(200);
+      return (await res.json()) as { api_url: string; api_url_omits: string[] };
+    };
+    const kept = { field: 'title', operator: 'equals', value: 'x' };
+    const between = { field: 'n', operator: 'between', value: [1, 2] };
+    const grouped = { field: 'title', operator: 'equals', value: 'y', group: 'g1' };
+    const and = await preview({ filters: [kept, between, grouped], filter_mode: 'AND' });
+    expect(and.api_url).toBe(`GET /api/data/${COLLECTION}?title%5Beq%5D=x&limit=5`);
+    expect(and.api_url_omits).toEqual(['n between', 'title equals (group g1)']);
+    // ORed filters written as brackets would be ANDed: none is written.
+    const or = await preview({ filters: [kept, { ...kept, value: 'z' }], filter_mode: 'OR' });
+    expect(or.api_url).toBe(`GET /api/data/${COLLECTION}?limit=5`);
+    expect(or.api_url_omits).toEqual(['title equals (OR)', 'title equals (OR)']);
   });
 
   it('saves a query (POST /) and returns an id', async () => {

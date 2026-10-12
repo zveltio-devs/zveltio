@@ -1,4 +1,4 @@
-import { WS_UNAUTHORIZED } from '../realtime.js';
+import { openWebSocket, WS_UNAUTHORIZED } from '../realtime.js';
 import type { RealtimeMessage } from '../types/index.js';
 
 type EventCallback = (message: RealtimeMessage) => void;
@@ -45,10 +45,7 @@ export class RealtimeClient {
     }
 
     const wsUrl = this.baseUrl.replace(/^http/, 'ws') + '/api/ws';
-    // The two-argument form with `{ headers }` is the Bun/undici extension.
-    const ws = this.headers
-      ? new WebSocket(wsUrl, { headers: this.headers } as unknown as string[])
-      : new WebSocket(wsUrl);
+    const ws = openWebSocket(wsUrl, this.headers);
     this.ws = ws;
     this.notifyStatus('connecting');
 

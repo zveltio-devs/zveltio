@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Lekérdezés neve *",
   "savedQueries.run": "Futtatás",
   "savedQueries.saved": "A lekérdezés mentve",
+  "savedQueries.urlOmits": "Ebből az URL-ből kimaradnak, így több sort ad vissza, mint a lekérdezés: {filters}",
   "savedQueries.selectOrCreate": "Válassz egy lekérdezést, vagy hozz létre újat",
   "savedQueries.shareAll": "Megosztás minden felhasználóval",
   "savedQueries.shared": "Megosztott",

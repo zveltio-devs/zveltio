@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Query name *",
   "savedQueries.run": "Run",
   "savedQueries.saved": "Query saved",
+  "savedQueries.urlOmits": "Not in this URL, so it returns more rows than the query: {filters}",
   "savedQueries.selectOrCreate": "Select a query or create a new one",
   "savedQueries.shareAll": "Share with all users",
   "savedQueries.shared": "Shared",

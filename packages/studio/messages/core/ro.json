@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Nume interogare *",
   "savedQueries.run": "Rulează",
   "savedQueries.saved": "Interogare salvată",
+  "savedQueries.urlOmits": "Lipsesc din acest URL, deci întoarce mai multe rânduri decât interogarea: {filters}",
   "savedQueries.selectOrCreate": "Selectează o interogare sau creează una nouă",
   "savedQueries.shareAll": "Partajează cu toți utilizatorii",
   "savedQueries.shared": "Partajate",

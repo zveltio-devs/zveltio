@@ -209,14 +209,38 @@ const API_OP: Record<string, string> = {
   is_not_null: 'not_null',
 };
 
-function generateApiUrl(collection: string, config: QueryConfig): string {
+/**
+ * The data API request closest to a saved query, and what it leaves out. The
+ * data API's `field[op]=value` syntax (lib/data/query-parse.ts) ANDs plain
+ * conditions: an operator with no bracket form (between, is_true, ...), a
+ * grouped filter and an OR between the ungrouped ones cannot be written in it.
+ * Those are named in `omitted`, so a caller copying the URL knows it returns
+ * more rows than the saved query does.
+ */
+function generateApiUrl(
+  collection: string,
+  config: QueryConfig,
+): { url: string; omitted: string[] } {
   const params = new URLSearchParams();
-  for (const filter of config.filters || []) {
-    if (filter.group) continue;
-    // The data API's `field[op]=value` syntax (lib/data/query-parse.ts). An
-    // operator it has no bracket form for (between, is_true, ...) is left out.
-    const op = API_OP[filter.operator];
-    if (!op) continue;
+  const omitted: string[] = [];
+  const filters = config.filters || [];
+  const ungrouped = filters.filter((f) => !f.group);
+  // OR between ungrouped filters: the bracket form would AND them instead.
+  const ored = config.filter_mode === 'OR' && ungrouped.length > 1;
+  if (ored) {
+    omitted.push(...ungrouped.map((f) => `${f.field} ${f.operator} (OR)`));
+  }
+  for (const filter of filters) {
+    if (filter.group) {
+      omitted.push(`${filter.field} ${filter.operator} (group ${filter.group})`);
+      continue;
+    }
+    if (ored) continue;
+    const op = Object.hasOwn(API_OP, filter.operator) ? API_OP[filter.operator] : undefined;
+    if (!op) {
+      omitted.push(`${filter.field} ${filter.operator}`);
+      continue;
+    }
     const value = Array.isArray(filter.value) ? filter.value.join(',') : String(filter.value ?? '');
     params.append(`${filter.field}[${op}]`, op === 'null' || op === 'not_null' ? 'true' : value);
   }
@@ -229,7 +253,7 @@ function generateApiUrl(collection: string, config: QueryConfig): string {
   params.append('limit', String(config.limit || 50));
   if (config.page && config.page > 1) params.append('page', String(config.page));
   const qs = params.toString();
-  return `GET /api/data/${collection}${qs ? '?' + qs : ''}`;
+  return { url: `GET /api/data/${collection}${qs ? '?' + qs : ''}`, omitted };
 }
 
 // ── Query executor ────────────────────────────────────────────────────────────
@@ -486,8 +510,13 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
           user,
           c.get('authType') ?? 'session',
         );
-        const apiUrl = generateApiUrl(data.collection, config);
-        return c.json({ collection: data.collection, api_url: apiUrl, ...result });
+        const { url, omitted } = generateApiUrl(data.collection, config);
+        return c.json({
+          collection: data.collection,
+          api_url: url,
+          api_url_omits: omitted,
+          ...result,
+        });
       } catch (err) {
         return c.json({ error: message(err) }, statusFor(err));
       }
@@ -509,7 +538,8 @@ export function savedQueriesRoutes(db: Database, auth: any): Hono {
         limit: data.config.limit,
         page: data.config.page,
       };
-      return c.json({ api_url: generateApiUrl(data.collection, config) });
+      const { url, omitted } = generateApiUrl(data.collection, config);
+      return c.json({ api_url: url, api_url_omits: omitted });
     },
   );
 

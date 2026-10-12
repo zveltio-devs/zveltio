@@ -5,6 +5,23 @@
  */
 export const WS_UNAUTHORIZED = 4001;
 
+/**
+ * A WebSocket that sends `headers` with the upgrade where the runtime can (the
+ * Bun/undici `{ headers }` second argument). A browser's constructor reads that
+ * argument as subprotocols and throws on an object, so there the socket opens
+ * without them and authenticates by the session cookie.
+ */
+export function openWebSocket(url: string, headers?: Record<string, string>): WebSocket {
+  if (headers && Object.keys(headers).length > 0) {
+    try {
+      return new WebSocket(url, { headers } as unknown as string[]);
+    } catch {
+      // A browser: no header can be set on a WebSocket.
+    }
+  }
+  return new WebSocket(url);
+}
+
 export class ZveltioRealtime {
   private ws: WebSocket | null = null;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -29,11 +46,7 @@ export class ZveltioRealtime {
 
   connect(): void {
     const wsUrl = `${this.baseUrl}/api/ws`;
-    // The two-argument form with `{ headers }` is the Bun/undici extension; the
-    // standard constructor stays in use when there is nothing to send.
-    this.ws = this.headers
-      ? new WebSocket(wsUrl, { headers: this.headers } as unknown as string[])
-      : new WebSocket(wsUrl);
+    this.ws = openWebSocket(wsUrl, this.headers);
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
