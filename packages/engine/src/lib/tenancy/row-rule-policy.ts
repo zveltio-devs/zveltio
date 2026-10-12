@@ -58,6 +58,8 @@ export interface GeneratedPolicy {
   predicate: string | null;
   /** Rules it cannot express — each enforced as `false` — with the reason. */
   skipped: Array<{ rule: RowRule; reason: string }>;
+  /** Columns the predicate names: Postgres will not drop one while the policy stands. */
+  columns: string[];
 }
 
 /** Column types whose text form casts back unambiguously. */
@@ -184,6 +186,7 @@ export function buildRowRulePredicate(
 ): GeneratedPolicy {
   const skipped: Array<{ rule: RowRule; reason: string }> = [];
   const terms: string[] = [];
+  const columns = new Set<string>();
   // Nothing stops two identical rows in `zvd_rls_policies`, and emitting the
   // same term twice is work the database does per row for no answer it did not
   // already have.
@@ -261,10 +264,11 @@ export function buildRowRulePredicate(
       condition = `${col} ${opSem.sql} ${value.sql}`;
     }
 
+    if (condition !== 'false') columns.add(rule.filter_field);
     terms.push(applicable(rule, condition, value.guc !== undefined));
   }
 
-  if (terms.length === 0) return { predicate: null, skipped };
+  if (terms.length === 0) return { predicate: null, skipped, columns: [] };
 
   // The exemption is a published decision, not a role-name comparison in the
   // predicate. The engine already works out whether this session is exempt —
@@ -274,7 +278,7 @@ export function buildRowRulePredicate(
   const exempt =
     `(SELECT lower(coalesce(nullif(current_setting('zveltio.rls_bypass', true), ''), 'off')) ` +
     `IN ('on', 'true', '1'))`;
-  return { predicate: `${exempt} OR (${terms.join(' AND ')})`, skipped };
+  return { predicate: `${exempt} OR (${terms.join(' AND ')})`, skipped, columns: [...columns] };
 }
 
 /**
@@ -379,6 +383,45 @@ export function describeRuleProblem(
   return null;
 }
 
+/** A table's columns and their types, as the policy is generated against. */
+async function columnTypes(db: Database, table: string): Promise<Record<string, string>> {
+  const cols = await sql<{ column_name: string; data_type: string }>`
+    SELECT column_name, data_type FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = ${table}
+  `.execute(db);
+  const types: Record<string, string> = {};
+  for (const c of cols.rows) types[c.column_name] = c.data_type;
+  return types;
+}
+
+/**
+ * The enabled `*` rules whose term in `collection`'s policy names `column`.
+ *
+ * Those are what stop Postgres dropping the column, and the field drop cannot
+ * take them along the way it takes the collection's own rules: deleting one
+ * lifts it from every collection, and rebuilding this table's policy without
+ * it lifts it here. So the drop is refused and the rule named instead. Decided
+ * by the same generator that writes the policy, so a rule that compiles to
+ * `false` here (a list that keeps nothing) does not block.
+ */
+export async function starRulesNamingColumn(
+  db: Database,
+  collection: string,
+  column: string,
+): Promise<string[]> {
+  const types = await columnTypes(db, `zvd_${collection}`);
+  if (!types[column]) return [];
+  const rules = await sql<RowRule & { id: string }>`
+    SELECT id, role, filter_field, filter_op, filter_value_source
+      FROM zvd_rls_policies
+     WHERE is_enabled AND collection = '*' AND filter_field = ${column}
+     ORDER BY id
+  `.execute(db);
+  return rules.rows
+    .filter((r) => buildRowRulePredicate([r], types).columns.includes(column))
+    .map((r) => String(r.id));
+}
+
 /** Policy name for a collection's row rules. One per table, replaced wholesale. */
 export const ROW_RULE_POLICY = 'zv_row_rules';
 
@@ -406,13 +449,7 @@ export async function applyRowRulePolicy(
   `.execute(db);
   if (exists.rows[0]?.n === '0') return { applied: false, skipped: [] };
 
-  const cols = await sql<{ column_name: string; data_type: string }>`
-    SELECT column_name, data_type FROM information_schema.columns
-     WHERE table_schema = 'public' AND table_name = ${table}
-  `.execute(db);
-  const types: Record<string, string> = {};
-  for (const c of cols.rows) types[c.column_name] = c.data_type;
-
+  const types = await columnTypes(db, table);
   const rules = await sql<RowRule>`
     SELECT role, filter_field, filter_op, filter_value_source
       FROM zvd_rls_policies

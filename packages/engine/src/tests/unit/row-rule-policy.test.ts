@@ -176,6 +176,10 @@ describe('row rules as a Postgres predicate', () => {
       );
       expect(notInEmpty.predicate).toContain('("bucket" IS NOT NULL)');
       expect(`${inEmpty.predicate}${notInEmpty.predicate}`).not.toContain('()');
+      // `columns` is what blocks a field drop: only a term that names the column.
+      expect(inEmpty.columns).toEqual([]);
+      expect(notInEmpty.columns).toEqual(['bucket']);
+      expect(buildRowRulePredicate([rule({ filter_field: 'gone' })], TYPES).columns).toEqual([]);
     });
   });
 
