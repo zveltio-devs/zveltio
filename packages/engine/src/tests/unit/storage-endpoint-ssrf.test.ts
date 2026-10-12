@@ -23,6 +23,15 @@ describe('validateStorageEndpoint', () => {
     expect(() => validateStorageEndpoint('http://[fd00:ec2::254]/')).toThrow();
   });
 
+  it('blocks metadata hostnames written with a trailing dot (same host to DNS)', () => {
+    expect(() => validateStorageEndpoint('http://metadata.google.internal./')).toThrow();
+    expect(() => validateStorageEndpoint('http://METADATA.azure.com../')).toThrow();
+  });
+
+  it('blocks Alibaba Cloud IMDS (100.100.100.200)', () => {
+    expect(() => validateStorageEndpoint('http://100.100.100.200/latest/meta-data/')).toThrow();
+  });
+
   it('blocks non-http(s) schemes', () => {
     expect(() => validateStorageEndpoint('file:///etc/passwd')).toThrow();
   });

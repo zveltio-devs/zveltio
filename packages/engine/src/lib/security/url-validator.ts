@@ -39,7 +39,9 @@ export function intToIPv4(n: number): string {
  *   ::ffff:7f00:0001    → 127.0.0.1  (IPv4-mapped IPv6, hex-word form)
  */
 export function normalizeHost(host: string): string {
-  const h = host.toLowerCase();
+  // A trailing dot names the same host to DNS (`metadata.google.internal.`)
+  // and would slip past every `$`-anchored pattern.
+  const h = host.toLowerCase().replace(/\.+$/, '');
 
   // IPv4-mapped IPv6 dotted: ::ffff:127.0.0.1
   let m = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
@@ -390,6 +392,7 @@ const METADATA_PATTERNS: RegExp[] = [
   // it cannot be inverted here (an object-storage endpoint is legitimately any
   // host), so the enumeration has to be right.
   /^192\.0\.0\.192$/,
+  /^100\.100\.100\.200$/, // Alibaba Cloud IMDS: in CGNAT space, so no private-range test names it
   /(^|\.)metadata\.google\.internal$/,
   /(^|\.)metadata\.azure\.com$/,
   /(^|\.)metadata\.oraclecloud\.com$/,
