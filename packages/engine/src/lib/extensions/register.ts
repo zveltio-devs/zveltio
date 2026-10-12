@@ -435,7 +435,7 @@ export function buildRestrictedContext(
     // reaching for `ctx.db` instead of `reqDb(c)` — the last multi-tenant hole.
     // Refused instead of the pool where the host opened no transaction on
     // purpose (`runAsTenantWithoutTransaction`, e.g. an AI task waiting on the
-    // model).
+    // model), and wherever a non-root firm is in scope with no transaction open.
     db: createRestrictedDb(
       () => getCurrentTenantTrx() ?? poolOrRefusal(ctx.db),
       extName,

@@ -274,9 +274,17 @@ export function runAsTenantWithoutTransaction<T>(tenantId: string, fn: () => T):
   return store.run({ domain: tenantId, refuseUnscoped: true }, fn);
 }
 
-/** `pool`, unless this context refuses unscoped queries. See above. */
+/**
+ * `pool`, unless this context refuses unscoped queries: one marked so (above),
+ * or one that names a firm other than the root one and holds no transaction — a
+ * `TXN_SKIP_PREFIXES` route, or the outer context an `onAfterCommit` job runs
+ * in. There the pool answers for the root firm, so an insert made for firm B
+ * took the column default and landed in root.
+ */
 export function poolOrRefusal(pool: Database): Database {
-  return store.getStore()?.refuseUnscoped ? UNSCOPED_REFUSED : pool;
+  const s = store.getStore();
+  if (!s || s.trx) return pool;
+  return s.refuseUnscoped || s.domain !== DEFAULT_TENANT_ID ? UNSCOPED_REFUSED : pool;
 }
 
 /**
