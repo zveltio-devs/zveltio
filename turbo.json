@@ -31,6 +31,7 @@
     "SHOT_DIR",
     // gates and release tooling
     "AUDIT_GATES_ONLY",
+    "AUDIT_INVENTORY_SKIP_PRIVATE",
     "BASE_REF",
     "RELEASE_GATE_SKIP_NETWORK",
     "REQUIRE_STUDIO_DIST",

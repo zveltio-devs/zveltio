@@ -66,6 +66,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         // `parseInt(tableCount)`, `parseInt('unknown')` is NaN, and `JSON.stringify`
         // renders NaN as `null` — so the field arrived as null anyway, by accident,
         // through a path nobody chose.
+        // fabricated-ok: null is "the count could not be read", and the response keeps it apart from a count.
         .catch(() => null),
       cache
         ? cache

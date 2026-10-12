@@ -36,6 +36,7 @@
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import ts from 'typescript';
 
 const ROOT = join(import.meta.dir, '..');
 const BASELINE = join(ROOT, 'quality-gates', 'fabricated-success.json');
@@ -57,36 +58,99 @@ const RUNTIME_INSTALL_DIR = join(ROOT, 'packages', 'engine', 'extensions');
 const LIST = process.argv.includes('--list');
 
 /**
- * A one-expression catch handler returning something that reads as data.
- *
- * `\(\s*\w*\s*\)` allows `.catch(() => …)` and `.catch((e) => …)`. The value must
- * open with `{`, `[`, `(`, a digit, a quote, `null`, `true` or `false` — a
- * fabricated result rather than a rethrow or a statement block.
- */
-const FABRICATED =
-  /\.catch\(\s*(?:async\s*)?\(\s*\w*\s*(?::[^)]*)?\)\s*=>\s*(\(|\{\s*\w|\[|null\b|true\b|false\b|\d|'|"|`)/;
-
-/** `.catch(() => {})`, `.catch(() => undefined)` — discarding, not inventing. */
-const DISCARDING =
-  /\.catch\(\s*(?:async\s*)?\(\s*\w*\s*(?::[^)]*)?\)\s*=>\s*(\{\s*\}|undefined\b|void\b)/;
-
-/**
  * Scoped to DATABASE calls, deliberately.
  *
- * Running the pattern over everything returns ~600 sites, almost all of them
+ * Running the check over every `.catch` returns ~600 sites, almost all of them
  * `await c.req.json().catch(() => ({}))` or `res.json().catch(() => ({}))` —
  * "the body was not JSON", which is a true statement about a request, not an
  * invented answer about the world. A gate that reports six hundred things is a
  * gate somebody switches off.
  *
  * Every instance the audit actually found was a query: `.execute(db)`,
- * `.executeTakeFirst()`, `sql\`…\``. That is the population this watches, and it
- * looks back a few lines because the idiomatic spelling puts `.execute(db)` and
- * `.catch(...)` on separate lines.
+ * `.executeTakeFirst()`, `sql\`…\``. That is the population this watches.
  */
 const QUERY_CALL =
   /\.execute\(|\.executeTakeFirst\(|\.executeTakeFirstOrThrow\(|\bsql`|\bsql<|\bsql\.raw\(/;
-const LOOKBACK = 4;
+
+/**
+ * Read on the syntax tree, not on lines.
+ *
+ * The first version matched one line with a regex and looked FOUR lines back for
+ * the query. The E02 review measured what that missed: a `.catch(() => [])` five
+ * lines below its `.execute(` — a `.then(…)` body in between is enough — and a
+ * handler extracted to a name, `.catch(emptyRows)`, which the inline-arrow
+ * pattern could not see at all. Here the query is looked for in the whole
+ * receiver of the `.catch`, however many lines it spans, and a named handler is
+ * followed to its declaration in the same file.
+ */
+type Decls = Map<string, ts.Node>;
+
+/** The value a handler hands back — data-shaped means invented. */
+function fabricated(e: ts.Expression, decls: Decls, depth = 0): boolean {
+  while (
+    ts.isParenthesizedExpression(e) ||
+    ts.isAsExpression(e) ||
+    ts.isSatisfiesExpression(e) ||
+    ts.isNonNullExpression(e) ||
+    ts.isAwaitExpression(e)
+  ) {
+    e = e.expression;
+  }
+  if (
+    ts.isArrayLiteralExpression(e) ||
+    ts.isObjectLiteralExpression(e) ||
+    ts.isNumericLiteral(e) ||
+    ts.isStringLiteral(e) ||
+    ts.isNoSubstitutionTemplateLiteral(e) ||
+    ts.isTemplateExpression(e)
+  ) {
+    return true;
+  }
+  const k = e.kind;
+  if (k === ts.SyntaxKind.NullKeyword || k === ts.SyntaxKind.TrueKeyword) return true;
+  if (k === ts.SyntaxKind.FalseKeyword) return true;
+  // `() => EMPTY` where `const EMPTY = { rows: [] }` — the same value, one name away.
+  if (ts.isIdentifier(e) && depth < 3) {
+    const d = decls.get(e.text);
+    if (d && ts.isVariableDeclaration(d) && d.initializer && !isFn(d.initializer)) {
+      return fabricated(d.initializer, decls, depth + 1);
+    }
+  }
+  return false;
+}
+
+function isFn(n: ts.Node): n is ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration {
+  return ts.isArrowFunction(n) || ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n);
+}
+
+/**
+ * Does this handler invent an answer?
+ *
+ * `() => {}` and `() => undefined` discard; a block that does anything besides
+ * return a value is "a decision someone wrote down" and is left alone. A block
+ * that is ONLY `return []` is the arrow form with braces, and is flagged.
+ */
+function handlerFabricates(h: ts.Node, decls: Decls, depth = 0): boolean {
+  if (ts.isIdentifier(h) && depth < 3) {
+    const d = decls.get(h.text);
+    if (!d) return false; // ponytail: imported handlers are not followed; same-file only
+    if (ts.isFunctionDeclaration(d)) return handlerFabricates(d, decls, depth + 1);
+    if (ts.isVariableDeclaration(d) && d.initializer) {
+      return handlerFabricates(d.initializer, decls, depth + 1);
+    }
+    return false;
+  }
+  if (!isFn(h) || !h.body) return false;
+  if (!ts.isBlock(h.body)) return fabricated(h.body, decls);
+  const [only, ...rest] = h.body.statements;
+  return (
+    rest.length === 0 &&
+    only !== undefined &&
+    ts.isReturnStatement(only) &&
+    only.expression !== undefined &&
+    fabricated(only.expression, decls)
+  );
+}
 
 function tsFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -119,12 +183,37 @@ for (const dir of DIRS) {
     const key = file.startsWith(`${ROOT}/`)
       ? file.slice(ROOT.length + 1)
       : `ext:${file.slice(file.indexOf('zveltio-extensions/') + 'zveltio-extensions/'.length)}`;
-    const lines = readFileSync(file, 'utf8').split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]!;
-      const t = line.trimStart();
-      if (t.startsWith('//') || t.startsWith('*')) continue;
-      if (DISCARDING.test(line)) continue;
+    const src = readFileSync(file, 'utf8');
+    if (!src.includes('.catch')) continue;
+    const lines = src.split('\n');
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    // Every named function and variable in the file, for `.catch(fallback)`.
+    const decls: Decls = new Map();
+    const catches: ts.CallExpression[] = [];
+    const visit = (n: ts.Node) => {
+      if ((ts.isFunctionDeclaration(n) || ts.isVariableDeclaration(n)) && n.name) {
+        if (ts.isIdentifier(n.name)) decls.set(n.name.text, n);
+      }
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === 'catch' &&
+        n.arguments.length > 0
+      ) {
+        catches.push(n);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    for (const call of catches) {
+      const pae = call.expression as ts.PropertyAccessExpression;
+      // The catch must belong to the query: the query is somewhere in what it is
+      // chained onto, however many lines that spans. Without this, a
+      // `c.req.json().catch(() => ({}))` anywhere in a file that also runs SQL was
+      // reported, which took the count from 30 to 259.
+      if (!QUERY_CALL.test(pae.expression.getText(sf))) continue;
+      if (!handlerFabricates(call.arguments[0]!, decls)) continue;
+      const i = sf.getLineAndCharacterOfPosition(pae.name.getStart(sf)).line;
       // `// fabricated-ok: <reason>` on the line above marks a site that WAS reviewed
       // and deliberately kept — a fallback that states something true, like a health
       // check answering "disconnected" because the database is, or a guard whose
@@ -135,19 +224,7 @@ for (const dir of DIRS) {
       // The reason is required and is not decoration: it is what the next person reads
       // instead of re-deriving the judgement.
       if (REVIEWED_OK.test(lines[i - 1] ?? '')) continue;
-      if (!FABRICATED.test(line)) continue;
-      // The catch must belong to the query, not merely live near one. Either the
-      // same line performs it (`await q.execute(db).catch(...)`), or the line IS
-      // the continuation of a query chain — a bare `.catch(` under an `.execute(`.
-      // Without this, a `c.req.json().catch(() => ({}))` anywhere in a file that
-      // also runs SQL was reported, which took the count from 30 to 259 and would
-      // have made the gate worthless.
-      const sameLine = QUERY_CALL.test(line);
-      const chained =
-        t.startsWith('.catch(') &&
-        QUERY_CALL.test(lines.slice(Math.max(0, i - LOOKBACK), i).join('\n'));
-      if (!sameLine && !chained) continue;
-      findings.push({ key, line: i + 1, text: t.slice(0, 100) });
+      findings.push({ key, line: i + 1, text: lines[i]!.trim().slice(0, 100) });
     }
   }
 }

@@ -117,6 +117,50 @@ const CURLY = (inner: string) => '$' + '{' + inner + '}';
  */
 const ANY_MARKER = 'biome-' + 'ignore lint/suspicious/noExplicitAny';
 
+/**
+ * The audit-regression wrapper, shared by its two cases: one renames every
+ * `auditLog(` call in a mandatory handler, the other (`--commented-out`)
+ * comments them out.
+ */
+const AUDIT_REGRESSION_PLANT = [
+  "import { readFileSync, writeFileSync } from 'node:fs';",
+  '',
+  "const TARGET = 'packages/engine/src/routes/admin/system-routes.ts';",
+  "const original = readFileSync(TARGET, 'utf8');",
+  '',
+  '// `audit-inventory.ts` writes a markdown matrix into the private sibling repo',
+  "// as a side effect; a probe must not rewrite somebody else's tree, so it is",
+  '// told not to. (This used to read and restore docs/platform/audit-coverage.md,',
+  '// which had moved: the read threw, and the throw was counted as the gate',
+  '// catching its violation — found 2026-10-12, E02.)',
+  "const env = { ...process.env, AUDIT_INVENTORY_SKIP_PRIVATE: '1' };",
+  '',
+  'let code = 1;',
+  'try {',
+  '  // Neutralise every audit call in the file: renamed, or commented out.',
+  "  const to = process.argv.includes('--commented-out') ? '// auditLog(' : 'noAuditPlanted(';",
+  "  writeFileSync(TARGET, original.replaceAll('auditLog(', to));",
+  "  const inv = Bun.spawnSync(['bun', 'run', 'scripts/audit-inventory.ts'], {",
+  '    env,',
+  "    stdout: 'inherit',",
+  "    stderr: 'inherit',",
+  '  });',
+  '  if (inv.exitCode !== 0) {',
+  '    code = inv.exitCode ?? 1;',
+  '  } else {',
+  "    const res = Bun.spawnSync(['bun', 'run', 'scripts/audit-regression-check.ts'], {",
+  "      stdout: 'inherit',",
+  "      stderr: 'inherit',",
+  '    });',
+  '    code = res.exitCode ?? 1;',
+  '  }',
+  '} finally {',
+  '  writeFileSync(TARGET, original);',
+  '}',
+  'process.exit(code);',
+  '',
+].join('\n');
+
 const CASES: Case[] = [
   {
     // The meta-gate, on itself. Nothing proved that IT would notice a gate that
@@ -233,45 +277,21 @@ const CASES: Case[] = [
     // handler, runs the two real commands CI runs, restores the file in a
     // `finally`, and answers with the gate's own exit code.
     gate: 'audit-regression-check',
+    expect: 'have no auditLog() call',
     cmd: 'bun run scripts/plant-audit-regression.ts',
     proves: ['scripts/audit-regression-check.ts', 'scripts/audit-inventory.ts'],
     file: 'scripts/plant-audit-regression.ts',
-    body: [
-      "import { readFileSync, writeFileSync } from 'node:fs';",
-      '',
-      "const TARGET = 'packages/engine/src/routes/admin/system-routes.ts';",
-      "const original = readFileSync(TARGET, 'utf8');",
-      '',
-      '// `audit-inventory.ts` rewrites this as a side effect, so it is held and',
-      '// put back too — a probe that leaves the tree dirty is a probe that will',
-      '// eventually be committed by accident.',
-      "const COVERAGE_DOC = 'docs/platform/audit-coverage.md';",
-      "const coverageDoc = readFileSync(COVERAGE_DOC, 'utf8');",
-      '',
-      'let code = 1;',
-      'try {',
-      '  // Neutralise every audit call in the file without changing its shape.',
-      "  writeFileSync(TARGET, original.replaceAll('auditLog(', 'noAuditPlanted('));",
-      "  const inv = Bun.spawnSync(['bun', 'run', 'scripts/audit-inventory.ts'], {",
-      "    stdout: 'inherit',",
-      "    stderr: 'inherit',",
-      '  });',
-      '  if (inv.exitCode !== 0) {',
-      '    code = inv.exitCode ?? 1;',
-      '  } else {',
-      "    const res = Bun.spawnSync(['bun', 'run', 'scripts/audit-regression-check.ts'], {",
-      "      stdout: 'inherit',",
-      "      stderr: 'inherit',",
-      '    });',
-      '    code = res.exitCode ?? 1;',
-      '  }',
-      '} finally {',
-      '  writeFileSync(TARGET, original);',
-      '  writeFileSync(COVERAGE_DOC, coverageDoc);',
-      '}',
-      'process.exit(code);',
-      '',
-    ].join('\n'),
+    body: AUDIT_REGRESSION_PLANT,
+  },
+  {
+    // The call commented out rather than renamed. `// await auditLog(…)` used to
+    // count as the handler being audited, so the compliance report said yes.
+    gate: 'audit-regression-check (commented-out call)',
+    expect: 'have no auditLog() call',
+    cmd: 'bun run scripts/plant-audit-regression.ts --commented-out',
+    proves: ['scripts/audit-regression-check.ts', 'scripts/audit-inventory.ts'],
+    file: 'scripts/plant-audit-regression.ts',
+    body: AUDIT_REGRESSION_PLANT,
   },
   {
     // A test run must not leave collections or ghost tables behind. The
@@ -457,6 +477,20 @@ const CASES: Case[] = [
     ].join('\n'),
   },
   {
+    // `Bun.env` is the same object under the runtime's own name, and the
+    // spelling AGENTS.md steers contributors toward. A `process.env`-only
+    // pattern let it through.
+    gate: 'check-ambient-authority (Bun.env)',
+    cmd: 'bun run scripts/check-ambient-authority.ts',
+    file: '../zveltio-extensions/search/engine/plant-ambient-bun.ts',
+    body: [
+      'export function plantAmbient(): string | undefined {',
+      '  return Bun.env.DATABASE_URL;',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  {
     // The embedded worker runtime must be the one in the repository. It is
     // generated from this source and carries its hash, so touching the source
     // without regenerating is exactly the drift the gate exists for.
@@ -522,6 +556,27 @@ const CASES: Case[] = [
     ].join('\n'),
   },
   {
+    // The same collision, in an extension the gate cannot open. A missing
+    // sibling used to drop 75 of 112 route files and still print the all-clear,
+    // so this runs with the sibling pointed at nothing: the answer must be a
+    // refusal, never "no collisions".
+    gate: 'route-collision-check (sibling missing)',
+    expect: '[route-collision] FAIL',
+    cmd: 'EXTENSIONS_ROOT=/nonexistent-zveltio-extensions bun run scripts/route-collision-check.ts',
+    file: '../zveltio-extensions/search/engine/plant-collision-routes.ts',
+    body: [
+      "import { Hono } from 'hono';",
+      '',
+      'export function plantCollisionRoutes(): Hono {',
+      '  const app = new Hono();',
+      "  app.get('/:id', (c) => c.json({ id: c.req.param('id') }));",
+      "  app.get('/dlq', (c) => c.json({ ok: true }));",
+      '  return app;',
+      '}',
+      '',
+    ].join('\n'),
+  },
+  {
     // A router built on `poolDb` needs a SECOND connection while the request is
     // already holding one for its tenant transaction. At `c = DB_POOL_MAX` the
     // second can never arrive, so the instance stops rather than slows — which
@@ -539,7 +594,7 @@ const CASES: Case[] = [
   },
   {
     // The `.catch` must swallow a QUERY — the gate looks for `.execute(` or a
-    // `sql` template within four lines. A `.catch` on any other call is not the
+    // `sql` template in what the `.catch` is chained onto. A `.catch` on any other call is not the
     // thing it is hunting, and a first version of this probe planted exactly
     // that and reported a working gate as decoration.
     gate: 'check-fabricated-success',
@@ -549,6 +604,36 @@ const CASES: Case[] = [
       "import { sql } from 'kysely';\n" +
       'export async function probe(db: unknown) {\n' +
       '  return sql`SELECT 1`.execute(db as never).catch(() => ({ rows: [] }));\n}\n',
+  },
+  {
+    // The catch far below its query. The gate used to look four lines back, so
+    // a `.then(…)` body in between hid the same `.catch(() => [])` (E02).
+    gate: 'check-fabricated-success (catch far from query)',
+    cmd: 'bun run scripts/check-fabricated-success.ts',
+    file: 'packages/engine/src/lib/__gate_probe.ts',
+    body:
+      "import { sql } from 'kysely';\n" +
+      'export async function probe(db: unknown) {\n' +
+      '  return sql`SELECT 1`\n' +
+      '    .execute(db as never)\n' +
+      '    .then((r) => {\n' +
+      '      const rows = r.rows;\n' +
+      '      // long enough to push the catch\n' +
+      '      // past any fixed line window\n' +
+      '      return rows;\n' +
+      '    })\n' +
+      '    .catch(() => []);\n}\n',
+  },
+  {
+    // The fallback extracted to a name: no inline arrow for a pattern to see.
+    gate: 'check-fabricated-success (named fallback)',
+    cmd: 'bun run scripts/check-fabricated-success.ts',
+    file: 'packages/engine/src/lib/__gate_probe.ts',
+    body:
+      "import { sql } from 'kysely';\n" +
+      'const noRows = () => ({ rows: [] });\n' +
+      'export async function probe(db: unknown) {\n' +
+      '  return sql`SELECT 1`.execute(db as never).catch(noRows);\n}\n',
   },
   {
     // A route handler reaching for a tenant table on `poolDb` — the handle with
@@ -654,6 +739,14 @@ const CASES: Case[] = [
     body: "export function total(row: { amount: string }) {\n  return '0' + row.amount;\n}\n",
   },
   {
+    // The string on the left: `row.amount + 1` concatenates to '101' as surely
+    // as `'0' + row.amount` does.
+    gate: 'check-numeric-string-arithmetic (string on the left)',
+    cmd: 'bun run scripts/check-numeric-string-arithmetic.ts',
+    file: 'packages/engine/src/lib/__gate_probe.ts',
+    body: 'export function total(row: { amount: string }) {\n  return row.amount + 1;\n}\n',
+  },
+  {
     // An environment variable read by the engine and documented nowhere. The
     // plant is a NEW name, because the gate is a ratchet over a baseline that is
     // currently empty — the 59 that existed are all documented now.
@@ -741,6 +834,17 @@ const CASES: Case[] = [
     body:
       'export const probe = (user: string, checkPermission: Function) =>\n' +
       "  checkPermission(user, 'admin', '*');\n",
+  },
+  {
+    // The same call as a formatter writes it once it is long: wrapped across
+    // lines, double-quoted. A one-line, single-quote pattern passed it as
+    // "none new" (planted 2026-10-11).
+    gate: 'admin-gate-check (wrapped double-quoted call)',
+    cmd: 'bun run scripts/admin-gate-check.ts',
+    file: 'packages/engine/src/routes/__gate_probe_admin.ts',
+    body:
+      'export const probe = (user: string, checkPermission: Function) =>\n' +
+      '  checkPermission(\n    user,\n    "admin",\n    "*",\n  );\n',
   },
   {
     // A deep import past a subsystem barrel (H-08). `lib/tenancy` ships an
@@ -955,6 +1059,32 @@ export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
     file: '.github/workflows/ci.yml',
     body: '\n        run: bun run scripts/__gate_probe_uncovered.ts\n',
     mode: 'append',
+  },
+  {
+    // `bun scripts/x.ts` runs a script exactly as `bun run` does, and a step
+    // written that way was invisible to the inventory (a studio gate sat
+    // unproved behind it until 2026-10-02).
+    gate: 'check-gate-coverage (bun without run)',
+    cmd: 'bun run scripts/check-gate-coverage.ts',
+    file: '.github/workflows/ci.yml',
+    body: '\n        run: bun scripts/gate-probe-uncovered-direct.ts\n',
+    mode: 'append',
+  },
+  {
+    // A proved gate with one planted shape and no recorded reason. One case
+    // proves a gate runs, not that it covers its rule — the E02 review measured
+    // six certified gates going green on a second shape. Planted by deleting one
+    // `single_shape` entry; `replace` puts the baseline back byte for byte.
+    gate: 'check-gate-coverage (single shape unexplained)',
+    expect: 'has ONE planted case',
+    cmd: 'bun run scripts/check-gate-coverage.ts',
+    file: 'quality-gates/gate-coverage.json',
+    mode: 'replace',
+    body: (() => {
+      const j = JSON.parse(readFileSync('quality-gates/gate-coverage.json', 'utf8'));
+      delete j.single_shape['scripts/any-ratchet.ts'];
+      return JSON.stringify(j, null, 2);
+    })(),
   },
 ];
 /**

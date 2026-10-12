@@ -26,6 +26,11 @@
  * CI entirely because it lived only in `prepush`, and `prepush` is wired to no
  * git hook at all.
  *
+ * ONE PLANT IS NOT COVERAGE. A gate with a single planted case is proved to
+ * run, not to cover its rule (E02, 2026-10-12: six certified gates went green on
+ * a second shape). So each proved gate needs two cases, or a `single_shape`
+ * entry saying why its rule has one shape or which second shape is unplanted.
+ *
  * Fail-closed everywhere. No workflows found, no cases parsed, baseline
  * missing — all exit non-zero. A gate that cannot check must not report OK;
  * that is the exact shape this block exists to remove.
@@ -55,8 +60,10 @@ if (!existsSync(WORKFLOWS)) die(`no workflows directory: ${WORKFLOWS}`);
 const baseline = JSON.parse(readFileSync(BASELINE, 'utf8')) as {
   not_a_gate: Record<string, string>;
   uncovered: Record<string, string>;
+  single_shape: Record<string, string>;
 };
-if (!baseline.not_a_gate || !baseline.uncovered) die('baseline is missing a required section');
+if (!baseline.not_a_gate || !baseline.uncovered || !baseline.single_shape)
+  die('baseline is missing a required section');
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   scripts: Record<string, string>;
@@ -117,33 +124,44 @@ if (ciScripts.size === 0)
 
 // ── What the meta-gate proves ──────────────────────────────────────────────
 const auditSrc = readFileSync(AUDIT, 'utf8');
-const covered = new Set<string>();
+// How many cases plant each gate's violation. One case proves the gate exists,
+// not that it covers its rule: the E02 review measured six gates that each
+// went green on a SECOND shape of the defect they name, while this file
+// certified them. So the count is kept, and a gate with one shape must say why
+// (`single_shape` in the baseline).
+const shapes = new Map<string, number>();
+const count = (found: Iterable<string>) => {
+  for (const s of new Set(found)) shapes.set(s, (shapes.get(s) ?? 0) + 1);
+};
 // A case may exercise a gate through a wrapper — seeding a row, or removing a
 // call and restoring it. The command then names the wrapper, not the gate, so
 // the case declares the gate in `proves` and it is read here. Declared, not
 // inferred: a checker that guessed at indirection would credit any wrapper.
 for (const m of auditSrc.matchAll(/proves: \[([^\]]+)\]/g)) {
-  for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
+  count(m[1]!.match(SCRIPT_RE) ?? []);
 }
 
 // Backtick commands too. A case written as a template literal was invisible
 // here and read as "no case at all" — the checker said a proven gate was
 // unproven, which is the failure mode that wastes the most time.
 for (const m of auditSrc.matchAll(/cmd: `([^`]+)`/g)) {
-  for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
-  for (const r of m[1]!.matchAll(/bun run ([a-z0-9:.-]+)/g)) covered.add(r[1]!);
+  count([
+    ...(m[1]!.match(SCRIPT_RE) ?? []),
+    ...[...m[1]!.matchAll(/bun run ([a-z0-9:.-]+)/g)].map((r) => r[1]!),
+  ]);
 }
 
 for (const m of auditSrc.matchAll(/cmd: '([^']+)'/g)) {
-  for (const s of m[1]!.match(SCRIPT_RE) ?? []) covered.add(s);
-  for (const r of m[1]!.matchAll(/bun run ([a-z0-9:.-]+)/g)) {
-    for (const s of resolve(r[1]!)) covered.add(s);
-  }
+  count([
+    ...(m[1]!.match(SCRIPT_RE) ?? []),
+    ...[...m[1]!.matchAll(/bun run ([a-z0-9:.-]+)/g)].flatMap((r) => resolve(r[1]!)),
+  ]);
 }
+const covered = new Set(shapes.keys());
 if (covered.size === 0)
   die('audit-gates.ts yielded no cases — the parse broke, or every case is gone');
 
-// ── The three ways this can fail ───────────────────────────────────────────
+// ── The ways this can fail ─────────────────────────────────────────────────
 const problems: string[] = [];
 
 // 1. A gate CI runs that is neither proved nor excused. This is the new-gate case.
@@ -169,9 +187,28 @@ for (const s of Object.keys(baseline.uncovered).sort()) {
   }
 }
 
+// 2b. A proved gate with ONE planted shape and no reason recorded for it.
+for (const s of [...ciScripts].sort()) {
+  const n = shapes.get(s) ?? 0;
+  if (n === 1 && !(s in baseline.single_shape)) {
+    problems.push(
+      `  ${s}\n` +
+        `      has ONE planted case. That proves the gate runs, not that it covers its rule.\n` +
+        `      Plant a second shape of the defect (name it 'gate (shape)', like\n` +
+        `      'check-raw-sql-identifiers (multi-line call)'), or record in "single_shape"\n` +
+        `      why its rule has one shape, or which second shape is not yet planted.`,
+    );
+  }
+  if (n >= 2 && s in baseline.single_shape) {
+    problems.push(
+      `  ${s}\n      now has ${n} planted shapes — remove it from "single_shape" in the baseline.`,
+    );
+  }
+}
+
 // 3. A baseline entry naming a script that no longer exists. Left alone it is a
 //    permanent excuse for nothing, and it hides the entry that replaced it.
-for (const section of ['not_a_gate', 'uncovered'] as const) {
+for (const section of ['not_a_gate', 'uncovered', 'single_shape'] as const) {
   for (const s of Object.keys(baseline[section]).sort()) {
     if (!existsSync(join(ROOT, s))) {
       problems.push(
@@ -189,8 +226,10 @@ if (problems.length > 0) {
 
 const proven = [...ciScripts].filter((s) => covered.has(s)).length;
 const excused = [...ciScripts].filter((s) => s in baseline.uncovered).length;
+const multi = [...ciScripts].filter((s) => (shapes.get(s) ?? 0) >= 2).length;
 console.log(
   `[gate-coverage] OK — ${ciScripts.size} scripts run in CI: ` +
-    `${proven} proved by planting, ${excused} recorded as unproven with a reason, ` +
+    `${proven} proved by planting (${multi} with two or more shapes, ` +
+    `${proven - multi} single-shape with a reason), ${excused} recorded as unproven with a reason, ` +
     `${Object.keys(baseline.not_a_gate).length} declared not gates.`,
 );
