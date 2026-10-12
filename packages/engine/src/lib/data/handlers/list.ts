@@ -241,7 +241,12 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
           const raw = JSON.parse(query.filter) as Record<string, JsonValue>;
           for (const [key, value] of Object.entries(raw)) {
             if (typeof value === 'object' && value !== null) {
-              const [op, val] = Object.entries(value)[0] as [string, JsonValue];
+              // An empty operator object is skipped, as parseFilters skips it.
+              // Destructured unguarded it threw into the catch below, which
+              // dropped every filter after it — a broader result with a 200.
+              const entry = Object.entries(value)[0];
+              if (!entry) continue;
+              const [op, val] = entry as [string, JsonValue];
               vFilters.push({ field: key, op, value: val });
             } else {
               vFilters.push({ field: key, op: 'eq', value });
