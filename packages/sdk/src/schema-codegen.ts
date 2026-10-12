@@ -481,7 +481,7 @@ export const CORE_FIELD_TS_TYPES: Readonly<Record<string, string>> = {
   smallint: 'number',
   real: 'number',
   decimal: 'number',
-  money: 'number',
+  money: 'string',
   varchar: 'string',
   char: 'string',
   time: 'string',
@@ -495,12 +495,12 @@ export const CORE_FIELD_TS_TYPES: Readonly<Record<string, string>> = {
   xml: 'string',
   bit: 'string',
   varbit: 'string',
-  int4range: '{ lower: number; upper: number }',
-  int8range: '{ lower: number; upper: number }',
-  numrange: '{ lower: number; upper: number }',
-  daterange: '{ lower: string; upper: string }',
-  tsrange: '{ lower: string; upper: string }',
-  tstzrange: '{ lower: string; upper: string }',
+  int4range: 'string',
+  int8range: 'string',
+  numrange: 'string',
+  daterange: 'string',
+  tsrange: 'string',
+  tstzrange: 'string',
 };
 
 export interface CollectionShape {
