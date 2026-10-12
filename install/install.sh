@@ -781,7 +781,7 @@ KMSEOF
       || apt-get install -y -qq policykit-1
     "${ZVELTIO_DIR}/zveltio" ext-runner setup --engine-user "${ZVELTIO_USER}" --dir "${ZVELTIO_DIR}"
   else
-    warn "No compiled binary — worker extensions stay in-process (no extension runner)."
+    warn "No compiled binary — no extension runner: worker-isolated (third-party) extensions will not load."
   fi
 
   cat > /etc/systemd/system/zveltio.service << EOF
