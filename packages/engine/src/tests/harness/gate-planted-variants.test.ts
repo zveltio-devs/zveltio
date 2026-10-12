@@ -36,7 +36,15 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -254,8 +262,21 @@ describe('check-pooldb-txn-skip does not read the array’s comments as entries'
 describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', () => {
   const GATE = 'check-tenant-table-on-pool.ts';
 
-  function root(routeBody: string): string {
+  // The gate parses with `typescript`, and refuses a tree where `registerCoreRoutes`
+  // hands the pool to no router — so the fake repo gets both.
+  const MOUNT =
+    "import { mountedRoutes } from './mounted.js';\n" +
+    'export function registerCoreRoutes(ctx: C) {\n  const { poolDb } = ctx;\n  mountedRoutes(poolDb);\n}\n';
+
+  function root(routeBody: string, index = MOUNT): string {
     const r = fakeRoot(GATE);
+    symlinkSync(join(REPO, 'node_modules'), join(r, 'node_modules'));
+    write(r, 'packages/engine/src/routes/index.ts', index);
+    write(
+      r,
+      'packages/engine/src/routes/mounted.ts',
+      'export const mountedRoutes = (db: D) => db;\n',
+    );
     write(
       r,
       'packages/engine/src/db/schema.ts',
@@ -325,7 +346,7 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
       expect(code).toBe(0);
       // The reach, printed. A gate reporting OK over an empty match set is the
       // thing this number exists to make visible.
-      expect(out).toContain('1 `poolDb.` query site(s)');
+      expect(out).toContain('1 query site(s) on it');
     } finally {
       rmSync(r, { recursive: true, force: true });
     }
@@ -372,6 +393,54 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
       }
     });
   }
+
+  // `backupRoutes(poolDb)` is `function backupRoutes(db)` inside: the gate matched
+  // the text `poolDb.` and never judged one of its sites (ledger E01).
+  it('follows the pool into a router that names its parameter `db`', async () => {
+    const r = root(
+      "export function probeRoutes(db: D) {\n  return db.selectFrom('zv_api_keys').execute();\n}\n",
+      "import { probeRoutes } from './probe.js';\n" +
+        'export function registerCoreRoutes(ctx: C) {\n  const { db, poolDb } = ctx;\n' +
+        '  probeRoutes(poolDb);\n}\n',
+    );
+    try {
+      const { code, out } = await run(r, GATE);
+      expect(out).toContain('probe.ts:2  zv_api_keys');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('does not follow the request handle, nor a pool name an inner scope shadows', async () => {
+    const r = root(
+      "export function probeRoutes(db: D) {\n  const g = (db: D) => db.selectFrom('zv_api_keys');\n" +
+        "  return [g, db.selectFrom('zv_tenants')];\n}\n" +
+        "export const scopedRoutes = (db: D) => db.selectFrom('zv_api_keys');\n",
+      "import { probeRoutes, scopedRoutes } from './probe.js';\n" +
+        'export function registerCoreRoutes(ctx: C) {\n  const { db, poolDb } = ctx;\n' +
+        '  probeRoutes(poolDb);\n  scopedRoutes(db);\n}\n',
+    );
+    try {
+      expect((await run(r, GATE)).code).toBe(0);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to pass when no router receives the pool', async () => {
+    const r = root(
+      "export const p = (poolDb: D) => poolDb.selectFrom('zv_tenants').execute();\n",
+      'export function registerCoreRoutes() {}\n',
+    );
+    try {
+      const { code, out } = await run(r, GATE);
+      expect(out).toContain('hands the pool to no router');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(r, { recursive: true, force: true });
+    }
+  });
 
   it('does NOT fire on a raw template run on the request handle, or on a table with no tenant', async () => {
     const r = root(
