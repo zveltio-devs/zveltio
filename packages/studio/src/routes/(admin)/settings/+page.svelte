@@ -106,8 +106,9 @@ async function loadRateLimiting() {
     rlTierNames = res?.tiers ?? [];
     rlTenantAdmins = res?.tenant_admins_may_limit === true;
   } catch (err) {
-    // Limits are god's; a tenant admin sees its own tenant's instead.
-    if (await loadOwnLimits()) return;
+    // Limits are god's; a tenant admin (refused with 403) sees its own
+    // tenant's instead. Any other failure is shown as one, not as that view.
+    if ((err as { status?: number }).status === 403 && (await loadOwnLimits())) return;
     // A 403 or a 500 read exactly like the pre-migration case — the tier table
     // came back empty and the tab said "no rate limits configured", which is
     // also what a working instance with none looks like.
