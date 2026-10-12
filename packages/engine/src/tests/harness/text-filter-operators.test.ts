@@ -105,6 +105,22 @@ d('text filter operators (in-process)', () => {
     });
   }
 
+  // An operator the API does not know is skipped. The operator table is an
+  // object literal, so a name it inherits from Object.prototype used to look
+  // known: the filter carried a function as its operator and the list answered 500.
+  for (const op of ['bogus', 'constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    it(`data API: an unknown operator ${op} is skipped, bracket and JSON`, async () => {
+      const all = [...LABELS, null].sort();
+      expect(await viaApi(op, 'x')).toEqual(all);
+      const qs = new URLSearchParams({
+        filter: JSON.stringify({ label: { [op]: 'x' } }),
+        limit: '100',
+      });
+      const res = await app.request(`/api/data/${COLLECTION}?${qs}`, { headers: { cookie } });
+      expect(await labels(res)).toEqual(all);
+    });
+  }
+
   it('saved query: a malformed in is refused, not compared with the column name', async () => {
     const res = await viaSavedQuery('in', 'label');
     expect(res.status).toBe(400);

@@ -71,6 +71,14 @@ const OP_ALIAS: Record<string, FilterCondition['op']> = {
   is_not_null: 'not_null',
 };
 
+/** The canonical op for a client-facing name, or undefined. Own keys only: a
+ * plain lookup also answered `constructor`, `toString` or `__proto__` with what
+ * the object inherits, and that function became the filter's operator — a 500
+ * from `buildCondition` on `?title[constructor]=x` instead of a skipped filter. */
+function mapOp(op: string): FilterCondition['op'] | undefined {
+  return Object.hasOwn(OP_ALIAS, op) ? OP_ALIAS[op] : undefined;
+}
+
 const BRACKET_RE = /^([a-zA-Z_][a-zA-Z0-9_]*)\[([a-zA-Z_]+)\]$/;
 const NUMERIC_OPS = new Set<FilterCondition['op']>(['gt', 'gte', 'lt', 'lte']);
 
@@ -109,7 +117,7 @@ export function parseFilters(
     if (!m) continue;
     const [, field, op] = m;
     if (!allowedCols.has(field)) continue; // silently skip unknown fields
-    const mappedOp = OP_ALIAS[op];
+    const mappedOp = mapOp(op);
     if (!mappedOp) continue;
     // Coerce numeric-looking values to numbers for comparison operators
     // A query string has no arrays, so `tag[in]=a,b` is the list a,b.
@@ -142,7 +150,7 @@ export function parseFilters(
           const entry = Object.entries(value)[0];
           if (!entry) continue; // empty operator object — ignore this field
           const [op, val] = entry as [string, JsonValue];
-          const mappedOp = OP_ALIAS[op];
+          const mappedOp = mapOp(op);
           if (mappedOp) filters[key] = { op: mappedOp, value: val };
         } else {
           filters[key] = { op: 'eq', value };

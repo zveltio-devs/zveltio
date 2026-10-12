@@ -83,4 +83,21 @@ d('data virtual list malformed filter JSON (in-process)', () => {
     const body = (await res.json()) as { records: Array<{ title?: string }> };
     expect(body.records[0]?.title).toBe('ok');
   });
+  // An empty operator object (`{"id":{}}`) threw on the destructure into the
+  // catch above, which dropped every filter after it: a BROADER result with a 200.
+  it('skips an empty operator object and keeps the filters after it', async () => {
+    originalFetch = globalThis.fetch;
+    let dialed = '';
+    globalThis.fetch = (async (url: string | URL) => {
+      dialed = String(url);
+      return { ok: true, status: 200, json: async () => ({ items: [], total: 0 }) };
+    }) as unknown as typeof fetch;
+
+    const filter = JSON.stringify({ id: {}, title: { eq: 'kept' } });
+    const res = await app.request(`/api/data/${COLLECTION}?filter=${encodeURIComponent(filter)}`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    expect(new URL(dialed).searchParams.get('name')).toBe('kept');
+  });
 });
