@@ -171,6 +171,24 @@ describe('check-migration-safety refuses a verdict its linter never gave', () =>
     }
   });
 
+  // The extensions repo runs this gate too. Its `001_initial.sql` files install
+  // onto a populated instance, so the engine baseline's exemption is not theirs.
+  it('lints an extension 001_initial.sql that carries the baseline marker', async () => {
+    const finding = JSON.stringify([
+      { file: 'x', line: 1, rule_name: 'adding-required-field', level: 'Error', message: 'm' },
+    ]);
+    const root = await rootWithLinter(`console.log(${JSON.stringify(finding)});\n`);
+    try {
+      write(root, 'crm/engine/migrations/001_initial.sql', `-- BASELINE SQUASH\n${HAZARD}`);
+      const { code, out } = await run(root, GATE, ['crm/engine/migrations/001_initial.sql']);
+      expect(out).not.toContain('baseline squash');
+      expect(out).toContain('[adding-required-field]');
+      expect(code).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   // Squawk's lock-timeout rule is off for every file because the runner sets
   // lock_timeout in its transaction — which a NO TRANSACTION file never gets.
   it('refuses a non-CONCURRENTLY statement in a NO TRANSACTION file', async () => {
