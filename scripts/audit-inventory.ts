@@ -190,7 +190,11 @@ async function main() {
   }
 
   const privateDir = PRIVATE_MD.slice(0, PRIVATE_MD.lastIndexOf('/'));
-  if (existsSync(privateDir)) {
+  // AUDIT_INVENTORY_SKIP_PRIVATE: set by the audit-gates probe, which plants an
+  // unaudited handler and must not write that state into the private repository.
+  if (process.env.AUDIT_INVENTORY_SKIP_PRIVATE === '1') {
+    console.log(`  → skipped ${PRIVATE_MD} (AUDIT_INVENTORY_SKIP_PRIVATE=1)`);
+  } else if (existsSync(privateDir)) {
     await writeFile(PRIVATE_MD, md.join('\n') + '\n');
   } else {
     console.log(`  → skipped ${PRIVATE_MD} (no private repository beside this one)`);
@@ -212,7 +216,8 @@ async function main() {
   console.log(
     `✓ ${all.length} mutating handlers — ${covered.length} audited (${totalPct}%), ${gaps.length} gaps`,
   );
-  if (existsSync(PRIVATE_MD)) console.log(`  → ${PRIVATE_MD}`);
+  if (process.env.AUDIT_INVENTORY_SKIP_PRIVATE !== '1' && existsSync(PRIVATE_MD))
+    console.log(`  → ${PRIVATE_MD}`);
   console.log(`  → ${OUTPUT_JSON}`);
 }
 
