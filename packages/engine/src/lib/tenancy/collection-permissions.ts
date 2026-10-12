@@ -16,8 +16,9 @@
  * it, which this already governs.
  *
  * What Postgres adds on top, and the engine must respect: `INSERT … RETURNING`
- * and `UPDATE … WHERE` also need the SELECT policy, so `create` or `update`
- * without `read` succeeds only for statements that do not read the row back.
+ * and `UPDATE … WHERE` also need the SELECT policy; the write handlers run their
+ * own statements inside `withCollectionRead` for a caller without `read`, and
+ * answer that caller with the id alone.
  */
 
 import { sql } from 'kysely';

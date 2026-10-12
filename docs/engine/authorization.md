@@ -229,9 +229,13 @@ system **inside** the tenant.
 Public pages and forms are configuration, not code: grant the `public` role
 `read` on the collection (with a row rule such as `status = 'published'`), or
 `create` without `read` on a form's response collection. Postgres applies the
-SELECT policy to `INSERT … RETURNING` and to `UPDATE … WHERE`, so a role with
-`create` but not `read` can insert only through statements that do not read the
-row back.
+SELECT policy to `INSERT … RETURNING`, `ON CONFLICT` and the `WHERE` of an
+`UPDATE`/`DELETE`, so for a caller without `read` the engine runs its own
+statements on that one collection inside a read window (`withCollectionRead`)
+that never reaches the response. Such a caller gets the row's id and nothing
+more: `{ id }` from a create, `{ success, id }` from an update or delete, ids
+or counts alone from bulk and sync push; a caller with `read` gets the full row. Tenant
+isolation and row rules still apply.
 
 Measured on Postgres 18: +20 µs per statement against the tenant policy alone
 (20 000 re-planned primary-key reads).
