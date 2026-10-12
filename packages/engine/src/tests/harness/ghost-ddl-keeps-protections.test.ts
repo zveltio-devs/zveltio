@@ -17,12 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import {
-  cancelPendingCleanups,
-  DDLManager,
-  GhostDDL,
-  sweepGhostOrphans,
-} from '../../lib/data/index.js';
+import { cancelPendingCleanups, DDLManager, sweepGhostOrphans } from '../../lib/data/index.js';
 import { applyTenantRLS } from '../../lib/tenancy/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -183,34 +178,4 @@ d('ghost DDL keeps triggers, RLS, policies, grants and foreign keys', () => {
     expect(swept.failed).toEqual([]);
     expect(swept.dropped).toContain(`_zv_old_${TABLE}`);
   });
-
-  // Straight to GhostDDL: the merge route only ever sends ADD and DROP COLUMN.
-  it('a renamed relation column keeps its foreign key, under the new name', async () => {
-    const before = await protections(db, TABLE);
-    await GhostDDL.execute(db, TABLE, [
-      { kind: 'rename_column', from: 'owner_ref', to: 'owner_link' },
-    ]);
-    cancelPendingCleanups();
-    await sweepGhostOrphans(db);
-
-    expect(await protections(db, TABLE)).toEqual({
-      ...before,
-      fks: before.fks.map((f) => f.replace('KEY (owner_ref)', 'KEY (owner_link)')),
-    });
-  }, 120_000);
-
-  it('a change a policy cannot follow aborts the swap instead of shedding the policy', async () => {
-    const before = await protections(db, TABLE);
-    // hgp_restrict reads `title`; recreated on the renamed ghost it cannot resolve.
-    await expect(
-      GhostDDL.execute(db, TABLE, [{ kind: 'rename_column', from: 'title', to: 'headline' }]),
-    ).rejects.toThrow(/title/);
-
-    expect(await protections(db, TABLE)).toEqual(before);
-    const left = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM pg_tables
-      WHERE tablename IN (${`_zv_ghost_${TABLE}`}, ${`_zv_old_${TABLE}`})
-    `.execute(db);
-    expect(left.rows[0]?.n).toBe(0);
-  }, 120_000);
 });

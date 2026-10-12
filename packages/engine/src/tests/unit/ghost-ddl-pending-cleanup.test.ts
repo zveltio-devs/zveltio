@@ -4,8 +4,11 @@
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import { cancelPendingCleanups, GhostDDL } from '../../lib/data/index.js';
+import { registerCoreFieldTypes } from '../../field-types/index.js';
+import { cancelPendingCleanups, fieldTypeRegistry, GhostDDL } from '../../lib/data/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
+
+registerCoreFieldTypes(fieldTypeRegistry);
 
 const MIGRATION = {
   originalTable: 'zvd_widgets',
@@ -89,7 +92,9 @@ describe('GhostDDL.execute — cleanup failure branches', () => {
       db.fail(/DROP FUNCTION IF EXISTS "_zv_trg_ghost_zvd_orders_fn"/, new Error('fn drop failed'));
 
       await expect(
-        GhostDDL.execute(asDb(db), 'zvd_orders', [{ kind: 'drop_column', column: 'x' }]),
+        GhostDDL.execute(asDb(db), 'zvd_orders', [
+          { kind: 'add_column', field: { name: 'x', type: 'text' } },
+        ]),
       ).rejects.toThrow('copy blew up');
       expect(
         warn.mock.calls.some((c) => String(c[0]).includes('DROP FUNCTION cleanup failed')),
@@ -111,7 +116,9 @@ describe('GhostDDL.execute — cleanup failure branches', () => {
       );
 
       await expect(
-        GhostDDL.execute(asDb(db), 'zvd_orders', [{ kind: 'drop_column', column: 'x' }]),
+        GhostDDL.execute(asDb(db), 'zvd_orders', [
+          { kind: 'add_column', field: { name: 'x', type: 'text' } },
+        ]),
       ).rejects.toThrow('copy blew up');
       expect(
         warn.mock.calls.some((c) => String(c[0]).includes('Cleanup after failure also failed')),

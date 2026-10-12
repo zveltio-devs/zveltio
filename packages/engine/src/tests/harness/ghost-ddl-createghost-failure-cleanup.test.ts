@@ -47,10 +47,10 @@ d('GhostDDL.execute — cleanup when createGhost itself fails', () => {
     } as never);
 
     // A well-formed operation that fails at the database — after createGhost's
-    // step 1 has already created the ghost table.
+    // step 1 has already created the ghost table: the column already exists.
     await expect(
-      GhostDDL.execute(db, TABLE, [{ kind: 'drop_column', column: 'no_such_column' }]),
-    ).rejects.toThrow(/no_such_column/);
+      GhostDDL.execute(db, TABLE, [{ kind: 'add_column', field: { name: 'title', type: 'text' } }]),
+    ).rejects.toThrow(/"title" of relation .* already exists/);
 
     expect(await exists(db, `_zv_ghost_${TABLE}`)).toBe(false);
     expect(await exists(db, `_zv_changelog_${TABLE}`)).toBe(false);

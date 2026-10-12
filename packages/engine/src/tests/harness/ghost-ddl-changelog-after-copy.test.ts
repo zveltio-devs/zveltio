@@ -29,15 +29,10 @@ const TABLE = `zvd_${COLLECTION}`;
 d('ghost DDL changelog replay after the copy (in-process)', () => {
   let db: Database;
 
-  /** Every row as JSON, keyed by id, with the renamed column under its old name. */
-  const snapshot = async (renamed: boolean) => {
-    const r = renamed
-      ? await sql<{ id: string; j: Record<string, unknown> }>`
-          SELECT id::text AS id,
-                 (to_jsonb(t) - 'extra' - 'memo') || jsonb_build_object('note', t.memo) AS j
-          FROM ${sql.id(TABLE)} t`.execute(db)
-      : await sql<{ id: string; j: Record<string, unknown> }>`
-          SELECT id::text AS id, to_jsonb(t) AS j FROM ${sql.id(TABLE)} t`.execute(db);
+  /** Every row as JSON, keyed by id, without the column the migration adds. */
+  const snapshot = async () => {
+    const r = await sql<{ id: string; j: Record<string, unknown> }>`
+      SELECT id::text AS id, to_jsonb(t) - 'extra' AS j FROM ${sql.id(TABLE)} t`.execute(db);
     return Object.fromEntries(r.rows.map((x) => [x.id, x.j]));
   };
 
@@ -78,7 +73,6 @@ d('ghost DDL changelog replay after the copy (in-process)', () => {
 
   it('carries inserts, updates and deletes made after batchCopy, typed values intact', async () => {
     const migration = await GhostDDL.createGhost(db, TABLE, [
-      { kind: 'rename_column', from: 'note', to: 'memo' },
       { kind: 'add_column', field: { name: 'extra', type: 'text' } },
     ]);
     expect(await GhostDDL.batchCopy(db, migration)).toBe(3);
@@ -103,12 +97,12 @@ d('ghost DDL changelog replay after the copy (in-process)', () => {
     expect(left.rows[0]?.n).toBe(0);
     await sql`UPDATE ${sql.id(TABLE)} SET qty = 99 WHERE title = 'late'`.execute(db);
 
-    const expected = await snapshot(false);
+    const expected = await snapshot();
     expect(Object.keys(expected)).toHaveLength(3);
 
     await GhostDDL.atomicSwap(db, migration);
 
-    expect(await snapshot(true)).toEqual(expected);
+    expect(await snapshot()).toEqual(expected);
   });
 
   it('carries a write that lands between the last unlocked replay and the swap lock', async () => {

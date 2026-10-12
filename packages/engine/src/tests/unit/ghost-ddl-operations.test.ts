@@ -31,8 +31,6 @@ describe('GhostDDL operations', () => {
         field: { name: 'code', type: 'text', unique: true, required: true, defaultValue: "O'x" },
       },
       { kind: 'add_column', field: { name: 'note', type: 'text', unique: false } },
-      { kind: 'drop_column', column: 'legacy' },
-      { kind: 'rename_column', from: 'sku', to: 'ref' },
     ]);
 
     expect(db.executed(/ALTER TABLE "_zv_ghost_zvd_items"/).map((q) => q.sql)).toEqual([
@@ -40,19 +38,21 @@ describe('GhostDDL operations', () => {
       // The per-tenant key, on the ghost and named after the final table.
       'ALTER TABLE "_zv_ghost_zvd_items" ADD CONSTRAINT "zvd_items_tenant_id_code_key" UNIQUE (tenant_id, "code")',
       'ALTER TABLE "_zv_ghost_zvd_items" ADD COLUMN "note" text',
-      'ALTER TABLE "_zv_ghost_zvd_items" DROP COLUMN "legacy"',
-      'ALTER TABLE "_zv_ghost_zvd_items" RENAME COLUMN "sku" TO "ref"',
     ]);
   });
 
   const forbidden: [string, unknown][] = [
     ['a raw SQL fragment', 'ADD COLUMN x text, DROP COLUMN tenant_id'],
     ['an unknown kind', { kind: 'add_constraint', sql: 'CHECK (true)' }],
-    ['dropping tenant_id', { kind: 'drop_column', column: 'tenant_id' }],
-    ['dropping id', { kind: 'drop_column', column: 'id' }],
-    ['renaming tenant_id away', { kind: 'rename_column', from: 'tenant_id', to: 'x' }],
-    ['renaming onto id', { kind: 'rename_column', from: 'x', to: 'id' }],
+    // Gone with their last caller (#1060): a job naming one is refused, not run —
+    // by its kind alone, even carrying a field an add_column would accept.
+    [
+      'a drop_column',
+      { kind: 'drop_column', column: 'legacy', field: { name: 'legacy', type: 'text' } },
+    ],
+    ['a rename_column', { kind: 'rename_column', from: 'sku', to: 'ref' }],
     ['adding tenant_id', { kind: 'add_column', field: { name: 'tenant_id', type: 'text' } }],
+    ['adding id', { kind: 'add_column', field: { name: 'id', type: 'text' } }],
     [
       'a field name that closes its quote',
       {
@@ -60,9 +60,12 @@ describe('GhostDDL operations', () => {
         field: { name: 'x" text, DROP COLUMN tenant_id, ADD COLUMN "y', type: 'text' },
       },
     ],
-    ['a column carrying a statement', { kind: 'drop_column', column: 'x; DROP TABLE "user"' }],
+    [
+      'a field name carrying a statement',
+      { kind: 'add_column', field: { name: 'x; DROP TABLE "user"', type: 'text' } },
+    ],
     // Postgres would cut it to 63 bytes, possibly onto a column that exists.
-    ['a name past 63 bytes', { kind: 'rename_column', from: 'a', to: 'x'.repeat(64) }],
+    ['a name past 63 bytes', { kind: 'add_column', field: { name: 'x'.repeat(64), type: 'text' } }],
     ['a virtual field', { kind: 'add_column', field: { name: 'total', type: 'computed' } }],
     ['an unknown field type', { kind: 'add_column', field: { name: 'x', type: 'notarealtype' } }],
   ];

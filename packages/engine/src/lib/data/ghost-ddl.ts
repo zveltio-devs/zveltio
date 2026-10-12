@@ -52,8 +52,8 @@ export interface GhostMigration {
   changelogTable: string;
   triggerName: string;
   /**
-   * The ghost's outbound foreign keys, detached for the copy and re-added at the
-   * swap: `add` runs inside the swap transaction, `validate` after it commits.
+   * The original's outbound foreign keys, which the ghost lacks for the copy:
+   * `add` runs inside the swap transaction, `validate` after it commits.
    */
   foreignKeys?: { add: string; validate: string }[];
   /**
@@ -63,25 +63,22 @@ export interface GhostMigration {
    */
   indexes?: { ghost: string; original: string }[];
   /**
-   * Which original column fills each ghost column, by name. The copy and the
-   * changelog replay both go through it: positions shift under a DROP COLUMN and
-   * names change under a RENAME, and a column the DDL added has no source here.
+   * The original's columns, which the ghost has under the same names: what the
+   * copy and the changelog replay fill. A column the DDL added is not here — it
+   * has no source and keeps its default.
    */
-  columns: { ghost: string; original: string }[];
+  columns: string[];
 }
 
-/** Non-dropped, non-generated columns of `table`, by attnum. */
-async function liveColumns(
-  db: Database,
-  table: string,
-): Promise<{ attnum: number; attname: string }[]> {
-  const r = await sql<{ attnum: number; attname: string }>`
-    SELECT attnum::int AS attnum, attname::text AS attname FROM pg_attribute
+/** Non-dropped, non-generated columns of `table`, in order. */
+async function liveColumns(db: Database, table: string): Promise<string[]> {
+  const r = await sql<{ attname: string }>`
+    SELECT attname::text AS attname FROM pg_attribute
     WHERE attrelid = to_regclass(quote_ident(${table}))
       AND attnum > 0 AND NOT attisdropped AND attgenerated = ''
     ORDER BY attnum
   `.execute(db);
-  return r.rows;
+  return r.rows.map((c) => c.attname);
 }
 
 /**
@@ -193,8 +190,11 @@ async function carriedOverDdl(
  * so `ADD COLUMN x text, DROP COLUMN tenant_id` and `ADD COLUMN x text, ADD
  * CONSTRAINT evil CHECK (true)` both passed it.
  *
- * There is no ALTER COLUMN: nothing sends one, and a free-form tail is what
- * made the regex unsafe.
+ * Adding a column is the only operation, because it is the only one anything
+ * sends (`runAddField`). Drop and rename went with their last caller: a DROP
+ * COLUMN rewrites nothing in Postgres, so a copy bought it no availability
+ * (#1060). There is no ALTER COLUMN either: a free-form tail is what made the
+ * regex unsafe.
  */
 export type GhostOperation =
   /**
@@ -206,9 +206,7 @@ export type GhostOperation =
    * an existing column would replay the original's intermediate states, which
    * no key ever checked.
    */
-  | { kind: 'add_column'; field: FieldConfig }
-  | { kind: 'drop_column'; column: string }
-  | { kind: 'rename_column'; from: string; to: string };
+  { kind: 'add_column'; field: FieldConfig };
 
 /** A column name an operation may touch: an identifier, and not a system column. */
 function userColumn(name: unknown): string {
@@ -225,29 +223,20 @@ function userColumn(name: unknown): string {
 
 /** The statements one operation runs on the ghost of `table`. */
 function operationDdl(table: string, ghost: string, op: GhostOperation) {
-  const g = sql.id(ghost);
-  switch (op?.kind) {
-    case 'add_column': {
-      const name = userColumn(op.field?.name);
-      const column = fieldTypeRegistry.getColumnDDL(op.field);
-      if (!column) throw new Error(`[ghost-ddl] field "${name}" is virtual: it has no column`);
-      const out = [sql`ALTER TABLE ${g} ADD COLUMN ${sql.raw(column)}`];
-      const key = fieldTypeRegistry.getUniqueKeyDDL(op.field);
-      // Named after the table it ends up on — up to 63 bytes, the name Postgres
-      // gives the same key added to the original — not after the ghost.
-      const keyName = pgIdentifier(`${table}_tenant_id_${name}_key`);
-      if (key) out.push(sql`ALTER TABLE ${g} ADD CONSTRAINT ${sql.id(keyName)} ${sql.raw(key)}`);
-      return out;
-    }
-    case 'drop_column':
-      return [sql`ALTER TABLE ${g} DROP COLUMN ${sql.id(userColumn(op.column))}`];
-    case 'rename_column':
-      return [
-        sql`ALTER TABLE ${g} RENAME COLUMN ${sql.id(userColumn(op.from))} TO ${sql.id(userColumn(op.to))}`,
-      ];
-    default:
-      throw new Error(`[ghost-ddl] unknown operation: ${JSON.stringify(op)}`);
+  if (op?.kind !== 'add_column') {
+    throw new Error(`[ghost-ddl] unknown operation: ${JSON.stringify(op)}`);
   }
+  const g = sql.id(ghost);
+  const name = userColumn(op.field?.name);
+  const column = fieldTypeRegistry.getColumnDDL(op.field);
+  if (!column) throw new Error(`[ghost-ddl] field "${name}" is virtual: it has no column`);
+  const out = [sql`ALTER TABLE ${g} ADD COLUMN ${sql.raw(column)}`];
+  const key = fieldTypeRegistry.getUniqueKeyDDL(op.field);
+  // Named after the table it ends up on — up to 63 bytes, the name Postgres
+  // gives the same key added to the original — not after the ghost.
+  const keyName = pgIdentifier(`${table}_tenant_id_${name}_key`);
+  if (key) out.push(sql`ALTER TABLE ${g} ADD CONSTRAINT ${sql.id(keyName)} ${sql.raw(key)}`);
+  return out;
 }
 
 // raw-ident-ok-file: every identifier this module interpolates is derived from
@@ -261,9 +250,9 @@ function operationDdl(table: string, ghost: string, op: GhostOperation) {
 // column and key DDL of `operationDdl`, which the field-type registry builds
 // from a name `userColumn` has validated.
 //
-// Whole-file rather than nineteen separate annotations: this is one pipeline
+// Whole-file rather than thirteen separate annotations: this is one pipeline
 // from one input, and marking each statement would say the same sentence
-// nineteen times.
+// thirteen times.
 
 export class GhostDDL {
   /**
@@ -293,9 +282,8 @@ export class GhostDDL {
 
     // 1. Create ghost table with same structure (including indexes, constraints)
     await sql`CREATE TABLE ${sql.id(ghost)} (LIKE ${sql.id(tableName)} INCLUDING ALL)`.execute(db);
-    // Named as the original's columns until the DDL runs; an attnum survives a
-    // RENAME or a type change, so this is what maps the two afterwards.
-    const born = new Map((await liveColumns(db, ghost)).map((c) => [c.attnum, c.attname]));
+    // The original's columns, read off the ghost before the DDL adds any.
+    const columns = await liveColumns(db, ghost);
     // Paired while both tables still have the same columns, so an index and its
     // copy have the same definition. Identical duplicates pair in oid order;
     // which of two identical indexes gets which name makes no difference.
@@ -319,38 +307,19 @@ export class GhostDDL {
         AND g.indrelid = to_regclass(quote_ident(${ghost}))
     `.execute(db);
 
-    // LIKE copies no foreign keys. Attached BEFORE the DDL (NOT VALID, on an
-    // empty table: instant) so a DROP or RENAME COLUMN removes or follows them
-    // exactly as it would on the original.
-    const outbound = await sql<{ ddl: string }>`
-      SELECT format('ALTER TABLE %I ADD CONSTRAINT %I %s%s', ${ghost}::text, k.conname,
-               pg_get_constraintdef(k.oid), CASE WHEN k.convalidated THEN ' NOT VALID' ELSE '' END) AS ddl
-      FROM pg_constraint k
-      WHERE k.conrelid = to_regclass(quote_ident(${tableName})) AND k.contype = 'f'
-    `.execute(db);
-    for (const { ddl } of outbound.rows) await sql.raw(ddl).execute(db);
-
     // 2. Apply the operations on the ghost — see GhostOperation.
     for (const statement of ddl) await statement.execute(db);
 
-    // …and detached again for the copy, which inserts in id order and would
-    // trip a self-reference to a row not yet copied. Re-added at the swap.
-    const fks = await sql<{ name: string; add: string; validate: string }>`
-      SELECT k.conname AS name,
-             format('ALTER TABLE %I ADD CONSTRAINT %I %s', ${tableName}::text, k.conname,
-               pg_get_constraintdef(k.oid)) AS add,
+    // LIKE copies no foreign keys, and the ghost goes without them for the copy,
+    // which inserts in id order and would trip a self-reference to a row not yet
+    // copied. Re-added at the swap NOT VALID, so the lock never waits on a scan.
+    const fks = await sql<{ add: string; validate: string }>`
+      SELECT format('ALTER TABLE %I ADD CONSTRAINT %I %s%s', ${tableName}::text, k.conname,
+               pg_get_constraintdef(k.oid), CASE WHEN k.convalidated THEN ' NOT VALID' ELSE '' END) AS add,
              format('ALTER TABLE %I VALIDATE CONSTRAINT %I', ${tableName}::text, k.conname) AS validate
       FROM pg_constraint k
-      WHERE k.conrelid = to_regclass(quote_ident(${ghost})) AND k.contype = 'f'
+      WHERE k.conrelid = to_regclass(quote_ident(${tableName})) AND k.contype = 'f'
     `.execute(db);
-    for (const { name } of fks.rows) {
-      await sql`ALTER TABLE ${sql.id(ghost)} DROP CONSTRAINT ${sql.id(name)}`.execute(db);
-    }
-
-    const columns = (await liveColumns(db, ghost)).flatMap((c) => {
-      const original = born.get(c.attnum);
-      return original === undefined ? [] : [{ ghost: c.attname, original }];
-    });
 
     // 3. Changelog table — captures all mutations during batch copy.
     // One by this name can only be a finished run's, still waiting for its
@@ -427,7 +396,7 @@ export class GhostDDL {
       ghostTable: ghost,
       changelogTable: changelog,
       triggerName: trigger,
-      foreignKeys: fks.rows.map(({ add, validate }) => ({ add, validate })),
+      foreignKeys: fks.rows,
       indexes: indexes.rows,
       columns,
     };
@@ -458,10 +427,8 @@ export class GhostDDL {
       return 0;
     }
 
-    // Named on both sides — `SELECT *` matched by position, which a DROP COLUMN
-    // shifts and a RENAME does not follow.
-    const target = sql.join(migration.columns.map((c) => sql.id(c.ghost)));
-    const source = sql.join(migration.columns.map((c) => sql.id(c.original)));
+    // Named, not `SELECT *`: a generated column refuses a value.
+    const named = sql.join(migration.columns.map((c) => sql.id(c)));
 
     let copied = 0;
     let lastId: string | null = null;
@@ -478,8 +445,8 @@ export class GhostDDL {
       const after = lastId;
       const result = await inEveryTenant(db, (trx) =>
         sql<{ id: string }>`
-          INSERT INTO ${sql.id(migration.ghostTable)} (${target})
-          SELECT ${source} FROM ${sql.id(migration.originalTable)}
+          INSERT INTO ${sql.id(migration.ghostTable)} (${named})
+          SELECT ${named} FROM ${sql.id(migration.originalTable)}
           ${after === null ? sql`` : sql`WHERE id > ${after}`}
           ORDER BY id
           LIMIT ${BATCH_SIZE}
@@ -543,21 +510,20 @@ export class GhostDDL {
         const data = change.row_data as Record<string, any>;
         if (!data) continue;
 
-        // The snapshot is keyed by the ORIGINAL's column names; a dropped column
-        // has no ghost column, a renamed one lands under its new name.
-        const columns = migration.columns.filter((c) => Object.hasOwn(data, c.original));
+        // Only the columns the snapshot carries; one that carries none is no row.
+        const columns = migration.columns.filter((c) => Object.hasOwn(data, c));
         if (columns.length === 0) continue;
 
-        const updateCols = columns.filter((c) => c.ghost !== 'id');
-        const colsSql = sql.join(columns.map((c) => sql.id(c.ghost)));
+        const updateCols = columns.filter((c) => c !== 'id');
+        const colsSql = sql.join(columns.map((c) => sql.id(c)));
         // Postgres turns the snapshot back into the original's row type, the
         // inverse of the trigger's to_jsonb. Binding the parsed JSON values from
         // here instead sent a jsonb array as a Postgres array, and the swapped-in
         // table held the string '{"1","2"}' where the row had held [1,2].
-        const valsSql = sql.join(columns.map((c) => sql`r.${sql.id(c.original)}`));
+        const valsSql = sql.join(columns.map((c) => sql`r.${sql.id(c)}`));
         const updateSql =
           updateCols.length > 0
-            ? sql.join(updateCols.map((c) => sql`${sql.id(c.ghost)} = EXCLUDED.${sql.id(c.ghost)}`))
+            ? sql.join(updateCols.map((c) => sql`${sql.id(c)} = EXCLUDED.${sql.id(c)}`))
             : sql`${sql.id('id')} = EXCLUDED.${sql.id('id')}`; // no-op update to avoid syntax errors
 
         await sql`
@@ -684,27 +650,24 @@ export class GhostDDL {
         .execute(trx);
       await sql.raw(`DROP FUNCTION IF EXISTS "${triggerFn}"()`).execute(trx);
 
-      // The old copy's index moves aside first, freeing its name — also when
-      // the DDL dropped the column its copy was on. Renaming an index renames
-      // the constraint it backs (primary key, unique) with it.
+      // The old copy's index moves aside first, freeing its name. Renaming an
+      // index renames the constraint it backs (primary key, unique) with it.
       for (const ix of migration.indexes ?? []) {
-        const found = await sql<{ old: string | null; live: string | null }>`
-          SELECT to_regclass(quote_ident(${ix.original}))::oid::text AS old,
-                 to_regclass(quote_ident(${ix.ghost}))::text AS live
+        const found = await sql<{ old: string | null }>`
+          SELECT to_regclass(quote_ident(${ix.original}))::oid::text AS old
         `.execute(trx);
-        const { old, live } = found.rows[0] ?? {};
+        const old = found.rows[0]?.old;
         if (old) {
           await sql`ALTER INDEX ${sql.id(ix.original)} RENAME TO ${sql.id(`_zv_old_idx_${old}`)}`.execute(
             trx,
           );
         }
-        if (live)
-          await sql`ALTER INDEX ${sql.id(ix.ghost)} RENAME TO ${sql.id(ix.original)}`.execute(trx);
+        await sql`ALTER INDEX ${sql.id(ix.ghost)} RENAME TO ${sql.id(ix.original)}`.execute(trx);
       }
 
-      // Inside the transaction: a statement that no longer fits the new columns
-      // (a policy naming a dropped or renamed column) rolls the swap back rather
-      // than committing a table without its triggers, RLS, policies or grants.
+      // Inside the transaction: a statement that fails rolls the swap back
+      // rather than committing a table without its triggers, RLS, policies or
+      // grants.
       for (const { step, ddl } of carried) if (step < 100) await sql.raw(ddl).execute(trx);
       for (const fk of migration.foreignKeys ?? []) await sql.raw(fk.add).execute(trx);
 
