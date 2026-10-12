@@ -167,6 +167,11 @@ EXCLUSIVE` held for the ~3 ms atomic swap. It engages above 100k rows; below
 that threshold a direct `ALTER TABLE` is faster and is used instead. No external
 tooling is involved — the mechanism is native PostgreSQL throughout.
 
+Dropping a field never takes this path, at any size: `DROP COLUMN` only marks
+the column dropped and rewrites nothing, so it goes through
+`DDLManager.removeField`, which deletes the field's rules (and refuses a field a
+`*` row rule names) in the same transaction as the drop.
+
 ---
 
 ## Known Limitations
