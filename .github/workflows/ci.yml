@@ -1095,6 +1095,8 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y postgresql-client-18
+          # The runner image puts pg16 tools on PATH ahead of the wrapper.
+          echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
@@ -1316,6 +1318,8 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y postgresql-client-18
+          # The runner image puts pg16 tools on PATH ahead of the wrapper.
+          echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
       - name: Run migrations
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
