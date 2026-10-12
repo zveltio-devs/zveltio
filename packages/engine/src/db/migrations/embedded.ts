@@ -6,8 +6,10 @@
  *
  * The runner sorts by filename, so the leading number is what orders them; see
  * the BASELINE SQUASH note at the top of 001_initial.sql for why the chain
- * starts where it does. Adding a migration means dropping a .sql file into
- * sql/ and regenerating — there is no list to hand-edit.
+ * starts where it does. `baseline/` holds the GA baseline, which replaces the
+ * beta chain (see `parseBaseline` in index.ts); it is keyed by filename like
+ * the rest. Adding a migration means dropping a .sql file into sql/ and
+ * regenerating — there is no list to hand-edit.
  *
  * AUTO-GENERATED — do not edit by hand.
  * Regenerate with: bun scripts/gen-embedded-migrations.ts
@@ -69,6 +71,7 @@ import m052 from './sql/058_collection_permissions.sql' with { type: 'text' };
 import m053 from './sql/059_member_role_in_casbin.sql' with { type: 'text' };
 import m054 from './sql/060_tenant_write_reach.sql' with { type: 'text' };
 import m055 from './sql/061_edge_egress_column.sql' with { type: 'text' };
+import m056 from './baseline/062_ga_baseline.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -128,4 +131,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '059_member_role_in_casbin.sql': m053,
   '060_tenant_write_reach.sql': m054,
   '061_edge_egress_column.sql': m055,
+  '062_ga_baseline.sql': m056,
 };

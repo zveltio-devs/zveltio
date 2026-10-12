@@ -63,7 +63,7 @@ d('policed engine tables: tenant/created_at index from the migration', () => {
   }, 60_000);
 
   it('replaces an INVALID leftover of a failed concurrent build on retry', async () => {
-    expect((await rollbackMigration(db, 29)).success).toBe(true);
+    expect((await rollbackMigration(db, 29, { ignoreBaseline: true })).success).toBe(true);
     // A CONCURRENTLY build that fails leaves its index behind, INVALID, under
     // the name — which `IF NOT EXISTS` alone would then skip for good.
     await sql`DROP INDEX IF EXISTS idx_zv_media_tags_tenant_created`.execute(db);

@@ -425,16 +425,103 @@ function reportDivergence(migrationNumber: number, shipped: string, recorded: st
  *
  * One query, so a boot with nothing pending stays one round trip.
  */
-export async function pendingMigrations(db: Database): Promise<MigrationState> {
-  const { shipped, byVersion } = await readChain(db);
-  for (const m of shipped) {
-    const row = byVersion.get(m.version);
-    if (!row || row.checksum === 'baseline') continue;
-    if (row.checksum !== m.checksum || row.filename !== m.filename) {
-      reportDivergence(m.version, m.filename, row.filename);
+export async function pendingMigrations(
+  db: Database,
+  opts: ChainOptions = {},
+): Promise<MigrationState> {
+  return (await readPlan(db, opts, true)).state;
+}
+
+/**
+ * The plan both runners and the reporting path share: the shipped set, what the
+ * database recorded, and what is pending. `checkIdentity` is the refusal
+ * described on `pendingMigrations`.
+ */
+async function readPlan(
+  db: Database,
+  opts: ChainOptions,
+  checkIdentity: boolean,
+): Promise<{
+  shipped: ShippedMigration[];
+  byVersion: Map<number, RecordedRow>;
+  state: MigrationState;
+}> {
+  const { shipped, byVersion } = await readChain(db, opts);
+  if (checkIdentity) {
+    for (const m of shipped) {
+      const row = byVersion.get(m.version);
+      if (!row || row.checksum === 'baseline') continue;
+      if (row.checksum !== m.checksum || row.filename !== m.filename) {
+        reportDivergence(m.version, m.filename, row.filename);
+      }
     }
   }
-  return summarize(shipped, byVersion);
+  return { shipped, byVersion, state: summarize(shipped, byVersion) };
+}
+
+/**
+ * `ignoreBaseline` reads the build as every beta did: the baseline file does not
+ * exist, so a fresh database runs the replaced chain file by file and a rollback
+ * may go below it. For the tests of the replaced files and the equivalence test
+ * (`tests/harness/baseline-equivalence.test.ts`), which must keep building the
+ * chain until those files are deleted. Never reachable from the CLI or a route.
+ */
+export interface ChainOptions {
+  ignoreBaseline?: boolean;
+}
+
+/**
+ * A baseline: one file standing for a whole released chain (the Django
+ * `replaces` pattern). Its header names the release whose chain it replaces and
+ * every replaced file with the checksum the runner recorded for it:
+ *
+ *   -- BASELINE OF v3.0.0-beta.79
+ *   -- REPLACES 001_initial.sql 41b7e428f8b77e0b
+ *
+ * A fresh database runs only the baseline and records the replaced files as
+ * applied, so its ledger reads exactly as one built by the chain. A database
+ * that ran the whole chain records the baseline without running it. A database
+ * that stopped partway is refused (`assertWholeChain`). Nothing in this build
+ * ever applies a replaced file, so the old files' DOWN sections and their
+ * batch-without-commit backfills (009-011) are unreachable from a fresh install.
+ */
+export interface Baseline {
+  release: string;
+  replaces: Array<{ version: number; filename: string; checksum: string }>;
+}
+
+export function parseBaseline(content: string): Baseline | null {
+  const release = /^--\s*BASELINE OF\s+(\S+)\s*$/m.exec(content)?.[1];
+  if (!release) return null;
+  const replaces = [
+    ...content.matchAll(/^--\s*REPLACES\s+((\d+)_\S+\.sql)\s+([0-9a-f]{16})\s*$/gm),
+  ].map((m) => ({ version: Number(m[2]), filename: m[1], checksum: m[3] }));
+  if (replaces.length === 0) throw new Error(`Baseline of ${release} declares no REPLACES line`);
+  return { release, replaces };
+}
+
+/**
+ * The refusal the owner decision asks for: a database that has not run the whole
+ * replaced chain cannot be brought to the baseline by this build, which no
+ * longer applies the old files one by one. The release named in the header can.
+ */
+function assertWholeChain(m: ShippedMigration, byVersion: Map<number, RecordedRow>): void {
+  const b = m.baseline as Baseline;
+  const missing = b.replaces.filter((r) => {
+    const row = byVersion.get(r.version);
+    return (
+      !row ||
+      row.filename !== r.filename ||
+      (row.checksum !== r.checksum && row.checksum !== 'baseline')
+    );
+  });
+  if (missing.length === 0) return;
+  throw new Error(
+    `This database has not run the whole migration chain of ${b.release}: ${missing.length} of ` +
+      `the ${b.replaces.length} migrations ${m.filename} replaces are not applied (first: ` +
+      `${missing[0].filename}). This build no longer applies them one by one. Upgrade to ` +
+      `${b.release} first — its boot finishes the chain — then to this version. Nothing was changed.`,
+  );
 }
 
 export interface MigrationState {
@@ -455,19 +542,30 @@ export async function migrationState(db: Database): Promise<MigrationState> {
   return summarize(shipped, byVersion);
 }
 
+interface RecordedRow {
+  version: number;
+  filename: string;
+  checksum: string;
+}
+
+interface ShippedMigration extends RecordedRow {
+  content: string;
+  baseline: Baseline | null;
+}
+
 /** The one read both of the above share. */
-async function readChain(db: Database): Promise<{
-  shipped: Array<{ version: number; filename: string; checksum: string }>;
-  byVersion: Map<number, { version: number; filename: string; checksum: string }>;
-}> {
-  const shipped = await listShippedMigrations();
+async function readChain(
+  db: Database,
+  opts: ChainOptions = {},
+): Promise<{ shipped: ShippedMigration[]; byVersion: Map<number, RecordedRow> }> {
+  const shipped = await listShippedMigrations(opts);
 
   // Raw `sql` rather than the query builder: `zv_schema_versions` is not in the
   // Kysely `Database` type, and every other reader here reaches for `db as any`
   // to get past that. A typed template needs no suppression.
-  let recorded: Array<{ version: number; filename: string; checksum: string }>;
+  let recorded: RecordedRow[];
   try {
-    const res = await sql<{ version: number; filename: string; checksum: string }>`
+    const res = await sql<RecordedRow>`
       SELECT version, filename, checksum FROM zv_schema_versions
       WHERE rolled_back_at IS NULL`.execute(db);
     // A rolled-back row is pending again: its checksum is from a file that may
@@ -483,15 +581,20 @@ async function readChain(db: Database): Promise<{
   return { shipped, byVersion: new Map(recorded.map((r) => [Number(r.version), r])) };
 }
 
-function summarize(
-  shipped: Array<{ version: number; filename: string }>,
-  byVersion: Map<number, unknown>,
-): MigrationState {
+function summarize(shipped: ShippedMigration[], byVersion: Map<number, unknown>): MigrationState {
+  let pending = shipped.filter((m) => !byVersion.has(m.version));
+  // A fresh database runs the baseline and nothing it replaces. Anywhere else a
+  // missing replaced file stays pending: on a database short of the baseline
+  // that is what the refusal names, and on one past it a lost ledger row is
+  // re-applied as before.
+  const baseline = pending.find((m) => m.baseline);
+  if (baseline && byVersion.size === 0) {
+    const replaced = new Set(baseline.baseline?.replaces.map((r) => r.version));
+    pending = pending.filter((m) => !replaced.has(m.version));
+  }
   return {
     lastApplied: Math.max(0, ...byVersion.keys()),
-    pending: shipped
-      .filter((m) => !byVersion.has(m.version))
-      .map(({ version, filename }) => ({ version, filename })),
+    pending: pending.map(({ version, filename }) => ({ version, filename })),
   };
 }
 
@@ -500,23 +603,41 @@ export async function assertChainCompatible(db: Database): Promise<void> {
   await pendingMigrations(db);
 }
 
+/**
+ * Every migration file this build ships, by filename: the chain under `sql/` and
+ * any baseline under `baseline/` in source mode, `EMBEDDED_MIGRATIONS` in a
+ * compiled binary, where neither directory exists. The one reader of the set, so
+ * the runner, the reporting path and rollback cannot disagree about it.
+ */
+async function readShippedFiles(): Promise<Map<string, string>> {
+  if (!(await dirExists(join(import.meta.dir, 'sql')))) {
+    return new Map(Object.entries(EMBEDDED_MIGRATIONS));
+  }
+  const out = new Map<string, string>();
+  for (const sub of ['sql', 'baseline']) {
+    const dir = join(import.meta.dir, sub);
+    if (!(await dirExists(dir))) continue;
+    for (const f of listSqlFilesSync(dir)) out.set(f, await Bun.file(join(dir, f)).text());
+  }
+  return out;
+}
+
+function upChecksum(content: string): string {
+  return createHash('sha256').update(parseMigrationFile(content).up).digest('hex').slice(0, 16);
+}
+
 /** The migrations this build ships, with their numbers and content checksums. */
-async function listShippedMigrations(): Promise<
-  Array<{ version: number; filename: string; checksum: string }>
-> {
-  const migrationsDir = join(import.meta.dir, 'sql');
-  const fromDir = await dirExists(migrationsDir);
-  const files = fromDir ? listSqlFilesSync(migrationsDir) : Object.keys(EMBEDDED_MIGRATIONS);
-  const out = [];
-  for (const filename of files) {
-    const content = fromDir
-      ? await Bun.file(join(migrationsDir, filename)).text()
-      : EMBEDDED_MIGRATIONS[filename];
-    const { up } = parseMigrationFile(content);
+async function listShippedMigrations(opts: ChainOptions = {}): Promise<ShippedMigration[]> {
+  const out: ShippedMigration[] = [];
+  for (const [filename, content] of await readShippedFiles()) {
+    const baseline = parseBaseline(content);
+    if (baseline && opts.ignoreBaseline) continue;
     out.push({
       version: getMigrationNumber(filename),
       filename,
-      checksum: createHash('sha256').update(up).digest('hex').slice(0, 16),
+      checksum: upChecksum(content),
+      content,
+      baseline,
     });
   }
   // Numeric, then by name: the order the runner applies them in.
@@ -528,10 +649,13 @@ async function applyMigration(
   migrationNumber: number,
   filename: string,
   fileContent: string,
+  // Runs inside the migration's transaction, after its statements: what must
+  // commit or roll back with them (the baseline's ledger rows).
+  inTransaction?: (trx: Database) => Promise<void>,
 ): Promise<boolean> {
   const startTime = Date.now();
   const { up } = parseMigrationFile(fileContent);
-  const checksum = createHash('sha256').update(up).digest('hex').slice(0, 16);
+  const checksum = upChecksum(fileContent);
 
   // Has this migration already been applied?
   //
@@ -643,11 +767,31 @@ async function applyMigration(
       for (let si = 0; si < statements.length; si++) {
         await runStatements(trx, si);
       }
+      if (inTransaction) await inTransaction(trx as Database);
     });
   }
 
   const executionMs = Date.now() - startTime;
-  const name = filename.replace(/^\d+_/, '').replace('.sql', '').replace(/_/g, ' ');
+  await recordApplied(db, migrationNumber, filename, checksum, executionMs);
+  console.log(
+    `   ✅ Migration ${String(migrationNumber).padStart(3, '0')} — ${migrationName(filename)} (${executionMs}ms)`,
+  );
+  return true;
+}
+
+function migrationName(filename: string): string {
+  return filename.replace(/^\d+_/, '').replace('.sql', '').replace(/_/g, ' ');
+}
+
+/** The ledger rows for one applied migration. */
+async function recordApplied(
+  db: Database,
+  migrationNumber: number,
+  filename: string,
+  checksum: string,
+  executionMs: number,
+): Promise<void> {
+  const name = migrationName(filename);
 
   // Record in zv_schema_versions
   await db
@@ -699,11 +843,26 @@ async function applyMigration(
         err.message,
       );
     });
+}
 
-  console.log(
-    `   ✅ Migration ${String(migrationNumber).padStart(3, '0')} — ${name} (${executionMs}ms)`,
-  );
-  return true;
+/**
+ * The replaced files' ledger rows, written in the baseline's own transaction: a
+ * baseline that committed without them would read on the next boot as a chain
+ * stopped partway and be refused. Schema-qualified because the baseline, like
+ * any `pg_dump` output, empties `search_path` for the rest of its transaction.
+ */
+async function recordReplaced(trx: Database, b: Baseline): Promise<void> {
+  const engineVersion = process.env.ZVELTIO_VERSION ?? ENGINE_VERSION;
+  for (const r of b.replaces) {
+    await sql`
+      INSERT INTO public.zv_schema_versions
+        (version, name, filename, checksum, engine_version, execution_ms)
+      VALUES (${r.version}, ${migrationName(r.filename)}, ${r.filename}, ${r.checksum},
+              ${engineVersion}, 0)`.execute(trx);
+    await sql`
+      INSERT INTO public.zv_migrations (name) VALUES (${r.filename.replace('.sql', '')})
+      ON CONFLICT (name) DO NOTHING`.execute(trx);
+  }
 }
 
 /**
@@ -711,18 +870,40 @@ async function applyMigration(
  * first, and returns the filenames it applied. See `pendingMigrations` for what
  * "not applied" means and why it is not "above the high-water mark".
  */
-export async function runPending(db: Database): Promise<string[]> {
-  const migrationsDir = join(import.meta.dir, 'sql');
-  const fromDir = await dirExists(migrationsDir);
-  const getContent = (file: string): Promise<string> =>
-    fromDir
-      ? Bun.file(join(migrationsDir, file)).text()
-      : // Compiled binary mode: migrations bundled at build time.
-        Promise.resolve(EMBEDDED_MIGRATIONS[file]);
+export async function runPending(db: Database, opts: ChainOptions = {}): Promise<string[]> {
+  const { shipped, byVersion, state } = await readPlan(db, opts, true);
+  const { lastApplied, pending } = state;
+  const byFile = new Map(shipped.map((m) => [m.filename, m]));
+  const fresh = byVersion.size === 0;
 
-  const { lastApplied, pending } = await pendingMigrations(db);
+  // Before anything runs: a chain stopped partway is refused whole, not after
+  // its missing files were applied by a build that no longer means to.
+  const baseline = pending.map((p) => byFile.get(p.filename)).find((m) => m?.baseline);
+  if (baseline && !fresh) assertWholeChain(baseline, byVersion);
+
   const applied: string[] = [];
   for (const { version, filename } of pending) {
+    const m = byFile.get(filename) as ShippedMigration;
+    if (m.baseline) {
+      if (fresh) {
+        const b = m.baseline;
+        if (
+          await applyMigration(db, version, filename, m.content, (trx) => recordReplaced(trx, b))
+        ) {
+          applied.push(filename);
+        }
+      } else {
+        // The whole chain is applied (asserted above): this database already is
+        // what the baseline builds. Recorded, not run.
+        await recordApplied(db, version, filename, m.checksum, 0);
+        console.log(
+          `   ✅ Migration ${String(version).padStart(3, '0')} — ${migrationName(filename)} ` +
+            `(recorded: this database ran the whole chain of ${m.baseline.release})`,
+        );
+        applied.push(filename);
+      }
+      continue;
+    }
     if (version < lastApplied) {
       // Legitimate (parallel PRs, a backported fix) but worth a line: the file
       // was written against a schema without the higher ones, and runs on one with.
@@ -731,7 +912,7 @@ export async function runPending(db: Database): Promise<string[]> {
           `ran migration ${lastApplied}.`,
       );
     }
-    if (await applyMigration(db, version, filename, await getContent(filename))) {
+    if (await applyMigration(db, version, filename, m.content)) {
       applied.push(filename);
     }
   }
@@ -832,36 +1013,26 @@ export async function getAppliedMigrations(db: Database): Promise<
 export async function rollbackMigration(
   db: Database,
   targetVersion: number,
+  opts: ChainOptions = {},
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // Same lock as every runner: a rollback beside a booting replica would
     // otherwise undo a file while it is being re-applied.
     return await withMigrationLock(db, async (): Promise<{ success: boolean; error?: string }> => {
-      // Both modes, like `runPending` and `listShippedMigrations` above.
-      //
-      // This was the third reader of the migration set and the only one that read
-      // the directory unconditionally. In a compiled binary that directory does
-      // not exist -- which is the entire reason `EMBEDDED_MIGRATIONS` is generated
-      // -- so `scanSync` threw ENOENT, the outer catch turned it into
-      // `{ success: false, error: 'ENOENT ...' }`, and `zveltio rollback` failed
-      // every time on the artifact that actually ships. Measured: scanSync on a
-      // missing directory throws rather than returning nothing.
-      const migrationsDir = join(import.meta.dir, 'sql');
-      const fromDir = await dirExists(migrationsDir);
-      const readMigration = (filename: string): Promise<string> =>
-        fromDir
-          ? Bun.file(join(migrationsDir, filename)).text()
-          : Promise.resolve(EMBEDDED_MIGRATIONS[filename]);
-
-      const allFiles = (
-        fromDir ? listSqlFilesSync(migrationsDir) : Object.keys(EMBEDDED_MIGRATIONS)
-      )
-        .map((f) => ({
-          filename: f,
-          version: parseInt(f.match(/^(\d+)/)?.[1] ?? '0'),
-        }))
+      // Both modes, through the one reader. This was the third reader of the
+      // migration set and the only one that read the directory unconditionally:
+      // in a compiled binary that directory does not exist, `scanSync` threw
+      // ENOENT, and `zveltio rollback` failed every time on the artifact that
+      // actually ships. Measured: scanSync on a missing directory throws rather
+      // than returning nothing.
+      const files = await readShippedFiles();
+      const allFiles = [...files.keys()]
+        .filter((f) => !(opts.ignoreBaseline && parseBaseline(files.get(f) as string)))
+        .map((f) => ({ filename: f, version: getMigrationNumber(f) }))
         .filter((f) => f.version > targetVersion)
         .sort((a, b) => b.version - a.version); // Descending for rollback
+      const readMigration = async (filename: string): Promise<string> =>
+        files.get(filename) as string;
 
       // Only what is applied now: a DOWN run against a migration that never ran,
       // or already ran its DOWN, undoes nothing it did.
@@ -877,6 +1048,24 @@ export async function rollbackMigration(
 
       if (toRollBack.length === 0) {
         return { success: false, error: 'Nothing to rollback' };
+      }
+
+      // Below a baseline is an empty database, which is not a supported
+      // operation: refused before any DOWN runs. The DOWN of 001_initial.sql
+      // that this used to reach stopped at DROP ROLE zveltio_worker with 26 of
+      // 72 tables still there, and the tables later files folded in had none.
+      for (const file of toRollBack) {
+        const b = parseBaseline(await readMigration(file.filename));
+        if (!b) continue;
+        return {
+          success: false,
+          error:
+            `Migration ${file.version} (${file.filename}) is the baseline of ${b.release}: it ` +
+            `replaces migrations ${b.replaces[0].filename} to ` +
+            `${b.replaces[b.replaces.length - 1].filename} and cannot be rolled back. Rolling ` +
+            `back below it would mean an empty database, which is not a supported operation; ` +
+            `restore a backup taken before the upgrade instead. The lowest target is ${file.version}.`,
+        };
       }
 
       for (const file of toRollBack) {

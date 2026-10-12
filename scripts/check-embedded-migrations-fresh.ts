@@ -34,7 +34,7 @@
 import { join } from 'node:path';
 
 const ROOT = join(import.meta.dir, '..');
-const SQL_DIR = join(ROOT, 'packages/engine/src/db/migrations/sql');
+const MIGRATIONS_DIR = join(ROOT, 'packages/engine/src/db/migrations');
 const EMBEDDED = join(ROOT, 'packages/engine/src/db/migrations/embedded.ts');
 
 const REGEN = 'bun packages/engine/scripts/gen-embedded-migrations.ts';
@@ -62,13 +62,19 @@ try {
   process.exit(1);
 }
 
-const onDisk = versionsFrom(new Bun.Glob('*.sql').scanSync({ cwd: SQL_DIR, onlyFiles: true }));
+// The baseline is embedded like any migration: a binary without it would build
+// a fresh database file by file through the chain it replaces.
+const onDisk = versionsFrom(
+  new Bun.Glob('{sql,baseline}/*.sql').scanSync({ cwd: MIGRATIONS_DIR, onlyFiles: true }),
+);
 
 // Read the generated file as text rather than importing it: the import
 // evaluates `with { type: 'text' }` attributes, which is slower and drags the
 // whole migration corpus into memory for a set comparison.
 const embeddedText = await Bun.file(EMBEDDED).text();
-const embedded = versionsFrom(embeddedText.match(/['"]\.\/sql\/(\d+_[^'"]+)['"]/g) ?? []);
+const embedded = versionsFrom(
+  embeddedText.match(/['"]\.\/(?:sql|baseline)\/(\d+_[^'"]+)['"]/g) ?? [],
+);
 
 const missing = [...onDisk].filter((v) => !embedded.has(v)).sort((a, b) => a - b);
 const extra = [...embedded].filter((v) => !onDisk.has(v)).sort((a, b) => a - b);

@@ -134,7 +134,7 @@ d('ban provenance', () => {
       expect(version).toBeGreaterThanOrEqual(35);
       const [scimBan, otherBan, free] = [await member(), await member(), await member()];
 
-      expect(await rollbackMigration(db, 34)).toEqual({ success: true });
+      expect(await rollbackMigration(db, 34, { ignoreBaseline: true })).toEqual({ success: true });
       const cols = await sql`SELECT 1 FROM information_schema.columns
                               WHERE table_name = 'user' AND column_name = 'ban_source'`.execute(db);
       expect(cols.rows).toHaveLength(0);

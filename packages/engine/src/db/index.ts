@@ -346,6 +346,7 @@ async function ensureMigrationsTable(db: Database): Promise<void> {
 
 /** Test-only — never import outside src/tests/. Swap the global pool back after a test replaced it. */
 export const _internalForTests = {
+  ensureMigrationsTable,
   swapDbForTests(db: Database | null): Database | null {
     const previous = _db;
     _db = db;

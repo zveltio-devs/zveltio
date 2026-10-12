@@ -22,15 +22,29 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 const d = harnessAvailable() ? describe : describe.skip;
 
 d('migration rollback', () => {
-  it('rolls the latest migration back once, and the next run re-applies it', async () => {
+  it('refuses to roll back the GA baseline, before any DOWN runs', async () => {
     const { db } = await getTestApp();
     const latest = await getLastAppliedMigration(db);
-    expect(latest).toBeGreaterThan(1);
+    const res = await rollbackMigration(db, latest - 1);
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('is the baseline of');
+    expect(await getLastAppliedMigration(db)).toBe(latest);
+  }, 60_000);
 
-    expect(await rollbackMigration(db, latest - 1)).toEqual({ success: true });
-    expect((await getAppliedMigrations(db)).map((m) => m.version)).not.toContain(latest);
+  // Until a migration follows the baseline, the newest one with a DOWN is the
+  // last file the baseline replaces; `ignoreBaseline` rolls back as the betas did.
+  it('rolls the latest migration back once, and the next run re-applies it', async () => {
+    const { db } = await getTestApp();
+    const latest = Math.max(
+      ...(await getAppliedMigrations(db)).map((m) => Number(m.version)).filter((v) => v < 62),
+    );
+    expect(latest).toBeGreaterThan(1);
+    const opts = { ignoreBaseline: true };
+
+    expect(await rollbackMigration(db, latest - 1, opts)).toEqual({ success: true });
+    expect((await getAppliedMigrations(db)).map((m) => Number(m.version))).not.toContain(latest);
     // Already rolled back: nothing left above the target to undo.
-    expect((await rollbackMigration(db, latest - 1)).success).toBe(false);
+    expect((await rollbackMigration(db, latest - 1, opts)).success).toBe(false);
 
     // Editing a rolled-back migration is the point of rolling back: the boot
     // guard must not read the stale row's checksum as a divergence.
@@ -40,7 +54,6 @@ d('migration rollback', () => {
 
     await runPending(db);
     await assertChainCompatible(db);
-    expect(await getLastAppliedMigration(db)).toBe(latest);
     const row = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_schema_versions
        WHERE version = ${latest} AND rolled_back_at IS NULL`.execute(db);
