@@ -731,7 +731,7 @@ export class DDLManager {
   // ── dropCollection ───────────────────────────────────────────────────────────
 
   /**
-   * Drop a collection, its junction tables and every rule keyed by its name.
+   * Drop a collection, its junction tables and the rules written for it.
    *
    * A caller that owns a transaction (the DDL queue) runs `dropInTransaction`
    * and passes the rules it returns to `forgetDroppedCollection` once it has
@@ -824,6 +824,16 @@ export class DDLManager {
     // a reserved name before the reservation, or one an extension adopted under
     // a resource it declares, shares its rules with that object; they stay.
     const keepGrants = (await nonCollectionObjectsNow(db)).has(name);
+    // A rule older than the collection was not written for it: an extension
+    // object its manifest does not declare, an uninstalled extension's grant, a
+    // grant made before the create. Rules naming it share the object column, so
+    // only this tells them apart. No registry row: nothing can be attributed.
+    const registered = await db
+      .selectFrom('zvd_collections')
+      // As text: a Date keeps milliseconds, and the column has microseconds.
+      .select(sql<string>`created_at::text`.as('since'))
+      .where('name', '=', name)
+      .executeTakeFirst();
 
     // Drop m2m junction tables before dropping the main table
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -891,14 +901,16 @@ export class DDLManager {
     // Left behind, a collection created again under this name inherited it all:
     // a grant made in any tenant's domain on the old collection read the new one,
     // and the old row rules, hidden columns and validation applied to it.
-    const deleted = keepGrants
-      ? []
-      : await db
-          .deleteFrom('zvd_permissions')
-          .where('ptype', '=', 'p')
-          .where('v2', '=', name)
-          .returning(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
-          .execute();
+    const deleted =
+      keepGrants || !registered
+        ? []
+        : await db
+            .deleteFrom('zvd_permissions')
+            .where('ptype', '=', 'p')
+            .where('v2', '=', name)
+            .where('created_at', '>=', sql<Date>`${registered.since}::timestamptz`)
+            .returning(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
+            .execute();
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${name}`.execute(db);
     await db.deleteFrom('zvd_column_permissions').where('collection_name', '=', name).execute();
     await db.deleteFrom('zv_validation_rules').where('collection', '=', name).execute();

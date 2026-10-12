@@ -129,6 +129,32 @@ d('collection names and the Casbin objects that are not collections', () => {
     expect(await (await getEnforcer()).hasPolicy(ROLE, '*', 'data', 'view_all')).toBe(true);
   });
 
+  it('a drop takes only the rules written since the collection was', async () => {
+    // `operations/traceability` checks `traceability` and declares no resources,
+    // and an uninstalled extension leaves its grants: neither name is in the
+    // registry. Created and dropped, the collection took the grants with it.
+    const obj = `hundeclared_${Date.now()}`;
+    const e = await getEnforcer();
+    await e.addPolicy(ROLE, '*', obj, 'write');
+    try {
+      await DDLManager.createCollection(db, { name: obj, fields: FIELDS } as never);
+      await e.addPolicy(ROLE, '*', obj, 'read');
+
+      await DDLManager.dropCollection(db, obj);
+
+      expect(await DDLManager.tableExists(db, obj)).toBe(false);
+      const left = await sql<{ v0: string; v3: string }>`
+        SELECT v0, v3 FROM zvd_permissions WHERE ptype = 'p' AND v2 = ${obj}`.execute(db);
+      // The default grants and the grant made on the collection went with it.
+      expect(left.rows).toEqual([{ v0: ROLE, v3: 'write' }]);
+      expect(await e.hasPolicy(ROLE, '*', obj, 'write')).toBe(true);
+      expect(await e.hasPolicy(ROLE, '*', obj, 'read')).toBe(false);
+    } finally {
+      await sql.raw(`DROP TABLE IF EXISTS "zvd_${obj}" CASCADE`).execute(db);
+      await db.deleteFrom('zvd_collections').where('name', '=', obj).execute();
+    }
+  }, 60_000);
+
   it('an installed extension whose manifest cannot be read stops creates and drops', async () => {
     // Its resources are unknown, so any name may be one of them: a create could
     // land under grants written for it, a drop could take them.
