@@ -436,7 +436,9 @@ Key facts:
   transaction, so the `zveltio.current_tenant` GUC is set and FORCE row-level
   security isolates your rows automatically. You no longer need `ctx.reqDb(c)`
   for isolation — `ctx.db` is safe by default in a request handler. Outside any
-  tenant context (boot, migrations) it falls back to the global pool. `reqDb(c)`
+  tenant context (boot, migrations) it falls back to the global pool. Where a
+  tenant other than the root one is in scope but no transaction is open, it
+  throws instead: wrap that work in `ctx.internals.withTenantIsolation`. `reqDb(c)`
   remains as an explicit equivalent for handlers that already pass `c`.
 - **Cross-tenant access is opt-in via `ctx.adminDb`.** For legitimately global
   work (platform-wide reporting, backup) declare the **`db:admin`** permission
