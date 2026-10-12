@@ -56,7 +56,13 @@ describe.skipIf(process.platform !== 'linux')('a secret from a file', () => {
          const environ = await Bun.file('/proc/self/environ').text();
          console.log(JSON.stringify({ env: process.env.BETTER_AUTH_SECRET, leaked: environ.includes('file-only-secret-7f3a') }));`,
       ],
-      { env: { PATH: process.env.PATH ?? '', BETTER_AUTH_SECRET_FILE: file }, stdout: 'pipe' },
+      // cwd: Bun loads `.env` from the working directory even into an empty
+      // environment, and a developer's packages/engine/.env sets the variable.
+      {
+        cwd: dir,
+        env: { PATH: process.env.PATH ?? '', BETTER_AUTH_SECRET_FILE: file },
+        stdout: 'pipe',
+      },
     );
     const out = JSON.parse((await new Response(proc.stdout).text()).trim());
     expect(await proc.exited).toBe(0);
