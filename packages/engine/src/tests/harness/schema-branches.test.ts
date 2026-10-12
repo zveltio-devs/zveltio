@@ -13,6 +13,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const BRANCH = `harness-branch-${Date.now()}`;
@@ -240,6 +241,7 @@ d('a preview token reads from the branch schema (in-process)', () => {
   let schema = '';
   let token = '';
   let otherRowId = '';
+  let branchRowId = '';
 
   const labels = async (who: string, headers: Record<string, string> = {}) => {
     const res = await app.request(`/api/data/${COLLECTION}`, {
@@ -297,6 +299,8 @@ d('a preview token reads from the branch schema (in-process)', () => {
       body: JSON.stringify({ label: 'branch' }),
     });
     expect(viaPreview.status).toBe(201);
+    const created201 = (await viaPreview.json()) as { id?: string; record?: { id: string } };
+    branchRowId = created201.record?.id ?? created201.id ?? '';
     // Another tenant's row in the same branch table, planted as the owner.
     const planted = await sql<{ id: string }>`
       INSERT INTO ${sql.id(schema, `zvd_${COLLECTION}`)} (label, tenant_id)
@@ -330,5 +334,55 @@ d('a preview token reads from the branch schema (in-process)', () => {
       headers: { cookie: member, 'x-preview-token': token },
     });
     expect(byId.status).toBe(404);
+  });
+
+  // The token is looked up on `preview_token` alone (middleware/preview-env.ts):
+  // branches are instance-level, minted by an instance admin, and a token says
+  // WHICH SCHEMA to read — never whose rows. So a token minted while the admin
+  // stood in the default tenant works for a member of another tenant, and that
+  // member reaches only their own tenant's rows in it, for reads AND writes.
+  it('a token minted in one tenant reaches only the caller tenant in another, for reads and writes', async () => {
+    expect(branchRowId).not.toBe('');
+    const { cookie: outsider, userId } = await createMemberSession(app, db, {
+      grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update', 'delete'] }],
+    });
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${OTHER.id}::uuid, ${userId}, 'member')`.execute(db);
+    const h = { cookie: outsider, 'x-preview-token': token, 'x-tenant-slug': OTHER.slug };
+    const json = { ...h, 'Content-Type': 'application/json' };
+    const url = `/api/data/${COLLECTION}`;
+
+    expect(
+      await labels(outsider, { 'x-preview-token': token, 'x-tenant-slug': OTHER.slug }),
+    ).toEqual(['other-tenant']);
+    expect((await app.request(`${url}/${branchRowId}`, { headers: h })).status).toBe(404);
+    const patch = await app.request(`${url}/${branchRowId}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ label: 'hijacked' }),
+    });
+    expect(patch.status).toBe(404);
+    expect(
+      (await app.request(`${url}/${branchRowId}`, { method: 'DELETE', headers: h })).status,
+    ).toBe(404);
+    // A forged tenant_id on create does not plant a row in the minting tenant.
+    const forged = await app.request(url, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ label: 'forged', tenant_id: DEFAULT_TENANT_ID }),
+    });
+    expect(forged.status).toBeLessThan(500);
+
+    const rows = await sql<{ label: string; tenant_id: string }>`
+      SELECT label, tenant_id::text FROM ${sql.id(schema, `zvd_${COLLECTION}`)} ORDER BY label`.execute(
+      db,
+    );
+    // The minting tenant's branch row survived the PATCH and DELETE untouched,
+    // and nothing new landed in it.
+    expect(rows.rows.filter((r) => r.tenant_id === DEFAULT_TENANT_ID).map((r) => r.label)).toEqual([
+      'branch',
+    ]);
+    expect(rows.rows.map((r) => r.label)).not.toContain('hijacked');
+    await sql`DELETE FROM zv_tenant_users WHERE user_id = ${userId}`.execute(db);
   });
 });
