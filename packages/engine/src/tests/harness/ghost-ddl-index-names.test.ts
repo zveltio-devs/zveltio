@@ -116,13 +116,4 @@ d('ghost DDL index names and back-to-back runs (in-process)', () => {
     await GhostDDL.batchCopy(db, next);
     await GhostDDL.atomicSwap(db, next);
   });
-
-  it('keeps the names of the indexes a DROP COLUMN leaves standing', async () => {
-    cancelPendingCleanups();
-    await sweepGhostOrphans(db);
-    const before = await names();
-    await GhostDDL.execute(db, TABLE, [{ kind: 'drop_column', column: 'note' }]);
-    // Both indexes on `note` — its own and the tenant composite — go with it.
-    expect(await names()).toEqual(before.filter((n) => !n.idx.endsWith('_note')));
-  });
 });

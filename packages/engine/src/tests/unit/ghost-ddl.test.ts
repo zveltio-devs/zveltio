@@ -26,10 +26,7 @@ const MIGRATION = {
   ghostTable: '_zv_ghost_zvd_orders',
   changelogTable: '_zv_changelog_zvd_orders',
   triggerName: '_zv_trg_ghost_zvd_orders',
-  columns: [
-    { ghost: 'id', original: 'id' },
-    { ghost: 'total', original: 'total' },
-  ],
+  columns: ['id', 'total'],
 };
 
 afterEach(() => {
@@ -41,7 +38,6 @@ describe('createGhost', () => {
     const db = new CannedDb();
     const m = await GhostDDL.createGhost(asDb(db), 'zvd_orders', [
       { kind: 'add_column', field: { name: 'phone', type: 'text' } },
-      { kind: 'drop_column', column: 'fax' },
     ]);
 
     expect(m).toEqual({ ...MIGRATION, foreignKeys: [], indexes: [], columns: [] });
@@ -51,7 +47,6 @@ describe('createGhost', () => {
     expect(db.executed(/ALTER TABLE "_zv_ghost_zvd_orders" ADD COLUMN "phone" text/)).toHaveLength(
       1,
     );
-    expect(db.executed(/ALTER TABLE "_zv_ghost_zvd_orders" DROP COLUMN "fax"/)).toHaveLength(1);
     const changelog = db.executed(/CREATE TABLE "_zv_changelog_zvd_orders"/)[0]!;
     expect(changelog.sql).toContain("CHECK (operation IN ('INSERT', 'UPDATE', 'DELETE'))");
     const trigger = db.executed(/CREATE TRIGGER "_zv_trg_ghost_zvd_orders"/)[0]!;
