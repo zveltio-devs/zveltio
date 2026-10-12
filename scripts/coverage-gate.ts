@@ -305,11 +305,13 @@ for (const b of baseline.gated) {
   } else if (now > was + baseline.maxDropPct) {
     gains.push(`  ${b}: ${was}% → ${now}%  (+${(now - was).toFixed(1)}pt)`);
   }
+  // The stable target is enforced here, on the number this run measured. The
+  // release gate used to compare `target` to the recorded `measured` instead,
+  // two numbers from the same file, so it certified whatever was last written
+  // down. It now requires this job green on the release commit.
   const target = baseline.target[b];
   if (target && now < target) {
-    console.log(
-      `[coverage-gate] ${b} at ${now}% — medium-term target ${target}% (not yet enforced).`,
-    );
+    failures.push(`  ${b}: ${now}% is below the stable target of ${target}%`);
   }
 }
 

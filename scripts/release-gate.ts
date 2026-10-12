@@ -63,27 +63,6 @@ async function checkAnyRatchet(): Promise<CheckResult> {
   };
 }
 
-function checkCoverage(): CheckResult {
-  const base = readJson<{
-    target: Record<string, number>;
-    measured: Record<string, number>;
-    gated: string[];
-  }>('quality-gates/coverage-baseline.json');
-  const below: string[] = [];
-  for (const bucket of base.gated) {
-    const target = base.target[bucket];
-    const measured = base.measured[bucket];
-    if (target != null && measured != null && measured < target) {
-      below.push(`${bucket} ${measured}% < target ${target}%`);
-    }
-  }
-  return {
-    name: 'coverage ≥ stable target (H-02)',
-    ok: below.length === 0,
-    detail: below.length === 0 ? 'all gated buckets meet target' : below.join('; '),
-  };
-}
-
 function checkMigrationSuperset(): CheckResult {
   // Reuse H-11's invariant: HEAD's migrations must be a strict superset of the
   // last release tag's (no rename/renumber/delete). Runs git synchronously.
@@ -184,7 +163,18 @@ async function checkRequiredCIGreen(): Promise<CheckResult> {
   if (SKIP_NETWORK)
     return { name: 'required CI green (RC SHA)', ok: true, detail: 'skipped (offline)' };
   const sha = process.env.GITHUB_SHA || (await run(['git', 'rev-parse', 'HEAD'])).out.trim();
-  const required = ['Type Check', 'Lint', 'Unit Tests', 'Integration Tests', 'Perf Smoke'];
+  // `Handler Coverage` measures coverage on this commit and enforces the floor,
+  // the ratchet and the stable target (scripts/coverage-gate.ts). Reading
+  // quality-gates/coverage-baseline.json here instead would only compare two
+  // recorded numbers to each other.
+  const required = [
+    'Type Check',
+    'Lint',
+    'Unit Tests',
+    'Integration Tests',
+    'Perf Smoke',
+    'Handler Coverage',
+  ];
   const r = await run([
     'gh',
     'api',
@@ -316,7 +306,6 @@ async function main(): Promise<void> {
   );
   const checks: CheckResult[] = [
     await checkAnyRatchet(),
-    checkCoverage(),
     checkMigrationSuperset(),
     checkVersionConsistency(version),
     await checkRequiredCIGreen(),
