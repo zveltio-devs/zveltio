@@ -21,6 +21,9 @@ concurrency:
   group: upgrade-path-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   upgrade:
     name: Release → HEAD upgrade smoke

@@ -19,6 +19,9 @@ concurrency:
   group: soak-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   soak:
     name: 60-minute mixed-traffic soak

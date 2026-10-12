@@ -27,6 +27,9 @@ on:
       - 'packages/engine/stryker.security.json'
       - '.github/workflows/mutation.yml'
 
+permissions:
+  contents: read
+
 jobs:
   mutation:
     name: Stryker mutation score (security modules)

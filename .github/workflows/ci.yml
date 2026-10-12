@@ -25,6 +25,9 @@ on:
 env:
   DB_POOL_MAX: '10'
 
+permissions:
+  contents: read
+
 jobs:
   typecheck:
     name: Type Check
