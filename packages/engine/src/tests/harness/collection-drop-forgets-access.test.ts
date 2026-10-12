@@ -37,6 +37,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const tag = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 const SUBJECT = `drop-u-${tag}`;
+const OTHER_TENANT = crypto.randomUUID();
 const fields = [
   { name: 'title', type: 'text', required: false, unique: false, indexed: false },
 ] as never;
@@ -52,6 +53,13 @@ d('dropping a collection forgets its access rules', () => {
       (
         await sql<{ n: string }>`SELECT count(*)::text AS n FROM ${sql.table(table)}
                                  WHERE ${sql.ref(column)} = ${name}`.execute(db)
+      ).rows[0]?.n,
+    );
+  const subjectRows = async (name: string) =>
+    Number(
+      (
+        await sql<{ n: string }>`SELECT count(*)::text AS n FROM zvd_permissions
+                                 WHERE ptype = 'p' AND v2 = ${name} AND v0 = ${SUBJECT}`.execute(db)
       ).rows[0]?.n,
     );
   const canRead = (name: string) =>
@@ -156,6 +164,67 @@ d('dropping a collection forgets its access rules', () => {
     // reconcile brings the model to the table, which no longer holds the grant.
     await reconcilePolicies();
     await expectForgotten(name);
+  });
+
+  it('in every domain, and only for this collection', async () => {
+    const name = `drop_doms_${tag}`;
+    const other = `drop_doms_other_${tag}`;
+    await seed(name);
+    names.push(other);
+    await DDLManager.createCollection(db, { name: other, fields });
+    const e = await getEnforcer();
+    const domains = [TENANT, OTHER_TENANT, '*'];
+    for (const dom of domains) {
+      await e.addPolicy(SUBJECT, dom, name, 'read');
+      await e.addPolicy(SUBJECT, dom, other, 'read');
+    }
+    await e.addPolicy(SUBJECT, OTHER_TENANT, 'data', 'view_all');
+    try {
+      await DDLManager.dropCollection(db, name);
+      for (const dom of domains) {
+        expect(e.getModel().hasPolicy('p', 'p', [SUBJECT, dom, name, 'read'])).toBe(false);
+        expect(e.getModel().hasPolicy('p', 'p', [SUBJECT, dom, other, 'read'])).toBe(true);
+      }
+      expect(e.getModel().hasPolicy('p', 'p', [SUBJECT, OTHER_TENANT, 'data', 'view_all'])).toBe(
+        true,
+      );
+      expect(await subjectRows(name)).toBe(0);
+      expect(await subjectRows(other)).toBe(3);
+      await expectForgotten(name);
+    } finally {
+      await e.removePolicy(SUBJECT, OTHER_TENANT, 'data', 'view_all');
+    }
+  });
+
+  // The after-commit step used to re-read the table for the name and skip the
+  // removal when it found a row. A same-name create landing between the drop's
+  // COMMIT and that read wrote its default grants, so the old collection's
+  // tenant grant stayed in the live model and read the new collection until the
+  // next reconcile — with no row left in the table to show for it.
+  it('a same-name create between the COMMIT and the after-commit step', async () => {
+    const name = `drop_race_${tag}`;
+    await seed(name);
+    const forget = spyOn(DDLManager, 'forgetDroppedCollection').mockResolvedValue(undefined);
+    let deferred: Parameters<typeof DDLManager.forgetDroppedCollection>;
+    try {
+      await DDLManager.dropCollection(db, name);
+      expect(forget).toHaveBeenCalledTimes(1);
+      deferred = forget.mock.calls[0]!;
+    } finally {
+      forget.mockRestore();
+    }
+    await DDLManager.createCollection(db, { name, fields });
+    await DDLManager.forgetDroppedCollection(...deferred);
+
+    expect(await canRead(name)).toBe(false);
+    const model = (await getEnforcer()).getModel();
+    expect(model.hasPolicy('p', 'p', [SUBJECT, TENANT, name, 'read'])).toBe(false);
+    // The new collection's own default grants, which the drop also deleted from
+    // the old one, are held again and stay live.
+    for (const action of ['read', 'create', 'update']) {
+      expect(model.hasPolicy('p', 'p', ['tenant_member', '*', name, action])).toBe(true);
+    }
+    expect(await subjectRows(name)).toBe(0);
   });
 
   it('the drop_collection DDL queue job', async () => {

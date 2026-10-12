@@ -733,10 +733,12 @@ export class DDLManager {
   /**
    * Drop a collection, its junction tables and every rule keyed by its name.
    *
-   * Handed a transaction (the DDL queue), the caller that owns it calls
-   * `forgetDroppedCollection` once it has committed; until then — or until the
-   * next policy reconcile, if it never does — the grants are gone from the table
-   * but not from the live permission model.
+   * A caller that owns a transaction (the DDL queue) runs `dropInTransaction`
+   * and passes the rules it returns to `forgetDroppedCollection` once it has
+   * committed; until then — or until the next policy reconcile, if it never
+   * does — the grants are gone from the table but not from the live permission
+   * model. Handed a transaction, this does the drop and leaves memory to that
+   * reconcile.
    *
    * Its Casbin rules stay when its name is also an object that is not a
    * collection (`reservedName`): they guard that object too.
@@ -750,17 +752,20 @@ export class DDLManager {
     // `zvd_collections` delete left a listed collection with no table, which every
     // retry then refused as "not found". The DDL queue already passes a trx.
     if (!(db as unknown as { isTransaction?: boolean }).isTransaction) {
-      await db.transaction().execute((trx) => DDLManager.dropInTransaction(trx, name, opts));
+      const rules = await db
+        .transaction()
+        .execute((trx) => DDLManager.dropInTransaction(trx, name, opts));
       DDLManager.invalidateCache(name);
-      await DDLManager.forgetDroppedCollection(name, db);
+      await DDLManager.forgetDroppedCollection(name, rules);
       return;
     }
     await DDLManager.dropInTransaction(db, name, opts);
   }
 
   /**
-   * Take a dropped collection's grants out of the live permission model — this
-   * instance's and, through the enforcer's watcher, every other's — and drop
+   * Take the grants a drop deleted (`dropInTransaction`'s result) out of the
+   * live permission model — this instance's and, through the policy-change bus,
+   * every other's — and drop
    * the cached rules. After the COMMIT: before it, a rollback would leave the
    * collection standing with its grants gone from memory.
    *
@@ -768,20 +773,17 @@ export class DDLManager {
    * only memory stale, which the policy reconcile corrects; it is logged, not
    * thrown, since the drop has already happened.
    */
-  static async forgetDroppedCollection(name: string, db: Database): Promise<void> {
+  static async forgetDroppedCollection(name: string, rules: string[][]): Promise<void> {
     try {
       const tenancy = await import('../tenancy/index.js');
-      // Filtered, not rule by rule: it reaches the table and the watcher whether
-      // or not this instance's model holds the rule, and the receivers apply it
-      // to their own models. Not when the drop kept the rules (`reservedName`):
-      // it would delete them.
-      const kept = await db
-        .selectFrom('zvd_permissions')
-        .select('id')
-        .where('ptype', '=', 'p')
-        .where('v2', '=', name)
-        .executeTakeFirst();
-      if (!kept) await (await tenancy.getEnforcer()).removeFilteredPolicy(2, name);
+      // Exactly the rules the drop deleted, never "whatever is filed under the
+      // name now". That used to be a re-read of the table: a same-name create
+      // landing between the COMMIT and the read wrote its default grants, the
+      // read found them, and every tenant grant of the old collection stayed live
+      // on the new one. Each rule is checked against the table rather than
+      // removed outright, so a default grant the new collection wrote again —
+      // the same row the drop deleted — stays.
+      await tenancy.forgetDeletedPolicies(rules);
       await tenancy.invalidateAllPermissionCaches();
       await tenancy.invalidateRlsCache(name);
       await tenancy.invalidateColumnPermCache(name);
@@ -794,11 +796,12 @@ export class DDLManager {
     }
   }
 
-  private static async dropInTransaction(
+  /** `dropCollection` on a transaction the caller owns; returns the Casbin rules it deleted. */
+  static async dropInTransaction(
     db: Database,
     name: string,
     opts: { force?: boolean },
-  ): Promise<void> {
+  ): Promise<string[][]> {
     const tableName = this.getTableName(name);
 
     if (!(await this.tableExists(db, name))) {
@@ -888,18 +891,22 @@ export class DDLManager {
     // Left behind, a collection created again under this name inherited it all:
     // a grant made in any tenant's domain on the old collection read the new one,
     // and the old row rules, hidden columns and validation applied to it.
-    if (!keepGrants) {
-      await db
-        .deleteFrom('zvd_permissions')
-        .where('ptype', '=', 'p')
-        .where('v2', '=', name)
-        .execute();
-    }
+    const deleted = keepGrants
+      ? []
+      : await db
+          .deleteFrom('zvd_permissions')
+          .where('ptype', '=', 'p')
+          .where('v2', '=', name)
+          .returning(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
+          .execute();
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${name}`.execute(db);
     await db.deleteFrom('zvd_column_permissions').where('collection_name', '=', name).execute();
     await db.deleteFrom('zv_validation_rules').where('collection', '=', name).execute();
 
     DDLManager.invalidateCache(name);
+    return deleted.map((r) =>
+      [r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v): v is string => v !== null),
+    );
   }
 
   /**
