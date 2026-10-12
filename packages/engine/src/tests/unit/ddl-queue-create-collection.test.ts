@@ -76,8 +76,8 @@ describe('ddl-queue collection handlers', () => {
     }
   });
 
-  it('drop_collection handler delegates to DDLManager.dropCollection', async () => {
-    const dropSpy = spyOn(dataModule.DDLManager, 'dropCollection').mockResolvedValue(undefined);
+  it('drop_collection handler delegates to DDLManager.dropInTransaction', async () => {
+    const dropSpy = spyOn(dataModule.DDLManager, 'dropInTransaction').mockResolvedValue([]);
     try {
       const db = new CannedDb();
       db.when(/select "is_managed" from "zvd_collections"/i, [{ is_managed: true }]);

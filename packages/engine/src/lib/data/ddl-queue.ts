@@ -457,15 +457,14 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   await boss.work(QUEUE_NAMES.drop_collection, async ([job]: any[]) => {
     const payload = job.data as { name: string; force?: boolean };
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const ran = await db.transaction().execute(async (trx: any) => {
-      if (await skipForByod(trx, job.data, 'drop_collection')) return false;
-      await DDLManager.dropCollection(trx, payload.name, { force: payload.force === true });
-      return true;
+    const rules = await db.transaction().execute(async (trx: any) => {
+      if (await skipForByod(trx, job.data, 'drop_collection')) return null;
+      return DDLManager.dropInTransaction(trx, payload.name, { force: payload.force === true });
     });
-    if (!ran) return;
+    if (!rules) return;
     // This transaction is the queue's own, which `onAfterCommit` cannot see, so
     // the grants leave the live permission model here, once it has committed.
-    await DDLManager.forgetDroppedCollection(payload.name, db);
+    await DDLManager.forgetDroppedCollection(payload.name, rules);
     announceSchemaChange(payload.name, 'drop');
   });
 

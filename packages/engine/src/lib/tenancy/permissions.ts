@@ -1643,6 +1643,19 @@ export function receivePolicyChange(data: unknown): Promise<void> {
   return _receiveChain;
 }
 
+/**
+ * `p` rules a caller deleted with its own SQL, now committed: this instance's
+ * model, and every other's through the bus, are brought to the table for exactly
+ * these rules. Checked against the table, not removed outright, so a rule
+ * written again since stays.
+ */
+export function forgetDeletedPolicies(rules: string[][]): Promise<void> {
+  if (rules.length === 0) return _receiveChain;
+  const change: PolicyChange = { sec: 'p', ptype: 'p', rules };
+  publishPolicyChange(change);
+  return receivePolicyChange(change);
+}
+
 // ── Periodic full reconcile ────────────────────────────────────────────────
 
 /** The table's fingerprint when the live enforcer was loaded from it. */
