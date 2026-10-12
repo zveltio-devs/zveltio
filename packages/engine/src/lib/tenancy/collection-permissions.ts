@@ -109,8 +109,12 @@ function writeReadWindow(trx: Database, w: { base: Promise<string>; open: string
  * What runs inside must not reach the caller — it is the engine reading for
  * itself (revisions, hooks, side effects). Keep `fn` to the engine's own
  * statements: an extension hook awaited inside it would read under the window.
- * Overlapping windows on one transaction widen and restore together, as
- * `asSystem`'s do. Outside a transaction there is no actor, so nothing to open.
+ * Windows on one transaction — nested, sequential or overlapping (`Promise.all`)
+ * — share one base read from the published grants: every write is computed from
+ * the windows open when it is issued, so the last one issued restores the base
+ * once all have settled. The base is not re-read while any window is open, so a
+ * republish of the actor must not run inside one. Outside a transaction there is
+ * no actor, so nothing to open.
  */
 export async function withCollectionRead<T>(
   trx: Database,
@@ -139,10 +143,13 @@ export async function withCollectionRead<T>(
     return await fn();
   } finally {
     win.open.splice(win.open.indexOf(collection), 1);
-    // Re-read next time: the actor may be republished (an API key) in between.
-    if (win.open.length === 0) readWindows.delete(trx);
     // An aborted transaction fails this too, and its rollback discards the setting.
     await writeReadWindow(trx, win).catch(() => undefined);
+    // Re-read next time: the actor may be republished (an API key) in between.
+    // Only once the restore has landed — a window opened before that joins this
+    // entry (its base is still the published value); one opened after reads it
+    // back. Dropped earlier, a new window read the widened grants as its base.
+    if (win.open.length === 0 && readWindows.get(trx) === win) readWindows.delete(trx);
   }
 }
 

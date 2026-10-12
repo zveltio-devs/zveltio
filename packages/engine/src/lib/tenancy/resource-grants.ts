@@ -181,13 +181,7 @@ async function writeDefaultGrants(db: Database, targets: string[]): Promise<numb
   return written;
 }
 
-/**
- * Every resource name the engine can enumerate right now.
- *
- * Used by the boot reconcile. A collection created while the engine was on an
- * older version, or one belonging to an extension installed since, is picked up
- * here rather than needing its own migration.
- */
+/** Names of the extensions the registry marks installed, in any tenant. */
 async function installedExtensions(db: Database): Promise<string[]> {
   const rows = await sql<{ name: string }>`
     SELECT name FROM zv_extension_registry WHERE is_installed = true
@@ -264,6 +258,13 @@ export async function nonCollectionObjects(
   return new Set([...ENGINE_CASBIN_OBJECTS, ...out]);
 }
 
+/**
+ * Every resource name the engine can enumerate right now.
+ *
+ * Used by the boot reconcile. A collection created while the engine was on an
+ * older version, or one belonging to an extension installed since, is picked up
+ * here rather than needing its own migration.
+ */
 export async function listKnownResources(db: Database, extensionsBase?: string): Promise<string[]> {
   const collections = await sql<{ name: string }>`
     SELECT name FROM zvd_collections
@@ -275,8 +276,8 @@ export async function listKnownResources(db: Database, extensionsBase?: string):
 /**
  * `manifest.resources` for everything installed, read from disk.
  *
- * The frozen array above was the only extension-side input this reconcile had,
- * which made it go stale by construction: an extension installed but not loaded
+ * A frozen array in engine source was once the only extension-side input this
+ * reconcile had, which made it go stale by construction: an extension installed but not loaded
  * on this boot contributed nothing, and the fix was to edit engine source. The
  * declarations are already on disk and already authoritative — `register.ts`
  * materializes from the same field — so read them instead of remembering them.
