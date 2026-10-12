@@ -210,16 +210,16 @@ Create a new record.
   "category": "electronics"
 }
 
-// Response
+// Response (201): the created row
 {
-  "record": {
-    "id": "rec_xyz789",
-    "title": "iPhone 15 Pro",
-    "price": 999,
-    "created_at": "2026-01-01T12:00:00Z"
-  }
+  "id": "rec_xyz789",
+  "title": "iPhone 15 Pro",
+  "price": 999,
+  "created_at": "2026-01-01T12:00:00Z"
 }
 ```
+
+A caller who may create but not read gets only `{ "id": "rec_xyz789" }`.
 
 ### GET /api/data/:collection/:id
 
@@ -237,7 +237,8 @@ Replace a record entirely.
 
 ### DELETE /api/data/:collection/:id
 
-Soft-delete a record (sets `deleted_at`).
+Delete a record. The row is removed (a hard `DELETE`); its revision history keeps
+what it held.
 
 ### GET /api/data/:collection/:id/timeline
 

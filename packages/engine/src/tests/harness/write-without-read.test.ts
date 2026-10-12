@@ -165,6 +165,19 @@ d('writes by a principal that cannot read the collection', () => {
     expect(b.records).toEqual([{ id }]);
     expect((await row(id))?.title).toBe('u2');
 
+    // PUT is a third update path with its own before-row and WHERE.
+    const put = await req(
+      'PUT',
+      `/api/data/${COLL}/${id}`,
+      { cookie: cookies.updater! },
+      {
+        title: 'u3',
+      },
+    );
+    expect(put.status).toBe(200);
+    expect(await put.json()).toEqual({ success: true, id });
+    expect((await row(id))?.title).toBe('u3');
+
     // A row that does not exist is still not found.
     const missing = await req(
       'PATCH',
