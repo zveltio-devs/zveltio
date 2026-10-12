@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Querynaam *",
   "savedQueries.run": "Uitvoeren",
   "savedQueries.saved": "Query opgeslagen",
+  "savedQueries.urlOmits": "Niet in deze URL, dus die geeft meer rijen terug dan de query: {filters}",
   "savedQueries.selectOrCreate": "Selecteer een query of maak een nieuwe",
   "savedQueries.shareAll": "Delen met alle gebruikers",
   "savedQueries.shared": "Gedeeld",

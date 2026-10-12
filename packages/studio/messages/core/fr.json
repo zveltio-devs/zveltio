@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Nom de la requête *",
   "savedQueries.run": "Exécuter",
   "savedQueries.saved": "Requête enregistrée",
+  "savedQueries.urlOmits": "Absents de cette URL, qui renvoie donc plus de lignes que la requête : {filters}",
   "savedQueries.selectOrCreate": "Sélectionnez une requête ou créez-en une nouvelle",
   "savedQueries.shareAll": "Partager avec tous les utilisateurs",
   "savedQueries.shared": "Partagées",

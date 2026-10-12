@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Nombre de la consulta *",
   "savedQueries.run": "Ejecutar",
   "savedQueries.saved": "Consulta guardada",
+  "savedQueries.urlOmits": "No están en esta URL, por lo que devuelve más filas que la consulta: {filters}",
   "savedQueries.selectOrCreate": "Selecciona una consulta o crea una nueva",
   "savedQueries.shareAll": "Compartir con todos los usuarios",
   "savedQueries.shared": "Compartidas",

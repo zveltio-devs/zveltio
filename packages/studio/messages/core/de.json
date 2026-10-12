@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Abfragename *",
   "savedQueries.run": "Ausführen",
   "savedQueries.saved": "Abfrage gespeichert",
+  "savedQueries.urlOmits": "Nicht in dieser URL, sie liefert daher mehr Zeilen als die Abfrage: {filters}",
   "savedQueries.selectOrCreate": "Wählen Sie eine Abfrage aus oder erstellen Sie eine neue",
   "savedQueries.shareAll": "Mit allen Benutzern teilen",
   "savedQueries.shared": "Geteilt",

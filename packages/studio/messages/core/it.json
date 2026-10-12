@@ -1205,6 +1205,7 @@
   "savedQueries.queryName": "Nome della query *",
   "savedQueries.run": "Esegui",
   "savedQueries.saved": "Query salvata",
+  "savedQueries.urlOmits": "Assenti da questo URL, che quindi restituisce più righe della query: {filters}",
   "savedQueries.selectOrCreate": "Seleziona una query o creane una nuova",
   "savedQueries.shareAll": "Condividi con tutti gli utenti",
   "savedQueries.shared": "Condivise",

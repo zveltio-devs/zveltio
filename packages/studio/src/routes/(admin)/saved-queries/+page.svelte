@@ -51,6 +51,7 @@ let executeResult = $state<any>(null);
 let executeError = $state('');
 let executing = $state(false);
 let apiUrlPreview = $state('');
+let apiUrlOmits = $state<string[]>([]);
 
 onMount(async () => {
   await Promise.all([loadQueries(), loadCollections()]);
@@ -104,14 +105,19 @@ let filtered = $derived(
 async function previewUrl() {
   if (!builderCollection) return;
   try {
-    const res = await api.post<{ api_url?: string }>(`/api/saved-queries/preview-url`, {
-      collection: builderCollection,
-      config: buildConfig(),
-    });
+    const res = await api.post<{ api_url?: string; api_url_omits?: string[] }>(
+      `/api/saved-queries/preview-url`,
+      {
+        collection: builderCollection,
+        config: buildConfig(),
+      },
+    );
     apiUrlPreview = res.api_url ?? '';
+    apiUrlOmits = res.api_url_omits ?? [];
   } catch {
     // A preview is a convenience; its failure should not interrupt the builder.
     apiUrlPreview = '';
+    apiUrlOmits = [];
   }
 }
 
@@ -376,6 +382,9 @@ function removeSort(i: number) {
         <!-- API URL Preview -->
         {#if apiUrlPreview}
           <div class="bg-base-300 rounded px-3 py-2 text-xs font-mono text-base-content/70">{apiUrlPreview}</div>
+          {#if apiUrlOmits.length}
+            <p class="text-xs text-warning">{m['savedQueries.urlOmits']({ filters: apiUrlOmits.join(', ') })}</p>
+          {/if}
         {/if}
 
         <!-- Execute result -->
