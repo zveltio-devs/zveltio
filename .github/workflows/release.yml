@@ -19,6 +19,9 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/zveltio-engine
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: read
+
 jobs:
   # ── Job 0: Release gate (H-16) ──────────────────────────────
   # Codified stable-cut criteria. Prerelease tags (-alpha/-beta/-rc.) bypass

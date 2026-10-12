@@ -20,6 +20,9 @@ concurrency:
   group: private-docs-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   untracked:
     name: docs/private stays untracked

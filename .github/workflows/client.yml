@@ -23,6 +23,9 @@ concurrency:
   group: client-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   client:
     name: Client component tests

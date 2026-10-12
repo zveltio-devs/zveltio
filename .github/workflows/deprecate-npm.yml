@@ -11,6 +11,9 @@ on:
         required: false
         default: 'Pre-release development build — not intended for production use. A stable release is coming soon.'
 
+permissions:
+  contents: read
+
 jobs:
   deprecate:
     name: Deprecate all published versions
