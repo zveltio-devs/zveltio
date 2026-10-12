@@ -9,14 +9,7 @@ import type { User } from 'better-auth';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
-import {
-  announceSchemaChange,
-  DDLManager,
-  FieldSchema,
-  GhostDDL,
-  rowCountOrAssumeLarge,
-  runAddField,
-} from '../lib/data/index.js';
+import { announceSchemaChange, DDLManager, FieldSchema, runAddField } from '../lib/data/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 
 /**
@@ -455,17 +448,9 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
               applied.push(`Add field: ${field.name} to ${collection}`);
             } else if (change.type === 'remove_field') {
               const { collection, field } = RemoveFieldPayload.parse(change.payload);
-              const tableName = DDLManager.getTableName(collection);
-              if ((await rowCountOrAssumeLarge(db, tableName)) > 100_000) {
-                await GhostDDL.execute(
-                  db,
-                  tableName,
-                  [{ kind: 'drop_column', column: field }],
-                  (phase, detail) => {
-                    console.log(`[ghost-ddl] ${phase}: ${detail}`);
-                  },
-                );
-              }
+              // No Ghost DDL at any size: DROP COLUMN rewrites nothing, and a ghost
+              // drop ran before removeField's rules — the swap then failed on the
+              // row-rule policy naming the column, `*` rules unreported (#1059).
               await DDLManager.removeField(db, collection, field);
               announceSchemaChange(collection, 'alter');
               applied.push(`Remove field: ${field} from ${collection}`);
