@@ -45,6 +45,32 @@ describe('ZveltioRealtime upgrade headers', () => {
     expect(calls[0]).toEqual(['ws://engine.test/api/ws']);
     rt.disconnect();
   });
+
+  // A browser reads the second argument as subprotocols and throws a
+  // SyntaxError on an object: `new ZveltioClient({ apiKey })` in a page threw
+  // on `realtime.connect()`. There the socket opens on the session cookie.
+  it('opens without headers where the constructor refuses them (a browser)', () => {
+    const calls: unknown[][] = [];
+    globalThis.WebSocket = class {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      readyState = 0;
+      constructor(...args: unknown[]) {
+        if (args.length > 1 && typeof args[1] === 'object' && !Array.isArray(args[1]))
+          throw new SyntaxError('An invalid or illegal string was specified');
+        calls.push(args);
+      }
+      close() {}
+      send() {}
+    } as unknown as typeof WebSocket;
+    const zv = new ZveltioClient({ baseUrl: 'https://engine.test', apiKey: 'zvk_x' });
+    zv.realtime.connect();
+    const rt = new ZveltioRealtime('https://engine.test', { headers: { 'X-API-Key': 'zvk_x' } });
+    rt.connect();
+    expect(calls).toEqual([['wss://engine.test/api/ws'], ['wss://engine.test/api/ws']]);
+    zv.realtime.disconnect();
+    rt.disconnect();
+  });
 });
 
 interface FakeSocket {

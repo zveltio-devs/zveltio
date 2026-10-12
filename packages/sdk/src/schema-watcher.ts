@@ -10,7 +10,7 @@
  *   await watchSchema('http://localhost:3000', './src/zveltio-types.d.ts');
  */
 
-import { WS_UNAUTHORIZED } from './realtime.js';
+import { openWebSocket, WS_UNAUTHORIZED } from './realtime.js';
 
 export interface CollectionField {
   name: string;
@@ -186,12 +186,7 @@ export async function watchSchema(
 
     // The key `fetchCollections` sends, on the upgrade too: without it the
     // engine refuses the socket (401) and the watcher only ever reconnected.
-    // The two-argument form is the Bun/undici extension; a browser cannot set it.
-    const upgradeHeaders = { ...headers, ...(apiKey ? { 'X-API-Key': apiKey } : {}) };
-    ws =
-      Object.keys(upgradeHeaders).length > 0
-        ? new WebSocket(wsUrl, { headers: upgradeHeaders } as unknown as string[])
-        : new WebSocket(wsUrl);
+    ws = openWebSocket(wsUrl, { ...headers, ...(apiKey ? { 'X-API-Key': apiKey } : {}) });
 
     ws.onopen = () => {
       console.log('[zveltio] Schema watcher connected.');
