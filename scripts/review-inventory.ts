@@ -1258,7 +1258,9 @@ async function main() {
   // read, and it used to be accepted silently.
   const tracked = new Set(files);
   const everAdded = new Set(
-    ((await git(['log', '--no-renames', '--format=', '--name-only', '--diff-filter=A'])) ?? '').split('\n'),
+    (
+      (await git(['log', '--no-renames', '--format=', '--name-only', '--diff-filter=A'])) ?? ''
+    ).split('\n'),
   );
   const unknown: string[] = [];
   for (const s of ledger.sessions) {
