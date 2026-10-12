@@ -79,13 +79,15 @@ Two rules, enforced by machine, not judgement:
 The gate (`scripts/release-gate.ts`) asserts, with real checks:
 
 - the `any` suppression ratchet is at/below baseline (H-01);
-- gated coverage buckets meet their stable target — engine `lib/` ≥ 60% (H-02);
+- the `Handler Coverage` CI job is green on the release-candidate commit. It
+  measures coverage there and enforces the floor (engine `lib/` ≥ 95%), the
+  ratchet and the stable target (engine `lib/` ≥ 90%) (H-02);
 - HEAD's migrations are a strict superset of the last release's — nothing
   renamed/renumbered/deleted (reuses the H-11 invariant);
 - `package.json` version matches the tag;
 - the required CI checks are green on the release-candidate commit (H-09
   adversarial + H-11 upgrade-path run inside integration; Type Check, Lint,
-  Unit, Integration, Perf Smoke);
+  Unit, Integration, Perf Smoke, Handler Coverage);
 - the latest soak run is green (H-15);
 - there are no open `P0` issues.
 
