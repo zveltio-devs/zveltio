@@ -101,5 +101,7 @@ describe('purgeExtensionData', () => {
     expect(db.executed(/drop table b/i).length).toBe(1);
     expect(db.executed(/drop table a/i).length).toBe(1);
     expect(db.executed(MIG_DELETE).length).toBe(2);
+    // The UP path's lock_timeout, set before the first DOWN.
+    expect(db.executed(/set local lock_timeout/i).length).toBe(1);
   });
 });

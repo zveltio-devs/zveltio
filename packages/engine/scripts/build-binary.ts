@@ -78,6 +78,12 @@ async function main(): Promise<void> {
     '--compile',
     `--outfile=${outFile}`,
     `--target=${target}`,
+    // Bun inlines process.env.NODE_ENV as "development" in a build without
+    // --production, so every NODE_ENV read in the binary ignored the real
+    // environment (measured: NODE_ENV=production ./bin printed development).
+    // Read it at run time instead.
+    '--define',
+    'process.env.NODE_ENV=globalThis.process.env.NODE_ENV',
   ];
   if (minify) args.push('--minify');
 

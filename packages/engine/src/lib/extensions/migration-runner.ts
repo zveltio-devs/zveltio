@@ -289,6 +289,9 @@ export async function purgeExtensionData(extensionName: string, db: Database): P
   }
 
   await db.transaction().execute(async (trx) => {
+    // The UP path's lock_timeout: a DROP behind one long reader otherwise waits
+    // at the head of the lock queue with the table's traffic stalled behind it.
+    for (const stmt of migrationTimeoutPreamble()) await _sql.raw(stmt).execute(trx);
     for (const r of rows) {
       const downSql = r.down_sql as string;
       await _sql.raw(downSql).execute(trx);
