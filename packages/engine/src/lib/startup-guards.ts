@@ -14,7 +14,8 @@
  * before.
  */
 
-import { activePoolMax } from '../db/index.js';
+import { sql } from 'kysely';
+import { activePoolMax, type Database } from '../db/index.js';
 
 export interface ProductionGuardViolation {
   /** The variable at fault, so the operator can act without reading source. */
@@ -196,6 +197,27 @@ export function assertProductionConfig(
 }
 
 /**
+ * `ZVELTIO_TENANT_ID` must name a `zv_tenants` row. An id with no row still
+ * resolved every request into it: god's visible set omitted it (reads came back
+ * empty, REST creates 403), no user could be a member (FK), and a write landed
+ * in a tenant nobody could read. Compared as text, so a non-uuid is refused here
+ * rather than failing every request with 22P02.
+ */
+export async function assertEnvTenantExists(
+  db: Database,
+  env: Record<string, string | undefined> = process.env,
+): Promise<void> {
+  const id = env.ZVELTIO_TENANT_ID;
+  if (!id) return;
+  const { rows } = await sql`SELECT 1 FROM zv_tenants WHERE id::text = ${id}`.execute(db);
+  if (rows.length > 0) return;
+  throw new Error(
+    `ZVELTIO_TENANT_ID=${id} names no tenant in zv_tenants. Create that tenant, ` +
+      'or unset ZVELTIO_TENANT_ID to serve the default tenant.',
+  );
+}
+
+/**
  * Report the concurrency ceiling this instance is running under.
  *
  * `DB_POOL_MAX` is not a throughput knob — it is a hard ceiling on how many
@@ -265,6 +287,7 @@ const REMOVED_VARIABLES: Record<string, string> = {
     'third-party extensions run in the extension runner; nothing loads them in the engine process',
   ZVELTIO_ALLOW_WORKER_EXTENSIONS:
     'the in-process worker is gone; worker extensions run in the extension runner',
+  ZVELTIO_TENANT_NAME: "the ZVELTIO_TENANT_ID tenant's name is its zv_tenants row's",
 };
 
 /** One warning per removed variable that is still set, whatever its value. */

@@ -364,8 +364,7 @@ EXTENSIONS_DIR=/app/extensions
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZVELTIO_TENANT_ID` | — | Default tenant ID (single-tenant mode) |
-| `ZVELTIO_TENANT_NAME` | — | Default tenant display name |
+| `ZVELTIO_TENANT_ID` | — | Tenant id requests fall back to when no header or subdomain names one (single-tenant mode). Must be the `id` of an existing `zv_tenants` row: the engine refuses to boot otherwise — create the tenant first, or unset the variable to serve the default tenant. A suspended tenant named here answers 403 like any other. (`ZVELTIO_TENANT_NAME` is no longer read: the name is the row's.) |
 | `BACKUP_DB_USER` | unset | Role `pg_dump` connects as. **Required on a hardened install**: the engine's own role is bound by `FORCE ROW LEVEL SECURITY`, so `pg_dump` as the engine fails on a virgin database. Create a role with `BYPASSRLS`, used for nothing else — see [DISASTER-RECOVERY.md](disaster-recovery.md). Unset falls back to the engine's own credentials. |
 | `BACKUP_DB_PASSWORD` | unset | Password for `BACKUP_DB_USER`. Only read when that is set. |
 | `ZVELTIO_FAIL_CLOSED_TENANT` | unset | Set to `1` to make `zveltio_tenant_scope_ok` return **no rows** when `zveltio.current_tenant` is unset (`001_initial.sql`, section `from 047_fail_closed_tenant_opt_in.sql`). Default remains fail-open-to-default-tenant. **Do not enable** on single-tenant installs or jobs that omit tenant context. |

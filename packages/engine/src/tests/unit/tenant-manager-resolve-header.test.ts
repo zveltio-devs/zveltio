@@ -27,7 +27,6 @@ function setup(): CannedDb {
 
 afterEach(() => {
   delete process.env.ZVELTIO_TENANT_ID;
-  delete process.env.ZVELTIO_TENANT_NAME;
 });
 
 describe('resolveTenantFromRequest — X-Tenant-Slug', () => {

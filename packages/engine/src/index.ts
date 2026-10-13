@@ -1214,7 +1214,10 @@ async function bootstrap() {
   const { emailCaseUniquenessProblem } = await import('./lib/identity.js');
   const emailProblem = await emailCaseUniquenessProblem(db);
   if (emailProblem) console.warn(`⚠️  ${emailProblem}`);
-  const { removedVariableWarnings } = await import('./lib/startup-guards.js');
+  const { assertEnvTenantExists, removedVariableWarnings } = await import(
+    './lib/startup-guards.js'
+  );
+  await assertEnvTenantExists(db);
   for (const w of removedVariableWarnings(process.env)) console.warn(`⚠️  ${w}`);
   console.log(`✅ Zveltio Engine v${ENGINE_VERSION}`);
 

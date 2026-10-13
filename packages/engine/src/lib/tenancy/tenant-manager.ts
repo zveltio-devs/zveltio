@@ -1155,16 +1155,15 @@ export async function resolveTenantFromRequest(
     }
   }
 
-  // Priority 3: env var (legacy single-tenant mode)
+  // Priority 3: env var (legacy single-tenant mode). The row, not a literal: a
+  // suspended tenant must reach the middleware's status check as suspended. Boot
+  // refuses an id with no row (assertEnvTenantExists); one deleted since fails
+  // the request rather than silently serving another tenant.
   const envTenantId = process.env.ZVELTIO_TENANT_ID;
   if (envTenantId) {
-    return {
-      id: envTenantId,
-      slug: envTenantId,
-      name: process.env.ZVELTIO_TENANT_NAME || 'Default',
-      status: 'active',
-      settings: {},
-    };
+    const row = await getTenantById(envTenantId);
+    if (!row) throw new Error(`ZVELTIO_TENANT_ID=${envTenantId} names no tenant in zv_tenants`);
+    return row;
   }
 
   // Always-one-tenant: no explicit tenant → the implicit default tenant, so the
