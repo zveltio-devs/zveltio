@@ -48,6 +48,9 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - Four duplicate indexes dropped (migration 064, #1085).
 
 ### Operations
+- Default extensions (content/pages, ai) auto-activate only from the install's
+  own extensions directory (`EXTENSIONS_DIR` or `./extensions`), never from a
+  sibling dev checkout or under `NODE_ENV=test` (#1092).
 - Extension migrations, extension purge and engine rollbacks run under the
   migration lock and statement timeouts (#1074, #1089).
 - The compiled binary reads `NODE_ENV` at run time; it was baked as
