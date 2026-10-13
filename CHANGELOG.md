@@ -56,6 +56,10 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - Moving a row rule rebuilds the policy of the collection it actually
   leaves, under concurrent moves too; a table with no registry row drops a
   `*` rule that was moved, deleted or disabled (#1096).
+- **Breaking:** the engine refuses to boot when `ZVELTIO_TENANT_ID` names no
+  `zv_tenants` row (create the tenant or unset the variable), and the fallback
+  resolves with that row's status, so a suspended tenant answers 403 instead of
+  serving as active. `ZVELTIO_TENANT_NAME` is no longer read (#PRNUM).
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,

@@ -53,7 +53,6 @@ function asDb(db: CannedDb): Database {
 
 afterEach(() => {
   delete process.env.ZVELTIO_TENANT_ID;
-  delete process.env.ZVELTIO_TENANT_NAME;
 });
 
 describe('pure helpers', () => {
@@ -178,13 +177,18 @@ describe('resolveTenantFromRequest priority chain', () => {
     }
   });
 
-  it('ZVELTIO_TENANT_ID env var provides the legacy single-tenant identity', async () => {
-    setup();
-    process.env.ZVELTIO_TENANT_ID = 'legacy-tenant';
-    process.env.ZVELTIO_TENANT_NAME = 'Legacy Corp';
-    const t = await resolveTenantFromRequest(new Headers(), 'localhost');
-    expect(t?.id).toBe('legacy-tenant');
-    expect(t?.name).toBe('Legacy Corp');
+  it('ZVELTIO_TENANT_ID resolves to its zv_tenants row, status included', async () => {
+    const db = setup();
+    const legacy = { ...TENANT, id: 'aaaaaaaa-0000-4000-8000-0000000000e1', status: 'suspended' };
+    db.when(/select \* from "zv_tenants" where "id" = /, (q) =>
+      q.parameters[0] === legacy.id ? [legacy] : [],
+    );
+    process.env.ZVELTIO_TENANT_ID = legacy.id;
+    expect(await resolveTenantFromRequest(new Headers(), 'localhost')).toEqual(legacy);
+    process.env.ZVELTIO_TENANT_ID = 'aaaaaaaa-0000-4000-8000-0000000000e2';
+    await expect(resolveTenantFromRequest(new Headers(), 'localhost')).rejects.toThrow(
+      'names no tenant',
+    );
   });
 });
 
