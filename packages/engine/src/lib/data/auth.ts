@@ -11,7 +11,7 @@
 import { principalRole, publishApiKeyActor } from '../tenancy/index.js';
 import type { Context } from 'hono';
 import type { ExpressionBuilder } from 'kysely';
-import type { Database } from '../../db/index.js';
+import { type Database, getDb } from '../../db/index.js';
 import type { DbSchema, ZvApiKeyRow } from '../../db/schema.js';
 import { requestSession } from '../../middleware/session-prefetch.js';
 import {
@@ -403,11 +403,18 @@ export async function validateApiKey(
     (apiKey as { scopes?: unknown }).scopes,
   );
 
-  // Update last_used_at — fire-and-forget; non-blocking on hot path
-  db.updateTable('zv_api_keys')
-    .set({ last_used_at: new Date() })
-    .where('id', '=', apiKey.id)
-    .execute()
+  // Update last_used_at — fire-and-forget; non-blocking on hot path. Through
+  // the pool, outside any tenant (065's owner carve-out): `db` is the request
+  // transaction, which sees only the acting tenant's keys, so a root key used in
+  // another tenant matched no row and was never stamped.
+  Promise.resolve()
+    .then(() =>
+      getDb()
+        .updateTable('zv_api_keys')
+        .set({ last_used_at: new Date() })
+        .where('id', '=', apiKey.id)
+        .execute(),
+    )
     .catch((err) => console.error('[validateApiKey] last_used_at update failed:', err));
 
   return apiKey;

@@ -20,8 +20,10 @@
  * Usage: bun scripts/check-i18n-core.ts
  */
 
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { findExtensions } from '../packages/studio/scripts/lib/extension-i18n.ts';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const STUDIO = join(import.meta.dir, '..', 'packages', 'studio');
 
@@ -226,9 +228,17 @@ function looksTranslatable(raw: string): boolean {
  * crashes a page whether or not that page is finished.
  */
 function checkKeyReferences(): string[] {
+  // The sources the bundle is merged from, not the committed bundle itself: a
+  // key deleted from core and from every extension stayed in a stale bundle and
+  // passed here, then vanished at the next `i18n:merge`.
+  requireSibling(SIBLING_ROOT, 'i18n-core');
   const bundle: Record<string, unknown> = JSON.parse(
-    readFileSync(join(STUDIO, 'messages', 'en.json'), 'utf-8'),
+    readFileSync(join(STUDIO, 'messages', 'core', 'en.json'), 'utf-8'),
   );
+  for (const ext of findExtensions(SIBLING_ROOT)) {
+    const path = join(SIBLING_ROOT, ext, 'studio', 'messages', 'en.json');
+    if (existsSync(path)) Object.assign(bundle, JSON.parse(readFileSync(path, 'utf-8')));
+  }
   const broken: string[] = [];
 
   const walk = (dir: string): void => {

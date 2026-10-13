@@ -45,6 +45,7 @@ import type {
   RouteInvokeResponse,
   InitResponse,
 } from './worker-extension-protocol.js';
+import { pgErrorFields } from './worker-extension-protocol.js';
 import {
   type ExtensionChannel,
   extensionTransport,
@@ -707,6 +708,8 @@ export class WorkerExtensionHost {
         id: msg.id,
         error: (err as Error).message,
         ...(errno ? { errno, code: (err as { code?: string }).code } : {}),
+        // detail/constraint/table/column: what names the failing row or key.
+        pg: pgErrorFields(err),
       });
     }
   }

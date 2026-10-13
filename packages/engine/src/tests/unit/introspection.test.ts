@@ -53,6 +53,15 @@ describe('introspectSchema — filtering', () => {
     expect(result.map((r) => r.tableName)).toEqual(['customers']);
   });
 
+  it('skips a table named after a non-collection permission object', async () => {
+    // `data` is an engine Casbin object: as a collection it would be read by
+    // every `data:*` grant on the instance (A13).
+    const db = new CannedDb();
+    withSchema(db, { data: [COL()], customers: [COL()] });
+    const result = await introspectSchema(asDb(db), 'public', [], true);
+    expect(result.map((r) => r.tableName)).toEqual(['customers']);
+  });
+
   it('skips tables that have no columns', async () => {
     const db = new CannedDb();
     withSchema(db, { empty_table: [], real_table: [COL()] });

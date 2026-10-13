@@ -137,6 +137,29 @@ export interface DbQueryResponse {
   /** The SQLSTATE, and the driver's code, set on the error the worker rethrows. */
   errno?: string;
   code?: string;
+  /** Postgres's own fields on the error, as the inline driver exposes them. */
+  pg?: PgErrorFields;
+}
+
+/** The Postgres error fields an extension reads to name what failed. */
+export const PG_ERROR_FIELDS = [
+  'detail',
+  'hint',
+  'constraint',
+  'table',
+  'column',
+  'schema',
+] as const;
+export type PgErrorFields = Partial<Record<(typeof PG_ERROR_FIELDS)[number], string>>;
+
+/** The string-valued `PG_ERROR_FIELDS` on `err`, or undefined when there are none. */
+export function pgErrorFields(err: unknown): PgErrorFields | undefined {
+  const out: PgErrorFields = {};
+  for (const k of PG_ERROR_FIELDS) {
+    const v = (err as Record<string, unknown> | null)?.[k];
+    if (typeof v === 'string') out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 // ── Services ────────────────────────────────────────────────────────

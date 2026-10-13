@@ -38,4 +38,19 @@ describe('resolveManifest — extension dependencies', () => {
       expect(r.logLevel).toBe('warn');
     }
   });
+
+  it('loads with an optional pinned dependency absent when the registry read fails', async () => {
+    const canned = new CannedDb();
+    canned.fail(/from "zv_extension_registry"/i, new Error('connection reset'));
+    const dir = tmpExt({
+      'manifest.json': JSON.stringify({
+        name: 'child-ext',
+        version: '1.0.0',
+        optionalDependencies: [{ name: 'parent-ext', minVersion: '2.0.0' }],
+      }),
+    });
+    const r = await resolveManifest('child-ext', dir, canned.kysely as unknown as Database);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.absentOptional).toEqual(['parent-ext']);
+  });
 });

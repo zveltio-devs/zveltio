@@ -48,15 +48,16 @@ d('ctx.internals.exportUserData', () => {
     await sql`INSERT INTO zv_notifications (user_id, title, message) VALUES
                 (${USER}, 'mine', 'm'), (${OTHER}, 'theirs', 't')`.execute(db);
     await sql`INSERT INTO zv_api_keys (name, key_hash, key_prefix, created_by, tenant_id)
-              VALUES ('my-key', ${`h-${TAG}`}, 'zvk_x', ${USER}, '00000000-0000-0000-0000-000000000001'::uuid)`.execute(
-      db,
-    );
+              VALUES ('my-key', ${`h-${TAG}`}, 'zvk_x', ${USER}, '00000000-0000-0000-0000-000000000001'::uuid),
+                     ('my-other-key', ${`h2-${TAG}`}, 'zvk_y', ${USER}, ${T}::uuid)`.execute(db);
   });
 
   afterAll(async () => {
     if (!db) return;
     await sql`DELETE FROM zv_audit_log WHERE user_id IN (${USER}, ${OTHER})`.execute(db);
-    await sql`DELETE FROM zv_api_keys WHERE key_hash = ${`h-${TAG}`}`.execute(db);
+    await sql`DELETE FROM zv_api_keys WHERE key_hash IN (${`h-${TAG}`}, ${`h2-${TAG}`})`.execute(
+      db,
+    );
     await sql`DELETE FROM "user" WHERE id IN (${USER}, ${OTHER})`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${T}::uuid`.execute(db);
   });
@@ -70,9 +71,8 @@ d('ctx.internals.exportUserData', () => {
       'export.other',
     ]);
     expect(out!.notifications.map((n) => n.title)).toEqual(['mine']);
-    expect(out!.api_keys).toEqual([
-      expect.objectContaining({ name: 'my-key', key_prefix: 'zvk_x' }),
-    ]);
+    // Keys in every tenant, not only the one a request would act in (065).
+    expect(out!.api_keys.map((k) => k.name).sort()).toEqual(['my-key', 'my-other-key']);
     expect(JSON.stringify(out)).not.toContain(`h-${TAG}`);
   });
 

@@ -131,11 +131,25 @@ export async function introspectSchema(
   `.execute(db);
 
   const results: IntrospectedTable[] = [];
+  // Dynamic, as in ddl-manager: both modules import back into this layer.
+  const [{ nonCollectionObjects }, { resolveExtensionsBase }] = await Promise.all([
+    import('./tenancy/index.js'),
+    import('./extensions/index.js'),
+  ]);
+  const reserved = await nonCollectionObjects(db, resolveExtensionsBase());
 
   for (const { table_name } of tablesResult.rows) {
     // Skip platform tables and excluded patterns
     if (isPlatformTable(table_name)) continue;
     if (excludePatterns.some((p) => table_name.includes(p))) continue;
+    // A collection under a non-collection permission object's name would be
+    // read by grants written for that object — refused as createCollection does.
+    if (reserved.has(table_name)) {
+      console.warn(
+        `[introspection] skipped "${table_name}": it names a permission object that is not a collection`,
+      );
+      continue;
+    }
 
     // Get the table columns
     const colsResult = await sql<{
