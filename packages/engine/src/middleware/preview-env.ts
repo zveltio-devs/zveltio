@@ -53,18 +53,21 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
           SELECT preview_schema, preview_expires_at FROM zv_schema_branches
           WHERE preview_token = ${token}
             AND preview_enabled = true
-            AND (preview_expires_at IS NULL OR preview_expires_at > NOW())
           LIMIT 1
         `.execute(db);
 
         const row = result.rows[0];
-        if (row?.preview_expires_at && new Date(row.preview_expires_at) < new Date()) {
+        // Expiry is checked here rather than in the WHERE, so an expired token
+        // is both refused and cleared; filtering it out in SQL refused it but
+        // left it in the table forever.
+        if (row?.preview_expires_at && new Date(row.preview_expires_at) <= new Date()) {
           // Expired — disable it. Awaited, not fire-and-forget: an unawaited
           // statement on the request's transaction lands after the handler has
           // moved on, on a transaction that may already be committing.
           await sql`UPDATE zv_schema_branches SET preview_enabled = false, preview_token = NULL WHERE preview_token = ${token}`.execute(
             db,
           );
+          return;
         }
         const schema = row?.preview_schema;
         if (schema) {

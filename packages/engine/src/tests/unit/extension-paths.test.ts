@@ -2,7 +2,7 @@
  * extension-paths.ts — base resolution + on-disk presence checks.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -52,6 +52,22 @@ describe('resolveExtensionsBase', () => {
     try {
       process.chdir(cwd);
       expect(resolveExtensionsBase()).toBe(ext);
+    } finally {
+      process.chdir(orig);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('finds the sibling zveltio-extensions checkout next to the monorepo', () => {
+    delete process.env.EXTENSIONS_DIR;
+    const monorepo = join(import.meta.dir, '../../../../..');
+    const sibling = join(monorepo, '..', 'zveltio-extensions');
+    const cwd = mkdtempSync(join(tmpdir(), 'zv-ext-cwd-'));
+    const orig = process.cwd();
+    try {
+      process.chdir(cwd);
+      // Without the sibling there is nothing to find; the fallback then wins.
+      expect(resolveExtensionsBase()).toBe(existsSync(sibling) ? sibling : join(cwd, 'extensions'));
     } finally {
       process.chdir(orig);
       rmSync(cwd, { recursive: true, force: true });
