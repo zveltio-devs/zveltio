@@ -49,27 +49,15 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
         // (`mirrorPublicProtections` in routes/schema-branches.ts), so the
         // caller still reaches only its own tenant. Pinned by
         // tests/harness/schema-branches.test.ts ("a token minted in one tenant").
-        const result = await sql<{ preview_schema: string; preview_expires_at: Date | null }>`
-          SELECT preview_schema, preview_expires_at FROM zv_schema_branches
-          WHERE preview_token = ${token}
-            AND preview_enabled = true
-          LIMIT 1
+        //
+        // Through a SECURITY DEFINER function (migration 068): the request role
+        // holds no SELECT on `preview_token`, so SQL running as it cannot list
+        // the tokens. The function answers only for an enabled, unexpired token,
+        // and clears an expired one on the way.
+        const result = await sql<{ preview_schema: string | null }>`
+          SELECT preview_schema FROM zveltio_preview_branch(${token}) LIMIT 1
         `.execute(db);
-
-        const row = result.rows[0];
-        // Expiry is checked here rather than in the WHERE, so an expired token
-        // is both refused and cleared; filtering it out in SQL refused it but
-        // left it in the table forever.
-        if (row?.preview_expires_at && new Date(row.preview_expires_at) <= new Date()) {
-          // Expired — disable it. Awaited, not fire-and-forget: an unawaited
-          // statement on the request's transaction lands after the handler has
-          // moved on, on a transaction that may already be committing.
-          await sql`UPDATE zv_schema_branches SET preview_enabled = false, preview_token = NULL WHERE preview_token = ${token}`.execute(
-            db,
-          );
-          return;
-        }
-        const schema = row?.preview_schema;
+        const schema = result.rows[0]?.preview_schema;
         if (schema) {
           // Set search_path for this connection so queries hit the branch schema first
           await sql`SET LOCAL search_path TO ${sql.id(schema)}, public`.execute(db);

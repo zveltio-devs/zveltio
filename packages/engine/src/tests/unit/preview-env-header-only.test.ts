@@ -23,7 +23,7 @@ const SCHEMA = 'branch_feature_x';
 
 function db(): CannedDb {
   const d = new CannedDb();
-  d.when(/FROM zv_schema_branches/i, [{ preview_schema: SCHEMA, preview_expires_at: null }]);
+  d.when(/zveltio_preview_branch/i, [{ preview_schema: SCHEMA, preview_expires_at: null }]);
   return d;
 }
 
@@ -60,7 +60,7 @@ describe('preview-env middleware', () => {
       await previewEnvMiddleware(d.kysely as unknown as Database)(c, async () => {});
       expect(c._vars.get('previewSchema')).toBeUndefined();
       // Never even looked the token up.
-      expect(d.executed(/FROM zv_schema_branches/i)).toHaveLength(0);
+      expect(d.executed(/zveltio_preview_branch/i)).toHaveLength(0);
     } finally {
       warn.mockRestore();
     }
@@ -89,14 +89,14 @@ describe('preview-env middleware', () => {
       reached = true;
     });
     expect(reached).toBe(true);
-    expect(d.executed(/FROM zv_schema_branches/i)).toHaveLength(0);
+    expect(d.executed(/zveltio_preview_branch/i)).toHaveLength(0);
   });
 
   it('prefers the header even when a query token is also present', async () => {
     const d = db();
     const c = ctx({ header: 'tok-header', query: 'tok-query' });
     await previewEnvMiddleware(d.kysely as unknown as Database)(c, async () => {});
-    const looked = d.executed(/FROM zv_schema_branches/i)[0];
+    const looked = d.executed(/zveltio_preview_branch/i)[0];
     expect(looked?.parameters).toContain('tok-header');
     expect(looked?.parameters).not.toContain('tok-query');
   });

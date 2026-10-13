@@ -386,6 +386,64 @@ d('a preview token reads from the branch schema (in-process)', () => {
     await sql`DELETE FROM zv_tenant_users WHERE user_id = ${userId}`.execute(db);
   });
 
+  // The token is a credential, and `zveltio_rls` is the role every tenant
+  // transaction — and every SQL surface built on one — runs as. It used to read
+  // the column (the lookup needed it), so any SQL as that role listed every live
+  // token. The lookup now goes through `zveltio_preview_branch` (migration 068)
+  // and the column is withheld; pinned AFTER the boot, whose grant loop hands the
+  // role table-wide SELECT on everything in `public` again.
+  it('boot gives the request role back the definer functions a migration could not grant', async () => {
+    // A restore that recreated zveltio_rls after 065/068 ran: their grants are gone.
+    const fns = [
+      'zveltio_preview_branch(text)',
+      'zveltio_user_memberships(text)',
+      'zveltio_revoke_user_api_keys(text)',
+    ];
+    for (const f of fns)
+      await sql.raw(`REVOKE EXECUTE ON FUNCTION ${f} FROM zveltio_rls`).execute(db);
+    const { initRlsEnforcementRole } = await import('../../lib/tenancy/index.js');
+    await initRlsEnforcementRole(db);
+    for (const f of fns) {
+      const r = await sql<{ ok: boolean }>`
+        SELECT has_function_privilege('zveltio_rls', ${f}, 'EXECUTE') AS ok`.execute(db);
+      expect(r.rows[0]?.ok, f).toBe(true);
+    }
+  });
+
+  it('the request role cannot read preview tokens, and still reads the rest of the row', async () => {
+    const asRls = (q: ReturnType<typeof sql>) =>
+      db.transaction().execute(async (trx) => {
+        await sql`SET LOCAL ROLE zveltio_rls`.execute(trx);
+        return q.execute(trx);
+      });
+    const err = await asRls(sql`SELECT preview_token FROM zv_schema_branches`).then(
+      () => null,
+      (e: { errno?: string }) => e,
+    );
+    expect(err?.errno).toBe('42501');
+    // What the routes and the middleware still need as that role.
+    const rest = await asRls(
+      sql`SELECT id, preview_enabled, preview_schema FROM zv_schema_branches WHERE id = ${branchId}`,
+    );
+    expect(rest.rows).toHaveLength(1);
+    const found = await asRls(sql`SELECT id FROM zveltio_preview_branch(${token})`);
+    expect(found.rows).toEqual([{ id: branchId }]);
+  });
+
+  it('a token on a branch whose preview is disabled is refused', async () => {
+    await sql`UPDATE zv_schema_branches SET preview_enabled = false WHERE id = ${branchId}`.execute(
+      db,
+    );
+    try {
+      expect(await labels(member, { 'x-preview-token': token })).toEqual(['main']);
+    } finally {
+      await sql`UPDATE zv_schema_branches SET preview_enabled = true WHERE id = ${branchId}`.execute(
+        db,
+      );
+    }
+    expect(await labels(member, { 'x-preview-token': token })).toEqual(['branch']);
+  });
+
   // Runs last: it spends the token. The SELECT used to filter expired rows
   // out, so the clearing branch below it never ran and an expired token stayed
   // in zv_schema_branches for good.

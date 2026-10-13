@@ -586,8 +586,9 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
       const body = await c.req.json().catch(() => ({}));
       const ttlHours: number = typeof body?.ttl_hours === 'number' ? body.ttl_hours : 168;
 
-      const result = await sql<{ id: string; branch_schema: string; preview_token: string | null }>`
-        SELECT id, branch_schema, preview_token FROM zv_schema_branches WHERE id = ${id}
+      // Not `preview_token`: the request role cannot read it (migration 068).
+      const result = await sql<{ id: string; branch_schema: string }>`
+        SELECT id, branch_schema FROM zv_schema_branches WHERE id = ${id}
       `.execute(db);
       if (!result.rows[0]) return c.json({ error: 'Branch not found' }, 404);
       const branch = result.rows[0];
