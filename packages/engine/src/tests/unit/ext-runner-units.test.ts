@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   checkUidRange,
+  missingCapabilities,
   closeSharedDirs,
   limitArgv,
   runnerInstance,
@@ -165,5 +166,25 @@ describe('container runner', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('missingCapabilities (container mode)', () => {
+  const status = (eff: string) => `Name:\tbun\nCapInh:\t0000000000000000\nCapEff:\t${eff}\n`;
+
+  it('passes the set the chart and compose add: KILL, SETGID, SETUID', () => {
+    expect(missingCapabilities(status('00000000000000e0'))).toBeNull();
+    expect(missingCapabilities(status('000001ffffffffff'))).toBeNull();
+  });
+
+  it('names each one missing', () => {
+    expect(missingCapabilities(status('0000000000000020'))).toContain('CAP_SETGID, CAP_SETUID');
+    expect(missingCapabilities(status('0000000000000000'))).toContain(
+      'CAP_KILL, CAP_SETGID, CAP_SETUID',
+    );
+  });
+
+  it('leaves the decision to checkUidRange where /proc says nothing', () => {
+    expect(missingCapabilities('')).toBeNull();
   });
 });

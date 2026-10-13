@@ -34,6 +34,7 @@
  */
 
 import {
+  readFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -136,10 +137,12 @@ export async function runExtRunner(): Promise<never> {
     // extension's channel. Both directories must be root's; the socket's is
     // closed to 0755, /tmp gets the sticky bit.
     const refused =
+      missingCapabilities(readProcStatus()) ??
       closeSharedDirs([
         [dirname(path), 0o755],
         [tmpdir(), 0o1777],
-      ]) ?? checkUidRange(uidBase);
+      ]) ??
+      checkUidRange(uidBase);
     if (refused) {
       console.error(`[ext-runner] ${refused}`);
       process.exit(1);
@@ -322,6 +325,38 @@ export function limitArgv(argv: string[]): string[] {
 }
 
 type SpawnSync = (argv: string[]) => { exitCode: number | null; stdout: Buffer; stderr?: Buffer };
+
+/** The capabilities the chart and the compose overlay add, by bit (linux/capability.h). */
+const RUNNER_CAPS: ReadonlyArray<readonly [string, number]> = [
+  ['CAP_KILL', 5],
+  ['CAP_SETGID', 6],
+  ['CAP_SETUID', 7],
+];
+
+function readProcStatus(): string {
+  try {
+    return readFileSync('/proc/self/status', 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Container mode: the refusal naming each capability the runner was started
+ * without, or null. A platform that drops them (some PaaS run every container
+ * without CAP_SETUID) otherwise fails later at the first uid switch, with
+ * setpriv's message instead of the one setting to change.
+ */
+export function missingCapabilities(procStatus: string): string | null {
+  const hex = /^CapEff:\s*([0-9a-f]+)$/im.exec(procStatus)?.[1];
+  if (!hex) return null; // not Linux /proc: checkUidRange still decides
+  const eff = BigInt(`0x${hex}`);
+  const missing = RUNNER_CAPS.filter(([, bit]) => !(eff & (1n << BigInt(bit)))).map(([n]) => n);
+  return missing.length === 0
+    ? null
+    : `started without ${missing.join(', ')}: give the runner container ` +
+        'cap_add [SETUID, SETGID, KILL] (Helm: securityContext.capabilities.add)';
+}
 
 /**
  * Container mode: check the kernel lets the runner switch to both ends of the
