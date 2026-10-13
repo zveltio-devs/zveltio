@@ -1669,6 +1669,31 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         LOOP
           EXECUTE format('REVOKE ALL ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;
+        -- A preview token is a credential too (migration 068): every column of
+        -- zv_schema_branches but that one. The loop above just granted the table
+        -- whole, and a column grant means nothing beside a table grant, so the
+        -- table grant goes and the columns come back one by one. The lookup runs
+        -- through zveltio_preview_branch(), which reads the token as its owner.
+        IF to_regclass('public.zv_schema_branches') IS NOT NULL THEN
+          REVOKE SELECT ON public.zv_schema_branches FROM zveltio_rls;
+          EXECUTE (
+            SELECT format('GRANT SELECT (%s) ON public.zv_schema_branches TO zveltio_rls',
+                          string_agg(quote_ident(attname), ', ' ORDER BY attnum))
+              FROM pg_attribute
+             WHERE attrelid = 'public.zv_schema_branches'::regclass
+               AND attnum > 0 AND NOT attisdropped AND attname <> 'preview_token');
+        END IF;
+        -- 065 and 068 skip these grants when the role did not exist yet
+        -- (created above, e.g. after a pg_dump restore without roles).
+        IF to_regprocedure('public.zveltio_preview_branch(text)') IS NOT NULL THEN
+          GRANT EXECUTE ON FUNCTION public.zveltio_preview_branch(text) TO zveltio_rls;
+        END IF;
+        IF to_regprocedure('public.zveltio_user_memberships(text)') IS NOT NULL THEN
+          GRANT EXECUTE ON FUNCTION public.zveltio_user_memberships(text) TO zveltio_rls;
+        END IF;
+        IF to_regprocedure('public.zveltio_revoke_user_api_keys(text)') IS NOT NULL THEN
+          GRANT EXECUTE ON FUNCTION public.zveltio_revoke_user_api_keys(text) TO zveltio_rls;
+        END IF;
       END
       $ensure_rls_grants$;
     `.execute(db);

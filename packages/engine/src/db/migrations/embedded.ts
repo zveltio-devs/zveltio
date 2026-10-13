@@ -77,6 +77,7 @@ import m058 from './sql/064_drop_duplicate_indexes.sql' with { type: 'text' };
 import m059 from './sql/065_identity_tables_rls.sql' with { type: 'text' };
 import m060 from './sql/066_audit_log_own_node_writes.sql' with { type: 'text' };
 import m061 from './sql/067_drop_redundant_indexes.sql' with { type: 'text' };
+import m062 from './sql/068_preview_token_lookup_function.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -142,4 +143,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '065_identity_tables_rls.sql': m059,
   '066_audit_log_own_node_writes.sql': m060,
   '067_drop_redundant_indexes.sql': m061,
+  '068_preview_token_lookup_function.sql': m062,
 };
