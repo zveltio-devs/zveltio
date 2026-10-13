@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import {
   extensionFilesPresent,
   extensionFilesPresentCached,
+  installExtensionsBase,
   invalidateFilesPresent,
   resolveExtensionsBase,
 } from '../../lib/extensions/extension-paths.js';
@@ -121,5 +122,25 @@ describe('extensionFilesPresent', () => {
     expect(extensionFilesPresentCached(extDir)).toBe(true);
     invalidateFilesPresent(extDir);
     expect(extensionFilesPresentCached(extDir)).toBe(false);
+  });
+});
+
+describe('installExtensionsBase — what an install ships, never the dev sibling', () => {
+  it('is EXTENSIONS_DIR when set', () => {
+    process.env.EXTENSIONS_DIR = extDir;
+    expect(installExtensionsBase()).toBe(extDir);
+  });
+
+  it('is null with no EXTENSIONS_DIR and no ./extensions, whatever sits beside the repo', () => {
+    delete process.env.EXTENSIONS_DIR;
+    const cwd = process.cwd();
+    process.chdir(extDir);
+    try {
+      expect(installExtensionsBase()).toBeNull();
+      mkdirSync(join(extDir, 'extensions'));
+      expect(installExtensionsBase()).toBe(join(extDir, 'extensions'));
+    } finally {
+      process.chdir(cwd);
+    }
   });
 });

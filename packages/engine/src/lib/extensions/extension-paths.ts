@@ -14,14 +14,25 @@ import { join } from 'path';
  *  4. ./extensions/ as creation target even if it doesn't exist yet
  */
 export function resolveExtensionsBase(): string {
-  if (process.env.EXTENSIONS_DIR) return process.env.EXTENSIONS_DIR;
+  const own = installExtensionsBase();
+  if (own) return own;
   const cwdPath = join(process.cwd(), 'extensions');
-  if (existsSync(cwdPath)) return cwdPath;
   // Dev: zveltio-extensions is a sibling of the main monorepo repo.
   // packages/engine/src/lib → 4 levels up → monorepo root → 1 more up → ecosystem root.
   const devPath = join(import.meta.dir, '../../../../../zveltio-extensions');
   if (existsSync(devPath)) return devPath;
   return cwdPath; // default target for first download
+}
+
+/**
+ * The install's own extensions directory: EXTENSIONS_DIR, else `./extensions`
+ * when it exists. Never the dev fallback to a sibling checkout — what an
+ * install ships, not what a developer happens to have beside the repo.
+ */
+export function installExtensionsBase(): string | null {
+  if (process.env.EXTENSIONS_DIR) return process.env.EXTENSIONS_DIR;
+  const cwdPath = join(process.cwd(), 'extensions');
+  return existsSync(cwdPath) ? cwdPath : null;
 }
 
 /**
