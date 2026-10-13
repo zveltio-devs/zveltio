@@ -129,6 +129,12 @@ export function createSafeFetch(
     const target = pinnedRequest(url, { ...baseInit, redirect: 'manual' }, address);
     const response = await baseFetch()(target.url, target.init);
     if (REDIRECT_STATUSES.has(response.status)) {
+      // The caller's own redirect mode, which the forced 'manual' above hides:
+      // 'manual' wants the 3xx itself, 'error' wants fetch's failure.
+      const mode = init?.redirect ?? (input instanceof Request ? input.redirect : 'follow');
+      if (mode === 'manual') return response;
+      if (mode === 'error')
+        throw new TypeError('[safeFetch] Redirect refused: redirect is "error".');
       const location = response.headers.get('location');
       if (!location) throw new Error('[safeFetch] Redirect with no Location header.');
       // Re-validate redirect target to block chains like public.example.com → 169.254.169.254

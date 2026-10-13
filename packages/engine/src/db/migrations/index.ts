@@ -46,6 +46,7 @@ export function splitSqlStatements(sql: string): string[] {
   let inLineComment = false;
   let inBlockComment = false;
   let inSingleQuote = false;
+  let eString = false; // E'...' — backslash escapes the next character
   let inDoubleQuote = false;
   let dollarTag: string | null = null; // e.g. '$$' or '$body$'
   let parenDepth = 0;
@@ -91,7 +92,10 @@ export function splitSqlStatements(sql: string): string[] {
     // ── Single-quoted string ──────────────────────────────────────
     if (inSingleQuote) {
       current += ch;
-      if (ch === "'" && next === "'") {
+      if (eString && ch === '\\' && next !== undefined) {
+        current += next;
+        i += 2;
+      } else if (ch === "'" && next === "'") {
         // escaped quote
         current += next;
         i += 2;
@@ -141,6 +145,7 @@ export function splitSqlStatements(sql: string): string[] {
     // Single quote
     if (ch === "'") {
       inSingleQuote = true;
+      eString = /(^|[^\w$])[eE]$/.test(current);
       current += ch;
       i++;
       continue;

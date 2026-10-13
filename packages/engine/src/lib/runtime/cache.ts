@@ -111,12 +111,6 @@ export async function createCacheSecondaryStorage() {
   const cache = getCache() ?? (await initCache());
   if (!cache) return null;
 
-  /**
-   * Optimized cache operations with:
-   * - TTL defaults to 300s (5min) for most data to reduce memory footprint
-   * - Immediate deletion instead of lazy cleanup
-   * - Minimal serialization overhead
-   */
   const parse = (value: string | null) => {
     if (!value) return null;
     try {
@@ -141,17 +135,11 @@ export async function createCacheSecondaryStorage() {
      * together must not both read it before either deletes it.
      */
     getAndDelete: async (key: string) => parse(await cache.getdel(key)),
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    set: async (key: string, value: any, ttl: number = 300) => {
-      // Default TTL of 300s (5min) - shorter than previous default
-      // Reduces memory footprint while maintaining performance
-      await cache.setex(key, ttl, JSON.stringify(value));
-    },
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    setnx: async (key: string, value: any, ttl: number = 300) => {
-      // Set if not exists - useful for rate limiting, locks.
-      // NX flag ensures the key is only written if it does not already exist.
-      await cache.set(key, JSON.stringify(value), 'EX', ttl, 'NX');
+    // No ttl means no expiry, as Better-Auth's interface reads: a default here
+    // would quietly expire whatever it stored without one.
+    set: async (key: string, value: unknown, ttl?: number) => {
+      if (ttl) await cache.setex(key, ttl, JSON.stringify(value));
+      else await cache.set(key, JSON.stringify(value));
     },
     delete: async (key: string) => {
       await cache.del(key);
@@ -186,33 +174,6 @@ export async function createCacheSecondaryStorage() {
       const n = await cache.incr(key);
       if (n === 1) await cache.expire(key, ttl);
       return n;
-    },
-    // Pipeline support for batch operations
-    pipeline: async (
-      operations: Array<{
-        type: 'get' | 'set' | 'del';
-        key: string;
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        value?: any;
-        ttl?: number;
-      }>,
-    ) => {
-      // pipeline() sends all commands in one roundtrip without transactional overhead.
-      // Use cache.multi() only when you need atomic MULTI/EXEC semantics.
-      const pipe = cache.pipeline();
-      for (const op of operations) {
-        if (op.type === 'get') {
-          pipe.get(op.key);
-        } else if (op.type === 'set') {
-          pipe.setex(op.key, op.ttl || 300, JSON.stringify(op.value));
-        } else if (op.type === 'del') {
-          pipe.del(op.key);
-        }
-      }
-      const results = await pipe.exec();
-      if (!results) return [];
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      return results.map((r: any) => (r[0] ? null : r[1]));
     },
   };
   // A member Better-Auth adds to the interface must fail typecheck here, not

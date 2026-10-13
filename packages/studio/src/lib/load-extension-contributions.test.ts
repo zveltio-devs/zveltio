@@ -59,4 +59,18 @@ describe('loadExtensionContributions', () => {
     await loadExtensionContributions(['unknown'], {});
     expect(_activatedContributionsForTests().size).toBe(0);
   });
+
+  it('does not activate an extension disabled while its chunk was importing', async () => {
+    const activate = vi.fn();
+    let finish: (m: { activate: () => void }) => void = () => {};
+    const modules = { crm: () => new Promise<{ activate: () => void }>((r) => (finish = r)) };
+
+    const first = loadExtensionContributions(['crm'], modules);
+    await loadExtensionContributions([], modules);
+    finish({ activate });
+    await first;
+
+    expect(activate).not.toHaveBeenCalled();
+    expect(_activatedContributionsForTests().has('crm')).toBe(false);
+  });
 });

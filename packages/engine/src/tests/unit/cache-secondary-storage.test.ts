@@ -110,49 +110,20 @@ describe('createCacheSecondaryStorage', () => {
     expect(await storage!.get('bad')).toBeNull();
   });
 
-  it('setnx writes only when the key is absent', async () => {
+  it('stores without expiry when no ttl is given', async () => {
     const fake = makeCache();
+    const setexKeys: string[] = [];
+    const setex = fake.setex;
+    fake.setex = async (key: string, ttl: number, value: string) => {
+      setexKeys.push(key);
+      return setex(key, ttl, value);
+    };
     _setCacheForTests(fake as never);
     const storage = await createCacheSecondaryStorage();
-    await storage!.set('nx-key', { first: true });
-    await storage!.setnx('nx-key', { second: true });
-    expect(await storage!.get('nx-key')).toEqual({ first: true });
-    await storage!.delete('nx-key');
-    await storage!.setnx('nx-key', { fresh: true });
-    expect(await storage!.get('nx-key')).toEqual({ fresh: true });
-  });
-
-  it('runs pipeline get/set/del operations', async () => {
-    const fake = makeCache();
-    _setCacheForTests(fake as never);
-    const storage = await createCacheSecondaryStorage();
-    const results = await storage!.pipeline([
-      { type: 'set', key: 'a', value: { n: 1 }, ttl: 30 },
-      { type: 'get', key: 'a' },
-      { type: 'del', key: 'a' },
-    ]);
-    expect(results[0]).toBe('OK');
-    expect(results[1]).toBe('{"n":1}');
-    expect(await storage!.get('a')).toBeNull();
-  });
-
-  it('returns an empty array when pipeline exec yields null', async () => {
-    const fake = makeCache();
-    fake.pipeline = () => ({
-      get() {
-        return this;
-      },
-      setex() {
-        return this;
-      },
-      del() {
-        return this;
-      },
-      exec: async () => null as never,
-    });
-    _setCacheForTests(fake as never);
-    const storage = await createCacheSecondaryStorage();
-    expect(await storage!.pipeline([{ type: 'get', key: 'missing' }])).toEqual([]);
+    await storage!.set('forever', { ok: true });
+    await storage!.set('short', { ok: true }, 30);
+    expect(setexKeys).toEqual(['short']);
+    expect(await storage!.get('forever')).toEqual({ ok: true });
   });
 });
 

@@ -8,6 +8,8 @@
  * Generate with: openssl rand -hex 32
  */
 
+import { decryptWithKeyring, encryptWithKeyring } from '../security/index.js';
+
 const ENC_PREFIX = 'enc:v1:';
 
 // Read the key LAZILY (not captured at module load). This module is pulled in by
@@ -18,9 +20,6 @@ const ENC_PREFIX = 'enc:v1:';
 function keyHex(): string {
   return process.env.FIELD_ENCRYPTION_KEY ?? '';
 }
-
-let _key: CryptoKey | null = null;
-let _keyHexAtImport: string | null = null;
 
 let _missingKeyWarned = false;
 function warnMissingKeyOnce(): void {
@@ -82,31 +81,19 @@ export async function checkFieldEncryptionAtBoot(
   }
 }
 
-async function getKey(): Promise<CryptoKey> {
-  const hex = keyHex();
-  // Re-import whenever the env var no longer matches what produced the cached
-  // key. Caching by VALUE rather than by "have we ever imported one" is what
-  // actually delivers the rotate-without-restart property the module header
-  // claims — caching unconditionally on `_key` truthiness left every write
-  // sealed under the process's first key forever, silently, because the same
-  // stale key also decrypted anything it had just encrypted.
-  if (_key && _keyHexAtImport === hex) return _key;
+// The cipher itself is the keyring's (`security/keyring.ts`): two copies of the
+// enc:v1 format drifted once already. What stays here is the field key's
+// stricter shape check — the keyring tolerates an over-long key for mail.
+function assertKeyShape(): void {
   // Hex, not just 64 characters: `parseInt('zz', 16)` is NaN, which a
   // Uint8Array stores as 0 — so 64 non-hex characters imported as an all-zero
   // AES key and encrypted without a word.
-  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+  if (!/^[0-9a-fA-F]{64}$/.test(keyHex())) {
     throw new Error(
       'FIELD_ENCRYPTION_KEY env var must be set to a 64-char hex string (32 bytes). ' +
         'Generate with: openssl rand -hex 32',
     );
   }
-  const raw = new Uint8Array(hex.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
-  _key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, [
-    'encrypt',
-    'decrypt',
-  ]);
-  _keyHexAtImport = hex;
-  return _key;
 }
 
 export function isEncryptedValue(value: unknown): value is string {
@@ -114,34 +101,14 @@ export function isEncryptedValue(value: unknown): value is string {
 }
 
 export async function encryptField(plaintext: string): Promise<string> {
-  const key = await getKey();
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(plaintext);
-  const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
-  const combined = new Uint8Array(iv.byteLength + cipherBuf.byteLength);
-  combined.set(iv, 0);
-  combined.set(new Uint8Array(cipherBuf), iv.byteLength);
-  return (
-    ENC_PREFIX +
-    // Buffer, not btoa(String.fromCharCode(...combined)): spreading a ~1 MB
-    // value as call arguments overflowed the stack and the write failed.
-    Buffer.from(combined.buffer)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '')
-  );
+  assertKeyShape();
+  return encryptWithKeyring(plaintext, 'field');
 }
 
 export async function decryptField(value: string): Promise<string> {
   if (!isEncryptedValue(value)) return value;
-  const key = await getKey();
-  const b64 = value.slice(ENC_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/');
-  const combined = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  const iv = combined.slice(0, 12);
-  const cipher = combined.slice(12);
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
-  return new TextDecoder().decode(plain);
+  assertKeyShape();
+  return decryptWithKeyring(value, 'field');
 }
 
 /** Encrypt a field value if the field definition has encrypted:true and FIELD_ENCRYPTION_KEY is set */
@@ -187,10 +154,4 @@ export async function maybeDecrypt(value: unknown, isEncrypted: boolean): Promis
     );
     return value;
   }
-}
-
-/** Test-only hook to reset the cached CryptoKey between cases. */
-export function resetFieldCryptoKeyCacheForTests(): void {
-  _key = null;
-  _keyHexAtImport = null;
 }
