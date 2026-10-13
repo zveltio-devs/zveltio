@@ -59,7 +59,7 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - **Breaking:** the engine refuses to boot when `ZVELTIO_TENANT_ID` names no
   `zv_tenants` row (create the tenant or unset the variable), and the fallback
   resolves with that row's status, so a suspended tenant answers 403 instead of
-  serving as active. `ZVELTIO_TENANT_NAME` is no longer read (#PRNUM).
+  serving as active. `ZVELTIO_TENANT_NAME` is no longer read (#1101).
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,
