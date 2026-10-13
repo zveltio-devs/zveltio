@@ -50,7 +50,7 @@ export async function renderInstalledSchema(db: SQL): Promise<string> {
   `) as Row[];
 
   const pol = (await db`
-    SELECT c.relname AS t, p.polname AS name, p.polcmd::text AS cmd,
+    SELECT c.relname AS t, p.polname AS name, p.polcmd::text AS cmd, p.polpermissive AS permissive,
            COALESCE(pg_get_expr(p.polqual, p.polrelid), '-') AS using_expr,
            COALESCE(pg_get_expr(p.polwithcheck, p.polrelid), '-') AS check_expr
       FROM pg_policy p
@@ -107,7 +107,7 @@ export async function renderInstalledSchema(db: SQL): Promise<string> {
     if (r) out.push(`  rls enabled${r.forced ? ' forced' : ''}`);
     for (const p of polBy.get(t) ?? []) {
       out.push(
-        `  pol ${String(p.name)} FOR ${String(p.cmd)} USING ${String(p.using_expr)} CHECK ${String(p.check_expr)}`,
+        `  pol ${String(p.name)}${p.permissive === false ? ' RESTRICTIVE' : ''} FOR ${String(p.cmd)} USING ${String(p.using_expr)} CHECK ${String(p.check_expr)}`,
       );
     }
     out.push('');
