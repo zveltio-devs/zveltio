@@ -338,23 +338,15 @@ export class ExtensionLoader {
       console.warn('[extensions] Core dep install failed (non-fatal):', err.message);
     });
 
-    // ZVELTIO_EXTENSIONS and the registry's enabled rows are ONE load set, sorted
-    // once: two batches (env first) loaded an env extension before a dependency
-    // that was enabled only in the registry.
-    await this.loadFromDB(ctx.db, app, getActiveExtensionNames());
-
-    // Also load from external path if configured
+    // ZVELTIO_EXTENSIONS, the registry's enabled rows and ZVELTIO_EXTENSIONS_PATH
+    // are ONE load set, sorted once: separate batches loaded an extension before
+    // a dependency that only a later batch held.
     const externalPath = process.env.ZVELTIO_EXTENSIONS_PATH;
-    if (externalPath && existsSync(externalPath)) {
-      const externalExts = await discoverExternal(externalPath);
-      noteExtensionNames(externalExts);
-      const refusedExt = new Map<string, string>();
-      const sortedExt = await topoSortExtensions(externalExts, externalPath, refusedExt);
-      this.noteRefused(refusedExt);
-      for (const extName of sortedExt) {
-        await this.loadExtension(extName, app, ctx, externalPath);
-      }
-    }
+    const external =
+      externalPath && existsSync(externalPath)
+        ? { base: externalPath, names: await discoverExternal(externalPath) }
+        : undefined;
+    await this.loadFromDB(ctx.db, app, getActiveExtensionNames(), external);
   }
 
   /**
@@ -407,7 +399,13 @@ export class ExtensionLoader {
    * in the registry, deduplicated and topologically sorted as one set. The
    * per-extension outcome is persisted on registry rows only.
    */
-  async loadFromDB(db: Database, app: Hono, envNames: string[] = []): Promise<void> {
+  async loadFromDB(
+    db: Database,
+    app: Hono,
+    envNames: string[] = [],
+    /** ZVELTIO_EXTENSIONS_PATH's extensions, loaded from `base` unless the main set names them too. */
+    external?: { base: string; names: string[] },
+  ): Promise<void> {
     let enabled: string[] = [];
     try {
       const rows = await db
@@ -420,20 +418,28 @@ export class ExtensionLoader {
       // Table may not exist on first run — the env list still loads.
     }
 
-    const pending = [...new Set([...envNames, ...enabled])].filter(
-      (name) => !this.loaded.has(name),
-    );
+    const main = new Set([...envNames, ...enabled]);
+    const fromExternal = new Set((external?.names ?? []).filter((n) => !main.has(n)));
+    const pending = [...main, ...fromExternal].filter((name) => !this.loaded.has(name));
     if (pending.length === 0 || !this.ctx) return;
 
     // Before any loads: `a` loading first must already know `a/b` owns `zv_a_b_*`.
     noteExtensionNames(pending);
     const extBase = resolveExtensionsBase();
+    const baseOf = (name: string) => (external && fromExternal.has(name) ? external.base : extBase);
     const refused = new Map<string, string>();
-    const sorted = await this.topoSortExtensions(pending, extBase, refused);
+    const sorted = await topoSortExtensions(pending, baseOf, refused);
     this.noteRefused(refused);
     const inRegistry = new Set(enabled);
     for (const name of [...sorted, ...refused.keys()]) {
-      if (!refused.has(name)) await this.loadExtension(name, app, this.ctx);
+      if (!refused.has(name)) {
+        await this.loadExtension(
+          name,
+          app,
+          this.ctx,
+          fromExternal.has(name) ? external?.base : undefined,
+        );
+      }
       if (!inRegistry.has(name)) continue;
       // Persist the per-extension outcome so a boot-time failure is visible in
       // /api/extensions (red badge + reason) instead of a silent skip, and a

@@ -77,6 +77,10 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   reads `SET NOT NULL` (#1099).
 
 ### Operations
+- `ZVELTIO_EXTENSIONS_PATH` extensions are sorted with the rest of the load
+  set, so a dependency there loads before its dependents (#PRNUM).
+- An optional dependency upgraded past a dependent's `minVersion` becomes
+  callable to that dependent without reloading it (#PRNUM).
 - Default extensions (content/pages, ai) auto-activate only from the install's
   own extensions directory (`EXTENSIONS_DIR` or `./extensions`), never from a
   sibling dev checkout or under `NODE_ENV=test` (#1092).

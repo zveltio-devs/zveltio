@@ -3,7 +3,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Hono } from 'hono';
@@ -49,5 +49,35 @@ describe('ExtensionLoader.loadAll — external path', () => {
       .map((c) => c.name)
       .sort();
     expect(external).toEqual(['external-a', 'external-b']);
+  });
+
+  it('sorts the external extensions with the rest: a dependency there loads first', async () => {
+    savedExtensions = process.env.ZVELTIO_EXTENSIONS;
+    savedExternalPath = process.env.ZVELTIO_EXTENSIONS_PATH;
+    const savedDir = process.env.EXTENSIONS_DIR;
+    const base = mkdtempSync(join(tmpdir(), 'zv-extbase-'));
+    mkdirSync(join(base, 'needs-ext'));
+    writeFileSync(
+      join(base, 'needs-ext', 'manifest.json'),
+      JSON.stringify({ name: 'needs-ext', dependencies: [{ name: 'external-dep' }] }),
+    );
+    const extRoot = mkdtempSync(join(tmpdir(), 'zv-extpath-'));
+    mkdirSync(join(extRoot, 'external-dep'));
+    process.env.EXTENSIONS_DIR = base;
+    process.env.ZVELTIO_EXTENSIONS = 'needs-ext';
+    process.env.ZVELTIO_EXTENSIONS_PATH = extRoot;
+    try {
+      const loader = new ExtensionLoader();
+      const order: string[] = [];
+      loader.loadExtension = async (name) => {
+        order.push(name);
+        loader.loaded.set(name, { registeredRoutes: false } as never);
+      };
+      await loader.loadAll(noApp, { db: new CannedDb().kysely } as ExtensionContext);
+      expect(order).toEqual(['external-dep', 'needs-ext']);
+    } finally {
+      if (savedDir === undefined) delete process.env.EXTENSIONS_DIR;
+      else process.env.EXTENSIONS_DIR = savedDir;
+    }
   });
 });
