@@ -76,6 +76,18 @@ d('role hierarchy excludes user assignments (in-process)', () => {
     expect(hierarchy.filter((e) => e.child === e.parent)).toEqual([]);
   });
 
+  it('lists no tenant-scoped role edge (v2 is a tenant, not *)', async () => {
+    // A `g` row in one tenant's domain is that tenant's business, not the
+    // instance-wide tree; without the `v2 = '*'` filter it listed as global.
+    const T_CHILD = `${CHILD}-t`;
+    await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2)
+              VALUES ('g', ${T_CHILD}, ${PARENT}, ${crypto.randomUUID()})`.execute(db);
+    const res = await app.request('/api/admin/roles/hierarchy', { headers: { cookie } });
+    const { hierarchy } = (await res.json()) as { hierarchy: Array<{ child: string }> };
+    expect(hierarchy.some((e) => e.child === T_CHILD)).toBe(false);
+    await sql`DELETE FROM zvd_permissions WHERE v0 = ${T_CHILD}`.execute(db);
+  });
+
   const count = async (child: string, parent: string) =>
     (
       await sql<{ n: number }>`

@@ -1497,7 +1497,7 @@ export async function publishEveryTenant(trx: Database): Promise<void> {
  * ancestor is visible for reading only by being IN that set, where the length
  * check above already sees it.
  */
-function isSingleUnitReach(scope: TenantScope | null, tenantId: string): boolean {
+export function isSingleUnitReach(scope: TenantScope | null, tenantId: string): boolean {
   if (scope === null) return true;
   if (scope.visible === null) return true;
   return scope.visible.length === 1 && scope.visible[0] === tenantId;
