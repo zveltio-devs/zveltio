@@ -2006,7 +2006,8 @@ proxies SQL queries through its own pool.
 - **The same `ctx`:** `db` (Kysely, plus the raw `db.query()`), `auth`,
   `checkPermission`, `events` (`on`/`emit`/`emitAsync`), `config` and
   `services`, each answered by the host with the inline rules. A worker's
-  `checkPermission` answers for the request's user only, and its events are
+  `checkPermission` answers for the request's user only (in a service, the
+  user of the request it was called in; none outside one), and its events are
   its own `<name>.*` (and, for `on`, its declared dependencies'). Members
   that act inside the engine — `internals`, `fieldTypeRegistry`,
   `queryAlter`, `entityAccess`, `adminDb`, `DDLManager`,
