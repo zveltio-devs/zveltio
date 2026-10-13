@@ -105,6 +105,25 @@ d('collection names and the Casbin objects that are not collections', () => {
     expect(await grantRows(db, EXT_RESOURCE)).toBe(1);
   });
 
+  it('refuses a collection named after a retired zone, where zvd_zones survives an upgrade', async () => {
+    const zone = `hzone_${Date.now()}`;
+    const had = (
+      await sql<{ t: string | null }>`SELECT to_regclass('public.zvd_zones')::text AS t`.execute(db)
+    ).rows[0]?.t;
+    if (!had) await sql`CREATE TABLE zvd_zones (slug text PRIMARY KEY)`.execute(db);
+    try {
+      await sql`INSERT INTO zvd_zones (slug) VALUES (${zone})`.execute(db);
+      await expect(
+        DDLManager.createCollection(db, { name: zone, fields: FIELDS } as never),
+      ).rejects.toThrow(/reserved/);
+    } finally {
+      if (had) await sql`DELETE FROM zvd_zones WHERE slug = ${zone}`.execute(db);
+      else await sql`DROP TABLE zvd_zones`.execute(db);
+      await sql.raw(`DROP TABLE IF EXISTS "zvd_${zone}" CASCADE`).execute(db);
+      await db.deleteFrom('zvd_collections').where('name', '=', zone).execute();
+    }
+  });
+
   it('refuses a template install that would create one, before writing anything', async () => {
     const res = await app.request('/api/templates/helpdesk/install', {
       method: 'POST',

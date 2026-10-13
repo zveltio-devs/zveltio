@@ -78,7 +78,7 @@ const PROBE = `async function handler(request, env) {
   try {
     const init = env.method ? { method: env.method, body: env.body, headers: { 'x-mine': '1' } } : {};
     const res = await fetch(env.url, init);
-    return { status: 200, body: { status: res.status, text: await res.text(), up: res.headers.get('x-upstream') } };
+    return { status: 200, body: { status: res.status, text: await res.text(), up: res.headers.get('x-upstream'), url: res.url, redirected: res.redirected } };
   } catch (e) {
     return { status: 200, body: { denied: String(e && e.message) } };
   }
@@ -88,6 +88,8 @@ interface Probed {
   status?: number;
   text?: string;
   up?: string;
+  url?: string;
+  redirected?: boolean;
   denied?: string;
   error?: string;
 }
@@ -149,7 +151,13 @@ for (const transport of ['runner', 'process'] as const) {
         method: 'POST',
         body: 'ping',
       });
-      expect(out).toEqual({ status: 201, text: 'hello /x ping', up: 'yes' });
+      expect(out).toEqual({
+        status: 201,
+        text: 'hello /x ping',
+        up: 'yes',
+        url: 'https://api.allowed.test/x',
+        redirected: false,
+      });
       expect(seen).toHaveLength(1);
       expect(hostOf(seen[0])).toBe('api.allowed.test');
       expect(new URL(seen[0].url).pathname).toBe('/x');
@@ -178,7 +186,12 @@ for (const transport of ['runner', 'process'] as const) {
       expect(seen.map(hostOf)).toEqual(['api.allowed.test', 'api.allowed.test']);
 
       const followed = await call({ ...list, url: 'https://api.allowed.test/to-listed' });
-      expect(followed).toMatchObject({ status: 201, text: 'hello /landed ' });
+      expect(followed).toMatchObject({
+        status: 201,
+        text: 'hello /landed ',
+        url: 'https://api.allowed.test/landed',
+        redirected: true,
+      });
     }, 30_000);
 
     it('matches the port exactly: a bare host is the default port only', async () => {

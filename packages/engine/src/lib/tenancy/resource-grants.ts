@@ -257,7 +257,21 @@ export async function nonCollectionObjects(
         'created or dropped: restore the extension files or uninstall the extension.',
     );
   }
-  return new Set([...ENGINE_CASBIN_OBJECTS, ...out]);
+  return new Set([...ENGINE_CASBIN_OBJECTS, ...out, ...(await retiredZoneSlugs(db))]);
+}
+
+/**
+ * Zone slugs, where a database upgraded from an older engine still has
+ * `zvd_zones`: rules granted on a zone name it as their object, as they would a
+ * collection.
+ */
+async function retiredZoneSlugs(db: Database): Promise<string[]> {
+  const { rows } = await sql<{ present: boolean }>`
+    SELECT to_regclass('public.zvd_zones') IS NOT NULL AS present`.execute(db);
+  if (!rows[0]?.present) return [];
+  return (await sql<{ slug: string }>`SELECT slug FROM zvd_zones`.execute(db)).rows.map(
+    (r) => r.slug,
+  );
 }
 
 /**

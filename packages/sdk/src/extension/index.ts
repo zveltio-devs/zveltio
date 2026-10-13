@@ -252,6 +252,8 @@ export interface ExtensionContext<DB = any, C extends string = Capability> {
    * transaction (so the `zveltio.current_tenant` GUC is set and FORCE-RLS rows
    * are visible + isolated), wrapped in the same table-restriction guard as
    * `ctx.db`. Pass the route's Hono context: `const db = ctx.reqDb(c)`.
+   * Throws when the request has no tenant transaction; `ctx.db` resolves the
+   * tenant wherever there is one.
    *
    * Always present on the context the engine hands to a loaded extension; typed
    * optional only so partial/bootstrap contexts type-check. In a data handler

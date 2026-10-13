@@ -43,7 +43,12 @@ import {
   type QueryResult,
   type TransactionSettings,
 } from 'kysely';
-import { PoolBusyError, type RawPool, registerActivePool } from './bun-sql-dialect.js';
+import {
+  PoolBusyError,
+  type RawPool,
+  encodeArrayParams,
+  registerActivePool,
+} from './bun-sql-dialect.js';
 
 export interface PgDialectConfig {
   connectionString: string;
@@ -72,16 +77,6 @@ export function normalizePgError(err: unknown): unknown {
     return new PoolBusyError(ACQUIRE_TIMEOUT_MS);
   }
   return err;
-}
-
-/** An array parameter as `BunSqlDialect` binds it: a Postgres array literal. */
-function arrayLiteral(p: unknown[]): string {
-  const items = p.map((item) => {
-    if (item === null || item === undefined) return 'NULL';
-    const s = String(item);
-    return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-  });
-  return `{${items.join(',')}}`;
 }
 
 /** Whether binding `v` can depend on the parameter's declared type. */
@@ -124,7 +119,8 @@ async function bindLikeBun(
   text: string,
   params: readonly unknown[],
 ): Promise<unknown[]> {
-  const out = params.map((p) => (Array.isArray(p) ? arrayLiteral(p) : p));
+  // An array parameter as `BunSqlDialect` binds it: one encoder for both.
+  const out = encodeArrayParams(params);
   if (!params.some(typeSensitive)) return out;
   const types = await paramTypes(client, text);
   return out.map((v, i) => {

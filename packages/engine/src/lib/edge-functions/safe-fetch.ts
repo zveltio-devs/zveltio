@@ -143,7 +143,12 @@ export function createSafeFetch(
       return safeFetch(next.toString(), nextInit, _hops + 1);
     }
 
-    return response;
+    // The pinned request went to an address; the caller asked for `url`, and a
+    // followed redirect shows as one, as plain fetch reports them.
+    return Object.defineProperties(response, {
+      url: { value: url },
+      redirected: { value: _hops > 0 },
+    });
   };
 }
 

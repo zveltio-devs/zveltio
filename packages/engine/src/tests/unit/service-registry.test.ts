@@ -158,6 +158,16 @@ describe('scope (per-extension view)', () => {
     await expect(pos.waitFor('crm.contacts.lookup')).rejects.toThrow('not found');
   });
 
+  it('waitFor refuses at once a name no declared owner could register', async () => {
+    const r = new ServiceRegistryImpl();
+    const pos = r.scope('operations/pos', callableDeps(['crm']));
+    // 50 s timeout: refused at once, never by the clock
+    await expect(pos.waitFor('ai.providers', 50_000)).rejects.toThrow('may not call');
+    await expect(pos.waitFor('engine.internal', 50_000)).rejects.toThrow('not an engine-public');
+    // a declared owner not registered yet is still waited for
+    await expect(pos.waitFor('crm.late', 20)).rejects.toThrow('Timeout waiting');
+  });
+
   it('the engine scope is unrestricted', () => {
     const r = new ServiceRegistryImpl();
     r.registerAs('ai', 'ai.x', 1);

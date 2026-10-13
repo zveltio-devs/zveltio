@@ -451,13 +451,18 @@ export function buildRestrictedContext(
       ? createRestrictedDb(ctx.db, extName, allowedTables)
       : createDeniedAdminDb(extName),
     // Per-request tenant-scoped DB (explicit form, when the handler has `c`):
-    // the request's tenant transaction wrapped in the same table guard.
-    reqDb: (c: Context) =>
-      createRestrictedDb(
-        (c?.get?.('tenantTrx') as Database | null) ?? ctx.db,
-        extName,
-        allowedTables,
-      ),
+    // the request's tenant transaction wrapped in the same table guard. Without
+    // one it refuses: falling back to the pool ran the query as no tenant.
+    reqDb: (c: Context) => {
+      const trx = c?.get?.('tenantTrx') as Database | null | undefined;
+      if (!trx) {
+        throw new Error(
+          `extension "${extName}": ctx.reqDb(c) has no tenant transaction on this request; ` +
+            'use ctx.db, which resolves the tenant wherever there is one',
+        );
+      }
+      return createRestrictedDb(trx, extName, allowedTables);
+    },
     checkPermission: keyAwareCheckPermission(extName, ctx.checkPermission ?? checkPermission),
     // So `permissionGate` can tell the person who to ask, instead of naming an
     // internal permission at them. Handed to every extension rather than left

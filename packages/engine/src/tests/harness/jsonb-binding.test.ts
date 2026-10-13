@@ -80,13 +80,13 @@ d('toJsonb — what actually lands in a jsonb column', () => {
     // parameter as JSON, so this casts a jsonb string to a jsonb string.
     expect(await store('w-cast', sql`${JSON.stringify(arr)}::jsonb`)).toBe('string');
 
-    // "Pass the raw value" — right for an object, and silently destructive for
-    // an array: the driver renders it as a Postgres array literal, so `[{a:1}]`
-    // is stored as the string `{"[object Object]"}`.
+    // "Pass the raw value" — right for an object, and wrong for an array: the
+    // driver renders it as a Postgres array literal (each element's JSON), so
+    // `[{a:1}]` is stored as the string `{"{\"a\":1}"}`, not as an array.
     expect(await store('w-raw-array', arr)).toBe('string');
     const raw = await sql<{ v: string }>`
       SELECT v #>> '{}' AS v FROM ${sql.id(T)} WHERE k = 'w-raw-array'
     `.execute(db);
-    expect(raw.rows[0]!.v).toContain('[object Object]');
+    expect(raw.rows[0]!.v).toBe('{"{\\"a\\":1}"}');
   });
 });

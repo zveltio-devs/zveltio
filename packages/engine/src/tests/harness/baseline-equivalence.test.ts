@@ -116,7 +116,7 @@ d('GA baseline', () => {
     expect(normalizeDump(await pgDump(url.base, ['--schema-only']))).toBe(chain);
   });
 
-  it('neither has two indexes that are the same index (A09)', async () => {
+  it('neither has two indexes on the same key, a plain one beside a UNIQUE included (A09)', async () => {
     // The chain built four twice under two names, and the baseline copied them.
     for (const u of [url.chain, url.base]) {
       const db = new SQL(u);
@@ -126,7 +126,7 @@ d('GA baseline', () => {
             FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid
            WHERE i.relnamespace = 'public'::regnamespace
            GROUP BY x.indrelid, i.relam, x.indkey::text, x.indclass::text,
-                    x.indcollation::text, x.indoption::text, x.indisunique,
+                    x.indcollation::text, x.indoption::text,
                     pg_get_expr(x.indexprs, x.indrelid), pg_get_expr(x.indpred, x.indrelid)
           HAVING count(*) > 1 ORDER BY 1`;
         expect(rows.map((r) => r.same)).toEqual([]);

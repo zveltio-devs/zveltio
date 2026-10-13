@@ -211,6 +211,16 @@ function parseSqlFile(filePath: string): void {
         setNotNull(t, x[1] ?? x[2].toLowerCase(), x[3].toUpperCase() === 'SET');
       }
     }
+    // SET / DROP DEFAULT: a default added later makes the column skippable on
+    // INSERT (`Generated<T>`), and dropping it makes it required again.
+    if (/ALTER\s+COLUMN.*(?:SET|DROP)\s+DEFAULT/i.test(body)) {
+      const t = getTable(tableName.toLowerCase(), filePath);
+      const re = /ALTER\s+COLUMN\s+(?:"([^"]+)"|([a-z_][a-z0-9_]*))\s+(SET|DROP)\s+DEFAULT/gi;
+      for (const x of body.matchAll(re)) {
+        const idx = t.index.get(x[1] ?? x[2].toLowerCase());
+        if (idx !== undefined) t.columns[idx].hasDefault = x[3].toUpperCase() === 'SET';
+      }
+    }
     // ADD CONSTRAINT … CHECK (col IN (…)) — widening or narrowing an enum
     // domain after the table exists.
     //
