@@ -57,6 +57,17 @@ d('admin RLS routes (in-process)', () => {
     expect(Array.isArray(body.policies)).toBe(true);
   });
 
+  it('a malformed policy id is 404, not a 500 from the uuid cast', async () => {
+    for (const method of ['PATCH', 'DELETE']) {
+      const res = await app.request('/api/admin/rls/not-a-uuid', {
+        method,
+        headers: { cookie, 'Content-Type': 'application/json' },
+        body: method === 'PATCH' ? '{}' : undefined,
+      });
+      expect(res.status).toBe(404);
+    }
+  });
+
   it('POST /api/admin/rls creates a row-level policy', async () => {
     const res = await app.request('/api/admin/rls', {
       method: 'POST',

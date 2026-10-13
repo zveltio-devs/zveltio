@@ -162,6 +162,35 @@ d('a request needs one connection (in-process)', () => {
     expect(`${extra} — ${tracedAcquisitionSite()}`).toBe('0 — ');
   });
 
+  it('row-rule writes take nothing beyond their transaction', async () => {
+    // The list above only GETs `/api/admin/rls`; its writes went to the pool
+    // while the request held its transaction. The policy rebuild (DDL) still
+    // takes the pool, but after the commit — outside the counted window.
+    const { tracedAcquisitionSite } = await import('../../db/connection-trace.js');
+    const call = async (method: string, path: string, body?: unknown) => {
+      const res = await app.request(`/api/admin/rls${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const extra = Number(res.headers.get('x-zveltio-extra-connections') ?? '0');
+      return { res, seen: `${method} ${res.status} ${extra} — ${tracedAcquisitionSite()}` };
+    };
+    const created = await call('POST', '', {
+      collection: DATA_COLLECTION,
+      role: `nobody_${DATA_COLLECTION}`,
+      filter_field: 'title',
+      filter_op: 'eq',
+      filter_value_source: 'static:x',
+    });
+    expect(created.seen).toBe('POST 201 0 — ');
+    const { policy } = (await created.res.json()) as { policy: { id: string } };
+    expect((await call('PATCH', `/${policy.id}`, { filter_value_source: 'static:y' })).seen).toBe(
+      'PATCH 200 0 — ',
+    );
+    expect((await call('DELETE', `/${policy.id}`)).seen).toBe('DELETE 200 0 — ');
+  });
+
   it('reports a second connection through the request header', async () => {
     // Every case above reads a header that is absent at zero, so a tenant
     // middleware that stopped opening or closing the traced window would turn
