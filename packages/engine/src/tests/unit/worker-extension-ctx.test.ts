@@ -35,6 +35,16 @@ function bridge(over: Partial<WorkerBridge> = {}) {
     registerService: () => {},
     listeners: new Map(),
     config: { vars: { A: '1' } },
+    extName: 'me',
+    mayCall: new Map([
+      ['a', true],
+      ['old', false],
+    ]),
+    owners: new Map([
+      ['a.b', 'a'],
+      ['old.x', 'old'],
+      ['z.y', 'z'],
+    ]),
     ...over,
   };
   const { ctx, settled } = buildWorkerCtx(b);
@@ -130,6 +140,37 @@ describe('worker ctx: host members', () => {
     expect(services).toEqual([]);
     expect(await fn(1, 2)).toBe('svc');
     expect(services).toEqual([['a.b', [1, 2]]]);
+  });
+
+  it('answers has/list synchronously from the mirrored registry, by the inline rule', () => {
+    const { ctx } = bridge();
+    expect(ctx.services.has('a.b')).toBe(true);
+    // a declared owner that has not registered it: absent, not a promise
+    expect(ctx.services.has('a.missing')).toBe(false);
+    // a too-old optional dependency reads as absent
+    expect(ctx.services.has('old.x')).toBe(false);
+    // an undeclared owner throws, as inline
+    expect(() => ctx.services.has('z.y')).toThrow('declare "z"');
+    expect(ctx.services.list()).toEqual(['a.b', 'old.x', 'z.y']);
+  });
+
+  it('sees its own registration at once', () => {
+    const { ctx } = bridge();
+    ctx.services.register('me.s', () => 1);
+    expect(ctx.services.has('me.s')).toBe(true);
+  });
+
+  it('waitFor waits on the host, then hands back the function', async () => {
+    const { ctx, hosts } = bridge();
+    const fn = await ctx.services.waitFor('a.later', 500);
+    expect(hosts).toEqual([['waitForService', ['a.later', 500]]]);
+    expect(typeof fn).toBe('function');
+  });
+
+  it('describeDenial asks the host', async () => {
+    const { ctx, hosts } = bridge();
+    await ctx.describeDenial('invoices', 'read');
+    expect(hosts).toEqual([['describeDenial', ['invoices', 'read']]]);
   });
 });
 

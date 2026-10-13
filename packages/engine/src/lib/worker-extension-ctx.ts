@@ -18,6 +18,7 @@ import {
   PostgresIntrospector,
   PostgresQueryCompiler,
 } from 'kysely';
+import { reachableOwner, serviceCallRefusal } from './service-registry.js';
 import type { HostCallOp } from './worker-extension-protocol.js';
 
 type Fn = (...args: unknown[]) => unknown;
@@ -40,6 +41,12 @@ export interface WorkerBridge {
   listeners: Map<string, Fn>;
   /** The extension's own `ctx.config`, resolved by the host. */
   config: unknown;
+  /** Its own name: whose services and refusals `ctx.services` speaks for. */
+  extName: string;
+  /** Manifest `dependencies` + `optionalDependencies` (`ServiceDeps`). */
+  mayCall: ReadonlyMap<string, boolean>;
+  /** The host registry's names and owners, kept current by `services:snapshot`. */
+  owners: Map<string, string>;
 }
 
 /** Members that act inside the engine process; none of them is a message. */
@@ -133,6 +140,16 @@ export function buildWorkerCtx(bridge: WorkerBridge): {
       });
     },
   });
+  const call =
+    (name: string) =>
+    (...args: unknown[]) =>
+      bridge.serviceCall(name, args);
+  const visible = (name: string): boolean => {
+    const owner = reachableOwner(bridge.mayCall, bridge.owners.get(name) ?? null);
+    const refusal = owner && serviceCallRefusal(bridge.extName, bridge.mayCall, owner, name);
+    if (refusal) throw new Error(refusal);
+    return owner !== null;
+  };
   // Collected during `register()` only; a subscription made later reports itself.
   let pending: Promise<unknown>[] | null = [];
   let nextListener = 0;
@@ -172,14 +189,27 @@ export function buildWorkerCtx(bridge: WorkerBridge): {
         throw refused('events.onBefore', "a pre-write hook runs inside the write's transaction");
       },
     },
+    // Answered from the mirror of the registry, by the inline scope's rule:
+    // an undeclared owner throws, an absent or too-old one reads as absent.
     services: {
-      register: bridge.registerService,
-      // The function, as inline: calling it is what crosses to the broker.
-      get:
-        (name: string) =>
-        (...args: unknown[]) =>
-          bridge.serviceCall(name, args),
+      register: (name: string, impl: Fn) => {
+        bridge.registerService(name, impl);
+        bridge.owners.set(name, bridge.extName);
+      },
+      // The function, as inline: calling it is what crosses to the broker. Not
+      // null for an absent one: the broker answers it, with a 503 for a
+      // dependency that is down; `has` answers absence synchronously.
+      get: (name: string) => call(name),
+      has: (name: string) => visible(name),
+      list: () => [...bridge.owners.keys()],
+      // Waited for on the host, under the same rule, then called through it.
+      waitFor: async (name: string, timeoutMs?: number) => {
+        await bridge.host('waitForService', [name, timeoutMs]);
+        return call(name);
+      },
     },
+    describeDenial: (resource: string, action: string) =>
+      bridge.host('describeDenial', [resource, action]),
   };
   for (const member of OUT_OF_PROCESS) {
     // Not enumerable, so spreading the ctx does not trip it.

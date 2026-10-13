@@ -79,7 +79,9 @@ import {
 } from './extensions/index.js';
 import {
   NO_UNITS,
+  describeDenial,
   getCurrentDomainOrNull,
+  getCurrentTenantTrx,
   getRequestActor,
   getResolvedMembership,
   type RequestActor,
@@ -305,7 +307,30 @@ export class WorkerExtensionHost {
     private app: Hono,
     /** Opens a new extension process's channel; tests pass a fake one. */
     private readonly open: (extName: string) => Promise<ExtensionChannel> = openExtensionChannel,
-  ) {}
+  ) {
+    // Each worker mirrors the registry's names and owners, so its
+    // `ctx.services.has/get/list` answer synchronously, as inline. One snapshot
+    // per tick, however many services a load registers.
+    let queued = false;
+    serviceRegistry.onChange(() => {
+      if (queued) return;
+      queued = true;
+      queueMicrotask(() => {
+        queued = false;
+        const services = serviceRegistry.entries();
+        for (const managed of this.workers.values()) {
+          if (managed.stopped) continue;
+          // A channel closing under it must not fail the registration that
+          // triggered this; its next start sends the registry with `init`.
+          try {
+            this.post(managed, { type: 'services:snapshot', id: rpcId('svcs'), services });
+          } catch {
+            /* ended channel */
+          }
+        }
+      });
+    });
+  }
 
   /**
    * Point the host at the CURRENT Hono app.
@@ -495,6 +520,8 @@ export class WorkerExtensionHost {
           extensionPath: extDir,
         },
         config: source.config,
+        mayCall: [...managed.mayCall],
+        services: serviceRegistry.entries(),
       });
     });
     failInit = null;
@@ -827,6 +854,18 @@ export class WorkerExtensionHost {
         case 'off':
           managed.listeners?.get(String(a))?.();
           managed.listeners?.delete(String(a));
+          break;
+        case 'waitForService':
+          // The inline scope's rules (refused owners at once); the value stays here.
+          await serviceRegistry
+            .scope(managed.name, managed.mayCall)
+            .waitFor(String(a), typeof b === 'number' ? b : undefined);
+          result = true;
+          break;
+        case 'describeDenial':
+          result = await run(() =>
+            describeDenial(getCurrentTenantTrx() ?? getDb(), String(a), String(b)),
+          );
           break;
         default:
           throw new Error(`unknown host call "${String(msg.op)}"`);

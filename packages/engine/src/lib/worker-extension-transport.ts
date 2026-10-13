@@ -32,8 +32,47 @@ export class FrameTooLargeError extends Error {}
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/**
+ * JSON with the values plain JSON loses tagged, so a parameter or a result
+ * crosses as what it was: `bigint` (JSON throws), `Date` (an ISO string),
+ * bytes (`{type:'Buffer',data:[…]}`). A plain object that itself has the tag
+ * key is carried as its entries, so no payload can forge a tag. Not Bun's
+ * structured-clone `deserialize`: the runner end is untrusted, and JSON.parse
+ * is the parser built for hostile input.
+ */
+const TAG = '$zv';
+
+function replacer(this: Record<string, unknown>, key: string, value: unknown): unknown {
+  const raw = this[key];
+  if (typeof raw === 'bigint') return { [TAG]: 'bigint', v: raw.toString() };
+  if (raw instanceof Date)
+    return { [TAG]: 'date', v: Number.isNaN(raw.getTime()) ? null : raw.toISOString() };
+  if (raw instanceof Uint8Array) return { [TAG]: 'bytes', v: Buffer.from(raw).toString('base64') };
+  if (value && typeof value === 'object' && !Array.isArray(value) && Object.hasOwn(value, TAG)) {
+    return { [TAG]: 'object', v: Object.entries(value) };
+  }
+  return value;
+}
+
+function reviver(_key: string, value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const o = value as Record<string, unknown>;
+  switch (o[TAG]) {
+    case 'bigint':
+      return BigInt(o.v as string);
+    case 'date':
+      return new Date(o.v === null ? Number.NaN : (o.v as string));
+    case 'bytes':
+      return Buffer.from(o.v as string, 'base64');
+    case 'object':
+      return Object.fromEntries(o.v as [string, unknown][]);
+    default:
+      return value;
+  }
+}
+
 export function encodeFrame(msg: unknown): Uint8Array {
-  const body = encoder.encode(JSON.stringify(msg));
+  const body = encoder.encode(JSON.stringify(msg, replacer));
   if (body.length > MAX_FRAME_BYTES) {
     throw new FrameTooLargeError(`frame of ${body.length} bytes exceeds ${MAX_FRAME_BYTES}`);
   }
@@ -72,7 +111,7 @@ export class FrameDecoder {
         throw new Error(`frame of ${size} bytes exceeds ${MAX_FRAME_BYTES}`);
       }
       if (this.len - at - 4 < size) break;
-      out.push(JSON.parse(decoder.decode(this.buf.subarray(at + 4, at + 4 + size))));
+      out.push(JSON.parse(decoder.decode(this.buf.subarray(at + 4, at + 4 + size)), reviver));
       at += 4 + size;
     }
     this.buf.copyWithin(0, at, this.len);

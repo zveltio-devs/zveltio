@@ -49,6 +49,8 @@ const pendingServiceRegistrations = new Map<string, (res: ServiceRegisterRespons
 
 /** Services this worker registered. Host invokes them via service:invoke. */
 const localServices = new Map<string, (...args: unknown[]) => unknown>();
+/** The host registry's `[name, owner]`, replaced on every `services:snapshot`. */
+const serviceOwners = new Map<string, string>();
 /** `ctx.events.on` listeners, by the key the host delivers them under. */
 const localListeners = new Map<string, (...args: unknown[]) => unknown>();
 
@@ -260,6 +262,7 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     // secrets never reach it), and it broke Bun: `await import('node:process')`
     // after it crashed the worker (ProcessNextTick undefined, core dump).
     if (msg.env.NODE_ENV) process.env.NODE_ENV = msg.env.NODE_ENV;
+    for (const [name, owner] of msg.services ?? []) serviceOwners.set(name, owner);
     installFetchGuard();
     const module = await import(msg.bundleUrl);
     const extension = module.default;
@@ -297,6 +300,9 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
       registerService,
       listeners: localListeners,
       config: msg.config,
+      extName: msg.extName,
+      mayCall: new Map(msg.mayCall ?? []),
+      owners: serviceOwners,
     });
     await extension.register(app, ctx);
     await settled();
@@ -401,6 +407,10 @@ function dispatch(msg: HostToWorkerMessage): void {
     case 'shutdown':
       // Bun shuts the worker down when the host calls .terminate();
       // this is just for clean intent. No-op here.
+      break;
+    case 'services:snapshot':
+      serviceOwners.clear();
+      for (const [name, owner] of msg.services) serviceOwners.set(name, owner);
       break;
     case 'ping':
       // Heartbeat — reply immediately. Host respawns us if it doesn't

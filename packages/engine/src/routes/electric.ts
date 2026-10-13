@@ -23,7 +23,7 @@
  * falls back to the CRDT provider.
  */
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import type { Database } from '../db/index.js';
 import {
   authenticate,
@@ -72,6 +72,18 @@ const ELECTRIC_HEADERS = [
   'retry-after',
 ];
 
+/**
+ * Live polls waiting on Electric. A realtime sweep (a revoke, a rule or grant
+ * change) ends them, so a poll authorized before the change stops delivering;
+ * each client's next poll is authorized afresh.
+ */
+const livePolls = new Set<AbortController>();
+
+/** Called by `revalidateSockets`, on this instance. */
+export function interruptLivePolls(): void {
+  for (const ctl of livePolls) ctl.abort();
+}
+
 export function electricRoutes(
   db: Database,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -80,6 +92,17 @@ export function electricRoutes(
   const app = new Hono();
 
   app.get('/v1/shape', async (c) => {
+    // Registered before the checks, so a sweep while they run ends it too.
+    const interrupt = new AbortController();
+    livePolls.add(interrupt);
+    try {
+      return await shape(c, interrupt.signal);
+    } finally {
+      livePolls.delete(interrupt);
+    }
+  });
+
+  async function shape(c: Context, interrupted: AbortSignal): Promise<Response> {
     const principal = await authenticate(c, auth, db);
     if (!principal) return c.json({ error: 'Unauthorized' }, 401);
     const config = readConfig();
@@ -140,10 +163,25 @@ export function electricRoutes(
 
     let res: Response;
     try {
-      res = await fetch(upstream, { signal: c.req.raw.signal });
+      res = await fetch(upstream, { signal: AbortSignal.any([c.req.raw.signal, interrupted]) });
     } catch (err) {
       // The client went away mid-poll: nobody is left to answer.
       if (c.req.raw.signal.aborted) return new Response(null, { status: 499 });
+      // A sweep ended it: nothing new, up to date where it was, so the client
+      // polls again at once and that poll is checked as it now stands.
+      if (interrupted.aborted) {
+        const same: Record<string, string> = { 'cache-control': 'private, no-store' };
+        for (const [h, q] of [
+          ['electric-offset', 'offset'],
+          ['electric-handle', 'handle'],
+          ['electric-cursor', 'cursor'],
+        ] as const) {
+          const v = query.get(q);
+          if (v !== null) same[h] = v;
+        }
+        same['access-control-expose-headers'] = ELECTRIC_HEADERS.join(',');
+        return c.json([{ headers: { control: 'up-to-date' } }], 200, same);
+      }
       console.warn('[electric] upstream unreachable:', (err as Error).message);
       throw problem('electric.unreachable', 503, 'The Electric service is unreachable.');
     }
@@ -172,7 +210,7 @@ export function electricRoutes(
       if (v !== null) headers[h] = v;
     }
     return c.body(res.body as ReadableStream, res.status as 200, headers);
-  });
+  }
 
   return app;
 }

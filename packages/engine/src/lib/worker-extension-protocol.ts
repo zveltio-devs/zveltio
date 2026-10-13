@@ -38,6 +38,20 @@ export interface InitRequest {
   };
   /** The extension's own `ctx.config`, as `buildRestrictedContext` resolved it inline. */
   config?: unknown;
+  /** Its manifest `dependencies` + `optionalDependencies` (`ServiceDeps`), as entries. */
+  mayCall?: Array<[string, boolean]>;
+  /** The service registry as `[name, owner]`; `services:snapshot` keeps it current. */
+  services?: Array<[string, string]>;
+}
+
+/**
+ * Host → worker: the service registry changed. Names and owners only, so
+ * `ctx.services.has/get/list` answer synchronously, as inline.
+ */
+export interface ServicesSnapshot {
+  type: 'services:snapshot';
+  id: WorkerMessageId;
+  services: Array<[string, string]>;
 }
 
 export interface InitResponse {
@@ -193,7 +207,14 @@ export interface ServiceCallResponse {
  * (RFC extension-runner step 7). Identity is never an argument: the host answers
  * as the request `requestId` names, from its own record of it, as for a query.
  */
-export type HostCallOp = 'checkPermission' | 'getSession' | 'emit' | 'on' | 'off';
+export type HostCallOp =
+  | 'checkPermission'
+  | 'getSession'
+  | 'emit'
+  | 'on'
+  | 'off'
+  | 'waitForService'
+  | 'describeDenial';
 
 export interface HostCallRequest {
   type: 'host:call';
@@ -279,6 +300,7 @@ export type HostToWorkerMessage =
   | PingRequest
   | ServiceRegisterResponse
   | ServiceInvokeRequest
+  | ServicesSnapshot
   | HostCallResponse;
 
 export type WorkerToHostMessage =
