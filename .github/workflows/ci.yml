@@ -967,14 +967,23 @@ jobs:
           echo "Sign-in HTTP status: $SIGNIN_STATUS"
           echo ""
           echo "--- Settings public test ---"
-          curl -s -w "\n---HTTP_STATUS:%{http_code}" http://localhost:3099/api/settings/public 2>&1 || true
-          echo ""
+          SETTINGS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3099/api/settings/public)
+          echo "Settings public HTTP status: $SETTINGS_STATUS"
           echo "--- Users unauthenticated test ---"
-          curl -s -w "\n---HTTP_STATUS:%{http_code}" http://localhost:3099/api/users 2>&1 || true
-          echo ""
-          echo "--- Engine logs at smoke test time ---"
-          cat /tmp/engine.log || true
-          echo "--- End engine logs ---"
+          USERS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3099/api/users)
+          echo "Users unauthenticated HTTP status: $USERS_STATUS"
+          # The step used to only echo, so it could not fail. These are the
+          # answers a working engine gives.
+          fail=0
+          [ "$SIGNUP_STATUS" = 200 ] || { echo "::error::sign-up answered $SIGNUP_STATUS, expected 200"; fail=1; }
+          [ "$SIGNIN_STATUS" = 200 ] || { echo "::error::sign-in answered $SIGNIN_STATUS, expected 200"; fail=1; }
+          [ "$SETTINGS_STATUS" = 200 ] || { echo "::error::/api/settings/public answered $SETTINGS_STATUS, expected 200"; fail=1; }
+          [ "$USERS_STATUS" = 401 ] || { echo "::error::/api/users without a session answered $USERS_STATUS, expected 401"; fail=1; }
+          if [ "$fail" = 1 ]; then
+            echo "--- Engine logs at smoke test time ---"
+            cat /tmp/engine.log || true
+            exit 1
+          fi
       - name: Extensions can write the rows they claim to
         # THE seam. Ten extensions were examined between their code and their own
         # migrations and NINE had a defect that stopped or corrupted their primary

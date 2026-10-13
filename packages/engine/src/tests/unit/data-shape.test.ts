@@ -5,7 +5,7 @@
  * is exercised by the crud/relations integration tests.)
  */
 
-import { describe, it, expect } from 'bun:test';
+import { beforeAll, describe, it, expect } from 'bun:test';
 import {
   applyExpand,
   computeEtag,
@@ -171,5 +171,19 @@ describe('serializeSnapshot', () => {
     const snap = { id: 'r1', created_at: '2026-01-01', title: 'kept', secret: '$argon2id$...' };
     const out = await serializeSnapshot(snap, def([{ name: 'title', type: 'text' }]), ALL);
     expect(out).toEqual({ id: 'r1', created_at: '2026-01-01', title: 'kept' });
+  });
+});
+
+describe('serializeRecord password', () => {
+  beforeAll(async () => {
+    const { registerCoreFieldTypes } = await import('../../field-types/index.js');
+    const { fieldTypeRegistry } = await import('../../lib/data/field-type-registry.js');
+    if (!fieldTypeRegistry.get('password')) registerCoreFieldTypes(fieldTypeRegistry);
+  });
+
+  it('omits a password field whether it is set or not', async () => {
+    const d = def([{ name: 'pw', type: 'password' }]);
+    expect('pw' in (await serializeRecord({ id: '1', pw: null }, d, ALL))).toBe(false);
+    expect('pw' in (await serializeRecord({ id: '1', pw: '$argon2id$x' }, d, ALL))).toBe(false);
   });
 });

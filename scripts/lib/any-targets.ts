@@ -92,6 +92,3 @@ export function bucketOf(path: RepoPath): string {
   if (path.startsWith('scripts/')) return 'scripts';
   return 'other';
 }
-
-/** The excluded-prefix list, exported for the biome.json cross-check. */
-export const EXCLUDE_SOURCE = EXCLUDE.map((re) => re.source);

@@ -47,7 +47,7 @@ jobs:
         # Generates .svelte-kit/tsconfig.json, which the client tsconfig
         # extends. Without it esbuild fails to resolve a tsconfig when
         # transforming tests/setup.ts (TSCONFIG_ERROR: Tsconfig not found).
-        run: cd packages/client && bunx svelte-kit sync
+        run: cd packages/client && bun x svelte-kit sync
 
       # `svelte-check` was never run for this package, in CI or anywhere else.
       # Seven type errors had accumulated behind that — including `data.user`
