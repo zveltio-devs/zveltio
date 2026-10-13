@@ -210,8 +210,8 @@ d('data virtual collection (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { record?: { title?: string } };
-    expect(body.record?.title).toBe('one-row');
+    const body = (await res.json()) as { title?: string };
+    expect(body.title).toBe('one-row');
   });
 
   it('proxies virtual create when upstream succeeds', async () => {
@@ -231,8 +231,8 @@ d('data virtual collection (in-process)', () => {
       body: JSON.stringify({ title: 'created-remote' }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { record?: { title?: string } };
-    expect(body.record?.title).toBe('created-remote');
+    const body = (await res.json()) as { title?: string };
+    expect(body.title).toBe('created-remote');
   });
 
   it('proxies virtual list with scalar filter shorthand', async () => {
@@ -276,8 +276,8 @@ d('data virtual collection (in-process)', () => {
       body: JSON.stringify({ title: 'put-ok' }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { record?: { title?: string } };
-    expect(body.record?.title).toBe('put-ok');
+    const body = (await res.json()) as { title?: string };
+    expect(body.title).toBe('put-ok');
   });
 
   it('proxies virtual PATCH when upstream succeeds', async () => {
@@ -297,8 +297,8 @@ d('data virtual collection (in-process)', () => {
       body: JSON.stringify({ title: 'patch-ok' }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { record?: { title?: string } };
-    expect(body.record?.title).toBe('patch-ok');
+    const body = (await res.json()) as { title?: string };
+    expect(body.title).toBe('patch-ok');
   });
 
   it('proxies virtual DELETE when upstream succeeds', async () => {

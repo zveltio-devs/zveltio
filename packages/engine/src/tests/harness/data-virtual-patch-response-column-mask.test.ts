@@ -118,8 +118,8 @@ d('virtual PATCH response column mask (in-process)', () => {
       body: JSON.stringify({ title: 'patched' }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { record: Record<string, unknown> };
-    expect(body.record.title).toBe('patched');
-    expect('secret' in body.record).toBe(false);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.title).toBe('patched');
+    expect('secret' in body).toBe(false);
   });
 });

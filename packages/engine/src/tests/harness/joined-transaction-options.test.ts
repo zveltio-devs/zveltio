@@ -48,6 +48,18 @@ d('a joined db.transaction() honours its options', () => {
     ['extension ctx.db', () => createRestrictedDb(() => getCurrentTenantTrx() ?? db, 'joinopt')],
   ];
 
+  // Outside a tenant transaction the BEGIN is the dialect's own
+  // (bun-sql-dialect.ts beginTransaction), which applied only the isolation
+  // level and ran a transaction asked to be read-only as read-write.
+  it('a root db.transaction() honours setAccessMode', async () => {
+    await expect(
+      db
+        .transaction()
+        .setAccessMode('read only')
+        .execute((t) => insert(t)),
+    ).rejects.toThrow(/read-only transaction/);
+  }, 60_000);
+
   for (const [name, make] of handles) {
     it(`${name}: setAccessMode('read only') is read-only for the scope only`, async () => {
       const h = make();

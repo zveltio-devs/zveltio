@@ -409,6 +409,13 @@ class BunSqlDriver implements Driver {
         ),
       );
     }
+    // Kysely's own Postgres dialect honours this; dropping it would run a
+    // transaction asked to be read-only as read-write.
+    if (settings.accessMode) {
+      await connection.executeQuery(
+        CompiledQuery.raw(`SET TRANSACTION ${settings.accessMode.toUpperCase()}`),
+      );
+    }
   }
 
   async commitTransaction(connection: DatabaseConnection): Promise<void> {

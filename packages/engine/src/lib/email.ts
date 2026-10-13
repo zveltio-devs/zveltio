@@ -19,6 +19,7 @@ function smtpFingerprint(): string {
     process.env.SMTP_PORT ?? '',
     process.env.SMTP_SECURE ?? '',
     process.env.SMTP_USER ?? '',
+    process.env.SMTP_PASS ?? '',
   ].join('|');
 }
 
@@ -26,10 +27,16 @@ async function getSmtpTransport(): Promise<import('nodemailer').Transporter> {
   const fp = smtpFingerprint();
   if (_smtpTransport && fp === _smtpFingerprint) return _smtpTransport;
   const { createTransport } = await import('nodemailer');
+  // The pooled transport being replaced holds open SMTP connections.
+  _smtpTransport?.close();
+  const port = parseInt(process.env.SMTP_PORT || '587');
+  // Unset means "what the port implies": 465 is implicit TLS, and STARTTLS
+  // against it hangs until the connection times out.
+  const secureEnv = process.env.SMTP_SECURE?.trim().toLowerCase();
   _smtpTransport = createTransport({
     host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
+    port,
+    secure: secureEnv ? secureEnv === 'true' || secureEnv === '1' : port === 465,
     auth: process.env.SMTP_USER
       ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS || '' }
       : undefined,

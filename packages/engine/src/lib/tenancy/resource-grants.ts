@@ -23,7 +23,8 @@
  *
  * The second is why `KNOWN_EXTENSION_RESOURCES` exists rather than a query.
  * Going forward an extension declares its resources in its manifest and
- * `scripts/check-extension-resources.ts` fails the build if a `permissionGate`
+ * `scripts/check-extension-authorization.ts` in the extensions repo fails its
+ * build if a `permissionGate`
  * call names something undeclared — the list below is the set that predates that
  * gate, kept so upgrading an existing install does not break the extensions
  * already on it.
@@ -70,7 +71,8 @@ export const DEFAULT_ROLE_GRANTS: ReadonlyArray<{ role: string; actions: readonl
  * predate that wiring. It was removed on 2026-08-30 as an owner decision, with
  * a minimum stated: **an extension must declare `manifest.resources`**, which
  * has been the contract since 3.0.0-beta.63 (2026-08-28) and is enforced for new
- * code by `scripts/check-extension-resources.ts`. An install carrying older
+ * code by `scripts/check-extension-authorization.ts` in the extensions repo. An
+ * install carrying older
  * bundles no longer gets those names for free.
  *
  * Deleting a safety net silently would have been the wrong half of that
