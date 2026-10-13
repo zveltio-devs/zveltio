@@ -10,7 +10,14 @@ on:
   push:
     branches: [master]
   pull_request:
+    # The image builds from every package and the root manifests, so a change
+    # to any of them can break the build or drop the `migrate` subcommand;
+    # without these a PR found out only after merge, on master.
     paths:
+      - 'packages/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'turbo.json'
       - 'Dockerfile'
       - '.dockerignore'
       - 'charts/**'

@@ -11,21 +11,23 @@
 
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
+  getDomainMetricsLines,
   getTracer,
-  getZoneMetricsLines,
+  httpRequests,
   initTelemetry,
+  labeledCounter,
+  labeledHistogram,
   traced,
   tracedQuery,
-  viewQueryDuration,
-  zoneAccessDenied,
-  zoneRenderRequests,
 } from '../../lib/runtime/telemetry.js';
 
 afterEach(() => {
   delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 });
 
-describe('labeled counter (via zoneRenderRequests)', () => {
+describe('labeled counter', () => {
+  const zoneRenderRequests = labeledCounter();
+  const zoneAccessDenied = labeledCounter();
   it('emits HELP/TYPE headers and a per-label-set line once incremented', () => {
     zoneRenderRequests.inc({ zone_slug: 'home', page_slug: 'landing' });
     zoneRenderRequests.inc({ zone_slug: 'home', page_slug: 'landing' });
@@ -47,7 +49,8 @@ describe('labeled counter (via zoneRenderRequests)', () => {
   });
 });
 
-describe('labeled histogram (via viewQueryDuration)', () => {
+describe('labeled histogram', () => {
+  const viewQueryDuration = labeledHistogram();
   it('produces bucket/sum/count lines with cumulative bucket counts', () => {
     viewQueryDuration.observe({ view_id: 'v1', collection: 'c1' }, 30);
     viewQueryDuration.observe({ view_id: 'v1', collection: 'c1' }, 300);
@@ -70,13 +73,12 @@ describe('labeled histogram (via viewQueryDuration)', () => {
   });
 });
 
-describe('getZoneMetricsLines', () => {
-  it('concatenates all three metric families', () => {
-    zoneRenderRequests.inc({ zone_slug: 'z', page_slug: 'p' });
-    const lines = getZoneMetricsLines();
-    expect(lines.some((l) => l.includes('zone_render_requests_total'))).toBe(true);
-    // empty families contribute nothing (no throw); non-empty families appear
-    expect(Array.isArray(lines)).toBe(true);
+describe('getDomainMetricsLines', () => {
+  it('includes an emitted family', () => {
+    httpRequests.inc({ method: 'GET', status: '200' });
+    expect(getDomainMetricsLines().some((l) => l.startsWith('# TYPE http_requests_total'))).toBe(
+      true,
+    );
   });
 });
 

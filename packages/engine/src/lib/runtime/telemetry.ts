@@ -1,13 +1,13 @@
 import { trace, SpanKind, SpanStatusCode } from '@opentelemetry/api';
 
-// ── Prometheus-style counters for Zones / Views ───────────────────────────────
+// ── Prometheus-style labeled counters and histograms ──────────────────────────
 
 interface LabeledCounter {
   inc(labels: Record<string, string>): void;
   toPrometheusLines(name: string, help: string): string[];
 }
 
-function labeledCounter(): LabeledCounter {
+export function labeledCounter(): LabeledCounter {
   const data = new Map<string, number>();
 
   const keyOf = (labels: Record<string, string>) =>
@@ -37,7 +37,7 @@ interface LabeledHistogram {
   toPrometheusLines(name: string, help: string): string[];
 }
 
-function labeledHistogram(
+export function labeledHistogram(
   buckets: number[] = [10, 50, 100, 250, 500, 1000, 2500, 5000],
 ): LabeledHistogram {
   type BucketData = { sum: number; count: number; buckets: Map<number, number> };
@@ -78,15 +78,6 @@ function labeledHistogram(
     },
   };
 }
-
-/** Zone render request counter — labels: zone_slug, page_slug */
-export const zoneRenderRequests = labeledCounter();
-
-/** Zone access denied counter — labels: zone_slug, role */
-export const zoneAccessDenied = labeledCounter();
-
-/** View query duration histogram — labels: view_id, collection */
-export const viewQueryDuration = labeledHistogram();
 
 // ── Core HTTP + cache + webhook metrics (power the overview/webhooks dashboards)
 // These were queried by the shipped Grafana dashboards but never emitted, so the
@@ -140,24 +131,7 @@ export function getDomainMetricsLines(): string[] {
       'Webhook delivery duration in seconds',
     ),
     ...webhookRetries.toPrometheusLines('webhook_retries_total', 'Webhook delivery retries'),
-    ...zoneRenderRequests.toPrometheusLines(
-      'zone_render_requests_total',
-      'Total zone render requests by zone and page slug',
-    ),
-    ...zoneAccessDenied.toPrometheusLines(
-      'zone_access_denied_total',
-      'Total zone access denied events by zone slug and user role',
-    ),
-    ...viewQueryDuration.toPrometheusLines(
-      'view_query_duration_ms',
-      'View data query duration in milliseconds',
-    ),
   ];
-}
-
-/** @deprecated use getDomainMetricsLines — kept for existing callers. */
-export function getZoneMetricsLines(): string[] {
-  return getDomainMetricsLines();
 }
 
 /**

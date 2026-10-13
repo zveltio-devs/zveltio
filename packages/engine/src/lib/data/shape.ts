@@ -146,6 +146,10 @@ export async function serializeRecord(
       }
     }
   }
+  // A type that serializes to nothing (`password`) is dropped whatever its
+  // value. Only a set value went through the serializer, so an unset one
+  // stayed `null` and the key's presence told a caller whether it was set.
+  for (const k of withheldColumns(collectionDef).unserved) delete result[k];
   // Strip internal/operational columns from public payloads.
   for (const k of INTERNAL_COLUMNS) delete result[k];
   return result as DynamicRow;

@@ -56,7 +56,7 @@ jobs:
         # tsconfig.json extends) + $app/* type aliases. Without this,
         # tsc --noEmit can't resolve $app/paths, $lib/*.svelte.js, vite
         # config types, etc.
-        run: cd packages/studio && bunx svelte-kit sync
+        run: cd packages/studio && bun x svelte-kit sync
 
       - name: Typecheck
         # `svelte-check --fail-on-warnings`, not just errors. The 40 warnings this
@@ -137,7 +137,7 @@ jobs:
         run: cd packages/studio && bun run i18n:compile
 
       - name: SvelteKit sync
-        run: cd packages/studio && bunx svelte-kit sync
+        run: cd packages/studio && bun x svelte-kit sync
 
       - name: Boot the engine
         # Reuses the E2E boot (fresh database, migrate, `create-god`), minus the
