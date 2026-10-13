@@ -98,9 +98,19 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/:name/fields', ddlRateLimit);
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/:name/fields/:fieldName', ddlRateLimit);
 
+  // A virtual collection's `auth_value` is the upstream API's credential. It is
+  // write-only: Studio never reads it back, and a `$schema` API key reaches
+  // these GETs, so serving it handed that key the upstream secret.
+  const withoutCredential = <T>(collection: T): T => {
+    const vc = (collection as { virtual_config?: unknown }).virtual_config;
+    if (!vc || typeof vc !== 'object' || !('auth_value' in vc)) return collection;
+    const { auth_value: _secret, ...rest } = vc as Record<string, unknown>;
+    return { ...collection, virtual_config: rest };
+  };
+
   // GET / — List all collections (user-defined + system)
   app.get('/', async (c) => {
-    const collections = await DDLManager.getCollections(db);
+    const collections = (await DDLManager.getCollections(db)).map(withoutCredential);
     // Append system collections (Better-Auth tables) so Studio can browse them
     const systemCollections = SYSTEM_COLLECTIONS.map((sc) => ({
       name: sc.name,
@@ -303,7 +313,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   app.get('/:name', async (c) => {
     const name = c.req.param('name');
     const collection = await DDLManager.getCollection(db, name);
-    if (collection) return c.json({ collection });
+    if (collection) return c.json({ collection: withoutCredential(collection) });
 
     const system = getSystemCollection(name);
     if (system) {
