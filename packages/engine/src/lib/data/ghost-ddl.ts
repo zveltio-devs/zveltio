@@ -13,6 +13,7 @@
  */
 
 import type { Database } from '../../db/index.js';
+import { withAdvisoryLock } from '../../db/advisory-lock.js';
 import { sql } from 'kysely';
 import { publishEveryTenant } from '../tenancy/index.js';
 import { pgIdentifier } from '../pg-identifier.js';
@@ -775,6 +776,20 @@ export class GhostDDL {
       return;
     }
 
+    // One run per table, on any replica. A second run's CREATE of the ghost
+    // failed, and its failure cleanup below dropped the FIRST run's ghost and
+    // changelog in the middle of that run's copy.
+    await withAdvisoryLock(db, `ghost-ddl:${tableName}`, () =>
+      GhostDDL.run(db, tableName, operations, onProgress),
+    );
+  }
+
+  private static async run(
+    db: Database,
+    tableName: string,
+    operations: GhostOperation[],
+    onProgress?: (phase: string, detail: string) => void,
+  ): Promise<void> {
     // `createGhost` used to run before this try block, so a failure inside it
     // (changelog table or trigger creation failing after the ghost table was
     // already created, or a leftover `_zv_ghost_<table>` from a prior crashed
@@ -810,8 +825,8 @@ export class GhostDDL {
       const triggerName = migration?.triggerName ?? `_zv_trg_ghost_${tableName}`;
       const originalTable = migration?.originalTable ?? tableName;
       try {
-        await sql`DROP TABLE IF EXISTS ${sql.id(ghostTable)} CASCADE`.execute(db);
-        await sql`DROP TABLE IF EXISTS ${sql.id(changelogTable)} CASCADE`.execute(db);
+        // Trigger first: dropping the changelog while the capture trigger still
+        // fires made every write to the original table fail with 42P01.
         const triggerFn = `${triggerName}_fn`;
         // sql.id(), not raw string interpolation: when createGhost threw before
         // returning (e.g. its own name-validation check), `originalTable` falls
@@ -833,6 +848,8 @@ export class GhostDDL {
               cleanupErr.message,
             );
           });
+        await sql`DROP TABLE IF EXISTS ${sql.id(ghostTable)} CASCADE`.execute(db);
+        await sql`DROP TABLE IF EXISTS ${sql.id(changelogTable)} CASCADE`.execute(db);
       } catch (cleanupErr) {
         console.warn('[GhostDDL] Cleanup after failure also failed:', cleanupErr);
       }

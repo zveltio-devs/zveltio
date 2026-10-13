@@ -11,7 +11,6 @@ import {
   isEncryptedValue,
   maybeDecrypt,
   maybeEncrypt,
-  resetFieldCryptoKeyCacheForTests,
 } from '../../lib/data/field-crypto.js';
 
 describe('isEncryptedValue', () => {
@@ -81,13 +80,10 @@ describe('maybeEncrypt — fail-closed when FIELD_ENCRYPTION_KEY is missing', ()
   });
 
   it('a real key encrypts to the enc:v1: envelope (no throw)', async () => {
-    resetFieldCryptoKeyCacheForTests();
     await withEnv('0'.repeat(64), undefined, async () => {
       const out = (await maybeEncrypt('super-secret', true)) as string;
       expect(out.startsWith('enc:v1:')).toBe(true);
     });
-    // Don't leak the test key's cached CryptoKey into other test files.
-    resetFieldCryptoKeyCacheForTests();
   });
 });
 
@@ -111,12 +107,10 @@ describe('key format', () => {
   it('refuses 64 non-hex characters instead of encrypting with an all-zero key', async () => {
     const saved = process.env.FIELD_ENCRYPTION_KEY;
     process.env.FIELD_ENCRYPTION_KEY = 'z'.repeat(64);
-    resetFieldCryptoKeyCacheForTests();
     try {
       await expect(maybeEncrypt('secret', true)).rejects.toThrow('64-char hex');
     } finally {
       process.env.FIELD_ENCRYPTION_KEY = saved;
-      resetFieldCryptoKeyCacheForTests();
     }
   });
 });

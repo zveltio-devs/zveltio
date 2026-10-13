@@ -13,12 +13,15 @@ type ContributionModules = Record<string, () => Promise<{ activate?: () => void 
 
 /** Extensions whose `activate()` already ran this session (guards HMR double-call). */
 const activated = new Set<string>();
+/** The active set of the latest call: an import still in flight checks it before activating. */
+let latestActive = new Set<string>();
 
 export async function loadExtensionContributions(
   active: string[],
   modules: ContributionModules = CONTRIBUTION_MODULES,
 ): Promise<void> {
   const activeSet = new Set(active);
+  latestActive = activeSet;
 
   for (const name of [...activated]) {
     if (!activeSet.has(name)) {
@@ -35,6 +38,9 @@ export async function loadExtensionContributions(
     try {
       unregisterContributions(name);
       const mod = await load();
+      // Disabled while the chunk was importing: the removal pass of the newer
+      // call already ran, so activating now would leave it registered.
+      if (!latestActive.has(name)) continue;
       mod.activate?.();
       activated.add(name);
     } catch (err) {
@@ -46,6 +52,7 @@ export async function loadExtensionContributions(
 /** Test-only: reset activation guard between unit tests. */
 export function _resetContributionLoaderForTests(): void {
   activated.clear();
+  latestActive = new Set();
 }
 
 /** Test-only: which extensions have activate() running this session. */

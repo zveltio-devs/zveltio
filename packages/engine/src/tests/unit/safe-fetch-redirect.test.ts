@@ -144,4 +144,18 @@ describe('safeFetch — what a redirect hop may reach and carry', () => {
     const res = await safeFetch('https://example.com/cached');
     expect(res.status).toBe(304);
   });
+
+  it("hands a 3xx back to a caller asking redirect: 'manual'", async () => {
+    const calls = scripted(to('/moved'));
+    const res = await safeFetch('https://example.com/start', { redirect: 'manual' });
+    expect(res.status).toBe(302);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects a redirect for a caller asking redirect: 'error'", async () => {
+    scripted(to('/moved'));
+    await expect(safeFetch('https://example.com/start', { redirect: 'error' })).rejects.toThrow(
+      TypeError,
+    );
+  });
 });

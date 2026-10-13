@@ -188,6 +188,14 @@ describe('splitSqlStatements — what a NO TRANSACTION migration is cut into', (
     ]);
   });
 
+  it("keeps a backslash-escaped quote inside an E'' string", () => {
+    expect(splitSqlStatements(String.raw`SELECT E'it\'s; fine'; SELECT 'a\'; SELECT 2;`)).toEqual([
+      String.raw`SELECT E'it\'s; fine'`,
+      String.raw`SELECT 'a\'`,
+      'SELECT 2',
+    ]);
+  });
+
   it('does not mistake a positional parameter or a $ in an identifier for a dollar quote', () => {
     expect(splitSqlStatements('SELECT $1; SELECT a$b FROM t;')).toEqual([
       'SELECT $1',

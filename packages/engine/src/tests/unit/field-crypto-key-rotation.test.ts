@@ -16,7 +16,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { encryptField, resetFieldCryptoKeyCacheForTests } from '../../lib/data/field-crypto.js';
+import { encryptField } from '../../lib/data/field-crypto.js';
 
 const KEY_A = '1'.repeat(64);
 const KEY_B = '2'.repeat(64);
@@ -27,7 +27,6 @@ beforeAll(() => {
   savedKey = process.env.FIELD_ENCRYPTION_KEY;
 });
 afterAll(() => {
-  resetFieldCryptoKeyCacheForTests();
   if (savedKey === undefined) delete process.env.FIELD_ENCRYPTION_KEY;
   else process.env.FIELD_ENCRYPTION_KEY = savedKey;
 });
@@ -45,7 +44,6 @@ async function decryptWithRawKey(hex: string, enc: string): Promise<string> {
 
 describe('FIELD_ENCRYPTION_KEY rotation', () => {
   it('picks up a rotated key on the next call, without a process restart', async () => {
-    resetFieldCryptoKeyCacheForTests();
     process.env.FIELD_ENCRYPTION_KEY = KEY_A;
     await encryptField('warm the cache under key A');
 
