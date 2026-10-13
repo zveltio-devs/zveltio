@@ -41,6 +41,9 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   (#1078, #1083). Invitations always name their tenant (migration 063, #1085).
 - Media visibility helpers enforce the acting tenant themselves (#1088).
 - A WebSocket channel on the `*` collection is refused (#1084).
+- A parent tenant with subtree reach can no longer delete a child tenant's
+  rows, or move them into its own node with an UPDATE; such an UPDATE now
+  affects 0 rows instead of raising (migration 066, #1095).
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,
