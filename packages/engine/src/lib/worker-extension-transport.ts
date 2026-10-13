@@ -26,13 +26,16 @@ import type { HostToWorkerMessage, WorkerToHostMessage } from './worker-extensio
  */
 export const MAX_FRAME_BYTES = 32 * 1024 * 1024;
 
+/** A message that encodes past MAX_FRAME_BYTES: the caller's input is too big. */
+export class FrameTooLargeError extends Error {}
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export function encodeFrame(msg: unknown): Uint8Array {
   const body = encoder.encode(JSON.stringify(msg));
   if (body.length > MAX_FRAME_BYTES) {
-    throw new Error(`frame of ${body.length} bytes exceeds ${MAX_FRAME_BYTES}`);
+    throw new FrameTooLargeError(`frame of ${body.length} bytes exceeds ${MAX_FRAME_BYTES}`);
   }
   const out = new Uint8Array(4 + body.length);
   new DataView(out.buffer).setUint32(0, body.length);

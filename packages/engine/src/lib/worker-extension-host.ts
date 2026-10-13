@@ -50,6 +50,7 @@ import {
   extensionTransport,
   spawnProcessRunner,
   connectRunner,
+  FrameTooLargeError,
 } from './worker-extension-transport.js';
 import {
   callableDeps,
@@ -998,23 +999,31 @@ export class WorkerExtensionHost {
           try {
             const resp = await new Promise<RouteInvokeResponse>((resolve, reject) => {
               live.pendingInvokes.set(id, resolve);
-              setTimeout(() => {
+              const timer = setTimeout(() => {
                 if (live.pendingInvokes.has(id)) {
                   live.pendingInvokes.delete(id);
                   reject(new Error('worker route handler timeout (30s)'));
                 }
               }, 30_000);
-              this.post(live, {
-                type: 'route:invoke',
-                id,
-                method: r.method,
-                path: subPath,
-                headers,
-                query: c.req.query(),
-                body: bodyText || undefined,
-                tenantId: reqTenantId ?? undefined,
-                user,
-              });
+              // A post that throws (a body encoding past MAX_FRAME_BYTES) used
+              // to leave the pending entry and its timer behind for 30 s.
+              try {
+                this.post(live, {
+                  type: 'route:invoke',
+                  id,
+                  method: r.method,
+                  path: subPath,
+                  headers,
+                  query: c.req.query(),
+                  body: bodyText || undefined,
+                  tenantId: reqTenantId ?? undefined,
+                  user,
+                });
+              } catch (err) {
+                live.pendingInvokes.delete(id);
+                clearTimeout(timer);
+                reject(err);
+              }
             });
             // The rule `tenantMiddleware` applies to an inline request: commit
             // unless the handler threw — whatever status it answered with.
@@ -1035,6 +1044,10 @@ export class WorkerExtensionHost {
               headers: resp.headers,
             });
           } catch (err) {
+            // The caller's body is too big to hand over: theirs to fix, not a 500.
+            if (err instanceof FrameTooLargeError) {
+              return Response.json({ error: 'Request body too large' }, { status: 413 });
+            }
             return new Response((err as Error).message, { status: 500 });
           } finally {
             // Timed out, or the worker died: nothing it wrote is kept.

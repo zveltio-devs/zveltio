@@ -81,20 +81,26 @@ describe('S5-05 policyFor', () => {
     expect(a).toBe(b);
   });
 
-  it('applies EXTENSION_POLICIES_JSON overrides on top of defaults', () => {
+  it('applies EXTENSION_POLICIES_JSON overrides on top of defaults', async () => {
+    // Overrides are read at module init, so the module is imported afresh (a
+    // query string is a distinct module to Bun) with the variable set.
+    const saved = process.env.EXTENSION_POLICIES_JSON;
     process.env.EXTENSION_POLICIES_JSON = JSON.stringify({
-      'finance/invoicing': {
-        quotas: { cpuMsPerRequest: 2000 },
-      },
+      'finance/invoicing': { quotas: { cpuMsPerRequest: 2000 } },
     });
-    _internalForTests.resetCache();
-    // Need to reload the module so it picks up the new env. In Bun this
-    // means re-importing — too heavy for one test. Instead we assert
-    // that the override SHAPE is what policyFor would consume; the
-    // resolution happens at module-init time.
-    // Skip the live-reload assertion; covered by the next test which
-    // exercises override+default fallback paths.
-    expect(true).toBe(true);
+    try {
+      const fresh = (await import(
+        // @ts-expect-error -- a query string makes Bun load a second instance
+        '../../lib/extensions/extension-sandbox.ts?policies-override'
+      )) as typeof import('../../lib/extensions/extension-sandbox.js');
+      const p = fresh.policyFor('finance/invoicing');
+      expect(p.quotas.cpuMsPerRequest).toBe(2000);
+      // Unnamed quotas keep the default.
+      expect(p.quotas.bundleSizeKbMax).toBe(policyFor('finance/invoicing').quotas.bundleSizeKbMax);
+    } finally {
+      if (saved === undefined) delete process.env.EXTENSION_POLICIES_JSON;
+      else process.env.EXTENSION_POLICIES_JSON = saved;
+    }
   });
 
   it('treats malformed EXTENSION_POLICIES_JSON as empty (no crash)', () => {
