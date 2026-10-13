@@ -33,6 +33,9 @@ export const EGRESS_LIMITS = {
   responseBytes: 5 * 1024 * 1024,
   /** One FETCH line, base64 body and headers included. Past it the invocation is killed. */
   lineBytes: 2 * 1024 * 1024,
+  /** Stdout kept per invocation (envelope + logs); the rest is dropped, so a
+   *  chatty or newline-less function cannot grow the engine's memory. */
+  stdoutBytes: 16 * 1024 * 1024,
   /** Requests per invocation. */
   requests: 50,
   /** Requests in flight per invocation; the rest wait. */
@@ -264,13 +267,20 @@ export async function splitFetchLines(
   stream: ReadableStream<Uint8Array>,
   onFetch: ((json: string) => void) | null,
   maxLine = EGRESS_LIMITS.lineBytes + FETCH_LINE.length,
+  maxKept = EGRESS_LIMITS.stdoutBytes,
 ): Promise<string> {
   const decoder = new TextDecoder();
   const kept: string[] = [];
   let buf = '';
+  let keptChars = 0;
+  let truncated = false;
   const take = (line: string) => {
     if (onFetch && line.startsWith(FETCH_LINE)) onFetch(line.slice(FETCH_LINE.length));
-    else kept.push(line);
+    else if (keptChars + line.length > maxKept) truncated = true;
+    else {
+      kept.push(line);
+      keptChars += line.length + 1;
+    }
   };
   for await (const chunk of stream) {
     buf += decoder.decode(chunk, { stream: true });
@@ -284,8 +294,14 @@ export async function splitFetchLines(
       onFetch(buf.slice(FETCH_LINE.length));
       buf = '';
     }
+    // A line with no newline yet: past both limits it can only be dropped.
+    if (buf.length > Math.max(maxLine, maxKept)) {
+      truncated = true;
+      buf = '';
+    }
   }
   buf += decoder.decode();
   if (buf) take(buf);
+  if (truncated) kept.push(`[edge] stdout truncated at ${maxKept} characters`);
   return kept.join('\n');
 }

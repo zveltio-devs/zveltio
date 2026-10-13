@@ -263,6 +263,7 @@ function lockdownGlobals(sandboxFetch) {
   // Deny by default: everything on the global's prototype chain that is not in
   // SANDBOX_GLOBALS, plus the BLOCKED names whether the runtime defines them or not.
   const names = new Set(BLOCKED);
+  const unlocked = [];
   for (let o = g; o; o = Object.getPrototypeOf(o)) {
     for (const name of Object.getOwnPropertyNames(o)) if (!ALLOWED.has(name) && name !== 'fetch') names.add(name);
   }
@@ -275,9 +276,16 @@ function lockdownGlobals(sandboxFetch) {
         enumerable: false,
       });
     } catch (_) {
-      try { g[name] = buildThrower(name); } catch (_) {}
+      const thrower = buildThrower(name);
+      try { g[name] = thrower; } catch (_) {}
+      if (g[name] !== thrower) unlocked.push(name);
     }
   }
+  // A name neither redefined nor overwritten is still reachable. The handler's
+  // parameters shadow some; any other one fails the invocation, not silently.
+  const shadowed = new Set(['fetch','process','Bun','require','module','exports','globalThis','Function','Worker','importScripts','self']);
+  const open = unlocked.filter((n) => !shadowed.has(n));
+  if (open.length > 0) throw new Error('[sandbox] could not lock global(s): ' + open.join(', '));
   // Called with no receiver, the EventTarget methods fall back to the global
   // object, and the event they dispatch hands it over as event.target. Measured.
   for (const m of ['addEventListener','removeEventListener','dispatchEvent']) {
