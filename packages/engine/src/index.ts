@@ -38,6 +38,7 @@ import {
   collectionRlsExemptionStatus,
   extensionLoader,
   buildExtensionInternals,
+  installExtensionsBase,
   isSupportedLocaleName,
   serviceRegistry,
 } from './lib/extensions/index.js';
@@ -559,7 +560,13 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
     },
   ];
 
-  const extBase = process.env.EXTENSIONS_DIR || join(import.meta.dir, '../../../extensions');
+  // Defaults are what an install promises, so they come only from the install's
+  // own extensions directory — never from a sibling dev checkout, and never in
+  // tests: a dev or CI engine starts with no extension switched on behind its
+  // back (activating ai + content/pages there made collection create time out).
+  if (process.env.NODE_ENV === 'test') return;
+  const extBase = installExtensionsBase();
+  if (!extBase) return;
 
   for (const def of defaults) {
     // `.catch(() => null)` meant "not registered yet", so a failed read fell
