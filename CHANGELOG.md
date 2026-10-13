@@ -48,6 +48,9 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   again; since 065 the stamp matched no visible row (#1094).
 - Schema introspection skips a table named after a non-collection permission
   object, as collection create refuses it (#1094).
+- Moving a row rule rebuilds the policy of the collection it actually
+  leaves, under concurrent moves too; a table with no registry row drops a
+  `*` rule that was moved, deleted or disabled (#1096).
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,
