@@ -172,6 +172,12 @@ on a malformed `in`/`between`, and preview a URL the data API reads.
   without a tag (#1040).
 
 ### SDK
+- Worker extensions: `ctx.services.has`, `list` and `waitFor` answer as inline
+  (from a mirror of the registry the host keeps current), and
+  `ctx.describeDenial` crosses to the host. `bigint`, `Date` and bytes cross
+  the process transport as themselves, as tagged JSON (#1102).
+- An Electric live poll in flight ends when a session, key, grant or rule is
+  revoked; the client's next poll is authorized afresh (#1102).
 - Event listeners get the tenant the event was emitted in as their last
   argument (`{ tenantId }`), inline and in a worker (#1099).
 - `ctx.services.waitFor` refuses at once a service of an owner the manifest

@@ -72,6 +72,18 @@ export default {
     app.get('/bad-id', async (c) =>
       c.json(await ctx.db.selectFrom('${t}').selectAll().where('id', '=', 'not-a-number').execute()));
     app.get('/config', (c) => c.json({ vars: ctx.config.vars, env: ctx.config.env }));
+    app.get('/svc-mirror', async (c) => {
+      let waited = null;
+      try { await ctx.services.waitFor('nobody.x', 60000); } catch (e) { waited = String(e.message).includes('declare'); }
+      const denial = await ctx.describeDenial('${RES}', 'delete');
+      return c.json({
+        own: ctx.services.has('${name}.double'),
+        missing: ctx.services.has('${name}.nope'),
+        listed: ctx.services.list().includes('${name}.double'),
+        waited,
+        denial: { resource: denial.resource, action: denial.action },
+      });
+    });
     app.get('/svc', async (c) => {
       const fn = ctx.services.get('${name}.double');
       return c.json({ type: typeof fn, out: await fn(21) });
@@ -223,6 +235,7 @@ d('a worker extension gets the inline ctx contract', () => {
         badId: (await get('/bad-id', asMember)).status,
         config: await get('/config', asMember),
         svc: await get('/svc', asMember),
+        svcMirror: await get('/svc-mirror', asMember),
         event: await get('/event', asMember, 'POST'),
         ...(mode === 'inline' ? {} : { emitEngine: await get('/emit-engine', asMember, 'POST') }),
       };
@@ -267,6 +280,16 @@ d('a worker extension gets the inline ctx contract', () => {
       badId: 400,
       config: { status: 200, body: { vars: { GREETING: 'hi' }, env: 'test' } },
       svc: { status: 200, body: { type: 'function', out: 42 } },
+      svcMirror: {
+        status: 200,
+        body: {
+          own: true,
+          missing: false,
+          listed: true,
+          waited: true,
+          denial: { resource: RES, action: 'delete' },
+        },
+      },
       event: { status: 200, body: { last: { p: { n: 7 }, tenant: expect.any(String) } } },
     });
   });
@@ -282,6 +305,7 @@ d('a worker extension gets the inline ctx contract', () => {
         'badId',
         'config',
         'svc',
+        'svcMirror',
         'event',
       ];
       for (const k of same) {

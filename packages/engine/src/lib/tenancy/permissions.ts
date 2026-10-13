@@ -1343,6 +1343,12 @@ export function revalidateSockets(scope: SweepScope = 'all'): void {
         const whoFailed = await who();
         return (!principalsOnly && (await what())) || whoFailed;
       };
+      // Electric long-polls hold no subscription to re-check: end them, and
+      // the next poll is authorized afresh.
+      await import('../../routes/electric.js').then(
+        (m) => m.interruptLivePolls(),
+        () => undefined,
+      );
       failed = await Promise.all([
         import('../../routes/ws.js').then((m) =>
           door(m.closeUnauthenticatedWs, m.revalidateWsSubscriptions),

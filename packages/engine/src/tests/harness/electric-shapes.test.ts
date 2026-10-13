@@ -24,7 +24,13 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { createOfflineProvider } from '@zveltio/sdk/offline';
 import { DDLManager } from '../../lib/data/index.js';
-import { createRlsPolicy, deleteRlsPolicy, putColumnPermission } from '../../lib/tenancy/index.js';
+import {
+  __sweepIdle,
+  createRlsPolicy,
+  deleteRlsPolicy,
+  putColumnPermission,
+  revalidateSockets,
+} from '../../lib/tenancy/index.js';
 import {
   createGodSession,
   createMemberSession,
@@ -200,6 +206,34 @@ d('electric shapes', () => {
       expect((await shape(asMember(), { offset: '-1' })).res.status).toBe(503);
     } finally {
       process.env.ELECTRIC_URL = url;
+    }
+  });
+
+  it('a revoke ends a live poll in flight; the next poll is checked afresh', async () => {
+    // An upstream long-poll that answers only when aborted.
+    const realFetch = globalThis.fetch;
+    let started!: () => void;
+    const waiting = new Promise<void>((r) => (started = r));
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      if (!String(input).startsWith(process.env.ELECTRIC_URL!)) return realFetch(input, init);
+      started();
+      return new Promise<Response>((_, reject) =>
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true }),
+      );
+    }) as typeof fetch;
+    try {
+      const poll = shape(asMember(), { offset: '7_0', handle: 'h1', live: 'true', cursor: 'c1' });
+      await waiting;
+      revalidateSockets();
+      await __sweepIdle();
+      const res = await Promise.race([poll, Bun.sleep(5_000).then(() => null)]);
+      expect(res?.res.status).toBe(200);
+      expect(res?.messages).toEqual([{ headers: { control: 'up-to-date' } }]);
+      // Where it was, so the client polls again from there.
+      expect(res?.res.headers.get('electric-offset')).toBe('7_0');
+      expect(res?.res.headers.get('electric-handle')).toBe('h1');
+    } finally {
+      globalThis.fetch = realFetch;
     }
   });
 
