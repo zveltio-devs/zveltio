@@ -321,6 +321,36 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
     // Use tenant-isolated transaction when available (RLS enforcement)
     const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
 
+    // What `/api/data` does after every write — revision, webhooks, realtime,
+    // flows, `record.*` listeners — with the same arguments: the collection
+    // NAME, not the table (revisions are read back by name, and the withheld-
+    // column lookup that keeps password hashes and ciphertext out of webhooks
+    // finds the collection by name), and the full stored row, since `?as_of=`
+    // serves the latest revision's `data` as the record.
+    const writer = c.get('user') as { id: string; authorUserId?: string | null };
+    const syncTid = tenantId(c);
+    const written = (
+      table: string,
+      recordId: string,
+      action: 'create' | 'update' | 'delete',
+      data: Record<string, unknown>,
+      delta?: Record<string, unknown>,
+    ) =>
+      afterWrite(effectiveDb, {
+        collection: table.slice(4),
+        recordId,
+        action,
+        data,
+        ...(delta ? { delta } : {}),
+        userId: writer.id,
+        author: rowAuthorId(writer),
+        tenantId: syncTid,
+        // As the bulk handler does: the row has landed, so a failed side effect
+        // is logged, not reported as a failed write the client would retry.
+      }).catch((err: Error) => {
+        console.warn(`[sync] afterWrite(${action}, ${table}/${recordId}) failed:`, err.message);
+      });
+
     // Batch insert per collection — single INSERT with ON CONFLICT DO NOTHING
     const now = Date.now();
     for (const [collection, creates] of createsByCollection) {
@@ -357,13 +387,14 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
           'sync_push_create',
           () =>
             readable.get(collection)
-              ? insert(records).returning('id').execute()
-              : // Without read: one row at a time, each counted instead of returned.
+              ? insert(records).returningAll().execute()
+              : // Without read: one row at a time, inside the engine's read window,
+                // which is what lets `RETURNING` see the row (migration 058).
                 withCollectionRead(effectiveDb, collection.slice(4), async () => {
-                  const landed: Array<{ id: string }> = [];
+                  const landed: unknown[] = [];
                   for (const r of records) {
-                    const done = await insert(r).executeTakeFirst();
-                    if (Number(done.numInsertedOrUpdatedRows ?? 0n) > 0) landed.push({ id: r.id });
+                    const row = await insert(r).returningAll().executeTakeFirst();
+                    if (row) landed.push(row);
                   }
                   return landed;
                 }),
@@ -371,7 +402,11 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
             throw err;
           },
         );
-        const insertedIds = new Set(inserted.map((r) => (r as { id: string }).id));
+        // The stored rows, as REST hands `afterWrite` its `RETURNING *`: defaults,
+        // `created_at`, and the encrypted / hashed form of what was pushed.
+        const insertedRows = new Map(
+          (inserted as Array<Record<string, unknown>>).map((r) => [String(r.id), r]),
+        );
         // Post-write side effects, per row, exactly as the bulk handler does
         // for `POST /:collection/bulk` — revision history, realtime, webhooks,
         // engine events. A sync push had none of them, so a record created
@@ -395,24 +430,16 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         // endpoint already awaits per row; paying for it in latency is better
         // than a sync push that writes the rows and quietly drops every
         // revision, webhook and realtime nudge that should follow them.
-        const syncTid = tenantId(c);
-        for (const { recordId, payload } of creates) {
-          if (!insertedIds.has(recordId)) {
+        for (const { recordId } of creates) {
+          const row = insertedRows.get(recordId);
+          if (!row) {
             // The id is already taken. `conflict` is the status the client needs
             // to re-pull and reconcile; `ok` told it to throw its copy away.
             results.push({ recordId, status: 'conflict' });
             continue;
           }
           results.push({ recordId, status: 'ok', serverVersion: now });
-          await afterWrite(effectiveDb, {
-            collection,
-            recordId,
-            action: 'create',
-            data: { ...payload, id: recordId },
-            userId: (c.get('user') as { id: string }).id,
-            author: rowAuthorId(c.get('user') as { id: string; authorUserId?: string | null }),
-            tenantId: syncTid,
-          });
+          await written(collection, recordId, 'create', row);
         }
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (err: any) {
@@ -477,24 +504,25 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
                     .where('id' as any, '=', recordId),
                   updateFilters,
                 );
+                // The whole row, as REST's `dynamicUpdate` returns it, for the
+                // revision; a caller who cannot read gets it inside the read window.
+                const run = () => q.returningAll().executeTakeFirst();
                 return readable.get(collection)
-                  ? q
-                      .returning('id')
-                      .execute()
-                      .then((r) => r.length)
-                  : withCollectionRead(effectiveDb, collection.slice(4), () =>
-                      q.executeTakeFirst().then((r) => Number(r.numUpdatedRows)),
-                    );
+                  ? run()
+                  : withCollectionRead(effectiveDb, collection.slice(4), run);
               },
               (err) => {
                 throw err;
               },
             );
-            results.push(
-              touched > 0
-                ? { recordId, status: 'ok', serverVersion: Date.now() }
-                : { recordId, status: 'conflict' },
-            );
+            if (!touched) {
+              results.push({ recordId, status: 'conflict' });
+              break;
+            }
+            results.push({ recordId, status: 'ok', serverVersion: Date.now() });
+            // `payload` is the delta, as for PATCH: what was written, after
+            // `sanitizeSyncPayload` filtered and encrypted it.
+            await written(collection, recordId, 'update', touched, payload);
             break;
           }
 
@@ -512,24 +540,23 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
                     .where('id' as any, '=', recordId),
                   deleteFilters,
                 );
+                // The deleted row, which REST reads before its DELETE and hands
+                // to `afterWrite` — here the same row, from the statement itself.
+                const run = () => q.returningAll().executeTakeFirst();
                 return readable.get(collection)
-                  ? q
-                      .returning('id')
-                      .execute()
-                      .then((r) => r.length)
-                  : withCollectionRead(effectiveDb, collection.slice(4), () =>
-                      q.executeTakeFirst().then((r) => Number(r.numDeletedRows)),
-                    );
+                  ? run()
+                  : withCollectionRead(effectiveDb, collection.slice(4), run);
               },
               (err) => {
                 throw err;
               },
             );
-            results.push(
-              removed > 0
-                ? { recordId, status: 'ok', serverVersion: Date.now() }
-                : { recordId, status: 'conflict' },
-            );
+            if (!removed) {
+              results.push({ recordId, status: 'conflict' });
+              break;
+            }
+            results.push({ recordId, status: 'ok', serverVersion: Date.now() });
+            await written(collection, recordId, 'delete', removed);
             break;
           }
 

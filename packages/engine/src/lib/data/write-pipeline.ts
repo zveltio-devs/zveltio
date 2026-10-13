@@ -613,10 +613,6 @@ export async function afterWrite(
   //
   // The bus isolates each listener, so a slow or throwing extension is logged
   // and skipped rather than failing the write that triggered it.
-  //
-  // NOTE: `routes/sync.ts` calls afterWrite WITHOUT awaiting it, so listeners
-  // on the sync push path still run detached. That path is deliberately
-  // fire-and-forget for throughput and needs its own decision.
   await engineEvents.emitAsync(engineEvent, {
     collection,
     record: outbound,
