@@ -84,8 +84,8 @@ d('data virtual create success (in-process)', () => {
       body: JSON.stringify({ title: 'new-item' }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { record?: { id?: string; title?: string } };
-    expect(body.record?.id).toBe('ext-1');
-    expect(body.record?.title).toBe('created-upstream');
+    const body = (await res.json()) as { id?: string; title?: string };
+    expect(body.id).toBe('ext-1');
+    expect(body.title).toBe('created-upstream');
   });
 });

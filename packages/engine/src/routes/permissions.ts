@@ -253,6 +253,10 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     });
   });
 
+  // Order carries meaning: Hono applies a middleware only to routes registered
+  // AFTER it, so /bootstrap above stays reachable without a session (it is the
+  // recovery path when no admin can sign in). Moving this gate above it, or
+  // registering a route above it, changes who can call that route.
   // Store admin user in context so handlers can access it for audit logging.
   app.use('*', async (c, next) => {
     const user = await guardAdmin(c, auth, requireInstanceAdmin);

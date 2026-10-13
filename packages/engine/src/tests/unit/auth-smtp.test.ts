@@ -7,11 +7,19 @@ import { _internalForTests } from '../../lib/auth.js';
 
 const sendMailMock = mock(async () => ({ messageId: 'msg-1' }));
 let createTransportCalls = 0;
+let lastOptions: { secure?: boolean } = {};
+let closeCalls = 0;
 
 mock.module('nodemailer', () => ({
-  createTransport: () => {
+  createTransport: (options: { secure?: boolean }) => {
     createTransportCalls++;
-    return { sendMail: sendMailMock };
+    lastOptions = options;
+    return {
+      sendMail: sendMailMock,
+      close: () => {
+        closeCalls++;
+      },
+    };
   },
 }));
 
@@ -34,6 +42,8 @@ beforeEach(() => {
   _internalForTests.resetSmtpCacheForTests();
   sendMailMock.mockClear();
   createTransportCalls = 0;
+  closeCalls = 0;
+  delete process.env.SMTP_SECURE;
 });
 
 afterEach(() => {
@@ -72,6 +82,26 @@ describe('auth SMTP sendEmail', () => {
     process.env.SMTP_SECURE = 'true';
     await _internalForTests.sendEmailForTests('a@b.com', 'two', '<p>2</p>', '2');
     expect(createTransportCalls).toBe(2);
+    // The replaced pool is closed, not left holding its connections.
+    expect(closeCalls).toBe(1);
+  });
+
+  it('recreates the transport when only SMTP_PASS changes', async () => {
+    await _internalForTests.sendEmailForTests('a@b.com', 'one', '<p>1</p>', '1');
+    process.env.SMTP_PASS = 'rotated';
+    await _internalForTests.sendEmailForTests('a@b.com', 'two', '<p>2</p>', '2');
+    expect(createTransportCalls).toBe(2);
+  });
+
+  it('an unset SMTP_SECURE follows the port: 465 is implicit TLS, 587 is not', async () => {
+    await _internalForTests.sendEmailForTests('a@b.com', 'one', '<p>1</p>', '1');
+    expect(lastOptions.secure).toBe(false);
+    process.env.SMTP_PORT = '465';
+    await _internalForTests.sendEmailForTests('a@b.com', 'two', '<p>2</p>', '2');
+    expect(lastOptions.secure).toBe(true);
+    process.env.SMTP_SECURE = 'false';
+    await _internalForTests.sendEmailForTests('a@b.com', 'three', '<p>3</p>', '3');
+    expect(lastOptions.secure).toBe(false);
   });
 
   it('uses SMTP_USER as from when SMTP_FROM is unset', async () => {

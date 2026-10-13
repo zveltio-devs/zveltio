@@ -118,9 +118,9 @@ d('virtual collection column access (in-process)', () => {
       headers: { cookie: memberCookie },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { record: Record<string, unknown> };
-    expect(body.record.title).toBe('visible');
-    expect('secret' in body.record).toBe(false);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.title).toBe('visible');
+    expect('secret' in body).toBe(false);
   });
 
   it('virtual list hides the unreadable column', async () => {

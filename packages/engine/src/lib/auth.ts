@@ -120,9 +120,12 @@ async function verifyPassword({
   const [salt, key] = hash.split(':');
   if (!salt || !key) return false;
   try {
-    const { scryptSync } = await import('crypto');
+    const { scryptSync, timingSafeEqual } = await import('crypto');
     const derived = scryptSync(password, salt, 64, { N: 16384, r: 16, p: 1 });
-    if (derived.toString('hex') !== key) return false;
+    const stored = Buffer.from(key, 'hex');
+    // Constant-time like every other secret comparison here. A key of the
+    // wrong length is a wrong key, and timingSafeEqual throws on one.
+    if (stored.length !== derived.length || !timingSafeEqual(derived, stored)) return false;
     // Schedule re-hash — fire-and-forget so a DB error doesn't
     // block sign-in. The user is already authenticated.
     rehashLegacyAccountToArgon2id(_authDb, hash, password).catch((err) => {

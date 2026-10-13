@@ -118,8 +118,8 @@ d('virtual PUT response column mask (in-process)', () => {
       body: JSON.stringify({ title: 'replaced' }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { record: Record<string, unknown> };
-    expect(body.record.title).toBe('replaced');
-    expect('secret' in body.record).toBe(false);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.title).toBe('replaced');
+    expect('secret' in body).toBe(false);
   });
 });

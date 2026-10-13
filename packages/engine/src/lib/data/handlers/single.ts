@@ -177,7 +177,9 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     });
   }
 
-  // Virtual collection: proxy to external API
+  // Virtual collection: proxy to external API. Every virtual single-record
+  // answer is the flat record, as for a regular collection; it used to come
+  // wrapped in `{ record }`, so a client read one shape or the other.
   const virtualConfigSingle = await getVirtualConfig(db, collection);
   if (virtualConfigSingle) {
     try {
@@ -191,7 +193,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
       }
       // Column permissions apply to virtual collections too — hide columns the
       // role can't read instead of proxying them through verbatim.
-      return c.json({ record: scope.shape(record) });
+      return c.json(scope.shape(record));
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }
@@ -274,7 +276,7 @@ export async function createRecord(
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
       }
       const record = await virtualCreate(virtualConfigCreate, writable);
-      return c.json({ record: applyColumnAccess(record, vColAccess) }, 201);
+      return c.json(applyColumnAccess(record, vColAccess), 201);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }
@@ -396,7 +398,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
       );
       if (refused) return refused;
       const record = await virtualUpdate(virtualConfigPut, id, writable);
-      return c.json({ record: applyColumnAccess(record, vColAccess) });
+      return c.json(applyColumnAccess(record, vColAccess));
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }
@@ -529,7 +531,7 @@ export async function patchRecord(
       const refused = await virtualWriteRefusal(c, db, virtualConfigPatch, w, 'update');
       if (refused) return refused;
       const record = await virtualUpdate(virtualConfigPatch, id, writable);
-      return c.json({ record: applyColumnAccess(record, vColAccess) });
+      return c.json(applyColumnAccess(record, vColAccess));
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : 'Virtual source error' }, 502);
     }

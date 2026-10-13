@@ -117,8 +117,8 @@ d('virtual create response column mask (in-process)', () => {
       body: JSON.stringify({ title: 'ok' }),
     });
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { record: Record<string, unknown> };
-    expect(body.record.title).toBe('ok');
-    expect('secret' in body.record).toBe(false);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.title).toBe('ok');
+    expect('secret' in body).toBe(false);
   });
 });
