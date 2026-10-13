@@ -4,6 +4,76 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fresh installs start from a GA baseline.** One baseline migration replaces
+001-061 on an empty database (#1076); an existing database keeps its applied
+history and runs only what is newer. A rollback below the baseline is refused
+with the reason: it would mean an empty database, so restore a backup instead.
+
+**Breaking: the identity tables are under RLS and name their tenant.**
+`zv_api_keys`, `zv_invitations`, `zv_media_shares` and `zv_tenant_users` get
+row-level security (migration 065): reads see the visible tenants, writes reach
+only the current one. `tenant_id` is NOT NULL with no root-tenant fallback, so
+an insert that names no tenant fails (23502) instead of creating a root key or
+share. Extensions or scripts that insert into these tables must set the tenant;
+a public share link resolves its tenant through `zveltio_media_share_tenant()`
+(storage/cloud 1.1.7) (#1091).
+
+**Breaking: creating a collection over rules that already name it answers 409.**
+A permission rule written before collection X existed (or kept by an earlier
+drop) used to take effect silently the moment X was created. Every create path
+(`POST /api/collections`, template install, schema-branch merge, schema apply,
+extension `createCollection`) now refuses with `code: 'existing_rules'` and
+lists the rules; `adopt_rules: true` (CLI `--adopt-rules`) accepts them. Studio
+shows the rules and offers to adopt them (#1093).
+
+**Extensions: `ctx.db` refuses the pool for a tenant with no transaction**
+(#1075). An extension query that would have run on the raw pool as the engine's
+role, outside any tenant, now fails instead of seeing every tenant's rows.
+
+### Security and tenancy
+- A read window opened as another closes no longer keeps the widened grants
+  (#1052). Dropping a collection keeps rules that predate it, and its grants
+  leave memory by the rules the drop deleted (#1058, #1066).
+- SSRF host checks drop a trailing dot; Alibaba Cloud IMDS is a metadata
+  address (#1054). The edge-function sandbox allows only reviewed globals (#1070).
+- Collection GETs no longer return the upstream credential of a virtual
+  collection (#1081). The SMTP password key no longer reveals whether it is set
+  (#1078, #1083). Invitations always name their tenant (migration 063, #1085).
+- Media visibility helpers enforce the acting tenant themselves (#1088).
+- A WebSocket channel on the `*` collection is refused (#1084).
+
+### Data and schema
+- Sync push `update` and `delete` now write revisions and fire webhooks,
+  realtime and `record.*` events; offline creates are found by `?as_of=` (#1087).
+- Revisions drop dropped fields; virtual create targets the list endpoint (#1080).
+- A field named by a `*` row rule refuses its drop with 409 before any DDL
+  (#1059); a schema-branch merge drops a big table's field after its rules, and
+  a failed merge keeps the branch open (#1060, #1081).
+- Ghost DDL keeps only `add_column` (#1061), runs one migration per table at a
+  time, and its failure cleanup no longer breaks writers (#1086).
+- Money and range fields are typed as the strings the API carries (#1062).
+- A filter operator named after an Object member is skipped, not a 500 (#1057).
+- Four duplicate indexes dropped (migration 064, #1085).
+
+### Operations
+- Default extensions (content/pages, ai) auto-activate only from the install's
+  own extensions directory (`EXTENSIONS_DIR` or `./extensions`), never from a
+  sibling dev checkout or under `NODE_ENV=test` (#1092).
+- Extension migrations, extension purge and engine rollbacks run under the
+  migration lock and statement timeouts (#1074, #1089).
+- The compiled binary reads `NODE_ENV` at run time; it was baked as
+  `development` (#1089).
+- A worker route body past the frame limit answers 413 (#1082).
+- `safeFetch` honours a caller's `redirect: 'manual' | 'error'` (#1086).
+- Every workflow's `GITHUB_TOKEN` defaults to `contents: read` (#1055).
+
+### Gates and review
+- Gate fixes from the E01/E02 re-reads: one sibling root (`EXTENSIONS_ROOT`),
+  empty-corpus refusals, the tenant-on-pool gate following the pool under any
+  name, duplicate table creators flagged per file (#1046-#1051, #1071, #1072,
+  #1089). The release gate requires coverage measured on the release commit
+  (#1068).
+
 ## [3.0.0-beta.79] - 2026-10-11
 
 **Breaking for operators: third-party extensions run on the extension runner.**
