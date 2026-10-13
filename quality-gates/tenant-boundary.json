@@ -62,10 +62,6 @@
   },
   "_unpoliced": "Tabele care POARTĂ `tenant_id` și nu au politică RLS, declarat deliberat. Coloana marchează rândul; doar politica îl apără. O intrare nouă înseamnă o decizie, nu o omisiune — două omisiuni au trecut drept decizii până când poarta a început să întrebe (workflow/checklists 006, ai 008).",
   "unpoliced": {
-    "zv_tenant_users": "`getUserTenants()` (`tenant-manager.ts:445`) răspunde la „în ce firme sunt?\" — întrebarea de DINAINTE de a alege firma. Cu politică, lista de firme la login e goală și nimeni nu mai poate comuta.",
-    "zv_api_keys": "`validateApiKey()` (`lib/data/auth.ts:96`) caută DOAR după hash; cheia e cea care STABILEȘTE firma. Comparația cu firma cerută vine imediat după (`auth.ts:119`). Cu politică, autentificarea prin cheie API cade în întregime.",
-    "zv_invitations": "Răscumpărată după token, de un neautentificat care încă nu e membru nicăieri (`routes/auth.ts:90,123`). `/api/auth` e în `TXN_SKIP_PREFIXES`, deci nici nu există tranzacție de firmă. Tokenul E capabilitatea.",
-    "zv_extension_registry": "Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per INSTANȚĂ, nu per firmă.",
-    "zv_media_shares": "`/share/:token` (storage/cloud) is answered before any tenant is known: the token lookup is what finds the tenant, then the link is served inside that tenant's withTenantIsolation (migration 023). A policy here would need the tenant first."
+    "zv_extension_registry": "Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per INSTANȚĂ, nu per firmă."
   }
 }
