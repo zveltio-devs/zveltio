@@ -121,6 +121,14 @@ d('schema-branch merge drops a field of a >100k-row table after its rules', () =
     ]);
     expect(await hasColumn(STAR)).toBe(true);
     expect(await ruleExists(starRule)).toBe(true);
+    // The failed merge leaves the branch open with the failed change, so it
+    // can be retried once the rule is edited.
+    const branch = await sql<{ status: string; changes: unknown }>`
+      SELECT status, changes FROM zv_schema_branches WHERE id = ${branches.at(-1)}`.execute(db);
+    expect(branch.rows[0]?.status).toBe('open');
+    const changes = branch.rows[0]?.changes;
+    const list = (typeof changes === 'string' ? JSON.parse(changes) : changes) as unknown[];
+    expect(list).toHaveLength(1);
   }, 120_000);
 
   it("the collection's own rule goes with the field, and the column is dropped", async () => {

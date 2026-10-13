@@ -433,6 +433,7 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
         const changes = parseChanges(branch.changes);
         const applied: string[] = [];
         const errors: string[] = [];
+        const failed: typeof changes = [];
 
         for (const change of changes) {
           try {
@@ -457,16 +458,26 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
             }
           } catch (err) {
             errors.push(`${change.type}: ${err instanceof Error ? err.message : String(err)}`);
+            failed.push(change);
           }
         }
 
+        // A branch was marked merged even when every change failed, with no way
+        // to retry. Now only a clean merge closes it; otherwise it stays open
+        // holding just the changes that failed, so a retry does not re-run the
+        // ones already applied.
+        const clean = failed.length === 0;
         await sql`
           UPDATE zv_schema_branches
-          SET status = 'merged', merged_by = ${user.id}, merged_at = NOW()
+          SET status = CASE WHEN ${clean} THEN 'merged' ELSE status END,
+              merged_by = CASE WHEN ${clean} THEN ${user.id} ELSE merged_by END,
+              merged_at = CASE WHEN ${clean} THEN NOW() ELSE merged_at END,
+              changes = CASE WHEN ${clean} THEN changes ELSE ${toJsonb(failed)} END
           WHERE id = ${id}
         `.execute(db);
 
         return c.json({
+          status: clean ? 'merged' : 'open',
           success: errors.length === 0,
           applied,
           errors,
