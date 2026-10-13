@@ -31,6 +31,7 @@ import { virtualList } from '../../virtual-collection-adapter.js';
 import type { CollectionDef, JsonValue } from '../types.js';
 import {
   serializeRecord,
+  serializeSnapshot,
   resolveExpand,
   applyExpand,
   computeEtag,
@@ -215,7 +216,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     // hash in and served encrypted fields as ciphertext.
     const def = await DDLManager.getCollection(getDb(c, db), collection);
     const page = await Promise.all(
-      (await scope.keep(snapshots)).map((r) => serializeRecord(r, def, scope.columns)),
+      (await scope.keep(snapshots)).map((r) => serializeSnapshot(r, def, scope.columns)),
     );
 
     return c.json({

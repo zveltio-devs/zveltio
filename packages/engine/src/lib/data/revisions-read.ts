@@ -30,7 +30,7 @@ import { checkPermission, entityAccessRegistry } from '../tenancy/index.js';
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { readScope, type ReadScope } from './read-scope.js';
 import { dynamicDb, isUuid } from './write-pipeline.js';
-import { serializeRecord } from './shape.js';
+import { serializeSnapshot } from './shape.js';
 
 export interface RevisionQuery {
   id?: string;
@@ -82,7 +82,7 @@ export async function shapeRevisionData(
   collection: string,
   v: unknown,
 ): Promise<Record<string, unknown>> {
-  return serializeRecord(
+  return serializeSnapshot(
     asObject(v),
     await DDLManager.getCollection(db, collection),
     scope.columns,

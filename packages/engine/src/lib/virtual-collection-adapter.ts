@@ -258,7 +258,11 @@ export async function virtualCreate(config: VirtualConfig, body: any): Promise<a
   };
   const externalBody = mapToExternal(body, config.field_mapping);
 
-  const response = await safeFetch(config.source_url, {
+  // The collection resource is where the list is read from: a source with
+  // `list_endpoint: '/items'` lists at base/items and creates there too. It
+  // used to POST to the bare source_url, a different resource.
+  const url = `${config.source_url.replace(/\/$/, '')}${config.list_endpoint ?? ''}`;
+  const response = await safeFetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(externalBody),

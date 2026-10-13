@@ -35,7 +35,13 @@ import {
   type VirtualConfig,
 } from '../../virtual-collection-adapter.js';
 import type { JsonValue } from '../types.js';
-import { serializeRecord, resolveExpand, applyExpand, computeEtag } from '../shape.js';
+import {
+  serializeRecord,
+  serializeSnapshot,
+  resolveExpand,
+  applyExpand,
+  computeEtag,
+} from '../shape.js';
 import {
   processInput,
   afterWrite,
@@ -168,7 +174,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
     // serializes it, so a `password` hash stays out and an encrypted field
     // reads decrypted, not as `enc:v1:`.
     return c.json({
-      record: await serializeRecord(
+      record: await serializeSnapshot(
         data as Record<string, unknown>,
         await DDLManager.getCollection(db, collection),
         scope.columns,
