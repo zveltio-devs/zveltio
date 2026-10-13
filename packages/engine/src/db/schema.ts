@@ -228,7 +228,7 @@ export interface ZvInvitationsTable {
   accepted_by: string | null;
   invited_by: string | null;
   created_at: Generated<Date>;
-  tenant_id: Generated<string>; // migration 021 — route-level tenant isolation
+  tenant_id: Generated<string>; // NOT NULL since 063; defaults to the request tenant
 }
 
 export interface ZvRolesTable {

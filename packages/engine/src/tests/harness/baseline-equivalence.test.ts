@@ -85,7 +85,8 @@ d('GA baseline', () => {
   });
 
   it('a fresh database runs the baseline and none of the files it replaces', () => {
-    expect(freshApplied).toEqual([BASELINE_FILE]);
+    expect(freshApplied[0]).toBe(BASELINE_FILE);
+    expect(freshApplied.filter((f) => f < BASELINE_FILE)).toEqual([]);
   });
 
   it('a fresh database the engine booted on first still takes the baseline', async () => {
@@ -95,7 +96,7 @@ d('GA baseline', () => {
     const db = createDb(u);
     try {
       await _internalForTests.ensureMigrationsTable(db);
-      expect(await runPending(db)).toEqual([BASELINE_FILE]);
+      expect((await runPending(db))[0]).toBe(BASELINE_FILE);
     } finally {
       await db.destroy();
       await dropScratchDb(server, name);
@@ -113,6 +114,26 @@ d('GA baseline', () => {
     const chain = normalizeDump(await pgDump(url.chain, ['--schema-only']));
     expect(chain.length).toBeGreaterThan(10_000);
     expect(normalizeDump(await pgDump(url.base, ['--schema-only']))).toBe(chain);
+  });
+
+  it('neither has two indexes that are the same index (A09)', async () => {
+    // The chain built four twice under two names, and the baseline copied them.
+    for (const u of [url.chain, url.base]) {
+      const db = new SQL(u);
+      try {
+        const rows: Array<{ same: string }> = await db`
+          SELECT string_agg(x.indexrelid::regclass::text, ' = ' ORDER BY x.indexrelid::regclass::text) AS same
+            FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid
+           WHERE i.relnamespace = 'public'::regnamespace
+           GROUP BY x.indrelid, i.relam, x.indkey::text, x.indclass::text,
+                    x.indcollation::text, x.indoption::text, x.indisunique,
+                    pg_get_expr(x.indexprs, x.indrelid), pg_get_expr(x.indpred, x.indrelid)
+          HAVING count(*) > 1 ORDER BY 1`;
+        expect(rows.map((r) => r.same)).toEqual([]);
+      } finally {
+        await db.close();
+      }
+    }
   });
 
   it('both have the same database-level settings', async () => {

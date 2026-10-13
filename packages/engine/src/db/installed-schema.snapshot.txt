@@ -1744,7 +1744,7 @@ table zv_invitations
   col invited_by                     text
   col name                           text
   col role                           text NOT NULL DEFAULT 'member'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col token                          text NOT NULL
   fk  zv_invitations_accepted_by_fkey FOREIGN KEY (accepted_by) REFERENCES "user"(id) ON DELETE SET NULL
   fk  zv_invitations_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES "user"(id) ON DELETE SET NULL

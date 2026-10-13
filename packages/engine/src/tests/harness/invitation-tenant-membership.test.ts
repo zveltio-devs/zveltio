@@ -17,7 +17,9 @@ import { hashInvitationToken } from '../../lib/security/index.js';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
+import { join } from 'node:path';
 import type { Database } from '../../db/index.js';
+import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -97,5 +99,56 @@ d('accepting an invitation joins the tenant', () => {
       .where('id', '=', userId)
       .executeTakeFirst();
     expect(user?.role).toBe('member');
+  });
+});
+
+// A NULL tenant made acceptance insert NULL into zv_tenant_users after the
+// account already existed outside that transaction (A10): the row is refused.
+d('an invitation always names its tenant', () => {
+  const NULL_TOKEN = `invnull${STAMP}`;
+
+  it('the database refuses an invitation without a tenant', async () => {
+    const { db } = await getTestApp();
+    const err = await sql`
+      INSERT INTO zv_invitations (email, role, token, expires_at, tenant_id)
+      VALUES (${`null-${EMAIL}`}, 'member', ${NULL_TOKEN}, NOW() + INTERVAL '1 day', NULL)
+    `
+      .execute(db)
+      .then(
+        () => null,
+        (e: { errno?: string }) => e,
+      );
+    await sql`DELETE FROM zv_invitations WHERE token = ${NULL_TOKEN}`.execute(db);
+    expect(err?.errno).toBe('23502');
+  });
+
+  it('063 gives a NULL row an older schema allowed to the default tenant', async () => {
+    const { db } = await getTestApp();
+    const file = join(
+      import.meta.dir,
+      '../../db/migrations/sql/063_invitations_tenant_not_null.sql',
+    );
+    const { up } = parseMigrationFile(await Bun.file(file).text());
+    let tenant: string | null | undefined;
+    const rollback = new Error('rollback');
+    await db
+      .transaction()
+      .execute(async (trx) => {
+        await sql`ALTER TABLE zv_invitations ALTER COLUMN tenant_id DROP NOT NULL`.execute(trx);
+        await sql`
+          INSERT INTO zv_invitations (email, role, token, expires_at, tenant_id)
+          VALUES (${`null-${EMAIL}`}, 'member', ${NULL_TOKEN}, NOW() + INTERVAL '1 day', NULL)
+        `.execute(trx);
+        for (const stmt of splitSqlStatements(up)) await sql.raw(stmt).execute(trx);
+        tenant = (
+          await sql<{ tenant_id: string | null }>`
+            SELECT tenant_id FROM zv_invitations WHERE token = ${NULL_TOKEN}`.execute(trx)
+        ).rows[0]?.tenant_id;
+        throw rollback;
+      })
+      .catch((e) => {
+        if (e !== rollback) throw e;
+      });
+    expect(tenant).toBe('00000000-0000-0000-0000-000000000001');
   });
 });

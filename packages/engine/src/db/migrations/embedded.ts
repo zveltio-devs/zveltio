@@ -72,6 +72,8 @@ import m053 from './sql/059_member_role_in_casbin.sql' with { type: 'text' };
 import m054 from './sql/060_tenant_write_reach.sql' with { type: 'text' };
 import m055 from './sql/061_edge_egress_column.sql' with { type: 'text' };
 import m056 from './baseline/062_ga_baseline.sql' with { type: 'text' };
+import m057 from './sql/063_invitations_tenant_not_null.sql' with { type: 'text' };
+import m058 from './sql/064_drop_duplicate_indexes.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -132,4 +134,6 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '060_tenant_write_reach.sql': m054,
   '061_edge_egress_column.sql': m055,
   '062_ga_baseline.sql': m056,
+  '063_invitations_tenant_not_null.sql': m057,
+  '064_drop_duplicate_indexes.sql': m058,
 };

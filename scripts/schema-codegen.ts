@@ -154,10 +154,10 @@ function addColumn(t: Table, col: Column): void {
   t.columns.push(col);
 }
 
-function dropNotNull(t: Table, colName: string): void {
+function setNotNull(t: Table, colName: string, notNull: boolean): void {
   const idx = t.index.get(colName);
   if (idx === undefined) return;
-  t.columns[idx].notNull = false;
+  t.columns[idx].notNull = notNull;
 }
 
 function dropColumn(t: Table | undefined, colName: string): void {
@@ -202,10 +202,14 @@ function parseSqlFile(filePath: string): void {
         addColumn(t, parseColumnSpec(colName, a[3].trim()));
       }
     }
-    if (/ALTER\s+COLUMN.*DROP\s+NOT\s+NULL/i.test(body)) {
+    // SET as well as DROP: reading only DROP kept a column a later migration
+    // made NOT NULL (063, zv_invitations.tenant_id) typed `| null`.
+    if (/ALTER\s+COLUMN.*(?:DROP|SET)\s+NOT\s+NULL/i.test(body)) {
       const t = getTable(tableName.toLowerCase(), filePath);
-      const re = /ALTER\s+COLUMN\s+(?:"([^"]+)"|([a-z_][a-z0-9_]*))\s+DROP\s+NOT\s+NULL/gi;
-      for (const x of body.matchAll(re)) dropNotNull(t, x[1] ?? x[2].toLowerCase());
+      const re = /ALTER\s+COLUMN\s+(?:"([^"]+)"|([a-z_][a-z0-9_]*))\s+(DROP|SET)\s+NOT\s+NULL/gi;
+      for (const x of body.matchAll(re)) {
+        setNotNull(t, x[1] ?? x[2].toLowerCase(), x[3].toUpperCase() === 'SET');
+      }
     }
     // ADD CONSTRAINT … CHECK (col IN (…)) — widening or narrowing an enum
     // domain after the table exists.

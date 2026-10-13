@@ -14,7 +14,11 @@ import { beforeAll, describe, expect, it } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
+import {
+  isNonTransactional,
+  parseMigrationFile,
+  splitSqlStatements,
+} from '../../db/migrations/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -35,7 +39,9 @@ d('saved-query config repair, every tenant', () => {
     const ups: string[] = [];
     for (const f of files) {
       const { up } = parseMigrationFile(await Bun.file(new URL(f, DIR)).text());
-      if (up.includes('zv_saved_queries')) ups.push(up);
+      // Replayed inside one transaction, so a `-- NO TRANSACTION` file (064's
+      // DROP INDEX CONCURRENTLY) cannot run here; none of them touch config.
+      if (up.includes('zv_saved_queries') && !isNonTransactional(up)) ups.push(up);
     }
 
     const other = crypto.randomUUID();
