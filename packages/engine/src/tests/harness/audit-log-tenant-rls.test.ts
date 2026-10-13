@@ -207,11 +207,13 @@ d('zv_audit_log under tenant RLS', () => {
   it('040 runs twice, rolls back and runs again; 041 runs twice', async () => {
     const m40 = await migration('040_audit_log_tenant.sql');
     const m41 = await migration('041_audit_log_tenant_index.sql');
+    // 066's policy names the column 040's DOWN drops; a rollback undoes 066 first.
+    const m66 = await migration('066_audit_log_own_node_writes.sql');
     const rollback = new Error('rollback');
     await db
       .transaction()
       .execute(async (trx) => {
-        for (const part of [m40.up, m40.up, m40.down ?? '', m40.up]) {
+        for (const part of [m40.up, m40.up, m66.down ?? '', m40.down ?? '', m40.up]) {
           for (const stmt of splitSqlStatements(part)) await sql.raw(stmt).execute(trx);
         }
         throw rollback;

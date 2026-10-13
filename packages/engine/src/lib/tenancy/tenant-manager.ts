@@ -226,6 +226,35 @@ const SAFE_TENANT_TABLE = /^[a-z_][a-z0-9_]*$/i;
 const SAFE_POLICY_NAME = /^[a-z0-9_]+$/i;
 
 /**
+ * UPDATE and DELETE of existing rows on the own node, beside every
+ * `tenant_isolation*` policy (B09).
+ *
+ * That policy is FOR ALL: USING the visible set, WITH CHECK the own node. WITH
+ * CHECK sees only the NEW row, so a parent with `subtree` reach could DELETE a
+ * child's row (no new row at all) and UPDATE it into its own node (the new row
+ * passes) — then delete it as its own. RESTRICTIVE, so these narrow whatever the
+ * permissive policy admits; a foreign row is now skipped where its UPDATE used to
+ * fail WITH CHECK, as on the identity tables (065). With no tenant set they stand
+ * aside: that is the engine's own cross-firm work (`withEveryTenant` retention
+ * purges, boot backfills), which the read reach already bounds.
+ *
+ * Not named `tenant_isolation_*`: `reconcileExtensionTenantRLS` adopts every
+ * policy of that name and would rewrite these to FOR ALL. Migration 066 spells
+ * the same predicate for `zv_audit_log`.
+ */
+async function applyOwnNodeWrites(db: Database, table: string): Promise<void> {
+  for (const cmd of ['update', 'delete'] as const) {
+    const name = sql.id(`tenant_own_node_${cmd}`);
+    await sql`DROP POLICY IF EXISTS ${name} ON ${sql.id(table)}`.execute(db);
+    await sql`
+      CREATE POLICY ${name} ON ${sql.id(table)} AS RESTRICTIVE FOR ${sql.raw(cmd.toUpperCase())}
+      USING (zveltio_tenant_write_ok(tenant_id)
+             OR (SELECT NULLIF(current_setting('zveltio.current_tenant', true), '') IS NULL))
+    `.execute(db);
+  }
+}
+
+/**
  * Apply tenant row isolation to a single collection data table. Idempotent.
  * Ensures the tenant_id column (+ GUC default + NOT NULL, backfilling existing
  * rows to the default tenant) then ENABLE + FORCE RLS with the tenant_isolation
@@ -386,6 +415,7 @@ export async function applyTenantRLS(
     USING (tenant_id = ANY (${sql.raw(visibleFn)}))
     WITH CHECK (zveltio_tenant_write_ok(tenant_id))
   `.execute(db);
+  await applyOwnNodeWrites(db, table);
 
   // Collection permissions beside tenant isolation (R1): one RESTRICTIVE policy
   // per command, asking what the request published. See collection-permissions.ts.
@@ -639,6 +669,7 @@ export async function reconcileExtensionTenantRLS(
         USING (tenant_id = ANY (${sql.raw(visibleFn)}))
         WITH CHECK (zveltio_tenant_write_ok(tenant_id))
       `.execute(db);
+      await applyOwnNodeWrites(db, tablename);
       applied++;
     } catch (err) {
       console.warn(
@@ -1772,6 +1803,7 @@ export async function enableRLS(tableName: string): Promise<void> {
     USING (tenant_id = ANY (${sql.raw(setFn)}))
     WITH CHECK (zveltio_tenant_write_ok(tenant_id))
   `.execute(_db);
+  await applyOwnNodeWrites(_db, tableName);
 
   // 5. NULL tenant_id row warning.
   //

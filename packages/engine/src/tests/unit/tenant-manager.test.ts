@@ -391,7 +391,7 @@ describe('reconcileExtensionTenantRLS', () => {
 
     expect(await reconcileExtensionTenantRLS(asDb(db))).toBe(1);
     const created = db.executed(/CREATE POLICY/i);
-    expect(created).toHaveLength(1);
+    expect(created).toHaveLength(3);
     expect(created[0]?.sql).toContain(
       'USING (tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[]))',
     );
@@ -399,6 +399,11 @@ describe('reconcileExtensionTenantRLS', () => {
     // Both directions — a policy with USING but no WITH CHECK stops reads and
     // still allows a write into another tenant.
     expect(created[0]?.sql).toContain('WITH CHECK');
+    // And the existing row of an UPDATE or DELETE, which WITH CHECK never sees,
+    // on the own node (B09).
+    expect(created[1]?.sql).toContain('AS RESTRICTIVE FOR UPDATE');
+    expect(created[2]?.sql).toContain('AS RESTRICTIVE FOR DELETE');
+    expect(created[2]?.sql).toContain('USING (zveltio_tenant_write_ok(tenant_id)');
   });
 
   it('forces RLS, since the engine connects as the table owner', async () => {

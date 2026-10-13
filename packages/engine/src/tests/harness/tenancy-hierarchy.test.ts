@@ -187,18 +187,20 @@ d('tenancy hierarchy', () => {
 
     // And an UPDATE of a row it can legitimately SEE is refused for the same
     // reason — a reach that could edit what it consolidates would be the
-    // failure this design exists to avoid.
-    await expect(
-      withTenantIsolation(
-        ROOT,
-        async (trx) => {
+    // failure this design exists to avoid. Skipped rather than failed since B09:
+    // the existing row is held to the own node, as for DELETE.
+    const updated = await withTenantIsolation(
+      ROOT,
+      async (trx) =>
+        (
           await sql`
             UPDATE ${sql.id(PLAIN)} SET label = 'edited-from-above' WHERE label = 'a-row'
-          `.execute(trx);
-        },
-        { userId: USER_ROOT },
-      ),
-    ).rejects.toThrow();
+          `.execute(trx)
+        ).numAffectedRows,
+      { userId: USER_ROOT },
+    );
+    expect(updated).toBe(0n);
+    expect(await readAs(USER_A, SIS_A, PLAIN)).toEqual(['a-row']);
   });
 
   it('4. an expired assignment sees nothing', async () => {
