@@ -8,7 +8,7 @@ import {
 } from '../lib/data/index.js';
 import type { Database } from '../db/index.js';
 import { isTenantAdmin } from '../lib/tenancy/index.js';
-import { applyFileVisibility, mayReadFile, ownsFile } from '../lib/media-visibility.js';
+import { applyFileVisibility, mayDeleteFile, mayReadFile } from '../lib/media-visibility.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { getStorage } from '../lib/storage/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
@@ -282,16 +282,13 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const parsedLimit = Math.min(parseInt(limit) || 50, 200);
     const offset = (parseInt(page) - 1) * parsedLimit;
 
-    // Only what this user may read — see lib/media-visibility.ts.
+    // Only what this user may read in this tenant — see lib/media-visibility.ts.
     const listUser = c.get('user') as RequestUser;
     let query = applyFileVisibility(
-      effectiveDb
-        .selectFrom('zv_media_files')
-        .selectAll()
-        .where('tenant_id', '=', tenantId(c))
-        .orderBy('created_at', 'desc'),
+      effectiveDb.selectFrom('zv_media_files').selectAll().orderBy('created_at', 'desc'),
       listUser.id,
       await seesAllFiles(listUser).catch(() => false),
+      tenantId(c),
     );
 
     if (folder_id) query = query.where('folder_id', '=', folder_id);
@@ -539,7 +536,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
     // Readable by this user? 404 rather than 403 — whether a colleague's
     // private file exists is itself something they did not share.
     const readUser = c.get('user') as RequestUser;
-    if (!mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false))) {
+    if (
+      !mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false), tenantId(c))
+    ) {
       return c.json({ error: 'File not found' }, 404);
     }
     return c.json({ file });
@@ -564,7 +563,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
     // Readable by this user? 404 rather than 403 — whether a colleague's
     // private file exists is itself something they did not share.
     const readUser = c.get('user') as RequestUser;
-    if (!mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false))) {
+    if (
+      !mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false), tenantId(c))
+    ) {
       return c.json({ error: 'File not found' }, 404);
     }
 
@@ -592,7 +593,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
     // Readable by this user? 404 rather than 403 — whether a colleague's
     // private file exists is itself something they did not share.
     const readUser = c.get('user') as RequestUser;
-    if (!mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false))) {
+    if (
+      !mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false), tenantId(c))
+    ) {
       return c.json({ error: 'File not found' }, 404);
     }
 
@@ -681,8 +684,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!file) return c.json({ error: 'File not found' }, 404);
 
     // I5: use checkPermission() instead of user.role — Better-Auth may not populate role on session
-    const isAdmin = await seesAllFiles(user);
-    if (!ownsFile(file, user.id) && !isAdmin) {
+    if (!mayDeleteFile(file, user.id, await seesAllFiles(user), tenantId(c))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
