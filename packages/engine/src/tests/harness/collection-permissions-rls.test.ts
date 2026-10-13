@@ -317,6 +317,33 @@ d('collection permissions in the database (R1)', () => {
     expect(await attempt(undefined, () => count(ext as unknown as Database))).toBe(0);
   });
 
+  it('a temporary pg_roles cannot exempt a worker (migration 069)', async () => {
+    // pg_temp is searched ahead of pg_catalog for relations unless a path names
+    // it, so a role still holding TEMPORARY could plant `pg_roles` naming its own
+    // role `zveltio_coll_exempt`. TEMPORARY is granted here, in the rolled-back
+    // transaction, because boot revokes it.
+    const allowed = await db
+      .transaction()
+      .execute(async (trx) => {
+        await sql`DO $$ BEGIN EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO zveltio_worker', current_database()); END $$`.execute(
+          trx,
+        );
+        await sql`SELECT set_config('zveltio.actor', 'on', true), set_config('role', 'zveltio_worker', true)`.execute(
+          trx,
+        );
+        await sql`
+          CREATE TEMP VIEW pg_roles AS
+          SELECT 'zveltio_coll_exempt'::name AS rolname, r.oid FROM pg_catalog.pg_roles r WHERE r.rolname = current_user
+        `.execute(trx);
+        const r = await sql<{
+          ok: boolean;
+        }>`SELECT zveltio_collection_allows(${COLL}, 'delete') AS ok`.execute(trx);
+        throw Object.assign(new Error('rollback'), { ok: r.rows[0]?.ok });
+      })
+      .catch((e: { ok?: boolean }) => e.ok);
+    expect(allowed).toBe(false);
+  });
+
   it("gives an anonymous request the public role's grants, in its own tenant only", async () => {
     const anon = await anonymous();
     // `public` reads this collection — this tenant's rows, not the other's.

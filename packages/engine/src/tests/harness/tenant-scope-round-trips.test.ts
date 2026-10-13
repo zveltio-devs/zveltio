@@ -258,6 +258,28 @@ d('withTenantIsolation round trips', () => {
     expect(set(walked?.ancestors_csv ?? '')).toEqual([KID, ROOT].sort());
   });
 
+  it('a temporary zv_tenant_users on the connection does not answer the reach', async () => {
+    // pg_temp is searched FIRST for relations unless a path names it, so before
+    // migration 069 a temp table left on a pooled backend (by any role still
+    // holding TEMPORARY) answered the next borrower's reach — here widening a
+    // `self` member to every unit. Rolled back with the transaction.
+    const visible = await db
+      .transaction()
+      .execute(async (trx) => {
+        await sql`CREATE TEMP TABLE zv_tenant_users (LIKE public.zv_tenant_users) ON COMMIT DROP`.execute(
+          trx,
+        );
+        await sql`
+          INSERT INTO zv_tenant_users (id, tenant_id, user_id, role, joined_at, read_scope, valid_from)
+          VALUES (gen_random_uuid(), ${KID}::uuid, ${U.self}, 'member', now(), 'org', now() - interval '1 day')
+        `.execute(trx);
+        const r = await tenantScopeQuery(U.self, KID).execute(trx);
+        throw Object.assign(new Error('rollback'), { visible: r.rows[0]?.visible_csv });
+      })
+      .catch((e: { visible?: string | null }) => e.visible);
+    expect(visible).toBe(KID);
+  });
+
   it('resolveTenantScope answers what withTenantIsolation publishes', async () => {
     for (const userId of [U.none, U.self, U.list, U.subtree, U.expired]) {
       const scope = await resolveTenantScope(db, userId, KID);
