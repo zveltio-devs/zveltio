@@ -238,14 +238,28 @@ On engine-generated collection tables:
 CREATE POLICY tenant_isolation ON "zvd_<name>"
   USING       (tenant_id = ANY ((SELECT zveltio_visible_tenants())::uuid[]))
   WITH CHECK  (zveltio_tenant_write_ok(tenant_id));
+-- WITH CHECK sees only the new row; the existing row of an UPDATE or DELETE
+-- is held to the own node by these two (B09):
+CREATE POLICY tenant_own_node_update ON "zvd_<name>" AS RESTRICTIVE FOR UPDATE
+  USING (zveltio_tenant_write_ok(tenant_id)
+         OR (SELECT NULLIF(current_setting('zveltio.current_tenant', true), '') IS NULL));
+CREATE POLICY tenant_own_node_delete ON "zvd_<name>" AS RESTRICTIVE FOR DELETE
+  USING (<the same>);
 ALTER TABLE "zvd_<name>" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "zvd_<name>" FORCE ROW LEVEL SECURITY;
 ```
 
-Extension-owned tables carry the same pair. Many extension migrations write
+Without the two restrictive policies a parent that reads its subtree could
+DELETE a child's row (USING alone decides a DELETE), or UPDATE it into its own
+node and delete it there. With no tenant set they stand aside: that is the
+engine's own cross-firm work (retention purges under `withEveryTenant`), bounded
+by the read reach. `zv_audit_log` carries the same two (migration 066).
+
+Extension-owned tables carry the same three. Many extension migrations write
 `zveltio_tenant_scope_ok(tenant_id)` in both clauses; the engine rewrites every
 `tenant_isolation_*` policy to the form above after each extension migration
-run and again at boot, so the read predicate never stays in `WITH CHECK`.
+run and again at boot, so the read predicate never stays in `WITH CHECK`, and
+adds the two restrictive policies beside it.
 
 **`FORCE` is not decorative.** Without it, the table owner bypasses its own
 policies.
@@ -314,10 +328,8 @@ handler can enter it). A presenting API key also reads its own row, wherever it
 acts.
 
 These are not `tenant_isolation_*` on purpose: the boot reconciler rewrites
-every policy of that name to one `FOR ALL` policy. That form lets `DELETE`
-through on its `USING`, the READ predicate — a parent unit that reads its
-subtree can delete a child's rows in those tables (an `UPDATE` is refused by
-`WITH CHECK`).
+every policy of that name to one `FOR ALL` policy (with the two restrictive
+ones above beside it), and would put the root fallback back on the column.
 
 ---
 

@@ -152,9 +152,9 @@ d('ghost DDL keeps triggers, RLS, policies, grants and foreign keys', () => {
     const before = await protections(db, TABLE);
     // The fixture really has what the assertions below are about.
     expect(before.triggers.some((t) => t.includes('zv_sync_tombstone'))).toBe(true);
-    // Tenant isolation, the row rules, and one collection-permission policy per
-    // command (R1).
-    expect(before.policies.length).toBe(6);
+    // Tenant isolation and its own-node UPDATE and DELETE (B09), the row rules,
+    // and one collection-permission policy per command (R1).
+    expect(before.policies.length).toBe(8);
     expect(before.rls && before.force).toBe(true);
     expect(before.fks.length).toBe(4); // created_by, updated_by, owner_ref, and the referrer's
 
