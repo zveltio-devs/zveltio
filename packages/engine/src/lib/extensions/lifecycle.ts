@@ -24,6 +24,8 @@ import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
 import { unregisterExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
+import { join } from 'node:path';
+import { checkExtensionDependencies } from '../version-checker.js';
 import { resolveExtensionsBase } from './extension-paths.js';
 import type { Hono } from 'hono';
 import type { ExtensionLoader } from './extension-loader.js';
@@ -154,6 +156,38 @@ export async function loadDynamic(loader: ExtensionLoader, name: string, app: Ho
     const extBase = resolveExtensionsBase();
     const fallback = `engine/index.ts not found at ${extBase}/${name}/. Ensure EXTENSIONS_DIR is set and the extension package is deployed.`;
     throw new Error(realError ?? fallback);
+  }
+  await refreshTooOldDependents(loader, name);
+}
+
+/**
+ * `name` has just loaded, perhaps at a newer version: a loaded extension that
+ * found it below its optional `minVersion` asks again, so an upgrade reaches
+ * it without reloading it. Its `serviceDeps` is the map its `ctx.services`
+ * scope and the worker broker read, so marking the dependency callable there
+ * is the whole change.
+ */
+async function refreshTooOldDependents(loader: ExtensionLoader, name: string): Promise<void> {
+  const versions = new Map(Array.from(loader.loaded, ([n, l]) => [n, l.version]));
+  for (const [dependent, entry] of loader.loaded) {
+    const deps = entry.serviceDeps as Map<string, boolean> | undefined;
+    const dir = loader.extDirs.get(dependent);
+    if (deps?.get(name) !== false || !dir || !loader.ctx) continue;
+    try {
+      const manifest = JSON.parse(await Bun.file(join(dir, 'manifest.json')).text()) as {
+        optionalDependencies?: Array<{ name: string; minVersion?: string }>;
+      };
+      const pin = manifest.optionalDependencies?.find((d) => d.name === name);
+      if (!pin) continue;
+      const { tooOld } = await checkExtensionDependencies(loader.ctx.db, [pin], versions);
+      if (!tooOld.includes(name)) deps.set(name, true);
+    } catch (err) {
+      // Left absent, as at its load: the dependent's next reload asks again.
+      console.warn(
+        `[extensions] "${dependent}": could not re-check optional "${name}":`,
+        (err as Error).message,
+      );
+    }
   }
 }
 

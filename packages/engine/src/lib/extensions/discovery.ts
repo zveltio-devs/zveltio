@@ -40,15 +40,17 @@ import { join } from 'path';
  */
 export async function topoSortExtensions(
   names: string[],
-  baseDir: string,
+  /** Where each extension's directory is: one base, or one per name. */
+  baseDir: string | ((name: string) => string),
   refused: Map<string, string> = new Map(),
 ): Promise<string[]> {
   if (names.length <= 1) return names;
+  const baseOf = typeof baseDir === 'string' ? () => baseDir : baseDir;
 
   const depsMap = new Map<string, string[]>();
   const optionalMap = new Map<string, string[]>();
   for (const name of names) {
-    const manifestPath = join(baseDir, name, 'manifest.json');
+    const manifestPath = join(baseOf(name), name, 'manifest.json');
     let deps: string[] = [];
     let optional: string[] = [];
     if (existsSync(manifestPath)) {
