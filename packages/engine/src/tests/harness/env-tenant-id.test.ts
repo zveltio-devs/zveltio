@@ -10,10 +10,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import { sql } from 'kysely';
-import { createDb, type Database } from '../../db/index.js';
+import type { Database } from '../../db/index.js';
 import { assertEnvTenantExists } from '../../lib/startup-guards.js';
-import { initTenantManager, resolveTenantFromRequest } from '../../lib/tenancy/index.js';
-import { harnessAvailable } from '../../testing/app-harness.js';
+import { resolveTenantFromRequest } from '../../lib/tenancy/index.js';
+import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const ENGINE = join(import.meta.dir, '../../..');
 const REFUSED = /ZVELTIO_TENANT_ID=\S+ names no tenant/;
@@ -25,18 +25,18 @@ d('ZVELTIO_TENANT_ID must name a real tenant', () => {
   const suspended = crypto.randomUUID();
 
   beforeAll(async () => {
-    db = createDb(String(process.env.TEST_DATABASE_URL));
+    // The harness's own database and tenant manager: a second one, destroyed
+    // after, left the shared tenant manager on a closed pool for later files.
+    ({ db } = await getTestApp());
     await sql`
       INSERT INTO zv_tenants (id, slug, name, status)
       VALUES (${suspended}, ${`envtid-${suspended.slice(0, 8)}`}, 'Env Tenant', 'suspended')
     `.execute(db);
-    initTenantManager(db);
   });
 
   afterAll(async () => {
     delete process.env.ZVELTIO_TENANT_ID;
     await sql`DELETE FROM zv_tenants WHERE id = ${suspended}`.execute(db);
-    await db.destroy();
   });
 
   it('the boot guard refuses an id with no row, and a non-uuid one', async () => {
