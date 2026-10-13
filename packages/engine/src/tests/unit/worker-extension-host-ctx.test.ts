@@ -284,3 +284,21 @@ describe('db.transaction() savepoints across extensions', () => {
     expect(log).toContain('ROLLBACK TO SAVEPOINT zv_sp_1');
   });
 });
+
+describe('worker route body past the frame limit', () => {
+  it('answers 413 and leaves no pending invoke behind', async () => {
+    const { FrameTooLargeError } = await import('../../lib/worker-extension-transport.js');
+    const app = new Hono();
+    const host = new WorkerExtensionHost(app);
+    const { managed } = setup();
+    managed.routes = [{ method: 'POST', path: '/x' }];
+    managed.worker.postMessage = () => {
+      throw new FrameTooLargeError('frame of 40000000 bytes exceeds 33554432');
+    };
+    (host as unknown as { workers: Map<string, unknown> }).workers.set('probe', managed);
+    mountProxy(host, managed as never);
+    const res = await app.request('/ext/probe/x', { method: 'POST', body: 'x' });
+    expect(res.status).toBe(413);
+    expect(managed.pendingInvokes.size).toBe(0);
+  });
+});
