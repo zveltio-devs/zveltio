@@ -90,6 +90,26 @@ d('API keys are bound to their tenant', () => {
     expect(res.status).not.toBe(401);
   });
 
+  it('stamps last_used_at for a root key acting in another tenant', async () => {
+    // Since 065 the request transaction only sees its own tenant's keys, so a
+    // stamp written through it matched no row and changed nothing.
+    await sql`UPDATE zv_api_keys SET last_used_at = NULL WHERE name = ${`root-${STAMP}`}`.execute(
+      db,
+    );
+    const res = await app.request('/api/data/zvd_accounts', {
+      headers: { 'X-API-Key': ROOT_KEY, 'X-Tenant-Slug': `key-binding-${STAMP}` },
+    });
+    expect(res.status).not.toBe(401);
+    let stamped = null;
+    for (let i = 0; i < 50 && !stamped; i++) {
+      await Bun.sleep(20);
+      const row = await sql<{ last_used_at: Date | null }>`
+        SELECT last_used_at FROM zv_api_keys WHERE name = ${`root-${STAMP}`}`.execute(db);
+      stamped = row.rows[0]?.last_used_at ?? null;
+    }
+    expect(stamped).not.toBeNull();
+  });
+
   it('rejects an unknown key exactly as before', async () => {
     const res = await app.request('/api/data/zvd_accounts', {
       headers: { 'X-API-Key': `zvk_nonexistent_${STAMP}` },

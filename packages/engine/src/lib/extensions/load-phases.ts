@@ -177,7 +177,15 @@ export async function resolveManifest(
     // it cannot work with is not one it gets to call.
     const pinnedOptional = manifest.optionalDependencies.filter((d) => d.minVersion);
     if (pinnedOptional.length > 0) {
-      const opt = await checkExtensionDependencies(db, pinnedOptional, alreadyLoaded);
+      // A failed registry read cannot show an optional dependency meets its
+      // minimum: it is absent, and this extension still loads without it.
+      const opt = await checkExtensionDependencies(db, pinnedOptional, alreadyLoaded).catch(
+        (err: unknown) => {
+          const names = pinnedOptional.map((d) => d.name);
+          const reason = `version unknown: ${err instanceof Error ? err.message : String(err)}`;
+          return { satisfied: false, missing: names.map((n) => `${n} (${reason})`), tooOld: names };
+        },
+      );
       absentOptional = opt.tooOld;
       if (opt.tooOld.length > 0) {
         absentWarning =
