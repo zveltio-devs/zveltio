@@ -117,7 +117,7 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - An edge function's `fetch` reports the answered `url` and `redirected` (#1099).
 - A worker extension's service called by another extension answers
   `checkPermission` as the user (or API key) of the calling request, as an
-  inline service does; it answered false for everyone (#PRNUM).
+  inline service does; it answered false for everyone (#1107).
 
 ### Gates and review
 - Gate fixes from the E01/E02 re-reads: one sibling root (`EXTENSIONS_ROOT`),
