@@ -34,7 +34,7 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - The request role (`zveltio_rls`) can no longer read schema-branch preview
   tokens: the `X-Preview-Token` lookup goes through `zveltio_preview_branch()`
   and the column's SELECT is withheld, also after each boot's re-grant
-  (migration 068, #PRNUM). Boot also re-grants `zveltio_rls` the 065/068
+  (migration 068, #1100). Boot also re-grants `zveltio_rls` the 065/068
   definer functions when the role was created after those migrations ran.
 - A read window opened as another closes no longer keeps the widened grants
   (#1052). Dropping a collection keeps rules that predate it, and its grants
