@@ -63,7 +63,13 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   time, and its failure cleanup no longer breaks writers (#1086).
 - Money and range fields are typed as the strings the API carries (#1062).
 - A filter operator named after an Object member is skipped, not a 500 (#1057).
-- Four duplicate indexes dropped (migration 064, #1085).
+- Four duplicate indexes dropped (migration 064, #1085); seven more that a
+  UNIQUE constraint's index or a wider index already answers (migration 067,
+  #1099).
+- A field type with no filter operators (`password`, `computed`) cannot be
+  filtered or sorted on (#1099).
+- The schema codegen reads `ALTER COLUMN … SET/DROP DEFAULT`; the drift check
+  reads `SET NOT NULL` (#1099).
 
 ### Operations
 - Default extensions (content/pages, ai) auto-activate only from the install's
@@ -80,6 +86,15 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - Worker extensions see Postgres's `constraint`, `table`, `column` and
   `detail` on a query error, as inline extensions do (#1094).
 - Every workflow's `GITHUB_TOKEN` defaults to `contents: read` (#1055).
+- The boot-time reindex of INVALID indexes runs in the background and skips an
+  index another replica is still building (a REINDEX there deadlocked the
+  build); a queued index build may run 6 hours before pg-boss retries it (#1099).
+- Rolling a database back below 058 keeps the cluster role
+  `zveltio_coll_exempt`, which other databases on the server use (#1099).
+- Worker extensions: array parameters nest (`int[][]`) and carry objects as
+  JSON (`jsonb[]`); the worker runtime is minified (406 KB to 281 KB); an
+  engine event namespace follows the event map (#1099).
+- An edge function's `fetch` reports the answered `url` and `redirected` (#1099).
 
 ### Gates and review
 - Gate fixes from the E01/E02 re-reads: one sibling root (`EXTENSIONS_ROOT`),
@@ -152,6 +167,12 @@ on a malformed `in`/`between`, and preview a URL the data API reads.
   without a tag (#1040).
 
 ### SDK
+- Event listeners get the tenant the event was emitted in as their last
+  argument (`{ tenantId }`), inline and in a worker (#1099).
+- `ctx.services.waitFor` refuses at once a service of an owner the manifest
+  does not declare, instead of at timeout (#1099).
+- `ctx.reqDb(c)` throws on a request with no tenant transaction instead of
+  falling back to the pool (#1099).
 - `parseMigrationSql` ends UP only at a line that is exactly `-- DOWN` (#1029).
 - `FilterOp` gains `not_contains`, `starts_with`, `ends_with`.
 

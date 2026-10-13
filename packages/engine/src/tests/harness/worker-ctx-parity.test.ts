@@ -51,7 +51,7 @@ export default {
   getMigrations: () => [new URL('./migrations/001_items.sql', import.meta.url).pathname],
   async register(app, ctx) {
     ctx.services.register('${name}.double', (n) => n * 2);
-    ctx.events.on('${name}.ping', (p) => { last = p; });
+    ctx.events.on('${name}.ping', (p, meta) => { last = { p, tenant: meta?.tenantId ?? null }; });
     app.get('/who', async (c) => {
       const s = await ctx.auth.api.getSession({ headers: c.req.raw.headers });
       return c.json({ user: c.get('user')?.id ?? null, session: s?.user?.id ?? null });
@@ -267,7 +267,7 @@ d('a worker extension gets the inline ctx contract', () => {
       badId: 400,
       config: { status: 200, body: { vars: { GREETING: 'hi' }, env: 'test' } },
       svc: { status: 200, body: { type: 'function', out: 42 } },
-      event: { status: 200, body: { last: { n: 7 } } },
+      event: { status: 200, body: { last: { p: { n: 7 }, tenant: expect.any(String) } } },
     });
   });
 

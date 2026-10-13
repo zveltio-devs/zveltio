@@ -132,6 +132,29 @@ export type ZveltioBeforeEvents = {
   'record.beforeDelete': BeforeDeletePayload;
 };
 
+/**
+ * Every engine event name, at runtime. A `Record` over the two maps, so adding
+ * an event to either without listing it here fails to compile.
+ */
+const ENGINE_EVENT_NAMES: Record<keyof ZveltioEvents | keyof ZveltioBeforeEvents, true> = {
+  'record.created': true,
+  'record.updated': true,
+  'record.deleted': true,
+  'schema.changed': true,
+  'user.login': true,
+  'user.logout': true,
+  'flow.completed': true,
+  'ai.task.done': true,
+  'record.beforeInsert': true,
+  'record.beforeUpdate': true,
+  'record.beforeDelete': true,
+};
+
+/** The engine's event namespaces (`record.`, `ai.task.`, …): no extension emits or hears these as its own. */
+export const ENGINE_EVENT_NAMESPACES: readonly string[] = [
+  ...new Set(Object.keys(ENGINE_EVENT_NAMES).map((n) => n.slice(0, n.lastIndexOf('.') + 1))),
+];
+
 /** @deprecated Use ZveltioEvents */
 export interface EngineEventMap {
   'record.created': RecordCreatedPayload;

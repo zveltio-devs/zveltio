@@ -11,6 +11,7 @@
 
 import { z } from 'zod';
 import type { FilterCondition } from '../../db/dynamic.js';
+import { fieldTypeRegistry } from './field-type-registry.js';
 import { normalizeFields } from './shape.js';
 import type { CollectionDef, JsonValue } from './types.js';
 
@@ -84,10 +85,14 @@ const NUMERIC_OPS = new Set<FilterCondition['op']>(['gt', 'gte', 'lt', 'lte']);
 
 /** Build the set of columns clients are allowed to sort/filter by. Hitting
  * Postgres with an unknown column surfaces as a 500 ("column X does not
- * exist") — the caller uses this to return a clean 400 at the edge instead. */
+ * exist") — the caller uses this to return a clean 400 at the edge instead.
+ * A field type declaring no filter operators (`password`, `computed`) is left
+ * out: a predicate or an order on it reads it back through the row count. */
 export function buildAllowedCols(collectionDef: CollectionDef | null | undefined): Set<string> {
-  const rawFields = normalizeFields(collectionDef);
-  return new Set<string>([...SYSTEM_COLS, ...rawFields.map((f) => f.name).filter(Boolean)]);
+  const rawFields = normalizeFields(collectionDef).filter(
+    (f) => f.name && fieldTypeRegistry.get(f.type)?.api.filterOperators?.length !== 0,
+  );
+  return new Set<string>([...SYSTEM_COLS, ...rawFields.map((f) => f.name)]);
 }
 
 /** Result of `parseFilters`: either the parsed filter map, or a 400 error to

@@ -23,7 +23,7 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { getCurrentDomain } from '../tenancy/index.js';
+import { getCurrentDomain, getCurrentDomainOrNull } from '../tenancy/index.js';
 
 /**
  * How long a resolved decision may be reused. Activation changes are rare and
@@ -345,7 +345,14 @@ export function guardScheduleHandler<A extends unknown[]>(
 export function guardListenerArgs<A extends unknown[]>(args: A, extName: string, db: Database): A {
   return args.map((a) =>
     typeof a === 'function'
-      ? guardEventHandler(a as (...rest: unknown[]) => unknown, extName, db)
+      ? guardEventHandler(
+          // A last argument names the tenant the event was emitted in, as a
+          // worker listener gets it: the engine's record, not the payload's claim.
+          (...rest: unknown[]) =>
+            (a as (...r: unknown[]) => unknown)(...rest, { tenantId: getCurrentDomainOrNull() }),
+          extName,
+          db,
+        )
       : a,
   ) as A;
 }

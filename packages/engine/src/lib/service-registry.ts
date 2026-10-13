@@ -211,6 +211,14 @@ export class ServiceRegistryImpl {
       get: <T>(name: string) => (check(name) ? this.get<T>(name) : null),
       has: (name: string) => check(name),
       waitFor: async <T>(name: string, timeoutMs?: number) => {
+        // Not registered yet: its name says whose it will be. An owner never
+        // declared, or one too old to use, refuses now rather than at timeout.
+        const ns = this.has(name) ? null : namespaceOf(name);
+        if (ns) {
+          const refusal = serviceCallRefusal(extName, mayCall, ns, name);
+          if (refusal) throw new Error(refusal);
+          if (mayCall.get(ns) === false) throw new Error(`service "${name}" not found`);
+        }
         const value = await this.waitFor<T>(name, timeoutMs);
         if (!check(name)) throw new Error(`service "${name}" not found`);
         return value;

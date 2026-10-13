@@ -105,6 +105,9 @@ export type EgressAnswer =
       ok: true;
       status: number;
       statusText: string;
+      /** The URL answered, after any redirect the engine followed. */
+      url: string;
+      redirected: boolean;
       headers: [string, string][];
       body: string;
     }
@@ -193,6 +196,8 @@ export async function performEgress(
       ok: true,
       status: res.status,
       statusText: res.statusText,
+      url: res.url,
+      redirected: res.redirected,
       headers: [...res.headers],
       body: Buffer.from(data).toString('base64'),
     };

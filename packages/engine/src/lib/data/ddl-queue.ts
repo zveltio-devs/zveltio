@@ -127,8 +127,9 @@ export async function initDDLQueue(db: Database): Promise<void> {
     // One-time recovery: reindex any CREATE INDEX CONCURRENTLY that left an
     // INVALID index behind (process crash during a previous run). Carried
     // over from the legacy poller because this is a Postgres-level concern,
-    // not a queue concern.
-    await reindexInvalid(db).catch(() => {});
+    // not a queue concern. In the background: REINDEX CONCURRENTLY waits on
+    // every transaction touching the table, which must not hold up boot.
+    void reindexInvalid(db).catch(() => {});
 
     await registerHandlers(_boss, db);
     console.log('✅ DDL queue (pg-boss) started');
@@ -145,6 +146,10 @@ async function reindexInvalid(db: Database): Promise<void> {
     JOIN pg_index i ON i.indexrelid = s.indexrelid
     WHERE i.indisvalid = false
       AND s.schemaname = 'public'
+      -- Not invalid but unfinished: another replica (or a build_index job) is
+      -- still building it, and a REINDEX would race that build.
+      AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_create_index p
+                       WHERE p.index_relid = i.indexrelid)
       AND (s.relname LIKE 'zvd_%' OR s.relname LIKE 'zv_%')
   `.execute(db);
   for (const row of rows.rows) {
@@ -232,7 +237,16 @@ export async function enqueueIndexBuilds(db: Database, indexes: string[]): Promi
     const name = INDEX_BUILD.exec(ddl)?.[1];
     try {
       if (!_boss || !name) throw new Error('DDL queue not running');
-      await _boss.send(QUEUE_NAMES.build_index, { ddl }, { ...DEFAULT_RETRY, singletonKey: name });
+      await _boss.send(
+        QUEUE_NAMES.build_index,
+        { ddl },
+        {
+          ...DEFAULT_RETRY,
+          singletonKey: name,
+          // pg-boss's 15-minute default retried a long build while it still ran.
+          expireInSeconds: 6 * 60 * 60,
+        },
+      );
     } catch (err) {
       console.warn(`[ddl-queue] index build not queued, running after commit (${ddl}):`, err);
       onAfterCommit(() =>

@@ -40,7 +40,11 @@ const result = await Bun.build({
   // worker (running outside the engine's bundle) doesn't try to resolve
   // a bare specifier from the on-disk node_modules tree.
   external: [],
-  minify: false,
+  // Minified (keepNames: error and class names stay readable in a stack): the
+  // source is copied to disk and parsed by every worker it starts. Whitespace
+  // stays, because it carries the bundler's `.bun/<name>@<version>/` comments
+  // that check-embedded-deps-fresh reads the inlined hono's version from.
+  minify: { whitespace: false, syntax: true, identifiers: true, keepNames: true },
 });
 
 if (!result.success) {

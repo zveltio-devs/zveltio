@@ -111,14 +111,8 @@ GRANT EXECUTE ON FUNCTION zveltio_collection_allows(text, text) TO PUBLIC;
 -- it: they call the function, and without it they could not be evaluated. The
 -- boot reconciler recreates them when the migration runs again.
 DROP FUNCTION IF EXISTS zveltio_collection_allows(text, text) CASCADE;
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_coll_exempt') THEN
-    BEGIN
-      DROP ROLE zveltio_coll_exempt;
-    EXCEPTION WHEN insufficient_privilege OR dependent_objects_still_exist THEN
-      RAISE NOTICE 'zveltio_coll_exempt kept (%)', SQLERRM;
-    END;
-  END IF;
-END
-$$;
+-- `zveltio_coll_exempt` stays: a role belongs to the cluster, not to this
+-- database, and another database on the same server (a second install, a test
+-- database) may still be at 058 and name its exemptions through it. Rewinding
+-- one database dropped it for all of them. Here, with the function gone,
+-- nothing reads it; the UP creates it only IF NOT EXISTS.

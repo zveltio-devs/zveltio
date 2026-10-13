@@ -481,17 +481,31 @@ class BunSqlDriver implements Driver {
  * failed with a protocol error and a `text[]` column with `malformed array
  * literal`. Shared by Kysely's queries and the worker SQL bridge, so an
  * extension's array parameter means the same thing inline and out of process.
+ *
+ * Nested arrays become a multidimensional literal (`{{"1","2"},{"3","4"}}`) and
+ * object elements their JSON text, so `jsonb[]` round-trips. A JS array meant
+ * for a single `jsonb` value is indistinguishable from a `text[]` one here:
+ * pass `JSON.stringify(value)` with a `::text::jsonb` cast for that.
  */
 export function encodeArrayParams(params: readonly unknown[]): unknown[] {
-  return params.map((p) => {
-    if (!Array.isArray(p)) return p;
-    const escaped = (p as unknown[]).map((item) => {
-      if (item === null || item === undefined) return 'NULL';
-      const s = String(item);
-      return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-    });
-    return `{${escaped.join(',')}}`;
+  return params.map((p) => (Array.isArray(p) ? arrayLiteral(p) : p));
+}
+
+function arrayLiteral(items: readonly unknown[]): string {
+  const parts = items.map((item) => {
+    if (item === null || item === undefined) return 'NULL';
+    if (Array.isArray(item)) return arrayLiteral(item);
+    const s =
+      item instanceof Date
+        ? item.toISOString()
+        : Buffer.isBuffer(item)
+          ? `\\x${item.toString('hex')}`
+          : typeof item === 'object'
+            ? JSON.stringify(item)
+            : String(item);
+    return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   });
+  return `{${parts.join(',')}}`;
 }
 
 // ─── Param inlining (simple-query fallback) ─────────────────────────────────

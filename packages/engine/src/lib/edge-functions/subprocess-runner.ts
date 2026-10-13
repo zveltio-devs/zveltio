@@ -428,8 +428,11 @@ const _Response = Response;
     const m = await Promise.race([answered, aborted]);
     if (!m.ok) throw new TypeError(m.error);
     const nullBody = m.status === 101 || m.status === 204 || m.status === 205 || m.status === 304;
-    return new _Response(nullBody ? null : _Buffer.from(m.body, 'base64'), {
+    const res = new _Response(nullBody ? null : _Buffer.from(m.body, 'base64'), {
       status: m.status, statusText: m.statusText, headers: m.headers,
+    });
+    return Object.defineProperties(res, {
+      url: { value: m.url }, redirected: { value: m.redirected },
     });
   }
   const logs = [];

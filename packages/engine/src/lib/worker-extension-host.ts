@@ -71,7 +71,7 @@ import {
 } from './extensions/index.js';
 import { compilePattern } from '../middleware/extension-auth-gate.js';
 import { ProblemException, problem, problemOnError } from './problem.js';
-import { engineEvents } from './runtime/index.js';
+import { ENGINE_EVENT_NAMESPACES, engineEvents } from './runtime/index.js';
 import {
   assertWorkerSqlAllowed,
   workerDbRoleFor,
@@ -845,19 +845,23 @@ export class WorkerExtensionHost {
   /**
    * Deliver `event` to the worker's listener `key`, as the tenant and caller it
    * was emitted for, and only where the extension is active for that tenant
-   * (`guardEventHandler`, as an inline listener).
+   * (`guardEventHandler`, as an inline listener). The listener's second
+   * argument names that tenant: the engine's record, not whatever the
+   * emitter's payload claims.
    */
   private subscribe(managed: ManagedWorker, event: string, key: string): void {
-    const deliver = (payload: unknown) =>
-      this.invokeWorkerService(
+    const deliver = (payload: unknown) => {
+      const scope = currentScope(getCurrentDomainOrNull());
+      return this.invokeWorkerService(
         managed,
         key,
-        [payload],
-        currentScope(getCurrentDomainOrNull()),
+        [payload, { tenantId: scope.tenantId }],
+        scope,
         'event:deliver',
       ).catch((err: Error) =>
         console.error(`[worker:${managed.name}] listener for "${event}" failed: ${err.message}`),
       );
+    };
     const listener = (payload: unknown) =>
       guardEventHandler(deliver, managed.name, getDb())(payload);
     managed.listeners ??= new Map();
@@ -1202,8 +1206,6 @@ const invokeWaiters = new Map<
   }
 >();
 
-const ENGINE_EVENT = /^(record|schema|user|flow)\.|^ai\.task\./;
-
 /** Unsubscribe every `ctx.events.on` a worker made. */
 function dropListeners(managed: ManagedWorker): void {
   for (const off of managed.listeners?.values() ?? []) off();
@@ -1220,8 +1222,8 @@ function refuseEvent(managed: ManagedWorker, event: unknown, op: 'emit' | 'on'):
   const owners = op === 'emit' ? [managed.name] : [managed.name, ...managed.mayCall.keys()];
   if (
     typeof event === 'string' &&
-    // The engine's own (`EngineEventMap`), whatever an extension is named.
-    !ENGINE_EVENT.test(event) &&
+    // The engine's own, whatever an extension is named.
+    !ENGINE_EVENT_NAMESPACES.some((ns) => event.startsWith(ns)) &&
     owners.some((o) => o !== 'engine' && event.startsWith(`${o}.`))
   ) {
     return event;

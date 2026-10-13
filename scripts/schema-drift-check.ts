@@ -244,14 +244,15 @@ function parseSqlMigration(filePath: string, inventory: Map<string, TableInfo>):
     }
   }
 
-  // ALTER TABLE <name> ALTER COLUMN <col> DROP NOT NULL — mark as nullable
-  const dropNotNullRe =
-    /ALTER\s+TABLE\s+(?:public\.)?([a-z_][a-z0-9_]*)\s+ALTER\s+COLUMN\s+([a-z_][a-z0-9_]*)\s+DROP\s+NOT\s+NULL/gi;
-  for (const m of upSection.matchAll(dropNotNullRe)) {
+  // ALTER TABLE <name> ALTER COLUMN <col> DROP | SET NOT NULL. Reading DROP
+  // only left a column a later migration made NOT NULL (063) nullable here.
+  const notNullRe =
+    /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+ALTER\s+COLUMN\s+([a-z_][a-z0-9_]*)\s+(DROP|SET)\s+NOT\s+NULL/gi;
+  for (const m of upSection.matchAll(notNullRe)) {
     const t = inventory.get(m[1].toLowerCase());
     if (!t) continue;
     const c = t.columns.get(m[2].toLowerCase());
-    if (c) c.notNull = false;
+    if (c) c.notNull = m[3].toUpperCase() === 'SET';
   }
 
   for (const t of droppedTables(upSection)) inventory.delete(t.toLowerCase());
