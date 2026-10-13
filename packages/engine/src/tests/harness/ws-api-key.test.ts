@@ -134,6 +134,27 @@ d('WebSocket accepts an API key and enforces its scopes', () => {
     expect(reply?.denied).toEqual([UNSCOPED]);
   });
 
+  it('refuses a `*:insert` channel even for a god, rather than storing one that never delivers', async () => {
+    const { data } = await upgrade(app, { cookie });
+    const sent: string[] = [];
+    const ws = {
+      data: { ...data, id: 'ws_god_wildcard' },
+      send: (p: string) => sent.push(p),
+      close: () => {},
+    };
+    websocketHandler.open(ws as never);
+    await websocketHandler.message(
+      ws as never,
+      JSON.stringify({ type: 'subscribe', channel: '*:insert' }),
+    );
+    const replies = sent.map((m) => JSON.parse(m) as { type: string; message?: string });
+    expect(replies.some((m) => m.type === 'subscribed')).toBe(false);
+    expect(replies.find((m) => m.type === 'error')?.message).toBe(
+      'Wildcard subscriptions are not allowed',
+    );
+    websocketHandler.close(ws as never);
+  });
+
   it('a key that loses its row-rule exemption stops hearing the rows a rule hides', async () => {
     // Only `rls_bypass` changes, so a recheck that compared scopes alone kept
     // the exempt gate on the open socket.
