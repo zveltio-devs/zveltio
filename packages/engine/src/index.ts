@@ -559,10 +559,7 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
     },
   ];
 
-  // The loader's own resolution, so a default sitting in the dev sibling
-  // checkout is found where the loader will look for it.
-  const { resolveExtensionsBase } = await import('./lib/extensions/index.js');
-  const extBase = resolveExtensionsBase();
+  const extBase = process.env.EXTENSIONS_DIR || join(import.meta.dir, '../../../extensions');
 
   for (const def of defaults) {
     // `.catch(() => null)` meant "not registered yet", so a failed read fell

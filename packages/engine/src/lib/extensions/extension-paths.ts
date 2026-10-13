@@ -18,10 +18,8 @@ export function resolveExtensionsBase(): string {
   const cwdPath = join(process.cwd(), 'extensions');
   if (existsSync(cwdPath)) return cwdPath;
   // Dev: zveltio-extensions is a sibling of the main monorepo repo.
-  // packages/engine/src/lib/extensions → 5 levels up → monorepo root → 1 more
-  // up → ecosystem root. It said 5 in all, which was right before this file
-  // moved into lib/extensions/ and landed inside the monorepo from then on.
-  const devPath = join(import.meta.dir, '../../../../../../zveltio-extensions');
+  // packages/engine/src/lib → 4 levels up → monorepo root → 1 more up → ecosystem root.
+  const devPath = join(import.meta.dir, '../../../../../zveltio-extensions');
   if (existsSync(devPath)) return devPath;
   return cwdPath; // default target for first download
 }
