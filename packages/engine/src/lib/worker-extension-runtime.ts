@@ -132,7 +132,11 @@ async function dbExecute(
       } else {
         const { errno, code } = res;
         reject(
-          Object.assign(new Error(res.error ?? 'db query failed'), errno ? { errno, code } : {}),
+          Object.assign(
+            new Error(res.error ?? 'db query failed'),
+            errno ? { errno, code } : {},
+            res.pg ?? {},
+          ),
         );
       }
     });

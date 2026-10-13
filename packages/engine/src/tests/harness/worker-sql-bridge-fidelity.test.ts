@@ -57,7 +57,7 @@ export default {
       } catch (e) {
         // What finance/invoicing does inline to answer "already exists".
         const state = e.errno ?? e.code;
-        return c.json({ errno: e.errno ?? null }, state === '23505' ? 400 : 500);
+        return c.json({ errno: e.errno ?? null, constraint: e.constraint ?? null, table: e.table ?? null }, state === '23505' ? 400 : 500);
       }
     });
     app.post('/count', async (c) => {
@@ -162,8 +162,11 @@ d('worker SQL bridge answers as the inline driver does', () => {
         expect(out[t]?.arr).toEqual({ status: 200, body: { tags: ['x', 'y"z', null], n: 1 } });
       });
 
-      it('keeps the SQLSTATE, so a unique violation maps to 400', () => {
-        expect(out[t]?.dup).toEqual({ status: 400, body: { errno: '23505' } });
+      it('keeps the SQLSTATE and the constraint, so a unique violation maps to 400', () => {
+        expect(out[t]?.dup).toEqual({
+          status: 400,
+          body: { errno: '23505', constraint: `${table(t)}_tag_key`, table: table(t) },
+        });
       });
 
       it('reports the rows an UPDATE and a DELETE without RETURNING touched', () => {
