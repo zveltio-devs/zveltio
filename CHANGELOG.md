@@ -18,6 +18,14 @@ share. Extensions or scripts that insert into these tables must set the tenant;
 a public share link resolves its tenant through `zveltio_media_share_tenant()`
 (storage/cloud 1.1.7) (#1091).
 
+**Breaking: creating a collection over rules that already name it answers 409.**
+A permission rule written before collection X existed (or kept by an earlier
+drop) used to take effect silently the moment X was created. Every create path
+(`POST /api/collections`, template install, schema-branch merge, schema apply,
+extension `createCollection`) now refuses with `code: 'existing_rules'` and
+lists the rules; `adopt_rules: true` (CLI `--adopt-rules`) accepts them. Studio
+shows the rules and offers to adopt them (#1093).
+
 **Extensions: `ctx.db` refuses the pool for a tenant with no transaction**
 (#1075). An extension query that would have run on the raw pool as the engine's
 role, outside any tenant, now fails instead of seeing every tenant's rows.
