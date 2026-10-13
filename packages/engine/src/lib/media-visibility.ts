@@ -44,44 +44,69 @@ function ownerColumn(principalId: string): ['created_by' | 'created_by_api_key',
 }
 
 /**
- * Narrow a `zv_media_files` query to the files `principalId` may read.
+ * Narrow a `zv_media_files` query to the files `principalId` may read in
+ * `tenantId` — the tenant the request acts as (`tenantId(c)`).
  *
- * Tenant admins are exempt: they can already delete any file in the tenant
- * (`mayDeleteFile`), so hiding one from a listing would be a lock on a door
- * with no wall. Pass `isAdmin` from `isTenantAdmin`, not from `user.role` —
- * better-auth does not populate that.
+ * The tenant is part of the rule, not the caller's job. The row policy does not
+ * pin it: it reads `zveltio_visible_tenants()`, which for a unit with a subtree
+ * reach is that unit and everything below it, and for god every firm. Without
+ * this predicate a `visibility = 'tenant'` file of a child unit matched here.
+ *
+ * Tenant admins are exempt from the owner rule, not from the tenant: they can
+ * already delete any file in the tenant (`mayDeleteFile`), so hiding one from a
+ * listing would be a lock on a door with no wall. Pass `isAdmin` from
+ * `isTenantAdmin`, not from `user.role` — better-auth does not populate that.
  */
 export function applyFileVisibility<Q extends Filterable<Q>>(
   query: Q,
   principalId: string,
   isAdmin: boolean,
+  tenantId: string,
 ): Q {
-  if (isAdmin) return query;
+  const inTenant = query.where((eb) => eb('tenant_id', '=', tenantId));
+  if (isAdmin) return inTenant;
   const [column, owner] = ownerColumn(principalId);
-  return query.where((eb) => eb.or([eb('visibility', '=', 'tenant'), eb(column, '=', owner)]));
+  return inTenant.where((eb) => eb.or([eb('visibility', '=', 'tenant'), eb(column, '=', owner)]));
 }
 
-/** Whether `principalId` uploaded this already-loaded row. */
-export function ownsFile(
-  file: { created_by?: string | null; created_by_api_key?: string | null },
-  principalId: string,
-): boolean {
+/** The columns the row checks read off an already-loaded `zv_media_files` row. */
+interface FileRow {
+  tenant_id?: string | null;
+  visibility?: string | null;
+  created_by?: string | null;
+  created_by_api_key?: string | null;
+}
+
+/** Whether `principalId` uploaded this row. */
+function ownsFile(file: FileRow, principalId: string): boolean {
   const [column, owner] = ownerColumn(principalId);
   return file[column] === owner;
 }
 
-/** Whether a single already-loaded row is readable by `principalId`. */
+/** Whether a single already-loaded row is readable by `principalId` in `tenantId`. */
 export function mayReadFile(
-  file: {
-    visibility?: string | null;
-    created_by?: string | null;
-    created_by_api_key?: string | null;
-  },
+  file: FileRow,
   principalId: string,
   isAdmin: boolean,
+  tenantId: string,
 ): boolean {
+  if (file.tenant_id !== tenantId) return false;
   if (isAdmin) return true;
   // A row written before migration 028 has no value only if something wrote it
   // outside the schema; treat the unknown as personal, which fails closed.
   return (file.visibility ?? 'personal') === 'tenant' || ownsFile(file, principalId);
+}
+
+/**
+ * Whether `principalId` may delete this already-loaded row in `tenantId`: its
+ * uploader, or a tenant admin. Reading a shared file and destroying it are
+ * different acts, so `visibility` does not enter into it.
+ */
+export function mayDeleteFile(
+  file: FileRow,
+  principalId: string,
+  isAdmin: boolean,
+  tenantId: string,
+): boolean {
+  return file.tenant_id === tenantId && (isAdmin || ownsFile(file, principalId));
 }
