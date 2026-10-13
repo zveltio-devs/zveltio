@@ -81,7 +81,11 @@ export async function getDataStats(db: Database = getDb()): Promise<DataStats> {
   if (!(await instanceIsSingleTenant(db))) return { collections, records_estimate: null };
   const r = await sql<{ n: string }>`
     SELECT COALESCE(SUM(GREATEST(reltuples, 0)), 0)::bigint AS n
-      FROM pg_class WHERE relkind = 'r' AND relname LIKE 'zvd\\_%'
+      FROM pg_class
+     WHERE relkind = 'r'
+       -- Collection tables only: engine metadata (zvd_collections,
+       -- zvd_permissions, …) shares the prefix and is not a customer record.
+       AND relname IN (SELECT 'zvd_' || name FROM zvd_collections)
   `.execute(db);
   return { collections, records_estimate: Number(r.rows[0]?.n ?? 0) };
 }

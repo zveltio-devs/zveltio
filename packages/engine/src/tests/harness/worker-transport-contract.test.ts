@@ -43,7 +43,11 @@ export default {
     app.get('/big', (c) => c.text('z'.repeat(3 * 1024 * 1024)));
     app.get('/boom', () => { throw new Error('boom'); });
     app.get('/env', (c) => c.json(Object.keys(Bun.env)));
-    // The worker's \`process\` is a shim: ask the kernel (Linux, as CI).
+    // Crashed the worker (core dump) while \`globalThis.process\` was a shim.
+    app.get('/nodeproc', async (c) =>
+      c.json({ env: (await import('node:process')).default.env.NODE_ENV ?? null }),
+    );
+    // Ask the kernel (Linux, as CI), not the worker's own \`process\`.
     app.get('/pid', async (c) =>
       c.json({ pid: Number((await Bun.file('/proc/self/stat').text()).split(' ')[0]) }),
     );
@@ -74,6 +78,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
   const results: Record<string, unknown> = {};
   const pids: Record<string, number> = {};
   const envs: Record<string, string[]> = {};
+  let nodeProc: { status: number; body: unknown } | undefined;
   const saved = process.env.ZVELTIO_EXT_TRANSPORT;
 
   beforeAll(async () => {
@@ -102,6 +107,8 @@ d('worker transport contract: the process transport carries the protocol', () =>
       expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
       try {
         results[transport] = await transcript(app, name);
+        const np = await app.request(`/ext/${name}/nodeproc`);
+        nodeProc = { status: np.status, body: await np.json().catch(() => null) };
         envs[transport] = (await (await app.request(`/ext/${name}/env`)).json()) as string[];
         pids[transport] = (
           (await (await app.request(`/ext/${name}/pid`)).json()) as {
@@ -147,5 +154,9 @@ d('worker transport contract: the process transport carries the protocol', () =>
   it("it runs outside the engine's process", () => {
     expect(pids.process).toBeGreaterThan(0);
     expect(pids.process).not.toBe(process.pid);
+  });
+
+  it("an extension can import 'node:process' without killing its worker", () => {
+    expect(nodeProc).toEqual({ status: 200, body: { env: 'test' } });
   });
 });

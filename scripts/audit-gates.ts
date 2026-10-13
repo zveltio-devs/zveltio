@@ -921,11 +921,9 @@ export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
     // Two migrations both creating the same table. Whichever runs second is a
     // silent no-op under IF NOT EXISTS, so the columns the second one meant to
     // ship never exist and the failure surfaces far away.
-    // Planted in the SIBLING repo, and that is the point of the case. Two engine
-    // migrations creating one table are deliberately NOT two creators — `add()`
-    // keys on owner, so a table split across an owner's own migrations is fine.
-    // Only distinct owners shadow each other. A probe inside the engine reports
-    // this working gate as decoration, which is what the first version did.
+    // Planted in the SIBLING repo: the shadowing that hid real constraints was
+    // across owners. Two files of one owner are flagged too (`add()` keys on
+    // the file), so the engine-only shape is covered as well.
     gate: 'check-duplicate-table-creators',
     cmd: 'bun run scripts/check-duplicate-table-creators.ts',
     file: '../zveltio-extensions/analytics/dashboard/engine/migrations/900_gate_probe_dup.sql',

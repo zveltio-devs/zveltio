@@ -134,9 +134,9 @@ function slugFor(file: string): string {
 const creators = new Map<string, Creator[]>();
 const add = (table: string, owner: string, file: string): void => {
   const list = creators.get(table) ?? [];
-  // One extension splitting a table across its own migrations is not two
-  // creators — only distinct owners shadow each other.
-  if (!list.some((c) => c.owner === owner)) list.push({ owner, file });
+  // Two CREATEs in one file are one creator; a second file shadows the first
+  // whoever owns it — two engine migrations included.
+  if (!list.some((c) => c.file === file)) list.push({ owner, file });
   creators.set(table, list);
 };
 
@@ -173,7 +173,7 @@ if (REPORT_ONLY) {
 
 if (unexplained.length > 0) {
   console.error(
-    `\n❌ ${unexplained.length} table(s) are created by more than one migration owner.\n` +
+    `\n❌ ${unexplained.length} table(s) are created by more than one migration.\n` +
       `   Whichever runs first wins; the other CREATE is a silent no-op and every\n` +
       `   constraint it declares is never applied.\n`,
   );

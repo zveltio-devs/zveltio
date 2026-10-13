@@ -58,7 +58,6 @@ const localListeners = new Map<string, (...args: unknown[]) => unknown>();
  * corrupts the channel, which ends the runner (the host respawns it).
  */
 const writeChannel = process.stdout.write.bind(process.stdout);
-// Captured before `handleInit` swaps `globalThis.process` for its shim.
 const exit = process.exit.bind(process);
 process.stdout.write = process.stderr.write.bind(process.stderr) as typeof process.stdout.write;
 
@@ -251,16 +250,12 @@ function installFetchGuard(): void {
 
 async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): Promise<void> {
   try {
-    // Convenience only — NOT the boundary. This assignment is reachable through
-    // `globalThis.process`, but `await import('node:process')` bypasses it
-    // entirely, so on its own it kept nothing out. The real restriction is the
-    // process's environment, which the host or the runner sets to NODE_ENV alone,
-    // so DATABASE_URL and the engine secrets never reach it.
-    if (msg.env.NODE_ENV) {
-      (globalThis as { process?: { env?: Record<string, string> } }).process = {
-        env: { NODE_ENV: msg.env.NODE_ENV },
-      };
-    }
+    // NODE_ENV on the real `process`, not a `{ env }` object swapped in for it.
+    // The swap kept nothing out (the host or the runner already gives this
+    // process an environment of NODE_ENV alone, so DATABASE_URL and the engine
+    // secrets never reach it), and it broke Bun: `await import('node:process')`
+    // after it crashed the worker (ProcessNextTick undefined, core dump).
+    if (msg.env.NODE_ENV) process.env.NODE_ENV = msg.env.NODE_ENV;
     installFetchGuard();
     const module = await import(msg.bundleUrl);
     const extension = module.default;

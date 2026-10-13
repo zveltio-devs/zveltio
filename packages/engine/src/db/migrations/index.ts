@@ -1104,6 +1104,10 @@ export async function rollbackMigration(
         } else {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           await (db as any).transaction().execute(async (trx: any) => {
+            // The UP path's timeouts, so a DOWN cannot stall a table's traffic.
+            for (const stmt of migrationTimeoutPreamble()) {
+              await trx.executeQuery({ sql: stmt, parameters: [] });
+            }
             for (const stmt of splitSqlStatements(down)) {
               await trx.executeQuery({ sql: stmt, parameters: [] });
             }
