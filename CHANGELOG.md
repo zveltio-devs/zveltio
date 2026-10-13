@@ -60,6 +60,10 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   `zv_tenants` row (create the tenant or unset the variable), and the fallback
   resolves with that row's status, so a suspended tenant answers 403 instead of
   serving as active. `ZVELTIO_TENANT_NAME` is no longer read (#1101).
+- `zveltio_tenant_reach()` and `zveltio_collection_allows()` pin their
+  `search_path`, so a temporary `zv_tenant_users` or `pg_roles` on a pooled
+  connection can no longer widen a reach or exempt a worker from collection
+  grants (migration 069, #1104).
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,
