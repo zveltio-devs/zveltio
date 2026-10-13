@@ -49,8 +49,12 @@ export class EntityAccessRegistryImpl {
 
   /**
    * Resolve the access decision for one record. Runs every check registered
-   * for the table in registration order; the first `deny` short-circuits.
-   * Returns `allow` if no checks are registered or all return `allow`.
+   * for the table in registration order; the first answer that is not
+   * exactly `allow` short-circuits to `deny`. A check written as
+   * `return record.ownerId === user.id` returns a boolean, and the extensions
+   * repo compiles with strict:false, so its typecheck does not catch it: such
+   * an answer denies rather than allows. Returns `allow` if no checks are
+   * registered or all return `allow`.
    */
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -64,7 +68,7 @@ export class EntityAccessRegistryImpl {
     if (checks.length === 0) return 'allow';
     for (const c of checks) {
       const decision = await c.check(record, user, op);
-      if (decision === 'deny') return 'deny';
+      if (decision !== 'allow') return 'deny';
     }
     return 'allow';
   }

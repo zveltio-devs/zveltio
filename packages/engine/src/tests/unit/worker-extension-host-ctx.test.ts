@@ -231,6 +231,25 @@ describe('worker route error', () => {
   });
 });
 
+describe('worker route path', () => {
+  it('a percent-encoded extension name still strips the /ext/<name> prefix', async () => {
+    const app = new Hono();
+    const host = new WorkerExtensionHost(app);
+    const { managed } = setup();
+    managed.routes = [{ method: 'GET', path: '/x' }];
+    let seen: unknown;
+    managed.worker.postMessage = (msg: HostToWorkerMessage) => {
+      seen = (msg as { path?: unknown }).path;
+      const cb = managed.pendingInvokes.get((msg as { id: string }).id);
+      cb?.({ type: 'route:err', id: (msg as { id: string }).id, error: 'bad', errno: '22P02' });
+    };
+    (host as unknown as { workers: Map<string, unknown> }).workers.set('probe', managed);
+    mountProxy(host, managed as never);
+    await app.request('/ext/%70robe/x');
+    expect(seen).toBe('/x');
+  });
+});
+
 describe('db.transaction() savepoints across extensions', () => {
   const { newRequestTxn, requestSavepoint } = _internalForTests;
   function fakeConn(log: string[]) {

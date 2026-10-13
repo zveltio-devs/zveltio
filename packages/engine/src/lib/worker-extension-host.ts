@@ -973,7 +973,10 @@ export class WorkerExtensionHost {
           const live = this.workers.get(managed.name);
           if (!live) return new Response('Extension worker is not running', { status: 503 });
           const bodyText = await c.req.raw.text().catch(() => '');
-          const subPath = new URL(c.req.raw.url).pathname.replace(`/ext/${live.name}`, '') || '/';
+          // Drop the `/ext/<name>` segments rather than string-replacing the
+          // name: Hono matched a percent-encoded name (`/ext/%70robe/x`), and
+          // a replace left the whole path for the worker to 404 on.
+          const subPath = `/${new URL(c.req.raw.url).pathname.split('/').slice(3).join('/')}`;
           const headers = workerRequestHeaders(
             c.req.raw.headers,
             new Set(forwarded.filter(([re]) => re.test(subPath)).flatMap(([, h]) => h)),

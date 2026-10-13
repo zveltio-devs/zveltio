@@ -26,6 +26,15 @@ describe('EntityAccessRegistryImpl', () => {
     expect(secondCalled).toBe(false);
   });
 
+  it('an answer that is not exactly allow denies', async () => {
+    // A check written as `return record.ownerId === user.id` returns a boolean.
+    registry.registerAs('a', 'zvd_x', (() => true) as any);
+    expect(await registry.checkAccess('zvd_x', {}, {}, 'view')).toBe('deny');
+    registry.clear();
+    registry.registerAs('a', 'zvd_x', (() => undefined) as any);
+    expect(await registry.checkAccess('zvd_x', {}, {}, 'view')).toBe('deny');
+  });
+
   it('all checks must allow for access to be allowed', async () => {
     registry.registerAs('a', 'zvd_x', () => 'allow');
     registry.registerAs('b', 'zvd_x', () => 'allow');

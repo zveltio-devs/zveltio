@@ -385,4 +385,18 @@ d('a preview token reads from the branch schema (in-process)', () => {
     expect(rows.rows.map((r) => r.label)).not.toContain('hijacked');
     await sql`DELETE FROM zv_tenant_users WHERE user_id = ${userId}`.execute(db);
   });
+
+  // Runs last: it spends the token. The SELECT used to filter expired rows
+  // out, so the clearing branch below it never ran and an expired token stayed
+  // in zv_schema_branches for good.
+  it('an expired token is refused and cleared', async () => {
+    await sql`UPDATE zv_schema_branches SET preview_expires_at = NOW() - interval '1 minute'
+              WHERE id = ${branchId}`.execute(db);
+    expect(await labels(member, { 'x-preview-token': token })).toEqual(['main']);
+    const row = await sql<{ preview_enabled: boolean; preview_token: string | null }>`
+      SELECT preview_enabled, preview_token FROM zv_schema_branches WHERE id = ${branchId}`.execute(
+      db,
+    );
+    expect(row.rows[0]).toEqual({ preview_enabled: false, preview_token: null });
+  });
 });
