@@ -39,6 +39,15 @@ function tenantHeader(): Record<string, string> {
   return slug ? { 'x-tenant-slug': slug } : {};
 }
 
+/** A Casbin rule a new collection would take on (`409 existing_rules`). */
+export interface ExistingRule {
+  ptype: string;
+  subject: string;
+  domain: string;
+  object: string;
+  action: string;
+}
+
 class ApiClient {
   private base: string;
 
@@ -71,6 +80,7 @@ class ApiClient {
         resource?: string;
         confidential?: boolean;
         canGrant?: Array<{ name: string }>;
+        rules?: ExistingRule[];
       };
       e.code = err.code;
       e.status = res.status;
@@ -84,6 +94,8 @@ class ApiClient {
         e.confidential = err.confidential;
         e.canGrant = Array.isArray(err.can_grant) ? err.can_grant : [];
       }
+      // A collection create over rules that already name it: they ride in `errors`.
+      if (err.code === 'existing_rules') e.rules = Array.isArray(err.errors) ? err.errors : [];
       throw e;
     }
 

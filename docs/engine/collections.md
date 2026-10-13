@@ -25,6 +25,12 @@ POST /api/collections
 
 The response is `202 Accepted` with a `job_id`. Table creation is async — poll `GET /api/collections/:name` until `status: "ready"`.
 
+If access rules already name the collection — granted before it existed, or
+left by an earlier collection of that name — the create answers `409` with
+`code: "existing_rules"` and the rules in `errors`, and creates nothing. Delete
+them, or repeat the request with `"adopt_rules": true` to keep them on the new
+collection.
+
 ## Field Types
 
 | Type | SQL type | Description | Options |

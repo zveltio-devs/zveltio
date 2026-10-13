@@ -87,6 +87,10 @@ export interface CollectionDefinition {
   isManaged?: boolean;
   isSystem?: boolean;
   schemaLocked?: boolean;
+  /** Create even though access rules already name `name`; without it the
+   *  create throws (`code: 'existing_rules'`) and the rules take effect on
+   *  nothing. With it they take effect on the new collection. */
+  adoptRules?: boolean;
 }
 
 /** A row from `zvd_relations`, as `getRelations` returns it. */

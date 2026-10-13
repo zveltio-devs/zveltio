@@ -50,10 +50,12 @@ d('expand column access (in-process)', () => {
     // Parent has a column the role can't read.
     await DDLManager.createCollection(db, {
       name: PARENT,
+      adoptRules: true,
       fields: [textField('title'), textField('secret')],
     } as never);
     await DDLManager.createCollection(db, {
       name: CHILD,
+      adoptRules: true,
       fields: [
         textField('title'),
         {

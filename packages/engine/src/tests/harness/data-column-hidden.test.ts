@@ -48,6 +48,7 @@ d('data column hidden on read (in-process)', () => {
     }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
+      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'secret', type: 'text', required: false, unique: false, indexed: false },

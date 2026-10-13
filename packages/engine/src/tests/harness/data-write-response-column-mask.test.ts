@@ -56,6 +56,7 @@ d('write responses omit columns the caller may not read', () => {
     }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
+      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'secret', type: 'text', required: false, unique: false, indexed: false },

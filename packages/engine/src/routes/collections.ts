@@ -1,7 +1,13 @@
 import { Hono, type MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
-import { DDLManager, CollectionSchema, FieldSchema, SYSTEM_COLUMNS } from '../lib/data/index.js';
+import {
+  DDLManager,
+  CollectionSchema,
+  ExistingRulesError,
+  FieldSchema,
+  SYSTEM_COLUMNS,
+} from '../lib/data/index.js';
 // requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema DDL — collections are shared across tenants and isolated by RLS, so creating or altering one is an instance-level operation.
 // The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
 // and admitted any delegated tenant admin.
@@ -223,6 +229,10 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: `Collection '${data.name}' already exists` }, 409);
     }
 
+    // Rules already naming it would take effect on it unannounced (A13).
+    const rules = data.adoptRules ? [] : await DDLManager.existingRules(db, [data.name]);
+    if (rules.length > 0) return c.json(new ExistingRulesError(rules).body(), 409);
+
     // Register metadata immediately so GET /:name works without waiting
     // for the DDL job. pg-boss has its own connection pool, so we can't
     // wrap both calls in one Kysely transaction — instead we
@@ -232,7 +242,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     try {
       await DDLManager.registerMetadata(db, data);
       metadataRegistered = true;
-      const jobId = await enqueueDDLJob(db, 'create_collection', data);
+      // Checked above; a rule written from here on is written for the collection,
+      // which already shows in the list (the drop attributes it the same way).
+      const jobId = await enqueueDDLJob(db, 'create_collection', { ...data, adoptRules: true });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       await auditLog(db, {

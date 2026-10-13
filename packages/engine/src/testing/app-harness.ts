@@ -334,6 +334,9 @@ export async function dropTestCollection(db: Database, name: string): Promise<vo
     await sql.raw(`DROP TABLE IF EXISTS "${t}" CASCADE`).execute(db);
   }
   await sql`DELETE FROM zvd_collections WHERE name = ${bare}`.execute(db);
+  // Its grants too (the boot reconcile writes defaults): left behind, a rerun's
+  // create of the same name is refused for adopting them (A13).
+  await sql`DELETE FROM zvd_permissions WHERE ptype = 'p' AND v2 = ${bare}`.execute(db);
 }
 
 /**

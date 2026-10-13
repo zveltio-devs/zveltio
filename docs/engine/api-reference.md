@@ -93,6 +93,15 @@ Create a new collection. Returns `202 Accepted` with a `job_id` — table creati
 | -------- | ------ | -------------------------------------------- |
 | `name`   | string | Collection name in `snake_case` _(required)_ |
 | `fields` | array  | Array of field definitions _(required)_      |
+| `adopt_rules` | boolean | Create even when access rules already name the collection (see below) |
+
+`409 existing_rules` — Casbin rules already name the collection (written
+before it existed, or kept by an earlier drop because they predate it). They
+would take effect on the new collection, so the create is refused and the
+rules are listed in `errors` (`ptype`, `subject`, `domain`, `object`,
+`action`). Delete them, or send the request again with `"adopt_rules": true`.
+Template install, schema-branch merge and `POST /api/admin/schema/apply`
+(`zveltio schema apply --adopt-rules`) refuse and accept the same way.
 
 ```json
 // Request

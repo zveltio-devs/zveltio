@@ -4,7 +4,7 @@ import { page } from '$app/state';
 import { replaceState } from '$app/navigation';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
-import { collectionsApi } from '$lib/api.js';
+import { collectionsApi, type ExistingRule } from '$lib/api.js';
 import { Table, Trash2, Settings, Database, Shield, GitFork, Plus } from '@lucide/svelte';
 import { base } from '$app/paths';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
@@ -19,6 +19,9 @@ let creating = $state(false);
 let newCollectionName = $state('');
 let nameError = $state('');
 let showCreateModal = $state(false);
+// Rules that already name the collection being created (409 existing_rules):
+// shown so the admin adopts them knowingly, or goes and deletes them.
+let existingRules = $state<ExistingRule[]>([]);
 
 // `?new=1` opens the create dialog.
 //
@@ -172,7 +175,8 @@ function validateName(name: string): string {
   return '';
 }
 
-async function createCollection() {
+async function createCollection(adoptRules = false) {
+  existingRules = [];
   nameError = validateName(newCollectionName.trim());
   if (nameError) return;
   if (newFields.some((f) => !f.name.trim())) {
@@ -210,7 +214,11 @@ async function createCollection() {
       if (Object.keys(options).length > 0) body.options = options;
       return body;
     });
-    await collectionsApi.create({ name: newCollectionName.trim(), fields: payloadFields });
+    await collectionsApi.create({
+      name: newCollectionName.trim(),
+      fields: payloadFields,
+      ...(adoptRules ? { adopt_rules: true } : {}),
+    });
     showCreateModal = false;
     newCollectionName = '';
     newFields = [{ name: '', type: 'text', required: false }];
@@ -218,7 +226,8 @@ async function createCollection() {
     await loadCollections();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
-    nameError = err?.message ?? m['collections.createFailed']();
+    if (err?.code === 'existing_rules') existingRules = err.rules ?? [];
+    else nameError = err?.message ?? m['collections.createFailed']();
   } finally {
     creating = false;
   }
@@ -479,7 +488,7 @@ function clearTemplate() {
 
 <!-- Create Modal -->
 {#if showCreateModal}
-  <Modal bind:open={showCreateModal} title={m['dashboard.newCollection']()} size="lg" onSubmit={createCollection}>
+  <Modal bind:open={showCreateModal} title={m['dashboard.newCollection']()} size="lg" onSubmit={() => createCollection()}>
 
       <!-- Template picker -->
       <div class="mb-5">
@@ -521,7 +530,7 @@ function clearTemplate() {
           id="col-name"
           type="text"
           bind:value={newCollectionName}
-          oninput={() => { nameError = validateName(newCollectionName.trim()); }}
+          oninput={() => { nameError = validateName(newCollectionName.trim()); existingRules = []; }}
           placeholder={m['collections.namePlaceholder']()}
           class="input {nameError ? 'input-error' : ''}"
           pattern="[a-z][a-z0-9_]*"
@@ -600,8 +609,23 @@ function clearTemplate() {
         {/each}
       </div>
 
+      {#if existingRules.length > 0}
+        <div role="alert" class="alert alert-warning flex-col items-start gap-2 mb-4" data-testid="existing-rules">
+          <p class="font-medium text-sm">{m['collections.existingRules.title']()}</p>
+          <p class="text-xs">{m['collections.existingRules.body']()}</p>
+          <ul class="text-xs font-mono list-disc ps-5">
+            {#each existingRules as r}
+              <li>{m['collections.existingRules.rule']({ subject: r.subject, action: r.action, domain: r.domain })}</li>
+            {/each}
+          </ul>
+          <button type="button" class="btn btn-warning btn-sm" disabled={creating} onclick={() => createCollection(true)}>
+            {m['collections.existingRules.adopt']()}
+          </button>
+        </div>
+      {/if}
+
       <div class="modal-action">
-        <button type="button" class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; }}>{m['common.cancel']()}</button>
+        <button type="button" class="btn btn-ghost" onclick={() => { showCreateModal = false; nameError = ''; existingRules = []; }}>{m['common.cancel']()}</button>
         <button type="submit" class="btn btn-primary" disabled={creating || !!nameError}>
           {#if creating}<span class="loading loading-spinner loading-sm"></span>{/if}
           {m['collections.create']()}

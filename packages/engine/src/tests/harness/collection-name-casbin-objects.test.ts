@@ -137,7 +137,12 @@ d('collection names and the Casbin objects that are not collections', () => {
     const e = await getEnforcer();
     await e.addPolicy(ROLE, '*', obj, 'write');
     try {
-      await DDLManager.createCollection(db, { name: obj, fields: FIELDS } as never);
+      // The `write` grant predates it: adopted, as a create over it must be (A13).
+      await DDLManager.createCollection(db, {
+        name: obj,
+        fields: FIELDS,
+        adoptRules: true,
+      } as never);
       await e.addPolicy(ROLE, '*', obj, 'read');
 
       await DDLManager.dropCollection(db, obj);

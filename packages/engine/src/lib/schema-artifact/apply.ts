@@ -116,7 +116,12 @@ function parsed<T>(
 }
 
 /** Validates one op before anything runs, and returns it in the shape the engine takes. */
-async function prepare(db: Database, step: PlanStep, op: ApplyOp): Promise<Prepared> {
+async function prepare(
+  db: Database,
+  step: PlanStep,
+  op: ApplyOp,
+  adoptRules: boolean,
+): Promise<Prepared> {
   const target = `${step.target} ${step.action}`;
   switch (op.kind) {
     case 'createCollection': {
@@ -134,7 +139,10 @@ async function prepare(db: Database, step: PlanStep, op: ApplyOp): Promise<Prepa
           `${target}: a collection or table named ${definition.name} exists outside the schema files`,
         );
       }
-      return { ...op, definition };
+      // The request decides, not the file: rules naming it would take effect
+      // on it (A13). Checked here, before any step runs.
+      await DDLManager.refuseExistingRules(db, [definition.name], adoptRules);
+      return { ...op, definition: { ...definition, adoptRules: true } };
     }
     case 'addField': {
       const field = parsed(target, FieldSchema.safeParse(op.field));
@@ -530,14 +538,16 @@ async function run(db: Database, op: Prepared, userId: string | undefined): Prom
 
 /**
  * Makes the instance match `files` and returns the steps it ran. Throws
- * `SchemaFileError` for a malformed or invalid file and `SchemaApplyRefused`
- * for a plan with a step it cannot run; in both cases nothing is changed.
+ * `SchemaFileError` for a malformed or invalid file, `SchemaApplyRefused`
+ * for a plan with a step it cannot run and `ExistingRulesError` for a new
+ * collection rules already name (unless `adoptRules`); in each case nothing is
+ * changed.
  */
 export async function applySchema(
   db: Database,
   files: Record<string, unknown>,
   userId: string | undefined,
-  opts: { allowDestructive?: boolean } = {},
+  opts: { allowDestructive?: boolean; adoptRules?: boolean } = {},
 ): Promise<PlanStep[]> {
   return withAdvisoryLock(db, 'zveltio:schema-apply', async () => {
     const steps = planSchema(await exportSchema(db), files, await appliedMigrations(db));
@@ -551,7 +561,9 @@ export async function applySchema(
     }
 
     const ops: Prepared[] = [];
-    for (const step of steps) ops.push(await prepare(db, step, step.op as ApplyOp));
+    for (const step of steps) {
+      ops.push(await prepare(db, step, step.op as ApplyOp, opts.adoptRules === true));
+    }
     // Not one transaction: CREATE INDEX CONCURRENTLY refuses a transaction
     // block. A step that fails leaves the ones before it applied; the next
     // apply plans from what is there and carries on from that step.
