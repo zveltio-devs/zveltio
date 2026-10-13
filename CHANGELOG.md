@@ -9,6 +9,15 @@ All notable changes to Zveltio will be documented in this file.
 history and runs only what is newer. A rollback below the baseline is refused
 with the reason: it would mean an empty database, so restore a backup instead.
 
+**Breaking: the identity tables are under RLS and name their tenant.**
+`zv_api_keys`, `zv_invitations`, `zv_media_shares` and `zv_tenant_users` get
+row-level security (migration 065): reads see the visible tenants, writes reach
+only the current one. `tenant_id` is NOT NULL with no root-tenant fallback, so
+an insert that names no tenant fails (23502) instead of creating a root key or
+share. Extensions or scripts that insert into these tables must set the tenant;
+a public share link resolves its tenant through `zveltio_media_share_tenant()`
+(storage/cloud 1.1.7) (#1091).
+
 **Extensions: `ctx.db` refuses the pool for a tenant with no transaction**
 (#1075). An extension query that would have run on the raw pool as the engine's
 role, outside any tenant, now fails instead of seeing every tenant's rows.
