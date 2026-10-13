@@ -283,6 +283,10 @@ describe('RLS policy CRUD', () => {
 
   it('updateRlsPolicy COALESCEs partial updates and returns null on miss', async () => {
     const db = setup();
+    // The row is read (and locked) first; a miss there answers null.
+    db.when(/FROM zvd_rls_policies WHERE id = \$1 FOR UPDATE/i, (q) =>
+      q.parameters[0] === 'p1' ? [policy()] : [],
+    );
     db.when(/UPDATE zvd_rls_policies/i, (q) =>
       q.parameters.includes('p1') ? [policy({ role: 'viewer' })] : [],
     );

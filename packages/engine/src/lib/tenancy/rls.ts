@@ -527,13 +527,16 @@ export class UnenforceableRuleError extends Error {
  * A collection with no table yet, or `*`, cannot be checked and is allowed —
  * refusing on absence would block a rule written before its collection exists.
  */
-async function assertEnforceable(data: {
-  collection?: string;
-  role?: string;
-  filter_field?: string;
-  filter_op?: string;
-  filter_value_source?: string;
-}): Promise<void> {
+async function assertEnforceable(
+  data: {
+    collection?: string;
+    role?: string;
+    filter_field?: string;
+    filter_op?: string;
+    filter_value_source?: string;
+  },
+  db: Database = rlsDb(),
+): Promise<void> {
   const { collection, filter_field, filter_op, filter_value_source, role } = data;
   const { describeRuleProblem, emptyStaticList } = await import('./row-rule-policy.js');
   // Before the early returns: it needs no table, and a `*` rule is the one
@@ -547,7 +550,7 @@ async function assertEnforceable(data: {
   const cols = await sql<{ column_name: string; data_type: string }>`
     SELECT column_name, data_type FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = ${table}
-  `.execute(rlsDb());
+  `.execute(db);
   if (cols.rows.length === 0) return;
 
   const types: Record<string, string> = {};
@@ -587,45 +590,58 @@ export async function updateRlsPolicy(
   id: string,
   data: Partial<Omit<RlsPolicy, 'id'>>,
 ): Promise<RlsPolicy | null> {
-  // The rule as it will be after the update, through the same door as a create.
-  // PATCH used to skip it, so any rule `createRlsPolicy` refuses could be
-  // stored in two steps.
-  const current = await sql<RlsPolicy>`
-    SELECT collection, role, filter_field, filter_op, filter_value_source
-      FROM zvd_rls_policies WHERE id = ${id}
-  `.execute(rlsDb());
-  const cur = current.rows[0];
-  if (cur) {
-    await assertEnforceable({
-      collection: data.collection ?? cur.collection,
-      role: data.role ?? cur.role,
-      filter_field: data.filter_field ?? cur.filter_field,
-      filter_op: data.filter_op ?? cur.filter_op,
-      filter_value_source: data.filter_value_source ?? cur.filter_value_source,
-    });
-  }
-  const rows = await sql<RlsPolicy>`
-    UPDATE zvd_rls_policies
-    SET
-      collection          = COALESCE(${data.collection ?? null}, collection),
-      role                = COALESCE(${data.role ?? null}, role),
-      filter_field        = COALESCE(${data.filter_field ?? null}, filter_field),
-      filter_op           = COALESCE(${data.filter_op ?? null}, filter_op),
-      filter_value_source = COALESCE(${data.filter_value_source ?? null}, filter_value_source),
-      is_enabled          = COALESCE(${data.is_enabled ?? null}, is_enabled),
-      description         = COALESCE(${data.description ?? null}, description),
-      updated_at          = NOW()
-    WHERE id = ${id}
-    RETURNING id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description
-  `.execute(_db);
-  const next = rows.rows[0];
-  if (next) {
-    await invalidateRlsCache(next.collection);
-    // A rule moved to another collection leaves one too, and that one has to
-    // stop enforcing it.
-    if (cur && cur.collection !== next.collection) await invalidateRlsCache(cur.collection);
-  }
-  return next ?? null;
+  // Read, checked and written in one transaction, the row locked from the read.
+  //
+  // The read was a statement of its own, so a move that committed between it
+  // and the UPDATE was invisible: the collection this rebuilt as "left" was the
+  // one before that move, and the one the rule was really leaving kept a
+  // policy built from it. `FOR UPDATE` waits for that move and then reads past
+  // it; the check below is then on the rule as it will be stored, too.
+  const moved = await _db.transaction().execute(async (trx) => {
+    const cur = (
+      await sql<RlsPolicy>`
+        SELECT collection, role, filter_field, filter_op, filter_value_source
+          FROM zvd_rls_policies WHERE id = ${id} FOR UPDATE
+      `.execute(trx)
+    ).rows[0];
+    if (!cur) return null;
+    // The rule as it will be after the update, through the same door as a create.
+    // PATCH used to skip it, so any rule `createRlsPolicy` refuses could be
+    // stored in two steps.
+    await assertEnforceable(
+      {
+        collection: data.collection ?? cur.collection,
+        role: data.role ?? cur.role,
+        filter_field: data.filter_field ?? cur.filter_field,
+        filter_op: data.filter_op ?? cur.filter_op,
+        filter_value_source: data.filter_value_source ?? cur.filter_value_source,
+      },
+      trx,
+    );
+    const next = (
+      await sql<RlsPolicy>`
+        UPDATE zvd_rls_policies
+        SET
+          collection          = COALESCE(${data.collection ?? null}, collection),
+          role                = COALESCE(${data.role ?? null}, role),
+          filter_field        = COALESCE(${data.filter_field ?? null}, filter_field),
+          filter_op           = COALESCE(${data.filter_op ?? null}, filter_op),
+          filter_value_source = COALESCE(${data.filter_value_source ?? null}, filter_value_source),
+          is_enabled          = COALESCE(${data.is_enabled ?? null}, is_enabled),
+          description         = COALESCE(${data.description ?? null}, description),
+          updated_at          = NOW()
+        WHERE id = ${id}
+        RETURNING id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description
+      `.execute(trx)
+    ).rows[0];
+    return next ? { next, previous: cur.collection } : null;
+  });
+  if (!moved) return null;
+  await invalidateRlsCache(moved.next.collection);
+  // A rule moved to another collection leaves one too, and that one has to
+  // stop enforcing it.
+  if (moved.previous !== moved.next.collection) await invalidateRlsCache(moved.previous);
+  return moved.next;
 }
 
 export async function deleteRlsPolicy(id: string): Promise<boolean> {
