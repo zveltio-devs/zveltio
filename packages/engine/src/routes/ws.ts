@@ -581,7 +581,9 @@ export const websocketHandler = {
             }
             ws.send(JSON.stringify({ type: 'subscribed', collections: allowed, denied }));
           } else if (typeof msg.channel === 'string') {
-            if (msg.channel === '*') {
+            // `*:insert` too: it passed a god's permission check and was stored,
+            // but fan-out matches channels by collection, so it never delivered.
+            if (msg.channel.split(':')[0] === '*') {
               ws.send(
                 JSON.stringify({
                   type: 'error',
