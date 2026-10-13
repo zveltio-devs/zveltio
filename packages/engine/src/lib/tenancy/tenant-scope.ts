@@ -34,6 +34,17 @@ export function activeMembership(table = 'zv_tenant_users'): RawBuilder<boolean>
 }
 
 /**
+ * `userId`'s membership rows in EVERY tenant, as a FROM item aliased `tu`
+ * (`tenant_id`, `role`, `valid_from`, `valid_to`). Inside a tenant transaction
+ * `zv_tenant_users` shows only the request's tenants (migration 065), so an
+ * account's standing elsewhere — admin of another firm, still a member anywhere —
+ * read straight from the table answered "no" and let the caller act on it.
+ */
+export function membershipsOf(userId: string): RawBuilder<unknown> {
+  return sql`zveltio_user_memberships(${userId}) AS tu`;
+}
+
+/**
  * Published when a user's assignments have all expired.
  *
  * An empty GUC cannot mean "sees nothing": `NULLIF(guc, '')` reads a blank
@@ -116,8 +127,9 @@ export function scopeFromRow(row: ScopeRow): TenantScope {
  * query into its `set_config` instead of calling this.
  *
  * Runs as the engine's own role, before a transaction drops to `zveltio_rls`.
- * `zv_tenant_users` deliberately carries no policy — it answers "which units am
- * I in?", a question asked before a unit is chosen — but the recursive walks
+ * `zv_tenant_users` answers "which units am I in?", a question asked before a
+ * unit is chosen, so its policy lets the engine's own role read every row while
+ * no tenant is set (migration 065) — but the recursive walks
  * read `zv_tenants`, and depending on grants held by the restricted role would
  * make the reach silently narrow on an install where migration 030 never ran.
  */

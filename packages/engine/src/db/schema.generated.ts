@@ -200,7 +200,7 @@ export interface ZvApiKeysTable {
   casbin_subject: Generated<string | null>;
   request_count: Generated<number>;
   last_ip: Generated<string | null>;
-  tenant_id: string | null;
+  tenant_id: string;
   rls_bypass: Generated<boolean>;
 }
 
@@ -1538,7 +1538,7 @@ export interface ZvMediaSharesTable {
   created_by: string;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
-  tenant_id: string | null;
+  tenant_id: string;
 }
 
 export interface ZvMediaTagsTable {

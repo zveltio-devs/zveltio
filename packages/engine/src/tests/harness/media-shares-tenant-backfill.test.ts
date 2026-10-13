@@ -57,11 +57,11 @@ d('media shares carry the firm of what they share', () => {
                 ${kind === 'folder' ? item.rows[0]!.id : null}::uuid,
                 ${`${STAMP}-${tenant}-${kind}`}, ${STAMP}, NULL)`.execute(db);
     };
+    // Below 065 first: since then the column refuses NULL.
+    await rollbackMigration(db, 30, { ignoreBaseline: true });
     await share(ROOT, 'file');
     await share(ROOT, 'folder');
     await share(OTHER, 'file');
-
-    await rollbackMigration(db, 30, { ignoreBaseline: true });
     await runPending(db);
 
     const rows = await sql<{ token: string; tenant_id: string | null }>`

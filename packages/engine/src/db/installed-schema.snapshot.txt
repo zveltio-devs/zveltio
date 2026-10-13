@@ -510,11 +510,16 @@ table zv_api_keys
   col request_count                  bigint NOT NULL DEFAULT 0
   col rls_bypass                     boolean NOT NULL DEFAULT false
   col scopes                         jsonb NOT NULL DEFAULT '[]'::jsonb
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid
   fk  zv_api_keys_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   uq  zv_api_keys_key_hash_key UNIQUE (key_hash)
   ck  zv_api_keys_permissions_mode_check CHECK ((permissions_mode = ANY (ARRAY['scoped'::text, 'casbin'::text, 'god'::text])))
   pk  zv_api_keys_pkey PRIMARY KEY (id)
+  rls enabled forced
+  pol zv_api_keys_tenant_delete FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_api_keys'::regclass) AS zveltio_engine_outside_tenant)) CHECK -
+  pol zv_api_keys_tenant_insert FOR a USING - CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_api_keys'::regclass) AS zveltio_engine_outside_tenant))
+  pol zv_api_keys_tenant_select FOR r USING ((tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) OR ( SELECT zveltio_engine_outside_tenant('zv_api_keys'::regclass) AS zveltio_engine_outside_tenant) OR (('apikey:'::text || (id)::text) = ( SELECT current_setting('zveltio.user_id'::text, true) AS current_setting))) CHECK -
+  pol zv_api_keys_tenant_update FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_api_keys'::regclass) AS zveltio_engine_outside_tenant)) CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_api_keys'::regclass) AS zveltio_engine_outside_tenant))
 
 table zv_approval_decisions
   col comment                        text
@@ -1744,12 +1749,17 @@ table zv_invitations
   col invited_by                     text
   col name                           text
   col role                           text NOT NULL DEFAULT 'member'::text
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid
   col token                          text NOT NULL
   fk  zv_invitations_accepted_by_fkey FOREIGN KEY (accepted_by) REFERENCES "user"(id) ON DELETE SET NULL
   fk  zv_invitations_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_invitations_pkey PRIMARY KEY (id)
   uq  zv_invitations_token_key UNIQUE (token)
+  rls enabled forced
+  pol zv_invitations_tenant_delete FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_invitations'::regclass) AS zveltio_engine_outside_tenant)) CHECK -
+  pol zv_invitations_tenant_insert FOR a USING - CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_invitations'::regclass) AS zveltio_engine_outside_tenant))
+  pol zv_invitations_tenant_select FOR r USING ((tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) OR ( SELECT zveltio_engine_outside_tenant('zv_invitations'::regclass) AS zveltio_engine_outside_tenant)) CHECK -
+  pol zv_invitations_tenant_update FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_invitations'::regclass) AS zveltio_engine_outside_tenant)) CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_invitations'::regclass) AS zveltio_engine_outside_tenant))
 
 table zv_license_audit
   col action                         text NOT NULL
@@ -2154,7 +2164,7 @@ table zv_media_shares
   col max_downloads                  integer
   col password_hash                  text
   col share_type                     text NOT NULL DEFAULT 'view'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid
   col token                          text NOT NULL
   ck  zv_media_shares_check CHECK (((file_id IS NOT NULL) OR (folder_id IS NOT NULL)))
   fk  zv_media_shares_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE CASCADE
@@ -2163,6 +2173,11 @@ table zv_media_shares
   pk  zv_media_shares_pkey PRIMARY KEY (id)
   ck  zv_media_shares_share_type_check CHECK ((share_type = ANY (ARRAY['view'::text, 'download'::text, 'edit'::text])))
   uq  zv_media_shares_token_key UNIQUE (token)
+  rls enabled forced
+  pol zv_media_shares_tenant_delete FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_media_shares'::regclass) AS zveltio_engine_outside_tenant)) CHECK -
+  pol zv_media_shares_tenant_insert FOR a USING - CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_media_shares'::regclass) AS zveltio_engine_outside_tenant))
+  pol zv_media_shares_tenant_select FOR r USING ((tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) OR ( SELECT zveltio_engine_outside_tenant('zv_media_shares'::regclass) AS zveltio_engine_outside_tenant)) CHECK -
+  pol zv_media_shares_tenant_update FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_media_shares'::regclass) AS zveltio_engine_outside_tenant)) CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_media_shares'::regclass) AS zveltio_engine_outside_tenant))
 
 table zv_media_tags
   col color                          text
@@ -3150,6 +3165,11 @@ table zv_tenant_users
   fk  zv_tenant_users_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES zv_tenants(id) ON DELETE CASCADE
   uq  zv_tenant_users_tenant_id_user_id_key UNIQUE (tenant_id, user_id)
   fk  zv_tenant_users_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
+  rls enabled forced
+  pol zv_tenant_users_tenant_delete FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_tenant_users'::regclass) AS zveltio_engine_outside_tenant)) CHECK -
+  pol zv_tenant_users_tenant_insert FOR a USING - CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_tenant_users'::regclass) AS zveltio_engine_outside_tenant))
+  pol zv_tenant_users_tenant_select FOR r USING ((tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) OR ( SELECT zveltio_engine_outside_tenant('zv_tenant_users'::regclass) AS zveltio_engine_outside_tenant)) CHECK -
+  pol zv_tenant_users_tenant_update FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_tenant_users'::regclass) AS zveltio_engine_outside_tenant)) CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_tenant_users'::regclass) AS zveltio_engine_outside_tenant))
 
 table zv_tenants
   col closed_at                      timestamp with time zone

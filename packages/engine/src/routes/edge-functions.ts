@@ -76,8 +76,9 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       if (rawKey) {
         // Shared with the data API rather than re-implemented. The local copy
         // checked the hash, `is_active` and expiry but not `tenant_id`, and
-        // `zv_api_keys` is route-scoped rather than RLS-protected (the guard
-        // has to run before a tenant is known), so `reqDb` filtered nothing:
+        // `zv_api_keys` was route-scoped rather than RLS-protected (the guard
+        // has to run before a tenant is known; 065 polices it now), so `reqDb`
+        // filtered nothing:
         // tenant A's key authenticated here and the lookup below then served
         // tenant B's function.
         // The prefetch looked this key up already.

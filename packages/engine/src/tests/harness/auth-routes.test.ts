@@ -9,7 +9,11 @@ import { hashInvitationToken } from '../../lib/security/index.js';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/index.js';
+import {
+  DEFAULT_TENANT_ID,
+  getEnforcer,
+  invalidateUserPermCache,
+} from '../../lib/tenancy/index.js';
 import {
   createGodSession,
   createMemberSession,
@@ -42,18 +46,21 @@ d('auth + invitation routes (in-process)', () => {
           role: 'member',
           token: hashInvitationToken(VALID_TOKEN),
           expires_at: new Date(Date.now() + hour),
+          tenant_id: DEFAULT_TENANT_ID,
         },
         {
           email: `expired-${STAMP}@test.invalid`,
           role: 'member',
           token: hashInvitationToken(EXPIRED_TOKEN),
           expires_at: new Date(Date.now() - hour),
+          tenant_id: DEFAULT_TENANT_ID,
         },
         {
           email: `used-${STAMP}@test.invalid`,
           role: 'member',
           token: hashInvitationToken(USED_TOKEN),
           expires_at: new Date(Date.now() + hour),
+          tenant_id: DEFAULT_TENANT_ID,
           accepted_at: new Date(),
         },
         {
@@ -62,6 +69,7 @@ d('auth + invitation routes (in-process)', () => {
           role: 'member',
           token: hashInvitationToken(ACCEPT_TOKEN),
           expires_at: new Date(Date.now() + hour),
+          tenant_id: DEFAULT_TENANT_ID,
         },
       ] as never)
       .execute();

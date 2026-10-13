@@ -86,10 +86,12 @@ d('write responses omit columns the caller may not read', () => {
       .execute();
     await invalidateColumnPermCache(COLLECTION);
     await sql`
-      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, created_by)
+      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, created_by, tenant_id)
       VALUES (${`hwrm-${Date.now()}`}, ${await hashApiKey(KEY)}, ${KEY.slice(0, 12)},
               ${JSON.stringify([{ collection: COLLECTION, actions: ['read', 'write'] }])}::jsonb,
-              true, ${await createKeyCreator(db)})`.execute(db);
+              true, ${await createKeyCreator(db)}, '00000000-0000-0000-0000-000000000001'::uuid)`.execute(
+      db,
+    );
 
     const created = await send(god, 'POST', '', { title: 'seed', secret: SECRET });
     expect(created.status).toBe(201);

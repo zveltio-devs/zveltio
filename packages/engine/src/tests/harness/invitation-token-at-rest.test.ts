@@ -89,8 +89,8 @@ d('invitation token at rest', () => {
       .transaction()
       .execute(async (trx) => {
         const ins = await sql<{ id: string }>`
-          INSERT INTO zv_invitations (email, role, token, expires_at)
-          VALUES (${email}, 'member', ${plain}, NOW() + INTERVAL '1 day')
+          INSERT INTO zv_invitations (email, role, token, expires_at, tenant_id)
+          VALUES (${email}, 'member', ${plain}, NOW() + INTERVAL '1 day', '00000000-0000-0000-0000-000000000001'::uuid)
           RETURNING id::text
         `.execute(trx);
         await sql`

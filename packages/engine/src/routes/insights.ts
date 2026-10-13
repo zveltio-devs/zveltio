@@ -11,7 +11,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 // requireInstanceAdmin for anything that stores or runs SQL: panels and saved
 // queries execute raw text against the global pool, outside the caller's tenant
-// transaction, and the auth tables (user/session/zv_api_keys) carry no RLS. The
+// transaction, and the auth tables (user/session) carry no RLS. The
 // old checkPermission(uid,'admin','*') admitted any tenant_admin, whose Casbin
 // policy is ('*','*','*'), turning a delegated role into a read of every
 // tenant's data. checkPermission is kept below for canReadDashboard's share

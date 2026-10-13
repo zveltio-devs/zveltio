@@ -74,6 +74,7 @@ import m055 from './sql/061_edge_egress_column.sql' with { type: 'text' };
 import m056 from './baseline/062_ga_baseline.sql' with { type: 'text' };
 import m057 from './sql/063_invitations_tenant_not_null.sql' with { type: 'text' };
 import m058 from './sql/064_drop_duplicate_indexes.sql' with { type: 'text' };
+import m059 from './sql/065_identity_tables_rls.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -136,4 +137,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '062_ga_baseline.sql': m056,
   '063_invitations_tenant_not_null.sql': m057,
   '064_drop_duplicate_indexes.sql': m058,
+  '065_identity_tables_rls.sql': m059,
 };

@@ -24,6 +24,7 @@ import {
   invalidateUserPermCache,
   isGodUser,
   isMemberBaseline,
+  membershipsOf,
   onAfterCommit,
   requireInstanceAdmin,
   withEveryTenant,
@@ -101,9 +102,9 @@ export async function deleteUser(
   // Their API keys stop too. The FK only sets `created_by` NULL, which left a
   // deleted user's keys working while a deactivated user's were refused.
   // Revoked, not deleted: the access log cascades with the key row, and it is
-  // the record an offboarding is audited against.
-  await sql`UPDATE zv_api_keys SET is_active = false
-             WHERE created_by = ${userId} AND is_active`.execute(db);
+  // the record an offboarding is audited against. In every tenant: under 065's
+  // policy a plain UPDATE here reached only the request's own.
+  await sql`SELECT zveltio_revoke_user_api_keys(${userId})`.execute(db);
 
   await sql`DELETE FROM "user" WHERE id = ${userId}`.execute(db);
 
@@ -162,9 +163,7 @@ export async function deleteTenantlessUsers(
     // ANY row, lapsed included — deliberately not `activeMembership`. An expired
     // membership is the other tenant's history, and deleting the account would
     // cascade it away; a purge of one tenant must not edit another's records.
-    const member = await sql`SELECT 1 FROM zv_tenant_users WHERE user_id = ${id} LIMIT 1`.execute(
-      trx,
-    );
+    const member = await sql`SELECT 1 FROM ${membershipsOf(id)} LIMIT 1`.execute(trx);
     if (member.rows.length) return 'other_tenant';
     const roles = (await e.getFilteredGroupingPolicy(0, id)).filter(
       (r) => r[2] !== tenant.id && !isMemberBaseline(r),

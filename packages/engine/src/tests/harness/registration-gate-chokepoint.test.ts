@@ -44,8 +44,9 @@ d('registration gate is enforced at user creation', () => {
     process.env.ZVELTIO_REGISTRATION_ENABLED = '0';
 
     await sql`
-      INSERT INTO zv_invitations (email, name, role, token, expires_at)
-      VALUES (${INVITED}, 'Invited', 'member', ${hashInvitationToken(TOKEN)}, NOW() + INTERVAL '7 days')
+      INSERT INTO zv_invitations (email, name, role, token, expires_at, tenant_id)
+      VALUES (${INVITED}, 'Invited', 'member', ${hashInvitationToken(TOKEN)}, NOW() + INTERVAL '7 days',
+              '00000000-0000-0000-0000-000000000001'::uuid)
     `.execute(db);
   });
 
