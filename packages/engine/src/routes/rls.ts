@@ -78,7 +78,7 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
   });
 
   // PATCH /api/admin/rls/:id — update policy
-  app.patch('/:id', zValidator('json', PolicySchema.partial()), async (c) => {
+  app.patch('/:id{[0-9a-fA-F-]{36}}', zValidator('json', PolicySchema.partial()), async (c) => {
     const user = await guardAdmin(c, auth, requireInstanceAdmin);
     if (user instanceof Response) return user;
 
@@ -95,7 +95,7 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
   });
 
   // DELETE /api/admin/rls/:id — delete policy
-  app.delete('/:id', async (c) => {
+  app.delete('/:id{[0-9a-fA-F-]{36}}', async (c) => {
     const user = await guardAdmin(c, auth, requireInstanceAdmin);
     if (user instanceof Response) return user;
 

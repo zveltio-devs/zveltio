@@ -581,7 +581,7 @@ export async function createRlsPolicy(data: {
       ${data.is_enabled ?? true}, ${data.description ?? null}
     )
     RETURNING id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description
-  `.execute(_db);
+  `.execute(rlsDb());
   await invalidateRlsCache(data.collection);
   return rows.rows[0];
 }
@@ -597,7 +597,11 @@ export async function updateRlsPolicy(
   // one before that move, and the one the rule was really leaving kept a
   // policy built from it. `FOR UPDATE` waits for that move and then reads past
   // it; the check below is then on the rule as it will be stored, too.
-  const moved = await _db.transaction().execute(async (trx) => {
+  //
+  // On the request's transaction when there is one, like every helper here: the
+  // pool is a second connection held under it. The policy DDL is not in it —
+  // `invalidateRlsCache` defers that past the commit.
+  const write = async (trx: Database) => {
     const cur = (
       await sql<RlsPolicy>`
         SELECT collection, role, filter_field, filter_op, filter_value_source
@@ -635,7 +639,9 @@ export async function updateRlsPolicy(
       `.execute(trx)
     ).rows[0];
     return next ? { next, previous: cur.collection } : null;
-  });
+  };
+  const requestTrx = getCurrentTenantTrx();
+  const moved = requestTrx ? await write(requestTrx) : await _db.transaction().execute(write);
   if (!moved) return null;
   await invalidateRlsCache(moved.next.collection);
   // A rule moved to another collection leaves one too, and that one has to
@@ -647,7 +653,7 @@ export async function updateRlsPolicy(
 export async function deleteRlsPolicy(id: string): Promise<boolean> {
   const rows = await sql<{ collection: string }>`
     DELETE FROM zvd_rls_policies WHERE id = ${id} RETURNING collection
-  `.execute(_db);
+  `.execute(rlsDb());
   if (rows.rows[0]) await invalidateRlsCache(rows.rows[0].collection);
   return rows.rows.length > 0;
 }

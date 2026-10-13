@@ -449,6 +449,24 @@ export async function applyRowRulePolicy(
   `.execute(db);
   if (exists.rows[0]?.n === '0') return { applied: false, skipped: [] };
 
+  // One transaction, the table locked BEFORE the rules are read. Separate
+  // autocommit statements let two refreshes interleave so the one that read the
+  // older rules wrote last, and left the table with no policy between DROP and
+  // CREATE. ACCESS EXCLUSIVE is what DROP POLICY takes anyway; taken first, no
+  // lock is upgraded mid-way, which a weaker lock would deadlock on against a
+  // reader that then writes.
+  const rebuild = (h: Database) => rebuildRowRulePolicy(h, collection, table, safe);
+  if ((db as unknown as { isTransaction?: boolean }).isTransaction) return rebuild(db);
+  return db.transaction().execute(rebuild);
+}
+
+async function rebuildRowRulePolicy(
+  db: Database,
+  collection: string,
+  table: string,
+  safe: string,
+): Promise<{ applied: boolean; skipped: GeneratedPolicy['skipped'] }> {
+  await sql.raw(`LOCK TABLE ${safe} IN ACCESS EXCLUSIVE MODE`).execute(db);
   const types = await columnTypes(db, table);
   const rules = await sql<RowRule>`
     SELECT role, filter_field, filter_op, filter_value_source
