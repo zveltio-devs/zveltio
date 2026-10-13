@@ -505,21 +505,25 @@ export async function applyRowRulePolicy(
  * protects the ones nobody has data in yet.
  */
 export async function reconcileRowRulePolicies(db: Database): Promise<number> {
-  // And every collection still carrying the policy: a deleted, disabled or
-  // moved `*` rule leaves collections with no rule at all, and those are exactly
-  // the ones that must drop it.
+  // And every table still carrying the policy: a deleted, disabled or moved
+  // `*` rule leaves tables with no rule at all, and those are exactly the ones
+  // that must drop it.
+  //
+  // Tables are read off the rules and the policies themselves, not only through
+  // `zvd_collections`. `applyRowRulePolicy` puts a policy on any `zvd_` table a
+  // rule names, registered or not, and that policy carries the `*` rules too —
+  // so a table with no `zvd_collections` row kept a moved or deleted `*` rule
+  // for good when this listed only registered ones.
   const rows = await sql<{ name: string }>`
-    SELECT DISTINCT c.name
-      FROM zvd_collections c
-     WHERE EXISTS (
-       SELECT 1 FROM zvd_rls_policies p
-        WHERE p.is_enabled AND (p.collection = c.name OR p.collection = '*')
-     )
-        OR EXISTS (
-          SELECT 1 FROM pg_policies pp
-           WHERE pp.schemaname = 'public' AND pp.tablename = 'zvd_' || c.name
-             AND pp.policyname = ${ROW_RULE_POLICY}
-        )
+    SELECT p.collection AS name FROM zvd_rls_policies p
+     WHERE p.is_enabled AND p.collection <> '*'
+    UNION
+    SELECT c.name FROM zvd_collections c
+     WHERE EXISTS (SELECT 1 FROM zvd_rls_policies p WHERE p.is_enabled AND p.collection = '*')
+    UNION
+    SELECT substr(pp.tablename, 5) FROM pg_policies pp
+     WHERE pp.schemaname = 'public' AND pp.policyname = ${ROW_RULE_POLICY}
+       AND starts_with(pp.tablename, 'zvd_')
   `.execute(db);
   let n = 0;
   for (const r of rows.rows) {
