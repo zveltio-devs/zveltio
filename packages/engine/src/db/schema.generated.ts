@@ -842,7 +842,7 @@ export interface ZvEfacturaDailyStatsTable {
   rejected_count: Generated<number>;
   total_amount: Generated<number>;
   vat_amount: Generated<number>;
-  tenant_id: string | null;
+  tenant_id: string;
 }
 
 export interface ZvEfacturaInvoicesTable {
@@ -1212,7 +1212,7 @@ export interface ZvInvitationsTable {
   accepted_by: string | null;
   invited_by: string | null;
   created_at: Generated<Date>;
-  tenant_id: string | null;
+  tenant_id: string;
 }
 
 export interface ZvLicenseAuditTable {
@@ -1520,7 +1520,7 @@ export interface ZvMediaFoldersTable {
   created_at: Generated<Date>;
   deleted_at: Generated<Date | null>;
   tenant_id: string | null;
-  updated_at: Date | null;
+  updated_at: Date;
   description: string | null;
   cover_image_id: string | null;
 }
@@ -1992,7 +1992,7 @@ export interface ZvRoDocNumberSequencesTable {
   format: Generated<string>;
   updated_at: Generated<Date>;
   id: Generated<string>;
-  tenant_id: string | null;
+  tenant_id: string;
 }
 
 export interface ZvRoDocumentSignatoriesTable {
@@ -2245,7 +2245,7 @@ export interface ZvScimTokensTable {
   created_by: string | null;
   created_at: Generated<Date>;
   last_used_at: Date | null;
-  tenant_id: string | null;
+  tenant_id: string;
 }
 
 export interface ZvScimUsersTable {
@@ -2254,7 +2254,7 @@ export interface ZvScimUsersTable {
   active: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-  tenant_id: string | null;
+  tenant_id: string;
   suspended_at: Date | null;
   held_valid_to: Date | null;
 }
@@ -3812,7 +3812,7 @@ export interface ZvdInsightSavedQueriesTable {
   created_by: string;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-  tenant_id: string | null;
+  tenant_id: string;
 }
 
 export interface ZvdInvoiceLinesTable {
@@ -4060,7 +4060,7 @@ export interface ZvdLocalesTable {
   is_default: Generated<boolean>;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
-  tenant_id: string | null;
+  tenant_id: string;
 }
 
 export interface ZvdMailConfigTable {
