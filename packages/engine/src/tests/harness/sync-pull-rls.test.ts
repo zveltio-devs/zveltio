@@ -76,6 +76,7 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,
+      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'bucket', type: 'text', required: false, unique: false, indexed: false },
@@ -218,6 +219,7 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
     const broken = `${COLLECTION}_noupd`;
     await DDLManager.createCollection(db, {
       name: broken,
+      adoptRules: true,
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     try {

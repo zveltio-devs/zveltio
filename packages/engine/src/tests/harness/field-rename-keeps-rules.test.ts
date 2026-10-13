@@ -60,6 +60,7 @@ d('renaming a field carries its column permissions and rules', () => {
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,
+      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'salary', type: 'text', required: false, unique: false, indexed: false },

@@ -67,6 +67,7 @@ d('data list — two row conditions on one field (in-process)', () => {
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,
+      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'bucket', type: 'text', required: false, unique: false, indexed: false },

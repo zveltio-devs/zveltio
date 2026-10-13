@@ -9,7 +9,13 @@ import type { User } from 'better-auth';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
 import { sql } from 'kysely';
-import { announceSchemaChange, DDLManager, FieldSchema, runAddField } from '../lib/data/index.js';
+import {
+  announceSchemaChange,
+  DDLManager,
+  ExistingRulesError,
+  FieldSchema,
+  runAddField,
+} from '../lib/data/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 
 /**
@@ -431,6 +437,21 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
         }
 
         const changes = parseChanges(branch.changes);
+
+        // Before any change is applied: rules already naming a collection the
+        // merge creates would take effect on it unannounced (A13).
+        const adopt =
+          ((await c.req.json().catch(() => null)) as { adopt_rules?: unknown } | null)
+            ?.adopt_rules === true;
+        if (!adopt) {
+          const names = changes
+            .filter((ch) => ch.type === 'add_collection')
+            .map((ch) => ch.payload?.name)
+            .filter((n): n is string => typeof n === 'string');
+          const rules = await DDLManager.existingRules(db, names);
+          if (rules.length > 0) return c.json(new ExistingRulesError(rules).body(), 409);
+        }
+
         const applied: string[] = [];
         const errors: string[] = [];
         const failed: typeof changes = [];
@@ -439,7 +460,8 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
           try {
             if (change.type === 'add_collection') {
               const { enqueueDDLJob } = await import('../lib/data/index.js');
-              await enqueueDDLJob(db, 'create_collection', change.payload);
+              // Checked above, before the first change.
+              await enqueueDDLJob(db, 'create_collection', { ...change.payload, adoptRules: true });
               applied.push(`Add collection: ${change.payload.name}`);
             } else if (change.type === 'add_field') {
               // Parsed again here: a branch stores what was posted, and a row

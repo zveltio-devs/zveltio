@@ -221,6 +221,7 @@ export const CollectionSchema = z.preprocess(
     if (o.is_managed != null && o.isManaged == null) o.isManaged = o.is_managed;
     if (o.is_system != null && o.isSystem == null) o.isSystem = o.is_system;
     if (o.schema_locked != null && o.schemaLocked == null) o.schemaLocked = o.schema_locked;
+    if (o.adopt_rules != null && o.adoptRules == null) o.adoptRules = o.adopt_rules;
     return o;
   },
   z.object({
@@ -257,10 +258,45 @@ export const CollectionSchema = z.preprocess(
     isManaged: z.boolean().optional(),
     isSystem: z.boolean().optional(),
     schemaLocked: z.boolean().optional(),
+    /** Create even though Casbin rules already name it; they take effect on it (`ExistingRulesError`). */
+    adoptRules: z.boolean().optional(),
   }),
 );
 
 export type CollectionDefinition = z.infer<typeof CollectionSchema>;
+
+/** A Casbin policy row naming a collection that does not exist yet. */
+export interface ExistingRule {
+  ptype: string;
+  subject: string;
+  domain: string;
+  object: string;
+  action: string;
+}
+
+/**
+ * A create refused because rules already name the collection (A13). A grant
+ * written before the create, or kept by a drop because it predates the dropped
+ * collection, would take effect on the new one unannounced. Only the caller can
+ * decide: delete the rules, or create with `adopt_rules: true`.
+ */
+export class ExistingRulesError extends Error {
+  readonly status = 409;
+  readonly code = 'existing_rules';
+  constructor(readonly rules: ExistingRule[]) {
+    const names = [...new Set(rules.map((r) => r.object))].join(', ');
+    super(
+      `Access rules already name ${names}, and a new collection would take them on: ` +
+        rules.map((r) => `${r.subject} ${r.action} ${r.object} in ${r.domain}`).join('; ') +
+        '. Delete them, or create it with adopt_rules: true to accept them.',
+    );
+  }
+
+  /** The 409 body every create route answers with; the rules ride in the envelope's `errors`. */
+  body() {
+    return { error: this.message, code: this.code, errors: this.rules };
+  }
+}
 
 // ─── In-memory metadata cache ──────────────────────────────────────────────────
 
@@ -461,6 +497,7 @@ export class DDLManager {
     const validated = CollectionSchema.parse(definition);
     const reserved = await this.reservedName(db, validated.name);
     if (reserved) throw new Error(reserved);
+    await this.refuseExistingRules(db, [validated.name], validated.adoptRules);
 
     for (const field of validated.fields) {
       if (!fieldTypeRegistry.has(field.type)) {
@@ -726,6 +763,47 @@ export class DDLManager {
   static async reservedName(db: Database, name: string): Promise<string | null> {
     if (!(await nonCollectionObjectsNow(db)).has(name)) return null;
     return `"${name}" is reserved: it names a permission object that is not a collection.`;
+  }
+
+  /**
+   * The Casbin rules that would take effect on a collection created as `name`:
+   * `p` rows whose object is exactly the name, in any domain. Not `*` (a total
+   * grant covers every object, and is a role, not a decision about this one),
+   * not the `data:<name>` form no check has asked since migration 001, not `g`
+   * rows (they name roles and domains, never an object). Row rules and column
+   * permissions only restrict, so a leftover one grants nothing. A name whose
+   * table exists is skipped: its rules are already in effect, not waiting.
+   */
+  static async existingRules(db: Database, names: string[]): Promise<ExistingRule[]> {
+    if (names.length === 0) return [];
+    return db
+      .selectFrom('zvd_permissions')
+      .select([
+        'ptype',
+        sql<string>`coalesce(v0, '')`.as('subject'),
+        sql<string>`coalesce(v1, '')`.as('domain'),
+        sql<string>`v2`.as('object'),
+        sql<string>`coalesce(v3, '')`.as('action'),
+      ])
+      .where('ptype', '=', 'p')
+      .where('v2', 'in', names)
+      .where(sql<boolean>`to_regclass(quote_ident('zvd_' || v2)) IS NULL`)
+      .orderBy('v2')
+      .orderBy('v1')
+      .orderBy('v0')
+      .orderBy('v3')
+      .execute();
+  }
+
+  /** Throws `ExistingRulesError` when rules name any of `names`, unless they are adopted. */
+  static async refuseExistingRules(
+    db: Database,
+    names: string[],
+    adopt: boolean | undefined,
+  ): Promise<void> {
+    if (adopt === true) return;
+    const rules = await this.existingRules(db, names);
+    if (rules.length > 0) throw new ExistingRulesError(rules);
   }
 
   // ── dropCollection ───────────────────────────────────────────────────────────
