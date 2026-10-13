@@ -44,6 +44,10 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - A parent tenant with subtree reach can no longer delete a child tenant's
   rows, or move them into its own node with an UPDATE; such an UPDATE now
   affects 0 rows instead of raising (migration 066, #1095).
+- A root-tenant API key used in another tenant has its `last_used_at` stamped
+  again; since 065 the stamp matched no visible row (#1094).
+- Schema introspection skips a table named after a non-collection permission
+  object, as collection create refuses it (#1094).
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,
@@ -68,6 +72,10 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   `development` (#1089).
 - A worker route body past the frame limit answers 413 (#1082).
 - `safeFetch` honours a caller's `redirect: 'manual' | 'error'` (#1086).
+- A pinned optional extension dependency whose registry read fails is treated
+  as absent; the dependent still loads (#1094).
+- Worker extensions see Postgres's `constraint`, `table`, `column` and
+  `detail` on a query error, as inline extensions do (#1094).
 - Every workflow's `GITHUB_TOKEN` defaults to `contents: read` (#1055).
 
 ### Gates and review
