@@ -9,7 +9,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from './ddl-manager.js';
+import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { readScope } from './read-scope.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { maybeDecrypt } from './field-crypto.js';
@@ -149,6 +149,29 @@ export async function serializeRecord(
   // Strip internal/operational columns from public payloads.
   for (const k of INTERNAL_COLUMNS) delete result[k];
   return result as DynamicRow;
+}
+
+/**
+ * A stored copy of a row (`zv_revisions.data`) serialized as a live read is.
+ * The copy carries the fields the collection had when it was written, and
+ * `serializeRecord` judges keys against the CURRENT definition: a field since
+ * dropped or renamed passed through raw, so an old revision of a removed
+ * `password` field served its argon2 hash. Only current fields and the system
+ * columns survive.
+ */
+export async function serializeSnapshot(
+  snapshot: Record<string, unknown>,
+  collectionDef: CollectionDef | null | undefined,
+  columns: ColumnAccess,
+): Promise<DynamicRow> {
+  const current = new Set(normalizeFields(collectionDef).map((f) => f.name));
+  // No definition to judge by: as serializeRecord, pass the copy through.
+  if (current.size === 0) return serializeRecord(snapshot, collectionDef, columns);
+  const kept: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(snapshot)) {
+    if (current.has(k) || SYSTEM_COLUMNS.has(k)) kept[k] = v;
+  }
+  return serializeRecord(kept, collectionDef, columns);
 }
 
 /** Resolve `?expand=field1,field2` for a collection: returns metadata about

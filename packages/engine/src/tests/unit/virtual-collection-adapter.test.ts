@@ -301,6 +301,12 @@ describe('virtualCreate', () => {
     expect(JSON.parse(lastCall?.body ?? '{}')).toEqual({ ext_name: 'Cy' });
   });
 
+  it('POSTs to the list endpoint, the resource the list is read from', async () => {
+    stubFetch(201, { id: 1 });
+    await virtualCreate(baseConfig({ list_endpoint: '/items' }), { name: 'Cy' });
+    expect(lastCall?.url).toBe(`${BASE}/items`);
+  });
+
   it('throws when create fails', async () => {
     stubFetch(422, 'invalid', false);
     await expect(virtualCreate(baseConfig(), { a: 1 })).rejects.toThrow(/returned 422/);

@@ -12,6 +12,7 @@ import {
   normalizeFields,
   resolveExpand,
   serializeRecord,
+  serializeSnapshot,
 } from '../../lib/data/shape.js';
 type Any = any;
 
@@ -161,5 +162,14 @@ describe('computeEtag', () => {
     const a = await computeEtag([{ id: '1' }] as Any);
     const b = await computeEtag([{ id: '2' }] as Any);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('serializeSnapshot', () => {
+  it('drops a field the collection no longer has, keeps current fields and system columns', async () => {
+    // A revision written while the collection still had a `secret` field.
+    const snap = { id: 'r1', created_at: '2026-01-01', title: 'kept', secret: '$argon2id$...' };
+    const out = await serializeSnapshot(snap, def([{ name: 'title', type: 'text' }]), ALL);
+    expect(out).toEqual({ id: 'r1', created_at: '2026-01-01', title: 'kept' });
   });
 });
