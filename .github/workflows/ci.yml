@@ -1345,6 +1345,59 @@ jobs:
           ZVELTIO_DB_DRIVER: pg
         run: cd packages/engine && bun run test:harness
 
+  harness-non-superuser:
+    name: Harness as a non-superuser owner (allowed to fail)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # L32: the documented production install runs the engine as a NOSUPERUSER
+    # NOBYPASSRLS owner (scripts/bootstrap-db-role.sh), where RLS binds the
+    # connection itself; every other lane runs as the image's superuser, on
+    # which the policies are inert. Allowed to fail while the failures it finds
+    # are fixed (300 of 1863 on 2026-10-13), then required.
+    continue-on-error: true
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.3.14'
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build SDK
+        run: cd packages/sdk && bun run build
+      - name: Create the database and its owner role, as production does
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: bash scripts/bootstrap-db-role.sh zveltio_test zveltio_app ci-owner-password
+      - name: Run migrations as the owner
+        env:
+          DATABASE_URL: postgresql://zveltio_app:ci-owner-password@localhost:5432/zveltio_test
+        run: bun packages/engine/src/db/migrate.ts
+      - name: Run in-process harness tests as the owner
+        env:
+          TEST_DATABASE_URL: postgresql://zveltio_app:ci-owner-password@localhost:5432/zveltio_test
+          BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
+          FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+          NODE_ENV: test
+          SLOW_QUERY_THRESHOLD_MS: '0'
+          ZVELTIO_REGISTRATION_ENABLED: '1'
+        run: cd packages/engine && bun run test:harness
+
   perf-smoke:
     name: Perf Smoke (CRUD + list p95 budgets)
     runs-on: ubuntu-latest
