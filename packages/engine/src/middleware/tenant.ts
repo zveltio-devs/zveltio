@@ -107,6 +107,14 @@ const TXN_SKIP_PREFIXES = [
   // so scoping it was the error, not the pool write it collided with.
   '/api/tenants',
 
+  // Accepting an invitation is not work inside a tenant either: the link names
+  // none, the invitation row says which, and the request resolves the default
+  // one. Since 065 polices `zv_invitations`, inside that transaction the token
+  // found nothing ("Invitation not found") for every tenant but the default,
+  // and the membership it writes is in the invitation's tenant, not the
+  // request's. Outside it, the engine reads the row as it reads an API key.
+  '/api/invitations',
+
   // ── Routers built on `poolDb` ──────────────────────────────────────────
   //
   // These four are handed the raw pool in `routes/index.ts` and never read

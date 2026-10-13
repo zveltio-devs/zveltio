@@ -152,6 +152,12 @@ d('media tables under tenant RLS', () => {
       new URL('../../db/migrations/sql/023_media_tables_rls.sql', import.meta.url),
     );
     const { down } = parseMigrationFile(await file.text());
+    // Rolled back in order: 065's policies on `zv_media_shares.tenant_id` go first.
+    const later = parseMigrationFile(
+      await Bun.file(
+        new URL('../../db/migrations/sql/065_identity_tables_rls.sql', import.meta.url),
+      ).text(),
+    ).down;
     const rollback = new Error('rollback');
     let forced: boolean | undefined;
     await db
@@ -159,7 +165,9 @@ d('media tables under tenant RLS', () => {
       .execute(async (trx) => {
         await sql`INSERT INTO zv_migrations (name) VALUES ('ext:content/media:002_tenant_rls')
                   ON CONFLICT DO NOTHING`.execute(trx);
-        for (const stmt of splitSqlStatements(down ?? '')) await sql.raw(stmt).execute(trx);
+        for (const stmt of splitSqlStatements(`${later ?? ''}\n${down ?? ''}`)) {
+          await sql.raw(stmt).execute(trx);
+        }
         const r = await sql<{ forced: boolean }>`
           SELECT relforcerowsecurity AND EXISTS (
                    SELECT 1 FROM pg_policies WHERE tablename = 'zv_media_files'

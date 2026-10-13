@@ -135,7 +135,7 @@ resolved beforehand, on the pool, as the engine role.
 ```
 /api/health  /api/metrics  /api/auth  /api/openapi
 /api/collections  /api/relations  /api/schema  /api/templates
-/api/tenants
+/api/tenants  /api/invitations
 /api/insights  /api/flows  /api/backup  /api/admin/sql
 /api/admin/audit
 ```
@@ -164,6 +164,9 @@ because a tenant that exists only inside an uncommitted transaction cannot be
 referenced by anything — and then writes its first environment. Run inside a
 tenant transaction, those two writes landed on different connections and the
 second failed on a foreign key.
+
+`/api/invitations` skips for the same reason: the link names no tenant, the
+invitation row says which, and the membership it writes is in that tenant.
 
 `/api/admin/audit` skips because the instance trail is not a tenant's.
 `zv_audit_log.tenant_id` (migration 040) is the writing transaction's tenant, or
@@ -288,6 +291,33 @@ default tenant's data instead of nothing. `ZVELTIO_FAIL_CLOSED_TENANT=1` exists,
 but it is **off by default**. That is a choice, not an oversight — but it is the
 most attackable choice in the whole model, and an adversarial audit should
 attack it first.
+
+### The tables a tenant is resolved from
+
+`zv_api_keys`, `zv_invitations`, `zv_media_shares` and `zv_tenant_users`
+(migration 065) are read BEFORE a tenant exists: the key that names one, the
+memberships a person picks one from, the invitation and the share link that carry
+one. Their policies are one per command — read over the visible set, insert,
+update and delete on the own node only — plus one branch:
+`zveltio_engine_outside_tenant()`, true for the role that owns the table while no
+`zveltio.current_tenant` is set. That is the engine on its pool resolving a
+tenant; any tenant transaction, and every other role (`zveltio_rls`, extension
+roles), is bound. Their `tenant_id` has no root fallback: a row that names no
+tenant is refused.
+
+Code inside a tenant transaction that must look across tenants asks a SECURITY
+DEFINER function that answers exactly that: `zveltio_user_memberships(user)`
+(an account's standing elsewhere, for identity provisioning, member removal and
+account deletion), `zveltio_revoke_user_api_keys(user)` (account deletion) and
+`zveltio_media_share_tenant(token)` (the public share link's tenant, so the
+handler can enter it). A presenting API key also reads its own row, wherever it
+acts.
+
+These are not `tenant_isolation_*` on purpose: the boot reconciler rewrites
+every policy of that name to one `FOR ALL` policy. That form lets `DELETE`
+through on its `USING`, the READ predicate — a parent unit that reads its
+subtree can delete a child's rows in those tables (an `UPDATE` is refused by
+`WITH CHECK`).
 
 ---
 

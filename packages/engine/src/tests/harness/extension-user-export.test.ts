@@ -47,8 +47,10 @@ d('ctx.internals.exportUserData', () => {
                 ('export.someone_else', ${OTHER}, 'x', ${T}::uuid)`.execute(db);
     await sql`INSERT INTO zv_notifications (user_id, title, message) VALUES
                 (${USER}, 'mine', 'm'), (${OTHER}, 'theirs', 't')`.execute(db);
-    await sql`INSERT INTO zv_api_keys (name, key_hash, key_prefix, created_by)
-              VALUES ('my-key', ${`h-${TAG}`}, 'zvk_x', ${USER})`.execute(db);
+    await sql`INSERT INTO zv_api_keys (name, key_hash, key_prefix, created_by, tenant_id)
+              VALUES ('my-key', ${`h-${TAG}`}, 'zvk_x', ${USER}, '00000000-0000-0000-0000-000000000001'::uuid)`.execute(
+      db,
+    );
   });
 
   afterAll(async () => {

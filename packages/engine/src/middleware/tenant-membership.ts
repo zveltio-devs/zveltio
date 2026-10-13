@@ -12,8 +12,8 @@
 //     through to the route's own auth guard (which returns 401) — membership is
 //     about cross-tenant access by a real user, not a substitute for auth.
 //   - God / super-admin users bypass (cross-tenant operators).
-//   - `zv_tenant_users` is a global table (not tenant-RLS'd), so the membership
-//     lookup uses the global pool, not the per-request tenant transaction.
+//   - The lookup runs in the request's transaction and asks for the caller's
+//     row in THIS tenant, which `zv_tenant_users`'s policy (065) shows it.
 
 import { createMiddleware } from 'hono/factory';
 import { requestSession } from './session-prefetch.js';

@@ -39,6 +39,7 @@ import {
   invalidateUserPermCache,
   isMemberBaseline,
   isTenantAdmin,
+  membershipsOf,
   onAfterCommit,
   requireInstanceAdmin,
 } from './tenancy/index.js';
@@ -204,14 +205,12 @@ async function mayClaim(db: Database, userId: string, tenant: string | null): Pr
       anywhere: boolean;
     }>`
       SELECT COALESCE((SELECT role = 'god' FROM "user" WHERE id = ${userId}), false) AS god,
-             EXISTS (SELECT 1 FROM zv_tenant_users
-                      WHERE user_id = ${userId} AND tenant_id = ${tenant}::uuid) AS here,
-             EXISTS (SELECT 1 FROM zv_tenant_users
-                      WHERE user_id = ${userId} AND tenant_id <> ${tenant}::uuid
-                        AND role NOT IN ('member', 'viewer')) AS admin_elsewhere,
-             EXISTS (SELECT 1 FROM zv_tenant_users WHERE user_id = ${userId}) AS anywhere`.execute(
-      db,
-    )
+             EXISTS (SELECT 1 FROM ${membershipsOf(userId)}
+                      WHERE tu.tenant_id = ${tenant}::uuid) AS here,
+             EXISTS (SELECT 1 FROM ${membershipsOf(userId)}
+                      WHERE tu.tenant_id <> ${tenant}::uuid
+                        AND tu.role NOT IN ('member', 'viewer')) AS admin_elsewhere,
+             EXISTS (SELECT 1 FROM ${membershipsOf(userId)}) AS anywhere`.execute(db)
   ).rows[0]!;
   if (r.god) return false;
   if (tenant === DEFAULT_TENANT_ID && (await isSingleTenantInstance(db))) {
@@ -382,9 +381,9 @@ async function notOwnedBy(
   if (await isSingleTenantInstance(db)) return null;
   const rows = (
     await sql<{ here: boolean; elsewhere: boolean }>`
-      SELECT COALESCE(bool_or(tenant_id = ${tenant}::uuid), false) AS here,
-             COALESCE(bool_or(tenant_id <> ${tenant}::uuid), false) AS elsewhere
-        FROM zv_tenant_users WHERE user_id = ${userId}`.execute(db)
+      SELECT COALESCE(bool_or(tu.tenant_id = ${tenant}::uuid), false) AS here,
+             COALESCE(bool_or(tu.tenant_id <> ${tenant}::uuid), false) AS elsewhere
+        FROM ${membershipsOf(userId)}`.execute(db)
   ).rows[0];
   if (rows?.elsewhere) return 'other_tenant';
   // No row here is no tenant's account, not this one's: provisionUser finds it
@@ -522,8 +521,8 @@ async function currentMembership(db: Database, tenant: string, userId: string) {
 
 async function inForceAnywhere(db: Database, userId: string): Promise<boolean> {
   const r = await sql<{ any: boolean }>`
-    SELECT EXISTS (SELECT 1 FROM zv_tenant_users tu
-                    WHERE tu.user_id = ${userId} AND ${activeMembership('tu')}) AS any`.execute(db);
+    SELECT EXISTS (SELECT 1 FROM ${membershipsOf(userId)}
+                    WHERE ${activeMembership('tu')}) AS any`.execute(db);
   return r.rows[0]?.any === true;
 }
 
@@ -623,9 +622,7 @@ export async function removeTenantMember(
   }
   // Every row, lapsed ones too: another tenant's expired membership is its
   // history, and deleting the account would cascade it away.
-  const left = await sql`SELECT 1 FROM zv_tenant_users WHERE user_id = ${userId} LIMIT 1`.execute(
-    db,
-  );
+  const left = await sql`SELECT 1 FROM ${membershipsOf(userId)} LIMIT 1`.execute(db);
   const hadIt = removed || (tenant === DEFAULT_TENANT_ID && (await isSingleTenantInstance(db)));
   const orphaned =
     hadIt && !left.rows.length && (await notOwnedBy(db, userId, tenant, true)) === null;
