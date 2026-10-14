@@ -31,6 +31,13 @@ shows the rules and offers to adopt them (#1093).
 role, outside any tenant, now fails instead of seeing every tenant's rows.
 
 ### Security and tenancy
+- Creating a collection fails when its tenant RLS cannot be applied. The
+  create_collection job and an extension's `ctx.DDLManager.createCollection`
+  caught an `applyTenantRLS` failure, logged a warning and reported success,
+  leaving a `zvd_` table every tenant could read; an m2m junction table stayed
+  behind, unisolated, when it threw.
+  `CREATE TABLE` and the tenant isolation (tenant_id, FORCE RLS, policies,
+  narrow-role grants) now commit in one transaction, or neither does.
 - A worker extension no longer receives caller credentials on its own say-so
   (L8, migration 070). Manifest `forwardCredentials` is a request: the engine
   forwards it only when an operator approved every (route, header) pair, as

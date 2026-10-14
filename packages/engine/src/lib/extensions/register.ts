@@ -27,7 +27,6 @@ import { auditLog } from '../audit.js';
 import {
   checkPermission,
   getUserRoles,
-  applyTenantRLS,
   getCurrentTenantTrx,
   poolOrRefusal,
   materializeDefaultGrants,
@@ -1188,17 +1187,9 @@ export const announcingDDLManager: typeof DDLManager = Object.assign(
   ),
   {
     async createCollection(_db: Database, ...[def]: AfterDb<typeof DDLManager.createCollection>) {
-      await onEnginePool(async (pool) => {
-        await DDLManager.createCollection(pool, def);
-        // Tenant RLS and the narrow roles' grants, as the DDL queue applies them
-        // right after CREATE TABLE — committed before the extension fills it.
-        const table = `zvd_${def.name}`;
-        try {
-          await applyTenantRLS(pool, table);
-        } catch (err) {
-          console.warn(`[extensions] applyTenantRLS on ${table} failed:`, (err as Error).message);
-        }
-      });
+      // Tenant RLS and the narrow roles' grants commit with the table, before
+      // the extension fills it; a table that cannot be isolated is not created.
+      await onEnginePool((pool) => DDLManager.createCollection(pool, def));
       announceSchemaChange(def.name, 'create');
     },
     async dropCollection(_db: Database, ...rest: AfterDb<typeof DDLManager.dropCollection>) {

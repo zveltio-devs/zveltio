@@ -22,7 +22,13 @@ import {
   sweepGhostOrphans,
 } from '../../lib/data/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = Date.now();
@@ -49,9 +55,11 @@ d('ghost DDL builds a unique field’s key on the ghost', () => {
   /** Inserts `value` as `tenant`; returns the SQLSTATE or 'ok'. */
   const put = async (table: string, value: string, tenant: string): Promise<string> => {
     try {
-      await sql`
-        INSERT INTO ${sql.id(table)} (title, code, tenant_id) VALUES ('k', ${value}, ${tenant}::uuid)
-      `.execute(db);
+      await asTenant(db, tenant, (trx) =>
+        sql`
+          INSERT INTO ${sql.id(table)} (title, code, tenant_id) VALUES ('k', ${value}, ${tenant}::uuid)
+        `.execute(trx),
+      );
       return 'ok';
     } catch (err) {
       return String((err as { errno?: string }).errno ?? err);
@@ -61,6 +69,10 @@ d('ghost DDL builds a unique field’s key on the ghost', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
+    // A firm that exists: the ghost copy takes only rows of real firms.
+    await sql`
+      INSERT INTO zv_tenants (id, slug, name) VALUES (${OTHER_TENANT}::uuid, ${`hgu-${SFX}`}, 'hgu')
+    `.execute(db);
     for (const name of [STEPS, ROUTE]) {
       await DDLManager.createCollection(db, {
         name,
@@ -84,6 +96,7 @@ d('ghost DDL builds a unique field’s key on the ghost', () => {
         .catch(() => {});
     }
     await sweepGhostOrphans(db);
+    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db);
   });
 
   it('the key is on the ghost before the swap, and on the table after it', async () => {
@@ -126,9 +139,13 @@ d('ghost DDL builds a unique field’s key on the ghost', () => {
       for (let i = 0; !done; i++) {
         const title = `live-${i}`;
         const tenant = i % 2 === 0 ? DEFAULT_TENANT_ID : OTHER_TENANT;
-        await sql`
-          INSERT INTO ${sql.id(table)} (title, tenant_id) VALUES (${title}, ${tenant}::uuid)
-        `.execute(db);
+        // The collection is under tenant RLS from its create: each firm writes
+        // its own rows.
+        await asTenant(db, tenant, (trx) =>
+          sql`
+            INSERT INTO ${sql.id(table)} (title, tenant_id) VALUES (${title}, ${tenant}::uuid)
+          `.execute(trx),
+        );
         written.push(title);
       }
     })();
@@ -149,13 +166,16 @@ d('ghost DDL builds a unique field’s key on the ghost', () => {
 
     // The writer has to have overlapped the merge, or this proves nothing.
     expect(written.length).toBeGreaterThan(1);
-    const live = await sql<{ title: string }>`
-      SELECT title FROM ${sql.id(table)} WHERE title LIKE 'live-%'
-    `.execute(db);
+    // Under tenant RLS from its create: read with every firm in reach.
+    const live = await asEveryTenant(db, (trx) =>
+      sql<{ title: string }>`
+        SELECT title FROM ${sql.id(table)} WHERE title LIKE 'live-%'
+      `.execute(trx),
+    );
     const kept = new Set(live.rows.map((r) => r.title));
     expect(written.filter((t) => !kept.has(t))).toEqual([]);
-    const total = await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.id(table)}`.execute(
-      db,
+    const total = await asEveryTenant(db, (trx) =>
+      sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.id(table)}`.execute(trx),
     );
     expect(total.rows[0]!.n).toBe(ROWS + written.length);
 

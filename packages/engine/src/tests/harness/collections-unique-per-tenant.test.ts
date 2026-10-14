@@ -19,6 +19,7 @@ import {
   type UniqueKeyReconcileResult,
 } from '../../lib/data/index.js';
 import {
+  asTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -55,12 +56,17 @@ d('a unique field is unique per tenant', () => {
   let db: Database;
   let cookie = '';
 
-  /** Inserts `value` into `column` as `tenant`; returns the SQLSTATE or 'ok'. */
+  /**
+   * Inserts `value` into `column` as `tenant`; returns the SQLSTATE or 'ok'.
+   * As that tenant: the collection is under tenant RLS from its create.
+   */
   const put = async (column: string, value: string, tenant: string): Promise<string> => {
     try {
-      await sql`
-        INSERT INTO ${sql.id(TABLE)} (${sql.id(column)}, tenant_id) VALUES (${value}, ${tenant}::uuid)
-      `.execute(db);
+      await asTenant(db, tenant, (trx) =>
+        sql`
+          INSERT INTO ${sql.id(TABLE)} (${sql.id(column)}, tenant_id) VALUES (${value}, ${tenant}::uuid)
+        `.execute(trx),
+      );
       return 'ok';
     } catch (err) {
       return String((err as { errno?: string }).errno ?? err);
@@ -153,8 +159,14 @@ d('a unique field is unique per tenant', () => {
     // The problem envelope carries the mapped message. Before, the key was
     // global, and widened to `(tenant_id, code)` without the mapper knowing,
     // it read "the same tenant_id, code … (value: <tenant uuid>, API-1)".
+    //
+    // Under tenant RLS Postgres withholds the key DETAIL altogether
+    // (BuildIndexValueDescription), so the generic message is what a
+    // tenant-scoped write gets. This read the field and value only while
+    // `createCollection` left the table without RLS (fixed 2026-10-14).
     const body = (await dup.json()) as { errors?: string[] };
-    expect(body.errors).toEqual(['A record with the same code already exists (value: API-1).']);
+    expect(body.errors).toEqual(['A record with the same unique value already exists.']);
+    expect(JSON.stringify(body)).not.toContain(TENANT_A);
   });
 
   // What every build before this one wrote for a unique field, and what the
@@ -296,10 +308,11 @@ d('a unique field is unique per tenant', () => {
       ]);
       for (const col of ['email', 'slug']) {
         const ins = (tenant: string) =>
-          sql`
-            INSERT INTO ${sql.id(legacy)} (${sql.id(col)}, tenant_id) VALUES ('a@x', ${tenant}::uuid)
-          `
-            .execute(db)
+          asTenant(db, tenant, (trx) =>
+            sql`
+              INSERT INTO ${sql.id(legacy)} (${sql.id(col)}, tenant_id) VALUES ('a@x', ${tenant}::uuid)
+            `.execute(trx),
+          )
             .then(() => 'ok')
             .catch((err) => String((err as { errno?: string }).errno));
         expect(await ins(TENANT_A)).toBe('ok');

@@ -46,6 +46,25 @@ async function withLockTimeout(
   });
 }
 
+/**
+ * CREATE TABLE and its tenant RLS (`applyTenantRLS`: tenant_id, FORCE, the
+ * policies, the narrow roles' grants) in one transaction: the table is
+ * committed isolated, or not at all. Every collection and junction table is
+ * created here. RLS used to follow a committed CREATE, and two of its callers
+ * caught a failure and warned — leaving a `zvd_` table every tenant read
+ * (owner decision 2026-10-14: the create fails instead). Inside a caller's
+ * transaction the failure aborts that transaction, which drops the table too.
+ */
+async function createIsolatedTable(db: Database, table: string, createSql: string): Promise<void> {
+  const { applyTenantRLS } = await import('../tenancy/index.js');
+  const run = async (h: Database) => {
+    await sql.raw(createSql).execute(h);
+    await applyTenantRLS(h, table);
+  };
+  if ((db as unknown as { isTransaction?: boolean }).isTransaction) await run(db);
+  else await db.transaction().execute(run);
+}
+
 /** The trigger that records a collection's deletes for sync pull (migration 032). */
 function syncTombstoneTrigger(tableName: string): string {
   return (
@@ -462,16 +481,19 @@ export class DDLManager {
     const sourceTable = this.getTableName(sourceName);
     const targetTable = this.getTableName(targetName);
     const junctionTable = pgIdentifier(`zvd_jnc_${sourceName}_${targetName}`);
-    await sql
-      .raw(
-        `CREATE TABLE IF NOT EXISTS "${junctionTable}" (` +
-          `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
-          `"${sourceName}_id" UUID REFERENCES "${sourceTable}"(id) ON DELETE CASCADE, ` +
-          `"${targetName}_id" UUID REFERENCES "${targetTable}"(id) ON DELETE CASCADE, ` +
-          `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()` +
-          `)`,
-      )
-      .execute(db);
+    // The links are tenant rows: the collection tables' tenant_id, policy and
+    // narrow-role grants. Without them any tenant read and deleted every other
+    // tenant's links (migration 042). IF NOT EXISTS makes a retry idempotent.
+    await createIsolatedTable(
+      db,
+      junctionTable,
+      `CREATE TABLE IF NOT EXISTS "${junctionTable}" (` +
+        `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ` +
+        `"${sourceName}_id" UUID REFERENCES "${sourceTable}"(id) ON DELETE CASCADE, ` +
+        `"${targetName}_id" UUID REFERENCES "${targetTable}"(id) ON DELETE CASCADE, ` +
+        `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()` +
+        `)`,
+    );
     await buildIndex(
       db,
       `CREATE INDEX IF NOT EXISTS ${indexName(junctionTable, 'src')} ON "${junctionTable}"("${sourceName}_id")`,
@@ -482,12 +504,6 @@ export class DDLManager {
       `CREATE INDEX IF NOT EXISTS ${indexName(junctionTable, 'tgt')} ON "${junctionTable}"("${targetName}_id")`,
       false,
     );
-    // The links are tenant rows: the collection tables' tenant_id, policy and
-    // narrow-role grants. Without them any tenant read and deleted every other
-    // tenant's links (migration 042). Not best-effort — an unisolated junction
-    // is a cross-tenant table, and the CREATE above is idempotent for a retry.
-    const { applyTenantRLS } = await import('../tenancy/index.js');
-    await applyTenantRLS(db, junctionTable);
     return junctionTable;
   }
 
@@ -587,7 +603,11 @@ export class DDLManager {
 
     // Table constraints after every column, as CREATE TABLE has them.
     columns.push(...uniqueKeys);
-    await sql.raw(`CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`).execute(db);
+    await createIsolatedTable(
+      db,
+      tableName,
+      `CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`,
+    );
 
     for (const indexSQL of indexes) {
       await sql.raw(indexSQL).execute(db);

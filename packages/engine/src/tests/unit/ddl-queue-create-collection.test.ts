@@ -5,7 +5,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import * as dataModule from '../../lib/data/index.js';
-import * as tenantModule from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 type WorkHandler = (jobs: Array<{ id: string; data: unknown }>) => Promise<void>;
@@ -50,8 +49,9 @@ afterEach(async () => {
 
 describe('ddl-queue collection handlers', () => {
   it('create_collection handler delegates to DDLManager.createCollection', async () => {
+    // Tenant RLS is inside `createCollection` now (harness:
+    // collection-create-rls-fail-closed.test.ts), so the job only delegates.
     const createSpy = spyOn(dataModule.DDLManager, 'createCollection').mockResolvedValue(undefined);
-    const rlsSpy = spyOn(tenantModule, 'applyTenantRLS').mockResolvedValue(undefined);
     try {
       const db = new CannedDb();
       db.when(/select "is_managed" from "zvd_collections"/i, [{ is_managed: true }]);
@@ -69,10 +69,8 @@ describe('ddl-queue collection handlers', () => {
         },
       ]);
       expect(createSpy).toHaveBeenCalled();
-      expect(rlsSpy).toHaveBeenCalled();
     } finally {
       createSpy.mockRestore();
-      rlsSpy.mockRestore();
     }
   });
 
