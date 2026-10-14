@@ -718,9 +718,7 @@ export async function deleteRecord(
   // routes answers 422 and names the field.
   const result = await handlePgErrors(c, async () => {
     const deleted = await tracedQuery(`${tableName}.delete`, () =>
-      engineRead(canRead, effectiveDb, collection, () =>
-        dynamicDelete(effectiveDb, tableName, id, { returning: canRead }),
-      ),
+      engineRead(canRead, effectiveDb, collection, () => dynamicDelete(effectiveDb, tableName, id)),
     );
     if (!deleted) return c.json({ error: 'Record not found' }, 404);
 

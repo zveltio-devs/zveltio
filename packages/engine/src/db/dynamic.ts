@@ -504,14 +504,6 @@ const RESERVED = new Set([
  */
 export type SystemColumns = Record<string, unknown>;
 
-/**
- * How a delete answers. `returning: false` deletes without `RETURNING`, for a
- * caller who cannot read the collection; it reports whether a row went.
- */
-export interface WriteOptions {
-  returning?: boolean;
-}
-
 export async function dynamicInsert(
   db: Database,
   tableName: string,
@@ -590,20 +582,10 @@ export async function dynamicUpdate(
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 
-export async function dynamicDelete(
-  db: Database,
-  tableName: string,
-  id: string,
-  { returning = true }: WriteOptions = {},
-): Promise<boolean> {
+export async function dynamicDelete(db: Database, tableName: string, id: string): Promise<boolean> {
   const table = sql.id(sanitizeIdentifier(tableName));
-
-  if (!returning) {
-    // Inside the engine's read window (`withCollectionRead`): the WHERE reads the row.
-    const done = await sql`DELETE FROM ${table} WHERE id = ${id}`.execute(db);
-    return Number(done.numAffectedRows ?? 0n) > 0;
-  }
-
+  // A caller who cannot read the collection deletes inside the engine's read
+  // window (`engineRead`), where the WHERE and the RETURNING read the row.
   const result = await sql`
     DELETE FROM ${table} WHERE id = ${id} RETURNING id
   `.execute(db);
