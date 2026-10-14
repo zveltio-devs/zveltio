@@ -13,7 +13,7 @@
  * `zveltio_flow_reader`, and the worker SQL bridge picked its role by EXISTENCE,
  * so a SET FALSE membership failed every worker query on `SET LOCAL ROLE`.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
 import { initRlsEnforcementRole } from '../../lib/tenancy/index.js';
@@ -73,8 +73,13 @@ d(TITLE, () => {
     }
   });
 
+  // Bun.SQL fills its whole pool (20) per handle: one left open per test, plus
+  // the superuser handle, ran CI's max_connections out before the last test.
+  afterEach(async () => {
+    for (const h of opened.splice(0)) await h.destroy().catch(() => {});
+  });
+
   afterAll(async () => {
-    for (const h of opened) await h.destroy().catch(() => {});
     await initRlsEnforcementRole(db); // module state back to the harness engine's
     await dropRoles();
     await su?.destroy().catch(() => {});

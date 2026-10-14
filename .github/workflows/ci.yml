@@ -1385,6 +1385,16 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
         run: bash scripts/bootstrap-db-role.sh zveltio_test zveltio_app ci-owner-password
+      - name: Install Postgres 18 client tools
+        # baseline-equivalence.test.ts runs pg_dump against the pg18 service;
+        # the runner's pg16 client refuses it. Same step as the lanes above.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
       - name: Run migrations as the owner
         env:
           DATABASE_URL: postgresql://zveltio_app:ci-owner-password@localhost:5432/zveltio_test
