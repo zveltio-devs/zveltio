@@ -46,6 +46,7 @@ import {
   guardListenerArgs,
   guardExtensionApp,
   guardPublicHandler,
+  guardPerTenantScheduleHandler,
   guardScheduleHandler,
 } from './activation.js';
 import { type ServiceDeps, serviceRegistry } from '../service-registry.js';
@@ -750,7 +751,8 @@ async function registerExtensionRoutes(
  * `cron-runner.ts` calls `schedule.handler(ctx, runId)` once, with no firm in
  * scope, so there is nobody to ask the per-firm question — see
  * `isExtensionActiveAnywhere`. All this can enforce is that a schedule
- * belonging to an extension no firm has turned on does not run.
+ * belonging to an extension no firm has turned on does not run. A schedule
+ * declaring `perTenant: true` is run once per firm instead, and asked per firm.
  *
  * The handler gets THIS extension's restricted context, not the runner's. The
  * runner holds one base context for everybody — the raw pool and the ungated
@@ -775,7 +777,8 @@ function guardedSchedule(
   };
   const run = (_runnerCtx: unknown, runId: string) =>
     (handler as ExtensionSchedule['handler'])(ctx, runId);
-  return { ...s, handler: guardScheduleHandler(run, extName, db) } as ExtensionSchedule;
+  const guard = s.perTenant === true ? guardPerTenantScheduleHandler : guardScheduleHandler;
+  return { ...s, handler: guard(run, extName, db) } as ExtensionSchedule;
 }
 
 /**

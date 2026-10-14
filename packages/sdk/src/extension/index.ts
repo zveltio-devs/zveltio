@@ -1194,6 +1194,15 @@ export interface ExtensionSchedule<DB = any> {
   retry?: { maxAttempts?: number; backoffMs?: number };
   /** Reserved — single-engine assumption today. Documented behaviour. */
   singleton?: boolean;
+  /**
+   * Run once per active tenant where this extension is active, each run inside
+   * that tenant's transaction, so `ctx.db` sees that tenant's rows. Without it
+   * the handler runs once with no tenant in scope, and a table under tenant RLS
+   * answers for the root tenant only. A tenant that fails does not stop the
+   * others; the run then fails naming it, and a retry runs every tenant again,
+   * so the handler must be safe to repeat.
+   */
+  perTenant?: boolean;
 }
 
 /**

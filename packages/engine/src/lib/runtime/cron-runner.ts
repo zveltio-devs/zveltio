@@ -38,6 +38,13 @@ export interface ExtensionSchedule {
   retry?: { maxAttempts?: number; backoffMs?: number };
   /** Reserved — currently no cross-instance lock. Documented behaviour. */
   singleton?: boolean;
+  /**
+   * Run the handler once per active tenant where the extension is active, each
+   * inside that tenant's transaction (`ctx.db` bound to it). Without it the
+   * handler runs once with no tenant, and tenant-RLS tables answer for the root
+   * tenant only. See `guardPerTenantScheduleHandler`.
+   */
+  perTenant?: boolean;
 }
 
 interface RunnerEntry {
