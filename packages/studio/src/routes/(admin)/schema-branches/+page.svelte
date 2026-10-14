@@ -37,7 +37,6 @@ interface SchemaBranch {
   created_at: string;
   updated_at: string;
   preview_enabled?: boolean;
-  preview_token?: string | null;
   preview_expires_at?: string | null;
 }
 
@@ -189,6 +188,21 @@ async function enablePreview(branch: SchemaBranch) {
     toast.error(e instanceof Error ? e.message : m['branches.previewEnableFailed']());
   } finally {
     enablingPreview = false;
+  }
+}
+
+// The list never carries a token (it is shown once, when issued), so the way
+// to see one again is to issue a new one.
+async function rotatePreview(branch: SchemaBranch) {
+  try {
+    const res = await api.post<{ preview_token: string; expires_at: string | null }>(
+      `/api/schema/branches/${branch.id}/preview/rotate`,
+      { ttl_hours: 168 },
+    );
+    previewToken = res.preview_token;
+    await loadBranches();
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : m['branches.previewEnableFailed']());
   }
 }
 
@@ -349,7 +363,7 @@ function fmt(d: string | null) {
                   {#if branch.status === 'open'}
                     <!-- Preview -->
                     {#if branch.preview_enabled}
-                      <button type="button" class="btn btn-info btn-xs gap-1" onclick={() => { previewToken = branch.preview_token ?? null; }} title={m['schemaBranches.showPreviewToken']()}>
+                      <button type="button" class="btn btn-info btn-xs gap-1" onclick={() => rotatePreview(branch)} title={m['schemaBranches.rotatePreviewToken']()}>
                         <Globe size={12} />
                       </button>
                       <button type="button" class="btn btn-ghost btn-xs text-warning" onclick={() => disablePreview(branch)} title={m['schemaBranches.disablePreview']()}>

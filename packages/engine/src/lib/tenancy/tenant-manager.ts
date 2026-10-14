@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { type RawBuilder, sql } from 'kysely';
 import { indexName } from '../pg-identifier.js';
 import type { Database } from '../../db/index.js';
+import { withAdvisoryLock } from '../../db/advisory-lock.js';
 import { getCache } from '../runtime/index.js';
 import {
   currentAfterCommitQueue,
@@ -1719,7 +1720,15 @@ export function _setRlsRoleAvailableForTests(available: boolean): () => void {
 export async function initRlsEnforcementRole(
   db: Database,
 ): Promise<'enforced' | 'native' | 'unavailable'> {
-  await ensureRlsEnforcementRole(db);
+  // One replica at a time: two booting together raced on the same catalog rows
+  // in the grant loop ("tuple concurrently updated") and one logged a failed
+  // grant. Still best-effort: no lock is no reason not to try.
+  await withAdvisoryLock(db, 'zveltio:rls-role-grants', () => ensureRlsEnforcementRole(db), {
+    maxWait: '2min',
+  }).catch((err) => {
+    console.warn('[tenant-rls] grant lock unavailable, granting unlocked:', (err as Error).message);
+    return ensureRlsEnforcementRole(db);
+  });
   try {
     const r = await sql<{ ok: boolean; super_user: boolean }>`
       SELECT pg_has_role(current_user, 'zveltio_rls', 'SET') AS ok,

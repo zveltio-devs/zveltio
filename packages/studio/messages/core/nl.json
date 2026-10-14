@@ -1263,7 +1263,7 @@
   "schemaBranches.review": "Review",
   "schemaBranches.reviewHistory": "Reviewgeschiedenis",
   "schemaBranches.reviewTitle": "Review: {name}",
-  "schemaBranches.showPreviewToken": "Preview-token tonen",
+  "schemaBranches.rotatePreviewToken": "Voorbeeldtoken vernieuwen",
   "schemaBranches.submitNewReview": "Nieuwe review indienen",
   "schemaBranches.submitReview": "Review indienen",
   "schemaBranches.subtitle": "Beheer versies van het databaseschema",

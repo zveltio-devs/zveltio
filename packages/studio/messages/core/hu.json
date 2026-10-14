@@ -1263,7 +1263,7 @@
   "schemaBranches.review": "Áttekintés",
   "schemaBranches.reviewHistory": "Áttekintések előzményei",
   "schemaBranches.reviewTitle": "Áttekintés: {name}",
-  "schemaBranches.showPreviewToken": "Előnézeti token megjelenítése",
+  "schemaBranches.rotatePreviewToken": "Előnézeti token cseréje",
   "schemaBranches.submitNewReview": "Új áttekintés beküldése",
   "schemaBranches.submitReview": "Áttekintés beküldése",
   "schemaBranches.subtitle": "Az adatbázisséma verzióinak kezelése",
