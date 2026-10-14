@@ -547,7 +547,10 @@ for (const [driver, transport] of LEGS) {
 
       // Install and enable, through the marketplace, the dependency first.
       for (const name of [dep, main, ...extras]) {
-        const ins = await asGod(`/api/marketplace/${name}/install`, 'POST', {});
+        // The operator approves the credential `main` asks for (migration 070).
+        const approval =
+          name === main ? { forward_credentials: { '/fwd': ['authorization'] } } : {};
+        const ins = await asGod(`/api/marketplace/${name}/install`, 'POST', approval);
         const en = await asGod(`/api/marketplace/${name}/enable`, 'POST', {});
         out[`install:${name}`] = ins.status;
         out[`enable:${name}`] = { status: en.status, body: await en.json().catch(() => null) };

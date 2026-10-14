@@ -692,6 +692,12 @@ export interface ZvExtensionRegistryTable {
    */
   installed_sha256: string | null;
   installed_version: string | null;
+  /**
+   * Manifest `forwardCredentials` an operator approved, as route -> headers.
+   * The worker is handed caller credentials only while the manifest's map is a
+   * subset of this one. null = never approved = nothing forwarded.
+   */
+  approved_forward_credentials: unknown; // JSONB: Record<string, string[]> | null
 }
 
 export interface ZvEdgeFunctionsTable {

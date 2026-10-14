@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Inserisci la chiave di licenza",
   "mkt.filesMissing": "File mancanti",
   "mkt.filesMissingTitle": "Il pacchetto dell'estensione non è distribuito su questo server",
+  "mkt.forwardApproved": "Inoltro delle credenziali approvato per {name}. Disattivala e riattivala per applicarlo.",
+  "mkt.forwardPending": "Le credenziali non vengono inoltrate finché non approvi: {pairs}.",
   "mkt.install": "Installa",
   "mkt.installFailed": "Installazione non riuscita: {error}",
   "mkt.installed": "Installata",

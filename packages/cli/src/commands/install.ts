@@ -12,7 +12,13 @@ import { join } from 'path';
  */
 export async function installCommand(
   name: string,
-  opts: { path?: string; url?: string; force?: boolean; registry?: string },
+  opts: {
+    path?: string;
+    url?: string;
+    force?: boolean;
+    registry?: string;
+    approveForwardCredentials?: boolean;
+  },
 ) {
   const engineUrl = opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
 
@@ -25,7 +31,7 @@ export async function installCommand(
   }
 
   // ── Flow 2: engine marketplace catalog ──────────────────────────────────
-  await installFromCatalog(name, engineUrl);
+  await installFromCatalog(name, engineUrl, opts.approveForwardCredentials ?? false);
 }
 
 // ── Flow 1: local path ──────────────────────────────────────────────────────
@@ -113,7 +119,7 @@ async function installFromPath(
 
 // ── Flow 2: engine catalog ──────────────────────────────────────────────────
 
-async function installFromCatalog(name: string, engineUrl: string) {
+async function installFromCatalog(name: string, engineUrl: string, approveForward: boolean) {
   // Fetch catalog
   console.log(`  Checking engine catalog at ${engineUrl}...`);
 
@@ -179,12 +185,41 @@ async function installFromCatalog(name: string, engineUrl: string) {
     return;
   }
 
+  // A worker extension may ask for the caller's credentials on some routes; the
+  // engine forwards them only once an operator approves that exact map.
+  const forward: Record<string, string[]> = entry.forwarded_credentials ?? {};
+  const forwardPairs = Object.entries(forward).flatMap(([route, headers]) =>
+    headers.map((h) => `${route}: ${h}`),
+  );
+  const approval = approveForward ? { forward_credentials: forward } : undefined;
+
   if (entry.is_installed) {
     console.log(`  Already installed. Enabling...`);
+    if (approval && forwardPairs.length > 0) {
+      const res = await fetch(
+        `${engineUrl}/api/marketplace/${entry.name}/approve-forward-credentials`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(approval),
+        },
+      ).catch(() => null);
+      if (!res?.ok) {
+        console.error(
+          `❌ Credential forwarding approval failed: HTTP ${res?.status ?? 'unreachable'}`,
+        );
+        process.exit(1);
+      }
+      console.log(`  ✓ Credential forwarding approved (${forwardPairs.join(', ')})`);
+    }
   } else {
     // Install first (marks as installed in DB)
     const installRes = await fetch(`${engineUrl}/api/marketplace/${entry.name}/install`, {
       method: 'POST',
+      ...(approval && {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(approval),
+      }),
     }).catch(() => null);
 
     if (!installRes?.ok) {
@@ -199,6 +234,12 @@ async function installFromCatalog(name: string, engineUrl: string) {
     } else {
       console.log(`  ✓ Marked as installed`);
     }
+  }
+
+  if (forwardPairs.length > 0 && !approval) {
+    console.log(`  ⚠️  Asks for the caller's credentials on: ${forwardPairs.join(', ')}`);
+    console.log(`     Not forwarded until approved: re-run with --approve-forward-credentials,`);
+    console.log(`     or approve it in Studio → Marketplace.`);
   }
 
   // Enable (hot-load if engine supports it)

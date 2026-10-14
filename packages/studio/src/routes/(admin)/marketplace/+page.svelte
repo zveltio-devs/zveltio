@@ -111,6 +111,8 @@ interface Extension {
   pending_capabilities?: string[];
   /** Public route pattern → caller credential headers its worker is handed (manifest `forwardCredentials`). */
   forwarded_credentials?: Record<string, string[]>;
+  /** `route: header` pairs not yet approved — none of `forwarded_credentials` is forwarded while any remain. */
+  pending_forward_credentials?: string[];
 }
 
 // ── License key modal state ────────────────────────────────────────────────
@@ -297,6 +299,23 @@ async function approveCapabilities(ext: Extension) {
       body: JSON.stringify({ capabilities: ext.declared_capabilities ?? [] }),
     });
     toast.success(m['mkt.approved']({ caps: pending.join(', '), name: ext.displayName }));
+    await loadCatalog();
+  } catch (e) {
+    toast.error(m['mkt.approvalFailed']({ error: (e as Error).message }));
+  } finally {
+    processingId = null;
+  }
+}
+
+/** Approve exactly the credential map the card shows; the server refuses anything undeclared. */
+async function approveForwarding(ext: Extension) {
+  processingId = ext.name;
+  try {
+    await api(`/api/marketplace/${encodeURIComponent(ext.name)}/approve-forward-credentials`, {
+      method: 'POST',
+      body: JSON.stringify({ forward_credentials: ext.forwarded_credentials ?? {} }),
+    });
+    toast.success(m['mkt.forwardApproved']({ name: ext.displayName }));
     await loadCatalog();
   } catch (e) {
     toast.error(m['mkt.approvalFailed']({ error: (e as Error).message }));
@@ -627,6 +646,24 @@ onMount(loadCatalog);
                       </p>
                     {/each}
                   {/each}
+
+                  {#if ext.is_installed && (ext.pending_forward_credentials ?? []).length > 0}
+                    <div class="alert alert-warning py-2 px-3 mb-3 text-xs items-start">
+                      <ShieldAlert size={14} class="mt-0.5 shrink-0" />
+                      <div class="min-w-0">
+                        <p class="opacity-80 mb-2">
+                          {m['mkt.forwardPending']({ pairs: (ext.pending_forward_credentials ?? []).join(', ') })}
+                        </p>
+                        <button
+                          class="btn btn-warning btn-xs gap-1"
+                          disabled={isProcessing}
+                          onclick={() => approveForwarding(ext)}
+                        >
+                          <ShieldCheck size={12} /> {m['common.approve']()}
+                        </button>
+                      </div>
+                    </div>
+                  {/if}
 
                   <!-- Pending capability request. Shown whenever this version
                        asks for more than was approved: it is running WITHOUT

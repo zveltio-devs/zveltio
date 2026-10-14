@@ -859,6 +859,8 @@
   "mkt.rebuildTakes": "Tarda ~30 segundos. La barra lateral se actualizará automáticamente al terminar.",
   "mkt.rebuilding": "Studio se está reconstruyendo tras activar {name}",
   "mkt.receivesCredential": "Recibe tu cabecera {header} en {route}.",
+  "mkt.forwardPending": "Las credenciales no se reenvían hasta que las apruebes: {pairs}.",
+  "mkt.forwardApproved": "Reenvío de credenciales aprobado para {name}. Desactívala y vuelve a activarla para aplicarlo.",
   "mkt.requestFailed": "La solicitud falló",
   "mkt.requestsNewPerms": "Solicita permisos nuevos",
   "mkt.restart": "Reinicio",

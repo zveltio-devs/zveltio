@@ -859,6 +859,8 @@
   "mkt.rebuildTakes": "Richiede ~30 secondi. La barra laterale si aggiornerà automaticamente al termine.",
   "mkt.rebuilding": "Studio si sta ricostruendo dopo l'attivazione di {name}",
   "mkt.receivesCredential": "Riceve la tua intestazione {header} su {route}.",
+  "mkt.forwardPending": "Le credenziali non vengono inoltrate finché non approvi: {pairs}.",
+  "mkt.forwardApproved": "Inoltro delle credenziali approvato per {name}. Disattivala e riattivala per applicarlo.",
   "mkt.requestFailed": "Richiesta non riuscita",
   "mkt.requestsNewPerms": "Richiede nuovi permessi",
   "mkt.restart": "Riavvio",

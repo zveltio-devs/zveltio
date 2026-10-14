@@ -27,6 +27,8 @@ export type AuditEventType =
   /** An administrator granted an extension the capabilities its manifest
    * declares. The one place a privilege widening is a deliberate act. */
   | 'extension.capabilities.approved'
+  /** An administrator approved the caller credentials a worker extension's routes receive. */
+  | 'extension.forward_credentials.approved'
   // An anonymous execution of a public edge function. Its own type because the
   // authenticated invocations are attributable by their user and these are not
   // attributable by anything but time and address.

@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Introdu cheia de licență",
   "mkt.filesMissing": "Fișiere lipsă",
   "mkt.filesMissingTitle": "Pachetul extensiei nu e instalat pe acest server",
+  "mkt.forwardApproved": "Ai aprobat transmiterea datelor de autentificare pentru {name}. Dezactivează-l și reactivează-l pentru a aplica.",
+  "mkt.forwardPending": "Datele de autentificare nu sunt transmise până nu aprobi: {pairs}.",
   "mkt.install": "Instalează",
   "mkt.installFailed": "Instalarea a eșuat: {error}",
   "mkt.installed": "Instalată",

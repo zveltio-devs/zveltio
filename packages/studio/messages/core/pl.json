@@ -859,6 +859,8 @@
   "mkt.rebuildTakes": "Trwa to ~30 sekund. Pasek boczny zaktualizuje się automatycznie po zakończeniu.",
   "mkt.rebuilding": "Studio przebudowuje się po włączeniu {name}",
   "mkt.receivesCredential": "Otrzymuje Twój nagłówek {header} na {route}.",
+  "mkt.forwardPending": "Dane uwierzytelniające nie są przekazywane, dopóki nie zatwierdzisz: {pairs}.",
+  "mkt.forwardApproved": "Zatwierdzono przekazywanie danych uwierzytelniających dla {name}. Wyłącz i włącz ponownie, aby zastosować.",
   "mkt.requestFailed": "Żądanie nie powiodło się",
   "mkt.requestsNewPerms": "Prosi o nowe uprawnienia",
   "mkt.restart": "Restart",

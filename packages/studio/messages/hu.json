@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Licenckulcs megadása",
   "mkt.filesMissing": "Hiányzó fájlok",
   "mkt.filesMissingTitle": "A bővítménycsomag nincs telepítve ezen a szerveren",
+  "mkt.forwardApproved": "Hitelesítő adatok továbbítása jóváhagyva ehhez: {name}. Kapcsold ki, majd be az alkalmazáshoz.",
+  "mkt.forwardPending": "A hitelesítő adatok továbbítása a jóváhagyásodig szünetel: {pairs}.",
   "mkt.install": "Telepítés",
   "mkt.installFailed": "A telepítés sikertelen: {error}",
   "mkt.installed": "Telepítve",

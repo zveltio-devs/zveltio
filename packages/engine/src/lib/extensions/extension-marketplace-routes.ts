@@ -39,7 +39,17 @@ import { DownMissingError } from './extension-errors.js';
 import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
 import { guardAdmin } from '../admin-guard.js';
-import { parseGranted, recordConsent, resolveCapabilities } from './consent.js';
+import {
+  type ForwardMap,
+  forwardPairsOutside,
+  parseForwardMap,
+  parseGranted,
+  recordConsent,
+  recordForwardApproval,
+  resolveCapabilities,
+  resolveForwarded,
+} from './consent.js';
+import { toJsonb } from '../jsonb.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
@@ -331,11 +341,10 @@ export function registerMarketplaceRoutes(
     };
 
     /** Public routes the worker is handed the caller's credentials on (manifest `forwardCredentials`). */
-    const readForwarded = (name: string): Record<string, string[]> => {
+    const readForwarded = (name: string): ForwardMap => {
       try {
         const m = JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8'));
-        const f = m.forwardCredentials;
-        return f && typeof f === 'object' && !Array.isArray(f) ? f : {};
+        return parseForwardMap(m.forwardCredentials) ?? {};
       } catch {
         return {};
       }
@@ -364,7 +373,16 @@ export function registerMarketplaceRoutes(
         // is the honest answer: unknown provenance is not a lesser claim than
         // known-untrusted.
         publisher_tier: resolvePublisherTier(entry),
-        forwarded_credentials: readForwarded(entry.name),
+        // Requested by the manifest; forwarded only once approved as a whole.
+        ...(() => {
+          const declared = readForwarded(entry.name);
+          const approved = parseForwardMap(dbEntry?.approved_forward_credentials);
+          return {
+            forwarded_credentials: declared,
+            approved_forward_credentials: approved,
+            pending_forward_credentials: resolveForwarded(declared, approved).pending,
+          };
+        })(),
         is_installed: dbEntry?.is_installed ?? runtimeActive,
         is_enabled: dbEntry?.is_enabled ?? runtimeActive,
         is_running: runtimeActive,
@@ -490,6 +508,36 @@ export function registerMarketplaceRoutes(
         );
       }
 
+      // Installing consents to the capabilities shown, but not to handing the
+      // worker the caller's credentials: that takes `forward_credentials` in the
+      // body naming the map approved. Without it the install succeeds and the
+      // worker gets no credentials until approve-forward-credentials.
+      let manifest: { permissions?: unknown; forwardCredentials?: unknown } = {};
+      try {
+        manifest = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
+      } catch {
+        /* UI-only or unreadable manifest: declares nothing */
+      }
+      const declaredForward = parseForwardMap(manifest.forwardCredentials) ?? {};
+      const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown> | null;
+      let forwardApproval: ForwardMap | null = null;
+      if (body?.forward_credentials !== undefined) {
+        forwardApproval = parseForwardMap(body.forward_credentials);
+        if (!forwardApproval) {
+          return c.json({ error: 'forward_credentials must map a route to header names' }, 400);
+        }
+        const undeclared = forwardPairsOutside(forwardApproval, declaredForward);
+        if (undeclared.length > 0) {
+          return c.json(
+            {
+              error: `Not declared by "${name}": ${undeclared.join(', ')}`,
+              forwarded_credentials: declaredForward,
+            },
+            409,
+          );
+        }
+      }
+
       await db
         .insertInto('zv_extension_registry')
         .values({
@@ -501,6 +549,7 @@ export function registerMarketplaceRoutes(
           author: entry.author,
           is_installed: true,
           is_enabled: false,
+          approved_forward_credentials: forwardApproval ? toJsonb(forwardApproval) : null,
           installed_at: new Date(),
           tenant_id: null,
           // Pin what we actually installed. Only set on a real download —
@@ -516,6 +565,8 @@ export function registerMarketplaceRoutes(
             is_installed: true,
             installed_at: new Date(),
             tenant_id: null,
+            // An install records the approval it carries, and none when it carries none.
+            approved_forward_credentials: forwardApproval ? toJsonb(forwardApproval) : null,
             ...(downloadedSha
               ? { installed_sha256: downloadedSha, installed_version: entry.version }
               : {}),
@@ -526,16 +577,9 @@ export function registerMarketplaceRoutes(
       // Installing IS the consent: the admin was shown what the extension asks
       // for and chose to install it. Record the set so a later version that
       // asks for more has to come back and ask again.
-      const declaredAtInstall = (() => {
-        try {
-          const m = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
-          return ((m.permissions ?? []) as unknown[]).filter(
-            (x: unknown): x is string => typeof x === 'string',
-          );
-        } catch {
-          return [] as string[];
-        }
-      })();
+      const declaredAtInstall = (
+        Array.isArray(manifest.permissions) ? (manifest.permissions as unknown[]) : []
+      ).filter((x: unknown): x is string => typeof x === 'string');
       await recordConsent(db, entry.name, declaredAtInstall).catch(() => undefined);
 
       return c.json({
@@ -543,6 +587,8 @@ export function registerMarketplaceRoutes(
         downloaded,
         files_on_disk: true,
         granted_capabilities: declaredAtInstall,
+        approved_forward_credentials: forwardApproval,
+        pending_forward_credentials: resolveForwarded(declaredForward, forwardApproval).pending,
         message: `Extension "${name}" installed successfully. Enable it to activate.`,
       });
     });
@@ -1009,6 +1055,76 @@ export function registerMarketplaceRoutes(
     });
   };
 
+  /**
+   * POST /api/marketplace/:name/approve-forward-credentials
+   *
+   * Body `{ forward_credentials: { route: [header, ...] } }` naming the exact map
+   * approved; it replaces the record (`{}` withdraws every approval). The worker
+   * receives credentials only while the manifest's map is inside it, from its
+   * next start.
+   */
+  const approveForwardCredentials = async (c: Context, name: string) => {
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
+
+    const extBase = resolveExtensionsBase();
+    const extDir = join(extBase, name);
+    if (!isPathInsideBase(extBase, extDir)) return c.json({ error: 'Invalid extension name' }, 400);
+
+    let declared: ForwardMap;
+    try {
+      const m = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
+      declared = parseForwardMap(m.forwardCredentials) ?? {};
+    } catch {
+      return c.json({ error: `No manifest on disk for "${name}"` }, 404);
+    }
+
+    const body = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+    const approve = parseForwardMap(body?.forward_credentials);
+    if (!approve) {
+      return c.json(
+        {
+          error:
+            'Body must be { forward_credentials: { route: [header, ...] } } naming exactly ' +
+            'what you are approving.',
+          forwarded_credentials: declared,
+        },
+        400,
+      );
+    }
+    const undeclared = forwardPairsOutside(approve, declared);
+    if (undeclared.length > 0) {
+      return c.json(
+        {
+          error: `Not declared by "${name}": ${undeclared.join(', ')}`,
+          forwarded_credentials: declared,
+        },
+        409,
+      );
+    }
+
+    if ((await recordForwardApproval(db, name, approve)) === 0) {
+      return c.json({ error: `"${name}" is not installed` }, 404);
+    }
+    await auditLog(db, {
+      type: 'extension.forward_credentials.approved',
+      tenantId: null,
+      userId: gate.id ?? undefined,
+      resourceId: name,
+      resourceType: 'extension',
+      metadata: { approved: approve, declared },
+    }).catch(() => undefined);
+
+    return c.json({
+      success: true,
+      approved_forward_credentials: approve,
+      pending_forward_credentials: resolveForwarded(declared, approve).pending,
+      message:
+        `Recorded for "${name}". Disable and re-enable the extension (or restart) for its ` +
+        `worker to pick it up.`,
+    });
+  };
+
   // ── Per-firm activation ──────────────────────────────────────
   //
   // God installs; the admin of a firm decides whether it acts there. Everything
@@ -1121,6 +1237,8 @@ export function registerMarketplaceRoutes(
         return uninstallExtension(c, name).finally(() => invalidateActivationCache(name));
       case 'approve-capabilities':
         return approveCapabilities(c, name);
+      case 'approve-forward-credentials':
+        return approveForwardCredentials(c, name);
       case 'activate':
         return setActivation(c, name, true);
       case 'deactivate':

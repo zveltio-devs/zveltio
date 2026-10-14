@@ -108,3 +108,81 @@ export async function recordConsent(
     .where('name', '=', name)
     .execute();
 }
+
+// ── Credential forwarding ────────────────────────────────────────────
+//
+// A worker extension's manifest `forwardCredentials` asks for the caller's
+// cookie, bearer token or API key on named public routes. Unlike capabilities
+// there is no grandfathering and no partial grant: the worker is handed the
+// manifest's map only when an operator approved every (route, header) pair in
+// it. A version that asks for one pair more forwards nothing until approved
+// again; one that asks for less keeps its approval.
+
+/** Manifest `forwardCredentials` shape: public route pattern → credential header names. */
+export type ForwardMap = Record<string, string[]>;
+
+/** Parse a route → headers map (JSONB or its string form). null when absent or malformed. */
+export function parseForwardMap(value: unknown): ForwardMap | null {
+  let raw: unknown = value;
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out: ForwardMap = {};
+  for (const [route, headers] of Object.entries(raw)) {
+    if (!Array.isArray(headers) || headers.some((h) => typeof h !== 'string')) return null;
+    out[route] = [...new Set((headers as string[]).map((h) => h.toLowerCase()))].sort();
+  }
+  return out;
+}
+
+/** Each pair of `wanted` that `allowed` does not hold, as `route: header`. */
+export function forwardPairsOutside(wanted: ForwardMap, allowed: ForwardMap | null): string[] {
+  return Object.entries(wanted).flatMap(([route, headers]) =>
+    headers
+      .filter((h) => !allowed?.[route]?.includes(h.toLowerCase()))
+      .map((h) => `${route}: ${h.toLowerCase()}`),
+  );
+}
+
+/**
+ * What the worker may be handed: the declared map when every pair in it was
+ * approved, nothing otherwise. `pending` names the pairs still awaiting approval.
+ */
+export function resolveForwarded(
+  declared: ForwardMap,
+  approved: ForwardMap | null,
+): { effective: ForwardMap; pending: string[] } {
+  const pending = forwardPairsOutside(declared, approved);
+  return { effective: pending.length === 0 ? declared : {}, pending };
+}
+
+/** The approval recorded on the instance-wide row. null = never approved (or unreadable). */
+export async function readApprovedForward(db: Database, name: string): Promise<ForwardMap | null> {
+  const row = await db
+    .selectFrom('zv_extension_registry')
+    .select('approved_forward_credentials')
+    .where('name', '=', name)
+    .where('tenant_id', 'is', null)
+    .executeTakeFirst();
+  return parseForwardMap(row?.approved_forward_credentials);
+}
+
+/** Record exactly this approval (null clears it). Returns how many rows it reached. */
+export async function recordForwardApproval(
+  db: Database,
+  name: string,
+  approved: ForwardMap | null,
+): Promise<number> {
+  const r = await db
+    .updateTable('zv_extension_registry')
+    .set({ approved_forward_credentials: approved === null ? null : toJsonb(approved) })
+    .where('name', '=', name)
+    .where('tenant_id', 'is', null)
+    .executeTakeFirst();
+  return Number(r.numUpdatedRows);
+}

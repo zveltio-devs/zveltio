@@ -165,6 +165,10 @@ program
   .option('--path <path>', 'Install from local directory (offline)')
   .option('--url <url>', 'Engine URL for marketplace install', 'http://localhost:3000')
   .option('--force', 'Overwrite existing extension (local install only)')
+  .option(
+    '--approve-forward-credentials',
+    "Approve the caller-credential forwarding the extension's manifest declares",
+  )
   .action((name, opts) => installCommand(name, opts));
 
 // ── zveltio extensions ────────────────────────────────────────────────────────
@@ -184,6 +188,10 @@ extensions
   .option('--path <path>', 'Install from local directory (offline)')
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
   .option('--force', 'Overwrite existing extension (local install only)')
+  .option(
+    '--approve-forward-credentials',
+    "Approve the caller-credential forwarding the extension's manifest declares",
+  )
   .action((name, opts) => installCommand(name, opts));
 
 extensions

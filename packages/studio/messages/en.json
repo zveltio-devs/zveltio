@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Enter license key",
   "mkt.filesMissing": "Files missing",
   "mkt.filesMissingTitle": "Extension package not deployed on this server",
+  "mkt.forwardApproved": "Approved credential forwarding for {name}. Disable and re-enable it to apply.",
+  "mkt.forwardPending": "Credentials are not forwarded until you approve: {pairs}.",
   "mkt.install": "Install",
   "mkt.installFailed": "Install failed: {error}",
   "mkt.installed": "Installed",

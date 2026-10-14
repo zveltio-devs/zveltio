@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Lizenzschlüssel eingeben",
   "mkt.filesMissing": "Dateien fehlen",
   "mkt.filesMissingTitle": "Das Erweiterungspaket ist auf diesem Server nicht bereitgestellt",
+  "mkt.forwardApproved": "Weitergabe der Anmeldedaten für {name} freigegeben. Deaktivieren und wieder aktivieren, um sie anzuwenden.",
+  "mkt.forwardPending": "Anmeldedaten werden erst nach Ihrer Freigabe weitergegeben: {pairs}.",
   "mkt.install": "Installieren",
   "mkt.installFailed": "Installation fehlgeschlagen: {error}",
   "mkt.installed": "Installiert",

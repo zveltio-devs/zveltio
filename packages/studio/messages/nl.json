@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Licentiesleutel invoeren",
   "mkt.filesMissing": "Bestanden ontbreken",
   "mkt.filesMissingTitle": "Het extensiepakket is niet op deze server geïnstalleerd",
+  "mkt.forwardApproved": "Doorgeven van inloggegevens goedgekeurd voor {name}. Schakel uit en weer in om toe te passen.",
+  "mkt.forwardPending": "Inloggegevens worden pas doorgegeven nadat je goedkeurt: {pairs}.",
   "mkt.install": "Installeren",
   "mkt.installFailed": "Installatie mislukt: {error}",
   "mkt.installed": "Geïnstalleerd",

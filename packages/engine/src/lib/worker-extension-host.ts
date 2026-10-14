@@ -170,7 +170,11 @@ export interface WorkerCtxSource {
   config?: unknown;
   checkPermission?: (userId: string, resource: string, action: string) => Promise<boolean>;
   auth?: { api: { getSession(args: { headers: Headers }): Promise<unknown> } };
-  /** Manifest `forwardCredentials`: public route pattern → credential headers it receives. */
+  /**
+   * Public route pattern → credential headers the worker receives: the manifest's
+   * `forwardCredentials` only once an operator approved all of it (register.ts),
+   * never the manifest's own claim.
+   */
   forwardCredentials?: Record<string, readonly string[]>;
 }
 
@@ -1006,9 +1010,6 @@ export class WorkerExtensionHost {
     const sub = new Hono();
     type HonoLike = Record<string, (path: string, handler: unknown) => unknown>;
     const subAny = sub as unknown as HonoLike;
-    const forwarded = Object.entries(managed.source?.forwardCredentials ?? {}).map(
-      ([pattern, names]) => [compilePattern(pattern), names] as const,
-    );
     for (const r of managed.routes) {
       const method = r.method.toLowerCase();
       if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue;
@@ -1028,9 +1029,16 @@ export class WorkerExtensionHost {
           // name: Hono matched a percent-encoded name (`/ext/%70robe/x`), and
           // a replace left the whole path for the worker to 404 on.
           const subPath = `/${new URL(c.req.raw.url).pathname.split('/').slice(3).join('/')}`;
+          // Read from the running worker, not closed over at mount: Hono cannot
+          // unmount, so an earlier proxy on the same app answers a restarted
+          // worker's requests and kept forwarding the set approved back then.
           const headers = workerRequestHeaders(
             c.req.raw.headers,
-            new Set(forwarded.filter(([re]) => re.test(subPath)).flatMap(([, h]) => h)),
+            new Set(
+              Object.entries(live.source?.forwardCredentials ?? {})
+                .filter(([pattern]) => compilePattern(pattern).test(subPath))
+                .flatMap(([, h]) => h),
+            ),
           );
           const id = rpcId('inv');
           const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
