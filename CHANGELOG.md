@@ -41,7 +41,9 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   until approved again, one that asks for less keeps its approval. Existing
   installs are not grandfathered: approve them once, then re-enable. The proxy
   reads the running worker's set per request, so a worker restarted on the same
-  app no longer answers through an earlier mount's frozen set.
+  app no longer answers through an earlier mount's frozen set. `zveltio install
+  --approve-forward-credentials` sends the approval; without it the CLI names
+  the pairs that stay withheld.
 - The request role (`zveltio_rls`) can no longer read schema-branch preview
   tokens: the `X-Preview-Token` lookup goes through `zveltio_preview_branch()`
   and the column's SELECT is withheld, also after each boot's re-grant
