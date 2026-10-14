@@ -1409,6 +1409,11 @@ jobs:
           SLOW_QUERY_THRESHOLD_MS: '0'
           ZVELTIO_REGISTRATION_ENABLED: '1'
         run: cd packages/engine && bun run test:harness
+      - name: The suite left nothing behind
+        # As in the superuser lane: a run as the owner must clean up too.
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+        run: bun run check:test-leftovers
 
   perf-smoke:
     name: Perf Smoke (CRUD + list p95 budgets)

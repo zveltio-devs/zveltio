@@ -67,7 +67,10 @@ d('explicit tenant scope filter', () => {
     // The load-bearing one. `withTenantIsolation` resolves an assignment into a
     // visible set; when it produces one, the reach is wider than the caller's
     // own tenant and an equality on that tenant would hide the rest.
-    const rows = await sql<{ id: string }>`SELECT id FROM "user" LIMIT 1`.execute(db);
+    // Not a god, whose reach is every tenant (another file may leave one first).
+    const rows = await sql<{ id: string }>`
+      SELECT id FROM "user" WHERE role IS DISTINCT FROM 'god' LIMIT 1
+    `.execute(db);
     const userId = rows.rows[0]?.id ?? null;
     await sql`
       INSERT INTO zv_tenant_users (tenant_id, user_id, role)
@@ -96,7 +99,10 @@ d('explicit tenant scope filter', () => {
     // The other half, and the one that would break isolation if it were wrong.
     // A `subtree` assignment on ROOT reaches CHILD too, so an equality on ROOT
     // would hide rows the request is entitled to read.
-    const rows = await sql<{ id: string }>`SELECT id FROM "user" LIMIT 1`.execute(db);
+    // Not a god, whose reach is every tenant (another file may leave one first).
+    const rows = await sql<{ id: string }>`
+      SELECT id FROM "user" WHERE role IS DISTINCT FROM 'god' LIMIT 1
+    `.execute(db);
     const userId = rows.rows[0]?.id ?? null;
     await sql`
       INSERT INTO zv_tenant_users (tenant_id, user_id, role, read_scope)

@@ -114,6 +114,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_worker') THEN
     CREATE ROLE zveltio_worker NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
   END IF;
+  -- ZVELTIO_COLLECTION_RLS_EXEMPT (lib/extensions/collection-rls-exempt.ts).
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_coll_exempt') THEN
+    CREATE ROLE zveltio_coll_exempt NOLOGIN;
+  END IF;
   -- Inline extensions' ctx.db (lib/extensions/ext-db-role.ts); created at boot
   -- otherwise, which needs CREATEROLE.
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_ext') THEN
@@ -133,6 +137,11 @@ psql_super -d postgres -q -c "GRANT zveltio_flow_reader TO $APP_ROLE;"
 # repair a membership an earlier engine made for itself with SET FALSE.
 psql_super -d postgres -q -c "GRANT zveltio_worker TO $APP_ROLE WITH ADMIN TRUE, SET TRUE;"
 psql_super -d postgres -q -c "GRANT zveltio_ext TO $APP_ROLE WITH ADMIN TRUE, SET TRUE;"
+# ADMIN only: the engine adds a listed extension's roles to it. The engine
+# itself never takes the exemption, so no SET and no INHERIT. Without this a
+# second database on the cluster, whose owner did not create the role, could
+# not apply ZVELTIO_COLLECTION_RLS_EXEMPT (the engine warned and kept it enforced).
+psql_super -d postgres -q -c "GRANT zveltio_coll_exempt TO $APP_ROLE WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;"
 echo "  ✓ zveltio_rls granted to $APP_ROLE"
 echo "  ✓ zveltio_ext, zveltio_worker WITH ADMIN: one database role per extension"
 
