@@ -5,7 +5,9 @@
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import * as bunSql from '../../db/bun-sql-dialect.js';
+import * as dbIndex from '../../db/index.js';
 import { workerSqlEngineTables } from '../../lib/extensions/worker-sql-policy.js';
+import * as tempPrivilege from '../../lib/tenancy/temp-privilege.js';
 import {
   _internalForTests,
   hostTxnCap,
@@ -15,15 +17,22 @@ import type { DbQueryRequest, HostToWorkerMessage } from '../../lib/worker-exten
 
 await workerSqlEngineTables();
 
-let spy: { mockRestore(): void } | undefined;
-afterEach(() => spy?.mockRestore());
+const spies: { mockRestore(): void }[] = [];
+afterEach(() => {
+  for (const s of spies.splice(0)) s.mockRestore();
+});
 
 /** A pool whose connections record every statement; `fail` names one that throws. */
 function recordingPool(opts: { role?: string | null; fail?: string } = {}) {
   const ran: string[] = [];
   let reserved = 0;
   let released = 0;
-  spy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
+  // A booted app earlier in the same run (any file calling getTestApp) leaves
+  // TEMPORARY revoked and its own pool size behind; this file asserts the
+  // defaults, so it pins both rather than inheriting them.
+  spies.push(spyOn(tempPrivilege, 'temporaryObjectsRestricted').mockReturnValue(false));
+  spies.push(spyOn(dbIndex, 'activePoolMax').mockImplementation(() => dbIndex.resolvePoolMax()));
+  const pool = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
     reserve: async () => {
       reserved++;
       return {
@@ -38,6 +47,7 @@ function recordingPool(opts: { role?: string | null; fail?: string } = {}) {
       };
     },
   } as never);
+  spies.push(pool);
   return { ran, counts: () => ({ reserved, released }) };
 }
 

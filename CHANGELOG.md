@@ -127,6 +127,11 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   inline service does; it answered false for everyone (#1107).
 
 ### Gates and review
+- The unit suite passes with `TEST_DATABASE_URL` on a freshly migrated
+  database: `flow-executor-extra` creates its collection through the
+  create_collection job's path (tenant RLS and the flow reader's grant), and
+  `worker-extension-host-txn` pins the TEMP-privilege state and pool size an
+  earlier booted file left behind.
 - Gate fixes from the E01/E02 re-reads: one sibling root (`EXTENSIONS_ROOT`),
   empty-corpus refusals, the tenant-on-pool gate following the pool under any
   name, duplicate table creators flagged per file (#1046-#1051, #1071, #1072,
