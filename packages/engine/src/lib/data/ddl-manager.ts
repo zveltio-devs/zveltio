@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
-import { forgetReadableColumns } from '../../db/dynamic.js';
+import { forgetReadableColumns, readableColumns } from '../../db/dynamic.js';
 import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
 import { buildTenantUniqueIndex, findTenantUniqueIndex } from './unique-key-reconcile.js';
 import { toJsonb } from '../jsonb.js';
@@ -1644,8 +1644,8 @@ export class DDLManager {
    * `options.related_collection` populated for BYOD / sync-schema flows.
    */
   /**
-   * Every physical column of a collection's table, system columns included, in
-   * table order — `[]` when the table is not there.
+   * Every physical column of a collection's table the request role may read,
+   * system columns included, in table order — `[]` when the table is not there.
    *
    * `introspectTable` answers the USER fields and skips `id`, `status` and the
    * rest; a caller that checks a name against the table (a page filtering on
@@ -1661,7 +1661,11 @@ export class DDLManager {
       WHERE table_schema = 'public' AND table_name = ${tableName}
       ORDER BY ordinal_position
     `.execute(db);
-    return cols.rows.map((r) => r.column_name);
+    const names = cols.rows.map((r) => r.column_name);
+    // A sealed column (073) is not one the request role may name in a SELECT:
+    // an extension building `select(columnNames)` would get 42501 for it.
+    const readable = await readableColumns(db, tableName);
+    return readable ? names.filter((n) => readable.includes(n)) : names;
   }
 
   static async introspectTable(db: Database, collectionName: string): Promise<FieldConfig[]> {

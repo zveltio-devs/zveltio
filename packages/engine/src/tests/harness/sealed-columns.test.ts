@@ -169,6 +169,19 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
     expect(ok.rows[0]?.title).toBe('seed');
   });
 
+  it('columnNames leaves the sealed column out, so a select over its answer is readable', async () => {
+    const cols = await DDLManager.columnNames(db, COLLECTION);
+    expect(cols).toContain('title');
+    expect(cols).not.toContain('pw');
+    const rows = await asMember((trx) =>
+      trx
+        .selectFrom(TABLE as never)
+        .select(cols as never)
+        .execute(),
+    );
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
   it('seals it from every narrower role too, and only it', async () => {
     for (const r of await canRead(TABLE, 'pw')) expect(r).toEqual({ role: r.role, ok: false });
     for (const r of await canRead(TABLE, 'title')) expect(r).toEqual({ role: r.role, ok: true });
