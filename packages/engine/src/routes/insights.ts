@@ -21,6 +21,7 @@ import {
   getUserRoles,
   isGodUser,
   listAllRoles,
+  publishEveryTenant,
   requireInstanceAdmin,
   withTenantIsolation,
 } from '../lib/tenancy/index.js';
@@ -140,6 +141,12 @@ async function runReadOnlySql(
       // a silent failure here would be a tenant-scoped query that is not scoped.
       await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
       await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
+    } else {
+      // God's whole instance, said to the database rather than assumed of it.
+      // On the documented install the engine is a NOSUPERUSER owner that FORCE
+      // RLS binds, so the bare pool reads the default tenant only: god's ad-hoc
+      // query answered for one firm while promising every one (L32).
+      await publishEveryTenant(trx);
     }
     const result = await sql.raw<Record<string, unknown>>(query).execute(trx);
     return { rows: result.rows ?? [] };

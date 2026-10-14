@@ -44,6 +44,11 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   app no longer answers through an earlier mount's frozen set. `zveltio install
   --approve-forward-credentials` sends the approval; without it the CLI names
   the pairs that stay withheld.
+- God's ad-hoc `POST /api/insights/query` reads every tenant on the documented
+  install too. It relied on the pool bypassing RLS, which only a superuser
+  engine does; as the NOSUPERUSER owner `scripts/bootstrap-db-role.sh` makes,
+  it answered for the default tenant while promising the whole instance. It now
+  publishes every tenant's reach for the query (L32).
 - The request role (`zveltio_rls`) can no longer read schema-branch preview
   tokens: the `X-Preview-Token` lookup goes through `zveltio_preview_branch()`
   and the column's SELECT is withheld, also after each boot's re-grant
