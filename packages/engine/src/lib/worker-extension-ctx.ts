@@ -59,7 +59,6 @@ const OUT_OF_PROCESS = [
   'DDLManager',
   'registerPublicRoute',
   'onHealthCheck',
-  'getUserRoles',
 ] as const;
 
 export function refused(member: string, why = 'it runs inside the engine process'): Error {
@@ -160,6 +159,8 @@ export function buildWorkerCtx(bridge: WorkerBridge): {
     auth: { api: { getSession: () => bridge.host('getSession', []) } },
     checkPermission: (userId: string, resource: string, action: string) =>
       bridge.host('checkPermission', [userId, resource, action]) as Promise<boolean>,
+    // As `checkPermission`: the request user's roles, and none for another id.
+    getUserRoles: (userId: string) => bridge.host('getUserRoles', [userId]) as Promise<string[]>,
     events: {
       emit: (event: string, payload: unknown) => {
         bridge.host('emit', [event, payload, false]).catch((err: Error) => {
@@ -195,6 +196,13 @@ export function buildWorkerCtx(bridge: WorkerBridge): {
       register: (name: string, impl: Fn) => {
         bridge.registerService(name, impl);
         bridge.owners.set(name, bridge.extName);
+      },
+      // Void, as inline; the host drops only a name this worker registered.
+      unregister: (name: string) => {
+        if (bridge.owners.get(name) === bridge.extName) bridge.owners.delete(name);
+        bridge.host('unregisterService', [name]).catch((err: Error) => {
+          console.error(`[worker] ctx.services.unregister("${name}"): ${err.message}`);
+        });
       },
       // The function, as inline: calling it is what crosses to the broker. Not
       // null for an absent one: the broker answers it, with a 503 for a

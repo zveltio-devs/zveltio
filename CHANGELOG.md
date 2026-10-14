@@ -60,6 +60,12 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   pool it polled all of them and wrote their folders and messages into the root
   tenant. Both runs were recorded `ok`. One tenant's failure does not stop the
   others; the run then fails naming it. Schedules without the flag are unchanged.
+- A worker-isolated extension gets `ctx.getUserRoles` and
+  `ctx.services.unregister` (B03). `getUserRoles` failed the load by name, and
+  `services.unregister` was missing, so a service a worker registered stayed in
+  the host registry until the worker stopped. `getUserRoles` answers, like
+  `checkPermission`, for the request's user only — `[]` for an id the worker
+  names — and the host drops only a service name that worker registered.
 - A `password` field cannot be read by the request roles (L37 layer 2,
   migration 073). The data API stripped the argon2 hash from every payload, but
   raw SQL on `zveltio_rls` — and on the roles extensions and flow `query_db`

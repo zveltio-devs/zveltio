@@ -363,8 +363,9 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    (`tests/harness/worker-ctx-parity.test.ts`: the same extension inline and on
    both transports). Still open: (`db.transaction()`, refused here, is step 8, done);
    `services.get` cannot answer `null` synchronously for a service that is not
-   there, so the call fails instead; `getUserRoles`, `describeDenial`,
-   `services.has|waitFor|list` and the other `auth.api` methods are absent.
+   there, so the call fails instead; the other `auth.api` methods are absent.
+   (`getUserRoles` — the request user's only — `describeDenial` and
+   `services.has|waitFor|list|unregister` were added later.)
 8. **One transaction per request across the bridge.** Each bridged statement runs
    today in its own host transaction (≈7 database round-trips where inline does 1)
    and BEGIN/COMMIT/SAVEPOINT are refused, so a multi-statement write is not
