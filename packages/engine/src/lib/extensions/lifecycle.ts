@@ -26,6 +26,7 @@ import { cronRunner } from '../runtime/index.js';
 import { unregisterExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
 import { join } from 'node:path';
 import { checkExtensionDependencies } from '../version-checker.js';
+import { getWorkerHostIfInitialized } from '../worker-extension-host.js';
 import { resolveExtensionsBase } from './extension-paths.js';
 import type { Hono } from 'hono';
 import type { ExtensionLoader } from './extension-loader.js';
@@ -180,7 +181,11 @@ async function refreshTooOldDependents(loader: ExtensionLoader, name: string): P
       const pin = manifest.optionalDependencies?.find((d) => d.name === name);
       if (!pin) continue;
       const { tooOld } = await checkExtensionDependencies(loader.ctx.db, [pin], versions);
-      if (!tooOld.includes(name)) deps.set(name, true);
+      if (!tooOld.includes(name)) {
+        deps.set(name, true);
+        // A worker dependent answers `has()` from its own copy of the map.
+        getWorkerHostIfInitialized()?.resyncServices();
+      }
     } catch (err) {
       // Left absent, as at its load: the dependent's next reload asks again.
       console.warn(

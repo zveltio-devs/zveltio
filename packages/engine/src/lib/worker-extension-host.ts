@@ -316,7 +316,7 @@ export class WorkerExtensionHost {
     // `ctx.services.has/get/list` answer synchronously, as inline. One snapshot
     // per tick, however many services a load registers.
     let queued = false;
-    serviceRegistry.onChange(() => {
+    this.resyncServices = () => {
       if (queued) return;
       queued = true;
       queueMicrotask(() => {
@@ -327,14 +327,27 @@ export class WorkerExtensionHost {
           // A channel closing under it must not fail the registration that
           // triggered this; its next start sends the registry with `init`.
           try {
-            this.post(managed, { type: 'services:snapshot', id: rpcId('svcs'), services });
+            this.post(managed, {
+              type: 'services:snapshot',
+              id: rpcId('svcs'),
+              services,
+              mayCall: [...managed.mayCall],
+            });
           } catch {
             /* ended channel */
           }
         }
       });
-    });
+    };
+    serviceRegistry.onChange(this.resyncServices);
   }
+
+  /**
+   * Send every worker the registry and its own `ServiceDeps` again, once per
+   * tick. The registry's changes call it; so does a dependent's `ServiceDeps`
+   * turning an upgraded optional dependency callable, which changes no service.
+   */
+  readonly resyncServices: () => void;
 
   /**
    * Point the host at the CURRENT Hono app.

@@ -52,6 +52,8 @@ export interface ServicesSnapshot {
   type: 'services:snapshot';
   id: WorkerMessageId;
   services: Array<[string, string]>;
+  /** This worker's `ServiceDeps`: an optional dependency upgraded since init turns callable. */
+  mayCall?: Array<[string, boolean]>;
 }
 
 export interface InitResponse {
