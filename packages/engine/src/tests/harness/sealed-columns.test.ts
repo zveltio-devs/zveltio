@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { parseMigrationFile } from '../../db/migrations/index.js';
 import { DDLManager, reconcileSealedColumns } from '../../lib/data/index.js';
 import { alterField } from '../../lib/data/field-changes.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
@@ -345,5 +346,44 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
     expect((await canRead(LATER_TABLE, 'pin')).some((r) => r.ok)).toBe(true);
     await reconcileSealedColumns(db);
     expect((await canRead(LATER_TABLE, 'pin')).some((r) => r.ok)).toBe(false);
+  });
+
+  it('074 takes the hash out of revisions written before 073, and only the hash', async () => {
+    const legacy = `legacy-${STAMP}`;
+    const revision = () =>
+      asTenant(db, DEFAULT_TENANT_ID, async (trx) => {
+        await sql`SELECT set_config('zveltio.visible_tenants', ${DEFAULT_TENANT_ID}, true)`.execute(
+          trx,
+        );
+        return (
+          await sql<{ data: Record<string, unknown>; delta: Record<string, unknown> | null }>`
+            SELECT data, delta FROM zv_revisions WHERE collection = ${LATER} AND record_id = ${legacy}
+          `.execute(trx)
+        ).rows[0];
+      });
+    // LATER keeps its password field (`pin`) to the end; COLLECTION's are renamed and dropped.
+    const pwName = (
+      await sql<{ n: string }>`
+        SELECT f->>'name' AS n FROM zvd_collections, jsonb_array_elements(fields) f
+         WHERE name = ${LATER} AND f->>'type' = 'password' LIMIT 1
+      `.execute(db)
+    ).rows[0]!.n;
+    const withHash = JSON.stringify({ title: 't', [pwName]: '$argon2id$old' });
+    await asTenant(db, DEFAULT_TENANT_ID, (trx) =>
+      sql`
+        INSERT INTO zv_revisions (collection, record_id, action, data, delta, tenant_id)
+        VALUES (${LATER}, ${legacy}, 'update', ${withHash}::text::jsonb,
+                ${withHash}::text::jsonb, ${DEFAULT_TENANT_ID})
+      `.execute(trx),
+    );
+    const file = Bun.file(
+      new URL('../../db/migrations/sql/074_scrub_revision_password_hashes.sql', import.meta.url),
+    );
+    const { up } = parseMigrationFile(await file.text()) as { up: string };
+    await sql.raw(up).execute(db);
+    expect(await revision()).toEqual({ data: { title: 't' }, delta: { title: 't' } });
+    // Re-runnable: a scrubbed row no longer matches, and nothing else changes.
+    await sql.raw(up).execute(db);
+    expect(await revision()).toEqual({ data: { title: 't' }, delta: { title: 't' } });
   });
 });

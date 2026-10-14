@@ -83,6 +83,7 @@ import m064 from './sql/070_extension_forward_credentials_approval.sql' with { t
 import m065 from './sql/071_extension_forward_approvals.sql' with { type: 'text' };
 import m066 from './sql/072_column_write_guard.sql' with { type: 'text' };
 import m067 from './sql/073_sealed_columns.sql' with { type: 'text' };
+import m068 from './sql/074_scrub_revision_password_hashes.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -154,4 +155,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '071_extension_forward_approvals.sql': m065,
   '072_column_write_guard.sql': m066,
   '073_sealed_columns.sql': m067,
+  '074_scrub_revision_password_hashes.sql': m068,
 };
