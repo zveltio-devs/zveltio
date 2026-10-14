@@ -441,11 +441,21 @@ export async function applyTenantRLS(
   // pool, committed before it returns) and the boot reconcile.
   // Probed rather than attempted: a role is absent where 001 could not create
   // it, and a refused GRANT would abort a caller's transaction.
-  for (const role of await narrowRolesPresent(db)) {
-    await sql`GRANT ${sql.raw(NARROW_ROLE_GRANTS[role])} ON ${sql.id(table)} TO ${sql.id(role)}`.execute(
-      db,
-    );
-  }
+  const roles = await narrowRolesPresent(db);
+  const grant = async (h: Database) => {
+    for (const role of roles) {
+      await sql`GRANT ${sql.raw(NARROW_ROLE_GRANTS[role])} ON ${sql.id(table)} TO ${sql.id(role)}`.execute(
+        h,
+      );
+    }
+    // The grant above is the whole table. On a sealed one (migration 073) each
+    // role goes back to the columns `zveltio_rls` may read, in the same
+    // transaction, so no statement ever sees a sealed column granted.
+    await sql`SELECT zveltio_seal_columns(to_regclass(${`public.${table}`}))`.execute(h);
+  };
+  if (roles.length === 0) return;
+  if ((db as unknown as { isTransaction?: boolean }).isTransaction) await grant(db);
+  else await db.transaction().execute(grant);
 }
 
 /** The roles that may hold collection tables only, and what each holds on one. */
@@ -1653,8 +1663,13 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
             -- sixth table fails there rather than arriving in silence.
             AND tablename NOT IN ('session', 'account', 'verification', 'twoFactor', 'passkey')
         LOOP
-          EXECUTE format(
-            'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO zveltio_rls', t.tablename);
+          -- A sealed table (migration 073) holds its SELECT column by column; a
+          -- table-level SELECT here would hand back the sealed ones every boot.
+          EXECUTE format('GRANT %s ON public.%I TO zveltio_rls',
+            CASE WHEN NOT has_table_privilege('zveltio_rls', format('public.%I', t.tablename), 'SELECT')
+                      AND has_any_column_privilege('zveltio_rls', format('public.%I', t.tablename), 'SELECT')
+                 THEN 'INSERT, UPDATE, DELETE' ELSE 'SELECT, INSERT, UPDATE, DELETE' END,
+            t.tablename);
         END LOOP;
         FOR s IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public' LOOP
           EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO zveltio_rls', s.sequencename);

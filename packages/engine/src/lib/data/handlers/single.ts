@@ -49,7 +49,7 @@ import {
   getVirtualConfig,
   getDb,
   getTenantId,
-  dynamicDb,
+  selectReadable,
   isUuid,
   engineRead,
 } from '../write-pipeline.js';
@@ -215,7 +215,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
   // record they're not allowed to see by guessing its ID.
   // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
   const record = await scope
-    .query(dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id))
+    .query((await selectReadable(effectiveDb, tableName)).where('id', '=', id))
     .executeTakeFirst();
 
   // Per-record entity-access check. A 404 (not 403) hides whether the
@@ -440,7 +440,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // we short-circuit before invoking any hooks.
   // Same authorisation probe as patchRecord: RLS conditions on the before-row,
   // so a row the caller cannot see cannot be replaced either.
-  let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
+  let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
   beforeQuery = applyRlsFilters(
     beforeQuery,
     await getRlsFilters(collection, user, c.get('authType')),
@@ -576,7 +576,7 @@ export async function patchRecord(
   // RLS conditions on it, so a row they are not allowed to see is simply not
   // found and the UPDATE never happens. Without this the policies applied to
   // reads only, and any member could patch another user's record by id.
-  let beforeQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
+  let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
   beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, w.authType));
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
   const beforeRow = await engineRead<DynamicRecord | undefined>(
@@ -682,7 +682,7 @@ export async function deleteRecord(
   // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
   // Fetch existing for revision log, then delete atomically. Apply query
   // alters so a row hidden by an extension filter cannot be deleted by ID.
-  let existingQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', '=', id);
+  let existingQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
   existingQuery = applyRlsFilters(existingQuery, await getRlsFilters(collection, user, w.authType));
   existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
   const existing = await engineRead<DynamicRecord | undefined>(

@@ -22,6 +22,7 @@ import {
   handlePgErrors,
   getTenantId,
   dynamicDb,
+  selectReadable,
   runAtomic,
   isUuid,
   engineRead,
@@ -254,11 +255,11 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           canRead,
           trx,
           collection,
-          () =>
+          async () =>
             queryAlterRegistry
               .applyAll(
                 applyRlsFilters(
-                  dynamicDb(trx).selectFrom(tableName).selectAll().where('id', '=', id),
+                  (await selectReadable(trx, tableName)).where('id', '=', id),
                   rlsFilters,
                 ),
                 tableName,
@@ -371,11 +372,11 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
   // lookup. A row hidden by an alter never enters the delete set; without this
   // the batch endpoint deleted rows `DELETE /:id` answers 404 for.
   const deleteFilters = await getRlsFilters(collection, user, c.get('authType'));
-  const existing = await engineRead<DynamicRecord[]>(canRead, effectiveDb, collection, () =>
+  const existing = await engineRead<DynamicRecord[]>(canRead, effectiveDb, collection, async () =>
     queryAlterRegistry
       .applyAll(
         applyRlsFilters(
-          dynamicDb(effectiveDb).selectFrom(tableName).selectAll().where('id', 'in', body.ids),
+          (await selectReadable(effectiveDb, tableName)).where('id', 'in', body.ids),
           deleteFilters,
         ),
         tableName,

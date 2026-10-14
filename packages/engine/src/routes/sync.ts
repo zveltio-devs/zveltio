@@ -6,6 +6,7 @@
  */
 
 import { sqlState } from '../db/bun-sql-quirks.js';
+import { readableColumns } from '../db/dynamic.js';
 import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
 import { guardSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
@@ -58,6 +59,23 @@ import { SYNC_TOMBSTONE_RETENTION_DAYS } from '../lib/runtime/index.js';
  * transaction start is invisible here for microseconds; a transaction that
  * old at the statement start below is not covered.
  */
+
+/** What a write statement may return: the row, as far as the request role may read it (L37 layer 2). */
+type Returned = {
+  execute(): Promise<Record<string, unknown>[]>;
+  executeTakeFirst(): Promise<Record<string, unknown> | undefined>;
+};
+interface ReturningBuilder {
+  returningAll(): Returned;
+  returning(cols: never): Returned;
+}
+
+/** `RETURNING *`, or the readable columns of a sealed collection, where `*` is refused. */
+async function returningReadable(db: Database, table: string, q: ReturningBuilder) {
+  const cols = await readableColumns(db, table);
+  return cols ? q.returning(cols as never) : q.returningAll();
+}
+
 export async function syncWatermarkUs(pool: Database, ownPid: number): Promise<string> {
   const { rows } = await sql<{ w: string }>`
     SELECT CASE
@@ -385,15 +403,17 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         const inserted = await withSavepoint(
           effectiveDb,
           'sync_push_create',
-          () =>
+          async () =>
             readable.get(collection)
-              ? insert(records).returningAll().execute()
+              ? (await returningReadable(effectiveDb, collection, insert(records))).execute()
               : // Without read: one row at a time, inside the engine's read window,
                 // which is what lets `RETURNING` see the row (migration 058).
                 withCollectionRead(effectiveDb, collection.slice(4), async () => {
                   const landed: unknown[] = [];
                   for (const r of records) {
-                    const row = await insert(r).returningAll().executeTakeFirst();
+                    const row = await (
+                      await returningReadable(effectiveDb, collection, insert(r))
+                    ).executeTakeFirst();
                     if (row) landed.push(row);
                   }
                   return landed;
@@ -506,7 +526,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
                 );
                 // The whole row, as REST's `dynamicUpdate` returns it, for the
                 // revision; a caller who cannot read gets it inside the read window.
-                const run = () => q.returningAll().executeTakeFirst();
+                const run = async () =>
+                  (await returningReadable(effectiveDb, collection, q)).executeTakeFirst();
                 return readable.get(collection)
                   ? run()
                   : withCollectionRead(effectiveDb, collection.slice(4), run);
@@ -542,7 +563,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
                 );
                 // The deleted row, which REST reads before its DELETE and hands
                 // to `afterWrite` — here the same row, from the statement itself.
-                const run = () => q.returningAll().executeTakeFirst();
+                const run = async () =>
+                  (await returningReadable(effectiveDb, collection, q)).executeTakeFirst();
                 return readable.get(collection)
                   ? run()
                   : withCollectionRead(effectiveDb, collection.slice(4), run);
@@ -729,11 +751,12 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // 200 000 rows, 63 ms and 2 535 buffers against 0,08 ms and 3. The
       // equality only when the reach is one tenant (`tenantScopeId`, db/dynamic.ts).
       const tenantScopeId = getSingleTenantId();
+      // A sealed collection (L37 layer 2) refuses `SELECT *`.
+      const readable = await readableColumns(pullDb, collection);
+      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+      const pullFrom = pullDb.selectFrom(collection as any);
       const pullQuery = scope.query(
-        pullDb
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          .selectFrom(collection as any)
-          .selectAll()
+        (readable ? pullFrom.select(readable as never) : pullFrom.selectAll())
           .select([
             sql<string>`${updatedUs}::text`.as('__zv_pull_us'),
             sql<string>`id::text`.as('__zv_pull_id'),

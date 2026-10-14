@@ -141,6 +141,13 @@ async function carriedOverDdl(
              CASE WHEN a.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END)
       FROM o, aclexplode(o.acl) a
     UNION ALL
+    -- Column grants too: a sealed table (migration 073) holds SELECT only on
+    -- its other columns, and without these the copy is readable on none.
+    SELECT 3, format('GRANT %s (%I) ON %I TO %s', a.privilege_type, t.attname, o.relname,
+             CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END)
+      FROM o JOIN pg_attribute t ON t.attrelid = o.oid AND t.attnum > 0 AND NOT t.attisdropped,
+           aclexplode(t.attacl) a
+    UNION ALL
     SELECT 4, format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', o.relname) FROM o WHERE o.relrowsecurity
     UNION ALL
     SELECT 4, format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', o.relname) FROM o WHERE o.relforcerowsecurity

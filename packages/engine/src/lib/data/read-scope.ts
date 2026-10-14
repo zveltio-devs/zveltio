@@ -17,7 +17,7 @@
 import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { queryAlterRegistry } from './query-alter.js';
-import { dynamicDb, isUuid } from './write-pipeline.js';
+import { dynamicDb, isUuid, selectReadable } from './write-pipeline.js';
 import { withheldColumns } from './shape.js';
 import {
   applyColumnAccess,
@@ -158,7 +158,7 @@ export async function recordReadable(
   if (!isUuid(id) || !(await DDLManager.getCollection(db, collection))) return false;
   const scope = await readScope(db, collection, user, authType);
   const row = await scope
-    .query(dynamicDb(effectiveDb).selectFrom(scope.table).selectAll().where('id', '=', id))
+    .query((await selectReadable(effectiveDb, scope.table)).where('id', '=', id))
     .executeTakeFirst();
   return !!row && (await scope.keep([row])).length > 0;
 }

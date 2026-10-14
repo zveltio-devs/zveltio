@@ -29,7 +29,7 @@ import type { Database } from '../../db/index.js';
 import { checkPermission, entityAccessRegistry } from '../tenancy/index.js';
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { readScope, type ReadScope } from './read-scope.js';
-import { dynamicDb, isUuid } from './write-pipeline.js';
+import { dynamicDb, isUuid, selectReadable } from './write-pipeline.js';
 import { serializeSnapshot } from './shape.js';
 
 export interface RevisionQuery {
@@ -152,12 +152,7 @@ export async function readableRevisions(
     if (entityAccessRegistry.hasChecksFor(scope.table)) {
       const live = isUuid(row.record_id)
         ? await scope
-            .query(
-              dynamicDb(effectiveDb)
-                .selectFrom(scope.table)
-                .selectAll()
-                .where('id', '=', row.record_id),
-            )
+            .query((await selectReadable(effectiveDb, scope.table)).where('id', '=', row.record_id))
             .executeTakeFirst()
         : undefined;
       if ((await scope.keep([live ?? asObject(row.data)])).length === 0) continue;
@@ -192,9 +187,9 @@ export async function revertPatch(
   revision: RevisionRow,
 ): Promise<Record<string, unknown>> {
   const live: Record<string, unknown> = isUuid(revision.record_id)
-    ? ((await dynamicDb(effectiveDb)
-        .selectFrom(scope.table)
-        .selectAll()
+    ? ((await (
+        await selectReadable(effectiveDb, scope.table)
+      )
         .where('id', '=', revision.record_id)
         .executeTakeFirst()) ?? {})
     : {};
