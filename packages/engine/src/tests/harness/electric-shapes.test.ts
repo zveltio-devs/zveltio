@@ -32,6 +32,7 @@ import {
   revalidateSockets,
 } from '../../lib/tenancy/index.js';
 import {
+  asTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -65,9 +66,12 @@ const env = { url: process.env.ELECTRIC_URL, secret: process.env.ELECTRIC_SECRET
 const asMember = (slug = A.slug) => ({ cookie: member.cookie, 'x-tenant-slug': slug });
 const asGod = () => ({ cookie: god, 'x-tenant-slug': A.slug });
 
+// The collection is under tenant RLS from its create: each firm writes its own rows.
 async function insert(tenant: { id: string }, title: string, owner: string, secret: string) {
-  await sql`INSERT INTO ${sql.id(`zvd_${COLL}`)} (tenant_id, title, owner, secret)
-            VALUES (${tenant.id}::uuid, ${title}, ${owner}, ${secret})`.execute(db);
+  await asTenant(db, tenant.id, (trx) =>
+    sql`INSERT INTO ${sql.id(`zvd_${COLL}`)} (tenant_id, title, owner, secret)
+            VALUES (${tenant.id}::uuid, ${title}, ${owner}, ${secret})`.execute(trx),
+  );
 }
 
 async function shape(headers: Record<string, string>, params: Record<string, string>) {
@@ -144,7 +148,11 @@ d('electric shapes', () => {
     await insert(A, `${HIDE}-a-other`, 'someone-else', `${HIDE}-col-a2`);
     await insert(B, `${HIDE}-b-mine`, member.userId, `${HIDE}-col-b`);
     // REST never returns a password field (its type serializes to nothing).
-    await sql`UPDATE ${sql.id(`zvd_${COLL}`)} SET pw = ${`$argon2id$v=19$${HIDE}-pw`}`.execute(db);
+    for (const t of [A, B]) {
+      await asTenant(db, t.id, (trx) =>
+        sql`UPDATE ${sql.id(`zvd_${COLL}`)} SET pw = ${`$argon2id$v=19$${HIDE}-pw`}`.execute(trx),
+      );
+    }
   }, 120_000);
 
   afterAll(async () => {

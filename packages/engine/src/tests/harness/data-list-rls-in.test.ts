@@ -207,15 +207,23 @@ d('data list RLS in/not_in (in-process)', () => {
     expect(titles).toEqual(['alpha', 'gamma']);
   });
 
+  // Past the row rule: on the collection's own table it is a Postgres policy
+  // too, so the test reads with the exemption the engine publishes for god.
+  const betaRow = () =>
+    db.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
+      return sql<{ id: string }>`
+        SELECT id FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE title = 'beta'
+      `.execute(trx);
+    });
+
   it('survives GET /:id', async () => {
     // The single-record read had its own hand-written copy of the filter loop
     // — the third — and like the other two it covered eq/neq and dropped
     // `in`. So the policy held for the listing and evaporated the moment you
     // guessed an id.
     await setPolicy('in', 'static:red,blue');
-    const rows = (await sql
-      .raw(`SELECT id FROM "zvd_${COLLECTION}" WHERE title = 'beta'`)
-      .execute(db)) as { rows: { id: string }[] };
+    const rows = await betaRow();
     const hiddenId = rows.rows[0]!.id;
 
     const res = await app.request(`/api/data/${COLLECTION}/${hiddenId}`, {
@@ -228,9 +236,7 @@ d('data list RLS in/not_in (in-process)', () => {
     // The list time-travel path got row policies; its single-record sibling
     // did not, which made this the one read that skipped them entirely.
     await setPolicy('in', 'static:red,blue');
-    const rows = (await sql
-      .raw(`SELECT id FROM "zvd_${COLLECTION}" WHERE title = 'beta'`)
-      .execute(db)) as { rows: { id: string }[] };
+    const rows = await betaRow();
     const hiddenId = rows.rows[0]!.id;
 
     const asOf = new Date(Date.now() + 60_000).toISOString();

@@ -391,17 +391,10 @@ export async function runCreateCollection(
   db: Database,
   definition: Parameters<typeof DDLManager.createCollection>[1],
 ): Promise<void> {
+  // Tenant RLS is part of the create (DDLManager's `createIsolatedTable`): a
+  // table it cannot isolate is not created, and the job fails.
   await DDLManager.createCollection(db, definition);
-  const name = definition.name;
-  // Apply tenant RLS to the new collection table immediately so it's isolated
-  // without waiting for the next boot reconcile. Best-effort, non-fatal.
-  try {
-    const { applyTenantRLS } = await import('../tenancy/index.js');
-    await applyTenantRLS(db, `zvd_${name}`);
-  } catch (err) {
-    console.warn('[ddl-queue] applyTenantRLS on create_collection failed:', (err as Error).message);
-  }
-  announceSchemaChange(name, 'create');
+  announceSchemaChange(definition.name, 'create');
 }
 
 /**

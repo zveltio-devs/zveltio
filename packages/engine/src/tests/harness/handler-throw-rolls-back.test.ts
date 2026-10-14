@@ -19,7 +19,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from '../../lib/data/index.js';
 import { problem, problemOnError } from '../../lib/problem.js';
 import { onAfterCommit } from '../../lib/tenancy/index.js';
 import { requestLogMiddleware } from '../../middleware/request-log.js';
@@ -38,10 +37,14 @@ d('a handler that throws rolls the request transaction back', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    await DDLManager.createCollection(db, {
-      name: COLLECTION,
-      fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
-    } as never);
+    // A plain table, not a collection: a collection is under tenant RLS and
+    // the collection-permission policies, which refuse this grant-less request
+    // its write before the handler can throw.
+    await sql
+      .raw(
+        `CREATE TABLE "${TABLE}" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title TEXT NOT NULL)`,
+      )
+      .execute(db);
 
     app = new Hono();
     app.onError(problemOnError);

@@ -83,11 +83,16 @@ d('data single writes honour the read scope (in-process)', () => {
       body: method === 'DELETE' ? undefined : JSON.stringify({ title: 'overwritten' }),
     });
 
+  // Past the row rule: on the collection's own table it is a Postgres policy too,
+  // so the test reads with the exemption the engine publishes for god.
   const titleOf = async (id: string): Promise<string | undefined> =>
     (
-      await sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)} WHERE id = ${id}`.execute(
-        db,
-      )
+      await db.transaction().execute(async (trx) => {
+        await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
+        return sql<{
+          title: string;
+        }>`SELECT title FROM ${sql.table(TABLE)} WHERE id = ${id}`.execute(trx);
+      })
     ).rows[0]?.title;
 
   beforeAll(async () => {

@@ -307,11 +307,11 @@ d('the narrow roles hold exactly the collection tables', () => {
     );
   }, 60_000);
 
-  it('a collection created before isolation is on it is reachable to neither role until it is', async () => {
-    // `DDLManager.createCollection` is also an extension's `ctx.ddl` road, which
-    // applies no RLS: until the boot reconcile, such a table has none. The flow
-    // reader used to be granted at CREATE TABLE, so a `query_db` step read every
-    // tenant's rows there.
+  it('a collection created through DDLManager holds the grants with isolation already on', async () => {
+    // `DDLManager.createCollection` is also an extension's `ctx.ddl` road. It
+    // used to apply no RLS, so the table waited for the boot reconcile; the
+    // flow reader, granted at CREATE TABLE, read every tenant's rows there. The
+    // table and its isolation now commit together, grants last.
     const name = `${COLL}_ctx`;
     const t = `zvd_${name}`;
     await DDLManager.createCollection(db, {
@@ -319,9 +319,6 @@ d('the narrow roles hold exactly the collection tables', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     try {
-      expect(await privileges(db, t, 'zveltio_flow_reader')).toEqual([]);
-      expect(await workerPrivileges(db, t)).toEqual([]);
-      await reconcileTenantRLS(db);
       const r = await sql<{ force: boolean }>`
         SELECT relforcerowsecurity AS force FROM pg_class WHERE oid = to_regclass(${t})
       `.execute(db);

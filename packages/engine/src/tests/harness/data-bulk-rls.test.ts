@@ -41,11 +41,16 @@ d('data bulk RLS (in-process)', () => {
     return ((await res.json()) as { id: string }).id;
   };
 
+  // Past the row rule: on the collection's own table it is a Postgres policy too,
+  // so the test reads with the exemption the engine publishes for god.
   const titleOf = async (id: string) =>
     (
-      await sql<{ title: string }>`
-        SELECT title FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${id}
-      `.execute(db)
+      await db.transaction().execute(async (trx) => {
+        await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
+        return sql<{ title: string }>`
+          SELECT title FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${id}
+        `.execute(trx);
+      })
     ).rows[0]?.title;
 
   beforeAll(async () => {

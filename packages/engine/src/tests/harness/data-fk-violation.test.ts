@@ -73,6 +73,9 @@ d('data foreign key violation (in-process)', () => {
     expect(res.status).toBe(422);
     const body = (await res.json()) as { detail?: string; errors?: string[] };
     expect(body.detail).toBe('foreign_key_violation');
-    expect(body.errors?.[0]).toContain('Field "author" references');
+    // Under tenant RLS Postgres withholds the key DETAIL (ri_ReportViolation),
+    // so the field cannot be named from it. This read 'Field "author"
+    // references' only while `createCollection` left the table without RLS.
+    expect(body.errors?.[0]).toBe('Referenced record does not exist.');
   });
 });

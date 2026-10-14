@@ -168,14 +168,14 @@ d('sync pull returns deletes', () => {
       grants: [{ collection: NAME, actions: ['read'] }],
     });
     const mine = await insert(db, 'mine');
-    const { rows } = await sql<{ id: string }>`
-      INSERT INTO ${sql.table(TABLE)} (title, tenant_id) VALUES ('theirs', ${OTHER_TENANT}::uuid)
-      RETURNING id::text AS id
-    `.execute(db);
-    const theirs = rows[0]!.id;
+    // The table is under tenant RLS from its create: another firm's row is
+    // written as that firm, and both are deleted with every firm in reach.
+    const theirs = await asTenant(db, OTHER_TENANT, (trx) => insert(trx, 'theirs'));
     const cursors = await caughtUp();
-    await sql`DELETE FROM ${sql.table(TABLE)} WHERE id IN (${mine}::uuid, ${theirs}::uuid)`.execute(
-      db,
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM ${sql.table(TABLE)} WHERE id IN (${mine}::uuid, ${theirs}::uuid)`.execute(
+        trx,
+      ),
     );
 
     const { rows: stones } = await asEveryTenant(db, (trx) =>
@@ -189,18 +189,13 @@ d('sync pull returns deletes', () => {
     expect(deletesIn(body)).not.toContain(theirs);
   });
 
-  // A parent unit (or god) may delete a child's row: the row's policy lets it
-  // DELETE what it can see, while a tombstone written as the deleter's own unit
-  // would fail the WITH CHECK every tenant table has. A superuser harness
-  // bypasses RLS, so the trigger is handed to a plain role here; on the owner
-  // lane it already belongs to one.
+  // God (no unit of its own, every unit visible) may delete a child's row,
+  // while a tombstone written without the row's unit would fail the WITH CHECK
+  // every tenant table has. A parent unit cannot: `tenant_own_node_delete`
+  // refuses it. A superuser harness bypasses RLS, so the trigger is handed to a
+  // plain role here; on the owner lane it already belongs to one.
   it('a delete across units still writes its tombstone under RLS', async () => {
-    const theirs = (
-      await sql<{ id: string }>`
-        INSERT INTO ${sql.table(TABLE)} (title, tenant_id) VALUES ('child', ${OTHER_TENANT}::uuid)
-        RETURNING id::text AS id
-      `.execute(db)
-    ).rows[0]!.id;
+    const theirs = await asTenant(db, OTHER_TENANT, (trx) => insert(trx, 'child'));
     const seen = await db
       .transaction()
       .execute(async (trx) => {
@@ -209,7 +204,7 @@ d('sync pull returns deletes', () => {
         }
         await sql`
           SELECT set_config('role', 'zveltio_rls', true),
-                 set_config('zveltio.current_tenant', '00000000-0000-0000-0000-000000000001', true),
+                 set_config('zveltio.current_tenant', '', true),
                  set_config('zveltio.visible_tenants',
                    ${`00000000-0000-0000-0000-000000000001,${OTHER_TENANT}`}, true)
         `.execute(trx);
