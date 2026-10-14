@@ -3397,7 +3397,7 @@
   "schemaBranches.review": "Review",
   "schemaBranches.reviewHistory": "Review history",
   "schemaBranches.reviewTitle": "Review: {name}",
-  "schemaBranches.showPreviewToken": "Show preview token",
+  "schemaBranches.rotatePreviewToken": "Rotate preview token",
   "schemaBranches.submitNewReview": "Submit new review",
   "schemaBranches.submitReview": "Submit review",
   "schemaBranches.subtitle": "Manage database schema versions",

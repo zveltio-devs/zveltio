@@ -3397,7 +3397,7 @@
   "schemaBranches.review": "Revisione",
   "schemaBranches.reviewHistory": "Cronologia delle revisioni",
   "schemaBranches.reviewTitle": "Revisione: {name}",
-  "schemaBranches.showPreviewToken": "Mostra il token di anteprima",
+  "schemaBranches.rotatePreviewToken": "Rinnova token di anteprima",
   "schemaBranches.submitNewReview": "Invia una nuova revisione",
   "schemaBranches.submitReview": "Invia revisione",
   "schemaBranches.subtitle": "Gestisci le versioni dello schema del database",

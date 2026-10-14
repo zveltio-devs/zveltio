@@ -3397,7 +3397,7 @@
   "schemaBranches.review": "Revue",
   "schemaBranches.reviewHistory": "Historique des revues",
   "schemaBranches.reviewTitle": "Revue : {name}",
-  "schemaBranches.showPreviewToken": "Afficher le jeton de prévisualisation",
+  "schemaBranches.rotatePreviewToken": "Renouveler le jeton d'aperçu",
   "schemaBranches.submitNewReview": "Soumettre une nouvelle revue",
   "schemaBranches.submitReview": "Soumettre la revue",
   "schemaBranches.subtitle": "Gérez les versions du schéma de la base de données",

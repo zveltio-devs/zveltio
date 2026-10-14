@@ -1263,7 +1263,7 @@
   "schemaBranches.review": "Przegląd",
   "schemaBranches.reviewHistory": "Historia przeglądów",
   "schemaBranches.reviewTitle": "Przegląd: {name}",
-  "schemaBranches.showPreviewToken": "Pokaż token podglądu",
+  "schemaBranches.rotatePreviewToken": "Wymień token podglądu",
   "schemaBranches.submitNewReview": "Prześlij nowy przegląd",
   "schemaBranches.submitReview": "Prześlij przegląd",
   "schemaBranches.subtitle": "Zarządzaj wersjami schematu bazy danych",

@@ -85,6 +85,13 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   reads `SET NOT NULL` (#1099).
 
 ### Operations
+- Replicas booting together no longer race on the `zveltio_rls` grant loop
+  ("tuple concurrently updated", logged as a failed grant): the grants run
+  under an advisory lock.
+- A tenant refused for its status is named by that status: an archived tenant
+  was reported as suspended.
+- Studio schema branches: the preview button rotates the token and shows the
+  new one; the old "show token" read a field the API never returns.
 - `ZVELTIO_EXTENSIONS_PATH` extensions are sorted with the rest of the load
   set, so a dependency there loads before its dependents (#1103).
 - An optional dependency upgraded past a dependent's `minVersion` becomes

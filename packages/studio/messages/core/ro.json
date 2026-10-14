@@ -1263,7 +1263,7 @@
   "schemaBranches.review": "Revizuire",
   "schemaBranches.reviewHistory": "Istoric revizuiri",
   "schemaBranches.reviewTitle": "Revizuire: {name}",
-  "schemaBranches.showPreviewToken": "Arată tokenul de previzualizare",
+  "schemaBranches.rotatePreviewToken": "Rotește tokenul de previzualizare",
   "schemaBranches.submitNewReview": "Trimite o revizuire nouă",
   "schemaBranches.submitReview": "Trimite revizuirea",
   "schemaBranches.subtitle": "Gestionează versiunile schemei bazei de date",

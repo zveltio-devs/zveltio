@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { assertEnvTenantExists } from '../../lib/startup-guards.js';
-import { resolveTenantFromRequest } from '../../lib/tenancy/index.js';
+import { invalidateTenantCache, resolveTenantFromRequest } from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const ENGINE = join(import.meta.dir, '../../..');
@@ -60,6 +60,18 @@ d('ZVELTIO_TENANT_ID must name a real tenant', () => {
     const t = await resolveTenantFromRequest(new Headers(), 'localhost');
     expect(t?.id).toBe(suspended);
     expect(t?.status).toBe('suspended');
+
+    // And the middleware names the status it refuses: an archived tenant was
+    // reported as suspended too.
+    const { app } = await getTestApp();
+    const refused = await app.request('/api/health');
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).detail).toBe('Tenant account is suspended');
+    await sql`UPDATE zv_tenants SET status = 'deleted' WHERE id = ${suspended}`.execute(db);
+    await invalidateTenantCache(`envtid-${suspended.slice(0, 8)}`, suspended);
+    const gone = await app.request('/api/health');
+    expect(gone.status).toBe(403);
+    expect((await gone.json()).detail).toBe('Tenant account has been deleted');
   });
 
   it('the engine refuses to boot when the variable names no row', async () => {

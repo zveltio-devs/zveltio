@@ -189,7 +189,13 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
 
     if (tenant) {
       if (tenant.status !== 'active') {
-        return c.json({ error: 'Tenant account is suspended' }, 403);
+        const error =
+          tenant.status === 'suspended'
+            ? 'Tenant account is suspended'
+            : tenant.status === 'deleted'
+              ? 'Tenant account has been deleted'
+              : `Tenant account is not active (${tenant.status})`;
+        return c.json({ error }, 403);
       }
 
       // Carry the tenant as the authorization DOMAIN for the whole request so
