@@ -176,6 +176,8 @@ export interface WorkerCtxSource {
    * never the manifest's own claim.
    */
   forwardCredentials?: Record<string, readonly string[]>;
+  /** The manifest's own `forwardCredentials`, against which an approval change is re-resolved. */
+  declaredForwardCredentials?: Record<string, string[]>;
 }
 
 /**
@@ -429,6 +431,48 @@ export class WorkerExtensionHost {
     return this.workers.has(extName);
   }
 
+  runningNames(): string[] {
+    return [...this.workers.keys()];
+  }
+
+  /** The running worker's manifest `forwardCredentials`; undefined when none runs here. */
+  declaredForwardCredentials(extName: string): Record<string, string[]> | undefined {
+    const managed = this.workers.get(extName);
+    return managed ? (managed.source?.declaredForwardCredentials ?? {}) : undefined;
+  }
+
+  /** Per extension: the restart in progress, so two changes do not interleave stop and start. */
+  private forwardRestarts = new Map<string, Promise<void>>();
+
+  /**
+   * Hand the running worker `forward` from now on. When that differs from what
+   * it was handed, the worker is restarted, not patched: a withdrawal must also
+   * drop whatever the worker kept of the credentials it already received.
+   */
+  setForwardCredentials(extName: string, forward: Record<string, readonly string[]>) {
+    const run = async () => {
+      const managed = this.workers.get(extName);
+      if (!managed) return;
+      const source = managed.source ?? {};
+      if (JSON.stringify(source.forwardCredentials ?? {}) === JSON.stringify(forward)) return;
+      // Set first: should the spawn below fail, crash recovery retries with it.
+      managed.source = { ...source, forwardCredentials: forward };
+      this.retire(managed);
+      try {
+        const fresh = await this.replace(managed);
+        console.log(
+          `🔑 Worker "${extName}" restarted for a forward approval change (gen ${fresh.workerGeneration})`,
+        );
+      } catch (err) {
+        this.scheduleRespawn(managed, `forward approval restart: ${(err as Error).message}`);
+        throw err;
+      }
+    };
+    const next = (this.forwardRestarts.get(extName) ?? Promise.resolve()).then(run, run);
+    this.forwardRestarts.set(extName, next);
+    return next;
+  }
+
   /**
    * Mount a running worker's proxy routes on the current app, keeping the worker.
    * False when none runs, or it is between a crash and a respawn (the caller
@@ -560,8 +604,31 @@ export class WorkerExtensionHost {
    */
   private scheduleRespawn(managed: ManagedWorker, reason: string): void {
     if (managed.stopped) return;
-    if (!this.workers.has(managed.name)) return;
+    if (this.workers.get(managed.name) !== managed) return;
     managed.lastCrashAt = Date.now();
+    this.retire(managed);
+    const prevBackoff = this.respawnBackoff.get(managed.name) ?? 500;
+    const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
+    this.respawnBackoff.set(managed.name, backoff);
+    console.warn(`🔄 Respawning worker "${managed.name}" in ${backoff}ms — reason: ${reason}`);
+    setTimeout(async () => {
+      if (managed.stopped) return;
+      if (this.workers.get(managed.name) !== managed) return;
+      try {
+        const fresh = await this.replace(managed);
+        // Reset backoff on successful respawn
+        this.respawnBackoff.set(managed.name, 500);
+        console.log(`✓ Worker "${managed.name}" respawned (gen ${fresh.workerGeneration})`);
+      } catch (err) {
+        console.error(`❌ Respawn failed for "${managed.name}":`, (err as Error).message);
+        // Schedule another attempt with further backoff
+        this.scheduleRespawn(managed, `respawn-failed: ${(err as Error).message}`);
+      }
+    }, backoff);
+  }
+
+  /** End a worker that is to be replaced: in the map, answering nothing, until it is. */
+  private retire(managed: ManagedWorker): void {
     managed.respawning = true;
     if (managed.heartbeatTimer) clearInterval(managed.heartbeatTimer);
     try {
@@ -579,41 +646,38 @@ export class WorkerExtensionHost {
     failPendingInvokes(managed.name);
     // And so would its HTTP requests, holding their transactions open.
     failPendingRoutes(managed);
-    const prevBackoff = this.respawnBackoff.get(managed.name) ?? 500;
-    const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
-    this.respawnBackoff.set(managed.name, backoff);
-    console.warn(`🔄 Respawning worker "${managed.name}" in ${backoff}ms — reason: ${reason}`);
-    setTimeout(async () => {
-      if (managed.stopped) return;
-      if (!this.workers.has(managed.name)) return;
-      try {
-        const fresh = await this.spawn(
-          managed.name,
-          managed.extDir,
-          managed.bundleEntry,
-          managed.workerGeneration + 1,
-          managed.dependencies,
-          managed.mayCall,
-          managed.source ?? {},
-        );
-        // Carry over the proxy-mount + bookkeeping; the old ManagedWorker
-        // is replaced in the registry by the new one.
-        fresh.proxyUnmount = managed.proxyUnmount;
-        fresh.totalRequests = managed.totalRequests;
-        fresh.lastCrashAt = managed.lastCrashAt;
-        fresh.lastHangAt = managed.lastHangAt;
-        fresh.bundleHashPrefix = managed.bundleHashPrefix;
-        this.workers.set(managed.name, fresh);
-        fresh.heartbeatTimer = setInterval(() => this.heartbeat(fresh), HEARTBEAT_INTERVAL_MS);
-        // Reset backoff on successful respawn
-        this.respawnBackoff.set(managed.name, 500);
-        console.log(`✓ Worker "${managed.name}" respawned (gen ${fresh.workerGeneration})`);
-      } catch (err) {
-        console.error(`❌ Respawn failed for "${managed.name}":`, (err as Error).message);
-        // Schedule another attempt with further backoff
-        this.scheduleRespawn(managed, `respawn-failed: ${(err as Error).message}`);
-      }
-    }, backoff);
+  }
+
+  /**
+   * Spawn the next generation of a retired worker under the proxy routes it
+   * already has: they cannot be mounted again once the app has served a
+   * request, and they read the running worker on every request.
+   */
+  private async replace(managed: ManagedWorker): Promise<ManagedWorker> {
+    const fresh = await this.spawn(
+      managed.name,
+      managed.extDir,
+      managed.bundleEntry,
+      managed.workerGeneration + 1,
+      managed.dependencies,
+      managed.mayCall,
+      managed.source ?? {},
+    );
+    // Stopped (disabled, unloaded) while this one spawned: it must not come back.
+    if (managed.stopped || this.workers.get(managed.name) !== managed) {
+      fresh.worker.terminate();
+      throw new Error(`worker "${managed.name}" was stopped during its restart`);
+    }
+    // Carry over the proxy-mount + bookkeeping; the old ManagedWorker
+    // is replaced in the registry by the new one.
+    fresh.proxyUnmount = managed.proxyUnmount;
+    fresh.totalRequests = managed.totalRequests;
+    fresh.lastCrashAt = managed.lastCrashAt;
+    fresh.lastHangAt = managed.lastHangAt;
+    fresh.bundleHashPrefix = managed.bundleHashPrefix;
+    this.workers.set(managed.name, fresh);
+    fresh.heartbeatTimer = setInterval(() => this.heartbeat(fresh), HEARTBEAT_INTERVAL_MS);
+    return fresh;
   }
 
   /** Ping/pong heartbeat — fires a hang+respawn if no reply in 60s. */

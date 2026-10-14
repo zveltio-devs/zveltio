@@ -65,6 +65,13 @@ export const RATE_LIMIT_CONFIG_CHANGED_EVENT = 'ratelimit.config';
  */
 export const SCHEMA_CHANGED_EVENT = 'schema.changed';
 
+/**
+ * An extension's credential-forwarding approval changed on another instance.
+ * `collection` is the extension name; the receiver re-reads the approval and
+ * restarts its worker if what it forwards changed.
+ */
+export const EXTENSION_FORWARD_CHANGED_EVENT = 'extension.forward';
+
 // Per-process origin id so we can filter our own echoed messages.
 export const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -197,6 +204,15 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
         console.error('[realtime-bus] rate-limit config change not applied:', err.message);
       });
   }
+  if (msg.event === EXTENSION_FORWARD_CHANGED_EVENT) {
+    if (!msg.collection) return;
+    // Lazily: the extensions subsystem imports this module.
+    return Promise.all([import('../extensions/index.js'), import('../../db/index.js')])
+      .then(([ext, d]) => ext.refreshForwardApproval(d.getDb(), [msg.collection]))
+      .catch((err: Error) => {
+        console.error('[realtime-bus] forward approval change not applied:', err.message);
+      });
+  }
   if (msg.event === SCHEMA_CHANGED_EVENT) {
     const action = (msg.data as { action?: unknown } | undefined)?.action;
     if (msg.collection && (action === 'create' || action === 'alter' || action === 'drop'))
@@ -223,6 +239,12 @@ function onBusReconnected(): void {
     .then((m) => m.clearLocalRateLimitCache())
     .catch((err: Error) => {
       console.error('[realtime-bus] rate-limit cache clear after reconnect failed:', err.message);
+    });
+  // A missed forward-approval change, a withdrawal above all: re-read them all.
+  Promise.all([import('../extensions/index.js'), import('../../db/index.js')])
+    .then(([ext, d]) => ext.refreshForwardApproval(d.getDb()))
+    .catch((err: Error) => {
+      console.error('[realtime-bus] forward approval resync after reconnect failed:', err.message);
     });
   import('../tenancy/index.js')
     .then((m) => {

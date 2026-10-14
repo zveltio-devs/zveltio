@@ -27,6 +27,8 @@
 
 import type { Database } from '../../db/index.js';
 import { toJsonb } from '../jsonb.js';
+import { EXTENSION_FORWARD_CHANGED_EVENT, realtimeBus } from '../runtime/index.js';
+import { onAfterCommit } from '../tenancy/index.js';
 
 /** Parse the JSONB column, tolerating the string form some drivers return. */
 export function parseGranted(value: unknown): string[] | null {
@@ -161,28 +163,84 @@ export function resolveForwarded(
   return { effective: pending.length === 0 ? declared : {}, pending };
 }
 
-/** The approval recorded on the instance-wide row. null = never approved (or unreadable). */
+/**
+ * The approval recorded for `name` (migration 071: by name, so an extension
+ * the registry has no row for, loaded from ZVELTIO_EXTENSIONS, has one too).
+ * null = never approved (or unreadable).
+ */
 export async function readApprovedForward(db: Database, name: string): Promise<ForwardMap | null> {
   const row = await db
-    .selectFrom('zv_extension_registry')
-    .select('approved_forward_credentials')
+    .selectFrom('zv_extension_forward_approvals')
+    .select('approved')
     .where('name', '=', name)
-    .where('tenant_id', 'is', null)
     .executeTakeFirst();
-  return parseForwardMap(row?.approved_forward_credentials);
+  return parseForwardMap(row?.approved);
 }
 
-/** Record exactly this approval (null clears it). Returns how many rows it reached. */
+/** Record exactly this approval; null clears it. */
 export async function recordForwardApproval(
   db: Database,
   name: string,
   approved: ForwardMap | null,
-): Promise<number> {
-  const r = await db
-    .updateTable('zv_extension_registry')
-    .set({ approved_forward_credentials: approved === null ? null : toJsonb(approved) })
-    .where('name', '=', name)
-    .where('tenant_id', 'is', null)
-    .executeTakeFirst();
-  return Number(r.numUpdatedRows);
+): Promise<void> {
+  if (approved === null) {
+    await db.deleteFrom('zv_extension_forward_approvals').where('name', '=', name).execute();
+    return;
+  }
+  await db
+    .insertInto('zv_extension_forward_approvals')
+    .values({ name, approved: toJsonb(approved) })
+    .onConflict((oc) =>
+      oc.column('name').doUpdateSet({ approved: toJsonb(approved), approved_at: new Date() }),
+    )
+    .execute();
+}
+
+/**
+ * Bring the running workers' forwarded credentials in line with the recorded
+ * approvals: each of `names` (default: every worker on this node) whose
+ * effective map changed is restarted with the new one, so a withdrawal ends
+ * forwarding at once and the restart drops whatever the worker kept of what it
+ * was handed. Reads the table, never a message: a forged bus message can only
+ * cause a re-read.
+ */
+export async function refreshForwardApproval(db: Database, names?: string[]): Promise<void> {
+  const { getWorkerHostIfInitialized } = await import('../worker-extension-host.js');
+  const host = getWorkerHostIfInitialized();
+  if (!host) return;
+  for (const name of names ?? host.runningNames()) {
+    const declared = host.declaredForwardCredentials(name);
+    if (!declared) continue;
+    // Unreadable approval is no approval, as at start (register.ts).
+    const approved = await readApprovedForward(db, name).catch(() => null);
+    // A worker that fails to come back is down, which forwards nothing; the
+    // approval stays recorded and the next enable or boot starts it.
+    await host
+      .setForwardCredentials(name, resolveForwarded(declared, approved).effective)
+      .catch((err: Error) => {
+        console.error(
+          `[extensions] ${name}: worker restart for forward approval failed:`,
+          err.message,
+        );
+      });
+  }
+}
+
+/**
+ * After an approval for `name` was written: apply it on this node, then tell
+ * the other replicas (they re-read the table) once the write is committed.
+ */
+export async function announceForwardApproval(db: Database, name: string): Promise<void> {
+  await refreshForwardApproval(db, [name]);
+  onAfterCommit(() =>
+    realtimeBus()
+      .publish({
+        event: EXTENSION_FORWARD_CHANGED_EVENT,
+        collection: name,
+        timestamp: new Date().toISOString(),
+      })
+      .catch((err: Error) => {
+        console.error(`[extensions] ${name}: forward approval not broadcast:`, err.message);
+      }),
+  );
 }

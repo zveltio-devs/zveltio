@@ -713,6 +713,7 @@ async function registerExtensionRoutes(
         checkPermission: restrictedCtx.checkPermission,
         auth: restrictedCtx.auth,
         forwardCredentials,
+        declaredForwardCredentials: isolation.forwardCredentials ?? {},
       },
     );
   } else if (mountStrategy === 'subapp') {

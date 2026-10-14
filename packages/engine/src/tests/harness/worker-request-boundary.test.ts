@@ -167,13 +167,14 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     for (const mode of MODES) {
       const name = extName(mode);
       await sql`DELETE FROM zv_extension_registry WHERE name = ${name}`.execute(db);
-      // Approved, so `/fwd` gets its credential back (migration 070); the
-      // unapproved case is worker-forward-approval.test.ts.
       await sql`INSERT INTO zv_extension_registry
-                  (name, display_name, tenant_id, is_installed, is_enabled, approved_forward_credentials)
-                VALUES (${name}, ${name}, NULL, true, true, '{"/fwd":["authorization"]}'::jsonb)`.execute(
-        db,
-      );
+                  (name, display_name, tenant_id, is_installed, is_enabled)
+                VALUES (${name}, ${name}, NULL, true, true)`.execute(db);
+      // Approved, so `/fwd` gets its credential back (migration 071); the
+      // unapproved case is worker-forward-approval.test.ts.
+      await sql`INSERT INTO zv_extension_forward_approvals (name, approved)
+                VALUES (${name}, '{"/fwd":["authorization"]}'::jsonb)
+                ON CONFLICT (name) DO UPDATE SET approved = EXCLUDED.approved`.execute(db);
       writeExt(base, name, mode !== 'inline');
       if (mode !== 'inline') process.env.ZVELTIO_EXT_TRANSPORT = mode;
       await extensionLoader.loadExtension(name, app, ctx, base);
@@ -233,6 +234,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     _resetWorkerHostForTests();
     for (const m of MODES) {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${extName(m)}`.execute(db);
+      await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${extName(m)}`.execute(db);
       await revokeExtensionDbRoles(db, extName(m), true).catch(() => undefined);
     }
     await sql`DELETE FROM zv_tenant_users WHERE user_id = ${memberId}`.execute(db);

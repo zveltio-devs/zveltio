@@ -51,6 +51,20 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   app no longer answers through an earlier mount's frozen set. `zveltio install
   --approve-forward-credentials` sends the approval; without it the CLI names
   the pairs that stay withheld.
+- A credential-forwarding approval or its withdrawal now takes effect at once
+  (L8 follow-up, migration 071). It was read only when the worker started, so a
+  revoked approval kept forwarding the caller's credentials until someone
+  disabled and re-enabled the extension or restarted the engine. Approve,
+  revoke and install now restart the running worker under its existing routes
+  when what it is handed changes (dropping whatever it kept of the credentials),
+  and tell the other replicas over the realtime bus (`extension.forward`); a
+  replica re-reads the approval rather than trusting the message, and re-reads
+  them all after a bus reconnect. The approval moved from a column on the
+  registry row to `zv_extension_forward_approvals`, keyed by extension name, so
+  an extension loaded from `ZVELTIO_EXTENSIONS` or `ZVELTIO_EXTENSIONS_PATH` (no
+  registry row) can be approved too; its manifest is read from where it was
+  loaded. 070's column stays, unread, until the GA squash (a replica still on
+  070 writes it during a rolling upgrade).
 - God's ad-hoc `POST /api/insights/query` reads every tenant on the documented
   install too. It relied on the pool bypassing RLS, which only a superuser
   engine does; as the NOSUPERUSER owner `scripts/bootstrap-db-role.sh` makes,

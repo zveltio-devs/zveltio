@@ -692,12 +692,19 @@ export interface ZvExtensionRegistryTable {
    */
   installed_sha256: string | null;
   installed_version: string | null;
-  /**
-   * Manifest `forwardCredentials` an operator approved, as route -> headers.
-   * The worker is handed caller credentials only while the manifest's map is a
-   * subset of this one. null = never approved = nothing forwarded.
-   */
-  approved_forward_credentials: unknown; // JSONB: Record<string, string[]> | null
+  /** Superseded by `zv_extension_forward_approvals` (migration 071); not read. */
+  approved_forward_credentials: unknown;
+}
+
+/**
+ * Manifest `forwardCredentials` an operator approved, per extension name, as
+ * route -> headers (migration 071). Keyed by name, not by registry row: an
+ * extension loaded from ZVELTIO_EXTENSIONS has none. No row = nothing forwarded.
+ */
+export interface ZvExtensionForwardApprovalsTable {
+  name: string;
+  approved: unknown; // JSONB: Record<string, string[]>
+  approved_at: Generated<Date>;
 }
 
 export interface ZvEdgeFunctionsTable {
@@ -1453,6 +1460,7 @@ export interface DbSchema {
   zv_ai_queries: ZvAiQueriesTable;
   zv_ai_memory: ZvAiMemoryTable;
   zv_extension_registry: ZvExtensionRegistryTable;
+  zv_extension_forward_approvals: ZvExtensionForwardApprovalsTable;
   zv_edge_functions: ZvEdgeFunctionsTable;
   zv_edge_function_logs: ZvEdgeFunctionLogsTable;
   zv_audit_log: ZvAuditLogTable;

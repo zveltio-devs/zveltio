@@ -7,7 +7,11 @@
 //   - approved through approve-forward-credentials (or the install body), it
 //     gets exactly the approved headers on the approved route;
 //   - an upgrade that asks for one header more forwards nothing until approved
-//     again; one that asks for less keeps its approval.
+//     again; one that asks for less keeps its approval;
+//   - an approval or its withdrawal restarts the running worker at once, here
+//     and, through the realtime bus, on every other replica (no reload by hand);
+//   - an extension the registry has no row for (ZVELTIO_EXTENSIONS,
+//     ZVELTIO_EXTENSIONS_PATH) can be approved too (migration 071).
 //
 // Process transport, behind the real `/ext/*` chain, installed and approved
 // through the marketplace routes.
@@ -25,6 +29,11 @@ import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
+import {
+  dispatchToWs,
+  EXTENSION_FORWARD_CHANGED_EVENT,
+  ORIGIN_ID,
+} from '../../lib/runtime/realtime-bus.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
@@ -104,9 +113,9 @@ d('credential forwarding needs an operator approval of the exact set', () => {
 
   const stored = async () =>
     (
-      await sql<{ a: unknown }>`SELECT approved_forward_credentials AS a FROM zv_extension_registry
-                                WHERE name = ${NAME} AND tenant_id IS NULL`.execute(db)
-    ).rows[0]?.a;
+      await sql<{ a: unknown }>`SELECT approved AS a FROM zv_extension_forward_approvals
+                                WHERE name = ${NAME}`.execute(db)
+    ).rows[0]?.a ?? null;
 
   beforeAll(async () => {
     const t = await getTestApp();
@@ -171,6 +180,7 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     extensionLoader.ctx = saved.ctx;
     _resetWorkerHostForTests();
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
+    await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${NAME}`.execute(db);
     await revokeExtensionDbRoles(db, NAME, true).catch(() => undefined);
     if (base) rmSync(base, { recursive: true, force: true });
   });
@@ -252,5 +262,56 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     expect(await stored()).toBeNull();
     await reload();
     expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
+  });
+
+  const AUTH_ONLY = { ...NONE, authorization: 'Bearer caller-token' };
+  const approve = (map: Record<string, string[]>) =>
+    market('approve-forward-credentials', { forward_credentials: map });
+
+  const generation = () =>
+    getWorkerHost(app)
+      .getHealth()
+      .find((w) => w.name === NAME)?.workerGeneration;
+
+  it('an approval and its withdrawal reach the running worker at once', async () => {
+    expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
+    expect((await approve({ '/fwd': ['authorization'] })).status).toBe(200);
+    expect(await seen('/fwd')).toEqual({ status: 200, body: AUTH_ONLY });
+    // A withdrawal restarts the worker: whatever it kept of what it was handed goes too.
+    const before = generation() ?? 0;
+    expect((await approve({})).status).toBe(200);
+    expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
+    expect(generation()).toBe(before + 1);
+    // An unchanged approval restarts nothing.
+    expect((await approve({})).status).toBe(200);
+    expect(generation()).toBe(before + 1);
+  });
+
+  it("another replica's change arrives over the realtime bus and applies at once", async () => {
+    const fromReplica = () =>
+      dispatchToWs({
+        originId: `${ORIGIN_ID}-other`,
+        event: EXTENSION_FORWARD_CHANGED_EVENT,
+        collection: NAME,
+        timestamp: new Date().toISOString(),
+      });
+    // The other replica wrote the row; only its message reaches this one.
+    await sql`INSERT INTO zv_extension_forward_approvals (name, approved)
+              VALUES (${NAME}, ${JSON.stringify({ '/fwd': ['authorization'] })}::jsonb)
+              ON CONFLICT (name) DO UPDATE SET approved = EXCLUDED.approved`.execute(db);
+    expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
+    await fromReplica();
+    expect(await seen('/fwd')).toEqual({ status: 200, body: AUTH_ONLY });
+    await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${NAME}`.execute(db);
+    await fromReplica();
+    expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
+  });
+
+  it('an extension the registry has no row for can be approved', async () => {
+    await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
+    await reload();
+    expect((await approve({ '/fwd': ['authorization'] })).status).toBe(200);
+    expect(await stored()).toEqual({ '/fwd': ['authorization'] });
+    expect(await seen('/fwd')).toEqual({ status: 200, body: AUTH_ONLY });
   });
 });

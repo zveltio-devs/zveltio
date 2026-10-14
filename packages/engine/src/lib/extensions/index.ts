@@ -13,6 +13,7 @@ export * from './extension-license.js';
 export * from './extension-loader.js';
 export * from './worker-sql-policy.js';
 export { workerDbRoleFor } from './ext-db-role.js';
+export { refreshForwardApproval } from './consent.js';
 export * from './extension-marketplace-routes.js';
 export * from './extension-paths.js';
 export * from './extension-registry.js';
