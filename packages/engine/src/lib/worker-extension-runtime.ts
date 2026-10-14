@@ -51,6 +51,13 @@ const pendingServiceRegistrations = new Map<string, (res: ServiceRegisterRespons
 const localServices = new Map<string, (...args: unknown[]) => unknown>();
 /** The host registry's `[name, owner]`, replaced on every `services:snapshot`. */
 const serviceOwners = new Map<string, string>();
+/** This extension's `ServiceDeps`, from `init`; a snapshot carrying one replaces it. */
+const mayCall = new Map<string, boolean>();
+function fillMap<K, V>(map: Map<K, V>, entries: Iterable<[K, V]>): Map<K, V> {
+  map.clear();
+  for (const [k, v] of entries) map.set(k, v);
+  return map;
+}
 /** `ctx.events.on` listeners, by the key the host delivers them under. */
 const localListeners = new Map<string, (...args: unknown[]) => unknown>();
 
@@ -301,7 +308,7 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
       listeners: localListeners,
       config: msg.config,
       extName: msg.extName,
-      mayCall: new Map(msg.mayCall ?? []),
+      mayCall: fillMap(mayCall, msg.mayCall ?? []),
       owners: serviceOwners,
     });
     await extension.register(app, ctx);
@@ -409,8 +416,8 @@ function dispatch(msg: HostToWorkerMessage): void {
       // this is just for clean intent. No-op here.
       break;
     case 'services:snapshot':
-      serviceOwners.clear();
-      for (const [name, owner] of msg.services) serviceOwners.set(name, owner);
+      fillMap(serviceOwners, msg.services);
+      if (msg.mayCall) fillMap(mayCall, msg.mayCall);
       break;
     case 'ping':
       // Heartbeat — reply immediately. Host respawns us if it doesn't

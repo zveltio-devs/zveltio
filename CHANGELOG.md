@@ -85,6 +85,9 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   reads `SET NOT NULL` (#1099).
 
 ### Operations
+- A worker extension's `ctx.services.has()` sees an optional dependency
+  upgraded past its `minVersion` without a restart: the host re-sends the
+  worker its service map with the registry snapshot.
 - Replicas booting together no longer race on the `zveltio_rls` grant loop
   ("tuple concurrently updated", logged as a failed grant): the grants run
   under an advisory lock.
