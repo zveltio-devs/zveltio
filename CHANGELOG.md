@@ -31,6 +31,17 @@ shows the rules and offers to adopt them (#1093).
 role, outside any tenant, now fails instead of seeing every tenant's rows.
 
 ### Security and tenancy
+- A revision no longer gives back a column a read rule hides (L37, migration
+  077). `zv_revisions` stores the whole row in `data`/`delta`, hidden columns
+  included, and `zveltio_rls` could read it directly, so raw SQL took from
+  history what the masking views (075) withhold from the live row. The request
+  roles lose SELECT on `data` and `delta`; the engine reads revisions through
+  `zvv__revisions`, which removes the actor's hidden keys and the search columns
+  and stands down for `columns_all`, no actor and the engine's own reads, so an
+  admin's audit trail and revert keep every value. Invoker, and the columns left
+  granted, where the owner bypasses RLS, as for 075. Behaviour change:
+  `SELECT *` or `SELECT data` on `zv_revisions` from extension SQL is refused
+  (42501).
 - Column read permissions are enforced by the database too (L37 layer 3,
   migration 075). A `can_read=false` row in `zvd_column_permissions` was
   applied only by the data API, so raw SQL on `zveltio_rls` or the narrow roles

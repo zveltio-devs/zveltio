@@ -342,6 +342,17 @@ role can set them: the view stops the engine and the narrow roles forgetting a
 rule, not a caller who forges an actor — the same limit as the write guard
 above.
 
+Revisions are masked the same way (`zveltio_mask_revisions()`, migration 077).
+`zv_revisions` keeps the whole row in `data` and `delta`, hidden columns
+included — the history an admin reads and a revert restores from. The request
+roles hold no SELECT on those two columns; they read `zvv__revisions`, which
+drops from both the keys a rule hides from the actor in the row's collection,
+and `search_vector`/`search_text`, and stands down for the same actors as the
+collection views. The engine reads it for `/api/revisions`,
+`/api/admin/revisions` and `?as_of=`. Extension SQL that reads `zv_revisions`
+(`content/drafts` counts revisions) must name its columns, and cannot name
+`data` or `delta`.
+
 ## Row-Level Security (RLS)
 
 RLS adds a second authorization layer **below Casbin**: after a role is granted access to a collection, RLS policies control *which records* within that collection the user can see. Policies are implemented at the application layer and are fully visible and editable from Studio — no SQL knowledge required.

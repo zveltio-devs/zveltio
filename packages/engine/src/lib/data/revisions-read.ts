@@ -135,9 +135,11 @@ export async function readableRevisions(
     ${q.user_id ? sql`AND r.user_id = ${q.user_id}` : sql``}
     ${q.action ? sql`AND r.action = ${q.action}` : sql``}`;
 
+  // Through `zvv__revisions` (migration 077): the request role holds no SELECT
+  // on `data`/`delta`, and the view drops what a rule hides from the actor.
   const found = await sql<RevisionRow>`
     SELECT r.*, u.name AS user_name, u.email AS user_email
-      FROM zv_revisions r
+      FROM zvv__revisions r
       LEFT JOIN "user" u ON u.id = r.user_id
      WHERE ${where}
      ORDER BY r.created_at DESC

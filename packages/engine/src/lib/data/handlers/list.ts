@@ -122,6 +122,9 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     // string form finds nothing, silently, so the shape is normalised once here
     // and everything downstream sees an object.
     //
+    // `latest` reads `zvv__revisions` (migration 077), as `?as_of=` on one record
+    // does; `latestKeys` reads no copy, so the table.
+    //
     // The `{` guard keeps a string that is not an object from reaching the cast:
     // a failed cast aborts the statement, and this one runs inside the request's
     // transaction.
@@ -132,7 +135,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
                    THEN (data #>> '{}')::jsonb
                  ELSE data
                END AS data
-          FROM zv_revisions
+          FROM zvv__revisions
          WHERE collection = ${collection}
            AND tenant_id = ${tenantId(c)}::uuid
            AND created_at <= ${asOf.toISOString()}
