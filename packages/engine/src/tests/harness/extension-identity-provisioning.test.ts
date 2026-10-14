@@ -428,6 +428,38 @@ d('identity provisioning through ctx.internals', () => {
     }
   });
 
+  // A07: an owner or admin of T is T's administrators' to rename, not T's IdP's.
+  it('updateUserProfile: an owner or admin of the running tenant is not the extension’s to rename', async () => {
+    const owner = await makeUser('rn-owner');
+    await enrol(T, owner, 'owner');
+    await expect(
+      as(T, (trx) => scim.updateUserProfile(trx, owner, { email: `own-${TAG}@idp.test` })),
+    ).rejects.toMatchObject({ code: 'role_not_allowed' });
+  });
+
+  // A07: Postgres refuses a NUL in text and an instant in year 0; either aborted
+  // the caller's transaction instead of answering invalid_input.
+  it('a NUL in an email or name, or an instant Postgres refuses, is invalid_input, transaction intact', async () => {
+    const u = await makeUser('nul');
+    await enrol(T, u);
+    const out = await as(T, async (trx) => {
+      await expect(
+        scim.updateUserProfile(trx, u, { email: `a\u0000b-${TAG}@idp.test` }),
+      ).rejects.toMatchObject({ code: 'invalid_input' });
+      await expect(scim.updateUserProfile(trx, u, { name: 'a\u0000b' })).rejects.toMatchObject({
+        code: 'invalid_input',
+      });
+      await expect(
+        scim.setTenantMembershipEnd(trx, u, '0000-01-01T00:00:00Z'),
+      ).rejects.toMatchObject({ code: 'invalid_input' });
+      await expect(
+        scim.setTenantMembershipEnd(trx, u, 'now', { ifValidTo: '0000-01-01T00:00:00Z' }),
+      ).rejects.toMatchObject({ code: 'invalid_input' });
+      return (await scim.updateUserProfile(trx, u, { name: 'Still fine' })).name;
+    });
+    expect(out).toBe('Still fine');
+  });
+
   it('listTenantUsers: a limit that is not a number is invalid_input, transaction intact', async () => {
     const out = await as(T, async (trx) => {
       await expect(

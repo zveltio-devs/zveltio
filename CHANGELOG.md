@@ -47,6 +47,11 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   `query_db` step or an insight is refused (42501); name the columns. Hand-run
   `ALTER TABLE … DROP COLUMN` / `… TYPE` on a collection table needs
   `DROP VIEW zvv_<name>` first; boot rebuilds it.
+- `ctx.internals.identity` (A07): `updateUserProfile` refuses an owner or admin
+  of the running tenant (`role_not_allowed`), so a tenant's IdP can no longer
+  rename the people who administer it. A NUL in an email or name, and a
+  `validTo`/`ifValidTo` Postgres refuses (year 0), answer `invalid_input`
+  instead of aborting the caller's transaction.
 - A `password` field cannot be read by the request roles (L37 layer 2,
   migration 073). The data API stripped the argon2 hash from every payload, but
   raw SQL on `zveltio_rls` — and on the roles extensions and flow `query_db`
