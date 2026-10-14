@@ -31,6 +31,19 @@ shows the rules and offers to adopt them (#1093).
 role, outside any tenant, now fails instead of seeing every tenant's rows.
 
 ### Security and tenancy
+- Column write permissions are enforced by the database too (L37, migration
+  072). `zvd_column_permissions` was applied only by the data API's own filter,
+  so a path that skipped it (sync push did, once; an extension's `ctx.db` never
+  met it) wrote a read-only or hidden column. Each collection with a write
+  restriction now carries a BEFORE INSERT/UPDATE trigger compiled from those
+  rows and rebuilt on every change: for the request's role (and `*`), an UPDATE
+  may not change the column and an INSERT may only leave it at its default.
+  The engine's filter still answers first with its 403; a write the database
+  refuses (42501) is a 403 `column_write_denied`, not a 500. It stands down
+  where the row rules do — no actor (boot, jobs), an extension in `asSystem` —
+  plus `data:view_all_columns` (a god) and writes the schema causes (ON DELETE
+  SET NULL). Behaviour change: an extension writing a collection inside a
+  member's request is held to that member's column rules.
 - Creating a collection fails when its tenant RLS cannot be applied. The
   create_collection job and an extension's `ctx.DDLManager.createCollection`
   caught an `applyTenantRLS` failure, logged a warning and reported success,

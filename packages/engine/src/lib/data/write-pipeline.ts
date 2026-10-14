@@ -32,6 +32,7 @@ import { DEFAULT_TENANT_ID } from '../route-db.js';
 import { normalizeFields, withheldColumns } from './shape.js';
 import type { CollectionDef } from './types.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
+import { columnGuardRefusal } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
 import { withCollectionRead } from '../tenancy/index.js';
 import type { VirtualConfig } from '../virtual-collection-adapter.js';
@@ -284,6 +285,20 @@ export function mapPgError(
 
   const referencedBy = /is (?:still )?referenced from table "([^"]+)"/.exec(detail || message)?.[1];
 
+  // The column write guard (migration 072): the same answer the engine's own
+  // filter gives, so a path that forgot the filter still reads as a 403.
+  const guarded = columnGuardRefusal(err);
+  if (guarded) {
+    return {
+      status: 403,
+      body: {
+        error: 'column_write_denied',
+        message: `Fields are read-only for your role: ${guarded.join(', ')}`,
+        code: '42501',
+        fields: guarded,
+      },
+    };
+  }
   // 42501 — insufficient_privilege: in practice, row-level security rejected
   // the statement (e.g. a write whose tenant context doesn't match the row's
   // tenant). Surfacing the raw 500 hid the real cause of the "insert fails on
@@ -405,6 +420,8 @@ export function mapPgError(
  * which is the honest amount of help.
  */
 export function describeWriteRefusal(message: string): string {
+  const guarded = columnGuardRefusal({ errno: '42501', message });
+  if (guarded) return `Fields are read-only for your role: ${guarded.join(', ')}`;
   const table = /table "([^"]+)"/.exec(message)?.[1];
   const on = table ? ` on ${table}` : '';
   return (

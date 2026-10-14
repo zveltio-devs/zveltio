@@ -245,9 +245,12 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
             // published for a FAILED lookup stood every such rule down. The
             // rejection refuses the request instead. The bypass may keep its
             // `false` — denying the exemption is the restrictive answer.
-            const [roles, bypass, collections] = await Promise.all([
+            const [roles, bypass, columnsAll, collections] = await Promise.all([
               getUserRoles(sessionUser.id),
               checkPermission(sessionUser.id, 'data', 'view_all').catch(() => false),
+              // `getColumnAccess`'s exemption, asked the way it asks it, for the
+              // column write guard (072). A failed lookup denies it there too.
+              checkPermission(sessionUser.id, 'data', 'view_all_columns').catch(() => false),
               // What the collection-permission policies check (R1). A failed
               // lookup is held, not swallowed: publishing no grants would refuse
               // everything with a misleading "permission denied".
@@ -277,6 +280,7 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               // (an instance attribute, not a role) — see `resolveUserRole`.
               roles,
               bypass,
+              columnsAll,
               collectionGrants: collections.grants,
               collectionAll: collections.all,
             };

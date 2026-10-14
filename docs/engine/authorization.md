@@ -240,6 +240,35 @@ isolation and row rules still apply.
 Measured on Postgres 18: +20 µs per statement against the tenant policy alone
 (20 000 re-planned primary-key reads).
 
+## Column write permissions in the database
+
+A column permission (`zvd_column_permissions`: `can_read`, `can_write` per
+collection, column and role) is enforced twice on writes. The data API's filter
+refuses the request first, naming the fields (403). Under it, a collection with
+any column its role may not write (or read — a hidden column is not writable
+either) carries a `_zv_column_guard` BEFORE INSERT/UPDATE trigger
+(`zveltio_column_guard()`, migration 072), compiled from those rows and rebuilt
+whenever they change. For the request's role and for `*`:
+
+- an UPDATE may not change the column (writing the same value passes);
+- an INSERT may only leave it at its default (`NULL` when it has none). A
+  default that is not reproducible, such as `gen_random_uuid()`, cannot be told
+  from a chosen value, so that column is not checked on INSERT.
+
+The system columns (`id`, timestamps, `created_by`/`updated_by`, `status`,
+`tenant_id`, search columns) are never checked: the engine sets them. A refused
+write is `42501`, answered as 403 `column_write_denied`.
+
+| Who | Column write rules in the database |
+|---|---|
+| a signed-in user, an anonymous request, an API key | their role's rules and the `*` rules (role `api_key` for a key) |
+| `data:view_all_columns` (a god holds it) | none — the same exemption the engine's filter grants |
+| an extension's statement in a request (`ctx.db`, a hook) | the requesting user's |
+| a worker-isolated extension's statement | the requesting user's, never their exemption |
+| inside `ctx.internals.asSystem(collections, fn)` | none on those collections |
+| the engine's own work with no actor (boot, jobs, flows) | none |
+| a write the schema causes (`ON DELETE SET NULL`, a trigger's statement) | none |
+
 ## Row-Level Security (RLS)
 
 RLS adds a second authorization layer **below Casbin**: after a role is granted access to a collection, RLS policies control *which records* within that collection the user can see. Policies are implemented at the application layer and are fully visible and editable from Studio — no SQL knowledge required.
