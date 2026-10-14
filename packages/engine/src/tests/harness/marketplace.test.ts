@@ -21,6 +21,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import { resolveExtensionsBase } from '../../lib/extensions/extension-paths.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -95,6 +96,9 @@ d('extension marketplace routes (in-process)', () => {
   // create and drop in the files that run after this one (`nonCollectionObjects`).
   afterAll(async () => {
     globalThis.fetch = originalFetch;
+    // The registry list fetched through the mocked fetch is cached for minutes;
+    // a later file's install would look its extension up in this file's mock.
+    _resetCatalogCacheForTests();
     await sql`DELETE FROM zv_extension_registry WHERE name = ${HELLO_EXT}`.execute(db);
     if (TEMP_EXT_BASE) {
       rmSync(TEMP_EXT_BASE, { recursive: true, force: true });

@@ -17,3 +17,6 @@ ALTER TABLE zv_extension_registry ADD COLUMN IF NOT EXISTS approved_forward_cred
 
 COMMENT ON COLUMN zv_extension_registry.approved_forward_credentials IS
   'Manifest forwardCredentials an operator approved, as {route: [header, ...]}. The worker receives credential headers only when the manifest map is a subset of this one. NULL = none approved.';
+
+-- DOWN
+ALTER TABLE zv_extension_registry DROP COLUMN IF EXISTS approved_forward_credentials;

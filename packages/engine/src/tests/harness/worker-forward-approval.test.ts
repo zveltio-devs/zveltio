@@ -20,6 +20,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getAuth } from '../../lib/auth.js';
 import { _resetCatalogForTests } from '../../lib/extensions/extension-catalog.js';
+import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
@@ -117,6 +118,7 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     process.env.EXTENSIONS_DIR = base;
     process.env.ZVELTIO_EXT_TRANSPORT = 'process';
     _resetCatalogForTests();
+    _resetCatalogCacheForTests();
     writeFileSync(
       join(base, 'catalog.json'),
       JSON.stringify({
