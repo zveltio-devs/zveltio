@@ -82,6 +82,7 @@ import m063 from './sql/069_helper_search_path.sql' with { type: 'text' };
 import m064 from './sql/070_extension_forward_credentials_approval.sql' with { type: 'text' };
 import m065 from './sql/071_extension_forward_approvals.sql' with { type: 'text' };
 import m066 from './sql/072_column_write_guard.sql' with { type: 'text' };
+import m067 from './sql/073_sealed_columns.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -152,4 +153,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '070_extension_forward_credentials_approval.sql': m064,
   '071_extension_forward_approvals.sql': m065,
   '072_column_write_guard.sql': m066,
+  '073_sealed_columns.sql': m067,
 };

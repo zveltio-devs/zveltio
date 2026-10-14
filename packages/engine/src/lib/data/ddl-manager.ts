@@ -3,6 +3,7 @@ import { sql } from 'kysely';
 import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
+import { forgetReadableColumns } from '../../db/dynamic.js';
 import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
 import { buildTenantUniqueIndex, findTenantUniqueIndex } from './unique-key-reconcile.js';
 import { toJsonb } from '../jsonb.js';
@@ -55,15 +56,23 @@ async function withLockTimeout(
  * (owner decision 2026-10-14: the create fails instead). Inside a caller's
  * transaction the failure aborts that transaction, which drops the table too.
  */
-async function createIsolatedTable(db: Database, table: string, createSql: string): Promise<void> {
+async function createIsolatedTable(
+  db: Database,
+  table: string,
+  createSql: string,
+  /** A collection's fields: its unserved columns are sealed before anything can write them. */
+  fields?: ReadonlyArray<{ name: string; type: string }>,
+): Promise<void> {
   const { applyTenantRLS } = await import('../tenancy/index.js');
   const { applyColumnGuard } = await import('./column-guard.js');
+  const { sealColumns } = await import('./sealed-columns.js');
   const run = async (h: Database) => {
     await sql.raw(createSql).execute(h);
     await applyTenantRLS(h, table);
     // Column rules can outlive a table (a same-name create after a drop, rules
     // applied before the collection): the new table starts under them.
     await applyColumnGuard(h, table.slice('zvd_'.length));
+    if (fields) await sealColumns(h, table.slice('zvd_'.length), fields);
   };
   if ((db as unknown as { isTransaction?: boolean }).isTransaction) await run(db);
   else await db.transaction().execute(run);
@@ -343,6 +352,7 @@ export class DDLManager {
 
   static invalidateCache(name?: string): void {
     _cacheGen++;
+    forgetReadableColumns(name ? this.getTableName(name) : undefined);
     if (name) {
       collectionCache.delete(name);
     } else {
@@ -611,6 +621,7 @@ export class DDLManager {
       db,
       tableName,
       `CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`,
+      validated.fields,
     );
 
     for (const indexSQL of indexes) {
@@ -1123,8 +1134,12 @@ export class DDLManager {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       .where('name' as any, '=', name)
       .execute();
-    // Every path that adds, drops or renames a field records it here.
-    if (updates.fields) await this.refreshSearchTrigger(db, name, updates.fields);
+    // Every path that adds, drops, renames or retypes a field records it here.
+    if (updates.fields) {
+      const { sealColumns } = await import('./sealed-columns.js');
+      await sealColumns(db, name, updates.fields);
+      await this.refreshSearchTrigger(db, name, updates.fields);
+    }
     DDLManager.invalidateCache(name);
   }
 
@@ -1400,6 +1415,13 @@ export class DDLManager {
         await sql`ALTER TABLE ${sql.id(tableName)} ADD COLUMN IF NOT EXISTS ${sql.raw(colDDL)}`.execute(
           trx,
         );
+        // Sealed with the ADD, not after it: on a sealed table every other
+        // column is granted one by one, and an unserved one must never be.
+        const { sealColumns, storedFields } = await import('./sealed-columns.js');
+        await sealColumns(trx, collectionName, [
+          ...(await storedFields(trx, collectionName)),
+          validated,
+        ]);
         await this.addUniqueKey(trx, tableName, validated as FieldConfig);
       });
     }

@@ -114,6 +114,46 @@ export function forgetJsonbColumns(table?: string): void {
   else jsonbColumns.clear();
 }
 
+const readable = new Map<string, { cols: string[] | null; at: number }>();
+/** As long as `DDLManager` keeps a collection's definition: another replica's seal lands within it. */
+const READABLE_TTL_MS = 30_000;
+
+/**
+ * The columns of `table` the request role may read, or null when it may read
+ * them all (L37 layer 2). A collection with a sealed field — a `password` —
+ * holds its SELECT column by column (`zveltio_seal_columns`, migration 073), so
+ * `SELECT *` and `RETURNING *` on it are refused; the engine names the rest.
+ * Asked of `zveltio_rls`, whose shape every narrower role mirrors.
+ */
+export async function readableColumns(db: Database, table: string): Promise<string[] | null> {
+  const hit = readable.get(table);
+  if (hit && Date.now() - hit.at < READABLE_TTL_MS) return hit.cols;
+  const r = await sql<{ cols: string[] | null }>`
+    SELECT CASE WHEN to_regrole('zveltio_rls') IS NULL OR c.oid IS NULL
+                  OR has_table_privilege('zveltio_rls', c.oid, 'SELECT') THEN NULL
+           ELSE ARRAY(SELECT a.attname::text FROM pg_attribute a
+                       WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+                         AND has_column_privilege('zveltio_rls', c.oid, a.attnum, 'SELECT')
+                       ORDER BY a.attnum) END AS cols
+      FROM (SELECT to_regclass(${`public.${sanitizeIdentifier(table)}`}) AS oid) c
+  `.execute(engineHandle(db));
+  const cols = r.rows[0]?.cols ?? null;
+  readable.set(table, { cols, at: Date.now() });
+  return cols;
+}
+
+/** Forget a table's readable columns — its fields or its grants changed. */
+export function forgetReadableColumns(table?: string): void {
+  if (table) readable.delete(table);
+  else readable.clear();
+}
+
+/** `RETURNING` every column the request role may read: `*` unless the table is sealed. */
+async function returningReadable(db: Database, table: string): Promise<RawBuilder<unknown>> {
+  const cols = await readableColumns(db, table);
+  return cols ? sql.join(cols.map((c) => sql.id(c))) : sql`*`;
+}
+
 /**
  * Bind one value for `column`. A jsonb column gets the `::text::jsonb` form; a
  * value that is already a `sql` fragment is passed through untouched, so a
@@ -333,7 +373,9 @@ export async function dynamicSelect(
   // typesafely against a runtime-resolved table: filters (via sql template)
   // and FTS expressions.
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  let qb: any = (db as any).selectFrom(tableNameSanitized).selectAll();
+  let qb: any = (db as any).selectFrom(tableNameSanitized);
+  const cols = await readableColumns(db, tableNameSanitized);
+  qb = cols ? qb.select(cols) : qb.selectAll();
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   let countQb: any = (db as any)
     .selectFrom(tableNameSanitized)
@@ -491,7 +533,7 @@ export async function dynamicInsert(
   const result = await sql`
     INSERT INTO ${table} (${sql.join(cols, sql`, `)})
     VALUES (${sql.join(vals, sql`, `)})
-    RETURNING *
+    RETURNING ${await returningReadable(db, sanitizeIdentifier(tableName))}
   `.execute(db);
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -539,7 +581,7 @@ export async function dynamicUpdate(
     UPDATE ${table}
     SET ${sql.join(setClauses, sql`, `)}, updated_at = NOW()
     WHERE id = ${id}
-    RETURNING *
+    RETURNING ${await returningReadable(db, sanitizeIdentifier(tableName))}
   `.execute(db);
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -582,6 +624,7 @@ export async function dynamicAddColumn(
 ): Promise<void> {
   // The column set changed; the cached jsonb list for this table is stale.
   forgetJsonbColumns(sanitizeIdentifier(tableName));
+  forgetReadableColumns(sanitizeIdentifier(tableName));
   const table = sql.id(sanitizeIdentifier(tableName));
   // ALTER TABLE ia AccessExclusiveLock → lock_timeout previne blocarea query-urilor active
   await withLockTimeout(db, async (trx) => {
@@ -598,6 +641,7 @@ export async function dynamicDropColumn(
 ): Promise<void> {
   // The column set changed; the cached jsonb list for this table is stale.
   forgetJsonbColumns(sanitizeIdentifier(tableName));
+  forgetReadableColumns(sanitizeIdentifier(tableName));
   const table = sql.id(sanitizeIdentifier(tableName));
   const col = sql.id(sanitizeIdentifier(columnName));
   // ALTER TABLE DROP COLUMN ia AccessExclusiveLock → lock_timeout strict
@@ -614,6 +658,7 @@ export async function dynamicRenameColumn(
 ): Promise<void> {
   // The column set changed; the cached jsonb list for this table is stale.
   forgetJsonbColumns(sanitizeIdentifier(tableName));
+  forgetReadableColumns(sanitizeIdentifier(tableName));
   const table = sql.id(sanitizeIdentifier(tableName));
   const from = sql.id(sanitizeIdentifier(fromColumn));
   const to = sql.id(sanitizeIdentifier(toColumn));
@@ -645,6 +690,7 @@ export async function dynamicChangeColumnType(
 ): Promise<void> {
   // The column set changed; the cached jsonb list for this table is stale.
   forgetJsonbColumns(sanitizeIdentifier(tableName));
+  forgetReadableColumns(sanitizeIdentifier(tableName));
   const table = sql.id(sanitizeIdentifier(tableName));
   const col = sql.id(sanitizeIdentifier(columnName));
   const usingClause = usingExpression ? sql.raw(`USING ${usingExpression}`) : sql.raw('');

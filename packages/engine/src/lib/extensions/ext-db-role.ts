@@ -512,7 +512,9 @@ async function grantOwnTables(
             OR (${inline}::boolean AND data)
       ),
       out AS (
-        SELECT relname AS rel, 'table' AS kind, shared, by_prefix, relacl AS acl, 'SELECT' AS priv
+        -- INSERT, not SELECT: a sealed table (migration 073) holds SELECT column
+        -- by column, and asking for a table-level SELECT re-granted it every load.
+        SELECT relname AS rel, 'table' AS kind, shared, by_prefix, relacl AS acl, 'INSERT' AS priv
           FROM picked
         UNION ALL
         SELECT s.relname, 'sequence', p.shared, p.by_prefix, s.relacl, 'USAGE'
@@ -544,7 +546,16 @@ async function grantOwnTables(
         const privs = r.kind === 'table' ? 'SELECT, INSERT, UPDATE, DELETE' : 'USAGE, SELECT';
         const to = r.shared ? shared : own!;
         await retryConcurrentUpdate(() =>
-          sql`GRANT ${sql.raw(privs)} ON ${on} ${rel} TO ${sql.id(to)}`.execute(db),
+          db.transaction().execute(async (trx) => {
+            await sql`GRANT ${sql.raw(privs)} ON ${on} ${rel} TO ${sql.id(to)}`.execute(trx);
+            // A sealed collection keeps its sealed columns from this role too,
+            // in the grant's own transaction.
+            if (r.kind === 'table') {
+              await sql`SELECT zveltio_seal_columns(to_regclass(format('public.%I', ${r.rel}::text)))`.execute(
+                trx,
+              );
+            }
+          }),
         );
       }
       for (const from of r.covered_by) {

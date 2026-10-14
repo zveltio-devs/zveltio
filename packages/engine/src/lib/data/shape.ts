@@ -9,9 +9,11 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { readableColumns } from '../../db/dynamic.js';
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { readScope } from './read-scope.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
+import { unservedFields } from './sealed-columns.js';
 import { maybeDecrypt } from './field-crypto.js';
 import {
   getColumnAccess,
@@ -38,7 +40,7 @@ interface RuntimeQuery {
   execute(): Promise<DynamicRow[]>;
 }
 interface RuntimeDb {
-  selectFrom(table: string): { selectAll(): RuntimeQuery };
+  selectFrom(table: string): { selectAll(): RuntimeQuery; select(cols: string[]): RuntimeQuery };
 }
 
 /** Internal columns that are operational, not user data. They leak into API
@@ -101,9 +103,7 @@ export function withheldColumns(collectionDef: CollectionDef | null | undefined)
 } {
   const fields = normalizeFields(collectionDef);
   return {
-    unserved: fields
-      .filter((f) => fieldTypeRegistry.get(f.type)?.typescript.outputType === 'undefined')
-      .map((f) => f.name),
+    unserved: unservedFields(fields),
     sealed: [...INTERNAL_COLUMNS, ...fields.filter((f) => f.encrypted).map((f) => f.name)],
   };
 }
@@ -257,19 +257,19 @@ export async function applyExpand(
     // failed lookup read as "nothing to filter" expanded every hidden row.
     let rows: DynamicRow[];
     let columns: ColumnAccess;
+    // A sealed target (L37 layer 2) refuses `SELECT *`.
+    const readable = await readableColumns(db, exp.targetTable);
     if (user) {
       const scope = await readScope(db, exp.targetCollection, user, authType ?? 'session');
-      const base = (db as unknown as RuntimeDb)
-        .selectFrom(exp.targetTable)
-        .selectAll()
-        .where('id', 'in', ids);
+      const from = (db as unknown as RuntimeDb).selectFrom(exp.targetTable);
+      const base = (readable ? from.select(readable) : from.selectAll()).where('id', 'in', ids);
       rows = await scope.keep(await scope.query(base).execute());
       columns = scope.columns;
     } else {
       // An internal caller with no request identity: columns by role only.
       rows = (
         await sql<DynamicRow>`
-          SELECT * FROM ${sql.id(exp.targetTable)}
+          SELECT ${readable ? sql.join(readable.map((c) => sql.id(c))) : sql`*`} FROM ${sql.id(exp.targetTable)}
           WHERE id = ANY(${ids})
         `.execute(db)
       ).rows;

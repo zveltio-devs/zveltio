@@ -34,6 +34,7 @@ import type { CollectionDef } from './types.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { columnGuardRefusal } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
+import { readableColumns } from '../../db/dynamic.js';
 import { withCollectionRead } from '../tenancy/index.js';
 import type { VirtualConfig } from '../virtual-collection-adapter.js';
 
@@ -55,6 +56,16 @@ export function getTenantId(c: Context): string | null {
  * scattering `as any` across every handler. */
 export function dynamicDb(db: Database): DynamicDB {
   return db as unknown as DynamicDB;
+}
+
+/**
+ * `selectFrom(table)` with every column the request role may read: `*`, unless
+ * the table is sealed (L37 layer 2) and `SELECT *` would be refused.
+ */
+export async function selectReadable(db: Database, table: string): Promise<DynamicDB> {
+  const cols = await readableColumns(db, table);
+  const q = dynamicDb(db).selectFrom(table);
+  return cols ? q.select(cols) : q.selectAll();
 }
 
 /**
@@ -499,6 +510,17 @@ export async function afterWrite(
   // Non-fatal, and that takes a SAVEPOINT: `db` is the request's transaction,
   // and a `.catch` alone left it aborted — the next statement (the flow trigger)
   // failed with 25P02 and the write answered 500 after the row was in.
+  //
+  // Minus the columns served to no one (`password`): `zv_revisions` is readable
+  // on the request role, and a copy of the hash there undid its seal on the
+  // table (L37 layer 2). Nothing reads it back — time travel and revert serve
+  // what REST serves, which never includes it.
+  const { unserved, sealed } = withheldColumns(await DDLManager.getCollection(db, collection));
+  const withoutUnserved = (o: Record<string, unknown>) => {
+    const copy = { ...o };
+    for (const k of unserved) delete copy[k];
+    return copy;
+  };
   await withSavepoint(
     db,
     'zv_revision_log',
@@ -525,8 +547,8 @@ export async function afterWrite(
           // working against the fixed shape. The admin audit route
           // (`system-routes.ts`) has no compensation and was handing the
           // double-encoded string straight to the caller.
-          data,
-          ...(delta ? { delta } : {}),
+          data: withoutUnserved(data),
+          ...(delta ? { delta: withoutUnserved(delta) } : {}),
           user_id: author,
           // Tag history with the writing tenant so the audit trail + time-travel
           // (?as_of=) can't be read across tenants. It must be the request's own
@@ -552,7 +574,6 @@ export async function afterWrite(
   // search columns (see `withheldColumns`). The revision above keeps the
   // stored row. A consumer that needs an encrypted value reads it through the
   // record API, under that API's rules (owner decision 2026-10-08).
-  const { unserved, sealed } = withheldColumns(await DDLManager.getCollection(db, collection));
   const outbound: Record<string, unknown> = { ...data };
   for (const k of [...unserved, ...sealed]) delete outbound[k];
   await broadcastWebhook(

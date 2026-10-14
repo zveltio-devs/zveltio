@@ -31,6 +31,18 @@ shows the rules and offers to adopt them (#1093).
 role, outside any tenant, now fails instead of seeing every tenant's rows.
 
 ### Security and tenancy
+- A `password` field cannot be read by the request roles (L37 layer 2,
+  migration 073). The data API stripped the argon2 hash from every payload, but
+  raw SQL on `zveltio_rls` — and on the roles extensions and flow `query_db`
+  steps run as — read it back, and every revision kept a copy in
+  `zv_revisions`. Such a collection's table now grants SELECT column by column
+  on every column but the hash, to every role except its owner; it is re-applied
+  in the CREATE's transaction, on every field add, rename, retype and drop, and
+  at boot, and the boot grant loops no longer hand the whole table back. The
+  engine names the columns it may read instead of `SELECT *` / `RETURNING *`,
+  and revisions no longer store the hash. Behaviour change: `SELECT *` on such a
+  collection from extension SQL, a flow `query_db` step or an insight is refused
+  (42501); name the columns.
 - Column write permissions are enforced by the database too (L37, migration
   072). `zvd_column_permissions` was applied only by the data API's own filter,
   so a path that skipped it (sync push did, once; an extension's `ctx.db` never

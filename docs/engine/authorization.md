@@ -269,6 +269,35 @@ write is `42501`, answered as 403 `column_write_denied`.
 | the engine's own work with no actor (boot, jobs, flows) | none |
 | a write the schema causes (`ON DELETE SET NULL`, a trigger's statement) | none |
 
+## Columns no one may read
+
+A field whose type serializes to nothing — `password`, stored as an argon2
+hash — is served to no one, god included. The data API strips it from every
+payload; the database refuses it too (`zveltio_seal_columns()`, migration 073).
+Such a collection's table holds SELECT column by column, on every column but
+the sealed ones, for every role that reads it (`zveltio_rls`,
+`zveltio_worker`, `zveltio_flow_reader`, `zveltio_ext` and the per-extension
+roles); INSERT, UPDATE and DELETE stay table-level, so writing a new hash needs
+no read of the old one. Only the table's owner can read the column.
+
+- `SELECT pw …`, `SELECT * …`, `RETURNING *`, or an expression naming the column
+  (`SET title = pw`) on a request role is refused with `42501`.
+- The engine names the columns it may read (`readableColumns` in
+  `db/dynamic.ts`) on every read and write path: list, get, the write echoes,
+  bulk, `?expand=`, revisions, sync pull and push, and an extension's record
+  hooks. Extension SQL, a flow `query_db` step and an insight must name their
+  columns on such a collection.
+- Re-applied in the CREATE's transaction, with a field's ADD, on every field
+  rename, retype and drop, and at boot; the boot grant loops leave a sealed
+  table's SELECT alone. Dropping the last such field gives the table-level
+  SELECT back.
+- Revisions do not store the hash (`zv_revisions` is readable on the request
+  role). Reverting a record never touches its password.
+
+Fields marked `encrypted: true` are not sealed: the database holds only
+ciphertext under a key it never sees, and the data API decrypts them on every
+ordinary read.
+
 ## Row-Level Security (RLS)
 
 RLS adds a second authorization layer **below Casbin**: after a role is granted access to a collection, RLS policies control *which records* within that collection the user can see. Policies are implemented at the application layer and are fully visible and editable from Studio — no SQL knowledge required.

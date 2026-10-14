@@ -39,7 +39,7 @@ import {
 } from '../shape.js';
 import { buildAllowedCols, parseFilters, decodeCursor } from '../query-parse.js';
 import type { ParsedQuery } from '../query-parse.js';
-import { getDb, getTenantId, dynamicDb, getVirtualConfig } from '../write-pipeline.js';
+import { getDb, getTenantId, selectReadable, getVirtualConfig } from '../write-pipeline.js';
 import { checkAccess } from '../auth.js';
 
 export async function listRecords(c: Context, db: Database, query: ParsedQuery): Promise<Response> {
@@ -364,7 +364,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     if (decoded) {
       // Build keyset query directly with Kysely for proper compound pagination
       // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-      let kQuery = dynamicDb(effectiveDb).selectFrom(tableName).selectAll();
+      let kQuery = await selectReadable(effectiveDb, tableName);
 
       // The client's filters through `buildCondition`, the helper the offset
       // path uses via `dynamicSelect`. This branch once re-implemented it and

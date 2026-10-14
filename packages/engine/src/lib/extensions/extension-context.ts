@@ -26,6 +26,8 @@
 
 import { type ConnectionProvider, QueryCreator } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { readableColumns } from '../../db/dynamic.js';
+import type { DynamicDB } from '../../db/dynamic-types.js';
 import { registerEngineView } from '../engine-handle.js';
 import { engineEvents, AbortHookError } from '../runtime/index.js';
 import { joinedTransactionBuilder, withSavepoint } from '../savepoint.js';
@@ -353,7 +355,7 @@ export function createRestrictedDb(
             if (prop === 'insertInto') return wrapInsertForHooks(creator, target, table, extName);
             if (prop === 'updateTable') return wrapUpdateForHooks(creator, target, table, extName);
             if (prop === 'deleteFrom' && engineEvents.preHookCount('record.beforeDelete') > 0) {
-              return wrapDeleteForHooks(creator, table, extName);
+              return wrapDeleteForHooks(creator, target, table, extName);
             }
           }
           return (creator as unknown as Record<string, (...a: unknown[]) => unknown>)[prop]!(
@@ -660,9 +662,9 @@ function wrapUpdateForHooks(db: any, target: Database, table: string, extName: s
               return await asDynamic(qb)[prop](...termArgs);
             }
             // Single-row update: fire hook with `before` snapshot.
-            const before = (await db
-              .selectFrom(table)
-              .selectAll()
+            const before = (await (
+              await snapshotQuery(db, target, table)
+            )
               .where('id', '=', id)
               .executeTakeFirst()
               .catch(() => undefined)) as Record<string, unknown> | undefined;
@@ -703,8 +705,21 @@ function wrapUpdateForHooks(db: any, target: Database, table: string, extName: s
   return makeStage(db.updateTable(table));
 }
 
+/**
+ * The hook's before-row: every column the request role may read. `SELECT *` on
+ * a sealed collection (L37 layer 2) is refused, and inside the request's
+ * transaction the `.catch` below would not contain that — the write after it
+ * would fail with 25P02.
+ */
+async function snapshotQuery(db: DynamicDB, target: Database, table: string): Promise<DynamicDB> {
+  // The catalog read goes to the database itself: `db` is the checked query creator.
+  const cols = await readableColumns(target, table);
+  const q = db.selectFrom(table);
+  return cols ? q.select(cols) : q.selectAll();
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-function wrapDeleteForHooks(db: any, table: string, extName: string): any {
+function wrapDeleteForHooks(db: any, target: Database, table: string, extName: string): any {
   const chainCalls: ChainCall[] = [];
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -721,9 +736,9 @@ function wrapDeleteForHooks(db: any, table: string, extName: string): any {
               // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
               return await (t as any)[prop](...termArgs);
             }
-            const record = (await db
-              .selectFrom(table)
-              .selectAll()
+            const record = (await (
+              await snapshotQuery(db, target, table)
+            )
               .where('id', '=', id)
               .executeTakeFirst()
               .catch(() => undefined)) as Record<string, unknown> | undefined;
