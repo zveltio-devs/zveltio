@@ -1763,6 +1763,7 @@ table zv_invitations
   fk  zv_invitations_accepted_by_fkey FOREIGN KEY (accepted_by) REFERENCES "user"(id) ON DELETE SET NULL
   fk  zv_invitations_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_invitations_pkey PRIMARY KEY (id)
+  fk  zv_invitations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES zv_tenants(id) ON DELETE CASCADE
   uq  zv_invitations_token_key UNIQUE (token)
   rls enabled forced
   pol zv_invitations_tenant_delete FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_invitations'::regclass) AS zveltio_engine_outside_tenant)) CHECK -
