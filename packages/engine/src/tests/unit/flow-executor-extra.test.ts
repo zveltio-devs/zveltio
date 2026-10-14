@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { runCreateCollection } from '../../lib/data/ddl-queue.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
@@ -48,7 +48,10 @@ d('executeStep — flow-executor branches', () => {
       godUserId = made.rows[0]!.id;
     }
 
-    await DDLManager.createCollection(db, {
+    // The create_collection job's path: the table plus its tenant RLS and the
+    // narrow roles' grants (zveltio_flow_reader runs query_db). The bare
+    // DDLManager call left the table without them on a freshly migrated database.
+    await runCreateCollection(db, {
       name: COLLECTION,
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
