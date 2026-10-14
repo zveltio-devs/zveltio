@@ -29,7 +29,7 @@ import {
 import { createRequestScopedDb, runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -122,8 +122,10 @@ d("a worker query runs as its request's user", () => {
       ],
     } as never);
     await applyTenantRLS(db, TABLE);
-    await sql`INSERT INTO ${sql.table(TABLE)} (title, owner, tenant_id) VALUES
-                ('mine', ${U1}, ${B}::uuid), ('theirs', 'someone-else', ${B}::uuid)`.execute(db);
+    await asTenant(db, B, (trx) =>
+      sql`INSERT INTO ${sql.table(TABLE)} (title, owner, tenant_id) VALUES
+                ('mine', ${U1}, ${B}::uuid), ('theirs', 'someone-else', ${B}::uuid)`.execute(trx),
+    );
     await sql`INSERT INTO zvd_rls_policies
                 (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
               VALUES (${COLLECTION}, '*', 'owner', 'eq', 'user_id', true)`.execute(db);

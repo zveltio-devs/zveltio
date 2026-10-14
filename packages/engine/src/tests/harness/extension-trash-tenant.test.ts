@@ -28,7 +28,13 @@ import { runAsTenantWithoutTransaction } from '../../lib/tenancy/index.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -47,15 +53,19 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
 
   const fileIn = async (tenant: string, label: string) =>
     (
-      await sql<{ id: string }>`
+      await asTenant(db, tenant, (trx) =>
+        sql<{ id: string }>`
         INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id)
         VALUES (${label}, ${label}, 'text/plain', ${label}, ${tenant}::uuid)
-        RETURNING id`.execute(db)
+        RETURNING id`.execute(trx),
+      )
     ).rows[0]!.id;
   const trashed = async (id: string) =>
     (
-      await sql<{ gone: boolean }>`
-        SELECT deleted_at IS NOT NULL AS gone FROM zv_media_files WHERE id = ${id}`.execute(db)
+      await asEveryTenant(db, (trx) =>
+        sql<{ gone: boolean }>`
+        SELECT deleted_at IS NOT NULL AS gone FROM zv_media_files WHERE id = ${id}`.execute(trx),
+      )
     ).rows[0]!.gone;
   const attempt = (p: Promise<unknown>) =>
     p.then(
@@ -128,7 +138,9 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
-    await sql`DELETE FROM zv_media_files WHERE filename LIKE ${`${NAME}%`}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_media_files WHERE filename LIKE ${`${NAME}%`}`.execute(trx),
+    );
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 

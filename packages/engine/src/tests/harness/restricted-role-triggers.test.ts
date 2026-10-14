@@ -37,12 +37,20 @@ import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extens
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  connectedAsSuperuser,
   createGodSession,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
+/**
+ * `ctx.db` on the pool writes a collection only on a superuser engine, as the
+ * extension's BYPASSRLS twin. On the documented owner role it has no actor, so
+ * collection permissions (R1) refuse it by design — nothing to measure there.
+ */
+const SUPER = harnessAvailable() && (await connectedAsSuperuser((await getTestApp()).db));
+const poolUnwritable = (writer: string) => writer === 'ctx.db on the pool' && !SUPER;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const COLLECTION = `trgprobe_${Date.now()}`;
 const TABLE = `zvd_${COLLECTION}`;
@@ -211,20 +219,24 @@ d('collection triggers under every restricted writer role', () => {
     'worker bridge',
     'REST',
   ]) {
-    it(`${name}: search vector, updated_at and the sync tombstone`, async () => {
-      const w = writers[name]!;
-      const id = await w.insert('alpha beta');
-      const before = await row(id);
-      expect(before?.fts).toBe(true);
-      await w.update(id, 'gamma');
-      expect((await row(id))!.updated_at.getTime()).toBeGreaterThan(before!.updated_at.getTime());
-      await w.remove(id);
-      const tomb = await sql<{ n: number }>`
+    it.skipIf(poolUnwritable(name))(
+      `${name}: search vector, updated_at and the sync tombstone`,
+      async () => {
+        const w = writers[name]!;
+        const id = await w.insert('alpha beta');
+        const before = await row(id);
+        expect(before?.fts).toBe(true);
+        await w.update(id, 'gamma');
+        expect((await row(id))!.updated_at.getTime()).toBeGreaterThan(before!.updated_at.getTime());
+        await w.remove(id);
+        const tomb = await sql<{ n: number }>`
         SELECT count(*)::int AS n FROM zv_sync_tombstones
          WHERE collection = ${TABLE} AND row_id = ${id} AND tenant_id = ${TENANT}
       `.execute(db);
-      expect(tomb.rows[0]!.n).toBe(1);
-    }, 60_000);
+        expect(tomb.rows[0]!.n).toBe(1);
+      },
+      60_000,
+    );
   }
 
   describe('while a ghost migration copies the table', () => {
@@ -240,16 +252,20 @@ d('collection triggers under every restricted writer role', () => {
       'worker bridge',
       'REST',
     ]) {
-      it(`${name}: every write reaches the changelog`, async () => {
-        const w = writers[name]!;
-        const id = await w.insert('during copy');
-        await w.update(id, 'still copying');
-        await w.remove(id);
-        const ops = await sql<{ operation: string }>`
+      it.skipIf(poolUnwritable(name))(
+        `${name}: every write reaches the changelog`,
+        async () => {
+          const w = writers[name]!;
+          const id = await w.insert('during copy');
+          await w.update(id, 'still copying');
+          await w.remove(id);
+          const ops = await sql<{ operation: string }>`
           SELECT operation FROM ${sql.table(`_zv_changelog_${TABLE}`)} WHERE row_id = ${id} ORDER BY id
         `.execute(db);
-        expect(ops.rows.map((r) => r.operation)).toEqual(['INSERT', 'UPDATE', 'DELETE']);
-      }, 60_000);
+          expect(ops.rows.map((r) => r.operation)).toEqual(['INSERT', 'UPDATE', 'DELETE']);
+        },
+        60_000,
+      );
     }
 
     it('pins every SECURITY DEFINER function to a search_path ending in pg_temp', async () => {

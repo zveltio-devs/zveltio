@@ -28,7 +28,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -96,11 +96,14 @@ d('god is enforced by the database (in-process)', () => {
       .execute(db);
     await sql.raw(`GRANT SELECT, INSERT ON ${TABLE} TO zveltio_rls`).execute(db);
 
-    await sql
-      .raw(
-        `INSERT INTO ${TABLE} (tenant_id, title) VALUES ('${tenantA}', 'a'), ('${tenantB}', 'b')`,
-      )
-      .execute(db);
+    for (const [t, title] of [
+      [tenantA, 'a'],
+      [tenantB, 'b'],
+    ]) {
+      await asTenant(db, t!, (trx) =>
+        sql.raw(`INSERT INTO ${TABLE} (tenant_id, title) VALUES ('${t}', '${title}')`).execute(trx),
+      );
+    }
   });
 
   afterAll(async () => {

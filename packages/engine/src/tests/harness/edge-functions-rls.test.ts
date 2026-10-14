@@ -22,7 +22,7 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TABLES = ['zv_edge_functions', 'zv_edge_function_logs'] as const;
@@ -81,11 +81,18 @@ d('edge-function tables carry tenant RLS (in-process)', () => {
     const A = '00000000-0000-0000-0000-0000000000aa';
     const B = '00000000-0000-0000-0000-0000000000bb';
     const name = `rlsfn_${Date.now()}`;
-    await sql`
-      INSERT INTO zv_edge_functions (name, display_name, code, path, tenant_id)
-      VALUES (${`${name}_a`}, 'A', '//a', ${`/api/fn/${name}_a`}, ${A}::uuid),
-             (${`${name}_b`}, 'B', '//b', ${`/api/fn/${name}_b`}, ${B}::uuid)
-    `.execute(db);
+    // Each row as its own firm: FORCE RLS binds the owner role a real install runs as.
+    for (const [t, label] of [
+      [A, 'a'],
+      [B, 'b'],
+    ] as const) {
+      await asTenant(db, t, (trx) =>
+        sql`
+        INSERT INTO zv_edge_functions (name, display_name, code, path, tenant_id)
+        VALUES (${`${name}_${label}`}, ${label}, ${`//${label}`}, ${`/api/fn/${name}_${label}`}, ${t}::uuid)
+      `.execute(trx),
+      );
+    }
     try {
       const seen = await sql<{ n: number }>`
         SELECT count(*)::int AS n FROM zv_edge_functions
@@ -99,9 +106,13 @@ d('edge-function tables carry tenant RLS (in-process)', () => {
       // neither row matches — the refusing direction, which is the point.
       expect(seen.rows[0]?.n).toBe(0);
     } finally {
-      await sql`DELETE FROM zv_edge_functions WHERE name IN (${`${name}_a`}, ${`${name}_b`})`
-        .execute(db)
-        .catch(() => {});
+      for (const t of [A, B]) {
+        await asTenant(db, t, (trx) =>
+          sql`DELETE FROM zv_edge_functions WHERE name IN (${`${name}_a`}, ${`${name}_b`})`.execute(
+            trx,
+          ),
+        ).catch(() => {});
+      }
     }
   });
 });

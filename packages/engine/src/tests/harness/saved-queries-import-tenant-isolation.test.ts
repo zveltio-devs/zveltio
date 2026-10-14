@@ -9,7 +9,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -28,46 +34,46 @@ d('saved-queries/import tenant isolation (in-process)', () => {
     cookie = await createGodSession(app, db);
 
     // Another tenant's SHARED saved query — must NOT surface to this tenant.
-    await db
-      .insertInto('zv_saved_queries')
-      .values({
-        id: FOREIGN_SQ_ID,
-        name: `foreign-shared-${STAMP}`,
-        collection: 'anything',
-        config: toJsonb({ filters: [] }),
-        is_shared: true,
-        created_by: null,
-        tenant_id: OTHER_TENANT,
-      } as never)
-      .execute();
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx
+        .insertInto('zv_saved_queries')
+        .values({
+          id: FOREIGN_SQ_ID,
+          name: `foreign-shared-${STAMP}`,
+          collection: 'anything',
+          config: toJsonb({ filters: [] }),
+          is_shared: true,
+          created_by: null,
+          tenant_id: OTHER_TENANT,
+        } as never)
+        .execute(),
+    );
 
     // Another tenant's import log.
-    await db
-      .insertInto('zv_import_logs')
-      .values({
-        id: FOREIGN_LOG_ID,
-        collection: 'anything',
-        filename: `foreign-${STAMP}.csv`,
-        file_format: 'csv',
-        status: 'completed',
-        created_by: null,
-        tenant_id: OTHER_TENANT,
-      } as never)
-      .execute();
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx
+        .insertInto('zv_import_logs')
+        .values({
+          id: FOREIGN_LOG_ID,
+          collection: 'anything',
+          filename: `foreign-${STAMP}.csv`,
+          file_format: 'csv',
+          status: 'completed',
+          created_by: null,
+          tenant_id: OTHER_TENANT,
+        } as never)
+        .execute(),
+    );
   });
 
   afterAll(async () => {
     if (!db) return;
-    await db
-      .deleteFrom('zv_saved_queries')
-      .where('id', '=', FOREIGN_SQ_ID)
-      .execute()
-      .catch(() => {});
-    await db
-      .deleteFrom('zv_import_logs')
-      .where('id', '=', FOREIGN_LOG_ID)
-      .execute()
-      .catch(() => {});
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx.deleteFrom('zv_saved_queries').where('id', '=', FOREIGN_SQ_ID).execute(),
+    ).catch(() => {});
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx.deleteFrom('zv_import_logs').where('id', '=', FOREIGN_LOG_ID).execute(),
+    ).catch(() => {});
   });
 
   it('saved-queries: another org’s SHARED query is not visible (per-org sharing)', async () => {

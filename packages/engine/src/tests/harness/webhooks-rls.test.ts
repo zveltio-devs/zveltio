@@ -31,6 +31,8 @@ import {
   repairUnsignedWebhooksAtBoot,
 } from '../../lib/webhooks.js';
 import {
+  asEveryTenant,
+  asTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -68,11 +70,13 @@ d('zvd_webhooks under tenant RLS', () => {
   });
 
   async function seedWebhook(tenant: string, tag: string, secret: string | null): Promise<string> {
-    const row = await sql<{ id: string }>`
+    const row = await asTenant(db, tenant, (trx) =>
+      sql<{ id: string }>`
       INSERT INTO zvd_webhooks (tenant_id, name, url, events, collections, secret, retry_attempts)
       VALUES (${tenant}::uuid, ${`${STAMP}-${tag}`}, 'https://example.com/whrls',
               ARRAY['*']::text[], ARRAY[${COLLECTION}]::text[], ${secret}, 1)
-      RETURNING id::text AS id`.execute(db);
+      RETURNING id::text AS id`.execute(trx),
+    );
     return row.rows[0]!.id;
   }
 
@@ -93,9 +97,11 @@ d('zvd_webhooks under tenant RLS', () => {
       fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
     } as never);
     for (const tenant of [ROOT, OTHER]) {
-      await sql`INSERT INTO zvd_webhooks (name, tenant_id, url, events, active, secret)
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zvd_webhooks (name, tenant_id, url, events, active, secret)
                 VALUES (${`${STAMP}-seed`}, ${tenant}::uuid, 'https://example.com/seed',
-                        ARRAY['none']::text[], false, 'x')`.execute(db);
+                        ARRAY['none']::text[], false, 'x')`.execute(trx),
+      );
       raw[tenant] = generateApiKey();
       await sql`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
@@ -116,9 +122,13 @@ d('zvd_webhooks under tenant RLS', () => {
     await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
     await sql`INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled)
               VALUES (${FN}, 'member', true)`.execute(db);
-    await sql`INSERT INTO zvd_webhook_deliveries (webhook_id, tenant_id, payload, url, method)
+    for (const tenant of [ROOT, OTHER]) {
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zvd_webhook_deliveries (webhook_id, tenant_id, payload, url, method)
               SELECT id, tenant_id, '{}'::jsonb, url, 'POST' FROM zvd_webhooks
-               WHERE name = ${`${STAMP}-seed`}`.execute(db);
+               WHERE name = ${`${STAMP}-seed`} AND tenant_id = ${tenant}::uuid`.execute(trx),
+      );
+    }
 
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
@@ -135,7 +145,9 @@ d('zvd_webhooks under tenant RLS', () => {
     if (!db) return;
     await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
-    await sql`DELETE FROM zvd_webhooks WHERE name LIKE ${`${STAMP}%`}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zvd_webhooks WHERE name LIKE ${`${STAMP}%`}`.execute(trx),
+    );
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`).execute(db);
     await sql`DELETE FROM zvd_collections WHERE name = ${COLLECTION}`.execute(db);
@@ -175,9 +187,11 @@ d('zvd_webhooks under tenant RLS', () => {
     let row: { tenant_id: string; status: number | null; attempt: number } | undefined;
     for (let i = 0; i < 50; i++) {
       row = (
-        await sql<{ tenant_id: string; status: number | null; attempt: number }>`
+        await asEveryTenant(db, (trx) =>
+          sql<{ tenant_id: string; status: number | null; attempt: number }>`
           SELECT tenant_id::text AS tenant_id, status, attempt FROM zvd_webhook_deliveries
-           WHERE webhook_id = ${hook}::uuid`.execute(db)
+           WHERE webhook_id = ${hook}::uuid`.execute(trx),
+        )
       ).rows[0];
       if (row?.status != null && row.attempt === 2) break;
       await Bun.sleep(100);
@@ -189,8 +203,10 @@ d('zvd_webhooks under tenant RLS', () => {
     const hook = await seedWebhook(OTHER, 'unsigned', null);
     await sql`UPDATE zvd_webhooks SET active = false WHERE id = ${hook}::uuid`.execute(db);
     await repairUnsignedWebhooksAtBoot(plain);
-    const r = await sql<{ secret: string | null }>`
-      SELECT secret FROM zvd_webhooks WHERE id = ${hook}::uuid`.execute(db);
+    const r = await asEveryTenant(db, (trx) =>
+      sql<{ secret: string | null }>`
+      SELECT secret FROM zvd_webhooks WHERE id = ${hook}::uuid`.execute(trx),
+    );
     expect(r.rows[0]?.secret).toBeTruthy();
   });
 

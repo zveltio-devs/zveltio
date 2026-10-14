@@ -13,20 +13,30 @@
  * `zveltio_flow_reader`, and the worker SQL bridge picked its role by EXISTENCE,
  * so a SET FALSE membership failed every worker query on `SET LOCAL ROLE`.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
 import { initRlsEnforcementRole } from '../../lib/tenancy/index.js';
 import { pickWorkerSqlRole } from '../../lib/worker-extension-host.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  getTestApp,
+  harnessAvailable,
+  superuserTitle,
+  superuserUrl,
+} from '../../testing/app-harness.js';
 
-const d = harnessAvailable() ? describe : describe.skip;
+// Builds cluster roles holding zveltio_rls: a superuser's setup, not the engine's path.
+const SUPER_URL = harnessAvailable() ? await superuserUrl() : null;
+const d = SUPER_URL ? describe : describe.skip;
+const TITLE = superuserTitle('zveltio_rls membership is tested with SET, not MEMBER', SUPER_URL);
 const ADMIN_ONLY = 'pool_rlsrole_admin'; // what CREATE ROLE leaves its CREATEROLE creator
 const NO_SET = 'pool_rlsrole_noset'; // a member that may neither SET nor re-grant
 const NARROW = ['zveltio_worker', 'zveltio_flow_reader'];
 
-d('zveltio_rls membership is tested with SET, not MEMBER', () => {
+d(TITLE, () => {
   let db: Database;
+  /** The role setup's connection: a superuser. */
+  let su: Database;
   const opened: Database[] = [];
   const connectAs = (role: string) => {
     const url = new URL(String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL));
@@ -40,32 +50,39 @@ d('zveltio_rls membership is tested with SET, not MEMBER', () => {
     for (const r of [ADMIN_ONLY, NO_SET]) {
       await sql
         .raw(`DROP OWNED BY ${r}`)
-        .execute(db)
+        .execute(su)
         .catch(() => {});
-      await sql.raw(`DROP ROLE IF EXISTS ${r}`).execute(db);
+      await sql.raw(`DROP ROLE IF EXISTS ${r}`).execute(su);
     }
   };
 
   beforeAll(async () => {
     db = (await getTestApp()).db;
+    su = createDb(SUPER_URL!);
     await dropRoles();
     for (const r of [ADMIN_ONLY, NO_SET]) {
       await sql
         .raw(`CREATE ROLE ${r} LOGIN PASSWORD 'p' CREATEROLE NOSUPERUSER NOBYPASSRLS`)
-        .execute(db);
+        .execute(su);
     }
     for (const role of ['zveltio_rls', ...NARROW]) {
       await sql
         .raw(`GRANT ${role} TO ${ADMIN_ONLY} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`)
-        .execute(db);
-      await sql.raw(`GRANT ${role} TO ${NO_SET} WITH INHERIT FALSE, SET FALSE`).execute(db);
+        .execute(su);
+      await sql.raw(`GRANT ${role} TO ${NO_SET} WITH INHERIT FALSE, SET FALSE`).execute(su);
     }
   });
 
+  // Bun.SQL fills its whole pool (20) per handle: one left open per test, plus
+  // the superuser handle, ran CI's max_connections out before the last test.
+  afterEach(async () => {
+    for (const h of opened.splice(0)) await h.destroy().catch(() => {});
+  });
+
   afterAll(async () => {
-    for (const h of opened) await h.destroy().catch(() => {});
     await initRlsEnforcementRole(db); // module state back to the harness engine's
     await dropRoles();
+    await su?.destroy().catch(() => {});
   });
 
   it('grants itself SET where it holds ADMIN, and the role then switches', async () => {
@@ -94,7 +111,7 @@ d('zveltio_rls membership is tested with SET, not MEMBER', () => {
 
   it('the worker SQL bridge never picks a role it cannot SET', async () => {
     // NO_SET holds zveltio_worker with SET FALSE; give it a usable zveltio_rls.
-    await sql.raw(`GRANT zveltio_rls TO ${NO_SET} WITH SET TRUE`).execute(db);
+    await sql.raw(`GRANT zveltio_rls TO ${NO_SET} WITH SET TRUE`).execute(su);
     const url = new URL(String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL));
     url.username = NO_SET;
     url.password = 'p';

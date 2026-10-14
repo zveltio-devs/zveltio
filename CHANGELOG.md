@@ -44,6 +44,11 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   app no longer answers through an earlier mount's frozen set. `zveltio install
   --approve-forward-credentials` sends the approval; without it the CLI names
   the pairs that stay withheld.
+- God's ad-hoc `POST /api/insights/query` reads every tenant on the documented
+  install too. It relied on the pool bypassing RLS, which only a superuser
+  engine does; as the NOSUPERUSER owner `scripts/bootstrap-db-role.sh` makes,
+  it answered for the default tenant while promising the whole instance. It now
+  publishes every tenant's reach for the query (L32).
 - The request role (`zveltio_rls`) can no longer read schema-branch preview
   tokens: the `X-Preview-Token` lookup goes through `zveltio_preview_branch()`
   and the column's SELECT is withheld, also after each boot's re-grant
@@ -148,6 +153,13 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   create_collection job's path (tenant RLS and the flow reader's grant), and
   `worker-extension-host-txn` pins the TEMP-privilege state and pool size an
   earlier booted file left behind.
+- The harness lane that runs as the documented NOSUPERUSER NOBYPASSRLS owner is
+  required (L32). Its 300 failures were tests leaning on a superuser: fixtures
+  for another tenant written on the bare pool, which FORCE RLS confines to the
+  default tenant. Harness helpers `asTenant` / `asEveryTenant` write and read as
+  the engine does; setup only a superuser may do (CREATE DATABASE, cluster
+  roles) goes through `TEST_SUPERUSER_DATABASE_URL` and skips without it; tests
+  that roll the shared database back restore it in `finally`.
 - Gate fixes from the E01/E02 re-reads: one sibling root (`EXTENSIONS_ROOT`),
   empty-corpus refusals, the tenant-on-pool gate following the pool under any
   name, duplicate table creators flagged per file (#1046-#1051, #1071, #1072,

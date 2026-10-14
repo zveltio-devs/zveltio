@@ -22,7 +22,13 @@ import { BunSqlDialect } from '../../db/bun-sql-dialect.js';
 import type { DbSchema } from '../../db/schema.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { WebhookManager, _settleWebhookDeliveries } from '../../lib/webhooks.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const OTHER = crypto.randomUUID();
@@ -71,11 +77,13 @@ d('webhooks fire after the commit', () => {
       .raw(`CREATE CONSTRAINT TRIGGER "${STAMP}_t" AFTER INSERT ON "${TABLE}"
             DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION "${FN}"()`)
       .execute(db);
-    const row = await sql<{ id: string }>`
+    const row = await asTenant(db, OTHER, (trx) =>
+      sql<{ id: string }>`
       INSERT INTO zvd_webhooks (tenant_id, name, url, events, collections, secret, retry_attempts)
       VALUES (${OTHER}::uuid, ${STAMP}, 'https://example.com/whac',
               ARRAY['*']::text[], ARRAY[${COLLECTION}]::text[], NULL, 0)
-      RETURNING id::text AS id`.execute(db);
+      RETURNING id::text AS id`.execute(trx),
+    );
     hook = row.rows[0]!.id;
 
     originalFetch = globalThis.fetch;
@@ -93,7 +101,9 @@ d('webhooks fire after the commit', () => {
     WebhookManager.init(db);
     await plain?.destroy().catch(() => undefined);
     if (!db) return;
-    await sql`DELETE FROM zvd_webhooks WHERE name = ${STAMP}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zvd_webhooks WHERE name = ${STAMP}`.execute(trx),
+    );
     await sql.raw(`DROP TABLE IF EXISTS "${TABLE}" CASCADE`).execute(db);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
     await sql`DELETE FROM zvd_collections WHERE name = ${COLLECTION}`.execute(db);
@@ -109,9 +119,11 @@ d('webhooks fire after the commit', () => {
 
   const deliveries = async () =>
     (
-      await sql<{ tenant_id: string; title: string }>`
+      await asEveryTenant(db, (trx) =>
+        sql<{ tenant_id: string; title: string }>`
         SELECT tenant_id::text AS tenant_id, payload->'data'->>'title' AS title
-          FROM zvd_webhook_deliveries WHERE webhook_id = ${hook}::uuid`.execute(db)
+          FROM zvd_webhook_deliveries WHERE webhook_id = ${hook}::uuid`.execute(trx),
+      )
     ).rows;
 
   it('a write that rolls back at commit fires nothing', async () => {

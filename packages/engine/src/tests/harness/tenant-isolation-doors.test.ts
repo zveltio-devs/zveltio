@@ -33,6 +33,8 @@ import {
 } from '../../lib/tenancy/index.js';
 import { _wsPermCacheForTests, websocketHandler } from '../../routes/ws.js';
 import {
+  asEveryTenant,
+  asTenant,
   createGodSession,
   createKeyCreator,
   createMemberSession,
@@ -254,9 +256,11 @@ d('tenant isolation, door by door', () => {
   };
   const rowIn = async (table: string, id: string) =>
     (
-      await sql<{ tenant_id: string; title: string | null }>`
+      await asEveryTenant(db, (trx) =>
+        sql<{ tenant_id: string; title: string | null }>`
         SELECT tenant_id::text, title FROM ${sql.id(`zvd_${table}`)} WHERE id = ${id}::uuid`.execute(
-        db,
+          trx,
+        ),
       )
     ).rows[0];
 
@@ -387,14 +391,20 @@ d('tenant isolation, door by door', () => {
     // naming B's parent (m2o), a B child naming A's parent (o2m), and an A
     // junction row naming B's tag (m2m).
     ids.cA2 = (
-      await sql<{ id: string }>`
+      await asTenant(db, A.id, (trx) =>
+        sql<{ id: string }>`
         INSERT INTO ${sql.id(`zvd_${C}`)} (tenant_id, title, parent)
-        VALUES (${A.id}::uuid, ${`A2-${TAG}`}, ${ids.pB}::uuid) RETURNING id::text`.execute(db)
+        VALUES (${A.id}::uuid, ${`A2-${TAG}`}, ${ids.pB}::uuid) RETURNING id::text`.execute(trx),
+      )
     ).rows[0]!.id;
-    await sql`INSERT INTO ${sql.id(`zvd_${C}`)} (tenant_id, title, owner)
-              VALUES (${B.id}::uuid, ${MARK}, ${ids.pA}::uuid)`.execute(db);
-    await sql`INSERT INTO ${sql.id(`zvd_jnc_${P}_${T}`)} (tenant_id, ${sql.id(`${P}_id`)}, ${sql.id(`${T}_id`)})
-              VALUES (${A.id}::uuid, ${ids.pA}::uuid, ${ids.tB}::uuid)`.execute(db);
+    await asTenant(db, B.id, (trx) =>
+      sql`INSERT INTO ${sql.id(`zvd_${C}`)} (tenant_id, title, owner)
+              VALUES (${B.id}::uuid, ${MARK}, ${ids.pA}::uuid)`.execute(trx),
+    );
+    await asTenant(db, A.id, (trx) =>
+      sql`INSERT INTO ${sql.id(`zvd_jnc_${P}_${T}`)} (tenant_id, ${sql.id(`${P}_id`)}, ${sql.id(`${T}_id`)})
+              VALUES (${A.id}::uuid, ${ids.pA}::uuid, ${ids.tB}::uuid)`.execute(trx),
+    );
 
     // A key of A's member, scoped to P.
     const creator = await createKeyCreator(db, [A.id]);
@@ -414,9 +424,9 @@ d('tenant isolation, door by door', () => {
     else process.env.STORAGE_LOCAL_DIR = storeBefore;
     rmSync(STORE, { recursive: true, force: true });
     if (!db) return;
-    await sql`DELETE FROM zv_media_files WHERE original_name = ${`doors-up-${TAG}.txt`}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_media_files WHERE original_name = ${`doors-up-${TAG}.txt`}`.execute(trx),
+    ).catch(() => {});
     await sql`DELETE FROM zv_api_keys WHERE name = ${`doors-${TAG}`}`.execute(db).catch(() => {});
     await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${`doors_fn_${TAG}`}`
       .execute(db)
@@ -425,15 +435,15 @@ d('tenant isolation, door by door', () => {
       .raw(`DROP FUNCTION IF EXISTS doors_fn_${TAG}()`)
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zv_saved_queries WHERE name LIKE ${`doors-%-${TAG}`}`
-      .execute(db)
-      .catch(() => {});
-    await sql`DELETE FROM zv_media_files WHERE filename LIKE ${`doors-%-${TAG}`}`
-      .execute(db)
-      .catch(() => {});
-    await sql`DELETE FROM zv_media_folders WHERE name LIKE ${`doors-%-${TAG}`}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_saved_queries WHERE name LIKE ${`doors-%-${TAG}`}`.execute(trx),
+    ).catch(() => {});
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_media_files WHERE filename LIKE ${`doors-%-${TAG}`}`.execute(trx),
+    ).catch(() => {});
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_media_folders WHERE name LIKE ${`doors-%-${TAG}`}`.execute(trx),
+    ).catch(() => {});
     for (const name of [C, P, T]) await dropTestCollection(db, name).catch(() => {});
     await sql`DROP TABLE IF EXISTS ${sql.id(`zvd_jnc_${P}_${T}`)}`.execute(db).catch(() => {});
     await sql`DELETE FROM zvd_relations WHERE source_collection IN (${P}, ${C})`
@@ -547,9 +557,11 @@ d('tenant isolation, door by door', () => {
       body: JSON.stringify({ records: [{ title: `A-bulk-${TAG}`, tenant_id: B.id }] }),
     });
     expect([200, 201]).toContain(bulk.status);
-    const landed = await sql<{ tenant_id: string }>`
+    const landed = await asEveryTenant(db, (trx) =>
+      sql<{ tenant_id: string }>`
       SELECT tenant_id::text FROM ${sql.id(`zvd_${P}`)} WHERE title = ${`A-bulk-${TAG}`}`.execute(
-      db,
+        trx,
+      ),
     );
     expect(landed.rows.map((r) => r.tenant_id)).toEqual([A.id]);
   });
@@ -751,9 +763,11 @@ d('tenant isolation, door by door', () => {
   it("B's revision is not found by A, and cannot be reverted", async () => {
     probe('GET /api/revisions/:id');
     probe('POST /api/revisions/:id/revert');
-    const rev = await sql<{ id: string }>`
+    const rev = await asEveryTenant(db, (trx) =>
+      sql<{ id: string }>`
       SELECT id::text FROM zv_revisions WHERE collection = ${P} AND record_id = ${ids.pB} LIMIT 1`.execute(
-      db,
+        trx,
+      ),
     );
     const revId = rev.rows[0]?.id;
     expect(revId).toBeDefined();
@@ -778,8 +792,10 @@ d('tenant isolation, door by door', () => {
       body: JSON.stringify({ comment: MARK }),
     });
     expect([200, 201]).toContain(bPost.status);
-    const comment = await sql<{ id: string }>`
-      SELECT id::text FROM zv_record_comments WHERE record_id = ${ids.pB} LIMIT 1`.execute(db);
+    const comment = await asEveryTenant(db, (trx) =>
+      sql<{ id: string }>`
+      SELECT id::text FROM zv_record_comments WHERE record_id = ${ids.pB} LIMIT 1`.execute(trx),
+    );
     const commentId = comment.rows[0]!.id;
 
     const read = await app.request(`/api/revisions/record/${P}/${ids.pB}/comments`, {
@@ -802,8 +818,10 @@ d('tenant isolation, door by door', () => {
       method: 'DELETE',
       headers: asA(),
     });
-    const kept = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zv_record_comments WHERE id = ${commentId}::uuid`.execute(db);
+    const kept = await asEveryTenant(db, (trx) =>
+      sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM zv_record_comments WHERE id = ${commentId}::uuid`.execute(trx),
+    );
     expect(kept.rows[0]!.n).toBe(1);
   });
 
@@ -818,10 +836,12 @@ d('tenant isolation, door by door', () => {
     ]) {
       probe(door);
     }
-    const file = await sql<{ id: string }>`
+    const file = await asTenant(db, B.id, (trx) =>
+      sql<{ id: string }>`
       INSERT INTO zv_media_files (tenant_id, filename, original_name, mimetype, storage_path, visibility)
       VALUES (${B.id}::uuid, ${`doors-file-${TAG}`}, ${MARK}, 'image/png', ${`doors/${TAG}.png`}, 'tenant')
-      RETURNING id::text`.execute(db);
+      RETURNING id::text`.execute(trx),
+    );
     const fileId = file.rows[0]!.id;
     for (const path of [
       `/api/storage/${fileId}/signed-url`,
@@ -841,9 +861,11 @@ d('tenant isolation, door by door', () => {
     const listed = await app.request('/api/storage/folders', { headers: asA() });
     expect(listed.status).toBe(200);
     expect(await listed.text()).not.toContain(`doors-folder-${TAG}`);
-    const landed = await sql<{ tenant_id: string }>`
+    const landed = await asEveryTenant(db, (trx) =>
+      sql<{ tenant_id: string }>`
       SELECT tenant_id::text FROM zv_media_folders WHERE name = ${`doors-folder-${TAG}`}`.execute(
-      db,
+        trx,
+      ),
     );
     expect(landed.rows.map((r) => r.tenant_id)).toEqual([B.id]);
   });
@@ -853,8 +875,10 @@ d('tenant isolation, door by door', () => {
     const up = await upload(asA());
     expect(up.status).toBe(201);
     const { file } = (await up.json()) as { file: { id: string } };
-    const landed = await sql<{ tenant_id: string }>`
-      SELECT tenant_id::text FROM zv_media_files WHERE id = ${file.id}::uuid`.execute(db);
+    const landed = await asEveryTenant(db, (trx) =>
+      sql<{ tenant_id: string }>`
+      SELECT tenant_id::text FROM zv_media_files WHERE id = ${file.id}::uuid`.execute(trx),
+    );
     expect(landed.rows[0]?.tenant_id).toBe(A.id);
 
     const bFolder = await app.request('/api/storage/folders', {
@@ -878,10 +902,12 @@ d('tenant isolation, door by door', () => {
       body: JSON.stringify({ name: `doors-afolder-${TAG}`, parent_id: folderId }),
     });
     expect(sub.status).toBe(404);
-    const hung = await sql<{ n: number }>`
+    const hung = await asEveryTenant(db, (trx) =>
+      sql<{ n: number }>`
       SELECT (SELECT count(*) FROM zv_media_files WHERE folder_id = ${folderId}::uuid)
            + (SELECT count(*) FROM zv_media_folders WHERE parent_id = ${folderId}::uuid) AS n`.execute(
-      db,
+        trx,
+      ),
     );
     expect(Number(hung.rows[0]!.n)).toBe(0);
   });
@@ -939,8 +965,10 @@ d('tenant isolation, door by door', () => {
     };
     const tenantOf = async (qid: string) =>
       (
-        await sql<{ tenant_id: string; name: string }>`
-          SELECT tenant_id::text, name FROM zv_saved_queries WHERE id = ${qid}::uuid`.execute(db)
+        await asEveryTenant(db, (trx) =>
+          sql<{ tenant_id: string; name: string }>`
+          SELECT tenant_id::text, name FROM zv_saved_queries WHERE id = ${qid}::uuid`.execute(trx),
+        )
       ).rows[0];
     const qA = await id(await save(asA, `doors-qa-${TAG}`));
     const qB = await id(await save(asB, `doors-qb-${TAG}`));

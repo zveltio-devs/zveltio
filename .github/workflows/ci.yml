@@ -1346,15 +1346,16 @@ jobs:
         run: cd packages/engine && bun run test:harness
 
   harness-non-superuser:
-    name: Harness as a non-superuser owner (allowed to fail)
+    name: Harness as a non-superuser owner
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # L32: the documented production install runs the engine as a NOSUPERUSER
     # NOBYPASSRLS owner (scripts/bootstrap-db-role.sh), where RLS binds the
     # connection itself; every other lane runs as the image's superuser, on
-    # which the policies are inert. Allowed to fail while the failures it finds
-    # are fixed (300 of 1863 on 2026-10-13), then required.
-    continue-on-error: true
+    # which the policies are inert. Required: a test or an engine path that only
+    # passes on a superuser fails here. TEST_SUPERUSER_DATABASE_URL serves test
+    # SETUP only a superuser may do (CREATE DATABASE, cluster roles); a test
+    # without it skips that part, never the engine's own path.
     services:
       postgres:
         image: pgvector/pgvector:pg18
@@ -1384,6 +1385,16 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
         run: bash scripts/bootstrap-db-role.sh zveltio_test zveltio_app ci-owner-password
+      - name: Install Postgres 18 client tools
+        # baseline-equivalence.test.ts runs pg_dump against the pg18 service;
+        # the runner's pg16 client refuses it. Same step as the lanes above.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
       - name: Run migrations as the owner
         env:
           DATABASE_URL: postgresql://zveltio_app:ci-owner-password@localhost:5432/zveltio_test
@@ -1391,6 +1402,7 @@ jobs:
       - name: Run in-process harness tests as the owner
         env:
           TEST_DATABASE_URL: postgresql://zveltio_app:ci-owner-password@localhost:5432/zveltio_test
+          TEST_SUPERUSER_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
           FIELD_ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
           NODE_ENV: test

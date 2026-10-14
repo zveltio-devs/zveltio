@@ -17,7 +17,12 @@ import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { deleteUser } from '../../lib/users.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  connectedAsSuperuser,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = DEFAULT_TENANT_ID;
@@ -80,13 +85,17 @@ d('identity tables under tenant RLS (065)', () => {
         INSERT INTO zv_invitations (email, role, token, expires_at, tenant_id)
         VALUES (${`${TAG}-${tenant}@test.local`}, 'member', ${`${TAG}-${tenant}`},
                 now() + interval '1 day', ${tenant}::uuid)`.execute(db);
-      const folder = await sql<{ id: string }>`
+      const folder = await asTenant(db, tenant, (trx) =>
+        sql<{ id: string }>`
         INSERT INTO zv_media_folders (name, tenant_id) VALUES (${TAG}, ${tenant}::uuid)
-        RETURNING id::text AS id`.execute(db);
-      await sql`
+        RETURNING id::text AS id`.execute(trx),
+      );
+      await asTenant(db, tenant, (trx) =>
+        sql`
         INSERT INTO zv_media_shares (folder_id, token, created_by, tenant_id)
         VALUES (${folder.rows[0]!.id}::uuid, ${`${TAG}-${tenant}`}, ${USER}, ${tenant}::uuid)`.execute(
-        db,
+          trx,
+        ),
       );
     }
   }, 60_000);
@@ -234,14 +243,18 @@ d('identity tables under tenant RLS (065)', () => {
   it('as a plain owner: every row outside a tenant, its tenant inside one, nothing for other roles', async () => {
     const rollback = new Error('rollback');
     const r: Record<string, unknown> = {};
+    const superuser = await connectedAsSuperuser(db);
     await db
       .transaction()
       .execute(async (trx) => {
-        await sql.raw(`CREATE ROLE ${OWNER} NOLOGIN NOSUPERUSER NOBYPASSRLS`).execute(trx);
-        for (const t of TABLES) await sql.raw(`ALTER TABLE ${t} OWNER TO ${OWNER}`).execute(trx);
-        for (const f of FUNCTIONS)
-          await sql.raw(`ALTER FUNCTION ${f} OWNER TO ${OWNER}`).execute(trx);
-        await sql.raw(`SET LOCAL ROLE ${OWNER}`).execute(trx);
+        // On the owner lane the harness already is that role.
+        if (superuser) {
+          await sql.raw(`CREATE ROLE ${OWNER} NOLOGIN NOSUPERUSER NOBYPASSRLS`).execute(trx);
+          for (const t of TABLES) await sql.raw(`ALTER TABLE ${t} OWNER TO ${OWNER}`).execute(trx);
+          for (const f of FUNCTIONS)
+            await sql.raw(`ALTER FUNCTION ${f} OWNER TO ${OWNER}`).execute(trx);
+          await sql.raw(`SET LOCAL ROLE ${OWNER}`).execute(trx);
+        }
         const guc = (k: string, v: string) => sql`SELECT set_config(${k}, ${v}, true)`.execute(trx);
         await guc('zveltio.current_tenant', '');
         await guc('zveltio.visible_tenants', '');

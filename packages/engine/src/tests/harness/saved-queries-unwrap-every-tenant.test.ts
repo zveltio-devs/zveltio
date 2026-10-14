@@ -58,9 +58,12 @@ d('saved-query config repair, every tenant', () => {
           [other, `${STAMP}-other`, '{"filter":{"b":2}}'],
           [other, `${STAMP}-bad`, '{not json'],
         ]) {
+          // As its own firm: FORCE RLS binds the owner a real install runs as.
+          await sql`SELECT set_config('zveltio.current_tenant', ${tenant}, true)`.execute(trx);
           await sql`INSERT INTO zv_saved_queries (name, collection, config, tenant_id)
                     VALUES (${name}, 'c', to_jsonb(${text}::text), ${tenant}::uuid)`.execute(trx);
         }
+        await sql`SELECT set_config('zveltio.current_tenant', '', true)`.execute(trx);
         for (const up of ups) {
           for (const stmt of splitSqlStatements(up)) {
             // The engine role holds TEMPORARY (bootstrap-db-role.sh grants it);
@@ -73,6 +76,10 @@ d('saved-query config repair, every tenant', () => {
           }
         }
         await sql.raw('RESET ROLE').execute(trx);
+        await sql`SELECT set_config('zveltio.current_tenant', '', true),
+                         set_config('zveltio.visible_tenants', ${`${ROOT},${other}`}, true)`.execute(
+          trx,
+        );
         rows = (
           await sql<{ k: string }>`
             SELECT name || '=' || jsonb_typeof(config) AS k FROM zv_saved_queries

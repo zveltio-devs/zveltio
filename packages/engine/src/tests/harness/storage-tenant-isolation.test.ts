@@ -14,7 +14,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
@@ -28,17 +33,19 @@ d('storage tenant isolation (in-process)', () => {
   let theirsId = '';
 
   const seed = async (tenant: string, name: string): Promise<string> => {
-    const row = await db
-      .insertInto('zv_media_files')
-      .values({
-        tenant_id: tenant,
-        filename: name,
-        original_name: name,
-        mimetype: 'text/plain',
-        storage_path: `harness/${name}`,
-      } as never)
-      .returning('id')
-      .executeTakeFirst();
+    const row = await asTenant(db, tenant, (trx) =>
+      trx
+        .insertInto('zv_media_files')
+        .values({
+          tenant_id: tenant,
+          filename: name,
+          original_name: name,
+          mimetype: 'text/plain',
+          storage_path: `harness/${name}`,
+        } as never)
+        .returning('id')
+        .executeTakeFirst(),
+    );
     return (row as { id: string }).id;
   };
 
@@ -51,8 +58,13 @@ d('storage tenant isolation (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    for (const id of [mineId, theirsId]) {
-      await sql`DELETE FROM zv_media_files WHERE id = ${id}`.execute(db).catch(() => {});
+    for (const [tenant, id] of [
+      [DEFAULT_TENANT, mineId],
+      [OTHER_TENANT, theirsId],
+    ]) {
+      await asTenant(db, tenant!, (trx) =>
+        sql`DELETE FROM zv_media_files WHERE id = ${id}`.execute(trx),
+      ).catch(() => {});
     }
   });
 
@@ -78,9 +90,11 @@ d('storage tenant isolation (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(404);
-    const still = await sql<{ n: number }>`
+    const still = await asTenant(db, OTHER_TENANT, (trx) =>
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_media_files WHERE id = ${theirsId}
-    `.execute(db);
+    `.execute(trx),
+    );
     expect(still.rows[0]!.n).toBe(1);
   });
 });

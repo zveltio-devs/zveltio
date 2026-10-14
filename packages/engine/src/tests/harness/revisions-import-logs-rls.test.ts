@@ -22,7 +22,13 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -66,12 +72,16 @@ d('zv_revisions and zv_import_logs under tenant RLS', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (const tenant of [ROOT, OTHER]) {
-      await sql`INSERT INTO zv_revisions (collection, record_id, action, data, tenant_id)
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_revisions (collection, record_id, action, data, tenant_id)
                 VALUES (${STAMP}, ${crypto.randomUUID()}, 'create', '{}'::jsonb, ${tenant}::uuid)`.execute(
-        db,
+          trx,
+        ),
       );
-      await sql`INSERT INTO zv_import_logs (collection, filename, tenant_id)
-                VALUES (${STAMP}, ${STAMP}, ${tenant}::uuid)`.execute(db);
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_import_logs (collection, filename, tenant_id)
+                VALUES (${STAMP}, ${STAMP}, ${tenant}::uuid)`.execute(trx),
+      );
       raw[tenant] = generateApiKey();
       await sql`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
@@ -99,8 +109,12 @@ d('zv_revisions and zv_import_logs under tenant RLS', () => {
     if (!db) return;
     await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
-    await sql`DELETE FROM zv_revisions WHERE collection = ${STAMP}`.execute(db);
-    await sql`DELETE FROM zv_import_logs WHERE collection = ${STAMP}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_revisions WHERE collection = ${STAMP}`.execute(trx),
+    );
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_import_logs WHERE collection = ${STAMP}`.execute(trx),
+    );
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${STAMP}" CASCADE`).execute(db);
     await sql`DELETE FROM zvd_collections WHERE name = ${STAMP}`.execute(db);
@@ -124,9 +138,11 @@ d('zv_revisions and zv_import_logs under tenant RLS', () => {
     const body = (await res.json()) as { data?: { id?: string }; id?: string };
     const id = body.data?.id ?? body.id;
     expect(id).toBeTruthy();
-    const rev = await sql<{ tenant_id: string }>`
+    const rev = await asEveryTenant(db, (trx) =>
+      sql<{ tenant_id: string }>`
       SELECT tenant_id::text AS tenant_id FROM zv_revisions
-       WHERE collection = ${STAMP} AND record_id = ${id!} AND action = 'create'`.execute(db);
+       WHERE collection = ${STAMP} AND record_id = ${id!} AND action = 'create'`.execute(trx),
+    );
     expect(rev.rows.map((r) => r.tenant_id)).toEqual([OTHER]);
   });
 

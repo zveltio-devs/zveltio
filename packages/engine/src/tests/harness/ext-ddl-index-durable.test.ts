@@ -104,10 +104,17 @@ d('deferred index builds of ctx.DDLManager', () => {
     const name = `ddlidx_inv${TAG}`;
     await existing(name);
     const index = `idx_zvd_${name}_note`;
-    // What a CONCURRENTLY build killed half-way leaves behind: the name, not valid.
-    await sql.raw(`CREATE INDEX ${index} ON zvd_${name} (qty)`).execute(db);
-    await sql`UPDATE pg_index SET indisvalid = false
-               WHERE indexrelid = to_regclass(${`public.${index}`})`.execute(db);
+    // What a CONCURRENTLY build that died half-way leaves behind: the name, not
+    // valid. Made by one that fails, rather than forged in pg_index, which only
+    // a superuser may write and the documented owner role is not.
+    await sql.raw(`INSERT INTO zvd_${name} (qty) VALUES (1), (1)`).execute(db);
+    await sql
+      .raw(`CREATE UNIQUE INDEX CONCURRENTLY ${index} ON zvd_${name} (qty)`)
+      .execute(db)
+      .catch(() => undefined);
+    const left = await sql<{ valid: boolean }>`SELECT indisvalid AS valid FROM pg_index
+                  WHERE indexrelid = to_regclass(${`public.${index}`})`.execute(db);
+    expect(left.rows).toEqual([{ valid: false }]);
     await inRequest(() =>
       ddl.addField(ext, name, { name: 'note', type: 'text', indexed: true } as never),
     );

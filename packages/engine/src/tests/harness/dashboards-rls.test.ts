@@ -22,6 +22,8 @@ import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
+  asTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -57,8 +59,10 @@ d('zv_dashboards under tenant RLS', () => {
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
               VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
-      await sql`INSERT INTO zv_dashboards (name, is_public, tenant_id)
-                VALUES (${`${STAMP}-seed`}, true, ${tenant}::uuid)`.execute(db);
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_dashboards (name, is_public, tenant_id)
+                VALUES (${`${STAMP}-seed`}, true, ${tenant}::uuid)`.execute(trx),
+      );
       raw[tenant] = generateApiKey();
       await sql`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
@@ -82,7 +86,9 @@ d('zv_dashboards under tenant RLS', () => {
     if (!db) return;
     await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
-    await sql`DELETE FROM zv_dashboards WHERE name LIKE ${`${STAMP}%`}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_dashboards WHERE name LIKE ${`${STAMP}%`}`.execute(trx),
+    );
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
@@ -126,8 +132,10 @@ d('zv_dashboards under tenant RLS', () => {
       headers: inTenant(OTHER, { cookie: god }),
     });
     expect(open.status).toBe(200);
-    const views = await sql<{ view_count: number }>`
-      SELECT view_count FROM zv_dashboards WHERE id = ${dashboard.id}::uuid`.execute(db);
+    const views = await asEveryTenant(db, (trx) =>
+      sql<{ view_count: number }>`
+      SELECT view_count FROM zv_dashboards WHERE id = ${dashboard.id}::uuid`.execute(trx),
+    );
     expect(views.rows[0]?.view_count).toBe(1);
 
     const elsewhere = await app.request(`/api/insights/dashboards/${dashboard.id}`, {

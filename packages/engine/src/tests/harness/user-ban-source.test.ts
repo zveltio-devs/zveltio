@@ -134,32 +134,40 @@ d('ban provenance', () => {
       expect(version).toBeGreaterThanOrEqual(35);
       const [scimBan, otherBan, free] = [await member(), await member(), await member()];
 
-      expect(await rollbackMigration(db, 34, { ignoreBaseline: true })).toEqual({ success: true });
-      // 058's DOWN ran: the cluster role other databases on this server use stays.
-      const role = await sql`SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_coll_exempt'`.execute(
-        db,
-      );
-      expect(role.rows).toHaveLength(1);
-      const cols = await sql`SELECT 1 FROM information_schema.columns
-                              WHERE table_name = 'user' AND column_name = 'ban_source'`.execute(db);
-      expect(cols.rows).toHaveLength(0);
+      try {
+        expect(await rollbackMigration(db, 34, { ignoreBaseline: true })).toEqual({
+          success: true,
+        });
+        // 058's DOWN ran: the cluster role other databases on this server use stays.
+        const role =
+          await sql`SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_coll_exempt'`.execute(db);
+        expect(role.rows).toHaveLength(1);
+        const cols = await sql`SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'user' AND column_name = 'ban_source'`.execute(
+          db,
+        );
+        expect(cols.rows).toHaveLength(0);
 
-      // auth/scim ≤ 1.0.15's marker table (its migration 003), if not installed.
-      const exists = await sql<{ t: string | null }>`
-        SELECT to_regclass('public.zv_scim_sign_in_blocks')::text AS t`.execute(db);
-      if (!exists.rows[0]!.t) {
-        createdScimTable = true;
-        await sql`CREATE TABLE zv_scim_sign_in_blocks (
-                    user_id text PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
-                    created_at timestamptz NOT NULL DEFAULT now())`.execute(db);
+        // auth/scim ≤ 1.0.15's marker table (its migration 003), if not installed.
+        const exists = await sql<{ t: string | null }>`
+          SELECT to_regclass('public.zv_scim_sign_in_blocks')::text AS t`.execute(db);
+        if (!exists.rows[0]!.t) {
+          createdScimTable = true;
+          await sql`CREATE TABLE zv_scim_sign_in_blocks (
+                      user_id text PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+                      created_at timestamptz NOT NULL DEFAULT now())`.execute(db);
+        }
+        await sql`UPDATE "user" SET banned = true WHERE id IN (${scimBan}, ${otherBan})`.execute(
+          db,
+        );
+        // A marker for a user who is no longer banned converts to nothing.
+        await sql`INSERT INTO zv_scim_sign_in_blocks (user_id) VALUES (${scimBan}), (${free})`.execute(
+          db,
+        );
+      } finally {
+        // A failure above must not leave the shared database at 034 for every later file.
+        await runPending(db);
       }
-      await sql`UPDATE "user" SET banned = true WHERE id IN (${scimBan}, ${otherBan})`.execute(db);
-      // A marker for a user who is no longer banned converts to nothing.
-      await sql`INSERT INTO zv_scim_sign_in_blocks (user_id) VALUES (${scimBan}), (${free})`.execute(
-        db,
-      );
-
-      await runPending(db);
       expect(await getLastAppliedMigration(db)).toBe(version);
 
       expect(await ban(scimBan)).toEqual({

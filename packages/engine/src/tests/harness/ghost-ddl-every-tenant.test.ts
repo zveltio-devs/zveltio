@@ -7,8 +7,8 @@
  * the default tenant's rows only, the swap committed it, and the sixty-second
  * DROP of the old copy made every other tenant's rows unrecoverable.
  *
- * The harness pool is a superuser and never sees this, so the migration here
- * runs on a second connection that logs in as a plain owner role.
+ * On a superuser harness the migration runs on a second connection that logs
+ * in as a plain owner role; on the owner lane the harness already is one.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -21,7 +21,13 @@ import {
   sweepGhostOrphans,
 } from '../../lib/data/index.js';
 import { applyTenantRLS, DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  connectedAsSuperuser,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = Date.now();
@@ -33,13 +39,16 @@ const OTHER_TENANT = crypto.randomUUID();
 d('ghost DDL under FORCE RLS, run by a non-superuser owner', () => {
   let db: Database;
   let owner: Database;
+  let ownRole = false;
 
-  /** Rows per tenant, read as the superuser pool (sees through RLS). */
+  /** Rows per tenant, read across every tenant. */
   const perTenant = async () => {
-    const r = await sql<{ tenant_id: string; n: number }>`
+    const r = await asEveryTenant(db, (trx) =>
+      sql<{ tenant_id: string; n: number }>`
       SELECT tenant_id::text AS tenant_id, count(*)::int AS n
       FROM ${sql.id(TABLE)} GROUP BY 1 ORDER BY 1
-    `.execute(db);
+    `.execute(trx),
+    );
     return Object.fromEntries(r.rows.map((x) => [x.tenant_id, x.n]));
   };
 
@@ -54,14 +63,22 @@ d('ghost DDL under FORCE RLS, run by a non-superuser owner', () => {
     await sql`INSERT INTO zv_tenants (id, slug, name) VALUES (${OTHER_TENANT}, ${`hgt-${SFX}`}, 'hgt')`.execute(
       db,
     );
-    await sql`
-      INSERT INTO ${sql.id(TABLE)} (title, tenant_id)
-      SELECT 'd' || g, ${DEFAULT_TENANT_ID}::uuid FROM generate_series(1, 30) g
-      UNION ALL
-      SELECT 'o' || g, ${OTHER_TENANT}::uuid FROM generate_series(1, 20) g
-    `.execute(db);
+    for (const [t, p, n] of [
+      [DEFAULT_TENANT_ID, 'd', 30],
+      [OTHER_TENANT, 'o', 20],
+    ] as const) {
+      await asTenant(db, t, (trx) =>
+        sql`INSERT INTO ${sql.id(TABLE)} (title, tenant_id)
+            SELECT ${p} || g, ${t}::uuid FROM generate_series(1, ${n}) g`.execute(trx),
+      );
+    }
 
     // The production shape: a plain role that owns the table and nothing more.
+    ownRole = await connectedAsSuperuser(db);
+    if (!ownRole) {
+      owner = db;
+      return;
+    }
     await sql.raw(`CREATE ROLE ${OWNER} LOGIN PASSWORD 'hgt' NOSUPERUSER NOBYPASSRLS`).execute(db);
     await sql.raw(`GRANT CREATE ON SCHEMA public TO ${OWNER}`).execute(db);
     await sql.raw(`GRANT SELECT ON zvd_collections, zv_tenants TO ${OWNER}`).execute(db);
@@ -77,7 +94,7 @@ d('ghost DDL under FORCE RLS, run by a non-superuser owner', () => {
   afterAll(async () => {
     if (!db) return;
     cancelPendingCleanups();
-    await owner?.destroy().catch(() => {});
+    if (ownRole) await owner?.destroy().catch(() => {});
     for (const t of [`_zv_ghost_${TABLE}`, `_zv_changelog_${TABLE}`, TABLE]) {
       await sql`DROP TABLE IF EXISTS ${sql.id(t)} CASCADE`.execute(db).catch(() => {});
     }
@@ -119,7 +136,9 @@ d('ghost DDL under FORCE RLS, run by a non-superuser owner', () => {
     ]);
     await GhostDDL.batchCopy(owner, migration);
     // A copy that lost one row, whatever the cause.
-    await sql`DELETE FROM ${sql.id(migration.ghostTable)} WHERE title = 'o1'`.execute(db);
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      sql`DELETE FROM ${sql.id(migration.ghostTable)} WHERE title = 'o1'`.execute(trx),
+    );
 
     await expect(GhostDDL.atomicSwap(owner, migration)).rejects.toThrow(/row count/i);
 

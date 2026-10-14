@@ -23,6 +23,7 @@ import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { initTenantManager, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import {
+  asTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -79,9 +80,11 @@ d('zv_environments under tenant RLS', () => {
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
               VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
-      await sql`INSERT INTO zv_environments (tenant_id, name, slug, schema_name)
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_environments (tenant_id, name, slug, schema_name)
                 VALUES (${tenant}::uuid, ${STAMP}, ${STAMP}, ${`${STAMP}_${tenant.slice(0, 8)}`})`.execute(
-        db,
+          trx,
+        ),
       );
       raw[tenant] = generateApiKey();
       await sql`

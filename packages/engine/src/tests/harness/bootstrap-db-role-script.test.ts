@@ -37,7 +37,7 @@ import {
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { applyFailClosedTenantSetting } from '../../lib/tenancy/fail-closed-tenant.js';
-import { harnessAvailable } from '../../testing/app-harness.js';
+import { harnessAvailable, superuserTitle, superuserUrl } from '../../testing/app-harness.js';
 
 const SCRIPT = join(import.meta.dir, '../../../../../scripts/bootstrap-db-role.sh');
 const ENGINE = join(import.meta.dir, '../../..');
@@ -47,10 +47,16 @@ const PRIVILEGE_ERROR =
 const EXT = 'bootprobe';
 const OWN = 'zv_bootprobe_notes';
 
-const d = harnessAvailable() ? describe : describe.skip;
+// Creates databases and cluster roles: a superuser's setup, not the engine's path.
+const SUPER_URL = harnessAvailable() ? await superuserUrl() : null;
+const d = SUPER_URL ? describe : describe.skip;
+const TITLE = superuserTitle(
+  'scripts/bootstrap-db-role.sh: per-extension roles on a hardened install',
+  SUPER_URL,
+);
 
-d('scripts/bootstrap-db-role.sh: per-extension roles on a hardened install', () => {
-  const superUrl = new URL(String(process.env.TEST_DATABASE_URL));
+d(TITLE, () => {
+  const superUrl = new URL(String(SUPER_URL ?? process.env.TEST_DATABASE_URL));
   // Roles are cluster-wide: keyed to this harness database so parallel runs on
   // one cluster do not share them.
   const key = createHash('sha256').update(superUrl.pathname).digest('hex').slice(0, 8);

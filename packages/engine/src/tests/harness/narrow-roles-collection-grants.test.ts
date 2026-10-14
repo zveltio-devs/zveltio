@@ -21,7 +21,7 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
-import type { Database } from '../../db/index.js';
+import { createDb, type Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { reconcileTenantRLS } from '../../lib/tenancy/index.js';
 import type {
@@ -31,12 +31,15 @@ import type {
 import { WorkerExtensionHost, _internalForTests } from '../../lib/worker-extension-host.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
+  superuserUrl,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
+const SUPER_URL = harnessAvailable() ? await superuserUrl() : null;
 
 const COLL = `wkr_grant_${Date.now().toString(36)}`;
 const TABLE = `zvd_${COLL}`;
@@ -154,8 +157,16 @@ d('the narrow roles hold exactly the collection tables', () => {
       await Bun.sleep(100);
     }
     // Seeded as the owner, one row per tenant; the worker must see only its own.
-    await sql`INSERT INTO ${sql.id(TABLE)} (title, tenant_id) VALUES
-      ('a-row', ${TENANT_A}::uuid), ('b-row', ${TENANT_B}::uuid)`.execute(db);
+    for (const [title, tenant] of [
+      ['a-row', TENANT_A],
+      ['b-row', TENANT_B],
+    ]) {
+      await asTenant(db, tenant!, (trx) =>
+        sql`INSERT INTO ${sql.id(TABLE)} (title, tenant_id) VALUES (${title}, ${tenant}::uuid)`.execute(
+          trx,
+        ),
+      );
+    }
   }, 60_000);
 
   afterAll(async () => {
@@ -235,36 +246,44 @@ d('the narrow roles hold exactly the collection tables', () => {
     expect(written.rows[0]!.n).toBe(0);
   }, 60_000);
 
-  it('with no narrow role usable the bridge refuses — it never runs as the engine role', async () => {
-    // A non-superuser engine without CREATEROLE where bootstrap-db-role.sh was
-    // not run: migration 001 created neither role. The bridge used to run the
-    // query as the engine's own login, which owns every table and, on a
-    // superuser, bypasses RLS: tenant A read tenant B's rows.
-    _internalForTests.resetNoWorkerSqlRoleWarning();
-    const warn = spyOn(console, 'warn');
-    try {
-      const res = await withoutWorkerRole(db, () =>
-        withoutRole(db, 'zveltio_rls', async () => ({
-          read: await workerQuery(`SELECT title FROM ${TABLE} ORDER BY title`, TENANT_A),
-          again: await workerQuery('SELECT current_user AS u', TENANT_A),
-        })),
-      );
-      for (const r of [res.read, res.again]) {
-        expect(r.ok).toBe(false);
-        if (!r.ok) expect(r.error).toMatch(/no database role.*zveltio_worker/i);
+  // Renaming `zveltio_rls` (a cluster role the owner holds without ADMIN) is a
+  // superuser's setup; the bridge under test still runs as the harness engine.
+  it.skipIf(!SUPER_URL)(
+    'with no narrow role usable the bridge refuses — it never runs as the engine role',
+    async () => {
+      // A non-superuser engine without CREATEROLE where bootstrap-db-role.sh was
+      // not run: migration 001 created neither role. The bridge used to run the
+      // query as the engine's own login, which owns every table and, on a
+      // superuser, bypasses RLS: tenant A read tenant B's rows.
+      _internalForTests.resetNoWorkerSqlRoleWarning();
+      const warn = spyOn(console, 'warn');
+      const su = createDb(SUPER_URL!);
+      try {
+        const res = await withoutWorkerRole(db, () =>
+          withoutRole(su, 'zveltio_rls', async () => ({
+            read: await workerQuery(`SELECT title FROM ${TABLE} ORDER BY title`, TENANT_A),
+            again: await workerQuery('SELECT current_user AS u', TENANT_A),
+          })),
+        );
+        for (const r of [res.read, res.again]) {
+          expect(r.ok).toBe(false);
+          if (!r.ok) expect(r.error).toMatch(/no database role.*zveltio_worker/i);
+        }
+        const told = warn.mock.calls.flat().join('\n');
+        expect(told).toContain('scripts/bootstrap-db-role.sh');
+        expect(told.split('scripts/bootstrap-db-role.sh').length - 1).toBe(1);
+      } finally {
+        warn.mockRestore();
+        await su.destroy();
       }
-      const told = warn.mock.calls.flat().join('\n');
-      expect(told).toContain('scripts/bootstrap-db-role.sh');
-      expect(told.split('scripts/bootstrap-db-role.sh').length - 1).toBe(1);
-    } finally {
-      warn.mockRestore();
-    }
-    // And the bridge works again once a role is back.
-    expect(await workerQuery('SELECT current_user AS u', TENANT_A)).toEqual({
-      ok: true,
-      rows: [{ u: 'zveltio_worker' }],
-    });
-  }, 60_000);
+      // And the bridge works again once a role is back.
+      expect(await workerQuery('SELECT current_user AS u', TENANT_A)).toEqual({
+        ok: true,
+        rows: [{ u: 'zveltio_worker' }],
+      });
+    },
+    60_000,
+  );
 
   it('the flow reader holds SELECT on the new collection and reads its own tenant only', async () => {
     expect(await privileges(db, TABLE, 'zveltio_flow_reader')).toEqual(['SELECT']);

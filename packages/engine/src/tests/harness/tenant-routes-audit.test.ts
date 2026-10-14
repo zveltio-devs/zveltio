@@ -15,7 +15,12 @@ import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -45,19 +50,23 @@ d('tenant routes write an audit trail (in-process)', () => {
     await sql`DELETE FROM "user" WHERE id = ${memberId}`.execute(db);
     if (tenantId) {
       await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${tenantId}`.execute(db);
-      await sql`DELETE FROM zv_audit_log WHERE resource_id = ${tenantId}`.execute(db);
+      await asEveryTenant(db, (trx) =>
+        sql`DELETE FROM zv_audit_log WHERE resource_id = ${tenantId}`.execute(trx),
+      );
       await sql`DELETE FROM zv_tenants WHERE id = ${tenantId}`.execute(db);
     }
   });
 
   /** Audit rows of one type, most recent first, read back as stored. */
   async function events(type: string): Promise<Array<Record<string, unknown>>> {
-    const r = await sql<{ metadata: unknown; resource_id: string | null }>`
+    const r = await asEveryTenant(db, (trx) =>
+      sql<{ metadata: unknown; resource_id: string | null }>`
       SELECT metadata, resource_id FROM zv_audit_log
        WHERE event_type = ${type}
        ORDER BY created_at DESC
        LIMIT 5
-    `.execute(db);
+    `.execute(trx),
+    );
     return r.rows as unknown as Array<Record<string, unknown>>;
   }
 

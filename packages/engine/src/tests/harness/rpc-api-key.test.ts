@@ -14,7 +14,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -126,8 +131,10 @@ d('rpc with an API key', () => {
       keyId[name] = row.rows[0]!.id;
     }
     for (const tenant of [ROOT, TENANT])
-      await sql`INSERT INTO zv_record_comments (collection, record_id, comment, tenant_id)
-                VALUES (${STAMP}, ${STAMP}, ${STAMP}, ${tenant}::uuid)`.execute(db);
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_record_comments (collection, record_id, comment, tenant_id)
+                VALUES (${STAMP}, ${STAMP}, ${STAMP}, ${tenant}::uuid)`.execute(trx),
+      );
   }, 60_000);
 
   afterAll(async () => {

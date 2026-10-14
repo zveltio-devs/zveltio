@@ -15,7 +15,12 @@ import type { Database } from '../../db/index.js';
 import { CapabilityDeniedError, gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TAG = `${Date.now()}`.slice(-12).padStart(12, '0');
@@ -40,11 +45,19 @@ d('ctx.internals.exportUserData', () => {
     }
     // One audit row in each place a user's actions are recorded: the default
     // tenant, another tenant, and the instance level (no tenant).
-    await sql`INSERT INTO zv_audit_log (event_type, user_id, resource_type, tenant_id) VALUES
-                ('export.default', ${USER}, 'x', ${DEFAULT_TENANT_ID}::uuid),
+    // Each row as its own tenant, the instance's outside any: FORCE RLS binds
+    // the owner role a real install runs as.
+    await asTenant(db, DEFAULT_TENANT_ID, (trx) =>
+      sql`INSERT INTO zv_audit_log (event_type, user_id, resource_type, tenant_id) VALUES
+                ('export.default', ${USER}, 'x', ${DEFAULT_TENANT_ID}::uuid)`.execute(trx),
+    );
+    await asTenant(db, T, (trx) =>
+      sql`INSERT INTO zv_audit_log (event_type, user_id, resource_type, tenant_id) VALUES
                 ('export.other', ${USER}, 'x', ${T}::uuid),
-                ('export.instance', ${USER}, 'x', NULL),
-                ('export.someone_else', ${OTHER}, 'x', ${T}::uuid)`.execute(db);
+                ('export.someone_else', ${OTHER}, 'x', ${T}::uuid)`.execute(trx),
+    );
+    await sql`INSERT INTO zv_audit_log (event_type, user_id, resource_type, tenant_id)
+              VALUES ('export.instance', ${USER}, 'x', NULL)`.execute(db);
     await sql`INSERT INTO zv_notifications (user_id, title, message) VALUES
                 (${USER}, 'mine', 'm'), (${OTHER}, 'theirs', 't')`.execute(db);
     await sql`INSERT INTO zv_api_keys (name, key_hash, key_prefix, created_by, tenant_id)
@@ -54,7 +67,9 @@ d('ctx.internals.exportUserData', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zv_audit_log WHERE user_id IN (${USER}, ${OTHER})`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_audit_log WHERE user_id IN (${USER}, ${OTHER})`.execute(trx),
+    );
     await sql`DELETE FROM zv_api_keys WHERE key_hash IN (${`h-${TAG}`}, ${`h2-${TAG}`})`.execute(
       db,
     );

@@ -42,7 +42,12 @@ import {
 } from '../../lib/tenancy/index.js';
 import type { HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
 import { WorkerExtensionHost, _internalForTests } from '../../lib/worker-extension-host.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -156,12 +161,17 @@ d('collection permissions in the database (R1)', () => {
       } as never);
       await applyTenantRLS(db, `zvd_${name}`);
     }
-    await sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id) VALUES
-                ('a', ${TENANT}::uuid), ('b', ${TENANT}::uuid), ('other', ${OTHER}::uuid)`.execute(
-      db,
+    await asTenant(db, TENANT, async (trx) => {
+      await sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id) VALUES
+                ('a', ${TENANT}::uuid), ('b', ${TENANT}::uuid)`.execute(trx);
+      await sql`INSERT INTO ${sql.table(`zvd_${PRIVATE}`)} (title, tenant_id)
+              VALUES ('secret', ${TENANT}::uuid)`.execute(trx);
+    });
+    await asTenant(db, OTHER, (trx) =>
+      sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id) VALUES ('other', ${OTHER}::uuid)`.execute(
+        trx,
+      ),
     );
-    await sql`INSERT INTO ${sql.table(`zvd_${PRIVATE}`)} (title, tenant_id)
-              VALUES ('secret', ${TENANT}::uuid)`.execute(db);
 
     const e = await getEnforcer();
     await e.addPolicy(U.reader, '*', COLL, 'read');

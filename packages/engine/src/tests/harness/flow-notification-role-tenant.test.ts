@@ -23,7 +23,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { executeFlow } from '../../lib/flows/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -51,11 +56,13 @@ d('flow send_notification to a role stays in the flow tenant', () => {
 
   async function notifiedBy(tenantId: string, role: string): Promise<string[]> {
     const title = `fnr-${flowIds.length}-${TAG}`;
-    const flow = await sql<{ id: string }>`
+    const flow = await asTenant(db, tenantId, (trx) =>
+      sql<{ id: string }>`
       INSERT INTO zv_flows (tenant_id, name, trigger_type, trigger_config, is_active)
       VALUES (${tenantId}, ${title}, 'manual', '{}'::jsonb, true)
       RETURNING id::text AS id
-    `.execute(db);
+    `.execute(trx),
+    );
     const flowId = flow.rows[0]!.id;
     flowIds.push(flowId);
     await sql`
@@ -117,7 +124,9 @@ d('flow send_notification to a role stays in the flow tenant', () => {
     for (const id of flowIds) {
       await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`.execute(db).catch(() => {});
       await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});
-      await sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(db).catch(() => {});
+      await asEveryTenant(db, (trx) =>
+        sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(trx),
+      ).catch(() => {});
     }
     for (const r of ROLES) {
       await sql`DELETE FROM zvd_permissions WHERE v0 = ${r} OR v1 = ${r}`

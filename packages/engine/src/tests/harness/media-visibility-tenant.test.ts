@@ -18,7 +18,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { applyFileVisibility, mayDeleteFile, mayReadFile } from '../../lib/media-visibility.js';
 import { withTenantIsolation } from '../../lib/tenancy/tenant-manager.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -48,10 +48,12 @@ d('media visibility is tenant-bound', () => {
       INSERT INTO zv_tenant_users (tenant_id, user_id, role, read_scope, valid_from)
       VALUES (${PARENT}::uuid, ${USER}, 'member', 'subtree', now() - interval '1 day')`.execute(db);
     for (const tenant of [PARENT, CHILD, STRANGER]) {
-      await sql`
+      await asTenant(db, tenant, (trx) =>
+        sql`
         INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id, visibility)
         VALUES (${STAMP}, ${STAMP}, 'text/plain', ${`harness/${STAMP}`}, ${tenant}::uuid, 'tenant')`.execute(
-        db,
+          trx,
+        ),
       );
     }
   });

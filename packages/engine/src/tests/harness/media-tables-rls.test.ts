@@ -18,7 +18,12 @@ import { extensionRegistry } from '../../lib/extensions/index.js';
 import { _internalForTests } from '../../lib/flows/flow-scheduler.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -60,18 +65,26 @@ d('media tables under tenant RLS', () => {
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
               VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
-      const file = await sql<{ id: string }>`
+      const file = await asTenant(db, tenant, (trx) =>
+        sql<{ id: string }>`
         INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id)
         VALUES (${STAMP}, ${STAMP}, 'text/plain', ${`harness/${STAMP}`}, ${tenant}::uuid)
-        RETURNING id::text AS id`.execute(db);
-      const tag = await sql<{ id: string }>`
+        RETURNING id::text AS id`.execute(trx),
+      );
+      const tag = await asTenant(db, tenant, (trx) =>
+        sql<{ id: string }>`
         INSERT INTO zv_media_tags (name, tenant_id) VALUES (${STAMP}, ${tenant}::uuid)
-        RETURNING id::text AS id`.execute(db);
-      await sql`INSERT INTO zv_media_folders (name, tenant_id)
-                VALUES (${STAMP}, ${tenant}::uuid)`.execute(db);
-      await sql`INSERT INTO zv_media_file_tags (file_id, tag_id, tenant_id)
+        RETURNING id::text AS id`.execute(trx),
+      );
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_media_folders (name, tenant_id)
+                VALUES (${STAMP}, ${tenant}::uuid)`.execute(trx),
+      );
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_media_file_tags (file_id, tag_id, tenant_id)
                 VALUES (${file.rows[0]!.id}::uuid, ${tag.rows[0]!.id}::uuid, ${tenant}::uuid)`.execute(
-        db,
+          trx,
+        ),
       );
       fileIds.push(file.rows[0]!.id);
       raw[tenant] = generateApiKey();

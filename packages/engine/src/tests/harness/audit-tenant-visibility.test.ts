@@ -23,7 +23,12 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionInternals } from '../../lib/extensions/internals.js';
 import { hashInvitationToken } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID, runWithDomain, withTenantIsolation } from '../../lib/tenancy/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const A = crypto.randomUUID();
@@ -51,10 +56,12 @@ d('audit events reach the tenant they act on', () => {
     runWithDomain(tenant, () => reader.readAuditActivity({ eventType, limit: 100, since: START }));
   const tenantOf = async (eventType: string, resourceId: string) =>
     (
-      await sql<{ tenant_id: string | null }>`
+      await asEveryTenant(db, (trx) =>
+        sql<{ tenant_id: string | null }>`
         SELECT tenant_id::text AS tenant_id FROM zv_audit_log
          WHERE event_type = ${eventType} AND resource_id = ${resourceId}
-         ORDER BY created_at DESC LIMIT 1`.execute(db)
+         ORDER BY created_at DESC LIMIT 1`.execute(trx),
+      )
     ).rows.map((r) => r.tenant_id);
 
   beforeAll(async () => {
@@ -84,13 +91,17 @@ d('audit events reach the tenant they act on', () => {
     if (!db) return;
     await _settleAuditWrites();
     const users = [memberId, inviteeId].filter(Boolean);
-    await sql`DELETE FROM zv_audit_log WHERE tenant_id IN (${A}::uuid, ${B}::uuid)
-               OR event_type LIKE ${`${TAG}%`}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_audit_log WHERE tenant_id IN (${A}::uuid, ${B}::uuid)
+               OR event_type LIKE ${`${TAG}%`}`.execute(trx),
+    );
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id IN (${A}::uuid, ${B}::uuid)`.execute(db);
     await sql`DELETE FROM zv_invitations WHERE email = ${INVITEE}`.execute(db);
     await sql`DELETE FROM casbin_rule WHERE v2 IN (${A}, ${B})`.execute(db).catch(() => {});
     for (const u of users) {
-      await sql`DELETE FROM zv_audit_log WHERE user_id = ${u} OR resource_id = ${u}`.execute(db);
+      await asEveryTenant(db, (trx) =>
+        sql`DELETE FROM zv_audit_log WHERE user_id = ${u} OR resource_id = ${u}`.execute(trx),
+      );
       await sql`DELETE FROM "session" WHERE "userId" = ${u}`.execute(db);
       await sql`DELETE FROM "account" WHERE "userId" = ${u}`.execute(db);
       await sql`DELETE FROM "user" WHERE id = ${u}`.execute(db);

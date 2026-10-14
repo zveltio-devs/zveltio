@@ -31,6 +31,8 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
+  asTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -71,11 +73,13 @@ d('zv_flows under tenant RLS', () => {
     trigger: 'cron' | 'on_create',
     config: Record<string, unknown>,
   ): Promise<string> {
-    const row = await sql<{ id: string }>`
+    const row = await asTenant(db, tenant, (trx) =>
+      sql<{ id: string }>`
       INSERT INTO zv_flows (tenant_id, name, trigger_type, trigger_config, is_active, next_run_at)
       VALUES (${tenant}::uuid, ${`${STAMP}-${tag}`}, ${trigger}, ${JSON.stringify(config)}::jsonb,
               true, now() - interval '1 minute')
-      RETURNING id::text AS id`.execute(db);
+      RETURNING id::text AS id`.execute(trx),
+    );
     const id = row.rows[0]!.id;
     await sql`INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config)
               VALUES (${id}, 0, 'echo', 'query_db', ${JSON.stringify(ECHO)}::jsonb)`.execute(db);
@@ -104,8 +108,10 @@ d('zv_flows under tenant RLS', () => {
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
               VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
-      await sql`INSERT INTO zv_flows (name, tenant_id, trigger_type)
-                VALUES (${`${STAMP}-seed`}, ${tenant}::uuid, 'manual')`.execute(db);
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_flows (name, tenant_id, trigger_type)
+                VALUES (${`${STAMP}-seed`}, ${tenant}::uuid, 'manual')`.execute(trx),
+      );
       raw[tenant] = generateApiKey();
       await sql`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
@@ -131,7 +137,9 @@ d('zv_flows under tenant RLS', () => {
     if (!db) return;
     await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
-    await sql`DELETE FROM zv_flows WHERE name LIKE ${`${STAMP}%`}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_flows WHERE name LIKE ${`${STAMP}%`}`.execute(trx),
+    );
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
@@ -161,9 +169,11 @@ d('zv_flows under tenant RLS', () => {
     expect(await runsOf(mine)).toEqual([{ status: 'success', tenant: ROOT }]);
     expect(await runsOf(theirs)).toEqual([{ status: 'success', tenant: OTHER }]);
     // The advance is a write under WITH CHECK: it has to be made as the row's firm.
-    const next = await sql<{ id: string; later: boolean }>`
+    const next = await asEveryTenant(db, (trx) =>
+      sql<{ id: string; later: boolean }>`
       SELECT id::text AS id, next_run_at > now() AS later FROM zv_flows
-       WHERE id IN (${mine}::uuid, ${theirs}::uuid)`.execute(db);
+       WHERE id IN (${mine}::uuid, ${theirs}::uuid)`.execute(trx),
+    );
     expect(next.rows.every((r) => r.later)).toBe(true);
   }, 30_000);
 
@@ -301,14 +311,18 @@ d('zv_flows under tenant RLS', () => {
       db,
     );
     const aiFlow = await seedFlow(OTHER, 'ai', 'cron', {});
-    await sql`UPDATE zv_flows SET trigger_type = 'ai_task' WHERE id = ${aiFlow}::uuid`.execute(db);
+    await asTenant(db, OTHER, (trx) =>
+      sql`UPDATE zv_flows SET trigger_type = 'ai_task' WHERE id = ${aiFlow}::uuid`.execute(trx),
+    );
     try {
       await flowScheduler.start(plain);
       flowScheduler.stop();
       await flowScheduler._tick();
     } finally {
       serviceRegistry.unregisterAs('test', 'ai.runBackgroundTask');
-      await sql`DELETE FROM zv_flows WHERE id = ${aiFlow}::uuid`.execute(db);
+      await asEveryTenant(db, (trx) =>
+        sql`DELETE FROM zv_flows WHERE id = ${aiFlow}::uuid`.execute(trx),
+      );
       if (check.rows[0]) {
         await sql
           .raw(
@@ -320,8 +334,10 @@ d('zv_flows under tenant RLS', () => {
     expect(idleInTransaction).toBe(0);
     expect(dbOutsideWorkRefused).toBe(true);
     expect(seen).toEqual([{ tenant: OTHER, flows: 1 }]);
-    const landed = await sql<{ tenant: string }>`
-      SELECT tenant_id::text AS tenant FROM zv_flows WHERE name = ${wrote}`.execute(db);
+    const landed = await asEveryTenant(db, (trx) =>
+      sql<{ tenant: string }>`
+      SELECT tenant_id::text AS tenant FROM zv_flows WHERE name = ${wrote}`.execute(trx),
+    );
     expect(landed.rows).toEqual([{ tenant: OTHER }]);
   }, 30_000);
 
@@ -335,8 +351,10 @@ d('zv_flows under tenant RLS', () => {
       const flow = await seedFlow(SUSP, 'suspended', 'cron', { cron: '0 3 * * *' });
       const nextRun = async () =>
         (
-          await sql<{ at: string }>`SELECT next_run_at::text AS at FROM zv_flows
-                                     WHERE id = ${flow}::uuid`.execute(db)
+          await asEveryTenant(db, (trx) =>
+            sql<{ at: string }>`SELECT next_run_at::text AS at FROM zv_flows
+                                     WHERE id = ${flow}::uuid`.execute(trx),
+          )
         ).rows[0]!.at;
       const before = await nextRun();
 

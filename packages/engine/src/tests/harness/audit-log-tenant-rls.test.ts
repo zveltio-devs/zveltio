@@ -31,7 +31,13 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import { registerSystemRoutes } from '../../routes/admin/system-routes.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const A = crypto.randomUUID();
@@ -91,14 +97,18 @@ d('zv_audit_log under tenant RLS', () => {
     await plain?.destroy().catch(() => undefined);
     if (!db) return;
     await _settleAuditWrites();
-    await sql`DELETE FROM zv_audit_log WHERE event_type LIKE ${`${TAG}%`}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_audit_log WHERE event_type LIKE ${`${TAG}%`}`.execute(trx),
+    );
     await sql`DELETE FROM zv_tenants WHERE id IN (${A}::uuid, ${B}::uuid)`.execute(db);
   });
 
   it('a write in a tenant transaction is stamped with that tenant; one outside is instance-level', async () => {
-    const r = await sql<{ resource_id: string; tenant_id: string | null }>`
+    const r = await asEveryTenant(db, (trx) =>
+      sql<{ resource_id: string; tenant_id: string | null }>`
       SELECT resource_id, tenant_id::text AS tenant_id FROM zv_audit_log
-       WHERE event_type = ${EV} ORDER BY resource_id`.execute(db);
+       WHERE event_type = ${EV} ORDER BY resource_id`.execute(trx),
+    );
     expect(r.rows).toEqual([
       { resource_id: 'a', tenant_id: A },
       { resource_id: 'b', tenant_id: B },
@@ -108,9 +118,11 @@ d('zv_audit_log under tenant RLS', () => {
 
   it('the boot reconciler hands no instance row to the default tenant', async () => {
     await reconcileExtensionTenantRLS(db);
-    const r = await sql<{ tenant_id: string | null }>`
+    const r = await asEveryTenant(db, (trx) =>
+      sql<{ tenant_id: string | null }>`
       SELECT tenant_id::text AS tenant_id FROM zv_audit_log
-       WHERE event_type = ${EV} AND resource_id = 'instance'`.execute(db);
+       WHERE event_type = ${EV} AND resource_id = 'instance'`.execute(trx),
+    );
     expect(r.rows).toEqual([{ tenant_id: null }]);
   });
 
@@ -196,11 +208,17 @@ d('zv_audit_log under tenant RLS', () => {
     const OLD = `${TAG}.old` as AuditEventType;
     await withTenantIsolation(B, (trx) => auditLog(trx, { type: OLD, resourceId: 'b' }));
     await auditLog(db, { type: OLD, resourceId: 'instance' });
-    await sql`UPDATE zv_audit_log SET created_at = now() - interval '400 days'
-               WHERE event_type = ${OLD}`.execute(db);
+    // Aged as each row's own writer could: B's as B, the instance's outside any.
+    const age = (h: Database) =>
+      sql`UPDATE zv_audit_log SET created_at = now() - interval '400 days'
+           WHERE event_type = ${OLD}`.execute(h);
+    await asTenant(db, B, age);
+    await age(db);
     await runGarbageCollector(plain);
-    const left = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = ${OLD}`.execute(db);
+    const left = await asEveryTenant(db, (trx) =>
+      sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = ${OLD}`.execute(trx),
+    );
     expect(left.rows[0]!.n).toBe(0);
   });
 

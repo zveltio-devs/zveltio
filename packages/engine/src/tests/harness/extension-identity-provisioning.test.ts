@@ -24,7 +24,12 @@ import {
   getEnforcer,
   runWithTenantTrx,
 } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  connectedAsSuperuser,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -153,9 +158,11 @@ d('identity provisioning through ctx.internals', () => {
 
     const again = await as(T, () => scim.provisionUser({ email: email.toUpperCase() }));
     expect(again).toEqual({ user: first.user, created: false });
-    const audit = await sql`SELECT 1 FROM zv_audit_log WHERE event_type = 'user.created'
+    const audit = await asEveryTenant(db, (trx) =>
+      sql`SELECT 1 FROM zv_audit_log WHERE event_type = 'user.created'
                              AND resource_id = ${first.user.id}
-                             AND metadata->>'actor' = 'ext:auth/scim'`.execute(db);
+                             AND metadata->>'actor' = 'ext:auth/scim'`.execute(trx),
+    );
     expect(audit.rows).toHaveLength(1);
     await expect(scim.provisionUser({ email: 'not an email' })).rejects.toMatchObject({
       code: 'invalid_input',
@@ -597,10 +604,12 @@ d('identity provisioning through ctx.internals', () => {
     expect(multi).toEqual([]);
 
     const rollback = new Error('rollback');
+    const superuser = await connectedAsSuperuser(db);
     const seen = await db
       .transaction()
       .execute(async (trx) => {
-        await sql`SET LOCAL session_replication_role = replica`.execute(trx);
+        // Rolled back below. Replica mode (a superuser's) only spares the cascade.
+        if (superuser) await sql`SET LOCAL session_replication_role = replica`.execute(trx);
         await sql`DELETE FROM zv_tenants WHERE id <> ${DEFAULT_TENANT_ID}::uuid`.execute(trx);
         const out = await runWithTenantTrx(trx, DEFAULT_TENANT_ID, async () => ({
           single: await isSingleTenantInstance(trx),
