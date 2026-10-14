@@ -795,9 +795,13 @@ export class WorkerExtensionHost {
       // transaction inside it — so the service's `ctx.db` and its permission
       // checks resolve the caller's tenant — and, opened with the same caller,
       // the row rules keyed on that user. No request, no tenant: unchanged.
+      // Inside the request's async context, so the API key the gate admitted is
+      // the one the service's `checkPermission` answers for — and passes on to a
+      // worker service it calls (`callerScope`).
+      const run = scope.run ?? (<R>(fn: () => R) => fn());
       const result = tenantId
-        ? await runWithDomain(tenantId, () => withTenantIsolation(tenantId, call, actor))
-        : await call();
+        ? await run(() => runWithDomain(tenantId, () => withTenantIsolation(tenantId, call, actor)))
+        : await run(call);
       this.post(managed, { type: 'service:ok', id: msg.id, result });
     } catch (err) {
       this.post(managed, {
@@ -973,7 +977,7 @@ export class WorkerExtensionHost {
       serviceRegistry
         .scope(managed.name)
         .register(msg.name, (...args: unknown[]) =>
-          this.invokeWorkerService(managed, msg.name, args, currentScope(getCurrentDomainOrNull())),
+          this.invokeWorkerService(managed, msg.name, args, callerScope()),
         );
       managed.registeredServices.add(msg.name);
       this.post(managed, { type: 'service:register:ok', id: msg.id });
@@ -1196,6 +1200,20 @@ function currentScope(tenantId: string | null): InvokeScope {
   const userId = actor?.userId;
   const noUnits = !!userId && getResolvedMembership(userId, tenantId) === false;
   return { tenantId, actor, noUnits };
+}
+
+/**
+ * `currentScope` plus the request's user and async context, for a call into a
+ * worker service from the caller's own context: what an inline service called
+ * there would see, so the service's `checkPermission` answers for that user (an
+ * API key's id too) and no other. Read from the engine's record of the request
+ * transaction, never from the caller; no request, no user. Without it a worker
+ * service answered false for every user (owner decision L4).
+ */
+function callerScope(): InvokeScope {
+  const scope = currentScope(getCurrentDomainOrNull());
+  const id = scope.actor?.identity?.userId || scope.actor?.userId;
+  return { ...scope, ...(id ? { user: { id } } : {}), run: AsyncLocalStorage.snapshot() };
 }
 
 /**
