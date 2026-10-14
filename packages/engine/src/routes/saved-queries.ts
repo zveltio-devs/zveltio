@@ -21,7 +21,7 @@ import { checkPermission, isTenantAdmin } from '../lib/tenancy/index.js';
 import { DDLManager, readScope } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { toJsonb } from '../lib/jsonb.js';
-import { escapeLike } from '../db/dynamic.js';
+import { escapeLike, readSource } from '../db/dynamic.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -300,8 +300,11 @@ async function executeQueryConfig(
 
   const offset = (config.page - 1) * config.limit;
   // Row policies and alters in the WHERE, so the count and the page agree.
+  // Through the masking view (L37 layer 3): the request role holds no SELECT on
+  // a ruled column of the table.
+  const source = await readSource(db, tableName);
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  let baseQuery: any = scope.query((db as any).selectFrom(tableName));
+  let baseQuery: any = scope.query((db as any).selectFrom(source.from).modifyEnd(source.version));
 
   // An ALLOWLIST of the collection's own columns, not a denylist of bad ones.
   //

@@ -5,6 +5,7 @@
 // All identifiers (table names, column names) are sanitized before use to
 // prevent SQL injection via Kysely's sql.id() which handles quoting.
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import type { RawBuilder } from 'kysely';
 import type { Database } from './index.js';
@@ -114,44 +115,151 @@ export function forgetJsonbColumns(table?: string): void {
   else jsonbColumns.clear();
 }
 
-const readable = new Map<string, { cols: string[] | null; at: number }>();
+const readable = new Map<
+  string,
+  { cols: string[] | null; view: string | null; version: string; at: number }
+>();
 /** As long as `DDLManager` keeps a collection's definition: another replica's seal lands within it. */
 const READABLE_TTL_MS = 30_000;
 
-/**
- * The columns of `table` the request role may read, or null when it may read
- * them all (L37 layer 2). A collection with a sealed field — a `password` —
- * holds its SELECT column by column (`zveltio_seal_columns`, migration 073), so
- * `SELECT *` and `RETURNING *` on it are refused; the engine names the rest.
- * Asked of `zveltio_rls`, whose shape every narrower role mirrors.
- */
-export async function readableColumns(db: Database, table: string): Promise<string[] | null> {
+/** A collection table's masking view (L37 layer 3, migration 075): `zvd_x` → `zvv_x`. */
+export function maskViewName(table: string): string | null {
+  return /^zvd_[a-z][a-z0-9_]*$/.test(table) ? `zvv_${table.slice(4)}` : null;
+}
+
+async function readInfo(db: Database, table: string) {
   const hit = readable.get(table);
-  if (hit && Date.now() - hit.at < READABLE_TTL_MS) return hit.cols;
-  const r = await sql<{ cols: string[] | null }>`
+  if (hit && Date.now() - hit.at < READABLE_TTL_MS) return hit;
+  const view = maskViewName(table);
+  const r = await sql<{ cols: string[] | null; oid: string | null }>`
     SELECT CASE WHEN to_regrole('zveltio_rls') IS NULL OR c.oid IS NULL
                   OR has_table_privilege('zveltio_rls', c.oid, 'SELECT') THEN NULL
            ELSE ARRAY(SELECT a.attname::text FROM pg_attribute a
                        WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
                          AND has_column_privilege('zveltio_rls', c.oid, a.attnum, 'SELECT')
-                       ORDER BY a.attnum) END AS cols
+                       ORDER BY a.attnum) END AS cols,
+           to_regclass(${view ? `public.${view}` : null}::text)::oid::text AS oid
       FROM (SELECT to_regclass(${`public.${sanitizeIdentifier(table)}`}) AS oid) c
   `.execute(engineHandle(db));
-  const cols = r.rows[0]?.cols ?? null;
-  readable.set(table, { cols, at: Date.now() });
-  return cols;
+  const oid = r.rows[0]?.oid;
+  const entry = {
+    cols: r.rows[0]?.cols ?? null,
+    view: oid ? view : null,
+    version: oid ? `/* ${view} ${oid} */` : '',
+    at: Date.now(),
+  };
+  readable.set(table, entry);
+  return entry;
 }
 
-/** Forget a table's readable columns — its fields or its grants changed. */
+/**
+ * The columns of `table` the request role may read, or null when it may read
+ * them all (L37 layer 2). A collection with a sealed field — a `password`, or a
+ * column a rule hides (layer 3) — holds its SELECT column by column
+ * (`zveltio_seal_columns`, migration 073), so `SELECT *` and `RETURNING *` on
+ * it are refused; the engine names the rest. Asked of `zveltio_rls`, whose
+ * shape every narrower role mirrors.
+ */
+export async function readableColumns(db: Database, table: string): Promise<string[] | null> {
+  return (await readInfo(db, table)).cols;
+}
+
+/**
+ * What the engine reads `table` from: its masking view (L37 layer 3) aliased
+ * as the table, so a qualified reference still resolves, or the table itself
+ * when it has none. The view serves every column but the unserved ones, a
+ * column hidden from the actor as NULL, and `SELECT *` on it is never refused —
+ * a column rule changed on another replica does not change this answer.
+ *
+ * `version` goes at the end of the statement (`modifyEnd`): a field change
+ * rebuilds the view under a new oid, and a prepared `SELECT *` over its old
+ * columns fails once per pooled connection (0A000) — inside a request's
+ * transaction, as a 500. A new oid is a new statement text, prepared afresh.
+ */
+export async function readSource(
+  db: Database,
+  table: string,
+): Promise<{ from: string; view: string | null; version: RawBuilder<unknown> }> {
+  const info = await readInfo(db, table);
+  // A preview reads the branch schema's copy of the table, which the view in
+  // `public` does not read: the table, then, as before the view.
+  const view = previewing.getStore() ? null : info.view;
+  return {
+    from: view ? `${view} as ${table}` : table,
+    view,
+    version: sql.raw(view ? info.version : ''),
+  };
+}
+
+const previewing = new AsyncLocalStorage<string>();
+
+/** Run a request under a schema-branch preview (`middleware/preview-env.ts`): `readSource` reads the tables. */
+export function withPreviewSchema<T>(schema: string, fn: () => T): T {
+  return previewing.run(schema, fn);
+}
+
+/** Forget a table's readable columns and view — its fields, grants or rules changed. */
 export function forgetReadableColumns(table?: string): void {
   if (table) readable.delete(table);
   else readable.clear();
 }
 
-/** `RETURNING` every column the request role may read: `*` unless the table is sealed. */
+const engineWindows = new WeakMap<object, number>();
+
+/**
+ * Run the engine's own reads of a row through the masking view unmasked: a
+ * write's before-row and its RETURNING feed revisions, hooks, webhooks and
+ * realtime, which saw every column before the view existed and must still (a
+ * revision missing a hidden value is a revert that wipes it). Each payload is
+ * still masked where it is served (`serializeRecord`). `zveltio.engine_read` is
+ * read by the view alone, not by the column write guard. Windows on one
+ * transaction nest and overlap: the first opens, the last closes.
+ */
+export async function withEngineColumns<T>(db: Database, fn: () => Promise<T>): Promise<T> {
+  if (!(db as unknown as { isTransaction?: boolean }).isTransaction) return fn();
+  const open = engineWindows.get(db) ?? 0;
+  engineWindows.set(db, open + 1);
+  try {
+    if (open === 0) await sql`SELECT set_config('zveltio.engine_read', 'on', true)`.execute(db);
+    return await fn();
+  } finally {
+    const left = (engineWindows.get(db) ?? 1) - 1;
+    if (left > 0) engineWindows.set(db, left);
+    else {
+      engineWindows.delete(db);
+      // An aborted transaction fails this too, and its rollback discards the setting.
+      await sql`SELECT set_config('zveltio.engine_read', 'off', true)`
+        .execute(db)
+        .catch(() => undefined);
+    }
+  }
+}
+
+/**
+ * `RETURNING` every column the request role may read: `id` when the table has
+ * a masking view, which `written` reads the row back from; else `*` unless the
+ * table is sealed.
+ */
 async function returningReadable(db: Database, table: string): Promise<RawBuilder<unknown>> {
+  if ((await readSource(db, table)).view) return sql`id`;
   const cols = await readableColumns(db, table);
   return cols ? sql.join(cols.map((c) => sql.id(c))) : sql`*`;
+}
+
+/** The written row, read back whole through the masking view when the table has one. */
+async function written(
+  db: Database,
+  table: string,
+  row: Record<string, unknown> | undefined,
+): Promise<Record<string, unknown> | undefined> {
+  const { view, version } = await readSource(db, table);
+  if (!view || !row) return row;
+  const r = await withEngineColumns(db, () =>
+    sql<
+      Record<string, unknown>
+    >`SELECT * FROM ${sql.table(view)} WHERE id = ${row.id} ${version}`.execute(db),
+  );
+  return r.rows[0] ?? row;
 }
 
 /**
@@ -372,14 +480,15 @@ export async function dynamicSelect(
   // uniformly. Raw SQL is used only for the parts Kysely can't express
   // typesafely against a runtime-resolved table: filters (via sql template)
   // and FTS expressions.
+  // Through the masking view (L37 layer 3) when there is one: a hidden column
+  // reads as NULL to the filters and sort as well as in the rows.
+  const { from, view, version } = await readSource(db, tableNameSanitized);
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  let qb: any = (db as any).selectFrom(tableNameSanitized);
-  const cols = await readableColumns(db, tableNameSanitized);
+  let qb: any = (db as any).selectFrom(from).modifyEnd(version);
+  const cols = view ? null : await readableColumns(db, tableNameSanitized);
   qb = cols ? qb.select(cols) : qb.selectAll();
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  let countQb: any = (db as any)
-    .selectFrom(tableNameSanitized)
-    .select(sql<number>`count(*)::int`.as('total'));
+  let countQb: any = (db as any).selectFrom(from).select(sql<number>`count(*)::int`.as('total'));
 
   // The explicit tenant equality, on BOTH queries — a count that saw a different
   // row set than the page would report a total for rows the page never had.
@@ -530,14 +639,16 @@ export async function dynamicInsert(
   const cols = Object.keys(clean).map((k) => sql.id(sanitizeIdentifier(k)));
   const vals = Object.entries(clean).map(([k, v]) => bindValue(v, k, jsonb));
 
-  const result = await sql`
+  const result = await sql<Record<string, unknown>>`
     INSERT INTO ${table} (${sql.join(cols, sql`, `)})
     VALUES (${sql.join(vals, sql`, `)})
     RETURNING ${await returningReadable(db, sanitizeIdentifier(tableName))}
   `.execute(db);
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  return result.rows[0] as Record<string, any>;
+  return (await written(db, sanitizeIdentifier(tableName), result.rows[0])) as Record<
+    string,
+    unknown
+  >;
 }
 
 // ─── UPDATE ───────────────────────────────────────────────────────────────────
@@ -577,15 +688,14 @@ export async function dynamicUpdate(
     ([k, v]) => sql`${sql.id(sanitizeIdentifier(k))} = ${bindValue(v, k, jsonb)}`,
   );
 
-  const result = await sql`
+  const result = await sql<Record<string, unknown>>`
     UPDATE ${table}
     SET ${sql.join(setClauses, sql`, `)}, updated_at = NOW()
     WHERE id = ${id}
     RETURNING ${await returningReadable(db, sanitizeIdentifier(tableName))}
   `.execute(db);
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  return (result.rows[0] as Record<string, any>) ?? null;
+  return (await written(db, sanitizeIdentifier(tableName), result.rows[0])) ?? null;
 }
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
@@ -612,6 +722,12 @@ export async function dynamicDelete(
 }
 
 // ─── DDL ─────────────────────────────────────────────────────────────────────
+/** `dropMaskView` without its import: `lib/data` imports this module. */
+async function dropMaskViewSql(db: Database, table: string): Promise<void> {
+  const view = maskViewName(table);
+  if (view) await sql`DROP VIEW IF EXISTS ${sql.table(`public.${view}`)}`.execute(db);
+}
+
 // Table creation lives in DDLManager.createCollection(). Keeping a parallel
 // path here (earlier: dynamicCreateTable) led to divergent schemas — e.g.
 // status DEFAULT 'published' vs 'active', missing search_vector and
@@ -646,6 +762,9 @@ export async function dynamicDropColumn(
   const col = sql.id(sanitizeIdentifier(columnName));
   // ALTER TABLE DROP COLUMN ia AccessExclusiveLock → lock_timeout strict
   await withLockTimeout(db, async (trx) => {
+    // Postgres refuses this on a column the masking view reads (L37 layer 3);
+    // the caller's transaction builds the view again (`sealColumns`).
+    await dropMaskViewSql(trx, sanitizeIdentifier(tableName));
     await sql`ALTER TABLE ${table} DROP COLUMN IF EXISTS ${col}`.execute(trx);
   });
 }
@@ -695,6 +814,9 @@ export async function dynamicChangeColumnType(
   const col = sql.id(sanitizeIdentifier(columnName));
   const usingClause = usingExpression ? sql.raw(`USING ${usingExpression}`) : sql.raw('');
   await withLockTimeout(db, async (trx) => {
+    // Postgres refuses this on a column the masking view reads (L37 layer 3);
+    // the caller's transaction builds the view again (`sealColumns`).
+    await dropMaskViewSql(trx, sanitizeIdentifier(tableName));
     await sql`
       ALTER TABLE ${table}
       ALTER COLUMN ${col} TYPE ${sql.raw(sqlType)} ${usingClause}

@@ -4,8 +4,10 @@ import type { Database } from '../db/index.js';
 import {
   DDLManager,
   CollectionSchema,
+  dropMaskView,
   ExistingRulesError,
   FieldSchema,
+  sealColumns,
   SYSTEM_COLUMNS,
 } from '../lib/data/index.js';
 // requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema DDL — collections are shared across tenants and isolated by RLS, so creating or altering one is an instance-level operation.
@@ -553,6 +555,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         // Table before metadata row — the order PATCH /:name/fields/:field locks in.
         // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
         if (colDDL) {
+          // The masking view first, built again with the field below (L37 layer 3).
+          await dropMaskView(trx, tableName);
           await dynamicAddColumn(trx, tableName, colDDL);
           await DDLManager.addUniqueKey(trx, tableName, field);
         }
@@ -588,6 +592,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           .set({ fields: toJsonb(updatedFields), updated_at: new Date() })
           .where('name', '=', name)
           .execute();
+        // Sealed and masked with the field recorded (L37 layers 2-3), in this
+        // transaction: the new column may be unserved, and the view lacks it.
+        if (colDDL) await sealColumns(trx, name, updatedFields);
       });
       DDLManager.invalidateCache(name);
       announceSchemaChange(name, 'alter');

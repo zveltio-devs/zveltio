@@ -9,10 +9,12 @@ import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import {
   createRelation,
   DDLManager,
+  dropMaskView,
   FieldChangeError,
   fieldsChanged,
   RelationSchema,
   removeFieldFromCollection,
+  sealColumns,
 } from '../lib/data/index.js';
 import { dynamicDropColumn } from '../db/dynamic.js';
 import { toJsonb } from '../lib/jsonb.js';
@@ -150,6 +152,9 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       // DROP, fields and relation row in one transaction (all transactional DDL):
       // separately, a failure left a relation row naming a column already gone.
       await db.transaction().execute(async (trx) => {
+        // The masking views first, and built again last (L37 layer 3).
+        await dropMaskView(trx, sourceTable);
+        await dropMaskView(trx, targetTable);
         // The field before its column: its row rule's policy names the column.
         if (relation.type === 'm2o') {
           await removeFieldFromCollection(trx, relation.source_collection, relation.source_field);
@@ -166,6 +171,8 @@ export function relationsRoutes(db: Database, auth: any): Hono {
         // m2a: no DDL to undo
 
         await trx.deleteFrom('zvd_relations').where('id', '=', relation.id).execute();
+        await sealColumns(trx, relation.source_collection);
+        await sealColumns(trx, relation.target_collection);
       });
       fieldsChanged(relation.source_collection, relation.target_collection);
       for (const c of new Set([relation.source_collection, relation.target_collection])) {

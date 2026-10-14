@@ -6,7 +6,7 @@
  */
 
 import { sqlState } from '../db/bun-sql-quirks.js';
-import { readableColumns } from '../db/dynamic.js';
+import { readableColumns, readSource, withEngineColumns } from '../db/dynamic.js';
 import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
 import { guardSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
@@ -70,10 +70,52 @@ interface ReturningBuilder {
   returning(cols: never): Returned;
 }
 
-/** `RETURNING *`, or the readable columns of a sealed collection, where `*` is refused. */
-async function returningReadable(db: Database, table: string, q: ReturningBuilder) {
-  const cols = await readableColumns(db, table);
-  return cols ? q.returning(cols as never) : q.returningAll();
+/**
+ * `RETURNING *`, or the readable columns of a sealed collection, where `*` is
+ * refused — or, on a collection with a masking view (L37 layer 3), `RETURNING
+ * id` and the rows read back whole through the view, the engine's own read
+ * (`withEngineColumns`). `before` is the row a DELETE took, read before it.
+ */
+async function returningReadable(
+  db: Database,
+  table: string,
+  q: ReturningBuilder,
+  before?: Record<string, unknown>,
+): Promise<Returned> {
+  const { view, version } = await readSource(db, table);
+  if (!view) {
+    const cols = await readableColumns(db, table);
+    return cols ? q.returning(cols as never) : q.returningAll();
+  }
+  const ret = q.returning(['id'] as never);
+  const whole = async (rows: Record<string, unknown>[]) => {
+    if (before) return rows.length > 0 ? [before] : [];
+    if (rows.length === 0) return rows;
+    const ids = rows.map((r) => String(r.id));
+    const read = await withEngineColumns(db, () =>
+      sql<
+        Record<string, unknown>
+      >`SELECT * FROM ${sql.table(view)} WHERE id = ANY(${ids}) ${version}`.execute(db),
+    );
+    const byId = new Map(read.rows.map((r) => [String(r.id), r]));
+    return rows.map((r) => byId.get(String(r.id)) ?? r);
+  };
+  return {
+    execute: async () => whole(await ret.execute()),
+    executeTakeFirst: async () => (await whole(await ret.execute()))[0],
+  };
+}
+
+/** A row as `returningReadable` reads it back, before a DELETE takes it; undefined without a view. */
+async function rowBeforeDelete(db: Database, table: string, id: string) {
+  const { view, version } = await readSource(db, table);
+  if (!view) return undefined;
+  const r = await withEngineColumns(db, () =>
+    sql<
+      Record<string, unknown>
+    >`SELECT * FROM ${sql.table(view)} WHERE id = ${id} ${version}`.execute(db),
+  );
+  return r.rows[0];
 }
 
 export async function syncWatermarkUs(pool: Database, ownPid: number): Promise<string> {
@@ -562,9 +604,17 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
                   deleteFilters,
                 );
                 // The deleted row, which REST reads before its DELETE and hands
-                // to `afterWrite` — here the same row, from the statement itself.
+                // to `afterWrite` — here the same row, from the statement itself,
+                // or read first where the masking view is the only way to it.
                 const run = async () =>
-                  (await returningReadable(effectiveDb, collection, q)).executeTakeFirst();
+                  (
+                    await returningReadable(
+                      effectiveDb,
+                      collection,
+                      q,
+                      await rowBeforeDelete(effectiveDb, collection, recordId),
+                    )
+                  ).executeTakeFirst();
                 return readable.get(collection)
                   ? run()
                   : withCollectionRead(effectiveDb, collection.slice(4), run);
@@ -751,10 +801,12 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // 200 000 rows, 63 ms and 2 535 buffers against 0,08 ms and 3. The
       // equality only when the reach is one tenant (`tenantScopeId`, db/dynamic.ts).
       const tenantScopeId = getSingleTenantId();
-      // A sealed collection (L37 layer 2) refuses `SELECT *`.
-      const readable = await readableColumns(pullDb, collection);
+      // Through the masking view (L37 layer 3); a sealed collection without one
+      // (layer 2) refuses `SELECT *`.
+      const source = await readSource(pullDb, collection);
+      const readable = source.view ? null : await readableColumns(pullDb, collection);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const pullFrom = pullDb.selectFrom(collection as any);
+      const pullFrom = pullDb.selectFrom(source.from as any);
       const pullQuery = scope.query(
         (readable ? pullFrom.select(readable as never) : pullFrom.selectAll())
           .select([
@@ -773,7 +825,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
           .orderBy('updated_at' as any, 'asc')
           .orderBy(idText)
           // One past the page: tells "full" from "exactly full".
-          .limit(PULL_LIMIT_PER_COLLECTION + 1),
+          .limit(PULL_LIMIT_PER_COLLECTION + 1)
+          .modifyEnd(source.version),
       );
       // A collection without `updated_at` (42703) or without a table (42P01)
       // has nothing to pull — skip it. Under a savepoint, because the failed

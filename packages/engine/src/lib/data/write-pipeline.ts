@@ -34,7 +34,7 @@ import type { CollectionDef } from './types.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { columnGuardRefusal } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
-import { readableColumns } from '../../db/dynamic.js';
+import { readableColumns, readSource, withEngineColumns } from '../../db/dynamic.js';
 import { withCollectionRead } from '../tenancy/index.js';
 import type { VirtualConfig } from '../virtual-collection-adapter.js';
 
@@ -59,10 +59,13 @@ export function dynamicDb(db: Database): DynamicDB {
 }
 
 /**
- * `selectFrom(table)` with every column the request role may read: `*`, unless
- * the table is sealed (L37 layer 2) and `SELECT *` would be refused.
+ * `selectFrom(table)` with every column the request role may read: the masking
+ * view's `*` (L37 layer 3), or the table's — unless the table is sealed (layer
+ * 2) and `SELECT *` would be refused.
  */
 export async function selectReadable(db: Database, table: string): Promise<DynamicDB> {
+  const { from, view, version } = await readSource(db, table);
+  if (view) return dynamicDb(db).selectFrom(from).selectAll().modifyEnd(version);
   const cols = await readableColumns(db, table);
   const q = dynamicDb(db).selectFrom(table);
   return cols ? q.select(cols) : q.selectAll();
@@ -85,7 +88,9 @@ export function engineRead<T>(
   collection: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  return canRead ? fn() : withCollectionRead(db, collection, fn);
+  // And every column (`withEngineColumns`): the row is the engine's, not the caller's.
+  const own = () => withEngineColumns(db, fn);
+  return canRead ? own() : withCollectionRead(db, collection, own);
 }
 
 /**

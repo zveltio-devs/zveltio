@@ -136,12 +136,20 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
   // pool after the COMMIT, as `invalidateRlsCache` rebuilds the row-rule policy:
   // CREATE TRIGGER is DDL the request's role may not run. Loud, not fatal: the
   // engine's filter still applies the rule in between.
+  // The masking view and the seal with it (layer 3, `sealColumns`): a rule that
+  // hides a column now masks it in the view and takes it from the request roles.
   const refresh = async () => {
     try {
-      const { applyColumnGuard, reconcileColumnGuards } = await import('../data/index.js');
+      const { applyColumnGuard, reconcileColumnGuards, reconcileSealedColumns, sealColumns } =
+        await import('../data/index.js');
       const db = getTenantDb();
-      if (collection) await applyColumnGuard(db, collection);
-      else await reconcileColumnGuards(db);
+      if (collection) {
+        await applyColumnGuard(db, collection);
+        await sealColumns(db, collection);
+      } else {
+        await reconcileColumnGuards(db);
+        await reconcileSealedColumns(db);
+      }
     } catch (err) {
       console.warn(
         `[column-guard] ${collection ?? '*'}: trigger not refreshed — ${(err as Error).message}`,

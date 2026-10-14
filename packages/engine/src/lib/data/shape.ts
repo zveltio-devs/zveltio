@@ -9,7 +9,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { readableColumns } from '../../db/dynamic.js';
+import { readableColumns, readSource } from '../../db/dynamic.js';
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { readScope } from './read-scope.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
@@ -37,6 +37,7 @@ import type {
  */
 interface RuntimeQuery {
   where(lhs: string, op: string, rhs: unknown): RuntimeQuery;
+  modifyEnd(modifier: unknown): RuntimeQuery;
   execute(): Promise<DynamicRow[]>;
 }
 interface RuntimeDb {
@@ -257,20 +258,24 @@ export async function applyExpand(
     // failed lookup read as "nothing to filter" expanded every hidden row.
     let rows: DynamicRow[];
     let columns: ColumnAccess;
-    // A sealed target (L37 layer 2) refuses `SELECT *`.
-    const readable = await readableColumns(db, exp.targetTable);
+    // Through the target's masking view (L37 layer 3); a sealed target without
+    // one (layer 2) refuses `SELECT *`.
+    const source = await readSource(db, exp.targetTable);
+    const readable = source.view ? null : await readableColumns(db, exp.targetTable);
     if (user) {
       const scope = await readScope(db, exp.targetCollection, user, authType ?? 'session');
-      const from = (db as unknown as RuntimeDb).selectFrom(exp.targetTable);
-      const base = (readable ? from.select(readable) : from.selectAll()).where('id', 'in', ids);
+      const from = (db as unknown as RuntimeDb).selectFrom(source.from);
+      const base = (readable ? from.select(readable) : from.selectAll())
+        .where('id', 'in', ids)
+        .modifyEnd(source.version);
       rows = await scope.keep(await scope.query(base).execute());
       columns = scope.columns;
     } else {
       // An internal caller with no request identity: columns by role only.
       rows = (
         await sql<DynamicRow>`
-          SELECT ${readable ? sql.join(readable.map((c) => sql.id(c))) : sql`*`} FROM ${sql.id(exp.targetTable)}
-          WHERE id = ANY(${ids})
+          SELECT ${readable ? sql.join(readable.map((c) => sql.id(c))) : sql`*`} FROM ${sql.table(source.view ?? exp.targetTable)}
+          WHERE id = ANY(${ids}) ${source.version}
         `.execute(db)
       ).rows;
       columns = await getColumnAccess(db, exp.targetCollection, role);

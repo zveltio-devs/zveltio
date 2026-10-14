@@ -16,7 +16,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager, queryAlterRegistry } from '../../lib/data/index.js';
+import { DDLManager, dropMaskView, queryAlterRegistry } from '../../lib/data/index.js';
 import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
@@ -223,6 +223,9 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     try {
+      // Its masking view reads the column too (L37 layer 3): a table altered by
+      // hand has none until the boot reconcile.
+      await dropMaskView(db, `zvd_${broken}`);
       await sql.raw(`ALTER TABLE "zvd_${broken}" DROP COLUMN updated_at`).execute(db);
       const res = await app.request('/api/sync/pull', {
         method: 'POST',
