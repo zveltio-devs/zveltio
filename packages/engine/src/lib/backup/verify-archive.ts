@@ -32,26 +32,16 @@
 /** The size of a gzip stream carrying zero bytes of input. */
 export const EMPTY_ARCHIVE_BYTES = 20;
 
-/** The half of a spawned gzip this check needs, so callers can pass the process. */
-export interface GzipOutcome {
-  exitCode: number | null;
-  stderr: ReadableStream<Uint8Array> | null;
-}
-
 /**
  * Throws unless `filepath` holds an archive a restore could use. Returns its
  * size, which is the number the caller records.
  *
- * Call it only after BOTH processes have exited and after `pg_dump`'s own exit
- * code has been checked — a dump that failed outright has a better error than
- * anything here.
+ * Call it only after `pg_dump` has exited 0 — a dump that failed outright has a
+ * better error than anything here. `pg_dump` writes the archive itself
+ * (`-Z 6 -f`), so a write that died at the tail (disk full, SIGXFSZ) is its exit
+ * code, which is what the separate `gzip` exit-code check used to cover.
  */
-export async function verifyArchive(gzip: GzipOutcome, filepath: string): Promise<number> {
-  if (gzip.exitCode !== 0) {
-    const stderr = gzip.stderr ? await new Response(gzip.stderr).text() : '';
-    throw new Error(`gzip failed (exit ${gzip.exitCode}): ${stderr.trim() || 'no stderr'}`);
-  }
-
+export async function verifyArchive(filepath: string): Promise<number> {
   if (!(await Bun.file(filepath).exists())) {
     throw new Error('Backup file was not created');
   }

@@ -71,36 +71,19 @@ function proc(exitCode: number, stderr = '') {
 const EMPTY_ARCHIVE = 'x'.repeat(20);
 
 /**
- * Fake the four commands the dump path spawns.
+ * Fake the commands the dump path spawns.
  *
- * `writeFile` decides whether gzip actually produces the archive — which is the
- * difference between a real backup and a dump that reported success and left
- * nothing behind.
+ * `writeFile` decides whether pg_dump actually produces the archive — which is
+ * the difference between a real backup and a dump that reported success and
+ * left nothing behind.
  */
 function fakeSpawn(
-  opts: {
-    dumpExit?: number;
-    stderr?: string;
-    writeFile?: boolean;
-    gzipExit?: number;
-    gzipStderr?: string;
-    payload?: string;
-  } = {},
+  opts: { dumpExit?: number; stderr?: string; writeFile?: boolean; payload?: string } = {},
 ) {
-  const {
-    dumpExit = 0,
-    stderr = '',
-    writeFile = true,
-    gzipExit = 0,
-    gzipStderr = '',
-    payload = PAYLOAD,
-  } = opts;
+  const { dumpExit = 0, stderr = '', writeFile = true, payload = PAYLOAD } = opts;
   lastDest = null;
   calls = [];
-  return spyOn(Bun, 'spawn').mockImplementation(((
-    cmd: string[],
-    o?: { stdout?: { name?: string } },
-  ) => {
+  return spyOn(Bun, 'spawn').mockImplementation(((cmd: string[], o?: unknown) => {
     const record = <T>(r: T): T => {
       calls.push({
         cmd,
@@ -109,24 +92,23 @@ function fakeSpawn(
       });
       return r;
     };
-    if (cmd[0] === 'gzip') {
+    if (cmd[0] === 'pg_dump') {
       // Where the archive actually goes, taken from the call rather than rebuilt
       // from BACKUP_DIR: the module reads that env var once, at load, and which
       // file loads it first is not this test's to decide.
-      const dest = o?.stdout?.name ?? null;
+      const dest = cmd.includes('-f') ? cmd[cmd.indexOf('-f') + 1]! : null;
       lastDest = dest;
       if (dest) written.push(dest);
       const done =
         writeFile && dest
-          ? Bun.write(dest, payload).then(() => gzipExit)
-          : Promise.resolve(gzipExit);
+          ? Bun.write(dest, payload).then(() => dumpExit)
+          : Promise.resolve(dumpExit);
       return record({
         exited: done,
-        exitCode: gzipExit,
-        stderr: new Response(gzipStderr).body,
+        exitCode: dumpExit,
+        stderr: new Response(stderr).body,
       }) as never;
     }
-    if (cmd[0] === 'pg_dump') return record(proc(dumpExit, stderr)) as never;
     return record(proc(0)) as never;
   }) as unknown as typeof Bun.spawn);
 }
@@ -240,23 +222,18 @@ describe('runScheduledBackup — the run that did not', () => {
     expect(out.error).toContain('was not created');
   });
 
-  it('treats a gzip that died mid-write as a failure, even though pg_dump exited 0', async () => {
-    // The worst shape a backup can take, and the one the checks used to miss
-    // entirely: the disk fills at the tail of the write, gzip dies on SIGXFSZ
-    // (128 + 25 = 153), and pg_dump — whose whole output already fitted in the
-    // pipe buffer — exits 0. A truncated archive EXISTS, so `exists()` is happy
-    // and the row said `completed`. Measured against real processes under
-    // `ulimit -f 1`: pg_dump 0, gzip 153, 1024 of 31047 bytes, `gzip -t` fails.
-    //
-    // `dr-drill.sh` already carries this lesson in prose — "a pg_dump that
-    // failed halfway would have been reported as a passing backup, which is the
-    // single worst thing a drill can do". It was applied to the shell script and
-    // not to the product.
-    const spy = fakeSpawn({ gzipExit: 153, gzipStderr: 'gzip: stdout: File size limit exceeded' });
+  it('treats a dump that died mid-write as a failure, truncated archive and all', async () => {
+    // The worst shape a backup can take: the disk fills at the tail of the
+    // write and the writer dies on SIGXFSZ (128 + 25 = 153), leaving a
+    // TRUNCATED archive that EXISTS. It was gzip's exit code to check while
+    // the dump went `pg_dump | gzip`; pg_dump now writes the archive itself,
+    // so it is pg_dump's. Measured with `ulimit -f 1` and `pg_dump -Z 6 -f`:
+    // exit 153, 1024 bytes on disk.
+    const spy = fakeSpawn({ dumpExit: 153, stderr: 'File size limit exceeded' });
     const db = cannedDb();
 
     const out = await runScheduledBackup(db.kysely as unknown as Database, {
-      scheduleId: 'sched-gzip',
+      scheduleId: 'sched-xfsz',
       scheduleName: 'Nightly',
       target: target(),
       actorId: null,
@@ -264,7 +241,6 @@ describe('runScheduledBackup — the run that did not', () => {
     spy.mockRestore();
 
     expect(out.status).toBe('failed');
-    expect(out.error).toContain('gzip');
     expect(out.error).toContain('153');
     expect(db.executed(UPDATE_BACKUP)[0]!.sql).toContain("status = 'failed'");
     expect(db.executed(UPDATE_SCHEDULE).length).toBe(1);
@@ -357,7 +333,7 @@ describe('runScheduledBackup — the wiring itself', () => {
     expect(env.PGPASSWORD).toBe(target().password);
   });
 
-  it("connects gzip's stdin to pg_dump's stdout, and starts the dump first", async () => {
+  it('has pg_dump write a gzip archive to the file, with no gzip process or pipe', async () => {
     const spy = fakeSpawn();
     const db = cannedDb();
     await runScheduledBackup(db.kysely as unknown as Database, {
@@ -368,13 +344,10 @@ describe('runScheduledBackup — the wiring itself', () => {
     });
     spy.mockRestore();
 
-    // Identity, not truthiness: a detached stdin still produces a valid (empty)
-    // archive, which is exactly how this would pass unnoticed.
-    const dump = callFor('pg_dump');
-    const gzip = callFor('gzip');
-    expect(dump.result.stdout).toBeDefined();
-    expect(gzip.opts.stdin).toBe(dump.result.stdout);
-    expect(calls.indexOf(dump)).toBeLessThan(calls.indexOf(gzip));
+    const { cmd } = callFor('pg_dump');
+    expect(cmd[cmd.indexOf('-Z') + 1]).toBe('6');
+    expect(cmd[cmd.indexOf('-f') + 1]).toBe(lastDest!);
+    expect(calls.some((c) => c.cmd[0] === 'gzip')).toBe(false);
   });
 });
 

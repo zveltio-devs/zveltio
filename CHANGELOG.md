@@ -194,6 +194,13 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   `ZVELTIO_COLLECTION_RLS_EXEMPT`: the engine warned and kept the extension
   enforced. The owner CI lane now runs `check:test-leftovers` after its suite,
   as the superuser lane does.
+- A backup is written by `pg_dump -Z 6 -f <file>` instead of `pg_dump | gzip`.
+  Bun copied pg_dump's output into gzip's stdin inside the engine process, and a
+  write into that pipe after it closed surfaced as an uncaught `EPIPE` (it
+  failed `backup-create.test.ts` on CI over and over while the backup itself
+  completed). The archive format is unchanged (plain SQL, gzip). A write that
+  dies at the tail (disk full, SIGXFSZ) is now pg_dump's exit code: measured
+  153 under `ulimit -f 1`, so the truncated-archive case stays a failure.
 - A worker extension's `ctx.services.has()` sees an optional dependency
   upgraded past its `minVersion` without a restart: the host re-sends the
   worker its service map with the registry snapshot.

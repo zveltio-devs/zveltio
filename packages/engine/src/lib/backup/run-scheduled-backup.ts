@@ -123,6 +123,8 @@ export async function runScheduledBackup(
   try {
     await Bun.spawn(['mkdir', '-p', BACKUP_DIR]).exited;
 
+    // pg_dump writes the gzip archive itself (see routes/backup.ts): no gzip
+    // process, and no pipe copied through this process.
     const pgdump = Bun.spawn(
       [
         'pg_dump',
@@ -134,33 +136,26 @@ export async function runScheduledBackup(
         target.user,
         '-d',
         target.name,
+        '-Z',
+        '6',
+        '-f',
+        filepath,
       ],
       {
         env: { ...process.env, PGPASSWORD: target.password } as Record<string, string>,
-        stdout: 'pipe',
+        stdout: 'ignore',
         stderr: 'pipe',
       },
     );
-    const gzip = Bun.spawn(['gzip', '-c'], {
-      stdin: pgdump.stdout,
-      stdout: Bun.file(filepath),
-      // Piped so a failure here can say why. Without it the only evidence that
-      // the second half of the pipeline died is its exit code.
-      stderr: 'pipe',
-    });
-    await Promise.all([pgdump.exited, gzip.exited]);
+    await pgdump.exited;
 
-    // Both halves, then the archive itself. `pg_dump` first: a dump that failed
-    // outright has a better error than anything the archive check can produce.
     if (pgdump.exitCode !== 0) {
       const stderr = await new Response(pgdump.stderr).text();
       throw new Error(`pg_dump failed (exit ${pgdump.exitCode}): ${stderr}`);
     }
 
-    // gzip's exit code, the file, and its size — see verify-archive.ts for what
-    // each one catches and why the pair of checks that used to be here passed a
-    // truncated dump as `completed`.
-    const size = await verifyArchive(gzip, filepath);
+    // The file and its size — see verify-archive.ts for what each one catches.
+    const size = await verifyArchive(filepath);
 
     // 0600: the file holds the whole database, password hashes and customer data
     // included, and the usual umask would leave it world-readable.

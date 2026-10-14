@@ -217,29 +217,38 @@ export function backupRoutes(db: Database, auth: any): Hono {
         const mkdirProc = Bun.spawn(['mkdir', '-p', BACKUP_DIR]);
         await mkdirProc.exited;
 
-        // pg_dump piped through gzip into file
+        // pg_dump writes the gzip archive itself (`-Z 6`: plain SQL, gzip-compressed).
+        // It was `pg_dump | gzip`, with Bun copying pg_dump's stdout into gzip's
+        // stdin in this process; a write into that pipe after it closed surfaced
+        // as an uncaught EPIPE here. One process, no pipe, and a write that fails
+        // (disk full, SIGXFSZ) is pg_dump's own exit code.
         const pgdumpProc = Bun.spawn(
-          ['pg_dump', '-h', dbHost, '-p', String(dbPort), '-U', dbUser, '-d', dbName],
+          [
+            'pg_dump',
+            '-h',
+            dbHost,
+            '-p',
+            String(dbPort),
+            '-U',
+            dbUser,
+            '-d',
+            dbName,
+            '-Z',
+            '6',
+            '-f',
+            filepath,
+          ],
           {
             env: { ...process.env, PGPASSWORD: dbPassword } as Record<string, string>,
-            stdout: 'pipe',
+            stdout: 'ignore',
             stderr: 'pipe',
           },
         );
+        await pgdumpProc.exited;
 
-        const gzipProc = Bun.spawn(['gzip', '-c'], {
-          stdin: pgdumpProc.stdout,
-          stdout: Bun.file(filepath),
-          // Piped so a failure here can say why. Without it the only evidence
-          // that the second half of the pipeline died is its exit code.
-          stderr: 'pipe',
-        });
-
-        await Promise.all([pgdumpProc.exited, gzipProc.exited]);
-
-        // pg_dump first: a dump that failed outright has a better error than
-        // anything the archive check can produce, and `explainDumpFailure`
-        // translates the common ones.
+        // A dump that failed outright has a better error than anything the
+        // archive check can produce, and `explainDumpFailure` translates the
+        // common ones.
         if (pgdumpProc.exitCode !== 0) {
           const stderr = await new Response(pgdumpProc.stderr).text();
           throw new Error(
@@ -247,11 +256,9 @@ export function backupRoutes(db: Database, auth: any): Hono {
           );
         }
 
-        // Then gzip's exit code, the file, and its size. This route and
-        // `run-scheduled-backup.ts` used to carry the same two checks — pg_dump
-        // and existence — and the same blind spot; verify-archive.ts is now the
-        // single copy, so a third backup path cannot inherit it again.
-        const size = await verifyArchive(gzipProc, filepath);
+        // Then the file and its size (verify-archive.ts, shared with
+        // `run-scheduled-backup.ts` so a third backup path cannot miss them).
+        const size = await verifyArchive(filepath);
 
         // Tighten permissions on the dump file: it holds the entire DB
         // including password hashes, secrets, customer PII. The default
