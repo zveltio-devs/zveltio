@@ -70,6 +70,9 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   engine answers 403 (B13). Only a 409 `electric.must_refetch` cleared them; a
   revoked read grant left every row the user could no longer read in memory,
   and subscribers kept rendering them while the loop backed off.
+- `zv_invitations.tenant_id` references `zv_tenants` ON DELETE CASCADE (A10,
+  migration 076). It is validated when no invitation of a deleted tenant is
+  left; otherwise it stays NOT VALID and checks new rows only.
 - A `password` field cannot be read by the request roles (L37 layer 2,
   migration 073). The data API stripped the argon2 hash from every payload, but
   raw SQL on `zveltio_rls` — and on the roles extensions and flow `query_db`
