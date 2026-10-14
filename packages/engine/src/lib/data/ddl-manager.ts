@@ -57,9 +57,13 @@ async function withLockTimeout(
  */
 async function createIsolatedTable(db: Database, table: string, createSql: string): Promise<void> {
   const { applyTenantRLS } = await import('../tenancy/index.js');
+  const { applyColumnGuard } = await import('./column-guard.js');
   const run = async (h: Database) => {
     await sql.raw(createSql).execute(h);
     await applyTenantRLS(h, table);
+    // Column rules can outlive a table (a same-name create after a drop, rules
+    // applied before the collection): the new table starts under them.
+    await applyColumnGuard(h, table.slice('zvd_'.length));
   };
   if ((db as unknown as { isTransaction?: boolean }).isTransaction) await run(db);
   else await db.transaction().execute(run);

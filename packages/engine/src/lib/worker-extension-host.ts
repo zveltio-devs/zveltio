@@ -1541,9 +1541,9 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
       // Without them `zveltio.actor` was never `on`, every such rule stood down,
       // and the worker saw what an anonymous caller of the tenant sees.
       //
-      // Deliberately NOT carried: the caller's exemption (`rls_bypass`) and a
-      // reach wider than this tenant (`visible_tenants`/`ancestor_tenants`).
-      // Both only widen, and this code is the extension the platform chose not
+      // Deliberately NOT carried: the caller's exemptions (`rls_bypass`,
+      // `columns_all`) and a reach wider than this tenant
+      // (`visible_tenants`/`ancestor_tenants`). All only widen, and this code is the extension the platform chose not
       // to trust; it keeps the single-tenant, rules-apply view it always had.
       // A reach NARROWER than the tenant is carried: a caller whose assignments
       // all lapsed sees NO_UNITS inline, and saw the whole tenant through here.
@@ -1558,6 +1558,7 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
                 set_config('zveltio.user_roles', $5, true),
                 set_config('zveltio.actor', $6, true),
                 set_config('zveltio.rls_bypass', 'off', true),
+                set_config('zveltio.columns_all', 'off', true),
                 set_config('zveltio.collection_grants', $7, true),
                 set_config('zveltio.collection_all', $8, true),
                 set_config('zveltio.system_collections', '', true),

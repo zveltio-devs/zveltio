@@ -1497,6 +1497,15 @@ async function bootstrap() {
     } catch (err) {
       console.warn('⚠️ Row-rule policies not reconciled (non-fatal):', (err as Error).message);
     }
+    // Column write rules onto the tables (migration 072), for the same reason.
+    try {
+      const { reconcileColumnGuards } = await import('./lib/data/index.js');
+      const guarded = await reconcileColumnGuards(db);
+      if (guarded > 0)
+        console.log(`🔒 Column write rules enforced in the database on ${guarded} collection(s)`);
+    } catch (err) {
+      console.warn('⚠️ Column write guards not reconciled (non-fatal):', (err as Error).message);
+    }
     if (n > 0) console.log(`🔑 Default access granted on ${n} new resource permission(s)`);
   } catch (err) {
     console.warn('⚠️ Default grant reconcile failed (non-fatal):', (err as Error).message);

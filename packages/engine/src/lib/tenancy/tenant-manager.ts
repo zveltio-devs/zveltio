@@ -43,6 +43,11 @@ export interface RlsIdentity {
   /** The `('*','*')` grant: every collection, every action. */
   collectionAll?: boolean;
   /**
+   * `data:view_all_columns` — the exemption `getColumnAccess` grants, published
+   * for the column write guard (migration 072).
+   */
+  columnsAll?: boolean;
+  /**
    * An anonymous request: no user, but an actor all the same — the tenant's
    * `public` role — so the policies hold it to that role's grants rather than
    * standing down as they do for the engine's own work.
@@ -1299,6 +1304,7 @@ export async function withTenantIsolation<T>(
       bypass: opts?.identity?.bypass ?? false,
       grants: opts?.identity?.collectionGrants ?? '',
       all: opts?.identity?.collectionAll ?? false,
+      columnsAll: opts?.identity?.columnsAll ?? false,
     };
 
     // Whether there is an ACTOR at all — written as its own setting, because
@@ -1362,6 +1368,7 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true),
              set_config('zveltio.collection_grants', ${identity.grants}, true),
              set_config('zveltio.collection_all', ${identity.all ? 'on' : 'off'}, true),
+             set_config('zveltio.columns_all', ${identity.columnsAll ? 'on' : 'off'}, true),
              set_config('zveltio.system_collections', '', true),
              set_config('role', ${_rlsRoleAvailable ? 'zveltio_rls' : 'none'}, true)
         FROM reach

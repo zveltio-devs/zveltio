@@ -2,6 +2,7 @@ import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { checkPermission, revalidateSocketsEverywhere } from './permissions.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
+import { getTenantDb } from './tenant-manager.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
 
 export interface ColumnAccess {
@@ -130,6 +131,26 @@ export async function getColumnAccess(
 }
 
 export async function invalidateColumnPermCache(collection?: string): Promise<void> {
+  // The database's copy first (`lib/data/column-guard.ts`): every change passes
+  // through here — the routes, schema apply, a field renamed or dropped. On the
+  // pool after the COMMIT, as `invalidateRlsCache` rebuilds the row-rule policy:
+  // CREATE TRIGGER is DDL the request's role may not run. Loud, not fatal: the
+  // engine's filter still applies the rule in between.
+  const refresh = async () => {
+    try {
+      const { applyColumnGuard, reconcileColumnGuards } = await import('../data/index.js');
+      const db = getTenantDb();
+      if (collection) await applyColumnGuard(db, collection);
+      else await reconcileColumnGuards(db);
+    } catch (err) {
+      console.warn(
+        `[column-guard] ${collection ?? '*'}: trigger not refreshed — ${(err as Error).message}`,
+      );
+    }
+  };
+  if (getCurrentTenantTrx()) onAfterCommit(refresh);
+  else await refresh();
+
   await dropColumnPermCaches(collection);
   // Open realtime subscriptions mask with the columns they resolved when they
   // opened; nothing re-resolved them until the client reconnected. Swept after

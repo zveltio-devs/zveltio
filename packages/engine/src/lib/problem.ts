@@ -123,6 +123,19 @@ function toResponse(p: ProblemDetails, retryAfter?: number): Response {
   return new Response(JSON.stringify(p), { status: p.status, headers });
 }
 
+/**
+ * The columns a refusal by the column write guard (migration 072) names, or
+ * null when `err` is something else. Matched on SQLSTATE and the guard's own
+ * wording, not 42501 alone: that one also means a missing GRANT, a server fault.
+ */
+export function columnGuardRefusal(err: unknown): string[] | null {
+  if (sqlState(err) !== '42501') return null;
+  const m = /^column-level permission denies writing (.+) on \S+$/.exec(
+    String((err as { message?: unknown } | null)?.message ?? ''),
+  );
+  return m?.[1] ? m[1].split(', ') : null;
+}
+
 /** Hono `app.onError` handler — renders thrown errors as problem+json. */
 export function problemOnError(err: Error, c: Context): Response {
   const instance = c.req.path;
@@ -170,6 +183,21 @@ export function problemOnError(err: Error, c: Context): Response {
       status: 400,
       code: 'invalid_parameter',
       detail: 'A request parameter has an invalid format.',
+      instance,
+      traceId,
+    });
+  }
+
+  // A write the database refused column by column — an extension's `ctx.db`,
+  // any path past the data API's own filter. The caller's fault, not ours.
+  const guarded = columnGuardRefusal(err);
+  if (guarded) {
+    return toResponse({
+      type: 'about:blank',
+      title: statusTitle(403),
+      status: 403,
+      code: 'column_write_denied',
+      detail: `Fields are read-only for your role: ${guarded.join(', ')}`,
       instance,
       traceId,
     });

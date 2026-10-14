@@ -598,7 +598,8 @@ export async function publishApiKeyActor(
            set_config('zveltio.actor', 'on', true),
            set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true),
            set_config('zveltio.collection_grants', ${grants}, true),
-           set_config('zveltio.collection_all', ${all ? 'on' : 'off'}, true)
+           set_config('zveltio.collection_all', ${all ? 'on' : 'off'}, true),
+           set_config('zveltio.columns_all', 'off', true)
   `.execute(trx);
   // Replaced, not mutated: a record taken before this (a worker invocation
   // already dispatched) keeps what it was taken as.

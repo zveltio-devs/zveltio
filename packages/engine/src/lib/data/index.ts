@@ -7,6 +7,7 @@ export * from './query-cache.js';
 export * from './query-utils.js';
 export * from './query-alter.js';
 export * from './ddl-manager.js';
+export * from './column-guard.js';
 export * from './import-logs-contract.js';
 export * from './unique-key-reconcile.js';
 export * from './ddl-queue.js';
