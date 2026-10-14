@@ -991,6 +991,7 @@ export interface ZvExtensionRegistryTable {
   granted_capabilities: unknown | null;
   installed_sha256: string | null;
   installed_version: string | null;
+  approved_forward_credentials: unknown | null;
 }
 
 export interface ZvExtensionScheduleRunsTable {

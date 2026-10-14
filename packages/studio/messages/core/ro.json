@@ -859,6 +859,8 @@
   "mkt.rebuildTakes": "Durează ~30 de secunde. Bara laterală se actualizează automat la final.",
   "mkt.rebuilding": "Studio se reconstruiește după activarea {name}",
   "mkt.receivesCredential": "Primește antetul {header} al tău pe {route}.",
+  "mkt.forwardPending": "Datele de autentificare nu sunt transmise până nu aprobi: {pairs}.",
+  "mkt.forwardApproved": "Ai aprobat transmiterea datelor de autentificare pentru {name}. Dezactivează-l și reactivează-l pentru a aplica.",
   "mkt.requestFailed": "Cererea a eșuat",
   "mkt.requestsNewPerms": "Cere permisiuni noi",
   "mkt.restart": "Repornire",

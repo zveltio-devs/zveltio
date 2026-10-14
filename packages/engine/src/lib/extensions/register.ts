@@ -65,7 +65,12 @@ import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import { buildExtensionConfig } from './config.js';
-import { readGranted, resolveCapabilities } from './consent.js';
+import {
+  readApprovedForward,
+  readGranted,
+  resolveCapabilities,
+  resolveForwarded,
+} from './consent.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
 /**
@@ -683,6 +688,20 @@ async function registerExtensionRoutes(
     // running, so first load is unaffected. The proxy routes are re-mounted by
     // the new worker, and the old ones are unmounted by stop().
     await host.stop(extName);
+    // The manifest's `forwardCredentials` is the extension's own claim; its
+    // worker gets the caller's credentials only on what an operator approved.
+    // Unreadable approval is no approval.
+    const { effective: forwardCredentials, pending } = resolveForwarded(
+      isolation.forwardCredentials ?? {},
+      await readApprovedForward(db, extName).catch(() => null),
+    );
+    if (pending.length > 0) {
+      console.warn(
+        `   ⚠  ${extName}: credential forwarding not approved (${pending.join(', ')}) — its ` +
+          `worker receives no caller credentials until an administrator approves them ` +
+          `(POST /api/marketplace/${extName}/approve-forward-credentials).`,
+      );
+    }
     await host.start(
       extName,
       isolation.extDir,
@@ -694,7 +713,7 @@ async function registerExtensionRoutes(
         config: restrictedCtx.config,
         checkPermission: restrictedCtx.checkPermission,
         auth: restrictedCtx.auth,
-        forwardCredentials: isolation.forwardCredentials,
+        forwardCredentials,
       },
     );
   } else if (mountStrategy === 'subapp') {

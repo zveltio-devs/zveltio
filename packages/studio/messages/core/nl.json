@@ -859,6 +859,8 @@
   "mkt.rebuildTakes": "Dit duurt ~30 seconden. De zijbalk wordt daarna automatisch bijgewerkt.",
   "mkt.rebuilding": "Studio wordt opnieuw gebouwd na het inschakelen van {name}",
   "mkt.receivesCredential": "Ontvangt je {header}-header op {route}.",
+  "mkt.forwardPending": "Inloggegevens worden pas doorgegeven nadat je goedkeurt: {pairs}.",
+  "mkt.forwardApproved": "Doorgeven van inloggegevens goedgekeurd voor {name}. Schakel uit en weer in om toe te passen.",
   "mkt.requestFailed": "Verzoek mislukt",
   "mkt.requestsNewPerms": "Vraagt nieuwe machtigingen",
   "mkt.restart": "Herstart",

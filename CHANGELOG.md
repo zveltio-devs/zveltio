@@ -31,6 +31,17 @@ shows the rules and offers to adopt them (#1093).
 role, outside any tenant, now fails instead of seeing every tenant's rows.
 
 ### Security and tenancy
+- A worker extension no longer receives caller credentials on its own say-so
+  (L8, migration 070). Manifest `forwardCredentials` is a request: the engine
+  forwards it only when an operator approved every (route, header) pair, as
+  `forward_credentials` in the install body or through the new
+  `POST /api/marketplace/:name/approve-forward-credentials` (god only, audited).
+  An install without it succeeds with forwarding off and reports
+  `pending_forward_credentials`; an upgrade that asks for more forwards nothing
+  until approved again, one that asks for less keeps its approval. Existing
+  installs are not grandfathered: approve them once, then re-enable. The proxy
+  reads the running worker's set per request, so a worker restarted on the same
+  app no longer answers through an earlier mount's frozen set.
 - The request role (`zveltio_rls`) can no longer read schema-branch preview
   tokens: the `X-Preview-Token` lookup goes through `zveltio_preview_branch()`
   and the column's SELECT is withheld, also after each boot's re-grant

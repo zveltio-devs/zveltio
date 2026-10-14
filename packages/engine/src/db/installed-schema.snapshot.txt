@@ -1476,6 +1476,7 @@ table zv_etransport_declarations
   pol tenant_isolation_zv_etransport_declarations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_extension_registry
+  col approved_forward_credentials   jsonb
   col author                         text
   col category                       text NOT NULL DEFAULT 'custom'::text
   col config                         jsonb NOT NULL DEFAULT '{}'::jsonb

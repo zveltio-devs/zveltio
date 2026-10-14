@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Wprowadź klucz licencyjny",
   "mkt.filesMissing": "Brak plików",
   "mkt.filesMissingTitle": "Pakiet rozszerzenia nie jest wdrożony na tym serwerze",
+  "mkt.forwardApproved": "Zatwierdzono przekazywanie danych uwierzytelniających dla {name}. Wyłącz i włącz ponownie, aby zastosować.",
+  "mkt.forwardPending": "Dane uwierzytelniające nie są przekazywane, dopóki nie zatwierdzisz: {pairs}.",
   "mkt.install": "Zainstaluj",
   "mkt.installFailed": "Instalacja nie powiodła się: {error}",
   "mkt.installed": "Zainstalowane",

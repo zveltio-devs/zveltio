@@ -10,7 +10,12 @@
 
 import { describe, expect, it } from 'bun:test';
 import { CapabilityDeniedError, gateInternals } from '../../lib/extensions/capabilities.js';
-import { parseGranted, resolveCapabilities } from '../../lib/extensions/consent.js';
+import {
+  parseForwardMap,
+  parseGranted,
+  resolveCapabilities,
+  resolveForwarded,
+} from '../../lib/extensions/consent.js';
 
 describe('the update-widening scenario', () => {
   it('does not grant a capability a new version added on its own say-so', () => {
@@ -128,5 +133,42 @@ describe('the denial tells the operator where to go', () => {
   it('still denies — a pending capability is described, not granted', () => {
     const g = gateInternals('ai', internals, [], ['secrets']);
     expect(() => g.decryptSecret()).toThrow(CapabilityDeniedError);
+  });
+});
+
+describe('credential forwarding needs approval of the whole map', () => {
+  const fwd = { '/hook/*': ['authorization'] };
+
+  it('forwards nothing when nothing was approved — no grandfathering', () => {
+    expect(resolveForwarded(fwd, null)).toEqual({
+      effective: {},
+      pending: ['/hook/*: authorization'],
+    });
+  });
+
+  it('forwards the declared map once every pair in it was approved', () => {
+    expect(resolveForwarded(fwd, fwd)).toEqual({ effective: fwd, pending: [] });
+  });
+
+  it('a version asking for one pair more forwards nothing, not the old subset', () => {
+    const wider = { '/hook/*': ['authorization', 'x-api-key'], '/in': ['cookie'] };
+    expect(resolveForwarded(wider, fwd)).toEqual({
+      effective: {},
+      pending: ['/hook/*: x-api-key', '/in: cookie'],
+    });
+  });
+
+  it('a version asking for less keeps its approval', () => {
+    const approved = { '/hook/*': ['authorization', 'x-api-key'], '/in': ['cookie'] };
+    expect(resolveForwarded(fwd, approved).effective).toEqual(fwd);
+  });
+
+  it('parses the stored record, and a malformed one is no approval', () => {
+    expect(parseForwardMap('{"/a":["Authorization","authorization"]}')).toEqual({
+      '/a': ['authorization'],
+    });
+    for (const bad of [null, '[]', '{"/a":"cookie"}', '{"/a":[1]}', 'nope']) {
+      expect(parseForwardMap(bad)).toBeNull();
+    }
   });
 });

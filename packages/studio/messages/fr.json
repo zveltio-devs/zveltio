@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Saisir la clé de licence",
   "mkt.filesMissing": "Fichiers manquants",
   "mkt.filesMissingTitle": "Le paquet de l'extension n'est pas déployé sur ce serveur",
+  "mkt.forwardApproved": "Transmission des identifiants approuvée pour {name}. Désactivez-la puis réactivez-la pour l'appliquer.",
+  "mkt.forwardPending": "Les identifiants ne sont pas transmis tant que vous n'approuvez pas : {pairs}.",
   "mkt.install": "Installer",
   "mkt.installFailed": "Échec de l'installation : {error}",
   "mkt.installed": "Installée",

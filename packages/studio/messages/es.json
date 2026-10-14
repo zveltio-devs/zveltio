@@ -2625,6 +2625,8 @@
   "mkt.enterLicense": "Introducir clave de licencia",
   "mkt.filesMissing": "Faltan archivos",
   "mkt.filesMissingTitle": "El paquete de la extensión no está desplegado en este servidor",
+  "mkt.forwardApproved": "Reenvío de credenciales aprobado para {name}. Desactívala y vuelve a activarla para aplicarlo.",
+  "mkt.forwardPending": "Las credenciales no se reenvían hasta que las apruebes: {pairs}.",
   "mkt.install": "Instalar",
   "mkt.installFailed": "Error en la instalación: {error}",
   "mkt.installed": "Instalada",

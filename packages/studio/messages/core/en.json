@@ -859,6 +859,8 @@
   "mkt.rebuildTakes": "This takes ~30 seconds. The sidebar will update automatically when done.",
   "mkt.rebuilding": "Studio is rebuilding after enabling {name}",
   "mkt.receivesCredential": "Receives your {header} header on {route}.",
+  "mkt.forwardPending": "Credentials are not forwarded until you approve: {pairs}.",
+  "mkt.forwardApproved": "Approved credential forwarding for {name}. Disable and re-enable it to apply.",
   "mkt.requestFailed": "Request failed",
   "mkt.requestsNewPerms": "Requests new permissions",
   "mkt.restart": "Restart",

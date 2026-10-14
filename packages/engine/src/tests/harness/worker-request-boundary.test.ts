@@ -4,7 +4,8 @@
 //   - The caller's credentials do not: the host proxy handed the worker every
 //     header, so an untrusted extension read the caller's cookie, bearer token or
 //     API key and could replay them as the caller. A public route gets back only
-//     the ones its manifest names in `forwardCredentials`; signature headers
+//     the ones its manifest names in `forwardCredentials` and an operator
+//     approved; signature headers
 //     (`stripe-signature`, `x-hub-signature-256`) always pass.
 //   - The caller's reach does, when it is narrower than the tenant: a member
 //     whose default-tenant assignment lapsed reads nothing inline (NO_UNITS), and
@@ -166,8 +167,13 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     for (const mode of MODES) {
       const name = extName(mode);
       await sql`DELETE FROM zv_extension_registry WHERE name = ${name}`.execute(db);
-      await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
-                VALUES (${name}, ${name}, NULL, true, true)`.execute(db);
+      // Approved, so `/fwd` gets its credential back (migration 070); the
+      // unapproved case is worker-forward-approval.test.ts.
+      await sql`INSERT INTO zv_extension_registry
+                  (name, display_name, tenant_id, is_installed, is_enabled, approved_forward_credentials)
+                VALUES (${name}, ${name}, NULL, true, true, '{"/fwd":["authorization"]}'::jsonb)`.execute(
+        db,
+      );
       writeExt(base, name, mode !== 'inline');
       if (mode !== 'inline') process.env.ZVELTIO_EXT_TRANSPORT = mode;
       await extensionLoader.loadExtension(name, app, ctx, base);
