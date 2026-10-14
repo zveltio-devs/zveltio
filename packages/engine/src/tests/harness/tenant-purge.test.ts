@@ -24,6 +24,8 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
+  asTenant,
+  connectedAsSuperuser,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -57,42 +59,49 @@ d('tenant archive + purge', () => {
   let app: Hono;
   let db: Database;
   let owner: Database;
+  let ownRole = false;
   let god = '';
   let userId = '';
 
-  const seed = async (tenantId: string, n: number) => {
-    await sql`
+  // Each tenant's rows written as that tenant: FORCE RLS binds the owner role.
+  const seed = (tenantId: string, n: number) =>
+    asTenant(db, tenantId, async (trx) => {
+      await sql`
       INSERT INTO ${sql.id(TABLE)} (title, tenant_id)
       SELECT 'r' || g, ${tenantId}::uuid FROM generate_series(1, ${n}::int) g
-    `.execute(db);
-    await sql`
+    `.execute(trx);
+      await sql`
       INSERT INTO ${sql.id(REF_TABLE)} (title, parent, tenant_id)
       SELECT 'x', id, tenant_id FROM ${sql.id(TABLE)} WHERE tenant_id = ${tenantId}::uuid LIMIT 1
-    `.execute(db);
-    await sql`
+    `.execute(trx);
+      await sql`
       INSERT INTO zv_saved_queries (name, collection, tenant_id) VALUES ('q', ${COLL}, ${tenantId})
-    `.execute(db);
-    await sql`
+    `.execute(trx);
+      await sql`
       INSERT INTO zv_tenant_users (tenant_id, user_id, role) VALUES (${tenantId}, ${userId}, 'member')
       ON CONFLICT DO NOTHING
-    `.execute(db);
-  };
+    `.execute(trx);
+    });
 
-  /** Rows carrying `tenantId`, per table, over EVERY table with the column. */
-  const rowsOf = async (tenantId: string) => {
-    const tables = await sql<{ t: string }>`
+  /**
+   * Rows carrying `tenantId`, per table, over EVERY table with the column — read
+   * as that tenant, which sees them under RLS even once its zv_tenants row is gone.
+   */
+  const rowsOf = (tenantId: string) =>
+    asTenant(db, tenantId, async (trx) => {
+      const tables = await sql<{ t: string }>`
       SELECT table_name AS t FROM information_schema.columns
        WHERE table_schema = 'public' AND column_name = 'tenant_id' ORDER BY 1
-    `.execute(db);
-    const out: Record<string, number> = {};
-    for (const { t } of tables.rows) {
-      const r = await sql<{ n: number }>`
+    `.execute(trx);
+      const out: Record<string, number> = {};
+      for (const { t } of tables.rows) {
+        const r = await sql<{ n: number }>`
         SELECT count(*)::int AS n FROM ${sql.id(t)} WHERE tenant_id::text = ${tenantId}
-      `.execute(db);
-      if (r.rows[0]?.n) out[t] = r.rows[0].n;
-    }
-    return out;
-  };
+      `.execute(trx);
+        if (r.rows[0]?.n) out[t] = r.rows[0].n;
+      }
+      return out;
+    });
 
   // What an engine before migration 043 made: a schema per environment, named
   // in its row. Purge still drops these; new environments have none.
@@ -101,10 +110,12 @@ d('tenant archive + purge', () => {
   const legacyEnv = async (t: { id: string; slug: string }, env: string) => {
     const schema = `${getTenantSchemaName(t.slug)}_${env}`;
     await legacySchema(schema);
-    await sql`
+    await asTenant(db, t.id, (trx) =>
+      sql`
       INSERT INTO zv_environments (tenant_id, name, slug, schema_name)
       VALUES (${t.id}, ${env}, ${env}, ${schema})
-    `.execute(db);
+    `.execute(trx),
+    );
   };
   const schemaExists = async (name: string) =>
     (
@@ -161,12 +172,20 @@ d('tenant archive + purge', () => {
     await legacyEnv(Y, 'e');
     await legacySchema(getTenantSchemaName(Z.slug));
     await getStorage().put(`uploads/hpt/${SFX}.txt`, new TextEncoder().encode('a'));
-    await sql`
+    await asTenant(db, A.id, (trx) =>
+      sql`
       INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id)
       VALUES ('f', 'f', 'text/plain', ${`uploads/hpt/${SFX}.txt`}, ${A.id})
-    `.execute(db);
+    `.execute(trx),
+    );
 
-    // The production shape: a plain role that FORCE RLS binds, owning the collection.
+    // The production shape: a plain role that FORCE RLS binds, owning the
+    // collection — which the owner lane's harness connection already is.
+    ownRole = await connectedAsSuperuser(db);
+    if (!ownRole) {
+      owner = db;
+      return;
+    }
     await sql.raw(`CREATE ROLE ${OWNER} LOGIN PASSWORD 'hpt' NOSUPERUSER NOBYPASSRLS`).execute(db);
     await sql.raw(`GRANT USAGE ON SCHEMA public TO ${OWNER}`).execute(db);
     await sql
@@ -181,7 +200,7 @@ d('tenant archive + purge', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await owner?.destroy().catch(() => {});
+    if (ownRole) await owner?.destroy().catch(() => {});
     await sql
       .raw(`REASSIGN OWNED BY ${OWNER} TO CURRENT_USER`)
       .execute(db)
@@ -203,8 +222,10 @@ d('tenant archive + purge', () => {
     }
     const ids = [A, B, P, Q, O, X, Y, Z].map((t) => t.id);
     for (const id of ids) {
-      await sql`DELETE FROM zv_saved_queries WHERE tenant_id = ${id}`.execute(db).catch(() => {});
-      await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${id}`.execute(db).catch(() => {});
+      await asTenant(db, id, async (trx) => {
+        await sql`DELETE FROM zv_saved_queries WHERE tenant_id = ${id}`.execute(trx);
+        await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${id}`.execute(trx);
+      }).catch(() => {});
     }
     await sql`DELETE FROM zv_tenants WHERE id = ${Q.id}`.execute(db).catch(() => {});
     await sql`DELETE FROM zv_tenants WHERE id = ANY (${ids})`.execute(db).catch(() => {});
@@ -283,16 +304,24 @@ d('tenant archive + purge', () => {
 
   it('refuses when another tenant’s row points at one of the target’s rows', async () => {
     const before = await rowsOf(A.id);
-    const x = await sql<{ id: string }>`
+    // Written as B, reading A's row: B's write, A's row published for the read.
+    const x = await asTenant(db, B.id, async (trx) => {
+      await sql`SELECT set_config('zveltio.visible_tenants', ${`${A.id},${B.id}`}, true)`.execute(
+        trx,
+      );
+      return sql<{ id: string }>`
       INSERT INTO ${sql.id(REF_TABLE)} (title, parent, tenant_id)
       SELECT 'cross', id, ${B.id}::uuid FROM ${sql.id(TABLE)} WHERE tenant_id = ${A.id}::uuid LIMIT 1
       RETURNING id
-    `.execute(db);
+    `.execute(trx);
+    });
     const res = await del(A.id, `mode=purge&confirm=${A.slug}`);
     expect(res.status).toBe(409);
     expect(((await res.json()) as { detail: string }).detail).toContain(REF_TABLE);
     expect(await rowsOf(A.id)).toEqual(before);
-    await sql`DELETE FROM ${sql.id(REF_TABLE)} WHERE id = ${x.rows[0]?.id}`.execute(db);
+    await asTenant(db, B.id, (trx) =>
+      sql`DELETE FROM ${sql.id(REF_TABLE)} WHERE id = ${x.rows[0]?.id}`.execute(trx),
+    );
   }, 60_000);
 
   it('purges every row of the target and nothing of anyone else', async () => {
@@ -336,10 +365,14 @@ d('tenant archive + purge', () => {
     expect(await rowsOf(DEFAULT_TENANT_ID)).toEqual(others.def);
     expect(await rowsOf(O.id)).toEqual(others.o);
 
-    const audit = await sql<{ m: { deleted: Record<string, number> } }>`
+    // A's own trail or the instance's: A is published, no tenant is running.
+    const audit = await db.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('zveltio.visible_tenants', ${A.id}, true)`.execute(trx);
+      return sql<{ m: { deleted: Record<string, number> } }>`
       SELECT metadata AS m FROM zv_audit_log
        WHERE event_type = 'tenant.purged' AND resource_id = ${A.id}
-    `.execute(db);
+    `.execute(trx);
+    });
     expect(audit.rows[0]?.m.deleted[TABLE]).toBe(5);
   }, 60_000);
 
@@ -349,8 +382,10 @@ d('tenant archive + purge', () => {
     // Z's legacy base name is Y's environment `e`: Y's, so it stays.
     expect(result.droppedSchemas).toEqual([]);
     expect(await schemaExists(getTenantSchemaName(Z.slug))).toBe(true);
-    const env = await sql<{ s: string | null }>`
-      SELECT schema_name AS s FROM zv_environments WHERE tenant_id = ${Y.id}`.execute(db);
+    const env = await asTenant(db, Y.id, (trx) =>
+      sql<{ s: string | null }>`
+      SELECT schema_name AS s FROM zv_environments WHERE tenant_id = ${Y.id}`.execute(trx),
+    );
     expect(env.rows).toEqual([{ s: getTenantSchemaName(Z.slug) }]);
   }, 60_000);
 
@@ -365,13 +400,21 @@ d('tenant archive + purge', () => {
 
     // The reference check must see the OTHER tenant's row, which this role
     // cannot either unless every tenant is published.
-    const x = await sql<{ id: string }>`
+    const x = await asTenant(db, B.id, async (trx) => {
+      await sql`SELECT set_config('zveltio.visible_tenants', ${`${O.id},${B.id}`}, true)`.execute(
+        trx,
+      );
+      return sql<{ id: string }>`
       INSERT INTO ${sql.id(REF_TABLE)} (title, parent, tenant_id)
       SELECT 'cross', id, ${B.id}::uuid FROM ${sql.id(TABLE)} WHERE tenant_id = ${O.id}::uuid LIMIT 1
       RETURNING id
-    `.execute(db);
+    `.execute(trx);
+    });
+    expect(x.rows).toHaveLength(1);
     await expect(purgeTenant(owner, O.id, O.slug)).rejects.toThrow(/other tenants/);
-    await sql`DELETE FROM ${sql.id(REF_TABLE)} WHERE id = ${x.rows[0]?.id}`.execute(db);
+    await asTenant(db, B.id, (trx) =>
+      sql`DELETE FROM ${sql.id(REF_TABLE)} WHERE id = ${x.rows[0]?.id}`.execute(trx),
+    );
 
     // After the cleanup above, which leaves B a sync tombstone of its own.
     const others = { b: await rowsOf(B.id), def: await rowsOf(DEFAULT_TENANT_ID) };

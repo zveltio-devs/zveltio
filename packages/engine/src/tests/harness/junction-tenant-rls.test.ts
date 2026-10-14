@@ -16,7 +16,13 @@ import type { Database } from '../../db/index.js';
 import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { reconcileTenantRLS, withTenantIsolation } from '../../lib/tenancy/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  connectedAsSuperuser,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -87,9 +93,11 @@ d('m2m junction tables under tenant RLS', () => {
       ['tRoot', TGT, ROOT],
       ['tOther', TGT, OTHER],
     ] as const) {
-      const r = await sql<{ id: string }>`
+      const r = await asTenant(db, tenant, (trx) =>
+        sql<{ id: string }>`
         INSERT INTO ${sql.id(`zvd_${table}`)} (tenant_id) VALUES (${tenant}::uuid)
-        RETURNING id::text AS id`.execute(db);
+        RETURNING id::text AS id`.execute(trx),
+      );
       ids[k] = r.rows[0]!.id;
     }
     // ROOT's link, written the way a request in ROOT writes it.
@@ -191,17 +199,20 @@ d('m2m junction tables under tenant RLS', () => {
     it('as a plain owner role under FORCE RLS, backfills from the source row, twice', async () => {
       // Production runs migrations as a non-superuser owner, which FORCE RLS
       // binds: without every tenant published the source lookup sees only the
-      // default tenant. The harness connects as a superuser, so the owner is
-      // swapped for a plain role inside a transaction that is rolled back.
+      // default tenant. A superuser harness swaps the owner for a plain role
+      // inside a transaction that is rolled back; the owner lane already is one.
       const rollback = new Error('rollback');
       let got: string[] = [];
+      const superuser = await connectedAsSuperuser(db);
       await db
         .transaction()
         .execute(async (trx) => {
-          for (const t of [`zvd_${SRC}`, `zvd_${TGT}`, LEGACY]) {
-            await sql`ALTER TABLE ${sql.id(t)} OWNER TO zveltio_rls`.execute(trx);
+          if (superuser) {
+            for (const t of [`zvd_${SRC}`, `zvd_${TGT}`, LEGACY]) {
+              await sql`ALTER TABLE ${sql.id(t)} OWNER TO zveltio_rls`.execute(trx);
+            }
+            await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
           }
-          await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
           await runUp(trx);
           await runUp(trx);
           got = await backfilled(trx);

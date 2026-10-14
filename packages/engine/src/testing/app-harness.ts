@@ -35,6 +35,7 @@ import {
   grantMemberRole,
   invalidateGodCache,
   invalidateUserPermCache,
+  publishEveryTenant,
 } from '../lib/tenancy/index.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -109,6 +110,85 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
   _cached = { app, db };
   return _cached;
 }
+
+/**
+ * Run `fn` in a transaction as `tenantId`, the way the engine writes a firm's rows.
+ *
+ * The documented install runs the engine as a NOSUPERUSER NOBYPASSRLS owner
+ * (`scripts/bootstrap-db-role.sh`), and FORCE RLS binds that connection too: on
+ * the bare pool, with no tenant set, a policed table takes and shows only the
+ * default tenant's rows. A fixture for another firm written there is refused —
+ * on a superuser it was silently accepted, which is how 300 harness tests came
+ * to depend on a privilege production does not have (L32). Stays the owner.
+ */
+export function asTenant<T>(
+  db: Database,
+  tenantId: string,
+  fn: (trx: Database) => Promise<T>,
+): Promise<T> {
+  return db.transaction().execute(async (trx) => {
+    await sql`SELECT set_config('zveltio.current_tenant', ${tenantId}, true)`.execute(trx);
+    return fn(trx);
+  });
+}
+
+/**
+ * Run `fn` in a transaction that READS (and so deletes) every firm's rows, for a
+ * test's own checks and cleanup — the reach `withEveryTenant` gives the engine's
+ * background work, staying the owner. Writes still need `asTenant`, and so does
+ * a row whose `tenant_id` has no `zv_tenants` row: every firm is the firms that
+ * exist.
+ */
+export function asEveryTenant<T>(db: Database, fn: (trx: Database) => Promise<T>): Promise<T> {
+  return db.transaction().execute(async (trx) => {
+    await publishEveryTenant(trx);
+    return fn(trx);
+  });
+}
+
+/**
+ * Whether the harness connection is a superuser (every lane but the owner one).
+ * A test that impersonates the documented owner role — creating one and taking
+ * it on — only needs to on a superuser: on the owner lane it already IS that
+ * role, and may not take on a role it created.
+ */
+export async function connectedAsSuperuser(db: Database): Promise<boolean> {
+  const r = await sql<{ s: boolean }>`
+    SELECT rolsuper AS s FROM pg_roles WHERE rolname = current_user`.execute(db);
+  return r.rows[0]?.s === true;
+}
+
+let _superuserUrl: Promise<string | null> | undefined;
+
+/**
+ * A superuser connection string to the harness database, for test SETUP only a
+ * superuser may do: CREATE DATABASE, a cluster role created or renamed, an
+ * INVALID index forged in pg_index, triggers switched off. Never for the
+ * engine's own path — that runs as whatever the harness connects as.
+ *
+ * TEST_SUPERUSER_DATABASE_URL when set (the owner lane sets it), else the
+ * harness URL when that is a superuser (every other lane), else null: the
+ * caller skips, naming the variable, rather than failing on a privilege the
+ * documented install does not have.
+ */
+export function superuserUrl(): Promise<string | null> {
+  _superuserUrl ??= (async () => {
+    if (process.env.TEST_SUPERUSER_DATABASE_URL) return process.env.TEST_SUPERUSER_DATABASE_URL;
+    if (!TEST_DB_URL) return null;
+    const { createDb } = await import('../db/index.js');
+    const probe = createDb(TEST_DB_URL);
+    try {
+      return (await connectedAsSuperuser(probe)) ? TEST_DB_URL : null;
+    } finally {
+      await probe.destroy();
+    }
+  })();
+  return _superuserUrl;
+}
+
+/** The title of a describe `superuserUrl()` gates: a skip says what it needs. */
+export const superuserTitle = (title: string, url: string | null): string =>
+  url ? title : `${title} (needs a superuser: set TEST_SUPERUSER_DATABASE_URL)`;
 
 /**
  * Create a fresh god user and return its signed session cookie by driving the

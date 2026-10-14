@@ -80,12 +80,13 @@ d('tenant composite indexes after listen', () => {
 
   it('replaces an INVALID leftover of a build that died', async () => {
     await sql`DROP INDEX ${sql.id(CREATED)}`.execute(db);
-    await sql`CREATE INDEX ${sql.id(CREATED)} ON ${sql.id(TABLE)} (tenant_id, created_at DESC)`.execute(
-      db,
-    );
-    await sql`UPDATE pg_index SET indisvalid = false WHERE indexrelid = to_regclass(${CREATED})`.execute(
-      db,
-    );
+    // A CONCURRENTLY build that died: made by one that fails (every row shares
+    // one insert's created_at), rather than forged in pg_index, which only a
+    // superuser may write and the documented owner role is not.
+    await sql`CREATE UNIQUE INDEX CONCURRENTLY ${sql.id(CREATED)}
+                ON ${sql.id(TABLE)} (tenant_id, created_at DESC)`
+      .execute(db)
+      .catch(() => undefined);
     expect((await indexes()).find((i) => i.name === CREATED)?.valid).toBe(false);
     const r = await reconcileTenantIndexes(db);
     expect(r?.built).toEqual([CREATED]);

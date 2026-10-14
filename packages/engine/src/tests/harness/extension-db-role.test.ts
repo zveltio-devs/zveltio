@@ -46,6 +46,8 @@ import {
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asTenant,
+  connectedAsSuperuser,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -59,13 +61,23 @@ const GRANTED = 'zv_roleprobe_granted';
 const COLLECTION = 'zvd_roleprobe_things';
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000a2';
 const PLAIN = 'pool_roleprobe_plain';
+/**
+ * The harness is a superuser on every lane but the owner one, where the engine
+ * IS the documented NOSUPERUSER owner: no BYPASSRLS twin exists there, and the
+ * pool reads the default tenant only.
+ */
+const SUPER = harnessAvailable() && (await connectedAsSuperuser((await getTestApp()).db));
 
 d('ctx.db runs as the extension role in a tenant transaction', () => {
   let db: Database;
   let ext: Database;
-  /** The extension's own role and its BYPASSRLS twin (this engine is a superuser). */
+  /** The extension's own role and its BYPASSRLS twin (only a superuser engine has one). */
   let ROLE = '';
   let TWIN = '';
+  /** What a pool statement runs as: the twin on a superuser engine, else the role. */
+  let POOL = '';
+  /** The engine's login role. */
+  let ENGINE = '';
   const inTenant = <T>(fn: (trx: Database) => Promise<T>): Promise<T> =>
     withTenantIsolation(TENANT, () => fn(getCurrentTenantTrx()!), {
       identity: ALL_COLLECTIONS_ACTOR,
@@ -88,6 +100,8 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
     const dbName = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(db)).rows[0]!
       .d;
     ({ role: ROLE, bypass: TWIN } = extensionDbRoleNames(dbName, EXT));
+    POOL = SUPER ? TWIN : ROLE;
+    ENGINE = await whoAmI(db);
     _resetExtensionDbRoleForTests();
     // What `loadExtension` does after the extension's migrations.
     await grantExtensionDbRole(db, EXT, allowed);
@@ -201,14 +215,14 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
         SELECT count(DISTINCT tenant_id)::int AS n FROM ${sql.table(COLLECTION)}`.execute(h)
     ).rows[0]!.n;
 
-  it('runs a pool statement as the RLS-bypassing twin on a superuser engine, engine helpers on the engine role', async () => {
+  it('runs a pool statement as the RLS-bypassing twin on a superuser engine (else its own role), engine helpers on the engine role', async () => {
     for (const h of onPool()) {
-      expect(await whoAmI(h)).toBe(TWIN);
-      expect(await whoAmI(engineHandle(h))).toBe('postgres');
+      expect(await whoAmI(h)).toBe(POOL);
+      expect(await whoAmI(engineHandle(h))).toBe(ENGINE);
     }
     const admin = onPool()[1]!;
-    expect(await admin.transaction().execute((t) => whoAmI(t))).toBe(TWIN);
-    expect(await admin.transaction().execute((t) => whoAmI(engineHandle(t)))).toBe('postgres');
+    expect(await admin.transaction().execute((t) => whoAmI(t))).toBe(POOL);
+    expect(await admin.transaction().execute((t) => whoAmI(engineHandle(t)))).toBe(ENGINE);
   }, 60_000);
 
   it('refuses engine tables and DDL to a pool statement the analyzer let through', async () => {
@@ -234,26 +248,40 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
     }
   }, 60_000);
 
-  it('keeps the cross-tenant reach a superuser engine had on the pool', async () => {
-    await sql`DELETE FROM ${sql.table(COLLECTION)}`.execute(db);
-    await sql`INSERT INTO ${sql.table(COLLECTION)} (note, tenant_id)
-              VALUES ('a', ${TENANT}::uuid), ('b', ${OTHER_TENANT}::uuid)`.execute(db);
-    expect(await tenantsSeen(db)).toBe(2);
-    for (const h of onPool()) {
-      expect(await tenantsSeen(h)).toBe(2);
-      expect(await h.transaction().execute((t) => tenantsSeen(t))).toBe(2);
+  /** One row in the default tenant, one in another, each written as its own. */
+  const seedTwoTenants = async () => {
+    for (const t of [TENANT, OTHER_TENANT]) {
+      await asTenant(db, t, async (trx) => {
+        await sql`DELETE FROM ${sql.table(COLLECTION)} WHERE tenant_id = ${t}::uuid`.execute(trx);
+        await sql`INSERT INTO ${sql.table(COLLECTION)} (note, tenant_id)
+                  VALUES (${t}, ${t}::uuid)`.execute(trx);
+      });
     }
-  }, 60_000);
+  };
+
+  // A superuser engine's pool read every tenant; a plain owner's never did.
+  it.skipIf(!SUPER)(
+    'keeps the cross-tenant reach a superuser engine had on the pool',
+    async () => {
+      await seedTwoTenants();
+      expect(await tenantsSeen(db)).toBe(2);
+      for (const h of onPool()) {
+        expect(await tenantsSeen(h)).toBe(2);
+        expect(await h.transaction().execute((t) => tenantsSeen(t))).toBe(2);
+      }
+    },
+    60_000,
+  );
 
   it('lets an escaped role last one pool statement', async () => {
     analyzerOff = true;
     try {
       const [h, admin] = onPool();
       await sql`SELECT set_config('role', 'none', true)`.execute(h!);
-      expect(await whoAmI(h!)).toBe(TWIN);
+      expect(await whoAmI(h!)).toBe(POOL);
       await admin!.transaction().execute(async (t) => {
         await sql`SELECT set_config('role', 'none', true)`.execute(t);
-        expect(await whoAmI(t)).toBe(TWIN);
+        expect(await whoAmI(t)).toBe(POOL);
       });
     } finally {
       analyzerOff = false;
@@ -261,6 +289,7 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
   }, 60_000);
 
   it('runs pool statements as zveltio_ext on a plain-role engine (no CREATEROLE: shared role), and with no actor reads no collection rows', async () => {
+    await seedTwoTenants();
     await sql.raw(`DROP ROLE IF EXISTS ${PLAIN}`).execute(db);
     await sql.raw(`CREATE ROLE ${PLAIN} LOGIN PASSWORD 'p' NOSUPERUSER NOBYPASSRLS`).execute(db);
     // What scripts/bootstrap-db-role.sh gives the engine role.

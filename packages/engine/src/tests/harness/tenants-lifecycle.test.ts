@@ -7,7 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SLUG = `htenant${Date.now().toString().slice(-8)}`;
@@ -113,9 +118,11 @@ d('tenants lifecycle (in-process)', () => {
     expect(res.status).toBe(201);
     // A row, no schema: `tenant_<slug>_staging` held empty copies nothing read.
     expect(await res.json()).toEqual({ success: true, schema: null });
-    const row = await sql<{ schema_name: string | null }>`
+    const row = await asEveryTenant(db, (trx) =>
+      sql<{ schema_name: string | null }>`
       SELECT schema_name FROM zv_environments WHERE tenant_id = ${tenantId} AND slug = 'staging'
-    `.execute(db);
+    `.execute(trx),
+    );
     expect(row.rows).toEqual([{ schema_name: null }]);
     const made = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_namespace WHERE nspname = ${`tenant_${SLUG}_staging`}

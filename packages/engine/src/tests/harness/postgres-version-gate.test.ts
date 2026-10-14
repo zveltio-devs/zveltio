@@ -14,7 +14,7 @@ import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
 import { rollbackMigration, runMigrations } from '../../db/migrations/index.js';
 import { assertSupportedPostgres, postgresVersionRefusal } from '../../db/postgres-version.js';
-import { harnessAvailable } from '../../testing/app-harness.js';
+import { harnessAvailable, superuserTitle, superuserUrl } from '../../testing/app-harness.js';
 
 const ENGINE = join(import.meta.dir, '../../..');
 const REFUSED =
@@ -32,10 +32,16 @@ describe('postgresVersionRefusal', () => {
   });
 });
 
-const d = harnessAvailable() ? describe : describe.skip;
+// Creates databases and cluster roles: a superuser's setup, not the engine's path.
+const SUPER_URL = harnessAvailable() ? await superuserUrl() : null;
+const d = SUPER_URL ? describe : describe.skip;
+const TITLE = superuserTitle(
+  'PostgreSQL version gate: an older server is refused before any migration',
+  SUPER_URL,
+);
 
-d('PostgreSQL version gate: an older server is refused before any migration', () => {
-  const superUrl = new URL(String(process.env.TEST_DATABASE_URL));
+d(TITLE, () => {
+  const superUrl = new URL(String(SUPER_URL ?? process.env.TEST_DATABASE_URL));
   const key = createHash('sha256').update(superUrl.pathname).digest('hex').slice(0, 8);
   const DB = `zz_pgver_${key}`;
   const fakeUrl = (() => {

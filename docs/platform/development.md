@@ -74,6 +74,16 @@ The **harness lane is where authorization behaviour is pinned** — it boots a
 real engine against a real database. A failing harness test is the most
 convincing artifact for a suspected security defect.
 
+CI runs the harness twice: as the Postgres superuser, and as the NOSUPERUSER
+NOBYPASSRLS owner `scripts/bootstrap-db-role.sh` makes — the documented
+production install, where FORCE RLS binds the engine's own connection. On the
+second, a fixture written on the bare pool lands in (and reads back) the default
+tenant only, so harness tests write another tenant's rows through `asTenant`
+and check or clean up across tenants through `asEveryTenant`
+(`src/testing/app-harness.ts`). Setup that only a superuser may do (CREATE
+DATABASE, cluster roles) goes through `superuserUrl()`, which reads
+`TEST_SUPERUSER_DATABASE_URL` there and skips the test without it.
+
 Turbo's `passThroughEnv` in `turbo.json` forwards `TEST_DATABASE_URL`,
 `DATABASE_URL`, `BETTER_AUTH_SECRET`, `VALKEY_URL`, `S3_*` and others. If tests
 cannot see an environment variable, check that list before suspecting the test.

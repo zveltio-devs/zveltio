@@ -29,7 +29,12 @@ import { runAsTenantWithoutTransaction } from '../../lib/tenancy/index.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -125,8 +130,10 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
-      await sql`INSERT INTO zv_dashboards (name, is_public, tenant_id)
-                VALUES (${STAMP}, true, ${tenant}::uuid)`.execute(db);
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO zv_dashboards (name, is_public, tenant_id)
+                VALUES (${STAMP}, true, ${tenant}::uuid)`.execute(trx),
+      );
     }
     app = new Hono();
     app.use('/ext/*', sessionPrefetch(getAuth(), db));

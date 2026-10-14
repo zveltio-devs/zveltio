@@ -22,7 +22,12 @@ import type { ExtensionContext, ExtensionInternals } from '../../lib/extensions/
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { onAfterCommit } from '../../lib/tenancy/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -55,8 +60,10 @@ d('ctx.db outside a transaction under a non-root firm', () => {
       );
   const landedIn = async (name: string) =>
     (
-      await sql<{ tenant_id: string }>`
-        SELECT tenant_id FROM zv_dashboards WHERE name = ${`${STAMP}_${name}`}`.execute(db)
+      await asEveryTenant(db, (trx) =>
+        sql<{ tenant_id: string }>`
+        SELECT tenant_id FROM zv_dashboards WHERE name = ${`${STAMP}_${name}`}`.execute(trx),
+      )
     ).rows.map((r) => r.tenant_id);
 
   beforeAll(async () => {
@@ -129,7 +136,9 @@ d('ctx.db outside a transaction under a non-root firm', () => {
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
-    await sql`DELETE FROM zv_dashboards WHERE name LIKE ${`${STAMP}_%`}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_dashboards WHERE name LIKE ${`${STAMP}_%`}`.execute(trx),
+    );
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 

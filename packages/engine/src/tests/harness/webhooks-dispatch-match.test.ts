@@ -13,7 +13,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { _settleWebhookDeliveries, WebhookManager } from '../../lib/webhooks.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TAG = `${Date.now()}${Math.floor(Math.random() * 1e6)}`;
@@ -30,13 +30,15 @@ d('webhook dispatch: which hooks match', () => {
     collections: string[] | null,
     { events = ['insert'], tenant = DEFAULT_TENANT_ID } = {},
   ) => {
-    const row = await sql<{ id: string }>`
+    const row = await asTenant(db, tenant, (trx) =>
+      sql<{ id: string }>`
       INSERT INTO zvd_webhooks (name, url, method, events, collections, active, retry_attempts, timeout, tenant_id)
       VALUES (${`${name}-${TAG}`}, 'http://127.0.0.1:9/hook', 'POST', ARRAY[${sql.join(events)}]::text[],
               ${collections === null ? null : collections.length === 0 ? sql`'{}'::text[]` : sql`ARRAY[${sql.join(collections)}]::text[]`},
               ${active}, 0, 1000, ${tenant}::uuid)
       RETURNING id::text AS id
-    `.execute(db);
+    `.execute(trx),
+    );
     ids[name] = row.rows[0]!.id;
   };
 

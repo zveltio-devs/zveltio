@@ -13,8 +13,15 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { WebhookManager } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
@@ -39,39 +46,42 @@ d('webhooks tenant isolation (in-process)', () => {
     cookie = await createGodSession(app, db);
     WebhookManager.init(db);
 
-    // A webhook belonging to ANOTHER tenant, inserted directly (route IDOR target).
-    await db
-      .insertInto('zvd_webhooks')
-      .values({
-        id: FOREIGN_ID,
-        name: `foreign-${STAMP}`,
-        url: 'https://example.com/foreign',
-        method: 'POST',
-        events: ['*'] as unknown as string[],
-        collections: [] as unknown as string[],
-        active: true,
-        secret: null,
-        retry_attempts: 3,
-        timeout: 5000,
-        tenant_id: OTHER_TENANT,
-      } as never)
-      .execute();
+    // A webhook belonging to ANOTHER tenant, inserted directly (route IDOR target)
+    // — a firm that exists, so the test's own every-firm reads reach it.
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER_TENANT}::uuid, ${`wh-iso-${STAMP}`}, 'wh-iso', 'active')
+              ON CONFLICT (id) DO NOTHING`.execute(db);
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx
+        .insertInto('zvd_webhooks')
+        .values({
+          id: FOREIGN_ID,
+          name: `foreign-${STAMP}`,
+          url: 'https://example.com/foreign',
+          method: 'POST',
+          events: ['*'] as unknown as string[],
+          collections: [] as unknown as string[],
+          active: true,
+          secret: null,
+          retry_attempts: 3,
+          timeout: 5000,
+          tenant_id: OTHER_TENANT,
+        } as never)
+        .execute(),
+    );
   });
 
   afterAll(async () => {
     if (!db) return;
     for (const id of [FOREIGN_ID, FOREIGN_DISPATCH_ID, MINE_DISPATCH_ID, myId].filter(Boolean)) {
-      await db
-        .deleteFrom('zvd_webhook_deliveries')
-        .where('webhook_id', '=', id)
-        .execute()
-        .catch(() => {});
-      await db
-        .deleteFrom('zvd_webhooks')
-        .where('id', '=', id)
-        .execute()
-        .catch(() => {});
+      await asEveryTenant(db, (trx) =>
+        trx.deleteFrom('zvd_webhook_deliveries').where('webhook_id', '=', id).execute(),
+      ).catch(() => {});
+      await asEveryTenant(db, (trx) =>
+        trx.deleteFrom('zvd_webhooks').where('id', '=', id).execute(),
+      ).catch(() => {});
     }
+    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db).catch(() => {});
   });
 
   it('single-tenant: create + list works and hides the other tenant’s webhook', async () => {
@@ -106,11 +116,9 @@ d('webhooks tenant isolation (in-process)', () => {
       body: JSON.stringify({ name: 'hijacked' }),
     });
     expect(res.status).toBe(404);
-    const still = await db
-      .selectFrom('zvd_webhooks')
-      .select('name')
-      .where('id', '=', FOREIGN_ID)
-      .executeTakeFirst();
+    const still = await asEveryTenant(db, (trx) =>
+      trx.selectFrom('zvd_webhooks').select('name').where('id', '=', FOREIGN_ID).executeTakeFirst(),
+    );
     expect(still?.name).toBe(`foreign-${STAMP}`); // untouched
   });
 
@@ -120,11 +128,9 @@ d('webhooks tenant isolation (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(404);
-    const still = await db
-      .selectFrom('zvd_webhooks')
-      .select('id')
-      .where('id', '=', FOREIGN_ID)
-      .executeTakeFirst();
+    const still = await asEveryTenant(db, (trx) =>
+      trx.selectFrom('zvd_webhooks').select('id').where('id', '=', FOREIGN_ID).executeTakeFirst(),
+    );
     expect(still?.id).toBe(FOREIGN_ID);
   });
 
@@ -138,38 +144,42 @@ d('webhooks tenant isolation (in-process)', () => {
 
   it('dispatcher: a write in one tenant only fires THAT tenant’s webhooks', async () => {
     // Two webhooks matching the same event/collection, different tenants.
-    await db
-      .insertInto('zvd_webhooks')
-      .values({
-        id: MINE_DISPATCH_ID,
-        name: `disp-mine-${STAMP}`,
-        url: 'https://example.com/mine-disp',
-        method: 'POST',
-        events: ['*'] as unknown as string[],
-        collections: [] as unknown as string[],
-        active: true,
-        secret: null,
-        retry_attempts: 3,
-        timeout: 5000,
-        tenant_id: DEFAULT_TENANT_ID,
-      } as never)
-      .execute();
-    await db
-      .insertInto('zvd_webhooks')
-      .values({
-        id: FOREIGN_DISPATCH_ID,
-        name: `disp-foreign-${STAMP}`,
-        url: 'https://example.com/foreign-disp',
-        method: 'POST',
-        events: ['*'] as unknown as string[],
-        collections: [] as unknown as string[],
-        active: true,
-        secret: null,
-        retry_attempts: 3,
-        timeout: 5000,
-        tenant_id: OTHER_TENANT,
-      } as never)
-      .execute();
+    await asTenant(db, DEFAULT_TENANT_ID, (trx) =>
+      trx
+        .insertInto('zvd_webhooks')
+        .values({
+          id: MINE_DISPATCH_ID,
+          name: `disp-mine-${STAMP}`,
+          url: 'https://example.com/mine-disp',
+          method: 'POST',
+          events: ['*'] as unknown as string[],
+          collections: [] as unknown as string[],
+          active: true,
+          secret: null,
+          retry_attempts: 3,
+          timeout: 5000,
+          tenant_id: DEFAULT_TENANT_ID,
+        } as never)
+        .execute(),
+    );
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx
+        .insertInto('zvd_webhooks')
+        .values({
+          id: FOREIGN_DISPATCH_ID,
+          name: `disp-foreign-${STAMP}`,
+          url: 'https://example.com/foreign-disp',
+          method: 'POST',
+          events: ['*'] as unknown as string[],
+          collections: [] as unknown as string[],
+          active: true,
+          secret: null,
+          retry_attempts: 3,
+          timeout: 5000,
+          tenant_id: OTHER_TENANT,
+        } as never)
+        .execute(),
+    );
 
     // Fire an event as the DEFAULT tenant.
     await WebhookManager.trigger(
@@ -179,16 +189,20 @@ d('webhooks tenant isolation (in-process)', () => {
       DEFAULT_TENANT_ID,
     );
 
-    const mineDeliveries = await db
-      .selectFrom('zvd_webhook_deliveries')
-      .select('id')
-      .where('webhook_id', '=', MINE_DISPATCH_ID)
-      .execute();
-    const foreignDeliveries = await db
-      .selectFrom('zvd_webhook_deliveries')
-      .select('id')
-      .where('webhook_id', '=', FOREIGN_DISPATCH_ID)
-      .execute();
+    const mineDeliveries = await asEveryTenant(db, (trx) =>
+      trx
+        .selectFrom('zvd_webhook_deliveries')
+        .select('id')
+        .where('webhook_id', '=', MINE_DISPATCH_ID)
+        .execute(),
+    );
+    const foreignDeliveries = await asEveryTenant(db, (trx) =>
+      trx
+        .selectFrom('zvd_webhook_deliveries')
+        .select('id')
+        .where('webhook_id', '=', FOREIGN_DISPATCH_ID)
+        .execute(),
+    );
 
     expect(mineDeliveries.length).toBeGreaterThan(0); // fired for the writing tenant
     expect(foreignDeliveries.length).toBe(0); // NOT for the other tenant
@@ -202,10 +216,17 @@ d('webhooks tenant isolation (in-process)', () => {
       url: 'https://example.com/x',
       method: 'POST',
     });
-    await db
-      .insertInto('zvd_webhook_deliveries')
-      .values([delivery(FOREIGN_ID, OTHER_TENANT), delivery(myId, DEFAULT_TENANT_ID)] as never)
-      .execute();
+    for (const [id, tenant] of [
+      [FOREIGN_ID, OTHER_TENANT],
+      [myId, DEFAULT_TENANT_ID],
+    ] as const) {
+      await asTenant(db, tenant, (trx) =>
+        trx
+          .insertInto('zvd_webhook_deliveries')
+          .values(delivery(id, tenant) as never)
+          .execute(),
+      );
+    }
     const list = async (id: string) => {
       const res = await app.request(`/api/webhooks/${id}/deliveries`, { headers: { cookie } });
       expect(res.status).toBe(200);

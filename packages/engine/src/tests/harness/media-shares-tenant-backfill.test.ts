@@ -40,29 +40,37 @@ d('media shares carry the firm of what they share', () => {
   });
 
   it('a share left with a NULL firm gets its file or folder firm on migrate', async () => {
-    const share = async (tenant: string, kind: 'file' | 'folder') => {
-      const item =
-        kind === 'file'
-          ? await sql<{ id: string }>`
+    // As the documented owner role FORCE RLS binds these inserts too, so each
+    // seed runs as its own firm, the way the engine writes them.
+    const share = (tenant: string, kind: 'file' | 'folder') =>
+      db.transaction().execute(async (db) => {
+        await sql`SELECT set_config('zveltio.current_tenant', ${tenant}, true)`.execute(db);
+        const item =
+          kind === 'file'
+            ? await sql<{ id: string }>`
               INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id)
               VALUES (${STAMP}, ${STAMP}, 'text/plain', ${`harness/${STAMP}`}, ${tenant}::uuid)
               RETURNING id::text AS id`.execute(db)
-          : await sql<{ id: string }>`
+            : await sql<{ id: string }>`
               INSERT INTO zv_media_folders (name, tenant_id) VALUES (${STAMP}, ${tenant}::uuid)
               RETURNING id::text AS id`.execute(db);
-      // What 023 left: a share of a formerly NULL-tenant file, firm NULL.
-      await sql`
+        // What 023 left: a share of a formerly NULL-tenant file, firm NULL.
+        await sql`
         INSERT INTO zv_media_shares (file_id, folder_id, token, created_by, tenant_id)
         VALUES (${kind === 'file' ? item.rows[0]!.id : null}::uuid,
                 ${kind === 'folder' ? item.rows[0]!.id : null}::uuid,
                 ${`${STAMP}-${tenant}-${kind}`}, ${STAMP}, NULL)`.execute(db);
-    };
+      });
     // Below 065 first: since then the column refuses NULL.
-    await rollbackMigration(db, 30, { ignoreBaseline: true });
-    await share(ROOT, 'file');
-    await share(ROOT, 'folder');
-    await share(OTHER, 'file');
-    await runPending(db);
+    try {
+      await rollbackMigration(db, 30, { ignoreBaseline: true });
+      await share(ROOT, 'file');
+      await share(ROOT, 'folder');
+      await share(OTHER, 'file');
+    } finally {
+      // A failed seed must not leave the shared database at 030 for every later file.
+      await runPending(db);
+    }
 
     const rows = await sql<{ token: string; tenant_id: string | null }>`
       SELECT token, tenant_id::text AS tenant_id FROM zv_media_shares

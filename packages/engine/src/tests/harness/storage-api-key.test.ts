@@ -18,7 +18,13 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TMP = mkdtempSync(join(tmpdir(), 'zv-key-store-'));
@@ -49,19 +55,21 @@ d('storage with an API key', () => {
   const files: Record<string, string> = {};
 
   const seed = async (tenant: string, visibility: string, createdBy: string | null) => {
-    const row = await db
-      .insertInto('zv_media_files')
-      .values({
-        tenant_id: tenant,
-        filename: `${STAMP}-${visibility}`,
-        original_name: `${STAMP}.txt`,
-        mimetype: 'text/plain',
-        storage_path: `harness/${STAMP}-${crypto.randomUUID()}`,
-        visibility,
-        created_by: createdBy,
-      } as never)
-      .returning('id')
-      .executeTakeFirstOrThrow();
+    const row = await asTenant(db, tenant, (trx) =>
+      trx
+        .insertInto('zv_media_files')
+        .values({
+          tenant_id: tenant,
+          filename: `${STAMP}-${visibility}`,
+          original_name: `${STAMP}.txt`,
+          mimetype: 'text/plain',
+          storage_path: `harness/${STAMP}-${crypto.randomUUID()}`,
+          visibility,
+          created_by: createdBy,
+        } as never)
+        .returning('id')
+        .executeTakeFirstOrThrow(),
+    );
     return row.id;
   };
 
@@ -125,9 +133,13 @@ d('storage with an API key', () => {
   afterAll(async () => {
     rmSync(TMP, { recursive: true, force: true });
     if (!db) return;
-    await sql`DELETE FROM zv_media_files WHERE original_name = ${`${STAMP}.txt`}
-              OR created_by = ${issuer}`.execute(db);
-    await sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_media_files WHERE original_name = ${`${STAMP}.txt`}
+              OR created_by = ${issuer}`.execute(trx),
+    );
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`.execute(trx),
+    );
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${TENANT}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${TENANT}::uuid`.execute(db);
@@ -193,11 +205,13 @@ d('storage with an API key', () => {
   it('keeps the file, owned by its issuer alone, when the key row is deleted', async () => {
     const { file } = (await (await upload('doomed')).json()) as { file: { id: string } };
     await sql`DELETE FROM zv_api_keys WHERE id = ${keyIds.doomed}::uuid`.execute(db);
-    const row = await db
-      .selectFrom('zv_media_files')
-      .select(['created_by', 'created_by_api_key'])
-      .where('id', '=', file.id)
-      .executeTakeFirstOrThrow();
+    const row = await asEveryTenant(db, (trx) =>
+      trx
+        .selectFrom('zv_media_files')
+        .select(['created_by', 'created_by_api_key'])
+        .where('id', '=', file.id)
+        .executeTakeFirstOrThrow(),
+    );
     expect(row).toEqual({ created_by: issuer, created_by_api_key: null });
   });
 

@@ -7,8 +7,8 @@
  * it, the guard's count agreed with the ghost's, the swap committed, and the
  * post-swap DROP of `_zv_old_<table>` destroyed it.
  *
- * The harness pool is a superuser and sees through RLS, so the migration runs on
- * a second connection logged in as a plain NOSUPERUSER NOBYPASSRLS owner.
+ * On a superuser harness the migration runs on a second connection logged in
+ * as a plain NOSUPERUSER NOBYPASSRLS owner; on the owner lane the harness is one.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -21,7 +21,12 @@ import {
   sweepGhostOrphans,
 } from '../../lib/data/index.js';
 import { applyTenantRLS, DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  connectedAsSuperuser,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = Date.now();
@@ -34,12 +39,19 @@ const GONE_TENANT = crypto.randomUUID();
 d('ghost DDL with rows outside every published tenant', () => {
   let db: Database;
   let owner: Database;
+  let ownRole = false;
 
+  /** Rows per tenant, the gone one included: published by name, as no reach would. */
   const perTenant = async () => {
-    const r = await sql<{ tenant_id: string; n: number }>`
-      SELECT tenant_id::text AS tenant_id, count(*)::int AS n
-      FROM ${sql.id(TABLE)} GROUP BY 1 ORDER BY 1
-    `.execute(db);
+    const r = await db.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('zveltio.visible_tenants', ${`${DEFAULT_TENANT_ID},${GONE_TENANT}`}, true)`.execute(
+        trx,
+      );
+      return sql<{ tenant_id: string; n: number }>`
+        SELECT tenant_id::text AS tenant_id, count(*)::int AS n
+        FROM ${sql.id(TABLE)} GROUP BY 1 ORDER BY 1
+      `.execute(trx);
+    });
     return Object.fromEntries(r.rows.map((x) => [x.tenant_id, x.n]));
   };
 
@@ -57,13 +69,21 @@ d('ghost DDL with rows outside every published tenant', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     await applyTenantRLS(db, TABLE);
-    await sql`
-      INSERT INTO ${sql.id(TABLE)} (title, tenant_id)
-      SELECT 'd' || g, ${DEFAULT_TENANT_ID}::uuid FROM generate_series(1, 30) g
-      UNION ALL
-      SELECT 'x' || g, ${GONE_TENANT}::uuid FROM generate_series(1, 5) g
-    `.execute(db);
+    for (const [t, p, n] of [
+      [DEFAULT_TENANT_ID, 'd', 30],
+      [GONE_TENANT, 'x', 5],
+    ] as const) {
+      await asTenant(db, t, (trx) =>
+        sql`INSERT INTO ${sql.id(TABLE)} (title, tenant_id)
+            SELECT ${p} || g, ${t}::uuid FROM generate_series(1, ${n}) g`.execute(trx),
+      );
+    }
 
+    ownRole = await connectedAsSuperuser(db);
+    if (!ownRole) {
+      owner = db;
+      return;
+    }
     await sql.raw(`CREATE ROLE ${OWNER} LOGIN PASSWORD 'hgh' NOSUPERUSER NOBYPASSRLS`).execute(db);
     await sql.raw(`GRANT CREATE ON SCHEMA public TO ${OWNER}`).execute(db);
     await sql.raw(`GRANT SELECT ON zvd_collections, zv_tenants TO ${OWNER}`).execute(db);
@@ -79,7 +99,7 @@ d('ghost DDL with rows outside every published tenant', () => {
   afterAll(async () => {
     if (!db) return;
     cancelPendingCleanups();
-    await owner?.destroy().catch(() => {});
+    if (ownRole) await owner?.destroy().catch(() => {});
     for (const t of [`_zv_ghost_${TABLE}`, `_zv_changelog_${TABLE}`, TABLE]) {
       await sql`DROP TABLE IF EXISTS ${sql.id(t)} CASCADE`.execute(db).catch(() => {});
     }
@@ -122,7 +142,9 @@ d('ghost DDL with rows outside every published tenant', () => {
   });
 
   it('still swaps a table whose every row is visible, keeping FORCE RLS', async () => {
-    await sql`DELETE FROM ${sql.id(TABLE)} WHERE tenant_id = ${GONE_TENANT}::uuid`.execute(db);
+    await asTenant(db, GONE_TENANT, (trx) =>
+      sql`DELETE FROM ${sql.id(TABLE)} WHERE tenant_id = ${GONE_TENANT}::uuid`.execute(trx),
+    );
     const before = await perTenant();
 
     await GhostDDL.execute(owner, TABLE, [

@@ -17,7 +17,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { executeFlow } from '../../lib/flows/index.js';
 import { triggerDataFlows } from '../../lib/flows/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
@@ -34,12 +39,14 @@ async function makeFlow(
   triggerType: 'manual' | 'on_create',
   triggerConfig: Record<string, unknown> = {},
 ): Promise<string> {
-  const row = await sql<{ id: string }>`
+  const row = await asTenant(db, tenant, (trx) =>
+    sql<{ id: string }>`
     INSERT INTO zv_flows (tenant_id, name, trigger_type, trigger_config, is_active)
     VALUES (${tenant}, ${`probe-${tenant}-${STAMP}`}, ${triggerType},
             ${JSON.stringify(triggerConfig)}::jsonb, true)
     RETURNING id::text AS id
-  `.execute(db);
+  `.execute(trx),
+  );
   const flowId = row.rows[0]!.id;
   await sql`
     INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config, on_error)
@@ -69,7 +76,7 @@ d('flow executor tenant isolation (in-process)', () => {
     for (const id of created) {
       await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`.execute(db).catch(() => {});
       await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});
-      await sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(db).catch(() => {});
+      await asEveryTenant(db, (trx) => sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(trx));
     }
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db).catch(() => {});
   });

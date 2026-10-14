@@ -20,7 +20,12 @@ import {
   reconcileExtensionTenantRLS,
   withTenantIsolation,
 } from '../../lib/tenancy/tenant-manager.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -48,8 +53,10 @@ d('UPDATE and DELETE stay in the own node (B09)', () => {
     });
   const count = async (table: string) =>
     (
-      await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.id(table)}
-                                WHERE tenant_id = ${CHILD}::uuid`.execute(db)
+      await asEveryTenant(db, (trx) =>
+        sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.id(table)}
+                                WHERE tenant_id = ${CHILD}::uuid`.execute(trx),
+      )
     ).rows[0]?.n;
 
   beforeAll(async () => {
@@ -81,19 +88,25 @@ d('UPDATE and DELETE stay in the own node (B09)', () => {
     for (const t of [COLLECTION, EXT]) {
       await sql.raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${t} TO zveltio_rls`).execute(db);
       await sql.raw(`GRANT USAGE ON SEQUENCE ${t}_id_seq TO zveltio_rls`).execute(db);
-      await sql
-        .raw(`INSERT INTO ${t} (tenant_id, label) VALUES ('${CHILD}', 'child-row')`)
-        .execute(db);
+      await asTenant(db, CHILD, (trx) =>
+        sql
+          .raw(`INSERT INTO ${t} (tenant_id, label) VALUES ('${CHILD}', 'child-row')`)
+          .execute(trx),
+      );
     }
     // As shipped after the boot reconcile, which is what every install runs.
     await reconcileExtensionTenantRLS(db, ['zv_sync_tombstones']);
-    await sql`INSERT INTO zv_sync_tombstones (tenant_id, collection, row_id, deleted_at) VALUES
+    await asTenant(db, CHILD, (trx) =>
+      sql`INSERT INTO zv_sync_tombstones (tenant_id, collection, row_id, deleted_at) VALUES
                 (${CHILD}::uuid, ${TAG}, gen_random_uuid(), now()),
                 (${CHILD}::uuid, ${TAG}, gen_random_uuid(), now() - interval '90 days')`.execute(
-      db,
+        trx,
+      ),
     );
-    await sql`INSERT INTO zv_audit_log (event_type, tenant_id) VALUES (${TAG}, ${CHILD}::uuid)`.execute(
-      db,
+    await asTenant(db, CHILD, (trx) =>
+      sql`INSERT INTO zv_audit_log (event_type, tenant_id) VALUES (${TAG}, ${CHILD}::uuid)`.execute(
+        trx,
+      ),
     );
   });
 
@@ -104,8 +117,12 @@ d('UPDATE and DELETE stay in the own node (B09)', () => {
         .execute(db)
         .catch(() => undefined);
     }
-    await sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TAG}`.execute(db);
-    await sql`DELETE FROM zv_audit_log WHERE event_type = ${TAG}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TAG}`.execute(trx),
+    );
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_audit_log WHERE event_type = ${TAG}`.execute(trx),
+    );
     await sql`DELETE FROM zv_tenant_users WHERE user_id = ${USER}`.execute(db);
     await sql`DELETE FROM "user" WHERE id = ${USER}`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id IN (${CHILD}::uuid, ${PARENT}::uuid)`.execute(db);
@@ -136,9 +153,11 @@ d('UPDATE and DELETE stay in the own node (B09)', () => {
     expect(own).toBe(1);
     // No tenant set, every firm published (`withEveryTenant`): the retention purge.
     await runGarbageCollector(db);
-    const left = await sql<{ old: boolean }>`
+    const left = await asEveryTenant(db, (trx) =>
+      sql<{ old: boolean }>`
       SELECT deleted_at < now() - interval '1 day' AS old
-        FROM zv_sync_tombstones WHERE collection = ${TAG}`.execute(db);
+        FROM zv_sync_tombstones WHERE collection = ${TAG}`.execute(trx),
+    );
     expect(left.rows).toEqual([{ old: false }]);
   });
 });

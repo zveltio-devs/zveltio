@@ -13,6 +13,7 @@ import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -48,12 +49,14 @@ d('revisions/time-travel tenant isolation (in-process)', () => {
     expect(created.status).toBe(201);
 
     // Another tenant's history for the SAME collection, inserted directly.
-    await sql`
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      sql`
       INSERT INTO zv_revisions (collection, record_id, action, data, user_id, tenant_id)
       VALUES (${COLLECTION}, ${FOREIGN_RECORD_ID}, 'create',
               ${JSON.stringify({ id: FOREIGN_RECORD_ID, title: 'foreign-row' })}::jsonb,
               NULL, ${OTHER_TENANT}::uuid)
-    `.execute(db);
+    `.execute(trx),
+    );
   });
 
   afterAll(async () => {

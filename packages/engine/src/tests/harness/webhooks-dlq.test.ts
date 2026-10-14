@@ -14,7 +14,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type Redis from 'ioredis';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
 import { WEBHOOK_DLQ_KEY } from '../../lib/webhook-worker.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
@@ -85,33 +90,33 @@ d('webhook dead-letter queue routes (in-process)', () => {
     cache = new FakeCache();
     _setCacheForTests(cache as unknown as Redis);
 
-    await db
-      .insertInto('zvd_webhooks')
-      .values({
-        id: FOREIGN_ID,
-        name: `foreign-dlq-${STAMP}`,
-        url: SHARED_URL,
-        method: 'POST',
-        events: ['*'] as unknown as string[],
-        collections: [] as unknown as string[],
-        active: true,
-        secret: null,
-        retry_attempts: 3,
-        timeout: 5000,
-        tenant_id: OTHER_TENANT,
-      } as never)
-      .execute();
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx
+        .insertInto('zvd_webhooks')
+        .values({
+          id: FOREIGN_ID,
+          name: `foreign-dlq-${STAMP}`,
+          url: SHARED_URL,
+          method: 'POST',
+          events: ['*'] as unknown as string[],
+          collections: [] as unknown as string[],
+          active: true,
+          secret: null,
+          retry_attempts: 3,
+          timeout: 5000,
+          tenant_id: OTHER_TENANT,
+        } as never)
+        .execute(),
+    );
   });
 
   afterAll(async () => {
     _setCacheForTests(null);
     if (!db) return;
     for (const id of [FOREIGN_ID, mineId].filter(Boolean)) {
-      await db
-        .deleteFrom('zvd_webhooks')
-        .where('id', '=', id)
-        .execute()
-        .catch(() => {});
+      await asTenant(db, id === FOREIGN_ID ? OTHER_TENANT : DEFAULT_TENANT_ID, (trx) =>
+        trx.deleteFrom('zvd_webhooks').where('id', '=', id).execute(),
+      ).catch(() => {});
     }
   });
 

@@ -63,28 +63,31 @@ d('policed engine tables: tenant/created_at index from the migration', () => {
   }, 60_000);
 
   it('replaces an INVALID leftover of a failed concurrent build on retry', async () => {
-    expect((await rollbackMigration(db, 29, { ignoreBaseline: true })).success).toBe(true);
-    // A CONCURRENTLY build that fails leaves its index behind, INVALID, under
-    // the name — which `IF NOT EXISTS` alone would then skip for good.
-    await sql`DROP INDEX IF EXISTS idx_zv_media_tags_tenant_created`.execute(db);
-    for (const n of ['a', 'b']) {
-      await sql`INSERT INTO zv_media_tags (name) VALUES (${`${STAMP}-${n}`})`.execute(db);
+    try {
+      expect((await rollbackMigration(db, 29, { ignoreBaseline: true })).success).toBe(true);
+      // A CONCURRENTLY build that fails leaves its index behind, INVALID, under
+      // the name — which `IF NOT EXISTS` alone would then skip for good.
+      await sql`DROP INDEX IF EXISTS idx_zv_media_tags_tenant_created`.execute(db);
+      for (const n of ['a', 'b']) {
+        await sql`INSERT INTO zv_media_tags (name) VALUES (${`${STAMP}-${n}`})`.execute(db);
+      }
+      const failed = await sql`
+        CREATE UNIQUE INDEX CONCURRENTLY idx_zv_media_tags_tenant_created ON zv_media_tags (tenant_id)
+      `
+        .execute(db)
+        .then(
+          () => false,
+          () => true,
+        );
+      expect(failed).toBe(true);
+      const leftover = await sql<{ valid: boolean }>`
+        SELECT indisvalid AS valid FROM pg_index
+         WHERE indexrelid = 'idx_zv_media_tags_tenant_created'::regclass`.execute(db);
+      expect(leftover.rows[0]?.valid).toBe(false);
+    } finally {
+      // A failure above must not leave the shared database at 029 for every later file.
+      await runPending(db);
     }
-    const failed = await sql`
-      CREATE UNIQUE INDEX CONCURRENTLY idx_zv_media_tags_tenant_created ON zv_media_tags (tenant_id)
-    `
-      .execute(db)
-      .then(
-        () => false,
-        () => true,
-      );
-    expect(failed).toBe(true);
-    const leftover = await sql<{ valid: boolean }>`
-      SELECT indisvalid AS valid FROM pg_index
-       WHERE indexrelid = 'idx_zv_media_tags_tenant_created'::regclass`.execute(db);
-    expect(leftover.rows[0]?.valid).toBe(false);
-
-    await runPending(db);
     expect(await composites(db)).toContain('zv_media_tags:idx_zv_media_tags_tenant_created');
   }, 120_000);
 });

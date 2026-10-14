@@ -14,6 +14,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getTenantSchemaName } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -81,9 +82,11 @@ d('tenants routes (in-process)', () => {
       SELECT nspname AS s FROM pg_namespace WHERE nspname LIKE ${`${getTenantSchemaName(slug)}%`}
     `.execute(db);
     expect(schemas.rows).toEqual([]);
-    const envs = await sql<{ slug: string; schema_name: string | null }>`
+    const envs = await asEveryTenant(db, (trx) =>
+      sql<{ slug: string; schema_name: string | null }>`
       SELECT slug, schema_name FROM zv_environments WHERE tenant_id = ${tenantId}::uuid ORDER BY 1
-    `.execute(db);
+    `.execute(trx),
+    );
     expect(envs.rows).toEqual([
       { slug: 'dev', schema_name: null },
       { slug: 'prod', schema_name: null },

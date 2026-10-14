@@ -89,10 +89,12 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
 
     // What the pre-#670 route did: the user row goes, the audit row is written,
     // the Casbin rows stay. And what it did for any other id it was handed.
-    // Replica mode skips triggers: this is a delete from before 017's trigger.
+    // With the table's own triggers off: this is a delete from before 017's
+    // trigger. The owner may do that; replica mode would need a superuser.
     await db.transaction().execute(async (trx) => {
-      await sql`SET LOCAL session_replication_role = replica`.execute(trx);
+      await sql`ALTER TABLE "user" DISABLE TRIGGER USER`.execute(trx);
       await sql`DELETE FROM "user" WHERE id = ${ORPHAN}`.execute(trx);
+      await sql`ALTER TABLE "user" ENABLE TRIGGER USER`.execute(trx);
     });
     for (const id of [ORPHAN, LIVE, MISTAKEN, REGISTERED, 'tenant_viewer']) await deleted(db, id);
 

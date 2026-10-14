@@ -10,6 +10,8 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asEveryTenant,
+  asTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -43,16 +45,22 @@ d('dashboards tenant isolation (in-process)', () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
 
-    // A PUBLIC dashboard belonging to ANOTHER tenant, inserted directly.
-    await db
-      .insertInto('zv_dashboards')
-      .values({
-        id: FOREIGN_ID,
-        name: `foreign-public-${STAMP}`,
-        is_public: true,
-        tenant_id: OTHER_TENANT,
-      })
-      .execute();
+    // A PUBLIC dashboard belonging to ANOTHER tenant, inserted directly — a
+    // real one: god's whole-instance reach is the firms that exist.
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER_TENANT}::uuid, ${`dash-iso-${STAMP}`}, 'dash-iso', 'active')
+              ON CONFLICT (id) DO NOTHING`.execute(db);
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx
+        .insertInto('zv_dashboards')
+        .values({
+          id: FOREIGN_ID,
+          name: `foreign-public-${STAMP}`,
+          is_public: true,
+          tenant_id: OTHER_TENANT,
+        })
+        .execute(),
+    );
 
     // Children of that dashboard, and a saved query, of the same tenant.
     const session = await app.request('/api/auth/get-session', { headers: { cookie } });
@@ -76,39 +84,39 @@ d('dashboards tenant isolation (in-process)', () => {
         created_by: userId,
       })
       .execute();
-    await db
-      .insertInto('zvd_insight_saved_queries')
-      .values({
-        id: FOREIGN_QUERY,
-        name: 'foreign',
-        query: FOREIGN_SQL,
-        is_public: true,
-        created_by: userId,
-        tenant_id: OTHER_TENANT,
-      })
-      .execute();
+    await asTenant(db, OTHER_TENANT, (trx) =>
+      trx
+        .insertInto('zvd_insight_saved_queries')
+        .values({
+          id: FOREIGN_QUERY,
+          name: 'foreign',
+          query: FOREIGN_SQL,
+          is_public: true,
+          created_by: userId,
+          tenant_id: OTHER_TENANT,
+        })
+        .execute(),
+    );
   });
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${FOREIGN_QUERY} OR created_by = ${userId}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${FOREIGN_QUERY} OR created_by = ${userId}`.execute(
+        trx,
+      ),
+    ).catch(() => {});
     await sql`DELETE FROM zvd_dashboard_shares WHERE dashboard_id = ${FOREIGN_ID}`
       .execute(db)
       .catch(() => {});
     await sql`DELETE FROM zv_panels WHERE dashboard_id = ${FOREIGN_ID}`.execute(db).catch(() => {});
-    await db
-      .deleteFrom('zv_dashboards')
-      .where('id', '=', FOREIGN_ID)
-      .execute()
-      .catch(() => {});
-    if (myId)
-      await db
+    await asEveryTenant(db, (trx) =>
+      trx
         .deleteFrom('zv_dashboards')
-        .where('id', '=', myId)
-        .execute()
-        .catch(() => {});
+        .where('id', 'in', [FOREIGN_ID, ...(myId ? [myId] : [])])
+        .execute(),
+    ).catch(() => {});
+    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db).catch(() => {});
   });
 
   it('single-tenant: create + list works and hides the other tenant’s public dashboard', async () => {
@@ -146,11 +154,13 @@ d('dashboards tenant isolation (in-process)', () => {
       .where('dashboard_id', '=', FOREIGN_ID)
       .execute();
   const foreignQuery = () =>
-    db
-      .selectFrom('zvd_insight_saved_queries')
-      .select(['name', 'query'])
-      .where('id', '=', FOREIGN_QUERY)
-      .executeTakeFirst();
+    asEveryTenant(db, (trx) =>
+      trx
+        .selectFrom('zvd_insight_saved_queries')
+        .select(['name', 'query'])
+        .where('id', '=', FOREIGN_QUERY)
+        .executeTakeFirst(),
+    );
 
   it('cross-tenant: shares of another tenant’s dashboard are not listed, added or removed', async () => {
     expect((await send('GET', `/dashboards/${FOREIGN_ID}/shares`)).status).toBe(404);
@@ -224,16 +234,20 @@ d('dashboards tenant isolation (in-process)', () => {
     const mine = await send('POST', '/saved-queries', { name: `mine-${STAMP}`, query: 'SELECT 1' });
     expect(mine.status).toBe(201);
     const mineId = ((await mine.json()) as { query: { id: string } }).query.id;
-    const row = await db
-      .selectFrom('zvd_insight_saved_queries')
-      .select('tenant_id')
-      .where('id', '=', mineId)
-      .executeTakeFirst();
-    const dash = await db
-      .selectFrom('zv_dashboards')
-      .select('tenant_id')
-      .where('id', '=', myId)
-      .executeTakeFirst();
+    const [row, dash] = await asEveryTenant(db, (trx) =>
+      Promise.all([
+        trx
+          .selectFrom('zvd_insight_saved_queries')
+          .select('tenant_id')
+          .where('id', '=', mineId)
+          .executeTakeFirst(),
+        trx
+          .selectFrom('zv_dashboards')
+          .select('tenant_id')
+          .where('id', '=', myId)
+          .executeTakeFirst(),
+      ]),
+    );
     expect(row?.tenant_id).toBe(dash?.tenant_id as string);
     expect(row?.tenant_id).not.toBe(OTHER_TENANT);
 
@@ -272,11 +286,9 @@ d('dashboards tenant isolation (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(404);
-    const still = await db
-      .selectFrom('zv_dashboards')
-      .select('id')
-      .where('id', '=', FOREIGN_ID)
-      .executeTakeFirst();
+    const still = await asEveryTenant(db, (trx) =>
+      trx.selectFrom('zv_dashboards').select('id').where('id', '=', FOREIGN_ID).executeTakeFirst(),
+    );
     expect(still?.id).toBe(FOREIGN_ID); // untouched
   });
 });

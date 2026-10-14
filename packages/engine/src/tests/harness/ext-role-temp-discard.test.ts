@@ -45,7 +45,9 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const EXT = 'pooltempprobe';
-const NON_OWNER = 'zz_pooltemp_nonowner';
+// A role that does not own the database and that the engine may take on as
+// installed — the request role — so the setup needs no CREATEROLE or superuser.
+const NON_OWNER = 'zveltio_rls';
 const PROBE = `zz_pooltemp_${Date.now()}`;
 
 d('ctx.db role windows leave no temp objects when TEMPORARY could not be revoked', () => {
@@ -72,10 +74,6 @@ d('ctx.db role windows leave no temp objects when TEMPORARY could not be revoked
     // A database the engine does not own: TEMPORARY back on PUBLIC, and boot's
     // restrict run by a role that can neither grant nor revoke it.
     await sql`DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${sql.lit(NON_OWNER)}) THEN
-        CREATE ROLE ${sql.id(NON_OWNER)} NOLOGIN;
-      END IF; END $$`.execute(db);
-    await sql`DO $$ BEGIN
       EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO PUBLIC', current_database()); END $$`.execute(
       db,
     );
@@ -95,7 +93,6 @@ d('ctx.db role windows leave no temp objects when TEMPORARY could not be revoked
     _resetExtensionDbRoleForTests();
     // Heal: boot as the owner takes TEMPORARY from PUBLIC again.
     await restrictTemporaryObjects(db);
-    await sql`DROP ROLE IF EXISTS ${sql.id(NON_OWNER)}`.execute(db);
   });
 
   it('is the non-owner case: the restricted roles still hold TEMPORARY', () => {

@@ -20,7 +20,12 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionInternals } from '../../lib/extensions/internals.js';
 import { getEnforcer } from '../../lib/tenancy/permissions.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const A = crypto.randomUUID();
@@ -80,7 +85,9 @@ d('ctx.internals tenant facts', () => {
     await e.deleteRoleForUser(users[3]!, ROLE_B, B);
     await sql`DELETE FROM zvd_relations WHERE name LIKE ${`${TAG}%`}`.execute(db);
     await sql`DELETE FROM zv_settings WHERE key IN (${KEY_PUBLIC}, ${KEY_PRIVATE})`.execute(db);
-    await sql`DELETE FROM zv_audit_log WHERE event_type = ${`${TAG}.event`}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_audit_log WHERE event_type = ${`${TAG}.event`}`.execute(trx),
+    );
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id IN (${A}::uuid, ${B}::uuid)`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id IN (${A}::uuid, ${B}::uuid)`.execute(db);
     for (const id of users) await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db);
@@ -121,8 +128,10 @@ d('ctx.internals tenant facts', () => {
     });
     await _settleAuditWrites();
     const row = (
-      await sql<{ metadata: Record<string, unknown> }>`
-        SELECT metadata FROM zv_audit_log WHERE event_type = ${`${TAG}.event`}`.execute(db)
+      await asEveryTenant(db, (trx) =>
+        sql<{ metadata: Record<string, unknown> }>`
+        SELECT metadata FROM zv_audit_log WHERE event_type = ${`${TAG}.event`}`.execute(trx),
+      )
     ).rows[0];
     expect(row?.metadata).toEqual({ extension: 'ext:facts-ext', n: 1 });
   });
@@ -135,10 +144,12 @@ d('ctx.internals tenant facts', () => {
     await internals.audit(forged);
     await _settleAuditWrites();
     const rows = (
-      await sql<{ tenant_id: string | null }>`
+      await asEveryTenant(db, (trx) =>
+        sql<{ tenant_id: string | null }>`
         SELECT tenant_id FROM zv_audit_log
          WHERE event_type = ${`${TAG}.event`} AND resource_type = 'forged'
-         ORDER BY created_at`.execute(db)
+         ORDER BY created_at`.execute(trx),
+      )
     ).rows.map((r) => r.tenant_id);
     expect(rows).toEqual([A, null]);
   });

@@ -74,6 +74,7 @@
       // the output should vary on, which is what passThroughEnv means.
       "passThroughEnv": [
         "TEST_DATABASE_URL",
+        "TEST_SUPERUSER_DATABASE_URL",
         "DATABASE_URL",
         "BETTER_AUTH_SECRET",
         "FIELD_ENCRYPTION_KEY",

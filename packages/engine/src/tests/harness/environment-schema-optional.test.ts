@@ -11,7 +11,7 @@ import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { connectedAsSuperuser, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = `hes${Date.now().toString(36)}`;
@@ -40,8 +40,10 @@ d('migration 043: environment schema_name is optional', () => {
   });
 
   it('UP twice, DOWN as a plain owner under FORCE RLS, UP again', async () => {
-    // The harness connects as a superuser, which RLS never binds, so the owner
-    // is swapped for a plain role inside a transaction that is rolled back.
+    // On a superuser harness, which RLS never binds, the owner is swapped for a
+    // plain role inside a transaction that is rolled back; the owner lane
+    // already is one.
+    const superuser = await connectedAsSuperuser(db);
     const rollback = new Error('rollback');
     const seen: Record<string, unknown> = {};
     const a = crypto.randomUUID();
@@ -49,39 +51,53 @@ d('migration 043: environment schema_name is optional', () => {
     await db
       .transaction()
       .execute(async (trx) => {
+        const asPlainOwner = async () => {
+          if (superuser) await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+        };
+        const guc = (k: string, v: string) => sql`SELECT set_config(${k}, ${v}, true)`.execute(trx);
         for (const t of [a, b]) {
           await sql`INSERT INTO zv_tenants (id, slug, name) VALUES (${t}, ${`${STAMP}-${t.slice(0, 8)}`}, 'hes')`.execute(
             trx,
           );
         }
-        await sql`ALTER TABLE zv_environments OWNER TO zveltio_rls`.execute(trx);
-        await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+        if (superuser) await sql`ALTER TABLE zv_environments OWNER TO zveltio_rls`.execute(trx);
+        await asPlainOwner();
         await run(trx, 'up');
         await run(trx, 'up');
         seen.afterUp = await notNull(trx);
 
         await sql.raw('RESET ROLE').execute(trx);
-        await sql`
-          INSERT INTO zv_environments (tenant_id, name, slug, schema_name) VALUES
-            (${a}, 'p', 'prod', NULL), (${b}, 'p', 'prod', NULL), (${b}, 'l', 'legacy', 'tenant_kept')
-        `.execute(trx);
-        await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+        // Each row as its own tenant: FORCE RLS binds the plain owner's writes.
+        for (const [t, name, slug, schema] of [
+          [a, 'p', 'prod', null],
+          [b, 'p', 'prod', null],
+          [b, 'l', 'legacy', 'tenant_kept'],
+        ] as const) {
+          await guc('zveltio.current_tenant', t);
+          await sql`
+            INSERT INTO zv_environments (tenant_id, name, slug, schema_name)
+            VALUES (${t}, ${name}, ${slug}, ${schema})`.execute(trx);
+        }
+        await guc('zveltio.current_tenant', '');
+        await asPlainOwner();
 
         await run(trx, 'down');
         seen.afterDown = await notNull(trx);
         await sql.raw('RESET ROLE').execute(trx);
-        seen.rows = (
-          await sql<{ k: string }>`
-            SELECT (tenant_id = ${a})::text || ':' || slug || '=' || coalesce(schema_name, 'NULL') AS k
-              FROM zv_environments WHERE tenant_id IN (${a}, ${b}) ORDER BY 1`.execute(trx)
-        ).rows.map((r) => r.k);
         seen.gucs = (
           await sql<{ v: string }>`
             SELECT coalesce(current_setting('zveltio.current_tenant', true), '') || '|' ||
                    coalesce(current_setting('zveltio.visible_tenants', true), '') AS v`.execute(trx)
         ).rows[0]?.v;
+        await guc('zveltio.visible_tenants', `${a},${b}`);
+        seen.rows = (
+          await sql<{ k: string }>`
+            SELECT (tenant_id = ${a})::text || ':' || slug || '=' || coalesce(schema_name, 'NULL') AS k
+              FROM zv_environments WHERE tenant_id IN (${a}, ${b}) ORDER BY 1`.execute(trx)
+        ).rows.map((r) => r.k);
+        await guc('zveltio.visible_tenants', '');
 
-        await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+        await asPlainOwner();
         await run(trx, 'up');
         seen.afterReUp = await notNull(trx);
         throw rollback;

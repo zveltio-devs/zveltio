@@ -36,18 +36,21 @@ d('migration rollback', () => {
     const latest = await getLastAppliedMigration(db);
     expect(latest).toBeGreaterThan(62);
 
-    expect(await rollbackMigration(db, latest - 1)).toEqual({ success: true });
-    expect((await getAppliedMigrations(db)).map((m) => Number(m.version))).not.toContain(latest);
-    // Already rolled back: nothing left above the target to undo.
-    expect((await rollbackMigration(db, latest - 1)).success).toBe(false);
+    try {
+      expect(await rollbackMigration(db, latest - 1)).toEqual({ success: true });
+      expect((await getAppliedMigrations(db)).map((m) => Number(m.version))).not.toContain(latest);
+      // Already rolled back: nothing left above the target to undo.
+      expect((await rollbackMigration(db, latest - 1)).success).toBe(false);
 
-    // Editing a rolled-back migration is the point of rolling back: the boot
-    // guard must not read the stale row's checksum as a divergence.
-    await sql`UPDATE zv_schema_versions SET checksum = 'edited-since'
-               WHERE version = ${latest}`.execute(db);
-    await assertChainCompatible(db);
-
-    await runPending(db);
+      // Editing a rolled-back migration is the point of rolling back: the boot
+      // guard must not read the stale row's checksum as a divergence.
+      await sql`UPDATE zv_schema_versions SET checksum = 'edited-since'
+                 WHERE version = ${latest}`.execute(db);
+      await assertChainCompatible(db);
+    } finally {
+      // A failure above must not leave the shared database a migration short.
+      await runPending(db);
+    }
     await assertChainCompatible(db);
     const row = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_schema_versions

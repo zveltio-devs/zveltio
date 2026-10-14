@@ -27,7 +27,12 @@ import {
 } from '../../lib/tenancy/tenant-context.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { ALL_COLLECTIONS_ACTOR, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  asTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -136,8 +141,16 @@ d('a worker query runs as the tenant of its request', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     await applyTenantRLS(db, TABLE);
-    await sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id) VALUES
-                ('default-row', ${DEFAULT_TENANT}::uuid), ('b-row', ${B}::uuid)`.execute(db);
+    for (const [title, tenant] of [
+      ['default-row', DEFAULT_TENANT],
+      ['b-row', B],
+    ]) {
+      await asTenant(db, tenant!, (trx) =>
+        sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id) VALUES (${title}, ${tenant}::uuid)`.execute(
+          trx,
+        ),
+      );
+    }
 
     base = mkdtempSync(join(tmpdir(), 'wkr-ten-'));
     writeWorker(base, WORKER, ENTRY, ['inlsvc']);

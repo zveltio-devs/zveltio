@@ -15,6 +15,9 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { runGarbageCollector } from '../../lib/runtime/index.js';
 import {
+  asEveryTenant,
+  asTenant,
+  connectedAsSuperuser,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -84,7 +87,9 @@ d('sync pull returns deletes', () => {
   afterAll(async () => {
     await sql.raw(`DROP TABLE IF EXISTS "${TABLE}" CASCADE`).execute(db);
     await db.deleteFrom('zvd_collections').where('name', '=', NAME).execute();
-    await sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`.execute(trx),
+    );
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db);
   });
 
@@ -173,9 +178,11 @@ d('sync pull returns deletes', () => {
       db,
     );
 
-    const { rows: stones } = await sql<{ n: number }>`
+    const { rows: stones } = await asEveryTenant(db, (trx) =>
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_sync_tombstones WHERE row_id = ${theirs}::uuid
-    `.execute(db);
+    `.execute(trx),
+    );
     expect(stones[0]!.n).toBe(1);
     const body = await pullAs(member.cookie, { cursors });
     expect(deletesIn(body)).toContain(mine);
@@ -184,8 +191,9 @@ d('sync pull returns deletes', () => {
 
   // A parent unit (or god) may delete a child's row: the row's policy lets it
   // DELETE what it can see, while a tombstone written as the deleter's own unit
-  // would fail the WITH CHECK every tenant table has. The harness owner is a
-  // superuser and bypasses RLS, so the trigger runs as a plain role here.
+  // would fail the WITH CHECK every tenant table has. A superuser harness
+  // bypasses RLS, so the trigger is handed to a plain role here; on the owner
+  // lane it already belongs to one.
   it('a delete across units still writes its tombstone under RLS', async () => {
     const theirs = (
       await sql<{ id: string }>`
@@ -196,7 +204,9 @@ d('sync pull returns deletes', () => {
     const seen = await db
       .transaction()
       .execute(async (trx) => {
-        await sql`ALTER FUNCTION zveltio_sync_tombstone() OWNER TO zveltio_rls`.execute(trx);
+        if (await connectedAsSuperuser(trx)) {
+          await sql`ALTER FUNCTION zveltio_sync_tombstone() OWNER TO zveltio_rls`.execute(trx);
+        }
         await sql`
           SELECT set_config('role', 'zveltio_rls', true),
                  set_config('zveltio.current_tenant', '00000000-0000-0000-0000-000000000001', true),
@@ -246,16 +256,24 @@ d('sync pull returns deletes', () => {
 
   it('the nightly collector purges tombstones past the retention', async () => {
     const [oldId, newId] = [crypto.randomUUID(), crypto.randomUUID()];
-    await sql`
-      INSERT INTO zv_sync_tombstones (tenant_id, collection, row_id, deleted_at) VALUES
-        ('00000000-0000-0000-0000-000000000001', ${TABLE}, ${oldId}::uuid, now() - interval '40 days'),
-        (${OTHER_TENANT}::uuid, ${TABLE}, ${newId}::uuid, now())
-    `.execute(db);
+    for (const [tenant, id, age] of [
+      ['00000000-0000-0000-0000-000000000001', oldId, '40 days'],
+      [OTHER_TENANT, newId, '0 days'],
+    ]) {
+      await asTenant(db, tenant!, (trx) =>
+        sql`
+          INSERT INTO zv_sync_tombstones (tenant_id, collection, row_id, deleted_at)
+          VALUES (${tenant}::uuid, ${TABLE}, ${id}::uuid, now() - ${age}::interval)
+        `.execute(trx),
+      );
+    }
     await runGarbageCollector(db);
-    const { rows } = await sql<{ row_id: string }>`
+    const { rows } = await asEveryTenant(db, (trx) =>
+      sql<{ row_id: string }>`
       SELECT row_id::text AS row_id FROM zv_sync_tombstones
       WHERE row_id IN (${oldId}::uuid, ${newId}::uuid)
-    `.execute(db);
+    `.execute(trx),
+    );
     expect(rows).toEqual([{ row_id: newId }]);
   });
 });

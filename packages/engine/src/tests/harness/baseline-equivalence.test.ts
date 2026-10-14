@@ -34,8 +34,10 @@ import {
   stableProjection,
   volatileColumns,
 } from '../../../scripts/lib/baseline.js';
+import { superuserTitle, superuserUrl } from '../../testing/app-harness.js';
 
-const SERVER = process.env.TEST_DATABASE_URL;
+// Creates scratch databases: a superuser's setup, not the engine's path.
+const SERVER = process.env.TEST_DATABASE_URL ? await superuserUrl() : null;
 const d = SERVER ? describe : describe.skip;
 
 const BASELINE_FILE = '062_ga_baseline.sql';
@@ -62,7 +64,7 @@ async function ledger(u: string): Promise<string[]> {
   }
 }
 
-d('GA baseline', () => {
+d(superuserTitle('GA baseline', SERVER), () => {
   const server = SERVER as string;
   let freshApplied: string[] = [];
   let markApplied: string[] = [];

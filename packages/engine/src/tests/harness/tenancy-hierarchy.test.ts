@@ -22,7 +22,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import { applyTenantRLS, withTenantIsolation } from '../../lib/tenancy/tenant-manager.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -118,12 +118,17 @@ d('tenancy hierarchy', () => {
         .raw(`GRANT USAGE, SELECT ON SEQUENCE ${table}_id_seq TO zveltio_rls`)
         .execute(db)
         .catch(() => undefined);
-      await sql
-        .raw(
-          `INSERT INTO ${table} (tenant_id, label) VALUES ` +
-            `('${ROOT}', 'root-row'), ('${SIS_A}', 'a-row'), ('${SIS_B}', 'b-row')`,
-        )
-        .execute(db);
+      for (const [t, label] of [
+        [ROOT, 'root-row'],
+        [SIS_A, 'a-row'],
+        [SIS_B, 'b-row'],
+      ]) {
+        await asTenant(db, t!, (trx) =>
+          sql
+            .raw(`INSERT INTO ${table} (tenant_id, label) VALUES ('${t}', '${label}')`)
+            .execute(trx),
+        );
+      }
     }
   });
 

@@ -7,6 +7,8 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asEveryTenant,
+  asTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -302,9 +304,11 @@ d('a preview token reads from the branch schema (in-process)', () => {
     const created201 = (await viaPreview.json()) as { id?: string; record?: { id: string } };
     branchRowId = created201.record?.id ?? created201.id ?? '';
     // Another tenant's row in the same branch table, planted as the owner.
-    const planted = await sql<{ id: string }>`
+    const planted = await asTenant(db, OTHER.id, (trx) =>
+      sql<{ id: string }>`
       INSERT INTO ${sql.id(schema, `zvd_${COLLECTION}`)} (label, tenant_id)
-      VALUES ('other-tenant', ${OTHER.id}::uuid) RETURNING id`.execute(db);
+      VALUES ('other-tenant', ${OTHER.id}::uuid) RETURNING id`.execute(trx),
+    );
     otherRowId = planted.rows[0]!.id;
   });
 
@@ -324,8 +328,10 @@ d('a preview token reads from the branch schema (in-process)', () => {
 
   it("does not hand a previewing member another tenant's rows from the branch table", async () => {
     // The row is there — the owner sees it — so an empty answer below is the policy, not an empty table.
-    const all = await sql<{ label: string }>`
-      SELECT label FROM ${sql.id(schema, `zvd_${COLLECTION}`)} ORDER BY label`.execute(db);
+    const all = await asEveryTenant(db, (trx) =>
+      sql<{ label: string }>`
+      SELECT label FROM ${sql.id(schema, `zvd_${COLLECTION}`)} ORDER BY label`.execute(trx),
+    );
     expect(all.rows.map((r) => r.label)).toEqual(['branch', 'other-tenant']);
     expect(await labels(member, { 'x-preview-token': token })).not.toContain('other-tenant');
     // By id the list's own `tenant_id =` shortcut is not there: only the
@@ -373,9 +379,11 @@ d('a preview token reads from the branch schema (in-process)', () => {
     });
     expect(forged.status).toBeLessThan(500);
 
-    const rows = await sql<{ label: string; tenant_id: string }>`
+    const rows = await asEveryTenant(db, (trx) =>
+      sql<{ label: string; tenant_id: string }>`
       SELECT label, tenant_id::text FROM ${sql.id(schema, `zvd_${COLLECTION}`)} ORDER BY label`.execute(
-      db,
+        trx,
+      ),
     );
     // The minting tenant's branch row survived the PATCH and DELETE untouched,
     // and nothing new landed in it.
