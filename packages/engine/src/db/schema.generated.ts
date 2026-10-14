@@ -970,6 +970,12 @@ export interface ZvEtransportDeclarationsTable {
   tenant_id: Generated<string | null>;
 }
 
+export interface ZvExtensionForwardApprovalsTable {
+  name: Generated<string>;
+  approved: unknown;
+  approved_at: Generated<Date>;
+}
+
 export interface ZvExtensionRegistryTable {
   id: Generated<string>;
   name: string;
@@ -5537,6 +5543,7 @@ export interface DbSchema {
   zv_environments: ZvEnvironmentsTable;
   zv_erd_layouts: ZvErdLayoutsTable;
   zv_etransport_declarations: ZvEtransportDeclarationsTable;
+  zv_extension_forward_approvals: ZvExtensionForwardApprovalsTable;
   zv_extension_registry: ZvExtensionRegistryTable;
   zv_extension_schedule_runs: ZvExtensionScheduleRunsTable;
   zv_flow_dlq: ZvFlowDlqTable;

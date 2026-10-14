@@ -80,6 +80,7 @@ import m061 from './sql/067_drop_redundant_indexes.sql' with { type: 'text' };
 import m062 from './sql/068_preview_token_lookup_function.sql' with { type: 'text' };
 import m063 from './sql/069_helper_search_path.sql' with { type: 'text' };
 import m064 from './sql/070_extension_forward_credentials_approval.sql' with { type: 'text' };
+import m065 from './sql/071_extension_forward_approvals.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -148,4 +149,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '068_preview_token_lookup_function.sql': m062,
   '069_helper_search_path.sql': m063,
   '070_extension_forward_credentials_approval.sql': m064,
+  '071_extension_forward_approvals.sql': m065,
 };

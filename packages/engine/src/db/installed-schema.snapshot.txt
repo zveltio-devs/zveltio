@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 389
+# tables: 390
 
 table account
   col accessToken                    text
@@ -1474,6 +1474,12 @@ table zv_etransport_declarations
   pk  zv_etransport_declarations_pkey PRIMARY KEY (id)
   rls enabled forced
   pol tenant_isolation_zv_etransport_declarations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+
+table zv_extension_forward_approvals
+  col approved                       jsonb NOT NULL
+  col approved_at                    timestamp with time zone NOT NULL DEFAULT now()
+  col name                           text NOT NULL
+  pk  zv_extension_forward_approvals_pkey PRIMARY KEY (name)
 
 table zv_extension_registry
   col approved_forward_credentials   jsonb

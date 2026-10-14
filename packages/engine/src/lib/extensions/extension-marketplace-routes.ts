@@ -40,6 +40,7 @@ import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
 import { guardAdmin } from '../admin-guard.js';
 import {
+  announceForwardApproval,
   type ForwardMap,
   forwardPairsOutside,
   parseForwardMap,
@@ -49,7 +50,6 @@ import {
   resolveCapabilities,
   resolveForwarded,
 } from './consent.js';
-import { toJsonb } from '../jsonb.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
@@ -269,11 +269,13 @@ export function registerMarketplaceRoutes(
     //
     // `fetchCatalog()` handles its own registry-unreachable fallback; that is a
     // different failure with a real local answer.
-    const [catalog, rows, licenseRows] = await Promise.all([
+    const [catalog, rows, licenseRows, forwardRows] = await Promise.all([
       fetchCatalog(),
       db.selectFrom('zv_extension_registry').selectAll().execute(),
       db.selectFrom('zv_settings').select(['key']).where('key', 'like', 'ext_license:%').execute(),
+      db.selectFrom('zv_extension_forward_approvals').select(['name', 'approved']).execute(),
     ]);
+    const forwardApprovals = new Map(forwardRows.map((r) => [r.name, r.approved]));
 
     // This listing reports what the RUNTIME will do, not what the schema allows.
     //
@@ -376,7 +378,7 @@ export function registerMarketplaceRoutes(
         // Requested by the manifest; forwarded only once approved as a whole.
         ...(() => {
           const declared = readForwarded(entry.name);
-          const approved = parseForwardMap(dbEntry?.approved_forward_credentials);
+          const approved = parseForwardMap(forwardApprovals.get(entry.name));
           return {
             forwarded_credentials: declared,
             approved_forward_credentials: approved,
@@ -549,7 +551,6 @@ export function registerMarketplaceRoutes(
           author: entry.author,
           is_installed: true,
           is_enabled: false,
-          approved_forward_credentials: forwardApproval ? toJsonb(forwardApproval) : null,
           installed_at: new Date(),
           tenant_id: null,
           // Pin what we actually installed. Only set on a real download —
@@ -565,8 +566,6 @@ export function registerMarketplaceRoutes(
             is_installed: true,
             installed_at: new Date(),
             tenant_id: null,
-            // An install records the approval it carries, and none when it carries none.
-            approved_forward_credentials: forwardApproval ? toJsonb(forwardApproval) : null,
             ...(downloadedSha
               ? { installed_sha256: downloadedSha, installed_version: entry.version }
               : {}),
@@ -581,6 +580,9 @@ export function registerMarketplaceRoutes(
         Array.isArray(manifest.permissions) ? (manifest.permissions as unknown[]) : []
       ).filter((x: unknown): x is string => typeof x === 'string');
       await recordConsent(db, entry.name, declaredAtInstall).catch(() => undefined);
+      // An install records the approval it carries, and none when it carries none.
+      await recordForwardApproval(db, entry.name, forwardApproval);
+      await announceForwardApproval(db, entry.name);
 
       return c.json({
         success: true,
@@ -961,6 +963,7 @@ export function registerMarketplaceRoutes(
       }
 
       await db.deleteFrom('zv_extension_registry').where('name', '=', name).execute();
+      await recordForwardApproval(db, name, null);
 
       if (wasActive) {
         await triggerReloadFn(`uninstall-purge:${name}`);
@@ -1060,16 +1063,22 @@ export function registerMarketplaceRoutes(
    *
    * Body `{ forward_credentials: { route: [header, ...] } }` naming the exact map
    * approved; it replaces the record (`{}` withdraws every approval). The worker
-   * receives credentials only while the manifest's map is inside it, from its
-   * next start.
+   * receives credentials only while the manifest's map is inside it. A change
+   * restarts the running worker here and on every other replica at once.
+   *
+   * Needs no registry row (migration 071): an extension loaded from
+   * ZVELTIO_EXTENSIONS has none, and its manifest is read from wherever it was
+   * loaded (ZVELTIO_EXTENSIONS_PATH included).
    */
   const approveForwardCredentials = async (c: Context, name: string) => {
     const gate = await requireGod(c);
     if (gate instanceof Response) return gate;
 
     const extBase = resolveExtensionsBase();
-    const extDir = join(extBase, name);
-    if (!isPathInsideBase(extBase, extDir)) return c.json({ error: 'Invalid extension name' }, 400);
+    if (!isPathInsideBase(extBase, join(extBase, name))) {
+      return c.json({ error: 'Invalid extension name' }, 400);
+    }
+    const extDir = self.extDirs.get(name) ?? join(extBase, name);
 
     let declared: ForwardMap;
     try {
@@ -1103,9 +1112,8 @@ export function registerMarketplaceRoutes(
       );
     }
 
-    if ((await recordForwardApproval(db, name, approve)) === 0) {
-      return c.json({ error: `"${name}" is not installed` }, 404);
-    }
+    await recordForwardApproval(db, name, approve);
+    await announceForwardApproval(db, name);
     await auditLog(db, {
       type: 'extension.forward_credentials.approved',
       tenantId: null,
@@ -1119,9 +1127,7 @@ export function registerMarketplaceRoutes(
       success: true,
       approved_forward_credentials: approve,
       pending_forward_credentials: resolveForwarded(declared, approve).pending,
-      message:
-        `Recorded for "${name}". Disable and re-enable the extension (or restart) for its ` +
-        `worker to pick it up.`,
+      message: `Recorded for "${name}"; its running worker, here and on every replica, follows it now.`,
     });
   };
 
