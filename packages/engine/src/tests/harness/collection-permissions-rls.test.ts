@@ -239,6 +239,34 @@ d('collection permissions in the database (R1)', () => {
     expect(seen.filter((n) => n > 0)).toEqual([]);
   }, 60_000);
 
+  it('refuses to isolate a table on a database without zveltio_collection_allows', async () => {
+    // The function is in the GA baseline, so its absence is a broken database.
+    // On master `applyTenantRLS` returned quietly and the new table had tenant
+    // isolation but none of the four collection-permission policies. Renamed
+    // inside a transaction that is always rolled back: the test database never
+    // loses the function, and no other session sees it gone.
+    const table = `zvd_cpgone_${SFX}`;
+    const outcome = await db
+      .transaction()
+      .execute(async (trx) => {
+        await sql`ALTER FUNCTION zveltio_collection_allows(text, text)
+                  RENAME TO zveltio_collection_allows_gone`.execute(trx);
+        await sql`CREATE TABLE ${sql.table(table)} (id uuid PRIMARY KEY DEFAULT gen_random_uuid())`.execute(
+          trx,
+        );
+        const err = await applyTenantRLS(trx, table).then(
+          () => null,
+          (e: Error) => e.message,
+        );
+        throw { out: err };
+      })
+      .catch((e) => {
+        if (e && typeof e === 'object' && 'out' in e) return e.out as string | null;
+        throw e;
+      });
+    expect(outcome).toMatch(/zveltio_collection_allows/);
+  });
+
   it('a read grant reads, and only reads', async () => {
     const reader = await identityOf(U.reader);
     expect(await attempt(reader, (t) => count(t))).toBe(2);
