@@ -1086,6 +1086,17 @@ Timing options (pick ONE per schedule):
   supported** — schedules using it are logged as skipped at register
   time. Use `intervalMs` or `at` instead.
 
+Tenancy — `perTenant: true`:
+- Without it the handler runs **once, with no tenant**: `ctx.db` falls back to
+  the pool with no tenant set, and a table under tenant RLS answers for the root
+  tenant only. Fine for work that touches no tenant data.
+- With it the handler runs once per **active** tenant where the extension is
+  active, each inside that tenant's transaction, so `ctx.db` (and permission
+  checks) answer for that tenant. A tenant that turned the extension off is
+  skipped. One tenant's failure does not stop the others; the run is then
+  recorded failed, naming the tenants, and a retry runs every tenant again — so
+  the handler must be safe to repeat.
+
 Retry policy:
 - `retry.maxAttempts` (default 1): how many total attempts per fired run.
 - `retry.backoffMs` (default 1000): delay between attempts.

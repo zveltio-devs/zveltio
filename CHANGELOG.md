@@ -52,6 +52,14 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   rename the people who administer it. A NUL in an email or name, and a
   `validTo`/`ifValidTo` Postgres refuses (year 0), answer `invalid_input`
   instead of aborting the caller's transaction.
+- An extension schedule can run per tenant (B02): `perTenant: true` runs the
+  handler once per active tenant where the extension is active, inside that
+  tenant's transaction, so `ctx.db` sees that tenant's rows. A schedule ran once
+  with no tenant: on a role RLS binds it saw the root tenant's rows only, so
+  `communications/mail` never polled another tenant's mailboxes; on a superuser
+  pool it polled all of them and wrote their folders and messages into the root
+  tenant. Both runs were recorded `ok`. One tenant's failure does not stop the
+  others; the run then fails naming it. Schedules without the flag are unchanged.
 - A `password` field cannot be read by the request roles (L37 layer 2,
   migration 073). The data API stripped the argon2 hash from every payload, but
   raw SQL on `zveltio_rls` — and on the roles extensions and flow `query_db`

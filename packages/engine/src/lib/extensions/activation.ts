@@ -23,7 +23,12 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { getCurrentDomain, getCurrentDomainOrNull } from '../tenancy/index.js';
+import {
+  getCurrentDomain,
+  getCurrentDomainOrNull,
+  runWithDomain,
+  withTenantIsolation,
+} from '../tenancy/index.js';
 
 /**
  * How long a resolved decision may be reused. Activation changes are rare and
@@ -120,11 +125,11 @@ export async function isExtensionActiveForTenant(
  *
  * This is the cron question, and it is deliberately weaker than the per-request
  * one. `cron-runner.ts` calls `schedule.handler(ctx, runId)` once, with no firm
- * in scope - a schedule is not "for firm X" today and has no way to be. Making
- * it so would change what every existing extension's schedule means (a nightly
- * job would run once per firm), which is a product decision, not a gate. So the
- * only honest thing a gate can say here is: if no firm has this extension on,
- * do not run it at all. Per-firm cron fan-out is a documented non-goal.
+ * in scope. Making every schedule per-firm would change what each one means (a
+ * nightly job would run once per firm), so it is opt-in: a schedule declaring
+ * `perTenant: true` is asked per firm (`guardPerTenantScheduleHandler`). For the
+ * rest the only honest thing a gate can say is: if no firm has this extension
+ * on, do not run it at all.
  */
 export async function isExtensionActiveAnywhere(db: Database, name: string): Promise<boolean> {
   try {
@@ -332,6 +337,52 @@ export function guardScheduleHandler<A extends unknown[]>(
   return async (...args: A) => {
     if (!(await isExtensionActiveAnywhere(db, extName))) return undefined;
     return fn(...args);
+  };
+}
+
+/**
+ * Wrap a `perTenant: true` cron handler: run it once per active firm where the
+ * extension is active, each inside that firm's `withTenantIsolation`, so the
+ * handler's `ctx.db` resolves the firm's transaction.
+ *
+ * Without it a schedule ran with no firm at all, and `ctx.db` fell through to
+ * the pool with no tenant GUC (B02). On a role RLS binds, every FORCE-RLS table
+ * answered for the root firm only, so `communications/mail` polled the root
+ * firm's mailboxes and no other; on a superuser pool it read every firm's
+ * mailboxes and wrote their folders and messages with the root firm's
+ * `tenant_id` — the column default with no GUC. Both runs were recorded `ok`.
+ *
+ * Sequential, like the flow scheduler's `runPerTenant`: one connection held at a
+ * time. One firm's failure does not stop the rest; the run fails afterwards,
+ * naming the firms, so the run history shows it.
+ */
+export function guardPerTenantScheduleHandler<A extends unknown[]>(
+  fn: (...args: A) => unknown,
+  extName: string,
+  db: Database,
+): (...args: A) => Promise<void> {
+  return async (...args: A) => {
+    const tenants = await sql<{ id: string }>`
+      SELECT id::text AS id FROM zv_tenants WHERE status = 'active' ORDER BY created_at
+    `.execute(db);
+    const failed: string[] = [];
+    for (const { id } of tenants.rows) {
+      if (!(await isExtensionActiveForTenant(db, extName, id))) continue;
+      try {
+        // The domain too, not only the transaction: permission checks and the
+        // identity helpers read it, and must answer for this firm.
+        await runWithDomain(id, () =>
+          withTenantIsolation(id, async () => {
+            await fn(...args);
+          }),
+        );
+      } catch (err) {
+        failed.push(`${id}: ${(err as Error).message ?? String(err)}`);
+      }
+    }
+    if (failed.length > 0) {
+      throw new Error(`${failed.length} tenant(s) failed — ${failed.join('; ')}`);
+    }
   };
 }
 
