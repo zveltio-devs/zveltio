@@ -1553,7 +1553,7 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
       //
       // Deliberately NOT carried: the caller's exemptions (`rls_bypass`,
       // `columns_all`) and a reach wider than this tenant
-      // (`visible_tenants`/`ancestor_tenants`). All only widen, and this code is the extension the platform chose not
+      // (`visible_tenants`). All only widen, and this code is the extension the platform chose not
       // to trust; it keeps the single-tenant, rules-apply view it always had.
       // A reach NARROWER than the tenant is carried: a caller whose assignments
       // all lapsed sees NO_UNITS inline, and saw the whole tenant through here.

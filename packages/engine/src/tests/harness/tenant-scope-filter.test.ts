@@ -12,7 +12,7 @@
  * The equality is PERFORMANCE ONLY: the policy is untouched and still decides
  * what may be seen, and an equality can only narrow the set the policy allows.
  * Which is exactly why it must be absent when a hierarchy is in play — there,
- * narrowing to the caller's own tenant would hide the ancestors' rows the
+ * narrowing to the caller's own tenant would hide the other units' rows the
  * request is entitled to. That is the test that matters here.
  */
 

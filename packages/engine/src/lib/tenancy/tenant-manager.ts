@@ -1366,10 +1366,8 @@ export async function withTenantIsolation<T>(
     const applied = await sql<ScopeRow>`
       WITH reach AS MATERIALIZED (${scopeQuery})
       SELECT reach.visible_csv,
-             reach.ancestors_csv,
              set_config('zveltio.current_tenant', ${tenantId}, true),
              set_config('zveltio.visible_tenants', coalesce(reach.visible_csv, ''), true),
-             set_config('zveltio.ancestor_tenants', coalesce(reach.ancestors_csv, ''), true),
              set_config('zveltio.user_id', ${identity.userId}, true),
              set_config('zveltio.user_email', ${identity.email}, true),
              set_config('zveltio.user_role', ${identity.role}, true),
@@ -1509,10 +1507,9 @@ export async function publishEveryTenant(trx: Database): Promise<void> {
  *   - `visible` naming exactly this tenant — the reach IS this tenant.
  *
  * Anything wider is not single, and the equality must not be added: it would
- * hide rows the request is entitled to. Ancestors do not enter this decision —
- * `zveltio_visible_tenants()` reads only `zveltio.visible_tenants`, so an
- * ancestor is visible for reading only by being IN that set, where the length
- * check above already sees it.
+ * hide rows the request is entitled to. `zveltio_visible_tenants()` reads only
+ * `zveltio.visible_tenants`, so a unit is visible for reading only by being IN
+ * that set, where the length check above already sees it.
  */
 export function isSingleUnitReach(scope: TenantScope | null, tenantId: string): boolean {
   if (scope === null) return true;

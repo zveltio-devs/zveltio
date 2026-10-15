@@ -852,18 +852,6 @@ export interface ZvdCollectionsTable {
   is_system: Generated<boolean>; // DEFAULT false
   schema_locked: Generated<boolean>; // DEFAULT false
   has_trgm: Generated<boolean>; // 059: DEFAULT false (pg_trgm full-text)
-  /**
-   * 003: rows written at an ancestor unit are readable from below.
-   *
-   * Off by default — head-office payroll does not become county-visible merely
-   * by sitting higher. Compiled into the collection's policy as a LITERAL, so a
-   * collection that did not opt in costs nothing: the planner folds the branch
-   * away. Upward visibility has no matching flag on purpose; it is governed by
-   * `read_scope` on the assignment and by Casbin on the resource, and a third
-   * axis would mostly duplicate the second while inviting the belief that data
-   * are hidden when they are not.
-   */
-  inherit_down: Generated<boolean>; // DEFAULT false
 }
 
 export interface ZvdRelationsTable {

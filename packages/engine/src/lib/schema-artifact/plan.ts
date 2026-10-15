@@ -142,7 +142,6 @@ const COLLECTION_KEYS = new Set([
   'sourceType',
   'virtualConfig',
   'schemaLocked',
-  'inheritDown',
   'aiSearchEnabled',
   'aiSearchField',
   'aiEmbedExcludedFields',

@@ -44,7 +44,7 @@ interface TenantStore {
    * once the explicit equality lets `(tenant_id, created_at DESC)` be used.
    *
    * Undefined when a hierarchy IS in play, and then no filter is added — adding
-   * one there would hide the ancestors' rows the request is entitled to.
+   * one there would hide the other units' rows the request is entitled to.
    */
   singleTenant?: boolean;
   /**

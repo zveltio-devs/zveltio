@@ -33,8 +33,6 @@ const SIS_B = '3a000000-0000-0000-0000-0000000000b2';
 
 /** A plain tenant table, isolated the way every collection is. */
 const PLAIN = 'zvd_hier_probe_plain';
-/** The same, but its collection is marked inherited downward. */
-const SHARED = 'zv_hier_probe_shared';
 
 const USER_ROOT = 'hier-probe-user-root';
 const USER_A = 'hier-probe-user-a';
@@ -78,67 +76,39 @@ d('tenancy hierarchy', () => {
         (${SIS_A}::uuid, ${USER_EXPIRED}, 'member', 'self',    now() - interval '2 day', now() - interval '1 day')
     `.execute(db);
 
-    for (const [table, inherit] of [
-      [PLAIN, false],
-      [SHARED, true],
-    ] as const) {
-      await sql.raw(`DROP TABLE IF EXISTS ${table}`).execute(db);
-      await sql
-        .raw(`CREATE TABLE ${table} (id serial primary key, tenant_id uuid NOT NULL, label text)`)
-        .execute(db);
-      await sql.raw(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`).execute(db);
-      await sql.raw(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`).execute(db);
-      // Downward inheritance is compiled into the policy, not read per row —
-      // which is what makes an opt-in nobody took cost nothing: an unmarked
-      // collection's policy does not carry the second branch at all.
-      //
-      // Both halves are `tenant_id = ANY (…)` so Postgres can answer them from
-      // the index on tenant_id; a boolean function of the row cannot be
-      // answered that way, which is worth 249ms against 0.28ms on 500k rows.
-      const read = inherit
-        ? 'tenant_id = ANY (zveltio_visible_tenants()) OR tenant_id = ANY (zveltio_ancestor_tenants())'
-        : 'tenant_id = ANY (zveltio_visible_tenants())';
-      // The unmarked table gets the policy every collection gets, so test 3
-      // fails if applyTenantRLS ever checks writes with the read predicate.
-      if (inherit) {
-        await sql
-          .raw(
-            `CREATE POLICY tenant_isolation_${table} ON ${table} ` +
-              `USING (${read}) WITH CHECK (zveltio_tenant_write_ok(tenant_id))`,
-          )
-          .execute(db);
-      } else {
-        await applyTenantRLS(db, table);
-      }
-      await sql
-        .raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${table} TO zveltio_rls`)
-        .execute(db)
-        .catch(() => undefined);
-      await sql
-        .raw(`GRANT USAGE, SELECT ON SEQUENCE ${table}_id_seq TO zveltio_rls`)
-        .execute(db)
-        .catch(() => undefined);
-      for (const [t, label] of [
-        [ROOT, 'root-row'],
-        [SIS_A, 'a-row'],
-        [SIS_B, 'b-row'],
-      ]) {
-        await asTenant(db, t!, (trx) =>
-          sql
-            .raw(`INSERT INTO ${table} (tenant_id, label) VALUES ('${t}', '${label}')`)
-            .execute(trx),
-        );
-      }
+    await sql.raw(`DROP TABLE IF EXISTS ${PLAIN}`).execute(db);
+    await sql
+      .raw(`CREATE TABLE ${PLAIN} (id serial primary key, tenant_id uuid NOT NULL, label text)`)
+      .execute(db);
+    await sql.raw(`ALTER TABLE ${PLAIN} ENABLE ROW LEVEL SECURITY`).execute(db);
+    await sql.raw(`ALTER TABLE ${PLAIN} FORCE ROW LEVEL SECURITY`).execute(db);
+    // The policy every collection gets, so test 3 fails if applyTenantRLS ever
+    // checks writes with the read predicate.
+    await applyTenantRLS(db, PLAIN);
+    await sql
+      .raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${PLAIN} TO zveltio_rls`)
+      .execute(db)
+      .catch(() => undefined);
+    await sql
+      .raw(`GRANT USAGE, SELECT ON SEQUENCE ${PLAIN}_id_seq TO zveltio_rls`)
+      .execute(db)
+      .catch(() => undefined);
+    for (const [t, label] of [
+      [ROOT, 'root-row'],
+      [SIS_A, 'a-row'],
+      [SIS_B, 'b-row'],
+    ]) {
+      await asTenant(db, t!, (trx) =>
+        sql.raw(`INSERT INTO ${PLAIN} (tenant_id, label) VALUES ('${t}', '${label}')`).execute(trx),
+      );
     }
   });
 
   afterAll(async () => {
-    for (const table of [PLAIN, SHARED]) {
-      await sql
-        .raw(`DROP TABLE IF EXISTS ${table}`)
-        .execute(db)
-        .catch(() => undefined);
-    }
+    await sql
+      .raw(`DROP TABLE IF EXISTS ${PLAIN}`)
+      .execute(db)
+      .catch(() => undefined);
     await sql`DELETE FROM zv_tenant_users WHERE user_id IN (${USER_ROOT}, ${USER_A}, ${USER_EXPIRED})`
       .execute(db)
       .catch(() => undefined);
@@ -216,16 +186,31 @@ d('tenancy hierarchy', () => {
     expect(await readAs(USER_EXPIRED, SIS_A, PLAIN)).toEqual([]);
   });
 
-  it('5. a row written at the root IS visible below when the collection is marked', async () => {
-    // National nomenclatures: written once at the top, read by every unit under
-    // it. The sibling's own row is still there; the root's row joins it.
-    expect(await readAs(USER_A, SIS_A, SHARED)).toEqual(['a-row', 'root-row']);
+  it('5. a row written at the root is NOT visible below', async () => {
+    // Head-office payroll does not become county-visible merely by sitting
+    // higher. Reading reaches down (`read_scope`), never up.
+    expect(await readAs(USER_A, SIS_A, PLAIN)).toEqual(['a-row']);
   });
 
-  it('6. and is NOT visible below when the collection is unmarked', async () => {
-    // Head-office payroll does not become county-visible merely by sitting
-    // higher. Same tree, same user, same request — only the flag differs.
-    expect(await readAs(USER_A, SIS_A, PLAIN)).toEqual(['a-row']);
+  it('6. downward inheritance is gone, not just unused (078)', async () => {
+    // 004 shipped an `inherit_down` flag no policy ever read, two-argument
+    // `zveltio_tenant_scope_ok` overloads and an ancestor set fed by a walk on
+    // every request. Setting the flag granted nothing; 078 removed all of it.
+    const r = await sql<{ col: boolean; fns: string[] }>`
+      SELECT EXISTS (
+               SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'zvd_collections' AND column_name = 'inherit_down'
+             ) AS col,
+             ARRAY(
+               SELECT p.oid::regprocedure::text FROM pg_proc p
+                WHERE p.pronamespace = 'public'::regnamespace
+                  AND (p.proname IN ('zveltio_ancestor_tenants', 'zveltio_ancestor_tenants_text',
+                                     'zveltio_tenant_ancestors')
+                       OR (p.proname = 'zveltio_tenant_scope_ok' AND p.pronargs = 2))
+                ORDER BY 1
+             ) AS fns
+    `.execute(db);
+    expect(r.rows[0]).toEqual({ col: false, fns: [] });
   });
 
   it('7. a unit is never its own ancestor', async () => {

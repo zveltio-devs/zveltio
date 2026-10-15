@@ -114,7 +114,7 @@ where it does not apply.
 sessionPrefetch        resolves the session ON THE POOL, as the engine role
    ↓
 tenantMiddleware       resolves the tenant, opens ONE transaction,
-                       descends the role + publishes ten session variables
+                       descends the role + publishes the session variables
    ↓
 tenantMembership       requires membership for non-default tenants
    ↓
@@ -184,7 +184,7 @@ their tenant's rows with `ctx.internals.readAuditActivity` (capability
 
 ---
 
-## 3. The ten session variables
+## 3. The session variables
 
 All written in **a single round trip**, all `is_local = true`, therefore
 transactional:
@@ -193,7 +193,6 @@ transactional:
 set_config('role',                      'zveltio_rls', true)
 set_config('zveltio.current_tenant',    <uuid>,        true)
 set_config('zveltio.visible_tenants',   <uuid,uuid…>,  true)
-set_config('zveltio.ancestor_tenants',  <uuid,uuid…>,  true)
 set_config('zveltio.user_id',           <id>,          true)
 set_config('zveltio.user_email',        <email>,       true)
 set_config('zveltio.user_role',         <role>,        true)
@@ -354,6 +353,11 @@ resolved **once per request**, as the engine role, before the privilege
 descent — because `zv_tenant_users` must be read in order to learn what may be
 read. It costs no extra round trip: the call rides inside the statement that
 publishes the GUCs and drops the role, with the role dropped last.
+
+Nothing is inherited down the tree: a child reads a parent's rows only when
+the reach names the parent (`list` or `org`). The unused per-collection opt-in
+for that (`zvd_collections.inherit_down` and the ancestor set behind it) was
+removed by migration 078.
 
 ### Archiving and purging a tenant
 

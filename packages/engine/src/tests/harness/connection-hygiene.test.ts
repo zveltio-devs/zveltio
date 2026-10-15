@@ -42,7 +42,6 @@ interface ConnectionState {
   role: string;
   currentTenant: string;
   visibleTenants: string;
-  ancestorTenants: string;
 }
 
 async function readState(db: Database): Promise<ConnectionState> {
@@ -50,8 +49,7 @@ async function readState(db: Database): Promise<ConnectionState> {
     SELECT pg_backend_pid()                                              AS pid,
            current_user                                                  AS role,
            coalesce(current_setting('zveltio.current_tenant',   true), '') AS "currentTenant",
-           coalesce(current_setting('zveltio.visible_tenants',  true), '') AS "visibleTenants",
-           coalesce(current_setting('zveltio.ancestor_tenants', true), '') AS "ancestorTenants"
+           coalesce(current_setting('zveltio.visible_tenants',  true), '') AS "visibleTenants"
   `.execute(db);
   return r.rows[0];
 }
@@ -62,7 +60,6 @@ function tenantResidue(s: ConnectionState): string[] {
   if (s.role === 'zveltio_rls') found.push(`role=${s.role}`);
   if (s.currentTenant !== '') found.push(`zveltio.current_tenant=${s.currentTenant}`);
   if (s.visibleTenants !== '') found.push(`zveltio.visible_tenants=${s.visibleTenants}`);
-  if (s.ancestorTenants !== '') found.push(`zveltio.ancestor_tenants=${s.ancestorTenants}`);
   return found;
 }
 
@@ -110,9 +107,9 @@ d('connection hygiene', () => {
     expect(tenantResidue(after)).toEqual([]);
   });
 
-  it('the visible-set GUCs do not survive the transaction either', async () => {
-    // These two are newer than the role and the tenant id, and they are the
-    // ones that decide what a request can SEE. A leaked `visible_tenants` does
+  it('the visible-set GUC does not survive the transaction either', async () => {
+    // Newer than the role and the tenant id, and the one that decides what a
+    // request can SEE. A leaked `visible_tenants` does
     // not fail closed — it widens the next request on that connection.
     const before = await readState(own);
 
@@ -126,7 +123,6 @@ d('connection hygiene', () => {
 
     const after = await readState(own);
     expect(after.visibleTenants).toBe('');
-    expect(after.ancestorTenants).toBe('');
     expect(tenantResidue(after)).toEqual([]);
   });
 

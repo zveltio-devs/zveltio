@@ -1,12 +1,12 @@
 /**
- * Resolving an assignment into the two sets a request reads with.
+ * Resolving an assignment into the set of units a request reads.
  *
  * The model (docs/platform/multi-tenancy.md §5): units form a tree,
  * and what is configured is not the tree but the REACH of each assignment —
  * `self`, `subtree`, `list` or `org`. Writing has no reach at all; that half
  * lives in `zveltio_tenant_write_ok` and needs nothing from this file.
  *
- * Resolved once per request and published as two GUCs, so the predicate does
+ * Resolved once per request and published as a GUC, so the predicate does
  * zero lookups per row. Deliberately NOT carried in the session token: a reach
  * baked into a token is irrevocable until it expires, which trades a
  * millisecond per request for a revocation window measured in hours.
@@ -68,21 +68,18 @@ export interface TenantScope {
    * and it is why the migration is invisible to them.
    */
   visible: string[] | null;
-  /** The chain above the current unit, for collections marked inherited downward. */
-  ancestors: string[];
 }
 
 /** The reach as the GUC spelling. `visible_csv` NULL means: publish no set. */
 export interface ScopeRow {
   visible_csv: string | null;
-  ancestors_csv: string;
 }
 
 /**
  * The reach as ONE single-row statement, so it can ride inside the `set_config`
  * that publishes it.
  *
- * It used to be a membership query, an ancestor walk, a count when nothing was
+ * It used to be a membership query, a count when nothing was
  * in force and an org/subtree follow-up — up to four round trips before the
  * `set_config`, on every authenticated request. The branches now live in
  * `zveltio_tenant_reach()` (migration 057), which keeps them in the order this
@@ -97,28 +94,25 @@ export interface ScopeRow {
  */
 export function tenantScopeQuery(userId: string, tenantId: string): RawBuilder<ScopeRow> {
   return sql<ScopeRow>`
-    SELECT r.visible_csv, r.ancestors_csv FROM zveltio_tenant_reach(${userId}, ${tenantId}) AS r
+    SELECT r.visible_csv FROM zveltio_tenant_reach(${userId}, ${tenantId}) AS r
   `;
 }
 
-/** God's reach: every unit and no ancestors, in the same row shape. */
+/** God's reach: every unit, in the same row shape. */
 export function godScopeQuery(): RawBuilder<ScopeRow> {
   return sql<ScopeRow>`
-    SELECT (SELECT coalesce(string_agg(id::text, ','), '') FROM zv_tenants) AS visible_csv,
-           ''::text AS ancestors_csv
+    SELECT (SELECT coalesce(string_agg(id::text, ','), '') FROM zv_tenants) AS visible_csv
   `;
 }
 
-/** No user named: no set published and no walk, in the same row shape. */
+/** No user named: no set published, in the same row shape. */
 export function noScopeQuery(): RawBuilder<ScopeRow> {
-  return sql<ScopeRow>`SELECT NULL::text AS visible_csv, ''::text AS ancestors_csv`;
+  return sql<ScopeRow>`SELECT NULL::text AS visible_csv`;
 }
 
 export function scopeFromRow(row: ScopeRow): TenantScope {
-  const split = (csv: string | null) => (csv ?? '').split(',').filter(Boolean);
   return {
-    visible: row.visible_csv === null ? null : split(row.visible_csv),
-    ancestors: split(row.ancestors_csv),
+    visible: row.visible_csv === null ? null : row.visible_csv.split(',').filter(Boolean),
   };
 }
 
@@ -139,7 +133,7 @@ export async function resolveTenantScope(
   tenantId: string,
 ): Promise<TenantScope> {
   const r = await tenantScopeQuery(userId, tenantId).execute(db);
-  return scopeFromRow(r.rows[0] ?? { visible_csv: null, ancestors_csv: '' });
+  return scopeFromRow(r.rows[0] ?? { visible_csv: null });
 }
 
 /** The GUC spelling: a comma-separated list, parsed by `string_to_array` in the predicate. */
