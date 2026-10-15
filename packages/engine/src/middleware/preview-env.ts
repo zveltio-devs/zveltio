@@ -2,6 +2,7 @@ import type { MiddlewareHandler } from 'hono';
 import { sql } from 'kysely';
 import { withSavepoint } from '../lib/savepoint.js';
 import type { Database } from '../db/index.js';
+import { withPreviewSchema } from '../db/dynamic.js';
 
 // Preview environment middleware — when X-Preview-Token header is present,
 // look up the matching branch schema and set search_path for this request.
@@ -69,6 +70,8 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
       },
     );
 
-    return next();
+    // The masking views (L37 layer 3) are `public`'s: a preview reads its branch's tables.
+    const schema = c.get('previewSchema' as never) as string | undefined;
+    return schema ? withPreviewSchema(schema, next) : next();
   };
 }

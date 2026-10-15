@@ -298,6 +298,50 @@ Fields marked `encrypted: true` are not sealed: the database holds only
 ciphertext under a key it never sees, and the data API decrypts them on every
 ordinary read.
 
+## Column read permissions in the database
+
+A column with `can_read = false` for a role is hidden by the data API
+(`applyColumnAccess`) and by the database too (`zveltio_mask_columns()`,
+migration 075). Every collection has a view `zvv_<collection>` over its table:
+a column with a read rule is served as `NULL` to an actor the rule hides it
+from, every other column passes through, and an unserved column (`password`)
+is not in the view at all. `search_vector` and `search_text` are built from
+every text field, so they are hidden wherever one of those is.
+
+| Who | Hidden columns through the view |
+|---|---|
+| a signed-in user, an anonymous request, an API key | `NULL` where a rule names their role or `*` |
+| `data:view_all_columns` (a god holds it) | none |
+| inside `ctx.internals.asSystem(collections, fn)` | none on those collections |
+| the engine's own work with no actor (boot, jobs, flows) | none |
+| the engine reading a written row for itself (before-row, `RETURNING`) | none — revisions, hooks and webhooks see the row as before; the payload is masked where it is served |
+
+The view reads the table as its owner, and the request roles (`zveltio_rls`
+and every role that mirrors it) lose SELECT on a ruled column of the table
+itself, as on a sealed one: `SELECT salary …` on the table is `42501`, and the
+view is the only way to the column. Tenant isolation still binds the view —
+the table is FORCE RLS, and its policies read the request's settings, not the
+role. Where the owner is a SUPERUSER or BYPASSRLS role, or the table is not
+FORCE, a view read as the owner would see every tenant, so there the view is
+`security_invoker` and the ruled columns stay granted: the engine's reads are
+masked, raw SQL on the table is not.
+
+- The engine reads through the view on list, get, `?expand=`, saved queries,
+  sync pull and the write echoes; a write returns `id` and reads the row back
+  through it. A schema-branch preview reads the branch's tables, as before.
+- The view is rebuilt with every rule change, in the CREATE's transaction, with
+  every field add, rename, retype and drop, and at boot. A transaction that
+  alters a collection's columns drops the view first and builds it last: SQL
+  that runs `ALTER TABLE … DROP COLUMN` or `… TYPE` on a collection table by
+  hand must `DROP VIEW zvv_<collection>` first; the next boot puts it back.
+- Extension SQL, a flow `query_db` step and an insight read the table and must
+  name their columns on a collection with a read rule, as on a sealed one.
+
+The settings the view reads are the request's own, and raw SQL on the request
+role can set them: the view stops the engine and the narrow roles forgetting a
+rule, not a caller who forges an actor — the same limit as the write guard
+above.
+
 ## Row-Level Security (RLS)
 
 RLS adds a second authorization layer **below Casbin**: after a role is granted access to a collection, RLS policies control *which records* within that collection the user can see. Policies are implemented at the application layer and are fully visible and editable from Studio — no SQL knowledge required.

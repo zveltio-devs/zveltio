@@ -1506,12 +1506,13 @@ async function bootstrap() {
     } catch (err) {
       console.warn('⚠️ Column write guards not reconciled (non-fatal):', (err as Error).message);
     }
-    // Columns served to no one, sealed from the request roles (migration 073).
+    // Columns served to no one, sealed from the request roles (migration 073),
+    // and the masking views of the column read rules (075).
     try {
       const { reconcileSealedColumns } = await import('./lib/data/index.js');
       const sealed = await reconcileSealedColumns(db);
       if (sealed > 0)
-        console.log(`🔒 Password columns sealed in the database on ${sealed} table(s)`);
+        console.log(`🔒 Column seals and masking views rebuilt on ${sealed} table(s)`);
     } catch (err) {
       console.warn('⚠️ Sealed columns not reconciled (non-fatal):', (err as Error).message);
     }

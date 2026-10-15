@@ -89,6 +89,16 @@ d('ghost DDL with rows outside every published tenant', () => {
     await sql.raw(`GRANT SELECT ON zvd_collections, zv_tenants TO ${OWNER}`).execute(db);
     await sql.raw(`GRANT REFERENCES ON "user" TO ${OWNER}`).execute(db);
     await sql.raw(`ALTER TABLE ${TABLE} OWNER TO ${OWNER}`).execute(db);
+    // And what the swap rebuilds the masking view (L37 layer 3) with, which the
+    // production owner owns: the view, the rules, the two functions.
+    await sql.raw(`ALTER VIEW zvv_${COLLECTION} OWNER TO ${OWNER}`).execute(db);
+    await sql.raw(`GRANT SELECT ON zvd_column_permissions TO ${OWNER}`).execute(db);
+    await sql
+      .raw(
+        `GRANT EXECUTE ON FUNCTION zveltio_mask_columns(regclass, text[], text[], text[]), ` +
+          `zveltio_seal_columns(regclass, text[]) TO ${OWNER}`,
+      )
+      .execute(db);
 
     const url = new URL(String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL));
     url.username = OWNER;

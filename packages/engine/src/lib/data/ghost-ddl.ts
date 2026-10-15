@@ -611,6 +611,12 @@ export class GhostDDL {
       // before anything else runs, and ALTER holds ACCESS EXCLUSIVE — which the
       // rename below takes anyway, only now from the count on — so no other
       // session ever reads the table unforced.
+      // The masking view (L37 layer 3) reads the original by oid: it goes before
+      // the table is taken whole, as a reader takes them, and comes back on the
+      // ghost below.
+      const { dropMaskView, sealColumns } = await import('./sealed-columns.js');
+      await dropMaskView(trx, migration.originalTable);
+
       const force = await sql<{ forced: boolean }>`
         SELECT relforcerowsecurity AS forced FROM pg_class
         WHERE oid = to_regclass(quote_ident(${migration.originalTable}))
@@ -678,6 +684,14 @@ export class GhostDDL {
       // grants.
       for (const { step, ddl } of carried) if (step < 100) await sql.raw(ddl).execute(trx);
       for (const fk of migration.foreignKeys ?? []) await sql.raw(fk.add).execute(trx);
+      // A column the DDL added has no field recorded yet (`addField` records it
+      // next): withheld until then, in case it is a password.
+      if (migration.originalTable.startsWith('zvd_')) {
+        const added = (await liveColumns(trx, migration.originalTable)).filter(
+          (c) => !migration.columns.includes(c),
+        );
+        await sealColumns(trx, migration.originalTable.slice('zvd_'.length), undefined, added);
+      }
 
       // What the cleanup may drop, by oid: a later run on this table reuses both
       // names, and a drop by name would take that run's changelog mid-copy.

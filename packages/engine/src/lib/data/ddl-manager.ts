@@ -417,13 +417,16 @@ export class DDLManager {
     if (!ON_DELETE_SAFE.has(od) || !ON_DELETE_SAFE.has(ou)) {
       throw new Error(`Invalid on_delete/on_update value: ${od}/${ou}`);
     }
+    const { dropMaskView, sealColumns } = await import('./sealed-columns.js');
     await withLockTimeout(db, async (trx) => {
+      await dropMaskView(trx, tableName);
       await sql
         .raw(
           `ALTER TABLE "${tableName}" ADD COLUMN IF NOT EXISTS "${fieldName}" UUID ` +
             `REFERENCES "${targetTable}"(id) ON DELETE ${od} ON UPDATE ${ou}`,
         )
         .execute(trx);
+      await sealColumns(trx, tableName.slice('zvd_'.length));
     });
     // Index the FK column for join performance
     await buildIndex(
@@ -629,10 +632,15 @@ export class DDLManager {
     }
 
     // FTS support; the text half and the trigger follow the metadata below.
+    const { dropMaskView, sealColumns } = await import('./sealed-columns.js');
     await withLockTimeout(db, async (trx) => {
+      await dropMaskView(trx, tableName);
       await sql
         .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector`)
         .execute(trx);
+      // The fields as created: none is recorded yet, and a password missing
+      // from them would be unsealed.
+      await sealColumns(trx, validated.name, validated.fields);
     });
     await sql
       .raw(
@@ -989,7 +997,10 @@ export class DDLManager {
       }
     }
 
+    const { dropMaskView } = await import('./sealed-columns.js');
     await withLockTimeout(db, async (trx) => {
+      // The view first, as a reader takes it: CASCADE would take it after the table.
+      await dropMaskView(trx, tableName);
       await sql.raw(`DROP TABLE IF EXISTS ${tableName} CASCADE`).execute(trx);
     });
 
@@ -1135,10 +1146,11 @@ export class DDLManager {
       .where('name' as any, '=', name)
       .execute();
     // Every path that adds, drops, renames or retypes a field records it here.
+    // The search trigger first: it may add `search_text`, which the view must carry.
     if (updates.fields) {
+      await this.refreshSearchTrigger(db, name, updates.fields);
       const { sealColumns } = await import('./sealed-columns.js');
       await sealColumns(db, name, updates.fields);
-      await this.refreshSearchTrigger(db, name, updates.fields);
     }
     DDLManager.invalidateCache(name);
   }
@@ -1184,10 +1196,13 @@ export class DDLManager {
     const inTransaction = (db as unknown as { isTransaction?: boolean }).isTransaction === true;
 
     if (names.length > 0 && !has.has('search_text') && !inTransaction) {
+      const { dropMaskView, sealColumns } = await import('./sealed-columns.js');
       await withLockTimeout(db, async (trx) => {
+        await dropMaskView(trx, tableName);
         await sql
           .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_text text`)
           .execute(trx);
+        await sealColumns(trx, collectionName, fields);
       });
       await buildIndex(
         db,
@@ -1411,13 +1426,14 @@ export class DDLManager {
     }
     const colDDL = fieldTypeRegistry.getColumnDDL(validated as FieldConfig);
     if (colDDL) {
+      const { dropMaskView, sealColumns, storedFields } = await import('./sealed-columns.js');
       await withLockTimeout(db, async (trx) => {
+        await dropMaskView(trx, tableName);
         await sql`ALTER TABLE ${sql.id(tableName)} ADD COLUMN IF NOT EXISTS ${sql.raw(colDDL)}`.execute(
           trx,
         );
         // Sealed with the ADD, not after it: on a sealed table every other
         // column is granted one by one, and an unserved one must never be.
-        const { sealColumns, storedFields } = await import('./sealed-columns.js');
         await sealColumns(trx, collectionName, [
           ...(await storedFields(trx, collectionName)),
           validated,
@@ -1501,10 +1517,17 @@ export class DDLManager {
     if (!(await this.tableExists(db, collectionName))) {
       throw new Error(`Collection '${collectionName}' not found`);
     }
+    const { dropMaskView, sealColumns, storedFields } = await import('./sealed-columns.js');
     await withLockTimeout(db, async (trx) => {
+      await dropMaskView(trx, tableName);
       await DDLManager.dropFieldRules(trx, collectionName, fieldName);
       await sql`ALTER TABLE ${sql.id(tableName)} DROP COLUMN IF EXISTS ${sql.id(fieldName)}`.execute(
         trx,
+      );
+      await sealColumns(
+        trx,
+        collectionName,
+        (await storedFields(trx, collectionName)).filter((f) => f.name !== fieldName),
       );
     });
     const existing = await this.getCollection(db, collectionName);

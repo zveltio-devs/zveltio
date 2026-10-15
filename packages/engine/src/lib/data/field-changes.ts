@@ -18,6 +18,7 @@ import {
 import { DDLManager, FIELD_RULE_TABLES, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
+import { dropMaskView, sealColumns } from './sealed-columns.js';
 import { fieldTypeRegistry, renderSqlDefault } from './field-type-registry.js';
 
 const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
@@ -186,6 +187,8 @@ export async function alterField(
   // few places where the schema change and its bookkeeping genuinely can
   // roll back together.
   await db.transaction().execute(async (trx) => {
+    // The view first; `updateCollectionMetadata` below builds it again (L37 layer 3).
+    await dropMaskView(trx, tableName);
     // ── 1) Type change ────────────────────────────────────────────
     if (newType && newType !== fieldDef.type) {
       if (!fieldTypeRegistry.has(newType)) {
@@ -304,6 +307,8 @@ export async function dropField(db: Database, name: string, fieldName: string): 
   // left the collection describing a column the table no longer has.
   const ruled = [name];
   await db.transaction().execute(async (trx) => {
+    // The view first; `updateCollectionMetadata` below builds it again (L37 layer 3).
+    await dropMaskView(trx, tableName);
     await DDLManager.dropFieldRules(trx, name, fieldName);
     if (fieldDef?.type === 'o2m') {
       // o2m: FK column lives in TARGET table — look up and drop it there
@@ -317,7 +322,9 @@ export async function dropField(db: Database, name: string, fieldName: string): 
         const targetTable = DDLManager.getTableName(relation.target_collection);
         await DDLManager.dropFieldRules(trx, relation.target_collection, relation.target_field);
         ruled.push(relation.target_collection);
+        await dropMaskView(trx, targetTable);
         await dynamicDropColumn(trx, targetTable, relation.target_field);
+        await sealColumns(trx, relation.target_collection);
       }
     } else if (fieldDef?.type === 'm2m') {
       // m2m: drop the junction table (no column in source table)

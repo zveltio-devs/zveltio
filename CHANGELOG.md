@@ -31,6 +31,22 @@ shows the rules and offers to adopt them (#1093).
 role, outside any tenant, now fails instead of seeing every tenant's rows.
 
 ### Security and tenancy
+- Column read permissions are enforced by the database too (L37 layer 3,
+  migration 075). A `can_read=false` row in `zvd_column_permissions` was
+  applied only by the data API, so raw SQL on `zveltio_rls` or the narrow roles
+  read the hidden column from `zvd_<collection>`. Each collection now has a view
+  `zvv_<collection>`, owned by the table owner and built at boot and on every
+  rule or field change, that returns a hidden column as NULL for the request's
+  role (`zveltio.user_role`) unless `zveltio.columns_all` is set or no actor is
+  set; tenant RLS still applies through it (FORCE ROW LEVEL SECURITY). Ruled
+  columns lose base-table SELECT through the layer-2 per-column grants, and the
+  engine reads through the view; a write returns `id` and reads the row back
+  through it. Where the owner bypasses RLS (superuser or BYPASSRLS) the view is
+  `security_invoker` and the table keeps its grants. Behaviour change:
+  `SELECT *` on a collection with a read rule from extension SQL, a flow
+  `query_db` step or an insight is refused (42501); name the columns. Hand-run
+  `ALTER TABLE … DROP COLUMN` / `… TYPE` on a collection table needs
+  `DROP VIEW zvv_<name>` first; boot rebuilds it.
 - A `password` field cannot be read by the request roles (L37 layer 2,
   migration 073). The data API stripped the argon2 hash from every payload, but
   raw SQL on `zveltio_rls` — and on the roles extensions and flow `query_db`

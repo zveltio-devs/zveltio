@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, dropMaskView } from '../../lib/data/index.js';
 import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -120,6 +120,8 @@ d('collection search trigger (in-process)', () => {
           `NEW.search_text := concat_ws(' ', NEW."title", NEW."gone"); RETURN NEW; END $$ LANGUAGE plpgsql`,
       )
       .execute(db);
+    // And without its masking view, as before 075: the view reads `gone` too.
+    await dropMaskView(db, table);
     await sql.raw(`ALTER TABLE ${table} DROP COLUMN gone`).execute(db);
     await expect(insert(OLD, { title: 'x' })).rejects.toThrow(/has no field/);
 
