@@ -296,6 +296,10 @@ export const CollectionSchema = z.preprocess(
 );
 
 export type CollectionDefinition = z.infer<typeof CollectionSchema>;
+/** What a caller may pass: `parse` fills the field defaults (`required`, `unique`, …). */
+export type CollectionInput = Omit<CollectionDefinition, 'fields'> & {
+  fields: z.input<typeof FieldSchema>[];
+};
 
 /** A Casbin policy row naming a collection that does not exist yet. */
 export interface ExistingRule {
@@ -526,7 +530,7 @@ export class DDLManager {
 
   // ── createCollection ─────────────────────────────────────────────────────────
 
-  static async createCollection(db: Database, definition: CollectionDefinition): Promise<void> {
+  static async createCollection(db: Database, definition: CollectionInput): Promise<void> {
     const validated = CollectionSchema.parse(definition);
     const reserved = await this.reservedName(db, validated.name);
     if (reserved) throw new Error(reserved);
@@ -1130,7 +1134,7 @@ export class DDLManager {
   static async updateCollectionMetadata(
     db: Database,
     name: string,
-    updates: Partial<CollectionDefinition>,
+    updates: Partial<CollectionInput>,
   ): Promise<void> {
     await db
       .updateTable('zvd_collections')
@@ -1409,7 +1413,7 @@ export class DDLManager {
   static async addField(
     db: Database,
     collectionName: string,
-    field: z.infer<typeof FieldSchema>,
+    field: z.input<typeof FieldSchema>,
   ): Promise<void> {
     const validated = FieldSchema.parse(field);
     // Here, not in each route: the schema-branch merge called this layer's
@@ -1550,9 +1554,7 @@ export class DDLManager {
 
   /** Returns the exact SQL that `createCollection` would run, including
    *  FK constraints for relation fields — used by the Studio "Preview" dialog. */
-  static async previewCollection(
-    schema: z.infer<typeof CollectionSchema>,
-  ): Promise<{ sql: string[] }> {
+  static async previewCollection(schema: CollectionInput): Promise<{ sql: string[] }> {
     const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
     if (!SAFE_NAME.test(schema.name)) throw new Error(`Invalid collection name: "${schema.name}"`);
     const tableName = `zvd_${schema.name}`;
