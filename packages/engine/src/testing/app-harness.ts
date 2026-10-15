@@ -455,3 +455,40 @@ export const ALL_COLLECTIONS_ACTOR = {
   collectionAll: true,
   anonymous: true,
 };
+
+/**
+ * `POST /api/sync/pull`, waiting out the watermark fail-safe (#738).
+ *
+ * While a session the engine's role cannot inspect is inside a transaction
+ * (another test file's, on CI; often on the non-superuser lane) the watermark
+ * is 0: the pull delivers nothing, keeps every cursor it was given and says
+ * `hasMore: false`. A test reads that as "caught up". A real caught-up pull
+ * moves the cursor's deletes position to the new watermark, so a page that is
+ * empty AND hands back exactly the cursors it got is the fail-safe: retry.
+ * `sync-pull-watermark.test.ts` asserts the fail-safe itself and must not use this.
+ */
+export async function syncPull(
+  app: Hono,
+  cookie: string,
+  body: { cursors?: Record<string, string> } & Record<string, unknown>,
+): Promise<{ status: number; body: unknown }> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await app.request('/api/sync/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify(body),
+    });
+    const out = (await res.json()) as {
+      changes?: unknown[];
+      hasMore?: boolean;
+      cursors?: Record<string, string>;
+    };
+    const held =
+      res.status === 200 &&
+      out.changes?.length === 0 &&
+      !out.hasMore &&
+      Object.entries(out.cursors ?? {}).every(([k, v]) => body.cursors?.[k] === v);
+    if (!held || attempt === 20) return { status: res.status, body: out };
+    await Bun.sleep(100);
+  }
+}

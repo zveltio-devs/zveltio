@@ -22,6 +22,7 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  syncPull,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -43,13 +44,9 @@ d('sync pull returns deletes', () => {
   let cookie = '';
 
   const pullAs = async (who: string, body: Record<string, unknown>): Promise<PullBody> => {
-    const res = await app.request('/api/sync/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie: who },
-      body: JSON.stringify({ collections: [TABLE], ...body }),
-    });
+    const res = await syncPull(app, who, { collections: [TABLE], ...body });
     expect(res.status).toBe(200);
-    return (await res.json()) as PullBody;
+    return res.body as PullBody;
   };
   const pull = (body: Record<string, unknown>) => pullAs(cookie, body);
   const insert = async (on: Database, title: string): Promise<string> => {

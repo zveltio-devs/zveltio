@@ -12,7 +12,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+  syncPull,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TIED = `hsyncpage_tied_${Date.now()}`;
@@ -32,25 +37,9 @@ d('sync pull pages without losing rows', () => {
   let cookie = '';
 
   const pull = async (body: Record<string, unknown>): Promise<PullBody> => {
-    const res = await app.request('/api/sync/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify(body),
-    });
+    const res = await syncPull(app, cookie, body);
     expect(res.status).toBe(200);
-    return (await res.json()) as PullBody;
-  };
-
-  // A pull while a session the engine's role cannot inspect is inside a
-  // transaction (another test file's, in CI) delivers nothing and moves
-  // nothing: the watermark is 0, by design (#738). For a pull that must
-  // deliver rows, wait that session out instead of reading it as caught up.
-  const pullRows = async (body: Record<string, unknown>): Promise<PullBody> => {
-    for (let attempt = 0; ; attempt++) {
-      const page = await pull(body);
-      if (page.changes.length > 0 || page.hasMore || attempt === 50) return page;
-      await Bun.sleep(100);
-    }
+    return res.body as PullBody;
   };
 
   beforeAll(async () => {
@@ -89,7 +78,7 @@ d('sync pull pages without losing rows', () => {
     const seen: string[] = [];
     let cursors: Record<string, string> = {};
     for (let round = 0; round < 5; round++) {
-      const body = await pullRows({ collections: [`zvd_${TIED}`], cursors });
+      const body = await pull({ collections: [`zvd_${TIED}`], cursors });
       seen.push(...body.changes.map((ch) => ch.id));
       cursors = { ...cursors, ...body.cursors };
       if (!body.hasMore) break;
@@ -101,7 +90,7 @@ d('sync pull pages without losing rows', () => {
   it('a finished cursor pulls nothing and says so', async () => {
     let cursors: Record<string, string> = {};
     for (let round = 0; round < 5; round++) {
-      const body = await pullRows({ collections: [`zvd_${TIED}`], cursors });
+      const body = await pull({ collections: [`zvd_${TIED}`], cursors });
       cursors = { ...cursors, ...body.cursors };
       if (!body.hasMore) break;
     }
@@ -133,7 +122,7 @@ d('sync pull pages without losing rows', () => {
     let cursors: Record<string, string> = {};
     let done = false;
     for (let round = 0; round < 5 && !done; round++) {
-      const body = await pullRows({ collections: [`zvd_${OLD}`], cursors });
+      const body = await pull({ collections: [`zvd_${OLD}`], cursors });
       seen.push(...body.changes.map((ch) => ch.id));
       cursors = { ...cursors, ...body.cursors };
       done = !body.hasMore;
@@ -144,7 +133,7 @@ d('sync pull pages without losing rows', () => {
     // A full page leaves the deletes owed where they were: they are complete
     // only up to where this client's previous caught-up pull left them.
     const owed = `${(Date.now() - 29 * 86_400_000) * 1000}`;
-    const page = await pullRows({
+    const page = await pull({
       collections: [`zvd_${OLD}`],
       cursors: { [`zvd_${OLD}`]: `d${owed}:0:00000000-0000-0000-0000-000000000000` },
     });
