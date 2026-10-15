@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 import {
   admittedApiKey,
   extensionAuthGate,
+  gatePrincipal,
   keyAwareCheckPermission,
   registerExtensionPublicRoutes,
   _resetPublicRouteRegistryForTests,
@@ -58,8 +59,19 @@ function appWith(auth: unknown, prefetchedKey?: KeyRow | null) {
     casbin.push(`${u}:${r}:${a}`);
     return u === 'u1';
   });
-  const seen = async (c: { get: (k: 'user') => { id: string }; json: (b: unknown) => Response }) =>
-    c.json({
+  // The previous request's context, kept past its end.
+  let kept: unknown;
+  const seen = async (c: {
+    get: (k: 'user') => { id: string };
+    json: (b: unknown) => Response;
+  }) => {
+    const stale = kept === undefined ? 'none' : (gatePrincipal(kept)?.user.id ?? null);
+    kept = c;
+    return c.json({
+      own: gatePrincipal(c)?.user.id ?? null,
+      // A look-alike of this request's context, and one from an earlier request.
+      forged: gatePrincipal({ get: c.get }) ?? null,
+      stale,
       user: c.get('user').id,
       admitted: admittedApiKey()?.id ?? null,
       create: await check(c.get('user').id, 'invoices', 'create'),
@@ -68,6 +80,7 @@ function appWith(auth: unknown, prefetchedKey?: KeyRow | null) {
       settle: await check(c.get('user').id, 'invoices', 'settle'),
       casbin,
     });
+  };
   app.get('/ext/finance/invoicing/invoices', seen as never);
   app.post('/ext/finance/invoicing/invoices', seen as never);
   app.delete('/ext/finance/invoicing/invoices/:id', seen as never);
@@ -215,6 +228,9 @@ describe('extensionAuthGate', () => {
         otherKey: boolean;
         settle: boolean;
         casbin: string[];
+        own: string | null;
+        forged: unknown;
+        stale: string | null;
         code?: string;
       };
 
@@ -233,6 +249,17 @@ describe('extensionAuthGate', () => {
         expect(b.settle).toBe(false);
         expect(b.casbin).toEqual([]);
       }
+    });
+
+    it('gatePrincipal answers only for the running request’s own context', async () => {
+      declareRoutes();
+      const app = appWith(authAnon, key(INV));
+      const first = await body(await app.request('/ext/finance/invoicing/invoices', { headers }));
+      expect(first.own).toBe(`apikey:${KEY_ID}`);
+      expect(first.forged).toBeNull();
+      const second = await body(await app.request('/ext/finance/invoicing/invoices', { headers }));
+      expect(second.own).toBe(`apikey:${KEY_ID}`);
+      expect(second.stale).toBeNull();
     });
 
     it('403s a key without the action, with another extension scope, or with a `*` data grant', async () => {
