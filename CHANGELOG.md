@@ -201,6 +201,14 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   completed). The archive format is unchanged (plain SQL, gzip). A write that
   dies at the tail (disk full, SIGXFSZ) is now pg_dump's exit code: measured
   153 under `ulimit -f 1`, so the truncated-archive case stays a failure.
+- DDL queue jobs run outside any request's tenant context. On the pg-driver CI
+  lane a pg-boss worker was caught running its handler inside a
+  `withTenantIsolation` store whose transaction had already committed: every
+  job then failed on "Transaction is already committed", create_collection
+  retried until the waiting request answered 400 after 30 s (and kept failing
+  for the rest of the run), and add_field silently skipped its column. All five
+  queues now run their handler under `runOutsideTenantContext`. How the store
+  reaches the worker loop is not pinned (about 1 in 10 CI runs).
 - A worker extension's `ctx.services.has()` sees an optional dependency
   upgraded past its `minVersion` without a restart: the host re-sends the
   worker its service map with the registry snapshot.

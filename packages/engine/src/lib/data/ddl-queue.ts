@@ -36,7 +36,7 @@ import { type FieldConfig, fieldTypeRegistry } from './field-type-registry.js';
 import { GhostDDL } from './ghost-ddl.js';
 import { broadcastSchemaChange, type SchemaChangeAction } from '../../routes/ws.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../runtime/index.js';
-import { onAfterCommit } from '../tenancy/index.js';
+import { onAfterCommit, runOutsideTenantContext } from '../tenancy/index.js';
 import { scheduleSchemaWrite } from '../schema-artifact/dev-writer.js';
 
 // pg-boss 12+ is ESM-only and exposes `PgBoss` as a NAMED export (not
@@ -450,18 +450,33 @@ export async function runAddField(
 // ── Per-type handlers ──────────────────────────────────────────────────────
 
 async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
+  // Every job runs outside any request, whatever context pg-boss resumes its
+  // worker loop in. `db` is the request-scoped proxy: inside a request's tenant
+  // store it resolves to that request's transaction. On the pg-driver CI lane a
+  // worker was caught running its handler inside a `withTenantIsolation` store
+  // whose transaction had long committed: every job failed on "Transaction is
+  // already committed", pg-boss retried it with backoff, and the request
+  // waiting on it answered 400 after 30 s — a create_collection worker stayed
+  // that way for the rest of the run. A job is not part of any request.
+  const work = ((name: string, ...args: unknown[]) => {
+    const handler = args.pop() as (...a: unknown[]) => unknown;
+    return (boss.work as (...a: unknown[]) => Promise<string>)(name, ...args, (...a: unknown[]) =>
+      runOutsideTenantContext(() => handler(...a)),
+    );
+  }) as PgBossInst['work'];
+
   // CREATE COLLECTION runs OUTSIDE a transaction (CREATE INDEX
   // CONCURRENTLY is not allowed inside a tx block). DDLManager.createCollection
   // owns its own DDL sequencing.
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await boss.work(QUEUE_NAMES.create_collection, async ([job]: any[]) => {
+  await work(QUEUE_NAMES.create_collection, async ([job]: any[]) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await runCreateCollection(db, job.data as any);
   });
 
   // The rest run inside a tx for atomicity (errors roll back partial DDL).
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await boss.work(QUEUE_NAMES.drop_collection, async ([job]: any[]) => {
+  await work(QUEUE_NAMES.drop_collection, async ([job]: any[]) => {
     const payload = job.data as { name: string; force?: boolean };
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const rules = await db.transaction().execute(async (trx: any) => {
@@ -476,7 +491,7 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   });
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await boss.work(QUEUE_NAMES.add_field, async ([job]: any[]) => {
+  await work(QUEUE_NAMES.add_field, async ([job]: any[]) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const payload = job.data as { collection: string; field: any };
     // On the pool, like create_collection: addField builds the field's indexes
@@ -488,12 +503,10 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
     announceSchemaChange(payload.collection, 'alter');
   });
 
-  await boss.work<{ ddl: string }>(QUEUE_NAMES.build_index, ([job]) =>
-    buildIndexJob(db, job!.data),
-  );
+  await work<{ ddl: string }>(QUEUE_NAMES.build_index, ([job]) => buildIndexJob(db, job!.data));
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  await boss.work(QUEUE_NAMES.remove_field, async ([job]: any[]) => {
+  await work(QUEUE_NAMES.remove_field, async ([job]: any[]) => {
     const payload = job.data as { collection: string; fieldName: string };
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const ran = await db.transaction().execute(async (trx: any) => {

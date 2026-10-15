@@ -241,6 +241,20 @@ export function runWithoutTenantTrx<T>(fn: () => T): T {
 }
 
 /**
+ * Run `fn` outside every tenant context: no domain, no transaction, no
+ * after-commit queue — what background work started at boot runs in.
+ *
+ * For a loop that must never act for a request, whatever context it is resumed
+ * in. The pg-boss DDL workers are one: on the pg-driver CI lane a worker was
+ * measured running its handler inside a request's `withTenantIsolation` store,
+ * long after that transaction had committed, so `ctx.db` resolved to the dead
+ * transaction and every job failed on "Transaction is already committed".
+ */
+export function runOutsideTenantContext<T>(fn: () => T): T {
+  return store.exit(fn);
+}
+
+/**
  * Stands in for the pool where an unscoped query must not run. Every use throws,
  * so an extension's `ctx.db` cannot fall through to the pool — which answers for
  * the default firm, or for every firm on a superuser. `then` stays undefined so
