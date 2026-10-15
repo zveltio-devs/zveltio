@@ -75,6 +75,12 @@ d('health routes (in-process)', () => {
     expect([200, 404, 503]).toContain(res.status);
   });
 
+  it('GET /api/health/sync is ok while no prepared transaction holds sync pull', async () => {
+    const res = await app.request('/api/health/sync', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true });
+  });
+
   it('GET /api/health/deep → 401 anonymous', async () => {
     const res = await app.request('/api/health/deep');
     expect(res.status).toBe(401);

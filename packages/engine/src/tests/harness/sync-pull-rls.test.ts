@@ -20,7 +20,12 @@ import { DDLManager, dropMaskView, queryAlterRegistry } from '../../lib/data/ind
 import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+  syncPull,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hsyncrls_${Date.now()}`;
@@ -60,13 +65,9 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
   let memberUserId = '';
 
   const pull = async (cookie: string) => {
-    const res = await app.request('/api/sync/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ collections: [`zvd_${COLLECTION}`] }),
-    });
+    const res = await syncPull(app, cookie, { collections: [`zvd_${COLLECTION}`] });
     expect(res.status).toBe(200);
-    return (await res.json()) as { changes: Array<{ data?: Record<string, unknown> }> };
+    return res.body as { changes: Array<{ data?: Record<string, unknown> }> };
   };
 
   beforeAll(async () => {
@@ -204,11 +205,7 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
     entityAccessRegistry.registerAs(OWNER, `zvd_${COLLECTION}`, () => {
       throw new Error('entity check unavailable');
     });
-    const res = await app.request('/api/sync/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie: memberCookie },
-      body: JSON.stringify({ collections: [`zvd_${COLLECTION}`] }),
-    });
+    const res = await syncPull(app, memberCookie, { collections: [`zvd_${COLLECTION}`] });
     expect(res.status).toBe(500);
   });
 
@@ -227,13 +224,11 @@ d('sync pull honours RLS + column permissions (in-process)', () => {
       // hand has none until the boot reconcile.
       await dropMaskView(db, `zvd_${broken}`);
       await sql.raw(`ALTER TABLE "zvd_${broken}" DROP COLUMN updated_at`).execute(db);
-      const res = await app.request('/api/sync/pull', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', cookie: godCookie },
-        body: JSON.stringify({ collections: [`zvd_${broken}`, `zvd_${COLLECTION}`] }),
+      const res = await syncPull(app, godCookie, {
+        collections: [`zvd_${broken}`, `zvd_${COLLECTION}`],
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { changes: Array<{ data?: Record<string, unknown> }> };
+      const body = res.body as { changes: Array<{ data?: Record<string, unknown> }> };
       expect(body.changes.map((ch) => ch.data?.title)).toContain('visible');
     } finally {
       await sql.raw(`DROP TABLE IF EXISTS "zvd_${broken}" CASCADE`).execute(db);

@@ -12,7 +12,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+  syncPull,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TIED = `hsyncpage_tied_${Date.now()}`;
@@ -32,13 +37,9 @@ d('sync pull pages without losing rows', () => {
   let cookie = '';
 
   const pull = async (body: Record<string, unknown>): Promise<PullBody> => {
-    const res = await app.request('/api/sync/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify(body),
-    });
+    const res = await syncPull(app, cookie, body);
     expect(res.status).toBe(200);
-    return (await res.json()) as PullBody;
+    return res.body as PullBody;
   };
 
   beforeAll(async () => {

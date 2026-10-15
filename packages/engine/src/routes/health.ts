@@ -2,6 +2,7 @@ import { unlink, writeFile } from 'node:fs/promises';
 import { requestSession } from '../middleware/session-prefetch.js';
 import { refuseWithoutSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Context } from 'hono';
 import type { Database } from '../db/index.js';
 import { ENGINE_VERSION, getVersionInfo } from '../version.js';
@@ -225,6 +226,29 @@ export function healthRoutes(db: Database, auth?: any): Hono {
             ok,
             detail: { backend: bus.backend, running: bus.isRunning },
             error: ok ? undefined : `${bus.backend} realtime bus not healthy`,
+          };
+        },
+      },
+      {
+        // Sync pull delivers nothing while a prepared transaction exists (its
+        // start cannot be dated, so the watermark is 0; routes/sync.ts). A
+        // brief one is a client's two-phase commit; one left behind holds
+        // every client's sync until it is committed or rolled back.
+        name: 'sync',
+        critical: false,
+        run: async () => {
+          const { rows } = await sql<{ gid: string; prepared: Date }>`
+            SELECT gid, prepared FROM pg_prepared_xacts
+             WHERE database = current_database()
+               AND prepared < now() - interval '5 minutes'
+             ORDER BY prepared LIMIT 1
+          `.execute(db);
+          const stale = rows[0];
+          return {
+            ok: !stale,
+            error: stale
+              ? `prepared transaction "${stale.gid}" open since ${new Date(stale.prepared).toISOString()} holds sync pull: COMMIT PREPARED or ROLLBACK PREPARED it`
+              : undefined,
           };
         },
       },

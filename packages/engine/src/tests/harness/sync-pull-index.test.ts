@@ -20,7 +20,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+  syncPull,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `hsyncidx_${Date.now()}`;
@@ -44,13 +49,9 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
   let cookie = '';
 
   const pull = async (body: Record<string, unknown>): Promise<PullBody> => {
-    const res = await app.request('/api/sync/pull', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify(body),
-    });
+    const res = await syncPull(app, cookie, body);
     expect(res.status).toBe(200);
-    return (await res.json()) as PullBody;
+    return res.body as PullBody;
   };
 
   const tableStats = async (): Promise<TableStats> =>

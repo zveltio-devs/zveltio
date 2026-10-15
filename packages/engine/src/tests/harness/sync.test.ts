@@ -10,7 +10,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+  syncPull,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -251,12 +256,9 @@ d('sync routes (in-process)', () => {
       .execute(db)) as { rows: { api_key: string }[] };
     expect(stored.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
 
-    const res = await app.request(
-      '/api/sync/pull',
-      json('/api/sync/pull', { collections: [COLLECTION] }),
-    );
+    const res = await syncPull(app, cookie, { collections: [COLLECTION] });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = res.body as {
       changes?: { id: string; data: Record<string, unknown> }[];
     };
     const mine = (body.changes ?? []).find((c) => c.id === recordId);
