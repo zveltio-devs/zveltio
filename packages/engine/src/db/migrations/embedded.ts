@@ -86,6 +86,7 @@ import m067 from './sql/073_sealed_columns.sql' with { type: 'text' };
 import m068 from './sql/074_scrub_revision_password_hashes.sql' with { type: 'text' };
 import m069 from './sql/075_masking_views.sql' with { type: 'text' };
 import m070 from './sql/076_invitation_tenant_fk.sql' with { type: 'text' };
+import m071 from './sql/077_revision_masking.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -160,4 +161,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '074_scrub_revision_password_hashes.sql': m068,
   '075_masking_views.sql': m069,
   '076_invitation_tenant_fk.sql': m070,
+  '077_revision_masking.sql': m071,
 };

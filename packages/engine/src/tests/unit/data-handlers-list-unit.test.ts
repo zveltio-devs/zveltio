@@ -97,7 +97,7 @@ describe('listRecords (unit)', () => {
   });
 
   it('reconstructs records from revisions for a valid as_of', async () => {
-    db.when(/from zv_revisions/i, [
+    db.when(/from zvv?_+revisions/i, [
       { record_id: ID, action: 'create', data: JSON.stringify({ id: ID, title: 'old-value' }) },
     ]);
     const res = await makeApp(db).request('/things?as_of=2026-01-01T00:00:00.000Z');
@@ -114,12 +114,12 @@ describe('listRecords (unit)', () => {
     // still checkable without a database is that the engine asks for it; that it
     // is actually excluded is pinned against real Postgres in
     // `timetravel-page-in-sql.test.ts`.
-    db.when(/from zv_revisions/i, [
+    db.when(/from zvv?_+revisions/i, [
       { record_id: ID, action: 'delete', data: JSON.stringify({ id: ID, title: 'gone' }) },
     ]);
     const res = await makeApp(db).request('/things?as_of=2026-01-01T00:00:00.000Z');
     expect(res.status).toBe(200);
-    const asked = db.log.filter((q) => /from zv_revisions/i.test(q.sql));
+    const asked = db.log.filter((q) => /from zvv?_+revisions/i.test(q.sql));
     expect(asked.length).toBeGreaterThan(0);
     for (const q of asked) expect(q.sql).toMatch(/action <> 'delete'/);
     // And it must ask for one page, not for the collection.

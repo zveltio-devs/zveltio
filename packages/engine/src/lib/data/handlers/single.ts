@@ -142,9 +142,11 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
 
     // P0: use effectiveDb for tenant isolation in time-travel queries
     const effectiveDbTTSingle = getDb(c, db);
+    // `zvv__revisions` (migration 077): the request role may not read the copies
+    // in `zv_revisions`, and the view drops what a rule hides from the actor.
     const rev = await sql<{ action: string; data: JsonValue; created_at: string }>`
         SELECT action, data, created_at
-        FROM zv_revisions
+        FROM zvv__revisions
         WHERE collection = ${collection}
           AND record_id = ${id}
           AND tenant_id = ${tenantId(c)}::uuid

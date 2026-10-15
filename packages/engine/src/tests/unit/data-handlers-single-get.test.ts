@@ -141,13 +141,13 @@ describe('getRecord (unit)', () => {
   });
 
   it('404s when no revision exists at that point in time', async () => {
-    db.when(/from zv_revisions/i, []);
+    db.when(/from zvv?_+revisions/i, []);
     const res = await makeApp(db).request(`/things/${ID}?as_of=2026-01-01T00:00:00.000Z`);
     expect(res.status).toBe(404);
   });
 
   it('404s when the record was deleted before that point in time', async () => {
-    db.when(/from zv_revisions/i, [
+    db.when(/from zvv?_+revisions/i, [
       { action: 'delete', data: JSON.stringify({ id: ID }), created_at: '2025-12-01T00:00:00Z' },
     ]);
     const res = await makeApp(db).request(`/things/${ID}?as_of=2026-01-01T00:00:00.000Z`);
@@ -160,7 +160,7 @@ describe('getRecord (unit)', () => {
   });
 
   it('returns the historical snapshot for a valid as_of', async () => {
-    db.when(/from zv_revisions/i, [
+    db.when(/from zvv?_+revisions/i, [
       {
         action: 'update',
         data: JSON.stringify({ id: ID, title: 'old-value' }),

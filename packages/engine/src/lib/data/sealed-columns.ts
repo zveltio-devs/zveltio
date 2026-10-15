@@ -99,8 +99,9 @@ export async function dropMaskView(db: Database, table: string): Promise<void> {
 }
 
 /**
- * Seal and mask every collection. Run at boot: an install upgrading into 073 or
- * 075 has the fields and rules and none of the grants or views, and the boot
+ * Seal and mask every collection, and the revisions. Run at boot: an install
+ * upgrading into 073, 075 or 077 has the fields and rules and none of the grants
+ * or views, and the boot
  * grant loops re-run each start. A settled table is catalog reads, no lock.
  */
 export async function reconcileSealedColumns(db: Database): Promise<number> {
@@ -116,5 +117,16 @@ export async function reconcileSealedColumns(db: Database): Promise<number> {
     });
     if (changed) n++;
   }
+  // And `zvv__revisions` (077), whose definer/invoker answer follows the owner's
+  // attributes as each collection's view does.
+  const revisions = await sql<{
+    changed: boolean | null;
+  }>`SELECT zveltio_mask_revisions() AS changed`
+    .execute(db)
+    .catch((err: Error) => {
+      console.warn(`[sealed-columns] zv_revisions: could not apply — ${err.message}`);
+      return { rows: [] };
+    });
+  if (revisions.rows[0]?.changed) n++;
   return n;
 }
