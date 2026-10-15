@@ -18,12 +18,13 @@
  * `tenant-rate-limit` and `permissions` drive the `zv_roles`/`zv_settings` ones.
  *
  * Those triggers' functions run as the owner, so attaching one to a table of
- * one's own is a write as the owner: EXECUTE on them is the owner's (082).
+ * one's own is a write as the owner: EXECUTE on them is the owner's (082, and
+ * 083 for the sync tombstone trigger).
  */
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 // Spelled out here, not imported: dropping a table from the engine's list fails.
@@ -38,6 +39,13 @@ const CONTROL_TABLES = [
   'zv_settings',
 ];
 const REQUEST_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext'];
+
+// Where boot cannot take TEMPORARY from PUBLIC (temp-privilege.ts) the request
+// role owns temp tables; that is the state the trigger tests reproduce.
+const temp = (verb: 'GRANT' | 'REVOKE') => sql`
+  DO $t$ BEGIN
+    EXECUTE format('${sql.raw(verb)} TEMPORARY ON DATABASE %I ${sql.raw(verb === 'GRANT' ? 'TO' : 'FROM')} zveltio_rls', current_database());
+  END $t$`;
 
 d('control tables are read-only to the request roles', () => {
   let db: Database;
@@ -103,12 +111,6 @@ d('control tables are read-only to the request roles', () => {
 
   it('a role that owns a table cannot attach the owner-rights Casbin triggers to it', async () => {
     const { withTenantIsolation, DEFAULT_TENANT_ID } = await import('../../lib/tenancy/index.js');
-    // Where boot cannot take TEMPORARY from PUBLIC (temp-privilege.ts) the
-    // request role owns temp tables; that is the state this reproduces.
-    const temp = (verb: 'GRANT' | 'REVOKE') => sql`
-      DO $t$ BEGIN
-        EXECUTE format('${sql.raw(verb)} TEMPORARY ON DATABASE %I ${sql.raw(verb === 'GRANT' ? 'TO' : 'FROM')} zveltio_rls', current_database());
-      END $t$`;
     await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES ('g', 'ctl-victim', 'admin', '*')
               ON CONFLICT DO NOTHING`.execute(db);
     await temp('GRANT').execute(db);
@@ -148,5 +150,42 @@ d('control tables are read-only to the request roles', () => {
     await sql`DELETE FROM zvd_permissions WHERE v0 = 'ctl-victim'`.execute(db);
     for (const r of results) expect(r).toMatch(/permission denied for function/i);
     expect(left.rows.map((x) => x.v1)).toEqual(['admin']);
+  });
+
+  // zveltio_sync_tombstone() writes one tombstone per deleted row, in that
+  // row's unit, as its owner. On a table of one's own every column is chosen:
+  // any unit, any id, any collection (the table's name), and sync pull then
+  // tells that unit's clients to drop the row (083).
+  it('a role that owns a table cannot attach the owner-rights tombstone trigger to it', async () => {
+    const { withTenantIsolation, DEFAULT_TENANT_ID } = await import('../../lib/tenancy/index.js');
+    const victim = '4d000000-0000-0000-0000-0000000000e3';
+    const row = crypto.randomUUID();
+    await temp('GRANT').execute(db);
+    let result = 'ALLOWED';
+    try {
+      await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+        await sql`CREATE TEMP TABLE zvd_ctl_probe (id uuid, tenant_id uuid) ON COMMIT DROP`.execute(
+          trx,
+        );
+        await sql`CREATE TRIGGER ctl_probe AFTER DELETE ON zvd_ctl_probe
+                  REFERENCING OLD TABLE AS zv_old_rows
+                  FOR EACH STATEMENT EXECUTE FUNCTION public.zveltio_sync_tombstone()`.execute(trx);
+        await sql`INSERT INTO zvd_ctl_probe VALUES (${row}::uuid, ${victim}::uuid)`.execute(trx);
+        await sql`DELETE FROM zvd_ctl_probe`.execute(trx);
+      });
+    } catch (err) {
+      result = (err as Error).message;
+    } finally {
+      await temp('REVOKE').execute(db);
+    }
+    const forged = await asTenant(db, victim, async (trx) => {
+      const r = await sql<{ collection: string }>`
+        DELETE FROM zv_sync_tombstones WHERE row_id = ${row}::uuid RETURNING collection`.execute(
+        trx,
+      );
+      return r.rows.map((x) => x.collection);
+    });
+    expect(forged).toEqual([]);
+    expect(result).toMatch(/permission denied for function/i);
   });
 });
