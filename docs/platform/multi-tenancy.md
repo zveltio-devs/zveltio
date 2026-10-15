@@ -527,8 +527,13 @@ create objects, holds DML on that extension's own tables and
 extension shares: the non-engine `zvd_*` tables and `USAGE` on the schema —
 never `user` or a credential table. So SQL the extension SQL analyzer misreads
 still cannot reach `zv_api_keys`, `zvd_permissions`, the tenants, or another
-extension's tables. A table belongs to the extension with the longest matching
-`zv_<ext>_` prefix: `a` does not own `zv_a_b_*` once `a/b` is installed. Role
+extension's tables. Where no extension role is usable the statement runs as
+`zveltio_rls` (the worker bridge's last fallback too), which reads but cannot
+write the rule tables — `zvd_permissions`, `zvd_column_permissions`,
+`zvd_rls_policies`, `zv_extension_registry`, `zv_extension_forward_approvals`;
+the engine writes those as their owner, on the pool or through the Casbin
+triggers (`SECURITY DEFINER`, migration 080). A table belongs to the extension
+with the longest matching `zv_<ext>_` prefix: `a` does not own `zv_a_b_*` once `a/b` is installed. Role
 names are `zveltio_ext_<name>_<hash>` (`zveltio_extb_…` for the `BYPASSRLS`
 twin, `zveltio_wrk_…` for a worker extension), the hash covering the database
 name, so two databases on one cluster never share one. Disabling an extension

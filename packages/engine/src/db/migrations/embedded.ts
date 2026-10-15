@@ -89,6 +89,7 @@ import m070 from './sql/076_invitation_tenant_fk.sql' with { type: 'text' };
 import m071 from './sql/077_revision_masking.sql' with { type: 'text' };
 import m072 from './sql/078_drop_inherit_down.sql' with { type: 'text' };
 import m073 from './sql/079_hash_media_share_tokens.sql' with { type: 'text' };
+import m074 from './sql/080_casbin_triggers_definer.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -166,4 +167,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '077_revision_masking.sql': m071,
   '078_drop_inherit_down.sql': m072,
   '079_hash_media_share_tokens.sql': m073,
+  '080_casbin_triggers_definer.sql': m074,
 };

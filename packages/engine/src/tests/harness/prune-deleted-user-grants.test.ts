@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile } from '../../db/migrations/index.js';
+import { rerunMigration } from '../fixtures/rerun-migration.js';
 import { getEnforcer, reconcilePolicies } from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -119,6 +120,7 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
     const e = await getEnforcer();
     expect(await e.getRolesForUser(ORPHAN, '*')).toEqual(['employee']);
     await sql.raw(up).execute(db);
+    await rerunMigration(db, '080_casbin_triggers_definer.sql');
     expect(await rows(db, ORPHAN)).toEqual([]);
   });
 
@@ -148,6 +150,7 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
 
   it('is idempotent', async () => {
     await sql.raw(up).execute(db);
+    await rerunMigration(db, '080_casbin_triggers_definer.sql');
     expect(await rows(db, ID_LIKE_ROLE)).toHaveLength(2);
     expect(await rows(db, LIVE)).toHaveLength(2);
   });
