@@ -22,6 +22,13 @@ pool as the owner, and the three Casbin membership triggers become SECURITY
 DEFINER (migration 080). During a rolling upgrade, replicas on the old code get
 permission denied on those two admin routes until they are replaced.
 
+**Schema-branch preview tokens are stored as SHA-256 digests (migration 081).**
+`zv_schema_branches.preview_token` held the live token in plaintext, readable by
+the owner (the request role in native RLS mode) and in every dump. A trigger now
+hashes it on write, existing tokens are hashed in place, and
+`zveltio_preview_branch()` compares digests; preview links already issued keep
+working. The token is still shown once, at enable and rotate.
+
 **Fresh installs start from a GA baseline.** One baseline migration replaces
 001-061 on an empty database (#1076); an existing database keeps its applied
 history and runs only what is newer. A rollback below the baseline is refused

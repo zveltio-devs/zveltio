@@ -438,6 +438,18 @@ d('a preview token reads from the branch schema (in-process)', () => {
     expect(found.rows).toEqual([{ id: branchId }]);
   });
 
+  // The column grant above does not bind the owner — the role a native-mode
+  // request runs as, and the one a dump reads as — so the column holds a
+  // digest, not the token (migration 081).
+  it('stores a digest of the preview token, and the digest is not a token', async () => {
+    const digest = `sha256:${new Bun.CryptoHasher('sha256').update(token).digest('hex')}`;
+    const stored = await sql<{ preview_token: string | null }>`
+      SELECT preview_token FROM zv_schema_branches WHERE id = ${branchId}`.execute(db);
+    expect(stored.rows[0]?.preview_token).toBe(digest);
+    expect(await labels(member, { 'x-preview-token': digest })).toEqual(['main']);
+    expect(await labels(member, { 'x-preview-token': token })).toEqual(['branch']);
+  });
+
   it('a token on a branch whose preview is disabled is refused', async () => {
     await sql`UPDATE zv_schema_branches SET preview_enabled = false WHERE id = ${branchId}`.execute(
       db,
