@@ -698,6 +698,19 @@ export async function reconcileExtensionTenantRLS(
 }
 
 /**
+ * What the last boot reconcile could not apply, by table (or step): the message.
+ * Each failure only warned, and a warning at boot is read by nobody; `/health`
+ * reports these instead. A table that failed keeps the policies it had (they
+ * are replaced in one transaction), so this is visibility, not an open door.
+ */
+const _reconcileFailures = new Map<string, string>();
+
+/** The last reconcile's failures, for the health check. */
+export function tenantRlsReconcileFailures(): Array<{ table: string; error: string }> {
+  return [..._reconcileFailures].map(([table, error]) => ({ table, error }));
+}
+
+/**
  * Boot reconciler: apply tenant isolation to every COLLECTION DATA table.
  * Targets `zvd_<name>` for each row in `zvd_collections` plus the built-in
  * content tables. The `zvd_collections`/`zvd_relations`/`zvd_permissions`
@@ -705,6 +718,12 @@ export async function reconcileExtensionTenantRLS(
  * zvd_collections). Best-effort per table — one failure doesn't abort the rest.
  */
 export async function reconcileTenantRLS(db: Database): Promise<number> {
+  _reconcileFailures.clear();
+  const failed = (table: string, err: unknown, what: string) => {
+    const message = (err as Error).message;
+    _reconcileFailures.set(table, message);
+    console.warn(`[tenant-rls] ${what}:`, message);
+  };
   let names: string[];
   try {
     const rows = await sql<{ name: string }>`SELECT name FROM zvd_collections`.execute(db);
@@ -728,7 +747,7 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
     `.execute(db);
     for (const { t } of j.rows) tables.add(t);
   } catch (err) {
-    console.warn('[tenant-rls] junction table lookup failed:', (err as Error).message);
+    failed('(junction tables)', err, 'junction table lookup failed');
   }
 
   let applied = 0;
@@ -742,13 +761,13 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
       await applyTenantRLS(db, table, { deferIndexes: true });
       applied++;
     } catch (err) {
-      console.warn(`[tenant-rls] reconcile failed for ${table}:`, (err as Error).message);
+      failed(table, err, `reconcile failed for ${table}`);
     }
   }
   try {
     await revokeNarrowRolesFromNonCollections(db, [...tables]);
   } catch (err) {
-    console.warn('[tenant-rls] narrow-role revoke failed:', (err as Error).message);
+    failed('(narrow-role revoke)', err, 'narrow-role revoke failed');
   }
   return applied;
 }

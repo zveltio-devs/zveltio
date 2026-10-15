@@ -14,7 +14,7 @@ import {
 import { getCache, realtimeBus } from '../lib/runtime/index.js';
 import { isDDLQueueStarted } from '../lib/data/index.js';
 import { collectionRlsExemptionStatus, extensionLoader } from '../lib/extensions/index.js';
-import { requireInstanceAdmin } from '../lib/tenancy/index.js';
+import { requireInstanceAdmin, tenantRlsReconcileFailures } from '../lib/tenancy/index.js';
 import { storageConfig } from '../lib/storage/index.js';
 import { emailCaseUniquenessProblem } from '../lib/identity.js';
 import {
@@ -248,6 +248,22 @@ export function healthRoutes(db: Database, auth?: any): Hono {
             ok: !stale,
             error: stale
               ? `prepared transaction "${stale.gid}" open since ${new Date(stale.prepared).toISOString()} holds sync pull: COMMIT PREPARED or ROLLBACK PREPARED it`
+              : undefined,
+          };
+        },
+      },
+      {
+        // The boot reconcile re-applies tenant isolation to every collection
+        // table and goes on past a table it cannot; this is where that shows.
+        name: 'tenant_rls',
+        critical: false,
+        run: () => {
+          const failed = tenantRlsReconcileFailures();
+          return {
+            ok: failed.length === 0,
+            detail: { failed },
+            error: failed.length
+              ? `tenant isolation could not be re-applied to ${failed.map((f) => f.table).join(', ')} at boot; the previous policies stay in force`
               : undefined,
           };
         },

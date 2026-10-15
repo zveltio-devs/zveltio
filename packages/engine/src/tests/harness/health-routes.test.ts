@@ -7,7 +7,9 @@
 
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { reconcileTenantRLS } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
   createMemberSession,
@@ -99,4 +101,33 @@ d('health routes (in-process)', () => {
     const res = await app.request('/api/health/database', { headers: { cookie: memberCookie } });
     expect(res.status).toBe(403);
   });
+
+  it('GET /api/health/tenant_rls names the tables the boot reconcile could not isolate', async () => {
+    // A reconcile failure used to be one console.warn at boot. Plant one: the
+    // collection-permission function gone (a broken database), inside a
+    // transaction that is always rolled back.
+    await db
+      .transaction()
+      .execute(async (trx) => {
+        await sql`ALTER FUNCTION zveltio_collection_allows(text, text) RENAME TO zveltio_collection_allows_gone`.execute(
+          trx,
+        );
+        await reconcileTenantRLS(trx);
+        throw new Error('rollback');
+      })
+      .catch((err: Error) => {
+        if (err.message !== 'rollback') throw err;
+      });
+
+    const bad = await app.request('/api/health/tenant_rls', { headers: { cookie } });
+    const badBody = (await bad.json()) as { ok: boolean; detail?: { failed: unknown[] } };
+    expect(badBody.ok).toBe(false);
+    expect(badBody.detail?.failed.length).toBeGreaterThan(0);
+
+    // A clean reconcile clears it.
+    await reconcileTenantRLS(db);
+    const res = await app.request('/api/health/tenant_rls', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true });
+  }, 120_000);
 });

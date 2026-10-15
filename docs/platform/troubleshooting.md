@@ -137,6 +137,21 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS user_email_lower_key ON "user" (l
 
 The boot warning and the health check clear once the index is valid.
 
+### Tenant isolation not re-applied at boot
+
+> **Warning at boot:** `[tenant-rls] reconcile failed for zvd_<name>: …`
+> — and `tenant_rls` failing in `GET /api/health/deep` (or `/api/health/tenant_rls`).
+
+At every boot the engine re-applies tenant isolation and the collection
+permission policies to every collection table. A table it cannot do that for is
+listed with the database's error; the engine keeps serving. The table keeps the
+policies it had before (they are replaced in one transaction), so rows do not
+open up, but a rule or schema change since then is not enforced on it.
+
+Fix the cause named in the error (most often a database that is missing an
+engine function or role because a migration did not run, or was edited by hand),
+then restart: the check turns healthy after a clean reconcile.
+
 ## Performance Issues
 
 ### Slow API responses
