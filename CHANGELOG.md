@@ -333,6 +333,14 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   name, duplicate table creators flagged per file (#1046-#1051, #1071, #1072,
   #1089). The release gate requires coverage measured on the release commit
   (#1068).
+- Row-rule changes are audited: `/api/admin/rls` create, update and delete write
+  `rls_rule.created` / `.updated` / `.deleted` to `zv_audit_log`.
+- `DDLManager.createCollection`, `addField`, `updateCollectionMetadata` and
+  `previewCollection` take the input shape (field defaults optional), so the
+  `@zveltio/sdk/ddl` contract test checks its argument types instead of casting
+  them to `any`. Tests now pin the webhook timeout clamp values, the attempt
+  count written when a cache-less delivery gives up, and the socket re-check a
+  query-alter registration asks for.
 
 ## [3.0.0-beta.79] - 2026-10-11
 

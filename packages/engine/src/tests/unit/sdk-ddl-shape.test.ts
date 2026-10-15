@@ -85,10 +85,9 @@ describe('S4-08 SDK ddl shape', () => {
       getTableName: (name: string) => RealDDLManager.getTableName(name),
       invalidateCache: (name?: string) => RealDDLManager.invalidateCache(name),
       tableExists: (db, name) => RealDDLManager.tableExists(db as any, name),
-      createCollection: (db, def) => RealDDLManager.createCollection(db as any, def as any),
-      dropCollection: (db, name, opts) =>
-        RealDDLManager.dropCollection(db as any, name, opts as any),
-      addField: (db, c, f) => RealDDLManager.addField(db as any, c, f as any),
+      createCollection: (db, def) => RealDDLManager.createCollection(db as any, def),
+      dropCollection: (db, name, opts) => RealDDLManager.dropCollection(db as any, name, opts),
+      addField: (db, c, f) => RealDDLManager.addField(db as any, c, f),
       removeField: (db, c, f) => RealDDLManager.removeField(db as any, c, f),
       getCollections: (db) =>
         RealDDLManager.getCollections(db as any) as Promise<CollectionRecord[]>,
@@ -96,12 +95,12 @@ describe('S4-08 SDK ddl shape', () => {
       getCollection: (db, name) =>
         RealDDLManager.getCollection(db as any, name) as Promise<CollectionRecord | null>,
       updateCollectionMetadata: (db, name, meta) =>
-        RealDDLManager.updateCollectionMetadata(db as any, name, meta as any),
+        RealDDLManager.updateCollectionMetadata(db as any, name, meta),
       introspectTable: (db, name) =>
         RealDDLManager.introspectTable(db as any, name) as Promise<FieldDefinition[]>,
       columnNames: (db, name) => RealDDLManager.columnNames(db as any, name),
       syncFieldsFromDB: (db, name) => RealDDLManager.syncFieldsFromDB(db as any, name),
-      previewCollection: (def) => RealDDLManager.previewCollection(def as any),
+      previewCollection: (def) => RealDDLManager.previewCollection(def),
     };
     expect(_adapter.getTableName('contacts')).toBe('zvd_contacts');
   });

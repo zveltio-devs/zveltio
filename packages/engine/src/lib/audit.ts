@@ -53,6 +53,11 @@ export type AuditEventType =
   | 'api_key.rate_limit_set'
   | 'api_key.rate_limit_removed'
   | 'export.executed'
+  // Row rules (`/api/admin/rls`): who may read which rows is as much a
+  // permission as a role grant, and changing it left no trace.
+  | 'rls_rule.created'
+  | 'rls_rule.updated'
+  | 'rls_rule.deleted'
   // Tenant lifecycle and membership.
   //
   // `routes/tenants.ts` held no audit call at all: creating a firm, suspending

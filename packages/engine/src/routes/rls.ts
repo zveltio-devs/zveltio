@@ -10,6 +10,7 @@ import {
   deleteRlsPolicy,
 } from '../lib/tenancy/index.js';
 import { guardAdmin } from '../lib/admin-guard.js';
+import { auditLog } from '../lib/audit.js';
 
 const PolicySchema = z.object({
   collection: z.string().min(1).max(128),
@@ -51,7 +52,7 @@ function refuseUnenforceable(c: Context, err: unknown): Response {
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export function rlsRoutes(_db: Database, auth: any): Hono {
+export function rlsRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
 
   // GET /api/admin/rls — list all policies
@@ -71,6 +72,14 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
     const data = c.req.valid('json');
     try {
       const policy = await createRlsPolicy(data);
+      await auditLog(db, {
+        type: 'rls_rule.created',
+        tenantId: null,
+        userId: user.id,
+        resourceId: policy?.id,
+        resourceType: 'rls_rule',
+        metadata: data,
+      });
       return c.json({ policy }, 201);
     } catch (err) {
       return refuseUnenforceable(c, err);
@@ -91,6 +100,14 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
       return refuseUnenforceable(c, err);
     }
     if (!policy) return c.json({ error: 'Policy not found' }, 404);
+    await auditLog(db, {
+      type: 'rls_rule.updated',
+      tenantId: null,
+      userId: user.id,
+      resourceId: id,
+      resourceType: 'rls_rule',
+      metadata: data,
+    });
     return c.json({ policy });
   });
 
@@ -102,6 +119,13 @@ export function rlsRoutes(_db: Database, auth: any): Hono {
     const id = c.req.param('id');
     const ok = await deleteRlsPolicy(id);
     if (!ok) return c.json({ error: 'Policy not found' }, 404);
+    await auditLog(db, {
+      type: 'rls_rule.deleted',
+      tenantId: null,
+      userId: user.id,
+      resourceId: id,
+      resourceType: 'rls_rule',
+    });
     return c.json({ success: true });
   });
 

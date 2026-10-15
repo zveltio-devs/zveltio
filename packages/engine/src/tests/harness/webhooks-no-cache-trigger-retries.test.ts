@@ -97,6 +97,14 @@ d('trigger retries on the no-cache path (in-process)', () => {
     await _settleWebhookDeliveries();
 
     expect(hits).toBe(2); // the first try plus the one retry
+    // The give-up writes the final count onto the delivery row the admin log
+    // reads; without it the row still says the first attempt.
+    const rows = await db
+      .selectFrom('zvd_webhook_deliveries')
+      .select('attempt')
+      .where('webhook_id', '=', WEBHOOK_ID)
+      .execute();
+    expect(rows.map((r) => Number(r.attempt))).toEqual([2]);
     // Generous, and deliberately not a race: the drain above plus this file's
     // own 1s backoff take seconds, and nothing here is asserted on a clock.
   }, 60_000);

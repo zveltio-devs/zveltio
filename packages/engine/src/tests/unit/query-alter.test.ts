@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { sql } from 'kysely';
 import type { DynamicDB } from '../../db/dynamic-types.js';
 import { QueryAlterRegistryImpl } from '../../lib/data/query-alter.js';
+import { sweepGeneration } from '../../lib/tenancy/permissions.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 // Fake query builder for testing — the real one is Kysely, but the registry
@@ -154,6 +155,24 @@ describe('QueryAlterRegistryImpl', () => {
         throw new Error('boom');
       });
       expect(registry.restricts(db(), 'zvd_x', null)).toBe(true);
+    });
+  });
+
+  describe('socket revalidation', () => {
+    // An open subscription decided at subscribe whether alters restrict it; a
+    // registry change that does not ask for a sweep leaves it on the old answer.
+    it('asks for a sweep on register and on an unload that removed something', () => {
+      const g0 = sweepGeneration();
+      registry.registerAs('a', 'zvd_x', (qb: FakeQB) => qb.where('a', '=', 1));
+      expect(sweepGeneration()).toBe(g0 + 1);
+      registry.unregisterAll('a');
+      expect(sweepGeneration()).toBe(g0 + 2);
+    });
+
+    it('does not ask for one when an unload removed nothing', () => {
+      const g0 = sweepGeneration();
+      expect(registry.unregisterAll('nobody')).toBe(0);
+      expect(sweepGeneration()).toBe(g0);
     });
   });
 });
