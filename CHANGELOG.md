@@ -222,6 +222,9 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   table, instead of quietly leaving the table without its four
   collection-permission policies. The function is in the GA baseline, so only a
   broken database is affected.
+- A table the boot reconcile cannot re-isolate is reported by the `tenant_rls`
+  health check (`/api/health/deep`, `/api/health/tenant_rls`) instead of only a
+  boot warning. Boot still continues; the table keeps its previous policies.
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,
