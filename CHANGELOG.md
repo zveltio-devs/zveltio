@@ -4,6 +4,14 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Breaking: share-link tokens are stored as SHA-256 digests (migration 079).**
+`zv_media_shares.token` held the raw bearer token of every public `/share/:token`
+link, readable by any SQL running as the request role in that tenant. A trigger
+now hashes any token written raw, existing rows are hashed in place, and
+`zveltio_media_share_tenant()` compares digests. storage/cloud before 1.1.9 looks
+links up by the raw token, so its public links answer "not found" on this engine
+until it is upgraded to 1.1.9.
+
 **Fresh installs start from a GA baseline.** One baseline migration replaces
 001-061 on an empty database (#1076); an existing database keeps its applied
 history and runs only what is newer. A rollback below the baseline is refused

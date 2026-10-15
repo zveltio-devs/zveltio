@@ -32,7 +32,7 @@ d('media shares carry the firm of what they share', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zv_media_shares WHERE token LIKE ${`${STAMP}%`}`.execute(db);
+    await sql`DELETE FROM zv_media_shares WHERE created_by = ${STAMP}`.execute(db);
     await sql`DELETE FROM zv_media_files WHERE filename = ${STAMP}`.execute(db);
     await sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
@@ -72,13 +72,16 @@ d('media shares carry the firm of what they share', () => {
       await runPending(db);
     }
 
+    // The tokens come back as digests: 079 runs in the same `runPending`.
+    const digest = (t: string) =>
+      `sha256:${new Bun.CryptoHasher('sha256').update(`${STAMP}-${t}`).digest('hex')}`;
     const rows = await sql<{ token: string; tenant_id: string | null }>`
       SELECT token, tenant_id::text AS tenant_id FROM zv_media_shares
-       WHERE token LIKE ${`${STAMP}%`} ORDER BY token`.execute(db);
+       WHERE created_by = ${STAMP} ORDER BY token`.execute(db);
     expect(Object.fromEntries(rows.rows.map((r) => [r.token, r.tenant_id]))).toEqual({
-      [`${STAMP}-${ROOT}-file`]: ROOT,
-      [`${STAMP}-${ROOT}-folder`]: ROOT,
-      [`${STAMP}-${OTHER}-file`]: OTHER,
+      [digest(`${ROOT}-file`)]: ROOT,
+      [digest(`${ROOT}-folder`)]: ROOT,
+      [digest(`${OTHER}-file`)]: OTHER,
     });
   }, 120_000);
 });
