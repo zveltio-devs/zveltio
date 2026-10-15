@@ -380,6 +380,7 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);
       }
     }
+    const writes: [string, ReturnType<typeof toJsonb>][] = [];
     for (const [key, value] of Object.entries(body)) {
       // A secret read back as `********` and written straight through would
       // overwrite the real credential with the mask. The Studio's settings page
@@ -397,16 +398,22 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       } catch {
         return c.json({ error: `Value for key "${key}" is not JSON-serializable` }, 400);
       }
-      const serialized = toJsonb(value);
-      await db
-        .insertInto('zv_settings')
-        .values({ key, value: serialized, updated_at: new Date() })
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        .onConflict((oc: any) =>
-          oc.column('key').doUpdateSet({ value: serialized, updated_at: new Date() }),
-        )
-        .execute();
+      writes.push([key, toJsonb(value)]);
     }
+    // All or none: this route runs on the pool (082), with no request
+    // transaction to roll a half-applied form back.
+    await db.transaction().execute(async (trx) => {
+      for (const [key, serialized] of writes) {
+        await trx
+          .insertInto('zv_settings')
+          .values({ key, value: serialized, updated_at: new Date() })
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          .onConflict((oc: any) =>
+            oc.column('key').doUpdateSet({ value: serialized, updated_at: new Date() }),
+          )
+          .execute();
+      }
+    });
     await auditLog(db, {
       type: 'settings.changed',
       tenantId: null,

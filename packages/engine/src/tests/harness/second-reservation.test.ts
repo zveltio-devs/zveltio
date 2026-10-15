@@ -212,7 +212,7 @@ d('a request needs one connection (in-process)', () => {
       return Promise.reject(new Error('prefetch outage'));
     };
     try {
-      const res = await app.request('/api/settings', { headers: { cookie } });
+      const res = await app.request('/api/webhooks', { headers: { cookie } });
       expect(res.status).toBe(200);
       expect(Number(res.headers.get('x-zveltio-extra-connections'))).toBeGreaterThan(0);
     } finally {

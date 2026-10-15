@@ -14,7 +14,11 @@
  * column-permission admin routes now run outside the request transaction,
  * `TXN_SKIP_PREFIXES`) or through the Casbin triggers, SECURITY DEFINER since
  * migration 080. `rls-admin`, `admin-config` and the member-role tests drive
- * those writers end to end.
+ * those writers end to end; `settings`, `storage-admin`, `recovery-bootstrap`,
+ * `tenant-rate-limit` and `permissions` drive the `zv_roles`/`zv_settings` ones.
+ *
+ * Those triggers' functions run as the owner, so attaching one to a table of
+ * one's own is a write as the owner: EXECUTE on them is the owner's (082).
  */
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
@@ -29,6 +33,9 @@ const CONTROL_TABLES = [
   'zvd_rls_policies',
   'zv_extension_forward_approvals',
   'zv_extension_registry',
+  // Roles and instance settings (registration, SMTP, storage, recovery tokens).
+  'zv_roles',
+  'zv_settings',
 ];
 const REQUEST_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext'];
 
@@ -84,9 +91,62 @@ d('control tables are read-only to the request roles', () => {
         sql`INSERT INTO zv_extension_forward_approvals (name, approved) VALUES ('ctl-probe', '{}')`,
       ),
       attempt(sql`UPDATE zv_extension_registry SET granted_capabilities = NULL WHERE false`),
+      attempt(sql`INSERT INTO zv_roles (name) VALUES ('ctl-probe')`),
+      attempt(sql`INSERT INTO zv_settings (key, value) VALUES ('ctl-probe', 'true'::jsonb)`),
     ]);
     await sql`DELETE FROM zvd_permissions WHERE v0 = 'ctl-probe'`.execute(db);
     await sql`DELETE FROM zv_extension_forward_approvals WHERE name = 'ctl-probe'`.execute(db);
+    await sql`DELETE FROM zv_roles WHERE name = 'ctl-probe'`.execute(db);
+    await sql`DELETE FROM zv_settings WHERE key = 'ctl-probe'`.execute(db);
     for (const r of results) expect(r).toMatch(/permission denied/i);
+  });
+
+  it('a role that owns a table cannot attach the owner-rights Casbin triggers to it', async () => {
+    const { withTenantIsolation, DEFAULT_TENANT_ID } = await import('../../lib/tenancy/index.js');
+    // Where boot cannot take TEMPORARY from PUBLIC (temp-privilege.ts) the
+    // request role owns temp tables; that is the state this reproduces.
+    const temp = (verb: 'GRANT' | 'REVOKE') => sql`
+      DO $t$ BEGIN
+        EXECUTE format('${sql.raw(verb)} TEMPORARY ON DATABASE %I ${sql.raw(verb === 'GRANT' ? 'TO' : 'FROM')} zveltio_rls', current_database());
+      END $t$`;
+    await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES ('g', 'ctl-victim', 'admin', '*')
+              ON CONFLICT DO NOTHING`.execute(db);
+    await temp('GRANT').execute(db);
+    const attempt = async (fn: string): Promise<string> => {
+      try {
+        await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+          await sql`CREATE TEMP TABLE ctl_probe (id text, user_id text, tenant_id uuid) ON COMMIT DROP`.execute(
+            trx,
+          );
+          await sql`CREATE TRIGGER ctl_probe AFTER INSERT OR DELETE ON ctl_probe
+                    FOR EACH ROW EXECUTE FUNCTION ${sql.raw(`public.${fn}()`)}`.execute(trx);
+          await sql`INSERT INTO ctl_probe VALUES ('ctl-victim', 'ctl-victim', ${DEFAULT_TENANT_ID})`.execute(
+            trx,
+          );
+          await sql`DELETE FROM ctl_probe`.execute(trx);
+        });
+        return 'ALLOWED';
+      } catch (err) {
+        return (err as Error).message;
+      }
+    };
+    let results: string[];
+    try {
+      results = [];
+      for (const fn of [
+        'zveltio_grant_member_role',
+        'zveltio_drop_deleted_user_grants',
+        'zveltio_drop_removed_member_grants',
+      ]) {
+        results.push(await attempt(fn));
+      }
+    } finally {
+      await temp('REVOKE').execute(db);
+    }
+    const left = await sql<{ v1: string }>`
+      SELECT v1 FROM zvd_permissions WHERE v0 = 'ctl-victim' ORDER BY v1`.execute(db);
+    await sql`DELETE FROM zvd_permissions WHERE v0 = 'ctl-victim'`.execute(db);
+    for (const r of results) expect(r).toMatch(/permission denied for function/i);
+    expect(left.rows.map((x) => x.v1)).toEqual(['admin']);
   });
 });

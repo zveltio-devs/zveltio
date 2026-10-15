@@ -121,6 +121,7 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
     expect(await e.getRolesForUser(ORPHAN, '*')).toEqual(['employee']);
     await sql.raw(up).execute(db);
     await rerunMigration(db, '080_casbin_triggers_definer.sql');
+    await rerunMigration(db, '082_casbin_trigger_functions_execute.sql');
     expect(await rows(db, ORPHAN)).toEqual([]);
   });
 
@@ -151,6 +152,7 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
   it('is idempotent', async () => {
     await sql.raw(up).execute(db);
     await rerunMigration(db, '080_casbin_triggers_definer.sql');
+    await rerunMigration(db, '082_casbin_trigger_functions_execute.sql');
     expect(await rows(db, ID_LIKE_ROLE)).toHaveLength(2);
     expect(await rows(db, LIVE)).toHaveLength(2);
   });

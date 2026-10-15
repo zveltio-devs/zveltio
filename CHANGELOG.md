@@ -29,6 +29,17 @@ hashes it on write, existing tokens are hashed in place, and
 `zveltio_preview_branch()` compares digests; preview links already issued keep
 working. The token is still shown once, at enable and rotate.
 
+**The request role can no longer write roles or instance settings.**
+`zveltio_rls` keeps SELECT but loses INSERT/UPDATE/DELETE on `zv_roles` and
+`zv_settings` (registration, SMTP, storage, spent recovery tokens), as 080 did
+for the rule tables. `/api/admin/roles`, `/api/settings`, `/api/admin/storage`,
+`/api/admin/rate-limits/tenant-admins` and `/api/permissions/bootstrap` write on
+the pool as the owner. EXECUTE on the three Casbin membership trigger functions
+is taken from PUBLIC (migration 082): run as their owner since 080, they could be
+attached to a table of one's own to delete any subject's grants. During a rolling
+upgrade, replicas on the old code get permission denied on those routes until
+they are replaced.
+
 **Fresh installs start from a GA baseline.** One baseline migration replaces
 001-061 on an empty database (#1076); an existing database keeps its applied
 history and runs only what is newer. A rollback below the baseline is refused

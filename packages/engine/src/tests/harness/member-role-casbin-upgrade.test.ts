@@ -83,6 +83,7 @@ d('migration 059 backfills `member` into Casbin', () => {
     // `down` ran on the shared harness DB: give every other account its row back.
     if (up) await sql.raw(up).execute(db);
     await rerunMigration(db, '080_casbin_triggers_definer.sql');
+    await rerunMigration(db, '082_casbin_trigger_functions_execute.sql');
     await sql`DELETE FROM zvd_permissions WHERE v0 = ANY(${USERS})`.execute(db);
     await sql`DELETE FROM "user" WHERE id = ANY(${USERS})`.execute(db);
     clearLocalPermissionCache();

@@ -91,6 +91,7 @@ import m072 from './sql/078_drop_inherit_down.sql' with { type: 'text' };
 import m073 from './sql/079_hash_media_share_tokens.sql' with { type: 'text' };
 import m074 from './sql/080_casbin_triggers_definer.sql' with { type: 'text' };
 import m075 from './sql/081_hash_preview_tokens.sql' with { type: 'text' };
+import m076 from './sql/082_casbin_trigger_functions_execute.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -170,4 +171,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '079_hash_media_share_tokens.sql': m073,
   '080_casbin_triggers_definer.sql': m074,
   '081_hash_preview_tokens.sql': m075,
+  '082_casbin_trigger_functions_execute.sql': m076,
 };

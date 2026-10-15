@@ -169,6 +169,14 @@ const TXN_SKIP_PREFIXES = [
   // under a held transaction.
   '/api/admin/rls',
   '/api/admin/column-permissions',
+  // Likewise `zv_roles` and `zv_settings` (082): the role list, the settings
+  // routes, the storage and tenant-admin rate-limit switches, and recovery,
+  // which spends its token in `zv_settings`.
+  '/api/admin/roles',
+  '/api/settings',
+  '/api/admin/storage',
+  '/api/admin/rate-limits/tenant-admins',
+  '/api/permissions/bootstrap',
 
   // The instance audit trail (migration 040). Instance-level rows are visible
   // only where no tenant is the transaction's subject, and a request
