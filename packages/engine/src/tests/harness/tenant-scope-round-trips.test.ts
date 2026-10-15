@@ -44,7 +44,7 @@ const U = {
 type Seen = {
   statements: number;
   visible: string;
-  ancestors: string;
+  ancestors: string | null;
   role: string;
   single: string | null;
 };
@@ -128,9 +128,10 @@ d('withTenantIsolation round trips', () => {
         const conn = await trx.getExecutor().provideConnection(async (c) => c);
         // BEGIN is one of them; the rest is what the isolation added.
         const statements = (seenBy.get(conn) ?? 0) - 1;
-        const r = await sql<{ visible: string; ancestors: string; role: string }>`
+        // `ancestor_tenants` is read only to prove nothing publishes it (078).
+        const r = await sql<{ visible: string; ancestors: string | null; role: string }>`
           SELECT current_setting('zveltio.visible_tenants', true) AS visible,
-                 current_setting('zveltio.ancestor_tenants', true) AS ancestors,
+                 nullif(current_setting('zveltio.ancestor_tenants', true), '') AS ancestors,
                  current_user::text AS role
         `.execute(trx);
         const row = r.rows[0]!;
@@ -153,25 +154,37 @@ d('withTenantIsolation round trips', () => {
     }
   });
 
-  it('no user: no set, no ancestors walked, single-unit reach', async () => {
+  it('no user: no set, single-unit reach', async () => {
     const s = await run(KID, null);
     expect(s.visible).toBe('');
-    expect(s.ancestors).toBe('');
     expect(s.single).toBe(KID);
   });
 
-  it('a user with no assignment publishes no set but still gets the ancestors', async () => {
+  it('a user with no assignment publishes no set', async () => {
     const s = await run(KID, U.none);
     expect(s.visible).toBe('');
-    expect(s.ancestors).toBe(ROOT);
     expect(s.single).toBe(KID);
   });
 
   it('self is the unit alone', async () => {
     const s = await run(KID, U.self);
     expect(s.visible).toBe(KID);
-    expect(s.ancestors).toBe(ROOT);
     expect(s.single).toBe(KID);
+  });
+
+  it('no caller gets an ancestor set, and the reach walks no ancestors (078)', async () => {
+    // KID has ROOT above it. Until 078 every request walked up to it and
+    // published `zveltio.ancestor_tenants`, which no policy read.
+    for (const userId of [null, ...Object.values(U)]) {
+      expect({ userId, ancestors: (await run(KID, userId)).ancestors }).toEqual({
+        userId,
+        ancestors: null,
+      });
+    }
+    const r = await sql<{ ancestors_csv: string | null }>`
+      SELECT r.ancestors_csv FROM zveltio_tenant_reach(${U.self}, ${KID}) AS r
+    `.execute(db);
+    expect(r.rows[0]?.ancestors_csv).toBeNull();
   });
 
   it('list is the unit plus the list, the unit first and once', async () => {
@@ -188,7 +201,6 @@ d('withTenantIsolation round trips', () => {
     const g = await run(GRANDKID, U.subtree);
     // The assignment is on KID, not on GRANDKID: no reach there at all.
     expect(g.visible).toBe('');
-    expect(set(g.ancestors)).toEqual([KID, ROOT].sort());
   });
 
   it('org is every unit', async () => {
@@ -201,7 +213,6 @@ d('withTenantIsolation round trips', () => {
     for (const userId of [U.expired, U.future]) {
       const s = await run(KID, userId);
       expect(s.visible).toBe(NO_UNITS);
-      expect(s.ancestors).toBe(ROOT);
       expect(s.single).toBeNull();
     }
   });
@@ -223,10 +234,9 @@ d('withTenantIsolation round trips', () => {
     }
   });
 
-  it('god sees every unit and walks no ancestors', async () => {
+  it('god sees every unit', async () => {
     const s = await run(KID, U.god);
     expect(set(s.visible)).toHaveLength(await tenantCount());
-    expect(s.ancestors).toBe('');
   });
 
   it('the role is dropped AFTER the reach is read, in the same statement', async () => {
@@ -240,22 +250,22 @@ d('withTenantIsolation round trips', () => {
 
     // The restricted role holds SELECT on `zv_tenants` today, so the line above
     // cannot tell the orders apart. Take the grant away — inside a transaction
-    // that is rolled back — and the walks must still answer in full.
+    // that is rolled back — and the subtree walk must still answer in full.
     const walked = await db
       .transaction()
       .execute(async (trx) => {
         await sql`REVOKE SELECT ON zv_tenants FROM zveltio_rls`.execute(trx);
-        const r = await sql<{ visible_csv: string; ancestors_csv: string; who: string }>`
-          WITH reach AS MATERIALIZED (${tenantScopeQuery(U.subtree, GRANDKID)})
-          SELECT reach.visible_csv, reach.ancestors_csv,
+        const r = await sql<{ visible_csv: string; who: string }>`
+          WITH reach AS MATERIALIZED (${tenantScopeQuery(U.subtree, KID)})
+          SELECT reach.visible_csv,
                  set_config('role', 'zveltio_rls', true) AS who
             FROM reach
         `.execute(trx);
         throw Object.assign(new Error('rollback'), { row: r.rows[0] });
       })
-      .catch((e: { row?: { visible_csv: string; ancestors_csv: string; who: string } }) => e.row);
+      .catch((e: { row?: { visible_csv: string; who: string } }) => e.row);
     expect(walked?.who).toBe('zveltio_rls');
-    expect(set(walked?.ancestors_csv ?? '')).toEqual([KID, ROOT].sort());
+    expect(set(walked?.visible_csv ?? '')).toEqual([KID, GRANDKID].sort());
   });
 
   it('a temporary zv_tenant_users on the connection does not answer the reach', async () => {
@@ -285,7 +295,6 @@ d('withTenantIsolation round trips', () => {
       const scope = await resolveTenantScope(db, userId, KID);
       const s = await run(KID, userId);
       expect((scope.visible ?? []).join(',')).toBe(s.visible);
-      expect(scope.ancestors.join(',')).toBe(s.ancestors);
     }
   });
 });

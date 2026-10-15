@@ -150,7 +150,6 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
       sourceType: col.source_type === 'table' ? null : col.source_type,
       virtualConfig: col.virtual_config,
       schemaLocked: col.schema_locked || null,
-      inheritDown: col.inherit_down || null,
       aiSearchEnabled: col.ai_search_enabled || null,
       aiSearchField: col.ai_search_field,
       aiEmbedExcludedFields: sortedOrNull(col.ai_embed_excluded_fields),

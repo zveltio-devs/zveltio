@@ -3815,7 +3815,6 @@ table zvd_collections
   col has_trgm                       boolean NOT NULL DEFAULT false
   col icon                           text DEFAULT 'Table'::text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col inherit_down                   boolean NOT NULL DEFAULT false
   col is_managed                     boolean NOT NULL DEFAULT true
   col is_permissioned                boolean DEFAULT true
   col is_system                      boolean NOT NULL DEFAULT false

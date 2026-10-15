@@ -344,7 +344,7 @@ export interface QueryOptions {
    *
    * The caller must pass it ONLY when the request's reach is its own tenant
    * alone (`getSingleTenantId()`). With a hierarchy in play this would hide the
-   * ancestors' rows the caller is entitled to.
+   * other units' rows the caller is entitled to.
    */
   tenantScopeId?: string | null;
   /**

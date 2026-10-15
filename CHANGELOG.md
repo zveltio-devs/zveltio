@@ -31,6 +31,17 @@ shows the rules and offers to adopt them (#1093).
 role, outside any tenant, now fails instead of seeing every tenant's rows.
 
 ### Security and tenancy
+- `zvd_collections.inherit_down` is removed with its machinery (migration 078):
+  the two-argument `zveltio_tenant_scope_ok(row_tenant, inherit_down)`
+  overloads, `zveltio_ancestor_tenants()`/`_text()`, `zveltio_tenant_ancestors()`
+  and the `zveltio.ancestor_tenants` GUC. No policy ever read the flag, so
+  setting it granted nothing, yet every authenticated request walked the unit's
+  ancestors to publish a set nobody used. `zveltio_tenant_reach` no longer walks
+  them; its `ancestors_csv` column stays, always NULL, for previous-release
+  replicas during a rolling upgrade. Behaviour change: SQL that calls a removed
+  function fails (42883), the migration refuses to run while a hand-written
+  policy depends on one, and a schema artifact carrying `inheritDown` is refused
+  as an unknown key.
 - A revision no longer gives back a column a read rule hides (L37, migration
   077). `zv_revisions` stores the whole row in `data`/`delta`, hidden columns
   included, and `zveltio_rls` could read it directly, so raw SQL took from
