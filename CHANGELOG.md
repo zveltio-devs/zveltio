@@ -165,6 +165,12 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   reads `SET NOT NULL` (#1099).
 
 ### Operations
+- `scripts/bootstrap-db-role.sh` creates `zveltio_coll_exempt` and grants it to
+  the app role WITH ADMIN (no INHERIT, no SET). A second database on a cluster
+  where the role already existed could not apply
+  `ZVELTIO_COLLECTION_RLS_EXEMPT`: the engine warned and kept the extension
+  enforced. The owner CI lane now runs `check:test-leftovers` after its suite,
+  as the superuser lane does.
 - A worker extension's `ctx.services.has()` sees an optional dependency
   upgraded past its `minVersion` without a restart: the host re-sends the
   worker its service map with the registry snapshot.
