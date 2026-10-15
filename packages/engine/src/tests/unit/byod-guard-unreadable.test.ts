@@ -5,7 +5,7 @@
  * not run schema changes on it, and both DDL paths check `is_managed` before
  * they do anything.
  *
- * Both read it with `.catch(() => null)`, and `null` fell through to "no row
+ * Both once read it with `.catch(() => null)`, and `null` fell through to "no row
  * says otherwise, so proceed". A transient read error therefore DISABLED the
  * guard — at the one moment the answer was unknown, the code chose the
  * destructive branch.
@@ -21,21 +21,15 @@ import { GhostDDL } from '../../lib/data/ghost-ddl.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 describe('GhostDDL.execute — ownership cannot be read', () => {
-  it('refuses to run, and says ownership is unknown rather than assuming managed', async () => {
+  it('fails rather than running, or reporting a skip the caller reads as done', async () => {
     const db = new CannedDb();
     db.fail(/from "zvd_collections"/, new Error('connection terminated unexpectedly'));
 
-    const phases: Array<[string, string]> = [];
-    await GhostDDL.execute(
-      db.kysely as unknown as Database,
-      'zvd_customer_ledger',
-      [{ kind: 'add_column', field: { name: 'note', type: 'text' } }],
-      (phase, detail) => phases.push([phase, detail]),
-    );
-
-    // Refused — and named as a skip with the reason, not as a completed run.
-    expect(phases.some(([p]) => p === 'skipped')).toBe(true);
-    expect(phases.some(([, d]) => /ownership is unknown/.test(d))).toBe(true);
+    await expect(
+      GhostDDL.execute(db.kysely as unknown as Database, 'zvd_customer_ledger', [
+        { kind: 'add_column', field: { name: 'note', type: 'text' } },
+      ]),
+    ).rejects.toThrow('connection terminated unexpectedly');
     // Nothing was copied, altered or swapped.
     expect(db.executed(/CREATE TABLE/i)).toHaveLength(0);
   });

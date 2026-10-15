@@ -18,6 +18,7 @@ import {
   enqueueDDLJob,
   getDDLJob,
   isDDLQueueStarted,
+  runAddField,
 } from '../../lib/data/ddl-queue.js';
 import { initDDLQueue } from '../../lib/data/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
@@ -153,23 +154,16 @@ describe('skipForByod', () => {
   });
 
   /**
-   * This test used to assert `false` — "go ahead" — and it passed, which is what
-   * kept the defect in place.
-   *
-   * `skipForByod` answers "is this collection ours to alter?". Its callers are
-   * `drop_collection`, `remove_field` and `add_field`. Returning false on a
-   * FAILED lookup meant a transient database error while asking that question
-   * answered yes, and the engine would drop a column — or a whole table — that
-   * an operator had explicitly marked `is_managed = false`, a BYOD table holding
-   * their own data.
-   *
-   * Unknown ownership is the one case where doing nothing is always recoverable
-   * and doing something may not be.
+   * A failed lookup first answered "go ahead" (a BYOD table could be dropped on
+   * a transient error), then "skip" — which pg-boss recorded as a completed job,
+   * so the requested change silently never happened. It must fail the job.
    */
-  it('skips the job when the collection lookup fails, rather than running DDL blind', async () => {
+  it('fails the job when the collection lookup fails, rather than skipping it as done', async () => {
     const db = new CannedDb();
     db.fail(/select "is_managed" from "zvd_collections"/i, new Error('relation missing'));
-    expect(await skipForByod(asDb(db), { collection: 'ghost' }, 'add_field')).toBe(true);
+    await expect(skipForByod(asDb(db), { collection: 'ghost' }, 'add_field')).rejects.toThrow(
+      'relation missing',
+    );
   });
 
   it('returns false when the payload names no collection', async () => {
@@ -208,5 +202,21 @@ describe('reindexInvalid', () => {
     } finally {
       warn.restore();
     }
+  });
+});
+
+describe('runAddField', () => {
+  /**
+   * The schema-branch merge and schema apply add fields through here, and
+   * nothing upstream checked `is_managed`: Ghost DDL refused a BYOD table and
+   * `addField` then altered it anyway.
+   */
+  it('refuses an unmanaged (BYOD) collection before any DDL', async () => {
+    const db = new CannedDb();
+    db.when(/from "zvd_collections"/, [{ is_managed: false, schema_locked: false }]);
+    await expect(
+      runAddField(asDb(db), 'customer_ledger', { name: 'note', type: 'text' } as never),
+    ).rejects.toThrow(/unmanaged \(BYOD\)/);
+    expect(db.executed(/alter table|create table/i)).toHaveLength(0);
   });
 });
