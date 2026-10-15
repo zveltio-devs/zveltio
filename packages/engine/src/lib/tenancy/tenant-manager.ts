@@ -1688,6 +1688,19 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         LOOP
           EXECUTE format('REVOKE ALL ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;
+        -- The rule tables are read here and written only on the pool, as their
+        -- owner. Write grants made them one SQL-analyzer miss away from a god
+        -- grant, a lifted column guard or row rule, or a self-approved credential
+        -- forward: inline ctx.db and the worker bridge fall back to this role.
+        -- tests/harness/control-table-grants.test.ts.
+        FOR t IN
+          SELECT tablename FROM pg_tables
+          WHERE schemaname = 'public'
+            AND tablename IN ('zvd_permissions', 'zvd_column_permissions', 'zvd_rls_policies',
+                              'zv_extension_forward_approvals', 'zv_extension_registry')
+        LOOP
+          EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM zveltio_rls', t.tablename);
+        END LOOP;
         -- A preview token is a credential too (migration 068): every column of
         -- zv_schema_branches but that one. The loop above just granted the table
         -- whole, and a column grant means nothing beside a table grant, so the

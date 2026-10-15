@@ -163,6 +163,13 @@ const TXN_SKIP_PREFIXES = [
   // `/api/collections` and `/api/schema` are above.
   '/api/admin/schema',
 
+  // The row rules and column permissions: instance-level tables the request
+  // role may read but not write (`ensureRlsEnforcementRole`), so their admin
+  // writes run on the pool as the owner — one connection, not a second one
+  // under a held transaction.
+  '/api/admin/rls',
+  '/api/admin/column-permissions',
+
   // The instance audit trail (migration 040). Instance-level rows are visible
   // only where no tenant is the transaction's subject, and a request
   // transaction always names one — god's included. The routes read through

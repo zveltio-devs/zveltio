@@ -17,6 +17,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile } from '../../db/migrations/index.js';
+import { rerunMigration } from '../fixtures/rerun-migration.js';
 import { executeFlow } from '../../lib/flows/index.js';
 import {
   checkPermission,
@@ -228,6 +229,7 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
       new URL('../../db/migrations/sql/034_drop_removed_member_tenant_grants.sql', import.meta.url),
     );
     await sql.raw(parseMigrationFile(await file.text()).up).execute(db);
+    await rerunMigration(db, '080_casbin_triggers_definer.sql');
 
     expect((await grantsOf(USER)).map((g) => `${g.dom} ${g.role}`).sort()).toEqual(
       [`${DEF} ${DEF_ROLE}`, `* ${GLOBAL}`, `${TENANT_B} ${ROLE_B}`].sort(),

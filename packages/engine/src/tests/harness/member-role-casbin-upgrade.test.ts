@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile } from '../../db/migrations/index.js';
+import { rerunMigration } from '../fixtures/rerun-migration.js';
 import {
   clearLocalPermissionCache,
   getEnforcer,
@@ -81,6 +82,7 @@ d('migration 059 backfills `member` into Casbin', () => {
     if (!db) return;
     // `down` ran on the shared harness DB: give every other account its row back.
     if (up) await sql.raw(up).execute(db);
+    await rerunMigration(db, '080_casbin_triggers_definer.sql');
     await sql`DELETE FROM zvd_permissions WHERE v0 = ANY(${USERS})`.execute(db);
     await sql`DELETE FROM "user" WHERE id = ANY(${USERS})`.execute(db);
     clearLocalPermissionCache();

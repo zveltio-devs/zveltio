@@ -12,6 +12,16 @@ now hashes any token written raw, existing rows are hashed in place, and
 links up by the raw token, so its public links answer "not found" on this engine
 until it is upgraded to 1.1.9.
 
+**The request role can no longer write the rule tables.** `zveltio_rls` keeps
+SELECT but loses INSERT/UPDATE/DELETE on `zvd_permissions`,
+`zvd_column_permissions`, `zvd_rls_policies`, `zv_extension_forward_approvals`
+and `zv_extension_registry`, so raw SQL that slips past the analyzer cannot
+grant god, lift a column guard or row rule, or self-approve credential
+forwarding. `/api/admin/rls` and `/api/admin/column-permissions` write on the
+pool as the owner, and the three Casbin membership triggers become SECURITY
+DEFINER (migration 080). During a rolling upgrade, replicas on the old code get
+permission denied on those two admin routes until they are replaced.
+
 **Fresh installs start from a GA baseline.** One baseline migration replaces
 001-061 on an empty database (#1076); an existing database keeps its applied
 history and runs only what is newer. A rollback below the baseline is refused

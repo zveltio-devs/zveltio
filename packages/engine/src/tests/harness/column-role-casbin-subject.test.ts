@@ -13,6 +13,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile } from '../../db/migrations/index.js';
+import { rerunMigration } from '../fixtures/rerun-migration.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
   checkPermission,
@@ -167,6 +168,7 @@ d('member is a Casbin role, the column only the god attribute', () => {
     }
     await sql.raw(up).execute(db);
     await sql.raw(up).execute(db);
+    await rerunMigration(db, '080_casbin_triggers_definer.sql');
     const mine = await sql<{ v1: string }>`
       SELECT v1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${member.userId} ORDER BY v1
     `.execute(db);
