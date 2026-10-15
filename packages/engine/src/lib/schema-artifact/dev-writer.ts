@@ -27,6 +27,7 @@ export function schemaDir(): string | null {
 let pool: Database | null = null;
 let running: Promise<void> | null = null;
 let again = false;
+const migrating = new Set<Promise<void>>();
 
 /**
  * Registered before the tenant middleware, so it runs after the request's
@@ -64,8 +65,16 @@ export function scheduleSchemaWrite(): void {
     });
 }
 
-/** Resolves when no write is pending. For tests. */
-export const schemaWriteSettled = (): Promise<void> => running ?? Promise.resolve();
+/**
+ * Resolves when no write is pending, migrations included. For tests. A route
+ * that opens no request transaction (`/api/collections` is in
+ * `TXN_SKIP_PREFIXES`) runs its after-commit job at once and does not await
+ * it, so the migration's row could still be in flight when the response is.
+ */
+export const schemaWriteSettled = async (): Promise<void> => {
+  await Promise.all(migrating);
+  await running;
+};
 
 /**
  * What `schema pull` does: every exported file, and no collection file without
@@ -92,10 +101,13 @@ export function recordSchemaMigration(...ops: MigrationOp[]): void {
   const dir = schemaDir();
   const db = pool;
   if (!dir || !db || !ops.length) return;
-  onAfterCommit(async () => {
-    await writeMigration(db, dir, ops).catch((err) =>
-      console.error('[schema dev writer] migration not written:', err),
-    );
+  onAfterCommit(() => {
+    const write = writeMigration(db, dir, ops)
+      .then(() => undefined)
+      .catch((err) => console.error('[schema dev writer] migration not written:', err))
+      .finally(() => migrating.delete(write));
+    migrating.add(write);
+    return write;
   });
 }
 
