@@ -230,6 +230,7 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
     );
     await sql.raw(parseMigrationFile(await file.text()).up).execute(db);
     await rerunMigration(db, '080_casbin_triggers_definer.sql');
+    await rerunMigration(db, '082_casbin_trigger_functions_execute.sql');
 
     expect((await grantsOf(USER)).map((g) => `${g.dom} ${g.role}`).sort()).toEqual(
       [`${DEF} ${DEF_ROLE}`, `* ${GLOBAL}`, `${TENANT_B} ${ROLE_B}`].sort(),

@@ -169,6 +169,7 @@ d('member is a Casbin role, the column only the god attribute', () => {
     await sql.raw(up).execute(db);
     await sql.raw(up).execute(db);
     await rerunMigration(db, '080_casbin_triggers_definer.sql');
+    await rerunMigration(db, '082_casbin_trigger_functions_execute.sql');
     const mine = await sql<{ v1: string }>`
       SELECT v1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${member.userId} ORDER BY v1
     `.execute(db);

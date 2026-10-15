@@ -101,6 +101,10 @@ d('TXN_SKIP routers roll back a half-finished write', () => {
           IF TG_OP = 'DELETE' AND OLD.source_field = 'atom_relok' THEN
             RAISE EXCEPTION 'atom: refused relation delete';
           END IF;
+        ELSIF TG_TABLE_NAME = 'zv_settings' THEN
+          IF NEW.value::text LIKE '%atom_boom%' THEN
+            RAISE EXCEPTION 'atom: refused setting';
+          END IF;
         ELSIF TG_TABLE_NAME = 'zv_flow_steps' AND NEW.name = 'atom_boom' THEN
           RAISE EXCEPTION 'atom: refused step';
         END IF;
@@ -112,17 +116,22 @@ d('TXN_SKIP routers roll back a half-finished write', () => {
         FOR EACH ROW EXECUTE FUNCTION atom_refuse();
       CREATE TRIGGER atom_refuse BEFORE INSERT ON zv_flow_steps
         FOR EACH ROW EXECUTE FUNCTION atom_refuse();
+      CREATE TRIGGER atom_refuse BEFORE INSERT OR UPDATE ON zv_settings
+        FOR EACH ROW EXECUTE FUNCTION atom_refuse();
     `)
       .execute(db);
   });
 
   afterAll(async () => {
     if (!db) return;
-    for (const t of ['zvd_collections', 'zvd_relations', 'zv_flow_steps']) {
+    for (const t of ['zvd_collections', 'zvd_relations', 'zv_flow_steps', 'zv_settings']) {
       await sql.raw(`DROP TRIGGER IF EXISTS atom_refuse ON ${t}`).execute(db);
     }
     await sql.raw('DROP FUNCTION IF EXISTS atom_refuse()').execute(db);
     await sql`DELETE FROM zv_flows WHERE name LIKE ${`${FLOW}%`}`.execute(db);
+    await sql`DELETE FROM zv_settings WHERE key = 'company_name' AND value::text LIKE '%atom_%'`.execute(
+      db,
+    );
     for (const name of [COLL, DROP]) {
       await sql.raw(`DROP TABLE IF EXISTS "zvd_${name}" CASCADE`).execute(db);
       await sql`DELETE FROM zvd_relations WHERE source_collection = ${name}`.execute(db);
@@ -220,5 +229,18 @@ d('TXN_SKIP routers roll back a half-finished write', () => {
     const steps = await sql<{ name: string }>`
       SELECT name FROM zv_flow_steps WHERE flow_id = ${flow.id}`.execute(db);
     expect(steps.rows.map((s) => s.name)).toEqual(['first']);
+  });
+
+  it('PATCH /api/settings/bulk writes no key when a later one is refused', async () => {
+    const res = await req('PATCH', '/api/settings/bulk', {
+      company_name: `atom_ok_${TS}`,
+      site_name: 'atom_boom',
+    });
+    expect(res.status).toBe(500);
+    const row = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM zv_settings WHERE value::text LIKE ${`%atom_ok_${TS}%`}`.execute(
+      db,
+    );
+    expect(row.rows[0].n).toBe(0);
   });
 });
