@@ -43,7 +43,7 @@ const FUNCTIONS = [
 const tagged = sql<{ row: string }>`
   SELECT 'zv_api_keys:' || tenant_id FROM zv_api_keys WHERE created_by = ${USER}
   UNION ALL SELECT 'zv_invitations:' || tenant_id FROM zv_invitations WHERE email LIKE ${`${TAG}%`}
-  UNION ALL SELECT 'zv_media_shares:' || tenant_id FROM zv_media_shares WHERE token LIKE ${`${TAG}%`}
+  UNION ALL SELECT 'zv_media_shares:' || tenant_id FROM zv_media_shares WHERE created_by = ${USER}
   UNION ALL SELECT 'zv_tenant_users:' || tenant_id FROM zv_tenant_users WHERE user_id = ${USER}`;
 const rowsOf = (tenant: string) => TABLES.map((t) => `${t}:${tenant}`);
 const read = async (db: Database) =>
@@ -104,7 +104,7 @@ d('identity tables under tenant RLS (065)', () => {
     if (!db) return;
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${TAG}%`}`.execute(db);
     await sql`DELETE FROM zv_invitations WHERE email LIKE ${`${TAG}%`}`.execute(db);
-    await sql`DELETE FROM zv_media_shares WHERE token LIKE ${`${TAG}%`}`.execute(db);
+    await sql`DELETE FROM zv_media_shares WHERE created_by = ${USER}`.execute(db);
     await sql`DELETE FROM zv_media_folders WHERE name = ${TAG}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE user_id IN (${USER}, ${LEAVER})`.execute(db);
     await sql`DELETE FROM "user" WHERE id IN (${USER}, ${LEAVER})`.execute(db);
@@ -132,9 +132,9 @@ d('identity tables under tenant RLS (065)', () => {
     const changed = await withTenantIsolation(CHILD, async (trx) => {
       const up = await sql`UPDATE zv_api_keys SET is_active = false
                             WHERE name = ${`${TAG}-${ROOT}`}`.execute(trx);
-      const del = await sql`DELETE FROM zv_media_shares WHERE token = ${`${TAG}-${ROOT}`}`.execute(
-        trx,
-      );
+      // By owner and tenant: the token column holds a digest since 079.
+      const del = await sql`DELETE FROM zv_media_shares
+                             WHERE created_by = ${USER} AND tenant_id = ${ROOT}::uuid`.execute(trx);
       return Number(up.numAffectedRows ?? 0) + Number(del.numAffectedRows ?? 0);
     });
     expect(changed).toBe(0);
