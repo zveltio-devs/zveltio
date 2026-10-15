@@ -91,7 +91,7 @@ d('ghost DDL under FORCE RLS, run by a non-superuser owner', () => {
     await sql
       .raw(
         `GRANT EXECUTE ON FUNCTION zveltio_mask_columns(regclass, text[], text[], text[]), ` +
-          `zveltio_seal_columns(regclass, text[]) TO ${OWNER}`,
+          `zveltio_seal_columns(regclass, text[]), zveltio_sync_tombstone() TO ${OWNER}`,
       )
       .execute(db);
 
