@@ -142,6 +142,23 @@ describe('createOfflineProvider — electric provider', () => {
     await p.close();
   });
 
+  it('a 403 after rows were synced drops them, as access was revoked', async () => {
+    const { fetchStub } = stubEngine([
+      { status: 200, body: [row('1', { title: 'old' }), upToDate], headers: at('0_inf') },
+      { status: 403, body: { error: 'Forbidden' } },
+    ]);
+    const p = await createOfflineProvider({
+      engineUrl: 'http://engine',
+      provider: 'electric',
+      fetch: fetchStub,
+    });
+    const seen: unknown[][] = [];
+    p.subscribe('notes', (rows) => seen.push(rows));
+    for (let i = 0; i < 50 && seen.length < 2; i++) await Bun.sleep(5);
+    expect(seen).toEqual([[{ id: '1', title: 'old' }], []]);
+    await p.close();
+  });
+
   for (const [status, body, text] of [
     [503, { error: 'ELECTRIC_URL must be set' }, 'ELECTRIC_URL'],
     [

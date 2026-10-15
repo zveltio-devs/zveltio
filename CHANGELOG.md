@@ -66,6 +66,10 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   the host registry until the worker stopped. `getUserRoles` answers, like
   `checkPermission`, for the request's user only — `[]` for an id the worker
   names — and the host drops only a service name that worker registered.
+- The SDK's Electric offline provider drops a collection's synced rows when the
+  engine answers 403 (B13). Only a 409 `electric.must_refetch` cleared them; a
+  revoked read grant left every row the user could no longer read in memory,
+  and subscribers kept rendering them while the loop backed off.
 - A `password` field cannot be read by the request roles (L37 layer 2,
   migration 073). The data API stripped the argon2 hash from every payload, but
   raw SQL on `zveltio_rls` — and on the roles extensions and flow `query_db`

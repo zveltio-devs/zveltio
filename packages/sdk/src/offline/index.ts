@@ -229,6 +229,11 @@ async function makeElectricProvider(config: OfflineProviderConfig): Promise<Offl
         notify(name);
         return false;
       }
+      if (res.status === 403 && st.rows.size) {
+        // Read access was revoked: rows held from before must not outlive it.
+        shapes.set(name, { rows: new Map(), offset: '-1' });
+        notify(name);
+      }
       throw new ElectricUnavailable(
         `engine returned ${res.status}${body.code ? ` ${body.code}` : ''}: ` +
           (body.detail ?? body.error ?? 'no detail'),
