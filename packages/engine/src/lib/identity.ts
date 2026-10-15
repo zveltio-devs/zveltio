@@ -171,9 +171,20 @@ async function afterCommit(job: () => Promise<void>): Promise<void> {
   else await job();
 }
 
+/** A trimmed display name, refused when it carries a NUL Postgres cannot store. */
+function normalName(name: unknown): string {
+  const n = String(name).trim();
+  if (n.includes('\0')) {
+    throw new IdentityRefusedError('invalid_input', 'A name cannot hold a NUL.');
+  }
+  return n;
+}
+
 function normalEmail(email: unknown): string {
   const e = typeof email === 'string' ? email.trim().toLowerCase() : '';
-  if (!/^[^\s@]+@[^\s@]+$/.test(e)) {
+  // No control characters: Postgres refuses a NUL in text, and that 22021 would
+  // abort the caller's transaction instead of answering invalid_input.
+  if (!/^[^\s@\p{Cc}]+@[^\s@\p{Cc}]+$/u.test(e)) {
     throw new IdentityRefusedError('invalid_input', `Not an email address: ${String(email)}`);
   }
   return e;
@@ -267,7 +278,7 @@ export async function provisionUser(
     if (!(await mayClaim(db, existing.id, tenant))) throw claimRefused(email);
     return { user: existing, created: false };
   }
-  const name = input.name?.trim() || email.split('@')[0]!;
+  const name = (input.name === undefined ? '' : normalName(input.name)) || email.split('@')[0]!;
   const ctx = await getAuth().$context;
   // better-auth's own internalAdapter, re-pointed at `trx`. ponytail: hooks are
   // the engine's databaseHooks only — what better-auth gathers too while no
@@ -411,7 +422,7 @@ export async function updateUserProfile(
   const tenant = runningTenant('updateUserProfile');
   const db = engineHandle(callerDb);
   const email = patch.email === undefined ? null : normalEmail(patch.email);
-  const name = patch.name === undefined ? null : String(patch.name).trim();
+  const name = patch.name === undefined ? null : normalName(patch.name);
   if (name === '') throw new IdentityRefusedError('invalid_input', 'A name cannot be empty.');
 
   const why = await notOwnedBy(db, userId, tenant);
@@ -423,6 +434,8 @@ export async function updateUserProfile(
         'instance administrator.',
     );
   }
+  // A tenant's IdP renames its members, not the people who administer it.
+  await refuseAdministrator(userId, await currentMembership(db, tenant, userId));
   // The probe refuses a committed address in another case; the unique index
   // refuses one a concurrent writer is committing, under a savepoint so its 23505
   // does not abort the caller's transaction.
@@ -649,15 +662,25 @@ export async function setTenantMembershipEnd(
   inForceAnywhere: boolean;
 } | null> {
   const tenant = runningTenant('setTenantMembershipEnd');
-  for (const v of [validTo, guard.ifValidTo]) {
-    if (typeof v === 'string' && v !== 'now' && Number.isNaN(Date.parse(v))) {
-      throw new IdentityRefusedError('invalid_input', `Not an instant: ${v}`);
-    }
-  }
   if (guard.ifValidTo === 'now') {
     throw new IdentityRefusedError('invalid_input', 'ifValidTo takes an instant, not "now".');
   }
   const db = engineHandle(callerDb);
+  // Postgres judges the instant, under a savepoint: Date.parse accepts some it
+  // refuses (year 0, before 4713 BC), whose 22008 aborted the caller's transaction.
+  for (const v of [validTo, guard.ifValidTo]) {
+    if (typeof v !== 'string' || v === 'now') continue;
+    const ok = await withSavepoint(
+      db,
+      'zv_membership_end',
+      async () => {
+        await sql`SELECT ${v}::timestamptz`.execute(db);
+        return true;
+      },
+      () => false,
+    );
+    if (!ok) throw new IdentityRefusedError('invalid_input', `Not an instant: ${v}`);
+  }
   const had = await currentMembership(db, tenant, userId);
   if (!had) return null;
   await refuseAdministrator(userId, had);
