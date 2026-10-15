@@ -431,6 +431,12 @@ export async function runAddField(
   collection: string,
   field: Parameters<typeof DDLManager.addField>[2],
 ): Promise<void> {
+  // Both callers (schema-branch merge, schema apply) reach a BYOD table only
+  // through here, and nothing upstream asked: Ghost DDL refused it and
+  // `addField` then altered it anyway.
+  const { schemaChangeRefusal, FieldChangeError } = await import('./field-changes.js');
+  const refusal = await schemaChangeRefusal(db, collection, 'add');
+  if (refusal) throw new FieldChangeError(refusal, 403);
   const tableName = DDLManager.getTableName(collection);
   if (
     fieldTypeRegistry.getColumnDDL(field as FieldConfig) &&
@@ -520,43 +526,23 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   });
 }
 
-/** BYOD guard: extension-managed (is_managed=false) collections opt out of
- *  destructive DDL. Returns true if the job should be silently skipped. */
+/** BYOD guard: unmanaged (is_managed=false) collections opt out of
+ *  destructive DDL. Returns true if the job should be skipped.
+ *
+ *  A failed read throws: the job fails, pg-boss retries it, and the failure
+ *  shows in the job's state. It used to answer "proceed" (`.catch(() => null)`)
+ *  and then "skip", which pg-boss recorded as a completed job: the field or
+ *  drop the caller asked for never happened, and nothing said so. */
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function skipForByod(trx: any, payload: any, _kind: string): Promise<boolean> {
   const collectionName: string | undefined = payload.collection ?? payload.name;
   if (!collectionName) return false;
-
-  // A failed lookup means SKIP, not proceed.
-  //
-  // This read used to end `.catch(() => null)`, and `Boolean(null && …)` is
-  // false — which this function's contract defines as "go ahead". So a transient
-  // database error while asking "am I allowed to alter this table?" answered
-  // yes, and the callers are `drop_collection`, `remove_field` and `add_field`:
-  // the engine would drop a column, or a whole table, that an operator had
-  // explicitly marked as not ours to manage (is_managed = false, a BYOD table
-  // holding their own data).
-  //
-  // Unknown ownership is the one case where doing nothing is always recoverable
-  // and doing something may not be.
-  let meta: { is_managed: boolean | null } | undefined;
-  try {
-    meta = await trx
-      .selectFrom('zvd_collections')
-      .select('is_managed')
-      .where('name', '=', collectionName)
-      .executeTakeFirst();
-  } catch (err) {
-    console.error(
-      `[ddl-queue] could not read is_managed for "${collectionName}", so it is unknown ` +
-        `whether this collection is ours to alter. Skipping the ${_kind} job rather than ` +
-        `running destructive DDL on a table that may not be managed. Cause:`,
-      err instanceof Error ? err.message : err,
-    );
-    return true;
-  }
-
+  const meta: { is_managed: boolean | null } | undefined = await trx
+    .selectFrom('zvd_collections')
+    .select('is_managed')
+    .where('name', '=', collectionName)
+    .executeTakeFirst();
   return meta?.is_managed === false;
 }
 
