@@ -216,6 +216,13 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   reads `SET NOT NULL` (#1099).
 
 ### Operations
+- `GET /api/health/sync` (and `/deep`) reports a prepared transaction older
+  than five minutes. Sync pull cannot date one, so while it exists every pull
+  delivers nothing and moves no cursor (the #738 fail-safe); a forgotten one
+  held every client's sync with no sign anywhere.
+- `sync-pull-paging.test.ts` no longer reads that fail-safe as "caught up": a
+  pull that must deliver rows waits out a session the engine cannot inspect
+  (another test file's transaction in CI) instead of failing 1000 of 1200.
 - `scripts/bootstrap-db-role.sh` creates `zveltio_coll_exempt` and grants it to
   the app role WITH ADMIN (no INHERIT, no SET). A second database on a cluster
   where the role already existed could not apply
