@@ -236,6 +236,8 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/permissions.ts`,
       `${E}lib/tenancy/resource-grants.ts`,
       `${E}lib/tenancy/column-permissions.ts`,
+      `${E}lib/data/column-guard.ts`,
+      `${E}lib/data/sealed-columns.ts`,
       // Collection permissions compiled into RLS (R1, #926).
       `${E}lib/tenancy/collection-permissions.ts`,
       `${E}routes/permissions.ts`,
