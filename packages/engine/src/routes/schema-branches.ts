@@ -600,7 +600,8 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
       // A failure throws before the token is written, so preview stays off.
       await mirrorPublicProtections(db, branch.branch_schema);
 
-      // Always generate a fresh token on enable
+      // Always a fresh token. A trigger stores its digest (migration 081), so this
+      // response and rotate's are the only places the token itself ever appears.
       const token = crypto.randomUUID().replace(/-/g, '');
       const expiresAt = ttlHours > 0 ? new Date(Date.now() + ttlHours * 3_600_000) : null;
 
