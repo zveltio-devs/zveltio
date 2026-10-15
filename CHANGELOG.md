@@ -217,6 +217,11 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
   `search_path`, so a temporary `zv_tenant_users` or `pg_roles` on a pooled
   connection can no longer widen a reach or exempt a worker from collection
   grants (migration 069, #1104).
+- Creating a collection table on a database without
+  `zveltio_collection_allows()` now fails, and the boot reconcile warns for each
+  table, instead of quietly leaving the table without its four
+  collection-permission policies. The function is in the GA baseline, so only a
+  broken database is affected.
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,

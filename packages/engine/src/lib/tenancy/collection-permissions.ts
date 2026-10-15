@@ -42,24 +42,17 @@ export function collectionOfTable(table: string): string | null {
   return COLLECTION_TABLE.exec(table)?.[1] ?? null;
 }
 
-/** Whether migration 058's function is there — absent on a database not yet migrated. */
-async function functionPresent(db: Database): Promise<boolean> {
-  const r = await sql<{ ok: boolean }>`
-    SELECT to_regprocedure('zveltio_collection_allows(text, text)') IS NOT NULL AS ok
-  `.execute(db);
-  return r.rows[0]?.ok === true;
-}
-
 /**
  * (Re)create the four policies on `table`. A no-op for a table that is not a
- * collection's, or on a database without migration 058.
+ * collection's. On a database without `zveltio_collection_allows` (migration
+ * 058, in the GA baseline) the CREATE POLICY fails and so does the caller: it
+ * used to return quietly, and the table went on without the policies.
  */
 export async function applyCollectionPermissions(db: Database, table: string): Promise<boolean> {
   // A name that is not `zvd_<identifier>` never reaches the SQL below.
   if (!COLLECTION_TABLE.test(table)) return false;
   const collection = collectionOfTable(table);
   if (!collection) return false;
-  if (!(await functionPresent(db))) return false;
   // One transaction. These are RESTRICTIVE: between a DROP and its CREATE on
   // the pool the table had no such restriction, and every concurrent statement
   // ran unchecked — on every boot's reconcile, for every collection (measured:
