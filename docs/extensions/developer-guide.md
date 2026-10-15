@@ -2017,13 +2017,15 @@ proxies SQL queries through its own pool.
 - **The same `ctx`:** `db` (Kysely, plus the raw `db.query()`), `auth`,
   `checkPermission`, `events` (`on`/`emit`/`emitAsync`), `config` and
   `services`, each answered by the host with the inline rules. A worker's
-  `checkPermission` answers for the request's user only (in a service, the
-  user of the request it was called in; none outside one), and its events are
+  `checkPermission` and `getUserRoles` answer for the request's user only (in
+  a service, the user of the request it was called in; none outside one:
+  `false` and `[]`), `services.unregister` drops only a name the worker
+  registered, and its events are
   its own `<name>.*` (and, for `on`, its declared dependencies'). Members
   that act inside the engine — `internals`, `fieldTypeRegistry`,
   `queryAlter`, `entityAccess`, `adminDb`, `DDLManager`,
-  `registerPublicRoute`, `onHealthCheck`, `getUserRoles`,
-  `events.onBefore` — fail the load by name
+  `registerPublicRoute`, `onHealthCheck`, `events.onBefore` — fail the load
+  by name
 - **Transactions:** a route request is one database transaction, as
   inline: committed when the handler answers, rolled back when it throws,
   times out (30 s) or the worker dies; `db.transaction()` is a savepoint in

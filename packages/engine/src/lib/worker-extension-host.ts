@@ -84,6 +84,7 @@ import {
   getCurrentTenantTrx,
   getRequestActor,
   getResolvedMembership,
+  getUserRoles,
   type RequestActor,
   runWithDomain,
   temporaryObjectsRestricted,
@@ -909,6 +910,8 @@ export class WorkerExtensionHost {
       const scope = requestScope(managed, msg.requestId, msg.op);
       const run = scope?.run ?? (<R>(fn: () => R) => fn());
       const session = async () => (scope?.session ? await run(scope.session) : null) ?? null;
+      const who = async () =>
+        scope?.user?.id ?? ((await session()) as { user?: { id?: string } } | null)?.user?.id;
       const [a, b, c] = msg.args;
       const { op } = msg;
       let result: unknown;
@@ -918,15 +921,17 @@ export class WorkerExtensionHost {
           break;
         case 'checkPermission': {
           const check = managed.source?.checkPermission;
-          const who =
-            scope?.user?.id ?? ((await session()) as { user?: { id?: string } } | null)?.user?.id;
           result =
             !!check &&
             typeof a === 'string' &&
-            a === who &&
+            a === (await who()) &&
             (await run(() => check(a, String(b), String(c))));
           break;
         }
+        case 'getUserRoles':
+          result =
+            typeof a === 'string' && a === (await who()) ? await run(() => getUserRoles(a)) : [];
+          break;
         case 'emit': {
           const event = refuseEvent(managed, a, 'emit');
           if (c) await run(() => engineEvents.emitAsync(event as never, b as never));
@@ -946,6 +951,11 @@ export class WorkerExtensionHost {
             .scope(managed.name, managed.mayCall)
             .waitFor(String(a), typeof b === 'number' ? b : undefined);
           result = true;
+          break;
+        case 'unregisterService':
+          if (managed.registeredServices.delete(String(a))) {
+            serviceRegistry.unregisterAs(managed.name, String(a));
+          }
           break;
         case 'describeDenial':
           result = await run(() =>

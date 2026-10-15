@@ -23,6 +23,7 @@ import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
+import { serviceRegistry } from '../../lib/service-registry.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
@@ -60,6 +61,18 @@ export default {
       read: await ctx.checkPermission(c.get('user').id, '${RES}', 'read'),
       del: await ctx.checkPermission(c.get('user').id, '${RES}', 'delete'),
     }));
+    app.get('/roles', async (c) => c.json({
+      own: (await ctx.getUserRoles(c.get('user').id)).length > 0,
+      other: await ctx.getUserRoles(c.req.query('id')),
+    }));
+    app.post('/svc-unreg', async (c) => {
+      ctx.services.register('${name}.tmp', () => 1);
+      const before = ctx.services.has('${name}.tmp');
+      ctx.services.unregister('${name}.tmp');
+      ctx.services.unregister('${name}.double');
+      ctx.services.register('${name}.double', (n) => n * 2);
+      return c.json({ before, after: ctx.services.has('${name}.tmp') });
+    });
     app.get('/as', async (c) =>
       c.json({ other: await ctx.checkPermission(c.req.query('id'), '${RES}', 'read') }));
     app.post('/kysely', async (c) => {
@@ -236,6 +249,10 @@ d('a worker extension gets the inline ctx contract', () => {
         config: await get('/config', asMember),
         svc: await get('/svc', asMember),
         svcMirror: await get('/svc-mirror', asMember),
+        roles: await get(`/roles?id=${encodeURIComponent(godId)}`, asMember),
+        svcUnreg: await get('/svc-unreg', asMember, 'POST'),
+        svcAfterUnreg: await get('/svc', asMember),
+        tmpOnHost: serviceRegistry.has(`${name}.tmp`),
         event: await get('/event', asMember, 'POST'),
         ...(mode === 'inline' ? {} : { emitEngine: await get('/emit-engine', asMember, 'POST') }),
       };
@@ -290,6 +307,9 @@ d('a worker extension gets the inline ctx contract', () => {
           denial: { resource: RES, action: 'delete' },
         },
       },
+      svcUnreg: { status: 200, body: { before: true, after: false } },
+      svcAfterUnreg: { status: 200, body: { type: 'function', out: 42 } },
+      tmpOnHost: false,
       event: { status: 200, body: { last: { p: { n: 7 }, tenant: expect.any(String) } } },
     });
   });
@@ -306,6 +326,9 @@ d('a worker extension gets the inline ctx contract', () => {
         'config',
         'svc',
         'svcMirror',
+        'svcUnreg',
+        'svcAfterUnreg',
+        'tmpOnHost',
         'event',
       ];
       for (const k of same) {
@@ -318,6 +341,12 @@ d('a worker extension gets the inline ctx contract', () => {
         // Inline the extension is trusted with any id: asked for the god it says yes.
         expect(out.inline?.asGod).toEqual({ status: 200, body: { other: true } });
         expect(out[m]?.asGod).toEqual({ status: 200, body: { other: false } });
+      });
+
+      it('getUserRoles answers for the request user only, never a user the worker names', () => {
+        // Inline the extension is trusted with any id: it reads the god's roles.
+        expect(out.inline?.roles).toMatchObject({ body: { other: [expect.any(String)] } });
+        expect(out[m]?.roles).toEqual({ status: 200, body: { own: true, other: [] } });
       });
 
       it('may not emit an engine event', () => {

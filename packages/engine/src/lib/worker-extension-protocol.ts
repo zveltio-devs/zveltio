@@ -205,17 +205,19 @@ export interface ServiceCallResponse {
 // ── Host calls (worker → host): the ctx members only the host can answer ──
 
 /**
- * `ctx.checkPermission`, `ctx.auth.api.getSession`, `ctx.events.emit|on|off`
- * (RFC extension-runner step 7). Identity is never an argument: the host answers
+ * `ctx.checkPermission`, `ctx.getUserRoles`, `ctx.auth.api.getSession`,
+ * `ctx.events.emit|on|off` (RFC extension-runner step 7). Identity is never an argument: the host answers
  * as the request `requestId` names, from its own record of it, as for a query.
  */
 export type HostCallOp =
   | 'checkPermission'
+  | 'getUserRoles'
   | 'getSession'
   | 'emit'
   | 'on'
   | 'off'
   | 'waitForService'
+  | 'unregisterService'
   | 'describeDenial';
 
 export interface HostCallRequest {
