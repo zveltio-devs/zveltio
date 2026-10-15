@@ -194,7 +194,7 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - Money and range fields are typed as the strings the API carries (#1062).
 - A schema-branch merge or schema apply no longer adds a field to an unmanaged
   (BYOD) collection; a DDL job whose ownership read fails now fails visibly
-  instead of completing as a silent skip (#PR).
+  instead of completing as a silent skip (#1128).
 - A filter operator named after an Object member is skipped, not a 500 (#1057).
 - Four duplicate indexes dropped (migration 064, #1085); seven more that a
   UNIQUE constraint's index or a wider index already answers (migration 067,
