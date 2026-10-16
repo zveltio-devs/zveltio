@@ -172,6 +172,18 @@ describe('serializeSnapshot', () => {
     const out = await serializeSnapshot(snap, def([{ name: 'title', type: 'text' }]), ALL);
     expect(out).toEqual({ id: 'r1', created_at: '2026-01-01', title: 'kept' });
   });
+
+  it('drops every non-system key once the last field is gone', async () => {
+    // The collection's only field was dropped: a definition with no fields is
+    // still a definition, not a missing one.
+    const snap = { id: 'r1', secret: '$argon2id$...' };
+    expect(await serializeSnapshot(snap, def([]), ALL)).toEqual({ id: 'r1' });
+  });
+
+  it('passes the copy through when there is no definition to judge by', async () => {
+    const snap = { id: 'r1', title: 'x' };
+    expect(await serializeSnapshot(snap, null, ALL)).toEqual(snap);
+  });
 });
 
 describe('serializeRecord password', () => {

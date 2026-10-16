@@ -4,6 +4,14 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Revisions of a collection with no fields left keep the system columns
+  only.** `serializeSnapshot` treated a definition whose last field was dropped
+  as no definition and served the stored copy raw, so a revision written before
+  the drop still returned the dropped field's value. It now passes a copy
+  through only when the collection has no definition at all.
+
 ## [3.0.0-beta.81] - 2026-10-16
 
 **The request role no longer writes `"user"`.** Boot granted `zveltio_rls` —

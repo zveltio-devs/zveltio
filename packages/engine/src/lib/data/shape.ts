@@ -169,9 +169,11 @@ export async function serializeSnapshot(
   collectionDef: CollectionDef | null | undefined,
   columns: ColumnAccess,
 ): Promise<DynamicRow> {
+  // No definition to judge by: as serializeRecord, pass the copy through. A
+  // definition whose last field was dropped is still one: its copies keep the
+  // system columns only.
+  if (!collectionDef) return serializeRecord(snapshot, collectionDef, columns);
   const current = new Set(normalizeFields(collectionDef).map((f) => f.name));
-  // No definition to judge by: as serializeRecord, pass the copy through.
-  if (current.size === 0) return serializeRecord(snapshot, collectionDef, columns);
   const kept: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(snapshot)) {
     if (current.has(k) || SYSTEM_COLUMNS.has(k)) kept[k] = v;
