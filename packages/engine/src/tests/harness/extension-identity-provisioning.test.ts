@@ -460,6 +460,30 @@ d('identity provisioning through ctx.internals', () => {
     expect(out).toBe('Still fine');
   });
 
+  // A07: Postgres takes '±infinity' as an instant, but this API reads valid_to
+  // back as text and an infinite one comes back null — open-ended, in force —
+  // though '-infinity' ended the membership forever, and an ifValidTo of what
+  // was read could never match the row again.
+  it('setTenantMembershipEnd: an infinite instant is invalid_input, row and transaction intact', async () => {
+    const u = await makeUser('inf');
+    await enrol(T, u);
+    const out = await as(T, async (trx) => {
+      for (const v of ['-infinity', 'infinity', ' Infinity ']) {
+        await expect(scim.setTenantMembershipEnd(trx, u, v)).rejects.toMatchObject({
+          code: 'invalid_input',
+        });
+        await expect(
+          scim.setTenantMembershipEnd(trx, u, 'now', { ifValidTo: v }),
+        ).rejects.toMatchObject({ code: 'invalid_input' });
+      }
+      return (await scim.updateUserProfile(trx, u, { name: 'Still fine' })).name;
+    });
+    expect(out).toBe('Still fine');
+    const row = await sql<{ valid_to: Date | null }>`SELECT valid_to FROM zv_tenant_users
+       WHERE tenant_id = ${T}::uuid AND user_id = ${u}`.execute(db);
+    expect(row.rows[0]!.valid_to).toBeNull();
+  });
+
   it('listTenantUsers: a limit that is not a number is invalid_input, transaction intact', async () => {
     const out = await as(T, async (trx) => {
       await expect(

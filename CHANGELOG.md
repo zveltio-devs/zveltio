@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**A membership end of `-infinity` or `infinity` is refused (`invalid_input`).**
+`setTenantMembershipEnd` stored either, but reads an end back through a
+formatter that turns an infinite instant into null — open-ended, in force — so
+`-infinity` ended a membership forever while the result and the audit entry said
+it had no end, and an `ifValidTo` compare-and-set could no longer match the row.
+
 **Schema-branch previews of collections with sealed or rule-guarded columns work
 again, and keep the column protections.** Enabling a preview copied the table
 grants and policies to the branch but not the column grants (073/075) or the
