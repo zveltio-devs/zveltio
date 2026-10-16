@@ -4,6 +4,15 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Password hashes that migration 074 left in revisions are removed (migration
+084).** 074 removed the keys of current `password` fields only, so two kinds of
+revision kept the hash, and `zvv__revisions` served both to SQL on the request
+role: a copy whose password field was renamed or dropped (or whose collection
+was dropped) before 073, and a copy stored as a double-encoded jsonb string. 084
+removes a current password field's key, and any key that names no current field
+and holds a password hash; a current non-password field keeps its value. The API
+never returned these hashes.
+
 **Moving a column rule to another collection gives the column back to the old
 one.** `PUT /api/admin/column-permissions/:id` with a new `collection_name`
 refreshed only the collection the rule moved to; the old one kept masking the

@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { parseMigrationFile } from '../../db/migrations/index.js';
+import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { DDLManager, reconcileSealedColumns } from '../../lib/data/index.js';
 import { alterField } from '../../lib/data/field-changes.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
@@ -385,5 +385,66 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
     // Re-runnable: a scrubbed row no longer matches, and nothing else changes.
     await sql.raw(up).execute(db);
     expect(await revision()).toEqual({ data: { title: 't' }, delta: { title: 't' } });
+  });
+
+  it('084 takes out the hashes 074 left: no current field, or a double-encoded copy', async () => {
+    const id = (k: string) => `legacy084-${k}-${STAMP}`;
+    const copies: Record<string, string> = {
+      // A password field renamed or dropped before 073: its key is no current field.
+      stale: JSON.stringify({ title: 't', old_pin: '$argon2id$v=19$stale' }),
+      // A current text field keeps what it holds, a hash included.
+      text: JSON.stringify({ title: '$argon2id$v=19$kept' }),
+    };
+    await asTenant(db, DEFAULT_TENANT_ID, async (trx) => {
+      for (const [k, v] of Object.entries(copies)) {
+        await sql`INSERT INTO zv_revisions (collection, record_id, action, data, tenant_id)
+                  VALUES (${LATER}, ${id(k)}, 'update', ${v}::text::jsonb, ${DEFAULT_TENANT_ID})`.execute(
+          trx,
+        );
+      }
+      // The jsonb-string shape 009 unwrapped, holding the current password field.
+      await sql`INSERT INTO zv_revisions (collection, record_id, action, data, tenant_id)
+                VALUES (${LATER}, ${id('string')}, 'update',
+                        to_jsonb(${JSON.stringify({ title: 't', pin: '$argon2id$v=19$str' })}::text),
+                        ${DEFAULT_TENANT_ID})`.execute(trx);
+    });
+    const read = () =>
+      asTenant(db, DEFAULT_TENANT_ID, async (trx) => {
+        await sql`SELECT set_config('zveltio.visible_tenants', ${DEFAULT_TENANT_ID}, true)`.execute(
+          trx,
+        );
+        const rows = (
+          await sql<{ record_id: string; data: unknown }>`
+            SELECT record_id, data FROM zv_revisions
+             WHERE collection = ${LATER} AND record_id LIKE ${`legacy084-%-${STAMP}`}`.execute(trx)
+        ).rows;
+        return Object.fromEntries(rows.map((r) => [r.record_id, r.data]));
+      });
+    const run = async (file: string) => {
+      const url = new URL(`../../db/migrations/sql/${file}`, import.meta.url);
+      const { up } = parseMigrationFile(await Bun.file(url).text()) as { up: string };
+      // As the runner does: statement by statement, in one transaction (084's
+      // temporary function lives on that connection).
+      await db.transaction().execute(async (trx) => {
+        for (const stmt of splitSqlStatements(up)) await sql.raw(stmt).execute(trx);
+      });
+    };
+
+    // What 074 leaves behind.
+    await run('074_scrub_revision_password_hashes.sql');
+    const before = JSON.stringify(await read());
+    expect(before).toContain('$stale');
+    expect(before).toContain('$str');
+
+    const scrubbed = {
+      [id('stale')]: { title: 't' },
+      [id('text')]: { title: '$argon2id$v=19$kept' },
+      [id('string')]: { title: 't' },
+    };
+    await run('084_scrub_stale_revision_password_hashes.sql');
+    expect(await read()).toEqual(scrubbed);
+    // Re-runnable: nothing left matches.
+    await run('084_scrub_stale_revision_password_hashes.sql');
+    expect(await read()).toEqual(scrubbed);
   });
 });
