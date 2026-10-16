@@ -92,6 +92,7 @@ import m073 from './sql/079_hash_media_share_tokens.sql' with { type: 'text' };
 import m074 from './sql/080_casbin_triggers_definer.sql' with { type: 'text' };
 import m075 from './sql/081_hash_preview_tokens.sql' with { type: 'text' };
 import m076 from './sql/082_casbin_trigger_functions_execute.sql' with { type: 'text' };
+import m077 from './sql/083_sync_tombstone_execute.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -172,4 +173,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '080_casbin_triggers_definer.sql': m074,
   '081_hash_preview_tokens.sql': m075,
   '082_casbin_trigger_functions_execute.sql': m076,
+  '083_sync_tombstone_execute.sql': m077,
 };

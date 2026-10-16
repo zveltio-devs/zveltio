@@ -40,6 +40,14 @@ attached to a table of one's own to delete any subject's grants. During a rollin
 upgrade, replicas on the old code get permission denied on those routes until
 they are replaced.
 
+**Sync tombstones can no longer be forged (migration 083).** EXECUTE on
+`zveltio_sync_tombstone()`, the SECURITY DEFINER trigger behind sync pull's
+deletes, is taken from PUBLIC as 082 did for the Casbin triggers. Where a
+restricted role could create temp tables, it could attach the function to one
+of its own and write, as the owner, a tombstone for any row in any unit, so
+sync pull told that unit's clients to drop a row that still exists. The
+triggers on collection tables keep firing for every deleter.
+
 **Fresh installs start from a GA baseline.** One baseline migration replaces
 001-061 on an empty database (#1076); an existing database keeps its applied
 history and runs only what is newer. A rollback below the baseline is refused
