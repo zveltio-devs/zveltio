@@ -14,7 +14,7 @@ import {
 import { getCache, realtimeBus } from '../lib/runtime/index.js';
 import { isDDLQueueStarted } from '../lib/data/index.js';
 import { collectionRlsExemptionStatus, extensionLoader } from '../lib/extensions/index.js';
-import { requireInstanceAdmin, tenantRlsReconcileFailures } from '../lib/tenancy/index.js';
+import { reconcileFailures, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { storageConfig } from '../lib/storage/index.js';
 import { emailCaseUniquenessProblem } from '../lib/identity.js';
 import {
@@ -258,12 +258,33 @@ export function healthRoutes(db: Database, auth?: any): Hono {
         name: 'tenant_rls',
         critical: false,
         run: () => {
-          const failed = tenantRlsReconcileFailures();
+          const failed = reconcileFailures('tenant_rls').map(({ table, error }) => ({
+            table,
+            error,
+          }));
           return {
             ok: failed.length === 0,
             detail: { failed },
             error: failed.length
               ? `tenant isolation could not be re-applied to ${failed.map((f) => f.table).join(', ')} at boot; the previous policies stay in force`
+              : undefined,
+          };
+        },
+      },
+      {
+        // The same for the rules the boot puts in the database beside the
+        // engine's own checks: row rules (policies), column write rules
+        // (triggers), column seals and masking views. The engine still applies
+        // each rule; this is the second layer being absent.
+        name: 'db_rules',
+        critical: false,
+        run: () => {
+          const failed = reconcileFailures('row_rules', 'column_guards', 'column_seals');
+          return {
+            ok: failed.length === 0,
+            detail: { failed },
+            error: failed.length
+              ? `database rules could not be re-applied at boot: ${failed.map((f) => `${f.step} on ${f.table}`).join(', ')}; the engine still applies them`
               : undefined,
           };
         },

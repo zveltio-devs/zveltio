@@ -25,6 +25,7 @@ import type { Database } from '../../db/index.js';
 import { forgetReadableColumns, maskViewName } from '../../db/dynamic.js';
 import { SEARCH_FIELD_TYPES, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
+import { startReconcile } from '../tenancy/index.js';
 
 type FieldLike = { name?: unknown; type?: unknown };
 
@@ -101,18 +102,25 @@ export async function dropMaskView(db: Database, table: string): Promise<void> {
 /**
  * Seal and mask every collection, and the revisions. Run at boot: an install
  * upgrading into 073, 075 or 077 has the fields and rules and none of the grants
- * or views, and the boot
- * grant loops re-run each start. A settled table is catalog reads, no lock.
+ * or views, and the boot grant loops re-run each start. A settled table is catalog reads, no lock.
  */
 export async function reconcileSealedColumns(db: Database): Promise<number> {
-  const rows = await db.selectFrom('zvd_collections').select(['name', 'fields']).execute();
+  const record = startReconcile('column_seals');
+  const rows = await db
+    .selectFrom('zvd_collections')
+    .select(['name', 'fields'])
+    .execute()
+    .catch((err: Error) => {
+      record('*', err);
+      throw err;
+    });
   let n = 0;
   for (const r of rows) {
     const raw: unknown = r.fields;
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     const fields = Array.isArray(parsed) ? (parsed as FieldLike[]) : [];
     const changed = await sealColumns(db, r.name, fields).catch((err: Error) => {
-      console.warn(`[sealed-columns] ${r.name}: could not apply — ${err.message}`);
+      console.warn(`[sealed-columns] ${r.name}: could not apply — ${record(r.name, err)}`);
       return false;
     });
     if (changed) n++;
@@ -124,7 +132,9 @@ export async function reconcileSealedColumns(db: Database): Promise<number> {
   }>`SELECT zveltio_mask_revisions() AS changed`
     .execute(db)
     .catch((err: Error) => {
-      console.warn(`[sealed-columns] zv_revisions: could not apply — ${err.message}`);
+      console.warn(
+        `[sealed-columns] zv_revisions: could not apply — ${record('zv_revisions', err)}`,
+      );
       return { rows: [] };
     });
   if (revisions.rows[0]?.changed) n++;

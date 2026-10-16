@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, reconcileSealedColumns } from '../../lib/data/index.js';
 import { reconcileTenantRLS } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
@@ -135,6 +135,48 @@ d('health routes (in-process)', () => {
       // A clean reconcile clears it.
       await reconcileTenantRLS(db);
       const res = await app.request('/api/health/tenant_rls', { headers: { cookie } });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true });
+    } finally {
+      await DDLManager.dropCollection(db, name, { force: true }).catch(() => {});
+    }
+  }, 120_000);
+
+  it('GET /api/health/db_rules names the tables the boot could not seal or mask', async () => {
+    // Same shape as tenant_rls: the seal/mask function gone, in a transaction
+    // that is always rolled back. Before, only a console.warn said so.
+    const name = `hseal_${Date.now()}`;
+    await DDLManager.createCollection(db, {
+      name,
+      fields: [{ name: 'title', type: 'text' }],
+    });
+    try {
+      await db
+        .transaction()
+        .execute(async (trx) => {
+          await sql`ALTER FUNCTION zveltio_mask_columns(regclass, text[], text[], text[]) RENAME TO zveltio_mask_columns_gone`.execute(
+            trx,
+          );
+          await reconcileSealedColumns(trx);
+          throw new Error('rollback');
+        })
+        .catch((err: Error) => {
+          if (err.message !== 'rollback') throw err;
+        });
+
+      const bad = await app.request('/api/health/db_rules', { headers: { cookie } });
+      const badBody = (await bad.json()) as {
+        ok: boolean;
+        detail?: { failed: Array<{ step: string; table: string }> };
+      };
+      expect(badBody.ok).toBe(false);
+      expect(badBody.detail?.failed).toContainEqual(
+        expect.objectContaining({ step: 'column_seals', table: name }),
+      );
+
+      // A clean reconcile clears it.
+      await reconcileSealedColumns(db);
+      const res = await app.request('/api/health/db_rules', { headers: { cookie } });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ ok: true });
     } finally {

@@ -244,6 +244,10 @@ role, outside any tenant, now fails instead of seeing every tenant's rows.
 - A table the boot reconcile cannot re-isolate is reported by the `tenant_rls`
   health check (`/api/health/deep`, `/api/health/tenant_rls`) instead of only a
   boot warning. Boot still continues; the table keeps its previous policies.
+- The same for the database rules the boot applies beside the engine's checks:
+  a collection whose row-rule policy, column write guard, column seal or masking
+  view cannot be re-applied is reported by the new `db_rules` health check
+  (`/api/health/deep`, `/api/health/db_rules`) instead of only a boot warning.
 
 ### Data and schema
 - Sync push `update` and `delete` now write revisions and fire webhooks,
