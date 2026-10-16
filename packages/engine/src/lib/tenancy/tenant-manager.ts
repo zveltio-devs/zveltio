@@ -714,8 +714,11 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
   try {
     const rows = await sql<{ name: string }>`SELECT name FROM zvd_collections`.execute(db);
     names = rows.rows.map((r) => r.name);
-  } catch {
-    return 0; // zvd_collections not present yet — nothing to reconcile
+  } catch (err) {
+    // Boot runs after the migrations, so this is a failure (a lock timeout
+    // behind another replica's DDL), not "nothing yet": every table was skipped.
+    failed('*', err, 'collection list unreadable, nothing reconciled');
+    return 0;
   }
   for (const builtin of ['pages', 'views', 'zones']) {
     if (!names.includes(builtin)) names.push(builtin);

@@ -142,6 +142,29 @@ d('health routes (in-process)', () => {
     }
   }, 120_000);
 
+  it('GET /api/health/tenant_rls reports a boot reconcile that could not list the tables', async () => {
+    // An unreadable zvd_collections (a lock timeout behind another replica's
+    // migration) skipped the whole reconcile and the narrow-role revoke, and
+    // /health stayed green. Planted as before, in a transaction rolled back.
+    await db
+      .transaction()
+      .execute(async (trx) => {
+        await sql`ALTER TABLE zvd_collections RENAME TO zvd_collections_gone`.execute(trx);
+        await reconcileTenantRLS(trx);
+        throw new Error('rollback');
+      })
+      .catch((err: Error) => {
+        if (err.message !== 'rollback') throw err;
+      });
+    try {
+      const bad = await app.request('/api/health/tenant_rls', { headers: { cookie } });
+      const badBody = (await bad.json()) as { ok: boolean; detail?: { failed: unknown[] } };
+      expect(badBody).toMatchObject({ ok: false, detail: { failed: [{ table: '*' }] } });
+    } finally {
+      await reconcileTenantRLS(db);
+    }
+  }, 120_000);
+
   it('GET /api/health/db_rules names the tables the boot could not seal or mask', async () => {
     // Same shape as tenant_rls: the seal/mask function gone, in a transaction
     // that is always rolled back. Before, only a console.warn said so.

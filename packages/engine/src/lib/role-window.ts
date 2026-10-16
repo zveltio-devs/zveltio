@@ -9,15 +9,20 @@
  */
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { getCurrentTenantTrx } from './tenancy/index.js';
 
 const windows = new WeakMap<object, Promise<unknown>>();
 
-/** Run `run` after every window already queued on `trx`, and before the next. */
+/**
+ * Run `run` after every window already queued on `trx`, and before the next.
+ * Keyed by the transaction's executor, not the handle: the engine's view of an
+ * extension handle (`engineHandle`) and the request-scoped proxy are other
+ * objects on the same transaction, and Kysely gives a transaction one executor.
+ */
 export function queueRoleWindow<T>(trx: object, run: () => Promise<T>): Promise<T> {
-  const mine = (windows.get(trx) ?? Promise.resolve()).then(run);
+  const key = (trx as { getExecutor?: () => object }).getExecutor?.() ?? trx;
+  const mine = (windows.get(key) ?? Promise.resolve()).then(run);
   windows.set(
-    trx,
+    key,
     mine.catch(() => undefined),
   );
   return mine;
@@ -57,9 +62,7 @@ export function asEngineRole<T>(db: Database, run: () => Promise<T>): Promise<T>
       throw err;
     }
   };
-  // ponytail: queued on the request's transaction only. An extension statement
-  // on another transaction it opened (`ctx.adminDb.transaction()`) is not
-  // ordered against an engine write there; key by that trx if one ever needs it.
-  const trx = getCurrentTenantTrx();
-  return trx ? queueRoleWindow(trx, window) : window();
+  // On `db`'s own transaction, whichever: an engine helper handed an extension's
+  // `ctx.adminDb.transaction()` opened its window inside the extension's there.
+  return db.isTransaction ? queueRoleWindow(db, window) : run();
 }
