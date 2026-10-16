@@ -7,6 +7,7 @@ import type { Database } from '../db/index.js';
 import { getEnforcer, getUserRoles, invalidateUserPermCache } from '../lib/tenancy/index.js';
 import { withAuthorizedUserCreation } from '../lib/auth.js';
 import { auditLog } from '../lib/audit.js';
+import { asEngineRole } from '../lib/role-window.js';
 import { hashInvitationToken } from '../lib/security/index.js';
 
 // Auth routes — Better-Auth handles all /api/auth/** requests
@@ -58,7 +59,9 @@ export function authRoutes(db: Database, auth: any): Hono {
       if (name !== undefined) updates.name = name;
       if (image !== undefined) updates.image = image;
 
-      await db.updateTable('user').set(updates).where('id', '=', session.user.id).execute();
+      await asEngineRole(db, () =>
+        db.updateTable('user').set(updates).where('id', '=', session.user.id).execute(),
+      );
 
       const updated = await db
         .selectFrom('user')

@@ -4,6 +4,19 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**The request role no longer writes `"user"`.** Boot granted `zveltio_rls` —
+the role every tenant request runs as, and the fallback of inline `ctx.db` and
+the worker SQL bridge — INSERT, UPDATE and DELETE on `"user"`, which has no RLS.
+God status is its `role` column, so one SQL-analyzer miss there was
+`UPDATE "user" SET role = 'god'`; the same write changed anyone's `email` or
+`banned`, and inserting then deleting a user named after a role removed that
+role's Casbin policies (080's trigger). Boot now revokes the writes, as it does
+for the rule tables. The engine's own writes — profile and role updates, ban
+and unban, deletion, identity provisioning — step out of the request role for
+the statement and back in, inside the same transaction. During a rolling
+upgrade, an older replica's writes to `"user"` fail with `permission denied`
+once a new one has booted.
+
 **Password hashes that migration 074 left in revisions are removed (migration
 084).** 074 removed the keys of current `password` fields only, so two kinds of
 revision kept the hash, and `zvv__revisions` served both to SQL on the request

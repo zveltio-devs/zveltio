@@ -15,6 +15,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { engineHandle } from './engine-handle.js';
+import { asEngineRole } from './role-window.js';
 import { getAuth, revokeAllUserSessions } from './auth.js';
 import { withSavepoint } from './savepoint.js';
 import { isSignInBlocked, SignInBlockedError } from './security/index.js';
@@ -51,8 +52,9 @@ export class ProtectedUserError extends Error {
 // FOR UPDATE holds the row until the caller's transaction ends, so the user
 // cannot be promoted to god between this check and the ban or delete.
 async function refuseGod(db: Database, userId: string, what: string): Promise<void> {
-  const r = await sql<{ role: string }>`
-    SELECT role FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(db);
+  const r = await asEngineRole(db, () =>
+    sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(db),
+  );
   if (r.rows[0]?.role === 'god') throw new ProtectedUserError(userId, what);
 }
 
@@ -106,7 +108,7 @@ export async function deleteUser(
   // policy a plain UPDATE here reached only the request's own.
   await sql`SELECT zveltio_revoke_user_api_keys(${userId})`.execute(db);
 
-  await sql`DELETE FROM "user" WHERE id = ${userId}`.execute(db);
+  await asEngineRole(db, () => sql`DELETE FROM "user" WHERE id = ${userId}`.execute(db));
 
   await auditLog(db, {
     type: 'user.deleted',
@@ -158,7 +160,9 @@ export async function deleteTenantlessUsers(
     // Locked before the membership read: an insert into zv_tenant_users takes
     // KEY SHARE on this row, so it either committed already and is seen below,
     // or waits for our commit and then fails its foreign key.
-    const row = await sql`SELECT 1 FROM "user" WHERE id = ${id} FOR UPDATE`.execute(trx);
+    const row = await asEngineRole(trx, () =>
+      sql`SELECT 1 FROM "user" WHERE id = ${id} FOR UPDATE`.execute(trx),
+    );
     if (row.rows.length === 0) return null;
     // ANY row, lapsed included — deliberately not `activeMembership`. An expired
     // membership is the other tenant's history, and deleting the account would
@@ -323,11 +327,13 @@ export async function setUserActive(
   if (!active) await refuseGod(db, userId, 'deactivated');
   // IdPs resend `active: true` on every sync; only a change touches the row.
   // The provenance columns follow `banned` through the trigger of migration 035.
-  await sql`
-    UPDATE "user" SET banned = ${!active}, ban_source = ${active ? null : source},
-                      "updatedAt" = NOW()
-     WHERE id = ${userId} AND COALESCE(banned, false) <> ${!active}
-  `.execute(db);
+  await asEngineRole(db, () =>
+    sql`
+      UPDATE "user" SET banned = ${!active}, ban_source = ${active ? null : source},
+                        "updatedAt" = NOW()
+       WHERE id = ${userId} AND COALESCE(banned, false) <> ${!active}
+    `.execute(db),
+  );
   if (!active) await revokeThroughCommit(poolDb, userId);
 }
 
@@ -342,11 +348,13 @@ export async function liftOwnBan(
   source: string,
 ): Promise<boolean> {
   const db = engineHandle(callerDb); // engine SQL — see deleteUser
-  const r = await sql`
-    UPDATE "user" SET banned = false, "updatedAt" = NOW()
-     WHERE id = ${userId} AND banned IS TRUE AND ban_source = ${source}
-    RETURNING id
-  `.execute(db);
+  const r = await asEngineRole(db, () =>
+    sql`
+      UPDATE "user" SET banned = false, "updatedAt" = NOW()
+       WHERE id = ${userId} AND banned IS TRUE AND ban_source = ${source}
+      RETURNING id
+    `.execute(db),
+  );
   return r.rows.length > 0;
 }
 

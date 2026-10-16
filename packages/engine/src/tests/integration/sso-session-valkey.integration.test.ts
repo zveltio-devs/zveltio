@@ -27,6 +27,11 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
   let previousDb: Database | null = null;
   let savedValkey: string | undefined;
   const internals = gateInternals('auth/saml', buildExtensionInternals(), ['auth:session']);
+  // As the extension does: `provisionUser` on the request's transaction.
+  const identity = gateInternals('auth/saml', buildExtensionInternals(), ['identity:provision']);
+  const provision = async () =>
+    (await identity.provisionUser({ email: `sso-${crypto.randomUUID()}@test.local`, name: 'SSO' }))
+      .user.id;
   const asRequest = <T>(fn: (trx: Database) => Promise<T>) =>
     buildExtensionInternals().withTenantIsolation(TENANT, fn);
   const signedInAs = async (setCookie: string) => {
@@ -74,10 +79,7 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
 
   it('a user provisioned in the same transaction is signed in once it commits', async () => {
     const { userId, setCookie } = await asRequest(async (trx) => {
-      const id = crypto.randomUUID();
-      await sql`
-        INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
-        VALUES (${id}, ${`sso-${id}@test.local`}, 'SSO', true, NOW(), NOW())`.execute(trx);
+      const id = await provision();
       return { userId: id, ...(await internals.createBetterAuthSession(trx, id)) };
     });
     expect(await signedInAs(setCookie)).toBe(userId);
@@ -88,10 +90,7 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
     let setCookie = '';
     await asRequest(async (trx) => {
       await sql`SAVEPOINT sso`.execute(trx);
-      const id = crypto.randomUUID();
-      await sql`
-        INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
-        VALUES (${id}, ${`sso-${id}@test.local`}, 'SSO', true, NOW(), NOW())`.execute(trx);
+      const id = await provision();
       ({ token, setCookie } = await internals.createBetterAuthSession(trx, id));
       await sql`ROLLBACK TO SAVEPOINT sso`.execute(trx);
     });

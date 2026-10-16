@@ -37,6 +37,8 @@ const CONTROL_TABLES = [
   // Roles and instance settings (registration, SMTP, storage, recovery tokens).
   'zv_roles',
   'zv_settings',
+  // God status is "user".role, and email and banned decide who signs in.
+  'user',
 ];
 const REQUEST_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext'];
 
@@ -101,12 +103,47 @@ d('control tables are read-only to the request roles', () => {
       attempt(sql`UPDATE zv_extension_registry SET granted_capabilities = NULL WHERE false`),
       attempt(sql`INSERT INTO zv_roles (name) VALUES ('ctl-probe')`),
       attempt(sql`INSERT INTO zv_settings (key, value) VALUES ('ctl-probe', 'true'::jsonb)`),
+      attempt(sql`UPDATE "user" SET role = 'god' WHERE false`),
+      attempt(sql`UPDATE "user" SET email = 'ctl-probe@probe.invalid' WHERE false`),
+      attempt(sql`UPDATE "user" SET banned = false WHERE false`),
+      attempt(sql`DELETE FROM "user" WHERE false`),
+      attempt(
+        sql`INSERT INTO "user" (id, name, email) VALUES ('ctl-probe', 'p', 'ctl-probe@probe.invalid')`,
+      ),
+      attempt(sql`SELECT 1 FROM "user" WHERE false FOR UPDATE`),
     ]);
+    await sql`DELETE FROM "user" WHERE id = 'ctl-probe'`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v0 = 'ctl-probe'`.execute(db);
     await sql`DELETE FROM zv_extension_forward_approvals WHERE name = 'ctl-probe'`.execute(db);
     await sql`DELETE FROM zv_roles WHERE name = 'ctl-probe'`.execute(db);
     await sql`DELETE FROM zv_settings WHERE key = 'ctl-probe'`.execute(db);
     for (const r of results) expect(r).toMatch(/permission denied/i);
+  });
+
+  // Migration 080's trigger drops every Casbin row whose subject is the deleted
+  // user's id, and a role's policies sit under the same v0: a "user" row named
+  // after a role, inserted and deleted again, took that role's grants with it.
+  it("a tenant transaction cannot drop a role's policies through a user named after it", async () => {
+    const { withTenantIsolation, DEFAULT_TENANT_ID } = await import('../../lib/tenancy/index.js');
+    await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
+              VALUES ('p', 'ctl-role', '*', 'ctl-things', 'read') ON CONFLICT DO NOTHING`.execute(
+      db,
+    );
+    let result = 'ALLOWED';
+    try {
+      await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+        await sql`INSERT INTO "user" (id, name, email)
+                  VALUES ('ctl-role', 'r', 'ctl-role@probe.invalid')`.execute(trx);
+        await sql`DELETE FROM "user" WHERE id = 'ctl-role'`.execute(trx);
+      });
+    } catch (err) {
+      result = (err as Error).message;
+    }
+    const left = await sql`SELECT 1 FROM zvd_permissions WHERE v0 = 'ctl-role'`.execute(db);
+    await sql`DELETE FROM zvd_permissions WHERE v0 = 'ctl-role'`.execute(db);
+    await sql`DELETE FROM "user" WHERE id = 'ctl-role'`.execute(db);
+    expect(left.rows.length).toBe(1);
+    expect(result).toMatch(/permission denied/i);
   });
 
   it('a role that owns a table cannot attach the owner-rights Casbin triggers to it', async () => {

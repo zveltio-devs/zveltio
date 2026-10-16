@@ -31,14 +31,12 @@ d('createBetterAuthSession through ctx.internals (no cache)', () => {
     const res = await app.request('/api/auth/get-session', { headers: { cookie } });
     return ((await res.json().catch(() => null)) as { user?: { id: string } } | null)?.user?.id;
   };
-  // What `findOrCreateSsoUser` does in both extensions.
-  const provision = async (trx: Database) => {
-    const id = crypto.randomUUID();
-    await sql`
-      INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
-      VALUES (${id}, ${`sso-${id}@test.local`}, 'SSO', true, NOW(), NOW())`.execute(trx);
-    return id;
-  };
+  // What both extensions do before signing in: `provisionUser` on the same
+  // transaction (`zveltio_rls` writes no "user" row of its own).
+  const identity = gateInternals('auth/ldap', buildExtensionInternals(), ['identity:provision']);
+  const provision = async () =>
+    (await identity.provisionUser({ email: `sso-${crypto.randomUUID()}@test.local`, name: 'SSO' }))
+      .user.id;
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
@@ -54,7 +52,7 @@ d('createBetterAuthSession through ctx.internals (no cache)', () => {
 
   it('signs in a user the same transaction provisioned, once it commits', async () => {
     const { userId, setCookie } = await asRequest(async (trx) => {
-      const id = await provision(trx);
+      const id = await provision();
       return { userId: id, ...(await internals.createBetterAuthSession(trx, id)) };
     });
     expect(await signedInAs(setCookie)).toBe(userId);
@@ -65,7 +63,7 @@ d('createBetterAuthSession through ctx.internals (no cache)', () => {
     let setCookie = '';
     await expect(
       asRequest(async (trx) => {
-        userId = await provision(trx);
+        userId = await provision();
         ({ setCookie } = await internals.createBetterAuthSession(trx, userId));
         throw new Error('audit write failed');
       }),
