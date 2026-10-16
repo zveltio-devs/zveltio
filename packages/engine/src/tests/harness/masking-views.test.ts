@@ -226,6 +226,30 @@ d('masking views (L37 layer 3, migration 075)', () => {
     expect(Number(rev.rows[0]?.data.salary)).toBe(5000);
   });
 
+  it('keeps the hidden value in the revision of a delete by the member, single and bulk', async () => {
+    // The delete revision is the engine's read of the row before it went
+    // (`engineRead`), not the RETURNING the update test above reads back.
+    const seed = async () => {
+      const res = await call('POST', `/api/data/${COLLECTION}`, god, { title: 'gone', salary: 7 });
+      expect(res.status).toBe(201);
+      return res.json().id as string;
+    };
+    const one = await seed();
+    const two = await seed();
+    expect((await call('DELETE', `/api/data/${COLLECTION}/${one}`, member)).status).toBe(200);
+    expect(
+      (await call('DELETE', `/api/data/${COLLECTION}/bulk`, member, { ids: [two] })).status,
+    ).toBe(200);
+    const revs = await asEveryTenant(db, (trx) =>
+      sql<{ data: Record<string, unknown> }>`
+        SELECT data FROM zv_revisions
+         WHERE collection = ${COLLECTION} AND record_id IN (${one}, ${two}) AND action = 'delete'`.execute(
+        trx,
+      ),
+    );
+    expect(revs.rows.map((r) => Number(r.data.salary))).toEqual([7, 7]);
+  });
+
   it('follows a rule change: a new rule masks and seals, its removal gives both back', async () => {
     const id = await hide('notes');
     const masked = await asMember((trx) => viewRow(trx));
@@ -248,8 +272,19 @@ d('masking views (L37 layer 3, migration 075)', () => {
   });
 
   it('follows the fields: add, rename (the rule with it), retype and drop', async () => {
+    // Every pooled connection prepares the member's read before the view is
+    // rebuilt; after it, the same read must be prepared afresh (`readSource`'s
+    // `version`), not fail on the old plan (0A000) inside the request.
+    const memberReads = async () => {
+      for (let i = 0; i < 12; i++) {
+        const res = await call('GET', `/api/data/${COLLECTION}/${recordId}`, member);
+        expect(res.status).toBe(200);
+      }
+    };
+    await memberReads();
     await DDLManager.addField(db, COLLECTION, field('extra') as never);
     expect(await asMember((trx) => viewRow(trx))).toHaveProperty('extra');
+    await memberReads();
 
     await alterField(db, COLLECTION, 'salary', { newName: 'pay' });
     const renamed = await asMember((trx) => viewRow(trx));
