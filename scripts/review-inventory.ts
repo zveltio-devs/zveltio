@@ -207,6 +207,8 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/tenant-index-reconcile.ts`,
       `${E}lib/tenancy/index.ts`,
       `${E}lib/tenancy/temp-privilege.ts`,
+      // Role windows on one transaction (asEngineRole, asExtensionDbRole).
+      `${E}lib/role-window.ts`,
     ],
   },
   {
