@@ -371,6 +371,49 @@ d('masking views (L37 layer 3, migration 075)', () => {
     expect(dropped).toHaveProperty('pay', null);
   });
 
+  it('serves `?expand=` through the view across a field change of the related collection', async () => {
+    // `applyExpand` reads the related rows through `readSource`, as a record
+    // read does: the same prepared-plan hazard (0A000), and the same masking.
+    const CHILD = `hmaskc_${STAMP}`;
+    const { cookie: reader } = await createMemberSession(app, db, {
+      grants: [
+        { collection: COLLECTION, actions: ['read'] },
+        { collection: CHILD, actions: ['read'] },
+      ],
+    });
+    await DDLManager.createCollection(db, {
+      name: CHILD,
+      adoptRules: true,
+      fields: [
+        {
+          ...field('ref', 'm2o'),
+          options: { related_collection: COLLECTION, on_delete: 'SET NULL' },
+        },
+      ],
+    } as never);
+    try {
+      const child = await call('POST', `/api/data/${CHILD}`, god, { ref: recordId });
+      expect(child.status).toBe(201);
+      const path = `/api/data/${CHILD}/${child.json().id}?expand=ref`;
+      const expands = async () => {
+        for (let i = 0; i < 12; i++) {
+          const res = await call('GET', path, reader);
+          expect(res.status).toBe(200);
+          const ref = res.json().ref_expanded;
+          expect(ref.id).toBe(recordId);
+          expect(ref).not.toHaveProperty('pay');
+        }
+      };
+      await expands();
+      await DDLManager.addField(db, COLLECTION, field('extra2') as never);
+      await expands();
+      await DDLManager.removeField(db, COLLECTION, 'extra2');
+      await expands();
+    } finally {
+      await dropTestCollection(db, CHILD).catch(() => {});
+    }
+  });
+
   it('is put back by the boot reconcile, as an upgrade into 075 needs', async () => {
     await sql`DROP VIEW ${sql.table(VIEW)}`.execute(db);
     expect(await reconcileSealedColumns(db)).toBeGreaterThan(0);
