@@ -2,6 +2,7 @@ import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { checkPermission, revalidateSocketsEverywhere } from './permissions.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
+import { noteReconcile } from './reconcile-failures.js';
 import { getTenantDb } from './tenant-manager.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
 
@@ -144,8 +145,22 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
         await import('../data/index.js');
       const db = getTenantDb();
       if (collection) {
-        await applyColumnGuard(db, collection);
-        await sealColumns(db, collection);
+        // Each layer on its own, recorded for `db_rules` as the boot's are: a
+        // failure shows there, and a success clears the boot's failure.
+        const layers = [
+          ['column_guards', applyColumnGuard],
+          ['column_seals', sealColumns],
+        ] as const;
+        for (const [step, apply] of layers) {
+          try {
+            await apply(db, collection);
+            noteReconcile(step, collection);
+          } catch (err) {
+            console.warn(
+              `[column-guard] ${collection}: ${step} not refreshed — ${noteReconcile(step, collection, err)}`,
+            );
+          }
+        }
       } else {
         await reconcileColumnGuards(db);
         await reconcileSealedColumns(db);

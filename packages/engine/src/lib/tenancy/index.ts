@@ -8,6 +8,7 @@ export * from './tenant-manager.js';
 export * from './fail-closed-tenant.js';
 export * from './rls.js';
 export * from './row-rule-policy.js';
+export * from './reconcile-failures.js';
 export * from './entity-access.js';
 export * from './column-permissions.js';
 export * from './permissions.js';

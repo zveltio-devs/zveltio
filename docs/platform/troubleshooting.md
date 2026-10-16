@@ -152,6 +152,25 @@ Fix the cause named in the error (most often a database that is missing an
 engine function or role because a migration did not run, or was edited by hand),
 then restart: the check turns healthy after a clean reconcile.
 
+### Database rules not re-applied at boot
+
+> **Warning at boot:** `[row-rules] <name>: could not apply — …`,
+> `[column-guard] <name>: could not apply — …` or
+> `[sealed-columns] <name>: could not apply — …`
+> — and `db_rules` failing in `GET /api/health/deep` (or `/api/health/db_rules`).
+
+Beside its own checks, the engine puts each collection's row rules (a policy),
+column write rules (a trigger), sealed password columns and column read rules (a
+masking view `zvv_<name>`) into the database, and re-applies them at every boot.
+`detail.failed` lists each one it could not apply, as `step` (`row_rules`,
+`column_guards`, `column_seals`) and `table`, with the database's error. The
+engine keeps applying every rule itself, so requests are still checked; what is
+missing is the database refusing raw SQL that bypasses the engine. After an
+upgrade, a failure here can mean the layer was never applied on that table.
+
+Fix the cause named in the error, then restart: the check turns healthy after a
+clean reconcile.
+
 ## Performance Issues
 
 ### Slow API responses

@@ -2,6 +2,7 @@
 // Manages tenant schema lifecycle and resolution
 
 import { applyCollectionPermissions } from './collection-permissions.js';
+import { startReconcile } from './reconcile-failures.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { type RawBuilder, sql } from 'kysely';
 import { indexName } from '../pg-identifier.js';
@@ -698,19 +699,6 @@ export async function reconcileExtensionTenantRLS(
 }
 
 /**
- * What the last boot reconcile could not apply, by table (or step): the message.
- * Each failure only warned, and a warning at boot is read by nobody; `/health`
- * reports these instead. A table that failed keeps the policies it had (they
- * are replaced in one transaction), so this is visibility, not an open door.
- */
-const _reconcileFailures = new Map<string, string>();
-
-/** The last reconcile's failures, for the health check. */
-export function tenantRlsReconcileFailures(): Array<{ table: string; error: string }> {
-  return [..._reconcileFailures].map(([table, error]) => ({ table, error }));
-}
-
-/**
  * Boot reconciler: apply tenant isolation to every COLLECTION DATA table.
  * Targets `zvd_<name>` for each row in `zvd_collections` plus the built-in
  * content tables. The `zvd_collections`/`zvd_relations`/`zvd_permissions`
@@ -718,11 +706,9 @@ export function tenantRlsReconcileFailures(): Array<{ table: string; error: stri
  * zvd_collections). Best-effort per table — one failure doesn't abort the rest.
  */
 export async function reconcileTenantRLS(db: Database): Promise<number> {
-  _reconcileFailures.clear();
+  const record = startReconcile('tenant_rls');
   const failed = (table: string, err: unknown, what: string) => {
-    const message = (err as Error).message;
-    _reconcileFailures.set(table, message);
-    console.warn(`[tenant-rls] ${what}:`, message);
+    console.warn(`[tenant-rls] ${what}:`, record(table, err));
   };
   let names: string[];
   try {

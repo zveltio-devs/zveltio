@@ -13,6 +13,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { startReconcile } from '../tenancy/index.js';
 import { SYSTEM_COLUMNS } from './ddl-manager.js';
 
 /** The trigger's name. Sorts before the engine's own BEFORE triggers, so it sees the caller's row. */
@@ -95,17 +96,23 @@ export async function applyColumnGuard(db: Database, collection: string): Promis
  * triggers, and nothing else would create them.
  */
 export async function reconcileColumnGuards(db: Database): Promise<number> {
+  const record = startReconcile('column_guards');
   const rows = await sql<{ name: string }>`
     SELECT DISTINCT collection_name AS name FROM zvd_column_permissions
      WHERE NOT (can_read AND can_write)
     UNION
     SELECT substr(c.relname, 5) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
      WHERE t.tgname = ${COLUMN_GUARD_TRIGGER} AND starts_with(c.relname, 'zvd_')
-  `.execute(db);
+  `
+    .execute(db)
+    .catch((err: Error) => {
+      record('*', err);
+      throw err;
+    });
   let n = 0;
   for (const r of rows.rows) {
     const guarded = await applyColumnGuard(db, r.name).catch((err: Error) => {
-      console.warn(`[column-guard] ${r.name}: could not apply — ${err.message}`);
+      console.warn(`[column-guard] ${r.name}: could not apply — ${record(r.name, err)}`);
       return false;
     });
     if (guarded) n++;

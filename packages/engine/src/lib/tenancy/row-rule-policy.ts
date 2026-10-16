@@ -39,6 +39,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { startReconcile } from './reconcile-failures.js';
 import {
   isRuleOperator,
   keepsEveryPresent,
@@ -532,6 +533,7 @@ export async function reconcileRowRulePolicies(db: Database): Promise<number> {
   // rule names, registered or not, and that policy carries the `*` rules too —
   // so a table with no `zvd_collections` row kept a moved or deleted `*` rule
   // for good when this listed only registered ones.
+  const record = startReconcile('row_rules');
   const rows = await sql<{ name: string }>`
     SELECT p.collection AS name FROM zvd_rls_policies p
      WHERE p.is_enabled AND p.collection <> '*'
@@ -542,11 +544,16 @@ export async function reconcileRowRulePolicies(db: Database): Promise<number> {
     SELECT substr(pp.tablename, 5) FROM pg_policies pp
      WHERE pp.schemaname = 'public' AND pp.policyname = ${ROW_RULE_POLICY}
        AND starts_with(pp.tablename, 'zvd_')
-  `.execute(db);
+  `
+    .execute(db)
+    .catch((err: Error) => {
+      record('*', err);
+      throw err;
+    });
   let n = 0;
   for (const r of rows.rows) {
     const res = await applyRowRulePolicy(db, r.name).catch((err: Error) => {
-      console.warn(`[row-rules] ${r.name}: could not apply — ${err.message}`);
+      console.warn(`[row-rules] ${r.name}: could not apply — ${record(r.name, err)}`);
       return { applied: false, skipped: [] };
     });
     if (res.applied) n++;
