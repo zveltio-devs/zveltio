@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Moving a column rule to another collection gives the column back to the old
+one.** `PUT /api/admin/column-permissions/:id` with a new `collection_name`
+refreshed only the collection the rule moved to; the old one kept masking the
+column as NULL to members, and sealing it from the request roles, until the next
+boot or rule change on it.
+
 ## [3.0.0-beta.80] - 2026-10-16
 
 **A membership end of `-infinity` or `infinity` is refused (`invalid_input`).**
