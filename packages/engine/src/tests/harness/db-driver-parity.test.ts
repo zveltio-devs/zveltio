@@ -32,7 +32,8 @@ d('the pg dialect stores what Bun.SQL stores', () => {
     bun = new Kysely({ dialect: new BunSqlDialect({ connectionString: URL! }) });
     pgdb = new Kysely({ dialect: createPgDialect({ connectionString: URL! }) });
     await sql`CREATE TABLE ${sql.id(T)} (
-                driver text, k text, j jsonb, js json, t text, ta text[], u uuid)`.execute(bun);
+                driver text, k text, j jsonb, js json, t text, ta text[], u uuid,
+                ia int[], ts timestamptz[], ja jsonb[], ba bytea[])`.execute(bun);
   });
 
   afterAll(async () => {
@@ -50,6 +51,20 @@ d('the pg dialect stores what Bun.SQL stores', () => {
     ['text', { t: 'plain "quoted" \\ text' }],
     ['text[]', { ta: ['a', 'b,c', 'd"e', null] }],
     ['uuid', { u: '6e4e3e2a-1111-4c4c-8888-0123456789ab' }],
+    // One array encoder for both drivers (`encodeArrayParams`): nested arrays,
+    // dates, objects and buffers, each of which the pg path once sent as `String(x)`.
+    [
+      'int[][]',
+      {
+        ia: [
+          [1, 2],
+          [3, null],
+        ],
+      },
+    ],
+    ['timestamptz[]', { ts: [new Date('2026-10-16T12:00:00.123Z'), null] }],
+    ['jsonb[]', { ja: [{ a: 'x"y' }, { b: [1, 2] }, null] }],
+    ['bytea[]', { ba: [Buffer.from([0, 255, 92])] }],
   ];
 
   it('every kind of value lands byte for byte the same through both drivers', async () => {
@@ -68,7 +83,8 @@ d('the pg dialect stores what Bun.SQL stores', () => {
       }
     }
     const stored = await sql<{ k: string; driver: string; v: string }>`
-      SELECT k, driver, concat_ws('|', j::text, js::text, t, ta::text, u::text) AS v
+      SELECT k, driver, concat_ws('|', j::text, js::text, t, ta::text, u::text,
+                                 ia::text, ts::text, ja::text, ba::text) AS v
         FROM ${sql.id(T)} ORDER BY k, driver`.execute(bun);
     const by = (driver: string) =>
       Object.fromEntries(stored.rows.filter((r) => r.driver === driver).map((r) => [r.k, r.v]));
@@ -77,10 +93,14 @@ d('the pg dialect stores what Bun.SQL stores', () => {
   });
 
   it('reads back the same JavaScript values through both drivers', async () => {
+    // Not `ia`: Bun.SQL 1.3 cannot decode a multidimensional int[] it reads in
+    // binary (a statement with parameters) — "Failed to read data" — and hands
+    // a one-dimensional one back as an Int32Array. No engine or extension
+    // column is a numeric array; the stored bytes above are still compared.
     const read = (db: Db) =>
       db
         .selectFrom(T)
-        .select(['k', 'j', 'js', 't', 'ta', 'u'])
+        .select(['k', 'j', 'js', 't', 'ta', 'u', 'ts', 'ja', 'ba'])
         .where('driver', '=', 'bun')
         .orderBy('k')
         .execute();
