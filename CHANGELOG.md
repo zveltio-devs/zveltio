@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.80] - 2026-10-16
+
 **A membership end of `-infinity` or `infinity` is refused (`invalid_input`).**
 `setTenantMembershipEnd` stored either, but reads an end back through a
 formatter that turns an infinite instant into null — open-ended, in force — so
