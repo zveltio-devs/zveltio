@@ -150,6 +150,11 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
     } catch (err) {
       console.warn(`[row-rules] ${collection}: policy not refreshed — ${(err as Error).message}`);
     }
+    // Then the previews, as `invalidateColumnPermCache` does: a branch copied
+    // `public`'s policies when its preview was enabled, and kept them. It
+    // records its own failures (`branch_protections`).
+    const { refreshBranchProtections } = await import('../data/index.js');
+    await refreshBranchProtections(_db, collection === '*' ? undefined : `zvd_${collection}`);
   };
   try {
     // After the COMMIT, not after a tick. `setTimeout(0)` fired with the

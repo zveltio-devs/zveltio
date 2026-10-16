@@ -12,8 +12,11 @@ failed with `permission denied` (42501), and a column write rule was not enforce
 by the database on the branch. Both are now mirrored with the rest, and a
 column rule changed in `public` after a preview is enabled reaches the branch
 too: before, a rule added was not held by the database there and a rule removed
-left the branch stricter, so preview reads of the collection failed (42501). A
-re-mirror that fails is reported by `db_rules` as `branch_protections`.
+left the branch stricter, so preview reads of the collection failed (42501).
+Row rules and field changes reach it the same way: a row rule written after the
+preview was enabled rebuilt its policy on `public` only, and a field retyped to
+or from `password` sealed or unsealed its column on `public` only. A re-mirror
+that fails is reported by `db_rules` as `branch_protections`.
 
 **Breaking: share-link tokens are stored as SHA-256 digests (migration 079).**
 `zv_media_shares.token` held the raw bearer token of every public `/share/:token`

@@ -31,12 +31,13 @@ import { sql } from 'kysely';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { PgBoss } from 'pg-boss';
 import type { Database } from '../../db/index.js';
+import { refreshBranchProtections } from './branch-protections.js';
 import { DDLManager } from './ddl-manager.js';
 import { type FieldConfig, fieldTypeRegistry } from './field-type-registry.js';
 import { GhostDDL } from './ghost-ddl.js';
 import { broadcastSchemaChange, type SchemaChangeAction } from '../../routes/ws.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../runtime/index.js';
-import { onAfterCommit, runOutsideTenantContext } from '../tenancy/index.js';
+import { getTenantDb, onAfterCommit, runOutsideTenantContext } from '../tenancy/index.js';
 import { scheduleSchemaWrite } from '../schema-artifact/dev-writer.js';
 
 // pg-boss 12+ is ESM-only and exposes `PgBoss` as a NAMED export (not
@@ -185,6 +186,14 @@ export function announceSchemaChange(collection: string, action: SchemaChangeAct
       timestamp: new Date().toISOString(),
     });
   });
+  // A field change seals or unseals its column in `public` (`sealColumns`),
+  // and a branch previewing the collection kept the grants it copied: a field
+  // retyped away from `password` left the branch column revoked, and every
+  // preview read failed (42501). Every alter is announced here. A job of its
+  // own: the mirror's locks must not hold up the announcement.
+  if (action === 'alter') {
+    onAfterCommit(() => refreshBranchProtections(getTenantDb(), `zvd_${collection}`));
+  }
 }
 
 /**

@@ -16,7 +16,11 @@ import {
   harnessAvailable,
 } from '../../testing/app-harness.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
-import { invalidateColumnPermCache, withTenantIsolation } from '../../lib/tenancy/index.js';
+import {
+  invalidateColumnPermCache,
+  invalidateRlsCache,
+  withTenantIsolation,
+} from '../../lib/tenancy/index.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const BRANCH = `harness-branch-${Date.now()}`;
@@ -690,5 +694,46 @@ d("a branch table keeps its public namesake's column protections (in-process)", 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { records: Array<Record<string, unknown>> };
     expect(body.records.map((r) => r.label)).toEqual(['branch']);
+  });
+
+  // A row rule written after the preview was enabled rebuilt the policy on public
+  // only (`invalidateRlsCache`); the branch kept the policies it copied at enable.
+  const policies = async (rel: string) =>
+    (
+      await sql<{ name: string; qual: string | null; check: string | null }>`
+        SELECT polname::text AS name, pg_get_expr(polqual, polrelid) AS qual,
+               pg_get_expr(polwithcheck, polrelid) AS check
+          FROM pg_policy WHERE polrelid = to_regclass(${rel}) ORDER BY polname`.execute(db)
+    ).rows;
+
+  it('a row rule added in public after the preview is enabled holds on the branch', async () => {
+    const before = await policies(`public.${TABLE}`);
+    await sql`INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
+              VALUES (${COLLECTION}, '*', 'created_by', 'eq', 'user_id', true)`.execute(db);
+    try {
+      await invalidateRlsCache(COLLECTION);
+      const pub = await policies(`public.${TABLE}`);
+      expect(pub).not.toEqual(before);
+      expect(await policies(`${schema}.${TABLE}`)).toEqual(pub);
+    } finally {
+      await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLLECTION}`.execute(db);
+      await invalidateRlsCache(COLLECTION);
+    }
+    expect(await policies(`${schema}.${TABLE}`)).toEqual(before);
+  });
+
+  // A field change seals or unseals its column in public (`sealColumns`) and
+  // reaches no column rule, so `invalidateColumnPermCache` never re-mirrored it.
+  it('a field retyped to password in public is sealed on the branch too', async () => {
+    const { alterField } = await import('../../lib/data/field-changes.js');
+    await alterField(db, COLLECTION, 'secret', { newType: 'password' });
+    const pub = await columnAcl(`public.${TABLE}`);
+    expect(pub.find((c) => c.col === 'secret')?.ok).toBe(false);
+    // Off the request: the announcement's after-commit job is not awaited.
+    for (let i = 0; i < 100; i++) {
+      if (JSON.stringify(await columnAcl(`${schema}.${TABLE}`)) === JSON.stringify(pub)) break;
+      await Bun.sleep(50);
+    }
+    expect(await columnAcl(`${schema}.${TABLE}`)).toEqual(pub);
   });
 });

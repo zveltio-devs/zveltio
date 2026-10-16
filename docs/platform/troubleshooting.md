@@ -168,8 +168,8 @@ engine keeps applying every rule itself, so requests are still checked; what is
 missing is the database refusing raw SQL that bypasses the engine. After an
 upgrade, a failure here can mean the layer was never applied on that table.
 
-A column rule change re-applies these to the collection's table, and then
-copies them onto that table in every schema branch whose preview is enabled. A
+A column rule, row rule or field change re-applies these to the collection's
+table, and then copies them onto that table in every schema branch whose preview is enabled. A
 copy that fails is listed as step `branch_protections` with `table`
 `<branch schema>.<table>` (warning `[schema-branches] … protections not
 re-mirrored`); that branch keeps its previous protections, so its previews may
@@ -179,7 +179,7 @@ Fix the cause named in the error, then restart: the check turns healthy after a
 clean reconcile. A boot does not copy onto branches, so for a
 `branch_protections` entry enable that branch's preview again (it re-copies
 every table) instead; the entry itself clears on the next clean copy of that
-table, after a column rule change on its collection.
+table, after a rule or field change on its collection.
 
 ## Performance Issues
 
