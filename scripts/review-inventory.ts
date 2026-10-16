@@ -188,7 +188,6 @@ const SECTIONS: Section[] = [
       `${E}routes/gone.ts`,
       `${E}lib/utils.ts`,
       `${E}lib/introspection.ts`,
-      `${E}lib/doc-generator.ts`,
       `${E}routes/openapi.ts`,
     ],
   },
@@ -346,7 +345,6 @@ const SECTIONS: Section[] = [
       `${E}lib/data/time-travel-count.ts`,
       `${E}lib/data/read-scope.ts`,
       `${E}lib/data/revisions-read.ts`,
-      `${E}lib/graphql-dataloader.ts`,
       `${E}lib/virtual-collection-adapter.ts`,
     ],
   },
@@ -414,7 +412,6 @@ const SECTIONS: Section[] = [
       `${E}lib/notifications.ts`,
       `${E}routes/templates.ts`,
       `${E}routes/rpc.ts`,
-      `${E}lib/data-quality.ts`,
     ],
   },
 
@@ -761,9 +758,7 @@ const SECTIONS: Section[] = [
       'packages/sdk/src/core.ts',
       'packages/sdk/src/errors.ts',
       'packages/sdk/src/index.ts',
-      'packages/sdk/src/types.ts',
       'packages/sdk/src/schema-codegen.ts',
-      'packages/sdk/src/generate-types.ts',
       'packages/sdk/src/schema-watcher.ts',
     ],
   },
@@ -1120,16 +1115,26 @@ async function trackedFiles(): Promise<string[]> {
   const proc = Bun.spawn(['git', 'ls-files'], { stdout: 'pipe' });
   const out = await new Response(proc.stdout).text();
   if ((await proc.exited) !== 0) throw new Error('git ls-files failed');
-  return out.split('\n').filter((f) => f && SOURCE_EXT.test(f) && !f.startsWith('release/'));
+  // A file a section names exactly is in scope whatever its extension
+  // (fly.toml, railway.json): naming it is the claim that it gets read.
+  return out
+    .split('\n')
+    .filter((f) => f && (SOURCE_EXT.test(f) || LISTED.has(f)) && !f.startsWith('release/'));
 }
+
+// Exact entries, as opposed to directory prefixes (which end in '/').
+const LISTED = new Set(SECTIONS.flatMap((s) => s.match.filter((m) => !m.endsWith('/'))));
 
 function sectionFor(file: string): Section | undefined {
   // e2e specs belong to their own section, not to the test corpus.
   if (IS_TEST.test(file) && !file.startsWith('e2e/')) {
     return SECTIONS.find((s) => s.id === 'T01');
   }
-  return SECTIONS.find((s) =>
-    s.match.some((m) => (m.endsWith('/') ? file.startsWith(m) : file === m)),
+  // An exact entry wins over an earlier section's directory prefix — else the
+  // entry is dead and the file is credited to a section that never named it.
+  return (
+    SECTIONS.find((s) => s.match.includes(file)) ??
+    SECTIONS.find((s) => s.match.some((m) => m.endsWith('/') && file.startsWith(m)))
   );
 }
 
@@ -1529,6 +1534,13 @@ async function main() {
   if (unassigned.length > 0) {
     console.error(`\n${unassigned.length} tracked files match no section:`);
     for (const f of unassigned) console.error(`  ${f}`);
+    process.exit(1);
+  }
+  // A deleted or renamed file left in a section reads as coverage that is not there.
+  const dead = [...LISTED].filter((f) => !tracked.has(f));
+  if (dead.length > 0) {
+    console.error(`\n${dead.length} section entries name no tracked file:`);
+    for (const f of dead) console.error(`  ${f}`);
     process.exit(1);
   }
 }
