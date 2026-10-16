@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.81] - 2026-10-16
+
 **The request role no longer writes `"user"`.** Boot granted `zveltio_rls` —
 the role every tenant request runs as, and the fallback of inline `ctx.db` and
 the worker SQL bridge — INSERT, UPDATE and DELETE on `"user"`, which has no RLS.
