@@ -668,14 +668,16 @@ export async function setTenantMembershipEnd(
   const db = engineHandle(callerDb);
   // Postgres judges the instant, under a savepoint: Date.parse accepts some it
   // refuses (year 0, before 4713 BC), whose 22008 aborted the caller's transaction.
+  // '±infinity' it takes, but `iso` reads an infinite end back as null — open-ended,
+  // in force — so '-infinity' would end a membership forever while saying it had not.
   for (const v of [validTo, guard.ifValidTo]) {
     if (typeof v !== 'string' || v === 'now') continue;
     const ok = await withSavepoint(
       db,
       'zv_membership_end',
       async () => {
-        await sql`SELECT ${v}::timestamptz`.execute(db);
-        return true;
+        const r = await sql<{ ok: boolean }>`SELECT isfinite(${v}::timestamptz) AS ok`.execute(db);
+        return r.rows[0]!.ok === true;
       },
       () => false,
     );
