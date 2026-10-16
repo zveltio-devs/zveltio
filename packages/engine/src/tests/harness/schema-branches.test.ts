@@ -616,6 +616,79 @@ d("a branch table keeps its public namesake's column protections (in-process)", 
       body: '{}',
     });
     expect(again.status).toBe(200);
+    // Every enable mints a new token; the tests below preview with it.
+    token = ((await again.json()) as { preview_token: string }).preview_token;
     expect(await columnAcl(`${schema}.${TABLE}`)).toEqual(await columnAcl(`public.${TABLE}`));
+  });
+
+  // A column rule changed in public AFTER the preview was enabled. The refresh
+  // re-applied the guard and the seal to public only, so a rule added was not
+  // held by the database on the branch, and a rule removed left the branch
+  // stricter than public: its column grant stayed revoked and every preview read
+  // of the collection failed (42501).
+  const guardArgs = async (rel: string) =>
+    (
+      await sql<{ args: string }>`
+        SELECT encode(tgargs, 'escape') AS args FROM pg_trigger
+         WHERE tgrelid = to_regclass(${rel}) AND tgname = '_zv_column_guard'`.execute(db)
+    ).rows[0]?.args ?? null;
+  const putRule = async (column: string, can_read: boolean, can_write: boolean) => {
+    const res = await app.request('/api/admin/column-permissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        collection_name: COLLECTION,
+        column_name: column,
+        role: 'member',
+        can_read,
+        can_write,
+      }),
+    });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { column_permission: { id: string } }).column_permission.id;
+  };
+
+  it('a column write rule added in public after the preview is enabled holds on the branch', async () => {
+    await putRule('label', true, false);
+    const pub = await guardArgs(`public.${TABLE}`);
+    expect(pub).toContain('label');
+    expect(await guardArgs(`${schema}.${TABLE}`)).toBe(pub);
+  });
+
+  // A read rule removed in public gives its column back to the request role on a
+  // database whose collection owner is not a superuser (the definer view, 075);
+  // the branch kept the column revoked. The harness owner is a superuser, whose
+  // views are invoker views that revoke nothing, so the stale branch grant is
+  // set up directly — then a rule change through the route must re-mirror it.
+  it('a column rule removed in public is followed by the branch, which a preview then reads', async () => {
+    const id = (
+      await db
+        .selectFrom('zvd_column_permissions')
+        .select('id')
+        .where('collection_name', '=', COLLECTION)
+        .where('column_name', '=', 'label')
+        .executeTakeFirstOrThrow()
+    ).id;
+    await sql`REVOKE ALL ON ${sql.id(schema, TABLE)} FROM zveltio_rls`.execute(db);
+    const stale = await app.request(`/api/data/${COLLECTION}`, {
+      headers: { cookie: member, 'x-preview-token': token },
+    });
+    expect(stale.status).toBe(500);
+
+    const del = await app.request(`/api/admin/column-permissions/${id}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(del.status).toBe(200);
+    const pub = await guardArgs(`public.${TABLE}`);
+    expect(pub).not.toContain('label');
+    expect(await guardArgs(`${schema}.${TABLE}`)).toBe(pub);
+    expect(await columnAcl(`${schema}.${TABLE}`)).toEqual(await columnAcl(`public.${TABLE}`));
+    const res = await app.request(`/api/data/${COLLECTION}`, {
+      headers: { cookie: member, 'x-preview-token': token },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records: Array<Record<string, unknown>> };
+    expect(body.records.map((r) => r.label)).toEqual(['branch']);
   });
 });

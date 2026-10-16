@@ -8,7 +8,14 @@
  *
  * `*` stands for the reconcile as a whole: its list of tables could not be read.
  */
-export type ReconcileStep = 'tenant_rls' | 'row_rules' | 'column_guards' | 'column_seals';
+export type ReconcileStep =
+  | 'tenant_rls'
+  | 'row_rules'
+  | 'column_guards'
+  | 'column_seals'
+  // A schema-branch preview's copy of a table, re-mirrored from `public` on a
+  // column rule change (`refreshBranchProtections`); keyed `<schema>.<table>`.
+  | 'branch_protections';
 
 const byStep = new Map<ReconcileStep, Map<string, string>>();
 

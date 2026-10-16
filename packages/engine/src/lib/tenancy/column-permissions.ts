@@ -141,8 +141,13 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
   // hides a column now masks it in the view and takes it from the request roles.
   const refresh = async () => {
     try {
-      const { applyColumnGuard, reconcileColumnGuards, reconcileSealedColumns, sealColumns } =
-        await import('../data/index.js');
+      const {
+        applyColumnGuard,
+        reconcileColumnGuards,
+        reconcileSealedColumns,
+        refreshBranchProtections,
+        sealColumns,
+      } = await import('../data/index.js');
       const db = getTenantDb();
       if (collection) {
         // Each layer on its own, recorded for `db_rules` as the boot's are: a
@@ -165,6 +170,9 @@ export async function invalidateColumnPermCache(collection?: string): Promise<vo
         await reconcileColumnGuards(db);
         await reconcileSealedColumns(db);
       }
+      // Then the previews: a branch copied `public`'s protections when its
+      // preview was enabled, and nothing else brought it a later rule.
+      await refreshBranchProtections(db, collection ? `zvd_${collection}` : undefined);
     } catch (err) {
       console.warn(
         `[column-guard] ${collection ?? '*'}: trigger not refreshed — ${(err as Error).message}`,
