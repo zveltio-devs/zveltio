@@ -28,6 +28,7 @@ import type { Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { getAuth, withAuthorizedUserCreation } from './auth.js';
 import { engineHandle } from './engine-handle.js';
+import { asEngineRole } from './role-window.js';
 import { withSavepoint } from './savepoint.js';
 import {
   activeMembership,
@@ -297,8 +298,11 @@ export async function provisionUser(
     db,
     'zv_provision_user',
     async () => {
-      await withAuthorizedUserCreation(() =>
-        users.createUser({ email, name, emailVerified: true }, { method: 'admin' }),
+      // The INSERT and its member-role trigger only; the hooks read the pool.
+      await asEngineRole(db, () =>
+        withAuthorizedUserCreation(() =>
+          users.createUser({ email, name, emailVerified: true }, { method: 'admin' }),
+        ),
       );
       return null;
     },
@@ -382,8 +386,11 @@ async function notOwnedBy(
 ): Promise<
   'missing' | 'god' | 'instance_admin' | 'not_member' | 'other_tenant' | 'other_grants' | null
 > {
-  const r = await sql<{ role: string | null }>`
-    SELECT role FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(db);
+  const r = await asEngineRole(db, () =>
+    sql<{ role: string | null }>`SELECT role FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(
+      db,
+    ),
+  );
   if (!r.rows[0]) return 'missing';
   if (r.rows[0].role === 'god') return 'god';
   if (tenant === DEFAULT_TENANT_ID && (await requireInstanceAdmin(userId))) {
@@ -444,13 +451,15 @@ export async function updateUserProfile(
     'zv_update_profile',
     async () =>
       (
-        await sql<IdentityUser>`
-        UPDATE "user" u SET name = COALESCE(${name}, u.name), email = COALESCE(${email}, u.email),
-                            "updatedAt" = now()
-         WHERE u.id = ${userId}
-           AND (${email}::text IS NULL OR NOT EXISTS (
-                 SELECT 1 FROM "user" o WHERE lower(o.email) = ${email} AND o.id <> ${userId}))
-        RETURNING ${USER_COLUMNS}`.execute(db)
+        await asEngineRole(db, () =>
+          sql<IdentityUser>`
+          UPDATE "user" u SET name = COALESCE(${name}, u.name), email = COALESCE(${email}, u.email),
+                              "updatedAt" = now()
+           WHERE u.id = ${userId}
+             AND (${email}::text IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM "user" o WHERE lower(o.email) = ${email} AND o.id <> ${userId}))
+          RETURNING ${USER_COLUMNS}`.execute(db),
+        )
       ).rows[0],
     (err) => {
       if (isUniqueViolation(err)) return undefined;
@@ -573,7 +582,9 @@ export async function addTenantMember(
     );
   }
   const db = engineHandle(callerDb);
-  const user = await sql`SELECT 1 FROM "user" WHERE id = ${userId} FOR KEY SHARE`.execute(db);
+  const user = await asEngineRole(db, () =>
+    sql`SELECT 1 FROM "user" WHERE id = ${userId} FOR KEY SHARE`.execute(db),
+  );
   if (!user.rows.length) throw new IdentityRefusedError('no_such_user', `No user ${userId}.`);
   const had = await currentMembership(db, tenant, userId);
   if (had && !EXTENSION_ROLES.has(had.role)) {
@@ -616,7 +627,9 @@ export async function removeTenantMember(
   const db = engineHandle(callerDb);
   // Locked first: two tenants removing the same person serialize here, so the
   // second sees the first's removal and one of them finds the account orphaned.
-  const user = await sql`SELECT 1 FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(db);
+  const user = await asEngineRole(db, () =>
+    sql`SELECT 1 FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(db),
+  );
   if (!user.rows.length) return { removed: false, orphaned: false, inForceAnywhere: false };
   await refuseAdministrator(userId, await currentMembership(db, tenant, userId));
   const removed = await revokeTenantMembership(

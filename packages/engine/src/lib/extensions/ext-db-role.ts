@@ -64,6 +64,7 @@ import { sqlState } from '../../db/bun-sql-quirks.js';
 import { CompiledQuery, type ConnectionProvider, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { keepWorkerExtensionTables, temporaryObjectsRestricted } from '../tenancy/index.js';
+import { queueRoleWindow } from '../role-window.js';
 
 export const EXT_DB_ROLE = 'zveltio_ext';
 /** `zveltio_ext` plus BYPASSRLS, for statements whose role already bypasses RLS. */
@@ -648,9 +649,6 @@ function windowRoles(extName: string): { plain: string; bypass: string | null } 
   };
 }
 
-/** The last role window queued on each transaction; see `asExtensionDbRole`. */
-const windows = new WeakMap<object, Promise<unknown>>();
-
 /**
  * Run one extension statement as the extension role, on the transaction
  * connection `executor` is bound to, and put the previous role back after it.
@@ -660,12 +658,11 @@ const windows = new WeakMap<object, Promise<unknown>>();
  * it too. The previous role is read in the same round trip that sets the new
  * one — target-list order — so the cost is two round trips per statement.
  *
- * Windows on one transaction (`trx`) run one at a time. Extensions issue
- * `Promise.all([ctx.db…, ctx.db…])` on the request transaction, and two
- * interleaved windows would read each other's role as "previous" and hand the
- * engine back `zveltio_ext` — or hand an extension statement `zveltio_rls`.
- * An ENGINE statement sent concurrently can still land inside a window and run
- * as the narrower role: it may fail, it cannot gain anything.
+ * Windows on one transaction (`trx`) run one at a time, the engine's own
+ * (`asEngineRole`) among them: extensions issue `Promise.all([ctx.db…, ctx.db…])`
+ * on the request transaction (`queueRoleWindow`). An ENGINE statement sent
+ * concurrently outside a window can still land inside one and run as the
+ * narrower role: it may fail, it cannot gain anything.
  *
  * `mirror`: see `setRoleSql` — true for a transaction other than the request's
  * own, e.g. `ctx.adminDb.transaction()`.
@@ -678,20 +675,16 @@ export function asExtensionDbRole<T>(
   mirror = false,
 ): Promise<T> {
   // No usable role: the statement runs as the request's own role, no window —
-  // and a temp table it makes shadows the engine's tables all the same.
+  // and a temp table it makes shadows the engine's tables all the same. Still
+  // queued, so it cannot land inside the engine's window and run as its login.
   if (!_ready)
-    return run().then(async (out) => {
-      await discardExtensionTemp(executor);
-      return out;
-    });
-  const mine = (windows.get(trx) ?? Promise.resolve()).then(() =>
-    roleWindow(executor, run, setRoleSql(extName, mirror)),
-  );
-  windows.set(
-    trx,
-    mine.catch(() => undefined),
-  );
-  return mine;
+    return queueRoleWindow(trx, () =>
+      run().then(async (out) => {
+        await discardExtensionTemp(executor);
+        return out;
+      }),
+    );
+  return queueRoleWindow(trx, () => roleWindow(executor, run, setRoleSql(extName, mirror)));
 }
 
 async function roleWindow<T>(

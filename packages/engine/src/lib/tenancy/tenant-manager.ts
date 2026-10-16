@@ -1646,11 +1646,11 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         FOR t IN
           SELECT tablename FROM pg_tables
           WHERE schemaname = 'public'
-            -- user stays granted: it holds no credentials (the password is in
-            -- account, the token in session) and the engine reads it through
+            -- user stays granted here: it holds no credentials (the password is
+            -- in account, the token in session) and the engine reads it through
             -- this role for /api/me, the user list and notification fan-out.
-            -- Excluding it took /api/me to a 500. The other four are where the
-            -- credentials actually are.
+            -- Excluding it took /api/me to a 500. Its writes go below, with the
+            -- rule tables. The other four are where the credentials actually are.
             -- passkey joined this list on 2026-09-04, having been missed since
             -- migration 002 created it. Measured before adding it: inside a tenant
             -- transaction this role could not read the session token and COULD
@@ -1698,13 +1698,17 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         -- grant, a lifted column guard or row rule, or a self-approved credential
         -- forward: inline ctx.db and the worker bridge fall back to this role.
         -- zv_roles and zv_settings (registration, SMTP, storage, spent recovery
-        -- tokens) joined with migration 082. tests/harness/control-table-grants.test.ts.
+        -- tokens) joined with migration 082. And "user": god status is its role
+        -- column (isGodUser), email and banned decide who signs in, and a user
+        -- row named after a role took that role's grants when deleted (080's
+        -- trigger). The engine writes it under its own role (asEngineRole).
+        -- tests/harness/control-table-grants.test.ts.
         FOR t IN
           SELECT tablename FROM pg_tables
           WHERE schemaname = 'public'
             AND tablename IN ('zvd_permissions', 'zvd_column_permissions', 'zvd_rls_policies',
                               'zv_extension_forward_approvals', 'zv_extension_registry',
-                              'zv_roles', 'zv_settings')
+                              'zv_roles', 'zv_settings', 'user')
         LOOP
           EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;

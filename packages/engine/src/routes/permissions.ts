@@ -21,6 +21,7 @@ import {
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
+import { asEngineRole } from '../lib/role-window.js';
 import { storedEmail } from '../lib/auth-email.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 import { clientIpForAudit } from '../lib/security/index.js';
@@ -171,19 +172,22 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         // says so — up to five minutes in Valkey, five seconds in process. The
         // whole point of recovery is that the previous holder has lost control;
         // leaving their `god:<id> = true` behind hands it back for the window.
-        const demoted = await trx
-          .updateTable('user')
-          .set({ role: 'member' })
-          .where('role', '=', 'god')
-          .where('email', '!=', account)
-          .returning(['id'])
-          .execute();
-        const granted = await trx
-          .updateTable('user')
-          .set({ role: 'god' })
-          .where('email', '=', account)
-          .returning(['id', 'email', 'role'])
-          .executeTakeFirst();
+        // As the engine's login: the request role writes no `"user"` row.
+        const { demoted, granted } = await asEngineRole(trx, async () => ({
+          demoted: await trx
+            .updateTable('user')
+            .set({ role: 'member' })
+            .where('role', '=', 'god')
+            .where('email', '!=', account)
+            .returning(['id'])
+            .execute(),
+          granted: await trx
+            .updateTable('user')
+            .set({ role: 'god' })
+            .where('email', '=', account)
+            .returning(['id', 'email', 'role'])
+            .executeTakeFirst(),
+        }));
         if (!granted) return null;
 
         // Spend the token before reporting success. If this write fails the grant

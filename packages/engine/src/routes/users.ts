@@ -12,6 +12,7 @@ import {
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { deleteUser } from '../lib/users.js';
+import { asEngineRole } from '../lib/role-window.js';
 import { escapeLike } from '../lib/data/index.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { isEmailConfigured, sendEmail } from '../lib/email.js';
@@ -143,12 +144,14 @@ export function usersRoutes(
       if (image !== undefined) updates.image = image;
       if (role !== undefined) updates.role = role;
 
-      const user = await db
-        .updateTable('user')
-        .set(updates)
-        .where('id', '=', userId)
-        .returningAll()
-        .executeTakeFirst();
+      const user = await asEngineRole(db, () =>
+        db
+          .updateTable('user')
+          .set(updates)
+          .where('id', '=', userId)
+          .returningAll()
+          .executeTakeFirst(),
+      );
 
       if (!user) return c.json({ error: 'User not found' }, 404);
 

@@ -531,9 +531,11 @@ extension's tables. Where no extension role is usable the statement runs as
 `zveltio_rls` (the worker bridge's last fallback too), which reads but cannot
 write the rule tables — `zvd_permissions`, `zvd_column_permissions`,
 `zvd_rls_policies`, `zv_extension_registry`, `zv_extension_forward_approvals`,
-`zv_roles`, `zv_settings`; the engine writes those as their owner, on the pool or
-through the Casbin triggers (`SECURITY DEFINER`, migration 080, EXECUTE revoked
-from PUBLIC in 082). A table belongs to the extension
+`zv_roles`, `zv_settings` — nor `"user"`, whose `role` column is god status; the
+engine writes those as their owner, on the pool or through the Casbin triggers
+(`SECURITY DEFINER`, migration 080, EXECUTE revoked from PUBLIC in 082), and
+`"user"` inside the request's transaction by stepping out of `zveltio_rls` for
+the statement (`asEngineRole`, `lib/role-window.ts`). A table belongs to the extension
 with the longest matching `zv_<ext>_` prefix: `a` does not own `zv_a_b_*` once `a/b` is installed. Role
 names are `zveltio_ext_<name>_<hash>` (`zveltio_extb_…` for the `BYPASSRLS`
 twin, `zveltio_wrk_…` for a worker extension), the hash covering the database
