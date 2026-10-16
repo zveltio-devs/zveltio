@@ -9,7 +9,11 @@ again, and keep the column protections.** Enabling a preview copied the table
 grants and policies to the branch but not the column grants (073/075) or the
 072 column write guard: a preview read of a collection with a `password` field
 failed with `permission denied` (42501), and a column write rule was not enforced
-by the database on the branch. Both are now mirrored with the rest.
+by the database on the branch. Both are now mirrored with the rest, and a
+column rule changed in `public` after a preview is enabled reaches the branch
+too: before, a rule added was not held by the database there and a rule removed
+left the branch stricter, so preview reads of the collection failed (42501). A
+re-mirror that fails is reported by `db_rules` as `branch_protections`.
 
 **Breaking: share-link tokens are stored as SHA-256 digests (migration 079).**
 `zv_media_shares.token` held the raw bearer token of every public `/share/:token`

@@ -47,7 +47,7 @@ export function previewEnvMiddleware(db: Database): MiddlewareHandler {
         // and `zv_schema_branches` is declared instance-level in
         // quality-gates/tenant-boundary.json. The token picks a schema, never
         // whose rows: every branch table carries `public`'s RLS policies
-        // (`mirrorPublicProtections` in routes/schema-branches.ts), so the
+        // (`mirrorPublicProtections` in lib/data/branch-protections.ts), so the
         // caller still reaches only its own tenant. Pinned by
         // tests/harness/schema-branches.test.ts ("a token minted in one tenant").
         //
