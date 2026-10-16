@@ -122,8 +122,9 @@ export async function mirrorPublicProtections(
  * omitted) in each branch whose preview is enabled. A column rule changed after
  * the preview was enabled otherwise stayed behind on the branch: a rule added was
  * not held there by the database, a rule removed left the branch stricter than
- * `public`, and every preview read of the collection failed (42501). Called by
- * `invalidateColumnPermCache` after `public` is refreshed. One transaction per
+ * `public`, and every preview read of the collection failed (42501). Called
+ * after `public` is refreshed by `invalidateColumnPermCache`, `invalidateRlsCache`
+ * and, for a field change, `announceSchemaChange`. One transaction per
  * branch table; each failure is recorded for `db_rules` as `<schema>.<table>`.
  */
 export async function refreshBranchProtections(db: Database, table?: string): Promise<void> {
