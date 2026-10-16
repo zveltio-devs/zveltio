@@ -271,6 +271,65 @@ d('masking views (L37 layer 3, migration 075)', () => {
     expect(back.rows[0]?.notes).toBe('quarterly bonus');
   });
 
+  // Each of these is a guard in `zveltio_mask_columns` that no other test here
+  // fails without (mutated one at a time on a non-superuser owner, A10).
+  it('honours both wildcards, stands down for asSystem, and grants the view to the request role alone', async () => {
+    const rule = (column_name: string, role: string) =>
+      putColumnPermission(db, {
+        collection_name: COLLECTION,
+        column_name,
+        role,
+        can_read: false,
+        can_write: false,
+      }).then((r) => String(r?.id));
+    // Role `*`: the column is hidden from every actor (`getColumnAccess` reads `role IN (r, '*')`).
+    const everyone = await rule('notes', '*');
+    // Column `*`: every column is hidden from that role (`applyColumnAccess`); the engine's own pass.
+    const all = await rule('*', 'auditor');
+    try {
+      const member = await asMember((trx) => viewRow(trx));
+      expect(member).toMatchObject({
+        id: recordId,
+        title: 'renamed by member',
+        notes: null,
+        salary: null,
+      });
+      const auditor = await withTenantIsolation(DEFAULT_TENANT_ID, (trx) => viewRow(trx), {
+        userId: memberId,
+        identity: {
+          userId: memberId,
+          email: '',
+          role: 'auditor',
+          roles: ['auditor'],
+          bypass: false,
+          collectionAll: true,
+          columnsAll: false,
+        },
+      });
+      expect(auditor).toMatchObject({ id: recordId, title: null, notes: null, salary: null });
+
+      // `ctx.internals.asSystem` names the collection: the view serves it whole.
+      for (const sys of [`,${COLLECTION},`, ',*,']) {
+        const system = await asMember(async (trx) => {
+          await sql`SELECT set_config('zveltio.system_collections', ${sys}, true)`.execute(trx);
+          return viewRow(trx);
+        });
+        expect(system).toMatchObject({ notes: 'quarterly bonus' });
+        expect(Number(system?.salary)).toBe(5000);
+      }
+
+      // Default privileges (001) hand a new view DML; the view keeps SELECT, to `zveltio_rls` only.
+      const acl = await sql<{ who: string; what: string }>`
+        SELECT pg_get_userbyid(x.grantee) AS who, x.privilege_type AS what
+          FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) x
+         WHERE c.oid = ${`public.${VIEW}`}::regclass AND x.grantee <> c.relowner`.execute(db);
+      expect(acl.rows).toEqual([{ who: 'zveltio_rls', what: 'SELECT' }]);
+    } finally {
+      await deleteColumnPermission(db, everyone);
+      await deleteColumnPermission(db, all);
+    }
+  });
+
   it('follows the fields: add, rename (the rule with it), retype and drop', async () => {
     // Every pooled connection prepares the member's read before the view is
     // rebuilt; after it, the same read must be prepared afresh (`readSource`'s
