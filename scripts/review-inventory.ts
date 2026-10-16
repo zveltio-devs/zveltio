@@ -238,6 +238,8 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/column-permissions.ts`,
       `${E}lib/data/column-guard.ts`,
       `${E}lib/data/sealed-columns.ts`,
+      // The db_rules health check's record of what the boot could not apply.
+      `${E}lib/tenancy/reconcile-failures.ts`,
       // Collection permissions compiled into RLS (R1, #926).
       `${E}lib/tenancy/collection-permissions.ts`,
       `${E}routes/permissions.ts`,
@@ -387,6 +389,7 @@ const SECTIONS: Section[] = [
       `${E}routes/revisions.ts`,
       `${E}routes/erd-layout.ts`,
       `${E}routes/schema-branches.ts`,
+      `${E}lib/data/branch-protections.ts`,
     ],
   },
   {
