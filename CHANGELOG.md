@@ -4,6 +4,13 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Schema-branch previews of collections with sealed or rule-guarded columns work
+again, and keep the column protections.** Enabling a preview copied the table
+grants and policies to the branch but not the column grants (073/075) or the
+072 column write guard: a preview read of a collection with a `password` field
+failed with `permission denied` (42501), and a column write rule was not enforced
+by the database on the branch. Both are now mirrored with the rest.
+
 **Breaking: share-link tokens are stored as SHA-256 digests (migration 079).**
 `zv_media_shares.token` held the raw bearer token of every public `/share/:token`
 link, readable by any SQL running as the request role in that tenant. A trigger

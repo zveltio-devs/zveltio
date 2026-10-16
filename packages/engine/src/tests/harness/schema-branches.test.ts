@@ -16,6 +16,7 @@ import {
   harnessAvailable,
 } from '../../testing/app-harness.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
+import { invalidateColumnPermCache, withTenantIsolation } from '../../lib/tenancy/index.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const BRANCH = `harness-branch-${Date.now()}`;
@@ -476,5 +477,145 @@ d('a preview token reads from the branch schema (in-process)', () => {
       db,
     );
     expect(row.rows[0]).toEqual({ preview_enabled: false, preview_token: null });
+  });
+});
+
+// L37 on a branch. A sealed column (a `password`, migration 073; a column a read
+// rule hides, 075) is held column by column: the table-level SELECT is revoked
+// and every other column granted. The branch copy took the table ACL and not the
+// column ACLs, so the request role could read none of it and every preview read
+// of such a collection failed (42501). Nor did it take 072's column write guard
+// trigger (`CREATE TABLE … LIKE` copies no trigger), so a write rule held in
+// public and not in the preview.
+d("a branch table keeps its public namesake's column protections (in-process)", () => {
+  const NAME = `harness-preview-cols-${Date.now()}`;
+  const COLLECTION = `hprevcol_${Date.now()}`;
+  const TABLE = `zvd_${COLLECTION}`;
+  let app: Hono;
+  let db: Database;
+  let cookie = '';
+  let member = '';
+  let memberId = '';
+  let branchId = '';
+  let schema = '';
+  let token = '';
+
+  const columnAcl = async (rel: string) =>
+    (
+      await sql<{ col: string; ok: boolean }>`
+        SELECT attname::text AS col, has_column_privilege('zveltio_rls', attrelid, attnum, 'SELECT') AS ok
+          FROM pg_attribute WHERE attrelid = to_regclass(${rel}) AND attnum > 0 AND NOT attisdropped
+         ORDER BY attname`.execute(db)
+    ).rows;
+
+  beforeAll(async () => {
+    ({ app, db } = await getTestApp());
+    cookie = await createGodSession(app, db);
+    ({ cookie: member, userId: memberId } = await createMemberSession(app, db, {
+      grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update', 'delete'] }],
+    }));
+    const { DDLManager } = await import('../../lib/data/index.js');
+    await DDLManager.createCollection(db, {
+      name: COLLECTION,
+      adoptRules: true,
+      fields: [
+        { name: 'label', type: 'text', required: true, unique: false, indexed: false },
+        { name: 'pw', type: 'password', required: false, unique: false, indexed: false },
+        { name: 'secret', type: 'text', required: false, unique: false, indexed: false },
+      ],
+    } as never);
+    const { applyTenantRLS } = await import('../../lib/tenancy/index.js');
+    await applyTenantRLS(db, TABLE);
+    await db
+      .insertInto('zvd_column_permissions')
+      .values({
+        collection_name: COLLECTION,
+        column_name: 'secret',
+        role: 'member',
+        can_read: true,
+        can_write: false,
+      })
+      .execute();
+    await invalidateColumnPermCache(COLLECTION);
+    const created = (await (
+      await app.request('/api/schema/branches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ name: NAME }),
+      })
+    ).json()) as { branch: { id: string }; schema: string };
+    branchId = created.branch.id;
+    schema = created.schema;
+    token = (
+      (await (
+        await app.request(`/api/schema/branches/${branchId}/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', cookie },
+          body: '{}',
+        })
+      ).json()) as { preview_token: string }
+    ).preview_token;
+    await asTenant(db, DEFAULT_TENANT_ID, (trx) =>
+      sql`INSERT INTO ${sql.id(schema, TABLE)} (label, secret) VALUES ('branch', 's')`.execute(trx),
+    );
+  });
+
+  afterAll(async () => {
+    if (!db) return;
+    if (branchId) await db.deleteFrom('zv_schema_branches').where('id', '=', branchId).execute();
+    if (schema) await sql`DROP SCHEMA IF EXISTS ${sql.id(schema)} CASCADE`.execute(db);
+    await db
+      .deleteFrom('zvd_column_permissions')
+      .where('collection_name', '=', COLLECTION)
+      .execute();
+    await dropTestCollection(db, COLLECTION);
+  });
+
+  it('the request role reads exactly the columns of the branch table it reads in public', async () => {
+    const pub = await columnAcl(`public.${TABLE}`);
+    expect(pub.find((c) => c.col === 'pw')?.ok).toBe(false);
+    expect(await columnAcl(`${schema}.${TABLE}`)).toEqual(pub);
+  });
+
+  it('a previewing member reads a collection with a sealed column', async () => {
+    const res = await app.request(`/api/data/${COLLECTION}`, {
+      headers: { cookie: member, 'x-preview-token': token },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records: Array<Record<string, unknown>> };
+    expect(body.records.map((r) => r.label)).toEqual(['branch']);
+    expect(body.records[0]).not.toHaveProperty('pw');
+  });
+
+  it('the column write guard refuses a forbidden write to the branch table', async () => {
+    const err = await withTenantIsolation(
+      DEFAULT_TENANT_ID,
+      (trx) => sql`UPDATE ${sql.id(schema, TABLE)} SET secret = 'forged'`.execute(trx),
+      {
+        userId: memberId,
+        identity: {
+          userId: memberId,
+          email: '',
+          role: 'member',
+          roles: ['member'],
+          bypass: false,
+          collectionAll: true,
+        },
+      },
+    ).then(
+      () => null,
+      (e: { errno?: string }) => e,
+    );
+    expect(err?.errno).toBe('42501');
+  });
+
+  it('enabling the preview again re-mirrors the column protections', async () => {
+    const again = await app.request(`/api/schema/branches/${branchId}/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: '{}',
+    });
+    expect(again.status).toBe(200);
+    expect(await columnAcl(`${schema}.${TABLE}`)).toEqual(await columnAcl(`public.${TABLE}`));
   });
 });
