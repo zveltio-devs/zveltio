@@ -226,6 +226,19 @@ d('masking views (L37 layer 3, migration 075)', () => {
     expect(Number(rev.rows[0]?.data.salary)).toBe(5000);
   });
 
+  it('gives a column back to the collection a rule is moved away from', async () => {
+    // PUT refreshed only the collection the rule moved to: the old one kept
+    // masking the column for every member until the next boot.
+    const id = await hide('notes');
+    expect((await asMember((trx) => viewRow(trx)))?.notes).toBeNull();
+    const moved = await call('PUT', `/api/admin/column-permissions/${id}`, god, {
+      collection_name: `${COLLECTION}_elsewhere`,
+    });
+    expect(moved.status).toBe(200);
+    expect((await asMember((trx) => viewRow(trx)))?.notes).toBe('quarterly bonus');
+    await deleteColumnPermission(db, id);
+  });
+
   it('keeps the hidden value in the revision of a delete by the member, single and bulk', async () => {
     // The delete revision is the engine's read of the row before it went
     // (`engineRead`), not the RETURNING the update test above reads back.

@@ -259,6 +259,13 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
   // PUT /column-permissions/:id
   app.put('/column-permissions/:id', zValidator('json', ColumnPermSchema.partial()), async (c) => {
     const data = c.req.valid('json');
+    // A rule moved to another collection leaves the old one masking and
+    // sealing the column until that one is refreshed too.
+    const before = await db
+      .selectFrom('zvd_column_permissions')
+      .select('collection_name')
+      .where('id', '=', c.req.param('id'))
+      .executeTakeFirst();
     const row = await db
       .updateTable('zvd_column_permissions')
       .set({ ...data, updated_at: new Date() })
@@ -268,6 +275,9 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
     if (!row) return c.json({ error: 'Not found' }, 404);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await invalidateColumnPermCache((row as any).collection_name);
+    if (before && before.collection_name !== row.collection_name) {
+      await invalidateColumnPermCache(before.collection_name);
+    }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
