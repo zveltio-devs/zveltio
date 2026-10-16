@@ -19,6 +19,8 @@ import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import {
   invalidateColumnPermCache,
   invalidateRlsCache,
+  noteReconcile,
+  reconcileFailures,
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 
@@ -710,8 +712,11 @@ d("a branch table keeps its public namesake's column protections (in-process)", 
     const before = await policies(`public.${TABLE}`);
     await sql`INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
               VALUES (${COLLECTION}, '*', 'created_by', 'eq', 'user_id', true)`.execute(db);
+    // A boot failure on this table, which a clean rebuild must clear in `db_rules`.
+    noteReconcile('row_rules', COLLECTION, new Error('boot failure'));
     try {
       await invalidateRlsCache(COLLECTION);
+      expect(reconcileFailures('row_rules').map((f) => f.table)).not.toContain(COLLECTION);
       const pub = await policies(`public.${TABLE}`);
       expect(pub).not.toEqual(before);
       expect(await policies(`${schema}.${TABLE}`)).toEqual(pub);

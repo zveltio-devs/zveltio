@@ -14,6 +14,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
+import { noteReconcile } from './reconcile-failures.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import {
   checkPermission,
@@ -146,9 +147,15 @@ export async function invalidateRlsCache(collection: string): Promise<void> {
     try {
       const { applyRowRulePolicy, reconcileRowRulePolicies } = await import('./row-rule-policy.js');
       if (collection === '*') await reconcileRowRulePolicies(_db);
-      else await applyRowRulePolicy(_db, collection);
+      else {
+        await applyRowRulePolicy(_db, collection);
+        // As the column layers do: a success clears the boot's failure in `db_rules`.
+        noteReconcile('row_rules', collection);
+      }
     } catch (err) {
-      console.warn(`[row-rules] ${collection}: policy not refreshed — ${(err as Error).message}`);
+      const message =
+        collection === '*' ? (err as Error).message : noteReconcile('row_rules', collection, err);
+      console.warn(`[row-rules] ${collection}: policy not refreshed — ${message}`);
     }
     // Then the previews, as `invalidateColumnPermCache` does: a branch copied
     // `public`'s policies when its preview was enabled, and kept them. It
