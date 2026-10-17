@@ -4,6 +4,13 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Column rule edits answer what happened.** `DELETE /api/admin/column-permissions/:id`
+answered 200 for an id with no rule and wrote a `permission.revoked` audit row
+for a revoke that never happened; it now answers 404 and audits nothing.
+`PUT /api/admin/column-permissions/:id` that moves a rule onto a
+(collection, column, role) another rule already holds answered 500; it now
+answers 409.
+
 ## [3.0.0-beta.82] - 2026-10-17
 
 **Changing a user's global role is god-only.** `PATCH /api/users/:id` admits

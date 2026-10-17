@@ -15,6 +15,7 @@ import { getCache } from '../../lib/runtime/index.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestUser } from '../data.js';
 import { toJsonb } from '../../lib/jsonb.js';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import {
   invalidateRateLimitCache,
   parseTenantLimitKey,
@@ -266,12 +267,21 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       .select('collection_name')
       .where('id', '=', c.req.param('id'))
       .executeTakeFirst();
-    const row = await db
-      .updateTable('zvd_column_permissions')
-      .set({ ...data, updated_at: new Date() })
-      .where('id', '=', c.req.param('id'))
-      .returningAll()
-      .executeTakeFirst();
+    let row: Awaited<ReturnType<typeof putColumnPermission>>;
+    try {
+      row = await db
+        .updateTable('zvd_column_permissions')
+        .set({ ...data, updated_at: new Date() })
+        .where('id', '=', c.req.param('id'))
+        .returningAll()
+        .executeTakeFirst();
+    } catch (e) {
+      // Moved onto a (collection, column, role) another rule already holds.
+      if (sqlState(e) === '23505') {
+        return c.json({ error: 'A rule for this collection, column and role already exists' }, 409);
+      }
+      throw e;
+    }
     if (!row) return c.json({ error: 'Not found' }, 404);
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await invalidateColumnPermCache((row as any).collection_name);
@@ -293,7 +303,10 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
 
   // DELETE /column-permissions/:id
   app.delete('/column-permissions/:id', async (c) => {
-    await deleteColumnPermission(db, c.req.param('id'));
+    // No rule, no revoke: the audit trail recorded one that never happened.
+    if (!(await deleteColumnPermission(db, c.req.param('id')))) {
+      return c.json({ error: 'Not found' }, 404);
+    }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {

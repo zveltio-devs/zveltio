@@ -119,6 +119,44 @@ d('admin config routes (in-process)', () => {
     colPermId = '';
   });
 
+  it('DELETE of a rule that is not there answers 404 and audits no revoke', async () => {
+    // It answered 200 and wrote a permission.revoked row for nothing.
+    const missing = crypto.randomUUID();
+    const res = await app.request(`/api/admin/column-permissions/${missing}`, {
+      method: 'DELETE',
+      headers: { cookie },
+    });
+    expect(res.status).toBe(404);
+    const audit = await sql`SELECT 1 FROM zv_audit_log WHERE resource_id = ${missing}`.execute(db);
+    expect(audit.rows).toHaveLength(0);
+  });
+
+  it('PUT that moves a rule onto one already held answers 409', async () => {
+    // The unique (collection, column, role) violation surfaced as a 500.
+    const mk = async (column_name: string) => {
+      const res = await app.request('/api/admin/column-permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ collection_name: COLLECTION, column_name, role: 'member' }),
+      });
+      return ((await res.json()) as { column_permission: { id: string } }).column_permission.id;
+    };
+    try {
+      await mk('a');
+      const b = await mk('b');
+      const res = await app.request(`/api/admin/column-permissions/${b}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ column_name: 'a' }),
+      });
+      expect(res.status).toBe(409);
+    } finally {
+      await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`.execute(
+        db,
+      );
+    }
+  });
+
   it('GET /api/admin/logs returns recent request log rows', async () => {
     const res = await app.request('/api/admin/logs?limit=5', { headers: { cookie } });
     expect(res.status).toBe(200);
