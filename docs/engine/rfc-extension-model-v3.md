@@ -1,7 +1,7 @@
 # RFC: extension model v3
 
-Status: **draft** (2026-10-17). It awaits the owner's decisions listed under
-[Open decisions](#open-decisions).
+Status: **accepted** (owner, 2026-10-17). The decisions are recorded under
+[Decisions](#decisions). All five engine phases (A–E) land before rc.1.
 
 This RFC replaces the *goal* of [rfc-extension-runner.md](rfc-extension-runner.md),
 "third-party code gets the same `ctx` as first-party code, over a SQL bridge". It
@@ -201,12 +201,19 @@ Outside the engine:
   v1 is frozen. Estimate: 6–10 weeks.
 - **Registry:** the automated pipeline and the certification flow.
 
-**Order and rc.1:**
-- Phase A can start now.
-- B and C define compatibility surfaces (the extension API and stored rules), so
-  they belong before rc.1.
-- D and E can follow rc.1 without breaking anyone, because no third-party
-  extension exists yet.
+**Order and rc.1** (owner decision 2026-10-17: every engine phase lands before rc.1):
+1. **A** starts now, together with the fix for CRM's skipped data flows (an
+   independent bug).
+2. **B** at its minimum: collections, actions, `host.collections` and the
+   outbox. UI and the service broker stay as they are and join in v1.x without
+   breaking anything. The CRM pilot runs alongside, to find the contract's gaps
+   before v1 is frozen.
+3. **C** opens with a week that runs the official CEL conformance tests against
+   the JavaScript implementation.
+4. **D** and **E.**
+5. rc.1.
+6. The remaining first-party extensions are migrated, and the registry pipeline
+   is built.
 
 ## Measurements
 
@@ -222,12 +229,23 @@ These are scripts to rerun; they are not in this repository.
   Node `--permission`, Supabase Edge Runtime and workerd with a `globalOutbound`
   gate.
 
-## Open decisions
+## Decisions
 
-1. **Level 1 runs inline.** Do certified third-party actions run inline (the
-   owner's proposal), or in the process backend too?
-2. **No SQL for third-party code.** Does `host.collections` become the only data
-   path in `extension-api v1`?
-3. **Rules language before rc.1.** Adopt CEL, or freeze expr-eval-fork?
-4. **Deno.** Is it shipped with the engine as the job runtime?
-5. **rc.1 timing.** Do phases B and C land before rc.1?
+Owner, 2026-10-17.
+1. **Level 1 (certified) actions run inline**, with three conditions:
+   - data is still reached only through `host.collections` with declared
+     capabilities;
+   - certification is per version;
+   - revocation stops the extension everywhere.
+
+   Certification starts with contracted partners only.
+2. **No SQL for third-party code.** `host.collections` is the only data path in
+   `extension-api v1`; `db:query` stays first-party only.
+3. **CEL**, provided a JavaScript implementation passes the official
+   conformance tests in phase C's first week. If none does, freeze
+   expr-eval-fork behind a typed wrapper with decimals. Either way the choice is
+   made before rc.1.
+4. **Deno is the job runtime**, added in phase D as an optional component
+   fetched when the first job-capable third-party extension is enabled. It is
+   not bundled in every install. First-party jobs may run inline.
+5. **Phases A–E all land before rc.1.**
