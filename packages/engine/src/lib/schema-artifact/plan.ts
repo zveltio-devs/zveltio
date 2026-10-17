@@ -14,6 +14,7 @@
 
 import { createHash } from 'node:crypto';
 import { exportField, isDefaultGrant, SCHEMA_FORMAT, serialize } from './export.js';
+import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
 export interface PlanStep {
   /** `+` adds, `-` removes, `~` changes. */
@@ -338,11 +339,14 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
     // A setting the file leaves out keeps the instance's value: creating a
     // collection fills defaults (icon, routeGroup, sort…), and a hand-written
     // file without them must not show drift forever. `pull` writes every one.
-    if (des[key] === undefined || des[key] === null || same(cur[key], des[key])) continue;
-    const op: ApplyOp | undefined = canSet(key, des[key])
-      ? { kind: 'setCollection', collection: name, key, value: des[key] ?? null }
+    // The export leaves the upstream credential out; a file pulled before it did
+    // still holds it, which must neither show as drift nor print in the plan.
+    const want = key === 'virtualConfig' ? withoutAuthValue(des[key]) : des[key];
+    if (want === undefined || want === null || same(cur[key], want)) continue;
+    const op: ApplyOp | undefined = canSet(key, want)
+      ? { kind: 'setCollection', collection: name, key, value: want ?? null }
       : undefined;
-    step('~', `set ${key} ${show(cur[key])} → ${show(des[key])}`, false, op);
+    step('~', `set ${key} ${show(cur[key])} → ${show(want)}`, false, op);
   }
 
   const curFields = list(name, cur.fields, 'fields');

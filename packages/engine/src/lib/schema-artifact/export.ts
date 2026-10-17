@@ -15,6 +15,7 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_ROLE_GRANTS, isSensitiveResource } from '../tenancy/index.js';
+import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
 export const SCHEMA_FORMAT = 1;
 const SCHEMA_URL = 'https://zveltio.com/schema/v1';
@@ -148,7 +149,8 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
       isPermissioned: col.is_permissioned,
       sort: col.sort,
       sourceType: col.source_type === 'table' ? null : col.source_type,
-      virtualConfig: col.virtual_config,
+      // The upstream credential is a secret, out of the artifact like the rest.
+      virtualConfig: withoutAuthValue(col.virtual_config),
       schemaLocked: col.schema_locked || null,
       aiSearchEnabled: col.ai_search_enabled || null,
       aiSearchField: col.ai_search_field,

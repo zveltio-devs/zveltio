@@ -15,6 +15,7 @@ import {
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { withoutAuthValue } from '../../lib/virtual-collection-adapter.js';
 import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import { recordSchemaMigration } from '../../lib/schema-artifact/dev-writer.js';
@@ -32,7 +33,11 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
 
   // GET /collections — Collections list (for permission matrix columns)
   app.get('/collections', async (c) => {
-    const collections = await DDLManager.getCollections(db);
+    // The upstream credential is write-only (`withoutAuthValue`).
+    const collections = (await DDLManager.getCollections(db)).map((col) => ({
+      ...col,
+      virtual_config: withoutAuthValue(col.virtual_config),
+    }));
     return c.json({ collections });
   });
 

@@ -11,6 +11,18 @@ for a revoke that never happened; it now answers 404 and audits nothing.
 (collection, column, role) another rule already holds answered 500; it now
 answers 409.
 
+**The schema export leaves the upstream credential out.** A virtual
+collection's `virtual_config.auth_value` is write-only, and the collection GETs
+already dropped it, but `GET /api/admin/schema/export` served it whole: `zveltio
+schema pull` and Studio's dev-mode writer put it in `schema/collections/*.json`,
+the files a project commits. The export now leaves it out, and so does the
+permissions matrix's `GET /api/admin/collections`, which served the rows raw. A
+config stored as a jsonb string (the shape 010 describes) passed through the
+collection GETs with the credential inside; it is now parsed and stripped there
+too. `schema diff` and `schema apply` ignore the credential in a file pulled
+before this, which still holds it: remove it from the file and from the
+project's history, and rotate it upstream.
+
 ## [3.0.0-beta.82] - 2026-10-17
 
 **Changing a user's global role is god-only.** `PATCH /api/users/:id` admits
