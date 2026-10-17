@@ -39,9 +39,11 @@ import {
 import { _wsPermCacheForTests, broadcastEvent, websocketHandler } from '../../routes/ws.js';
 import {
   createGodSession,
+  createMemberSession,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  recoverGod,
   wsUpgradeData,
 } from '../../testing/app-harness.js';
 
@@ -105,12 +107,9 @@ d('a user role change reaches open subscriptions', () => {
     return { cookie, userId, ws, frames, conn };
   }
 
-  const demote = (cookie: string, userId: string) =>
-    app.request(`/api/users/${userId}`, {
-      method: 'PATCH',
-      headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ role: 'member' }),
-    });
+  // Recovery is the one path that demotes a god (PATCH refuses, #1161): seat a
+  // fresh member, which stands the current god down.
+  const demote = async () => recoverGod(app, (await createMemberSession(app, db)).email);
 
   const leaks = (frames: string[], title: string) => {
     frames.length = 0;
@@ -119,8 +118,8 @@ d('a user role change reaches open subscriptions', () => {
   };
 
   it('the writing instance stops streaming to a god it demoted', async () => {
-    const { cookie, userId, frames } = await godWithSocket();
-    expect((await demote(cookie, userId)).status).toBe(200);
+    const { userId, frames } = await godWithSocket();
+    expect((await demote()).status).toBe(200);
     for (let i = 0; i < 20; i++) await Bun.sleep(10);
     await __sweepIdle();
 
@@ -151,11 +150,11 @@ d('a user role change reaches open subscriptions', () => {
   });
 
   it('another instance stops streaming to a god demoted here', async () => {
-    const { cookie, userId, ws, frames, conn } = await godWithSocket();
+    const { userId, ws, frames, conn } = await godWithSocket();
     const stale = { subs: new Set(conn.subscriptions), access: conn.access.get(COL)! };
     sent.length = 0;
 
-    expect((await demote(cookie, userId)).status).toBe(200);
+    expect((await demote()).status).toBe(200);
     for (let i = 0; i < 20; i++) await Bun.sleep(10);
     await __sweepIdle();
 

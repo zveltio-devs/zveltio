@@ -12,6 +12,12 @@ All notable changes to Zveltio will be documented in this file.
   the escalation #951 closed in the SQL editor. A `role` in the body now needs a
   god caller (403 otherwise); name and image edits are unchanged.
 
+- **God status changes only through recovery.** `PATCH /api/users/:id` let a god
+  demote itself, which left the instance with no god until someone used
+  `RECOVERY_TOKEN`; promoting anyone else already failed on the one god seat
+  (migration 008) with a server error. A `role` that would change god status now
+  answers 409 and names `/api/permissions/bootstrap`.
+
 - **Revisions of a collection with no fields left keep the system columns
   only.** `serializeSnapshot` treated a definition whose last field was dropped
   as no definition and served the stored copy raw, so a revision written before

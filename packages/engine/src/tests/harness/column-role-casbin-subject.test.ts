@@ -19,6 +19,7 @@ import {
   checkPermission,
   getEnforcer,
   getUserRoles,
+  grantMemberRole,
   invalidateGodCache,
   invalidateUserPermCache,
   reconcilePolicies,
@@ -127,10 +128,10 @@ d('member is a Casbin role, the column only the god attribute', () => {
     expect(rows.rows.map((r) => r.v1)).toEqual(['employee', 'member']);
   });
 
-  it('a god demoted by PATCH keeps no god-derived grant', async () => {
+  it('a demoted god keeps no god-derived grant', async () => {
     // One god per instance (migration 008): stand the harness god down and seat
-    // the member, as recovery would. Then the god demotes itself — the only
-    // caller PATCH lets change a role.
+    // the member, as recovery would. PATCH refuses to demote it (#1161), so it
+    // is demoted the way recovery demotes the previous holder.
     const gods = await sql<{ id: string }>`
       UPDATE "user" SET role = 'member' WHERE role = 'god' RETURNING id
     `.execute(db);
@@ -138,7 +139,10 @@ d('member is a Casbin role, the column only the god attribute', () => {
     await sql`UPDATE "user" SET role = 'god' WHERE id = ${member.userId}`.execute(db);
     await invalidateGodCache(member.userId);
     expect((await read(member.cookie, GOD_COL)).status).toBe(200);
-    expect((await patchRole(member.userId, 'member', member.cookie)).status).toBe(200);
+    expect((await patchRole(member.userId, 'member', member.cookie)).status).toBe(409);
+    await sql`UPDATE "user" SET role = 'member' WHERE id = ${member.userId}`.execute(db);
+    await grantMemberRole(member.userId);
+    await invalidateUserPermCache(member.userId);
     expect((await read(member.cookie, GOD_COL)).status).toBe(403);
     expect((await read(member.cookie, MEMBER_COL)).status).toBe(200);
     // Seat the harness god again: the next case acts as it.
