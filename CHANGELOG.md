@@ -4,25 +4,40 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
+## [3.0.0-beta.82] - 2026-10-17
 
-- **Changing a user's global role is god-only.** `PATCH /api/users/:id`
-  admits any instance admin and wrote `role` unchecked, so a non-god admin of
-  the root tenant could set their own row to `god`, or god's row to `member` —
-  the escalation #951 closed in the SQL editor. A `role` in the body now needs a
-  god caller (403 otherwise); name and image edits are unchanged.
+**Changing a user's global role is god-only.** `PATCH /api/users/:id` admits
+any instance admin and wrote `role` unchecked, so a non-god admin of the root
+tenant could set their own row to `god`, or god's row to `member` — the
+escalation #951 closed in the SQL editor. A `role` in the body now needs a god
+caller (403 otherwise); name and image edits are unchanged.
 
-- **God status changes only through recovery.** `PATCH /api/users/:id` let a god
-  demote itself, which left the instance with no god until someone used
-  `RECOVERY_TOKEN`; promoting anyone else already failed on the one god seat
-  (migration 008) with a server error. A `role` that would change god status now
-  answers 409 and names `/api/permissions/bootstrap`.
+**God status changes only through recovery.** `PATCH /api/users/:id` let a god
+demote itself, which left the instance with no god until someone used
+`RECOVERY_TOKEN`; promoting anyone else already failed on the one god seat
+(migration 008) with a server error. A `role` that would change god status now
+answers 409 and names `/api/permissions/bootstrap`.
 
-- **Revisions of a collection with no fields left keep the system columns
-  only.** `serializeSnapshot` treated a definition whose last field was dropped
-  as no definition and served the stored copy raw, so a revision written before
-  the drop still returned the dropped field's value. It now passes a copy
-  through only when the collection has no definition at all.
+**Engine and extension role windows on one transaction no longer interleave.**
+The engine's window (`asEngineRole`) waited in the queue of the request
+transaction while running SQL on the transaction it was handed. An extension
+holding `db:admin` that passed its own `ctx.adminDb.transaction()` to an engine
+identity helper (`addTenantMember`, `removeTenantMember`, `updateUserProfile`,
+`setUserActive`, `liftOwnBan`) could have its statement run as the engine's
+login instead of `zveltio_ext`, and the transaction left on `zveltio_ext`
+afterwards. Windows now queue on the transaction they run on.
+
+**`/health/tenant_rls` reports an unreadable collection list.** When the
+collection list could not be read, the tenant RLS reconcile skipped everything
+and recorded nothing, so the check said `ok: true`. It now records the failure.
+
+**Revisions of a collection with no fields left keep the system columns only.**
+`serializeSnapshot` treated a definition whose last field was dropped as no
+definition and served the stored copy raw, so a revision written before the
+drop still returned the dropped field's value. It now passes a copy through
+only when the collection has no definition at all.
+
+No migrations in this release; upgrading from beta.81 is a code change only.
 
 ## [3.0.0-beta.81] - 2026-10-16
 
