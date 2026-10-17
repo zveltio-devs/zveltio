@@ -5,6 +5,10 @@
  * a non-god admin of the root tenant could PATCH their own row to `god`, or
  * PATCH god's row to `member` — the escalation #951 closed in the SQL editor,
  * reachable here through an ordinary route.
+ *
+ * God itself cannot change god status here either: the one seat (migration 008)
+ * refuses a second god, and a god demoting itself by mistake left the instance
+ * with none. Recovery is the only way god status moves.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
@@ -26,6 +30,7 @@ d('PATCH /api/users/:id role is god-only (in-process)', () => {
   let adminCookie = '';
   let adminId = '';
   let godId = '';
+  let godCookie = '';
 
   const patch = (id: string, body: object) =>
     app.request(`/api/users/${id}`, {
@@ -42,7 +47,7 @@ d('PATCH /api/users/:id role is god-only (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
-    await createGodSession(app, db);
+    godCookie = await createGodSession(app, db);
     godId = (
       await sql<{
         id: string;
@@ -71,5 +76,20 @@ d('PATCH /api/users/:id role is god-only (in-process)', () => {
   it('refuses demoting god', async () => {
     expect((await patch(godId, { role: 'member' })).status).toBe(403);
     expect(await roleOf(godId)).toBe('god');
+  });
+
+  it('refuses god demoting itself, and promoting anyone', async () => {
+    const asGod = (id: string, body: object) =>
+      app.request(`/api/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', cookie: godCookie },
+        body: JSON.stringify(body),
+      });
+    expect((await asGod(godId, { role: 'member' })).status).toBe(409);
+    expect(await roleOf(godId)).toBe('god');
+    expect((await asGod(adminId, { role: 'god' })).status).toBe(409);
+    expect(await roleOf(adminId)).toBe('member');
+    // A role that changes nothing about god status still goes through.
+    expect((await asGod(adminId, { role: 'member' })).status).toBe(200);
   });
 });

@@ -492,3 +492,25 @@ export async function syncPull(
     await Bun.sleep(100);
   }
 }
+
+/**
+ * Move god status to the account at `email` the only way the product allows —
+ * recovery (`POST /api/permissions/bootstrap`) — which demotes the current god.
+ * `PATCH /api/users/:id` refuses to change god status (#1161). Each call brings
+ * a fresh `RECOVERY_TOKEN`, since a token is spent on use.
+ */
+export async function recoverGod(app: Hono, email: string): Promise<Response> {
+  const saved = process.env.RECOVERY_TOKEN;
+  const token = `harness-recovery-${crypto.randomUUID()}`;
+  process.env.RECOVERY_TOKEN = token;
+  try {
+    return await app.request('/api/permissions/bootstrap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ email }),
+    });
+  } finally {
+    if (saved === undefined) delete process.env.RECOVERY_TOKEN;
+    else process.env.RECOVERY_TOKEN = saved;
+  }
+}

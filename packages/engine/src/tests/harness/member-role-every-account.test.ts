@@ -24,7 +24,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+  recoverGod,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -128,28 +134,23 @@ d('every non-god account holds `member` in Casbin', () => {
     }
   });
 
-  it('PATCH /api/users/:id demotes a god to a member holding the row, without hanging', async () => {
+  it('PATCH /api/users/:id refuses to demote a god; recovery demotes it to a member holding the row', async () => {
     const god = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
       .rows[0]!.id;
     await sql`DELETE FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${god} AND v1 = 'member'`.execute(
       db,
     );
-    // The demotion's trigger row is uncommitted while the handler runs: a grant
-    // written on the pool from inside the handler waits on it, and the handler
-    // waits on the grant.
-    const res = await Promise.race([
-      app.request(`/api/users/${god}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', cookie: godCookie },
-        body: JSON.stringify({ role: 'member' }),
-      }),
-      Bun.sleep(8_000).then(() => null),
-    ]);
+    const patched = await app.request(`/api/users/${god}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie: godCookie },
+      body: JSON.stringify({ role: 'member' }),
+    });
+    expect(patched.status).toBe(409);
     try {
-      expect(res?.status).toBe(200);
+      const { email } = await createMemberSession(app, db);
+      expect((await recoverGod(app, email)).status).toBe(200);
       expect(await memberRows(db, god)).toBe(1);
     } finally {
-      await sql`UPDATE "user" SET role = 'god' WHERE id = ${god}`.execute(db);
       godCookie = await createGodSession(app, db);
     }
   });

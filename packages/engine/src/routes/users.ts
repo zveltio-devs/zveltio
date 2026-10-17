@@ -146,6 +146,15 @@ export function usersRoutes(
       if (role !== undefined && !(await isGodUser((c.get('user') as { id: string }).id))) {
         return c.json({ error: 'Only a god user may change a global role' }, 403);
       }
+      // God status moves only through recovery (/api/permissions/bootstrap).
+      // Promoting anyone collides with the one god seat (migration 008), and a
+      // god demoting itself by mistake left the instance with no god at all.
+      if (role !== undefined && (role === 'god') !== (await isGodUser(userId))) {
+        return c.json(
+          { error: 'God status changes only through recovery (/api/permissions/bootstrap)' },
+          409,
+        );
+      }
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const updates: Record<string, any> = { updatedAt: new Date() };
       if (name !== undefined) updates.name = name;
