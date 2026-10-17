@@ -2656,7 +2656,7 @@
   "mkt.tier.firstParty": "Zveltio",
   "mkt.tier.firstPartyTitle": "Creada y mantenida por el equipo de Zveltio. Se ejecuta dentro del proceso del motor.",
   "mkt.tier.verified": "Verificada",
-  "mkt.tier.verifiedTitle": "El equipo de Zveltio leyó el código de esta versión antes de publicarla. Se ejecuta dentro del proceso del motor.",
+  "mkt.tier.verifiedTitle": "El equipo de Zveltio leyó el código de esta versión antes de publicarla. Se ejecuta en un worker aislado, como todo código de terceros.",
   "mkt.uninstall": "Desinstalar",
   "mkt.uninstallExt": "Desinstalar extensión",
   "mkt.uninstallFailed": "Error al desinstalar: {error}",

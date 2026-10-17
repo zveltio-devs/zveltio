@@ -436,8 +436,8 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
   // letting the author discover it after a rejected review.
   //   - explicit isolation in the manifest is always preserved (unless
   //     first-party clears a sticky worker — see resolvePackIsolation)
-  //   - first-party / verified keep the inline default
-  //   - community (or unresolvable tier) → inject worker, loudly
+  //   - first-party keeps the inline default
+  //   - verified / community (or unresolvable tier) → inject worker, loudly
   let communityInject = false;
   if (!manifest.engine?.isolation) {
     const resolved = await resolvePublisherTier({
@@ -449,13 +449,13 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
       communityInject = true;
       console.log(
         `  ${c.yellow('⚠')} ${resolved.tier} publisher — auto-set ${c.bold('engine.isolation: "worker"')} ` +
-          `(community extensions can't run inline).`,
+          `(only first-party extensions run inline).`,
       );
       if (resolved.source === 'default') {
         console.log(
           c.dim(
             '    Tier defaulted to community (no --first-party flag, no registry token). ' +
-              'If you are verified/first-party, pass --first-party or set ZVELTIO_REGISTRY_TOKEN.',
+              'If you are first-party, pass --first-party or set ZVELTIO_REGISTRY_TOKEN.',
           ),
         );
       }
@@ -484,7 +484,7 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
       bundled: true,
       bundlePeers: manifest.engine?.bundlePeers ?? false,
       // Preserve author-set or auto-injected isolation. Omitting it lets
-      // the engine schema default to 'inline' (first-party / verified).
+      // the engine schema default to 'inline' (first-party).
       ...(resolvedIsolation ? { isolation: resolvedIsolation } : {}),
     };
     manifest.integrity = {

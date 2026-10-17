@@ -367,8 +367,8 @@ export function registerMarketplaceRoutes(
         // and shows "enable these first" when this is non-empty.
         missing_dependencies,
         // Who stands behind this build. The engine already decides with it —
-        // `tierAllowsInline()` lets first-party and verified run in the engine
-        // process and confines community to a worker — but it was never sent to
+        // `tierAllowsInline()` lets only first-party run in the engine
+        // process and confines verified and community to a worker — but it was never sent to
         // the Studio, so the operator approving an install could not see the
         // one fact that governs how much of their server the code can touch.
         // An extension missing from the catalog resolves to `community`, which

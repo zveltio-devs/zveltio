@@ -4,8 +4,8 @@
  * community → inline blocked" path; these cover the two operator/manifest
  * escape hatches and the tiers that ARE allowed to run inline.
  *
- * marketplace-policy.md §2: first-party/verified may run inline; community (or
- * unknown) must declare engine.isolation: "worker".
+ * marketplace-policy.md §2: only first-party may run inline; verified and
+ * community (or unknown) must declare engine.isolation: "worker".
  */
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
@@ -85,7 +85,7 @@ describe('enforcePublisherTier — escape hatches', () => {
   });
 });
 
-describe('enforcePublisherTier — tiers allowed inline', () => {
+describe('enforcePublisherTier — inline by tier', () => {
   afterEach(() => {
     _setInlineForTests(false);
   });
@@ -102,13 +102,14 @@ describe('enforcePublisherTier — tiers allowed inline', () => {
     }
   });
 
-  it('a verified catalog entry may run inline', async () => {
+  it('a verified catalog entry is blocked inline (RFC extension-model-v3 phase A)', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       catalogEntry({ name: 'v-ext', publisher_tier: 'verified' }),
     ]);
     try {
       const r = await enforcePublisherTier('v-ext', { name: 'v-ext', version: '1.0.0' } as never);
-      expect(r.ok).toBe(true);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.lastLoadError).toContain('verified');
     } finally {
       spy.mockRestore();
     }

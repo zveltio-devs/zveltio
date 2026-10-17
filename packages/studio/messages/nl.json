@@ -2656,7 +2656,7 @@
   "mkt.tier.firstParty": "Zveltio",
   "mkt.tier.firstPartyTitle": "Gebouwd en onderhouden door het Zveltio-team. Draait binnen het engine-proces.",
   "mkt.tier.verified": "Geverifieerd",
-  "mkt.tier.verifiedTitle": "Het Zveltio-team heeft de broncode van deze versie gelezen voordat die werd gepubliceerd. Draait binnen het engine-proces.",
+  "mkt.tier.verifiedTitle": "Het Zveltio-team heeft de broncode van deze versie gelezen voordat die werd gepubliceerd. Draait in een geïsoleerde worker, zoals alle code van derden.",
   "mkt.uninstall": "De-installeren",
   "mkt.uninstallExt": "Extensie de-installeren",
   "mkt.uninstallFailed": "De-installatie mislukt: {error}",

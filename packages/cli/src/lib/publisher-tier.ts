@@ -20,8 +20,9 @@
 
 export type PublisherTier = 'first-party' | 'verified' | 'community';
 
+/** Mirrors the engine's `tierAllowsInline`: first-party only (RFC extension-model-v3 phase A). */
 export function tierAllowsInline(tier: PublisherTier): boolean {
-  return tier === 'first-party' || tier === 'verified';
+  return tier === 'first-party';
 }
 
 export interface ResolveTierOptions {

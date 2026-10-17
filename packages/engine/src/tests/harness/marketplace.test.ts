@@ -196,7 +196,7 @@ d('extension marketplace routes (in-process)', () => {
 
   it('every catalog entry names its publisher tier', async () => {
     // The engine has always decided with this — tierAllowsInline() lets
-    // first-party and verified run in the engine process and confines
+    // only first-party run in the engine process and confines verified and
     // community to a worker — but the field was never in the response, so the
     // operator approving an install could not see the one fact that governs
     // how much of their server the code can touch. Absent must read as

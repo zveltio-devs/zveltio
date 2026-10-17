@@ -2656,7 +2656,7 @@
   "mkt.tier.firstParty": "Zveltio",
   "mkt.tier.firstPartyTitle": "Vom Zveltio-Team entwickelt und gepflegt. Läuft im Engine-Prozess.",
   "mkt.tier.verified": "Verifiziert",
-  "mkt.tier.verifiedTitle": "Das Zveltio-Team hat den Quellcode dieser Version vor der Veröffentlichung gelesen. Läuft im Engine-Prozess.",
+  "mkt.tier.verifiedTitle": "Das Zveltio-Team hat den Quellcode dieser Version vor der Veröffentlichung gelesen. Läuft in einem isolierten Worker, wie jeder Code von Dritten.",
   "mkt.uninstall": "Deinstallieren",
   "mkt.uninstallExt": "Erweiterung deinstallieren",
   "mkt.uninstallFailed": "Deinstallation fehlgeschlagen: {error}",

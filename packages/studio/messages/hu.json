@@ -2656,7 +2656,7 @@
   "mkt.tier.firstParty": "Zveltio",
   "mkt.tier.firstPartyTitle": "A Zveltio csapata fejleszti és tartja karban. A motor folyamatán belül fut.",
   "mkt.tier.verified": "Ellenőrzött",
-  "mkt.tier.verifiedTitle": "A Zveltio csapata elolvasta ennek a verziónak a forráskódját a közzététel előtt. A motor folyamatán belül fut.",
+  "mkt.tier.verifiedTitle": "A Zveltio csapata elolvasta ennek a verziónak a forráskódját a közzététel előtt. Elszigetelt workerben fut, mint minden harmadik féltől származó kód.",
   "mkt.uninstall": "Eltávolítás",
   "mkt.uninstallExt": "Bővítmény eltávolítása",
   "mkt.uninstallFailed": "Az eltávolítás sikertelen: {error}",

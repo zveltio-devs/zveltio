@@ -62,7 +62,7 @@ export interface ExtensionValidateOptions {
   firstParty?: boolean;
   /** Registry token for the publisher-tier lookup. Defaults to
    *  ZVELTIO_REGISTRY_TOKEN. When present and the publisher is
-   *  verified/first-party, inline isolation passes. */
+   *  first-party, inline isolation passes. */
   token?: string;
   /** Registry base URL for the tier lookup. */
   registryUrl?: string;
@@ -585,7 +585,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   // extension nobody can enable.
   //
   // Tier resolution: --first-party (offline) → first-party; else a
-  // registry lookup when a token is present (verified partners pass);
+  // registry lookup when a token is present (only first-party passes);
   // else community (strictest). resolvePublisherTier never throws.
   // Studio/client-only extensions have no engine, so §2 isolation doesn't
   // apply — there's nothing to run in a worker.
@@ -630,7 +630,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
       console.error(
         c.dim(
           '  Add `"isolation": "worker"` to the engine block in manifest.json, ' +
-            'then re-pack. If you are a verified/first-party publisher, pass ' +
+            'then re-pack. If you are a first-party publisher, pass ' +
             '--first-party or set ZVELTIO_REGISTRY_TOKEN so the tier can be confirmed. ' +
             'See docs/extensions/marketplace-policy.md §2.',
         ),

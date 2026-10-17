@@ -15,9 +15,9 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
 }
 
 describe('tierAllowsInline', () => {
-  it('first-party and verified allow inline; community does not', () => {
+  it('only first-party allows inline; verified and community do not', () => {
     expect(tierAllowsInline('first-party')).toBe(true);
-    expect(tierAllowsInline('verified')).toBe(true);
+    expect(tierAllowsInline('verified')).toBe(false);
     expect(tierAllowsInline('community')).toBe(false);
   });
 });
@@ -49,7 +49,7 @@ describe('resolvePublisherTier', () => {
       return new Response(JSON.stringify({ tier: 'verified' }), { status: 200 });
     });
     const r = await resolvePublisherTier({ token: 'zvt_abc' });
-    expect(r).toEqual({ tier: 'verified', allowsInline: true, source: 'registry' });
+    expect(r).toEqual({ tier: 'verified', allowsInline: false, source: 'registry' });
   });
 
   it('passes keyId through as a query param when provided', async () => {

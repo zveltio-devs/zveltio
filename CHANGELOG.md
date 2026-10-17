@@ -4,6 +4,16 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Verified extensions run in a worker.** The `verified` publisher tier (a
+third-party version the Zveltio team read) ran inside the engine process, where
+it received `ctx.db`: raw SQL with no boundary. RFC extension-model-v3 allows
+third-party code no SQL, so the engine now refuses `verified` + `inline` at
+enable, exactly as it refuses `community` + `inline`; only first-party runs
+inline. `zveltio extension pack` injects `isolation: "worker"` for verified
+publishers, and `validate` fails a verified `inline` manifest. A reviewed
+version returns inline as level 1 (certified) once `host.collections` is its
+only data path (phase B). No verified extension is published today.
+
 **Column rule edits answer what happened.** `DELETE /api/admin/column-permissions/:id`
 answered 200 for an id with no rule and wrote a `permission.revoked` audit row
 for a revoke that never happened; it now answers 404 and audits nothing.

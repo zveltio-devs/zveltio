@@ -61,7 +61,7 @@ Every submitted extension MUST:
 | Publisher tier | Required `engine.isolation` |
 | --- | --- |
 | First-party (Zveltio team) | `inline` (default) — full functionality, max speed |
-| Verified (source read by the Zveltio team) | `inline` allowed, `worker` recommended |
+| Verified (source read by the Zveltio team) | **`worker` REQUIRED** (until `host.collections`, RFC extension-model-v3 phase B) |
 | **Community / third-party** | **`worker` REQUIRED** |
 
 ### What earns `verified` (decided 2026-08-04)
@@ -92,8 +92,14 @@ extension at publish (`extensions.publisher_tier`). As of beta.2 it is
 publisher cannot get an `inline` extension into the queue (submit 422),
 past review (approve 422), or onto an engine (enable refuse); the CLI
 pre-empts all three by auto-injecting `worker` at pack time. Verified
-status is the only route to `inline` for non-first-party code, and it is
-granted manually by an admin via `enroll-publisher --tier verified`.
+status is granted manually by an admin via `enroll-publisher --tier verified`.
+
+**Since RFC extension-model-v3 phase A, `verified` runs in a worker too.**
+Inline code receives `ctx.db`, raw SQL with no boundary, and the RFC allows
+third-party code no SQL. A reviewed version comes back inline as level 1
+(certified) once `host.collections` is its only data path (phase B). The
+engine and the CLI enforce this; the registry still accepts a verified
+`inline` submission, which the engine then refuses at enable.
 
 Worker isolation (`isolation: 'worker'`) gives:
 
