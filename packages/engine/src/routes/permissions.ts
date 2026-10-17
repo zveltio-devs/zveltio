@@ -172,7 +172,9 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         // says so — up to five minutes in Valkey, five seconds in process. The
         // whole point of recovery is that the previous holder has lost control;
         // leaving their `god:<id> = true` behind hands it back for the window.
-        // As the engine's login: the request role writes no `"user"` row.
+        // `asEngineRole` is a no-op here: /bootstrap is in tenantMiddleware's
+        // skip list, so `trx` is a pool transaction on the engine's login. It
+        // stays so the writes keep that role if the route ever moves behind it.
         const { demoted, granted } = await asEngineRole(trx, async () => ({
           demoted: await trx
             .updateTable('user')
@@ -228,11 +230,10 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     const result = outcome?.granted ?? null;
     if (!result) return refuse('user_not_found', 404, `No user found with email: ${email}`);
 
-    // `invalidateUserPermCache`, not `invalidateGodCache`: this route runs in the
-    // request transaction, and only the former waits for the commit before its
-    // last cache drop and socket sweep, and reaches the other instances. The
-    // latter cleared here, before commit, so a re-read could file `god` again,
-    // and no replica heard of the change at all.
+    // `invalidateUserPermCache`, not `invalidateGodCache`: only the former
+    // sweeps sockets and reaches the other instances; with the latter no
+    // replica heard of the change at all. Both run after `grantAndSpend` has
+    // committed — this route opens its own pool transaction, not a request one.
     // The demoted holders first: leaving their cached `god = true` behind hands
     // the role back for the length of the TTL, which is the opposite of what a
     // recovery is for.
