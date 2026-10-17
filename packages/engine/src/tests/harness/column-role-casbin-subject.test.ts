@@ -24,6 +24,7 @@ import {
   reconcilePolicies,
 } from '../../lib/tenancy/index.js';
 import {
+  createGodSession,
   createMemberSession,
   dropTestCollection,
   getTestApp,
@@ -39,14 +40,14 @@ const INHERITED_ROLE = `hcolrole_parent_${tag}`;
 d('member is a Casbin role, the column only the god attribute', () => {
   let app: Hono;
   let db: Database;
-  // An instance admin who is not god: PATCHing someone TO god needs the seat free.
+  // A god: only a god may change a global role (#1160).
   let admin = '';
   let member: { cookie: string; userId: string };
 
-  const patchRole = (id: string, role: 'god' | 'member') =>
+  const patchRole = (id: string, role: 'god' | 'member', cookie = admin) =>
     app.request(`/api/users/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', cookie: admin },
+      headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ role }),
     });
   const read = (cookie: string, col: string) =>
@@ -54,9 +55,7 @@ d('member is a Casbin role, the column only the god attribute', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
-    admin = (
-      await createMemberSession(app, db, { grants: [{ collection: 'admin', actions: ['*'] }] })
-    ).cookie;
+    admin = await createGodSession(app, db);
     for (const name of [MEMBER_COL, GOD_COL]) {
       await DDLManager.createCollection(db, {
         name,
@@ -129,16 +128,24 @@ d('member is a Casbin role, the column only the god attribute', () => {
   });
 
   it('a god demoted by PATCH keeps no god-derived grant', async () => {
-    // One god per instance (migration 008): stand the harness god down first.
+    // One god per instance (migration 008): stand the harness god down and seat
+    // the member, as recovery would. Then the god demotes itself — the only
+    // caller PATCH lets change a role.
     const gods = await sql<{ id: string }>`
       UPDATE "user" SET role = 'member' WHERE role = 'god' RETURNING id
     `.execute(db);
     for (const { id } of gods.rows) await invalidateGodCache(id);
-    expect((await patchRole(member.userId, 'god')).status).toBe(200);
+    await sql`UPDATE "user" SET role = 'god' WHERE id = ${member.userId}`.execute(db);
+    await invalidateGodCache(member.userId);
     expect((await read(member.cookie, GOD_COL)).status).toBe(200);
-    expect((await patchRole(member.userId, 'member')).status).toBe(200);
+    expect((await patchRole(member.userId, 'member', member.cookie)).status).toBe(200);
     expect((await read(member.cookie, GOD_COL)).status).toBe(403);
     expect((await read(member.cookie, MEMBER_COL)).status).toBe(200);
+    // Seat the harness god again: the next case acts as it.
+    for (const { id } of gods.rows) {
+      await sql`UPDATE "user" SET role = 'god' WHERE id = ${id}`.execute(db);
+      await invalidateGodCache(id);
+    }
   });
 
   it('POST /api/permissions/roles refuses god, and takes member like any role', async () => {

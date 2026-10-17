@@ -8,6 +8,7 @@ import {
   grantMemberRole,
   invalidateUserPermCache,
   getCurrentDomain,
+  isGodUser,
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -138,6 +139,13 @@ export function usersRoutes(
     async (c) => {
       const { name, image, role } = c.req.valid('json');
       const userId = c.req.param('id');
+      // The column is the god flag, so writing it is god-only, as the SQL
+      // editor is (#951). This router admits any instance admin, and a
+      // non-god admin of the root tenant sent { role: 'god' } for their own id
+      // and became god, or { role: 'member' } for god's id and demoted it.
+      if (role !== undefined && !(await isGodUser((c.get('user') as { id: string }).id))) {
+        return c.json({ error: 'Only a god user may change a global role' }, 403);
+      }
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const updates: Record<string, any> = { updatedAt: new Date() };
       if (name !== undefined) updates.name = name;

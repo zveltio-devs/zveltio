@@ -6,6 +6,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ### Fixed
 
+- **Changing a user's global role is god-only.** `PATCH /api/users/:id`
+  admits any instance admin and wrote `role` unchecked, so a non-god admin of
+  the root tenant could set their own row to `god`, or god's row to `member` —
+  the escalation #951 closed in the SQL editor. A `role` in the body now needs a
+  god caller (403 otherwise); name and image edits are unchanged.
+
 - **Revisions of a collection with no fields left keep the system columns
   only.** `serializeSnapshot` treated a definition whose last field was dropped
   as no definition and served the stored copy raw, so a revision written before
