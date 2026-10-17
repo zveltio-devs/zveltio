@@ -113,6 +113,15 @@ d('virtual collection credential (in-process)', () => {
     expect(body.collection.virtual_config.auth_type).toBe('bearer');
   });
 
+  it('GET /api/admin/collections (permissions matrix) does not serve auth_value', async () => {
+    const res = await app.request('/api/admin/collections', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain(COLLECTION);
+    expect(text).not.toContain(SECRET);
+    expect(text).not.toContain(LEGACY_SECRET);
+  });
+
   it('GET /api/admin/schema/export keeps the config but not auth_value', async () => {
     const res = await app.request('/api/admin/schema/export', { headers: { cookie } });
     expect(res.status).toBe(200);

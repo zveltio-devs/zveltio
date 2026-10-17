@@ -49,6 +49,25 @@ describe('planSchema', () => {
     expect(plan(files([minimal]))).toEqual([]);
   });
 
+  it('ignores an upstream credential a file pulled before the export dropped it', () => {
+    const virt = (virtualConfig: unknown): Obj => ({
+      ...posts(),
+      sourceType: 'virtual',
+      virtualConfig,
+    });
+    const current = files([virt({ auth_type: 'bearer', id_field: 'id' })]);
+    const steps = (vc: unknown) => planSchema(current, files([virt(vc)]));
+    expect(steps({ auth_type: 'bearer', id_field: 'id', auth_value: 'secret' })).toEqual([]);
+    // Stored as a jsonb string, pulled as one.
+    expect(
+      steps(JSON.stringify({ auth_type: 'bearer', id_field: 'id', auth_value: 'secret' })),
+    ).toEqual([]);
+    const changed = steps({ auth_type: 'basic', id_field: 'id', auth_value: 'secret' });
+    expect(changed.map((s) => s.action)).toEqual([
+      'set virtualConfig {"auth_type":"bearer","id_field":"id"} → {"auth_type":"basic","id_field":"id"}',
+    ]);
+  });
+
   it('adds, alters, reorders and drops fields', () => {
     const p = posts();
     p.fields = [

@@ -42,7 +42,7 @@ export interface VirtualConfig {
  * write-only: the collection GETs and the schema export (`schema pull`, the dev
  * writer's `schema/` files) serve the rest. A config stored as a jsonb string
  * (the shape 010 describes; `getVirtualConfig` still reads it) is parsed first,
- * and one that does not parse is withheld whole.
+ * and one that does not parse to a config is withheld whole.
  */
 export function withoutAuthValue(config: unknown): unknown {
   let vc = config;
@@ -52,6 +52,8 @@ export function withoutAuthValue(config: unknown): unknown {
     } catch {
       return null;
     }
+    // Encoded twice is no config `getVirtualConfig` can use, and may hold one.
+    if (typeof vc === 'string') return null;
   }
   if (!vc || typeof vc !== 'object' || Array.isArray(vc)) return vc;
   const { auth_value: _secret, ...rest } = vc as Record<string, unknown>;
