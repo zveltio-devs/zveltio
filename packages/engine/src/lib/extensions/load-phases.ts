@@ -344,8 +344,9 @@ export async function enforcePublisherTier(
   // hardcoded catalog entries default to is_official=true, so the
   // 54 first-party + smoke fixtures stay exempt.
   //
-  //   first-party / verified → inline allowed
-  //   community (or unknown) → worker REQUIRED
+  //   first-party                       → inline allowed
+  //   verified / community (or unknown) → worker REQUIRED (verified ran
+  //     inline until RFC extension-model-v3 phase A; see tierAllowsInline)
   //
   // No operator override lets a third party run inline: the switch that did,
   // ZVELTIO_ALLOW_INLINE_THIRD_PARTY, is gone (owner decision, 2026-10-10) —

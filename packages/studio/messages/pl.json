@@ -2656,7 +2656,7 @@
   "mkt.tier.firstParty": "Zveltio",
   "mkt.tier.firstPartyTitle": "Tworzone i utrzymywane przez zespół Zveltio. Działa w procesie silnika.",
   "mkt.tier.verified": "Zweryfikowane",
-  "mkt.tier.verifiedTitle": "Zespół Zveltio przeczytał kod źródłowy tej wersji przed jej opublikowaniem. Działa w procesie silnika.",
+  "mkt.tier.verifiedTitle": "Zespół Zveltio przeczytał kod źródłowy tej wersji przed jej opublikowaniem. Działa w izolowanym workerze, jak każdy kod od podmiotów trzecich.",
   "mkt.uninstall": "Odinstaluj",
   "mkt.uninstallExt": "Odinstaluj rozszerzenie",
   "mkt.uninstallFailed": "Odinstalowanie nie powiodło się: {error}",

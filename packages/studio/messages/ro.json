@@ -2656,7 +2656,7 @@
   "mkt.tier.firstParty": "Zveltio",
   "mkt.tier.firstPartyTitle": "Construită și întreținută de echipa Zveltio. Rulează în procesul motorului.",
   "mkt.tier.verified": "Verificată",
-  "mkt.tier.verifiedTitle": "Echipa Zveltio a citit sursa acestei versiuni înainte de publicare. Rulează în procesul motorului.",
+  "mkt.tier.verifiedTitle": "Echipa Zveltio a citit sursa acestei versiuni înainte de publicare. Rulează într-un worker izolat, ca orice cod terț.",
   "mkt.uninstall": "Dezinstalează",
   "mkt.uninstallExt": "Dezinstalează extensia",
   "mkt.uninstallFailed": "Dezinstalarea a eșuat: {error}",

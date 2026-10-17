@@ -23,9 +23,9 @@ describe('resolvePublisherTier', () => {
 });
 
 describe('tierAllowsInline', () => {
-  it('permits first-party + verified inline, forces community to worker isolation', () => {
+  it('permits only first-party inline, forces verified + community to worker isolation', () => {
     expect(tierAllowsInline('first-party')).toBe(true);
-    expect(tierAllowsInline('verified')).toBe(true);
+    expect(tierAllowsInline('verified')).toBe(false);
     expect(tierAllowsInline('community')).toBe(false);
   });
 });

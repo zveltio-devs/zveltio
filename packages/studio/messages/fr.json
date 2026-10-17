@@ -2656,7 +2656,7 @@
   "mkt.tier.firstParty": "Zveltio",
   "mkt.tier.firstPartyTitle": "Développée et maintenue par l'équipe Zveltio. S'exécute dans le processus du moteur.",
   "mkt.tier.verified": "Vérifiée",
-  "mkt.tier.verifiedTitle": "L'équipe Zveltio a lu le code source de cette version avant de la publier. S'exécute dans le processus du moteur.",
+  "mkt.tier.verifiedTitle": "L'équipe Zveltio a lu le code source de cette version avant de la publier. S'exécute dans un worker isolé, comme tout code tiers.",
   "mkt.uninstall": "Désinstaller",
   "mkt.uninstallExt": "Désinstaller l'extension",
   "mkt.uninstallFailed": "Échec de la désinstallation : {error}",

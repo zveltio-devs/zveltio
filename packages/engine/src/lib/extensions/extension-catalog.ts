@@ -27,8 +27,8 @@ export interface ExtensionCatalogEntry {
   /**
    * Publisher trust tier (marketplace-policy.md §2). Drives isolation
    * enforcement at enable:
-   *   - `first-party` / `verified` → may run `isolation: 'inline'`
-   *   - `community` (or unknown)   → MUST declare `isolation: 'worker'`
+   *   - `first-party`                          → may run `isolation: 'inline'`
+   *   - `verified` / `community` (or unknown)  → MUST declare `isolation: 'worker'`
    *
    * Populated from the registry catalog (`publisher_tier` column, added
    * in registry migration 010). When absent — older registries, local
@@ -51,9 +51,17 @@ export function resolvePublisherTier(
   return entry.is_official ? 'first-party' : 'community';
 }
 
-/** Whether a tier may run inline (vs. requiring worker isolation). */
+/**
+ * Whether a tier may run inline (vs. requiring worker isolation).
+ *
+ * First-party only. `verified` (a reviewed third-party version) ran inline
+ * until RFC extension-model-v3 phase A: inline code gets `ctx.db`, raw SQL
+ * with no boundary, and the RFC allows third-party code no SQL at all. It
+ * comes back inline as level 1 (certified) once `host.collections` is its
+ * only data path (phase B).
+ */
 export function tierAllowsInline(tier: 'first-party' | 'verified' | 'community'): boolean {
-  return tier === 'first-party' || tier === 'verified';
+  return tier === 'first-party';
 }
 
 /**

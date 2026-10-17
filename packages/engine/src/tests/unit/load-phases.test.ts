@@ -236,7 +236,7 @@ describe('enforcePublisherTier — fast paths', () => {
     }
   });
 
-  it('verified publisher tier in catalog → inline allowed', async () => {
+  it('verified publisher tier in catalog → inline refused', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       {
         name: 'verified-ext',
@@ -256,7 +256,7 @@ describe('enforcePublisherTier — fast paths', () => {
         name: 'verified-ext',
         version: '1.0.0',
       } as never);
-      expect(r.ok).toBe(true);
+      expect(r.ok).toBe(false);
     } finally {
       spy.mockRestore();
     }
