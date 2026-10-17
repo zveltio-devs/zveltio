@@ -37,6 +37,27 @@ export interface VirtualConfig {
   max_page_size?: number;
 }
 
+/**
+ * A stored `virtual_config` without its upstream credential. `auth_value` is
+ * write-only: the collection GETs and the schema export (`schema pull`, the dev
+ * writer's `schema/` files) serve the rest. A config stored as a jsonb string
+ * (the shape 010 describes; `getVirtualConfig` still reads it) is parsed first,
+ * and one that does not parse is withheld whole.
+ */
+export function withoutAuthValue(config: unknown): unknown {
+  let vc = config;
+  if (typeof vc === 'string') {
+    try {
+      vc = JSON.parse(vc);
+    } catch {
+      return null;
+    }
+  }
+  if (!vc || typeof vc !== 'object' || Array.isArray(vc)) return vc;
+  const { auth_value: _secret, ...rest } = vc as Record<string, unknown>;
+  return rest;
+}
+
 export interface VirtualQuery {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   filters?: Array<{ field: string; op: string; value: any }>;

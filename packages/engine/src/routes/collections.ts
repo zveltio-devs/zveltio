@@ -40,7 +40,11 @@ import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
 import { toJsonb } from '../lib/jsonb.js';
-import { virtualList, type VirtualConfig } from '../lib/virtual-collection-adapter.js';
+import {
+  virtualList,
+  type VirtualConfig,
+  withoutAuthValue,
+} from '../lib/virtual-collection-adapter.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { recordSchemaMigration } from '../lib/schema-artifact/dev-writer.js';
 
@@ -111,9 +115,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   // these GETs, so serving it handed that key the upstream secret.
   const withoutCredential = <T>(collection: T): T => {
     const vc = (collection as { virtual_config?: unknown }).virtual_config;
-    if (!vc || typeof vc !== 'object' || !('auth_value' in vc)) return collection;
-    const { auth_value: _secret, ...rest } = vc as Record<string, unknown>;
-    return { ...collection, virtual_config: rest };
+    return vc ? { ...collection, virtual_config: withoutAuthValue(vc) } : collection;
   };
 
   // GET / — List all collections (user-defined + system)
