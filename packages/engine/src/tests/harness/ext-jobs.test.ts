@@ -9,6 +9,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { SQL } from 'bun';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
@@ -215,6 +216,7 @@ d('extension jobs run after the request commits, in its tenant, as the extension
             queueUndeclared: (input, host) => host.enqueue('record', input),
             queueSneak: (input, host) => host.enqueue('sneak', input),
             queueRaw: (input, host) => host.enqueue('raw', input),
+            queueGuarded: (input, host) => host.enqueue('guarded', input),
           },
           jobs: {
             record: async (input, host) => {
@@ -223,6 +225,30 @@ d('extension jobs run after the request commits, in its tenant, as the extension
             },
             sneak: async (input, host) => {
               await host.collections.insert(C, input as Record<string, unknown>);
+            },
+            // A refused precondition still holds the row's lock until the job commits.
+            guarded: async (input, host) => {
+              const { id } = input as { id: string };
+              const stale = await host.collections
+                .update(C, id, { label: 'guard-x' }, { expect: { label: ['guard-old'] } })
+                .then(
+                  () => 200,
+                  (e: { status?: number }) => e.status,
+                );
+              const other = new SQL(process.env.DATABASE_URL!);
+              const nowait =
+                await other`SELECT 1 FROM ${other(`zvd_${C}`)} WHERE id = ${id} FOR UPDATE NOWAIT`
+                  .then(
+                    () => 'free',
+                    (e: { errno?: string }) => e.errno,
+                  )
+                  .finally(() => other.close());
+              await host.collections.update(
+                C,
+                id,
+                { label: `guard-done-${stale}-${nowait}` },
+                { expect: { label: ['guard-a'] } },
+              );
             },
             // First-party code reaching the job's transaction past the host, as `ctx.db` does.
             raw: async (input) => {
@@ -242,11 +268,19 @@ d('extension jobs run after the request commits, in its tenant, as the extension
             action('queueUndeclared', []),
             action('queueSneak', ['sneak']),
             action('queueRaw', ['raw']),
+            action('queueGuarded', ['guarded']),
           ],
           jobs: [
             { name: 'record', input: labelInput, writes: [C], retry: { limit: 0 } },
             { name: 'sneak', input: labelInput, retry: { limit: 0 } },
             { name: 'raw', input: labelInput, reads: [C], retry: { limit: 0 } },
+            {
+              name: 'guarded',
+              input: { type: 'object', properties: { id: { type: 'string' } } },
+              reads: [C],
+              writes: [C],
+              retry: { limit: 0 },
+            },
           ],
         },
       ),
@@ -323,6 +357,22 @@ d('extension jobs run after the request commits, in its tenant, as the extension
     expect(await queued(EXT, 'record', 'by-job')).toBe(1);
     // And the job queued by the failed request above never ran.
     expect(await rowsLabelled('rolled-back')).toEqual([]);
+  });
+
+  it('tests a precondition on the row locked in the job’s transaction', async () => {
+    const id = crypto.randomUUID();
+    await asEveryTenant(db, (trx) =>
+      sql`INSERT INTO ${sql.table(`zvd_${C}`)} (id, label, tenant_id)
+          VALUES (${id}, 'guard-a', ${OTHER}::uuid)`.execute(trx),
+    );
+    expect((await act(EXT, 'queueGuarded', { id })).status).toBe(200);
+    // 409 on the stale expectation; the row stayed locked after it (55P03 for
+    // another connection), and the matching update then went through.
+    const done = await until(
+      () => rowsLabelled('guard-done-409-55P03'),
+      (r) => r.length > 0,
+    );
+    expect(done).toHaveLength(1);
   });
 
   it('refuses a job the action does not declare in enqueues', async () => {

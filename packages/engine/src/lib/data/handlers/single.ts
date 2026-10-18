@@ -13,6 +13,7 @@
 
 import type { Context } from 'hono';
 import { sql } from 'kysely';
+import type { UpdateExpect } from '@zveltio/sdk/extension';
 import type { Database } from '../../../db/index.js';
 import { DDLManager } from '../ddl-manager.js';
 import { engineEvents, AbortHookError } from '../../runtime/index.js';
@@ -74,6 +75,26 @@ export interface WriteRequest {
   /** The request's tenant transaction; the handler's `db` when there is none. */
   trx: Database | undefined;
   tenantId: string | null;
+  /** An update's precondition (`HostCollections.update`); the HTTP route sets none. */
+  expect?: UpdateExpect;
+}
+
+/**
+ * The field of `expect` that `row` does not satisfy, or null. Text comparison:
+ * a numeric column reads back as a string, and the caller wrote `5`.
+ */
+function unmetExpectation(row: Record<string, unknown>, expect: UpdateExpect): string | null {
+  for (const [field, values] of Object.entries(expect)) {
+    const cell = row[field];
+    const met = values.some((v) =>
+      v === null
+        ? cell === null || cell === undefined
+        : // A JSON cell is never a scalar: `String({})` would match "[object Object]".
+          cell != null && typeof cell !== 'object' && String(cell) === String(v),
+    );
+    if (!met) return field;
+  }
+  return null;
 }
 
 function routeWrite(c: Context): WriteRequest {
@@ -508,6 +529,16 @@ export async function patchRecord(
 
   // Virtual collection: proxy patch to external API
   const virtualConfigPatch = await getVirtualConfig(db, collection);
+  if (virtualConfigPatch && w.expect) {
+    // The upstream API offers no conditional write to hold the precondition.
+    return c.json(
+      {
+        error: 'A precondition is not supported on a virtual collection',
+        code: 'expect_unsupported',
+      },
+      400,
+    );
+  }
   if (virtualConfigPatch) {
     try {
       const body = await w.body();
@@ -553,6 +584,22 @@ export async function patchRecord(
   // RLS conditions on it, so a row they are not allowed to see is simply not
   // found and the UPDATE never happens. Without this the policies applied to
   // reads only, and any member could patch another user's record by id.
+  if (w.expect && !canRead) {
+    // Its 409-or-200 would tell the caller what the row holds.
+    return c.json(
+      { error: 'A precondition needs read access to the collection', code: 'expect_unreadable' },
+      403,
+    );
+  }
+  if (w.expect) {
+    // Locked before the before-row read, so the precondition is tested on the row
+    // this UPDATE writes: a concurrent precondition write waits here, then reads
+    // the committed result (READ COMMITTED takes a new snapshot per statement).
+    // The caller can read, so this runs as the caller, under its RLS.
+    await sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(
+      effectiveDb,
+    );
+  }
   let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
   beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, w.authType));
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
@@ -566,6 +613,39 @@ export async function patchRecord(
 
   if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
     return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  if (w.expect) {
+    // Only what the caller may read: the row as a GET answers it, so a hidden
+    // column is refused outright and no answer depends on a value the caller
+    // cannot see. Not `applyColumnAccess` alone: the before-row is the engine's
+    // (`engineRead`), and its `search_text` / `search_vector` carry every text
+    // field, the hidden ones included — `expect: { search_text: [guess] }`
+    // answered 200 or 409 on a hidden column's value. Serialized as JSON, too,
+    // so an encrypted field compares as its plaintext and a timestamp as the
+    // ISO string the caller read.
+    const visible = JSON.parse(
+      JSON.stringify(await serializeRecord(beforeRow, collectionDef, colAccessPatch)),
+    ) as Record<string, unknown>;
+    for (const field of Object.keys(w.expect)) {
+      if (!Object.hasOwn(visible, field)) {
+        return c.json(
+          { error: `Field "${field}" cannot be tested`, code: 'expect_unreadable', field },
+          403,
+        );
+      }
+    }
+    const unmet = unmetExpectation(visible, w.expect);
+    if (unmet) {
+      return c.json(
+        {
+          error: `The record's "${unmet}" is not what the update expects`,
+          code: 'precondition_failed',
+          field: unmet,
+        },
+        409,
+      );
+    }
   }
 
   let finalPatch: Record<string, unknown>;

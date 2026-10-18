@@ -136,7 +136,7 @@ d('extension actions run as the caller, in the request transaction', () => {
       if (seen.rows[0]?.t) break;
       await Bun.sleep(100);
     }
-    const dataGrant = { collection: C, actions: ['read', 'create'] };
+    const dataGrant = { collection: C, actions: ['read', 'create', 'update'] };
     member = await createMemberSession(engine, db, {
       grants: [dataGrant, { collection: RES, actions: ['execute'] }],
     });
@@ -180,6 +180,20 @@ d('extension actions run as the caller, in the request transaction', () => {
               code: 'odd',
             });
           },
+          relabel: async (input, host) => {
+            const { id, from, to, field } = input as {
+              id: string;
+              from: string;
+              to: string;
+              field?: string;
+            };
+            return host.collections.update(
+              C,
+              id,
+              { label: to },
+              { expect: { [field ?? 'label']: [from] } },
+            );
+          },
           sneak: async (input, host) =>
             (input as { mode: string }).mode === 'read'
               ? host.collections.list(C)
@@ -204,6 +218,20 @@ d('extension actions run as the caller, in the request transaction', () => {
           },
           { name: 'addThenThrow', permission: { resource: RES }, input: labelInput, writes: [C] },
           { name: 'addThenRefuse', permission: { resource: RES }, input: labelInput, writes: [C] },
+          {
+            name: 'relabel',
+            permission: { resource: RES },
+            input: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                from: { type: 'string' },
+                to: { type: 'string' },
+                field: { type: 'string' },
+              },
+            },
+            writes: [C],
+          },
           {
             name: 'refuseOddly',
             permission: { resource: RES },
@@ -371,6 +399,45 @@ d('extension actions run as the caller, in the request transaction', () => {
     for (const status of [200, 302, 401, 500]) {
       expect((await act(EXT, 'refuseOddly', { status }, member.cookie)).status).toBe(500);
     }
+  });
+
+  it('updates only when the precondition holds, and serialises concurrent ones', async () => {
+    const added = await act(EXT, 'addItem', { label: 'exp-a' }, member.cookie);
+    const id = String(((await added.json()) as { result: { id: string } }).result.id);
+    const relabel = (from: string, to: string, field?: string) =>
+      act(EXT, 'relabel', { id, from, to, field }, member.cookie);
+
+    expect((await relabel('exp-a', 'exp-b')).status).toBe(200);
+    const stale = await relabel('exp-a', 'exp-c');
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: 'precondition_failed' });
+    expect(await rowsLabelled('exp-c')).toEqual([]);
+
+    // Both expect exp-b: the second waits on the row lock, then sees exp-d or exp-e.
+    const both = await Promise.all([relabel('exp-b', 'exp-d'), relabel('exp-b', 'exp-e')]);
+    expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+
+    // A field the caller cannot read (here: none such) is refused, never compared.
+    const hidden = await relabel('x', 'exp-f', 'nosuch');
+    expect(hidden.status).toBe(403);
+    expect(await hidden.json()).toMatchObject({ code: 'expect_unreadable' });
+
+    // Nor a column a read never serves: `search_text` carries every text field,
+    // a column rule's hidden ones too, so testing it named their values.
+    const row = await sql<{ st: string }>`
+      SELECT search_text AS st FROM ${sql.table(`zvd_${C}`)} WHERE id = ${id}
+    `.execute(db);
+    const st = String(row.rows[0]?.st);
+    const derived = await relabel(st, 'exp-g', 'search_text');
+    expect(derived.status).toBe(403);
+    expect(await derived.json()).toMatchObject({ code: 'expect_unreadable' });
+
+    // Compared as a read serves it: a timestamp as its ISO string.
+    const at = await sql<{ at: Date }>`
+      SELECT updated_at AS at FROM ${sql.table(`zvd_${C}`)} WHERE id = ${id}
+    `.execute(db);
+    const iso = new Date(at.rows[0]!.at).toISOString();
+    expect((await relabel(iso, 'exp-h', 'updated_at')).status).toBe(200);
   });
 
   it('is not intercepted by the extension’s own middleware', async () => {

@@ -11,17 +11,20 @@
  */
 export const ACTION_REFUSAL: unique symbol = Symbol.for('zveltio.extension.action-refusal');
 
+/** The statuses an action may refuse with. 401 and 407 are the host's: they mean "sign in". */
+export type RefusalStatus = 400 | 403 | 404 | 409 | 410 | 412 | 422 | 423 | 429;
+
 export class ActionRefusal extends Error {
   readonly [ACTION_REFUSAL] = true;
 
   /**
-   * @param status a 4xx other than 401 and 407 — anything else answers 500.
+   * @param status one of `RefusalStatus`; the engine answers 500 for any other.
    * @param code a stable, machine-readable reason, `snake_case`.
    * @param message shown to the caller as the problem's `detail` — never put
    *   internal error text in it.
    */
   constructor(
-    readonly status: number,
+    readonly status: RefusalStatus,
     readonly code: string,
     message: string,
   ) {
