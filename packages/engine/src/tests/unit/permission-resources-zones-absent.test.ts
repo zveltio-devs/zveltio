@@ -6,10 +6,9 @@
  * as the same empty list: "this install has no portals extension", which is the
  * common case and true, and "the zones table is there but could not be read",
  * which tells an administrator there is nothing to grant when there may be
- * several. They are told apart by SQLSTATE now — `42P01` is the absent table and
- * is expected; anything else is a failure and is raised.
- *
- * SQLSTATE arrives on `err.errno`, not `err.code`, for this driver.
+ * several. The route asks `to_regclass` whether the table exists and reads it
+ * only then — querying it and catching 42P01 aborted the request transaction —
+ * so a table that is there but cannot be read is a failure, and is raised.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -32,10 +31,8 @@ describe('GET /resources — zones extension absent vs unreadable', () => {
     db.when(/select \* from "zvd_collections"/, [
       { name: 'contacts', display_name: 'Contacts', fields: '[]' },
     ]);
-    const absent = Object.assign(new Error('relation "zvd_zones" does not exist'), {
-      errno: '42P01',
-    });
-    db.fail(/FROM zvd_zones/, absent);
+    db.when(/to_regclass/, [{ ok: false }]);
+    db.fail(/FROM zvd_zones/, new Error('the route must not read an absent table'));
 
     const res = await appWith(db).request('/resources');
     expect(res.status).toBe(200);
@@ -56,6 +53,7 @@ describe('GET /resources — zones extension absent vs unreadable', () => {
     const denied = Object.assign(new Error('permission denied for table zvd_zones'), {
       errno: '42501',
     });
+    db.when(/to_regclass/, [{ ok: true }]);
     db.fail(/FROM zvd_zones/, denied);
 
     const res = await appWith(db).request('/resources');
