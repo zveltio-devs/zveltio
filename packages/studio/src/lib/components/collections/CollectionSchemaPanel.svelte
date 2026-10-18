@@ -543,7 +543,6 @@ let confirmState = $state<{
           { name: 'id',         type: 'uuid'      },
           { name: 'created_at', type: 'timestamp' },
           { name: 'updated_at', type: 'timestamp' },
-          { name: 'status',     type: 'text'      },
           { name: 'created_by', type: 'uuid'      },
           { name: 'updated_by', type: 'uuid'      },
         ] as sf}

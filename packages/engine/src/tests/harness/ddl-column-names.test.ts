@@ -1,7 +1,7 @@
 // `DDLManager.columnNames`: every physical column of a collection's table,
 // system columns included — what an extension checks a name against now that
 // `ctx.db` refuses `information_schema` to it (#858). `introspectTable` answers
-// only the user fields, so a page filtering on `status` or addressing a record
+// only the user fields, so a page sorting on `created_at` or addressing a record
 // by `id` had no engine helper that knew those columns exist.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
@@ -30,7 +30,7 @@ d('DDLManager.columnNames (in-process)', () => {
     const cols = await DDLManager.columnNames(db, NAME);
     expect(cols[0]).toBe('id');
     expect(cols).toContain('slug');
-    expect(cols).toContain('status');
+    expect(cols).toContain('tenant_id');
     expect(cols).toContain('created_at');
     // What introspectTable leaves out is exactly what this adds.
     const fields = (await DDLManager.introspectTable(db, NAME)).map((f) => f.name);
