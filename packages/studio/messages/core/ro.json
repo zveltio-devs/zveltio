@@ -1034,6 +1034,7 @@
   "stepUp.intro": "Această modificare necesită o confirmare nouă cu cheia de acces sau aplicația de autentificare.",
   "stepUp.title": "Confirmă că ești tu",
   "stepUp.usePasskey": "Folosește cheia de acces",
+  "stepUp.userVerificationRequired": "Această cheie de acces a confirmat o atingere, dar nu identitatea ta. Setează un PIN sau activează deblocarea cu amprentă ori cu fața pentru cheia ta de securitate, apoi încearcă din nou.",
   "stepUp.verifyCode": "Verifică codul",
   "permissions.actionOnResource": "{action} {resource}",
   "permissions.activeRules": "Reguli de moștenire active ({count})",
@@ -1563,5 +1564,9 @@
   "wh.testNamed": "Testează webhook-ul {name}",
   "wh.timeout": "Timp de expirare",
   "wh.timeoutHint": "milisecunde (1000–30000)",
-  "shell.collection_rls_exempt": "{count} extensie(i) rulează fără permisiuni pe colecții în baza de date: {names}. Adaptați-le și scoateți-le din ZVELTIO_COLLECTION_RLS_EXEMPT — scutirea dispare la 3.0.0."
+  "shell.collection_rls_exempt": "{count} extensie(i) rulează fără permisiuni pe colecții în baza de date: {names}. Adaptați-le și scoateți-le din ZVELTIO_COLLECTION_RLS_EXEMPT — scutirea dispare la 3.0.0.",
+  "stepUp.userVerificationOrCode": "Această cheie de acces a confirmat o atingere, dar nu identitatea ta. Setează un PIN sau activează deblocarea cu amprentă ori cu fața pentru cheia ta de securitate, sau introdu codul din aplicația de autentificare.",
+  "stepUp.orCodeLabel": "Sau un cod din aplicația de autentificare",
+  "passkeys.passwordWrong": "Parola nu este corectă.",
+  "passkeys.signInAgain": "Pentru siguranța ta, deconectează-te și autentifică-te din nou prin furnizorul tău de autentificare, apoi adaugă cheia de acces în cel mult cinci minute."
 }

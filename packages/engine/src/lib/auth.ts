@@ -567,7 +567,10 @@ export async function initAuth(db: Database) {
       // plugin handles, not a 500 some callback may treat differently.
       session: {
         create: {
-          before: async (session: { userId: string }) => {
+          before: async (
+            session: { userId: string; token: string },
+            ctx: { path?: string } | null,
+          ) => {
             const { isSignInBlocked, SIGN_IN_BLOCKED } = await import('./security/index.js');
             let blocked: boolean;
             try {
@@ -585,6 +588,12 @@ export async function initAuth(db: Database) {
                 message: SIGN_IN_BLOCKED,
               });
             }
+            // What lets an account with no password enroll its first factor (lib/step-up.ts).
+            // Not fatal: without the note that account re-signs in, nothing else is lost.
+            const { noteSessionOrigin } = await import('./step-up.js');
+            await noteSessionOrigin(session.token, ctx?.path).catch((err: Error) =>
+              console.error('[auth] OAuth sign-in note failed:', err.message),
+            );
             return { data: session };
           },
         },
@@ -718,6 +727,9 @@ export async function initAuth(db: Database) {
         // protects nothing. Anything with a raw connection or a copy of a backup
         // had the second factor for every account that enabled 2FA.
         backupCodeOptions: { storeBackupCodes: 'encrypted' },
+        // An account with no password has none to give. Better Auth then asks for
+        // nothing; routes/step-up.ts asks for a step-up or a fresh OAuth sign-in.
+        allowPasswordless: true,
       }),
 
       // Magic link + password reset — enabled only when SMTP is configured

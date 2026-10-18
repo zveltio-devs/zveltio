@@ -72,20 +72,34 @@ The client names the action, confirms it, and sends the token it gets back as
   `config`, `license`, `license-delete`, `approve-capabilities`,
   `approve-forward-credentials`), `extension.enable-all`, `extension.license-rotate`;
   for factor changes `factor.passkey.add`, `factor.passkey.remove`, `factor.totp.add`,
-  `factor.totp.disable`.
-- `options` answers `{ method: "passkey", options }` (WebAuthn request options:
-  pass to `navigator.credentials.get`) or `{ method: "totp" }` when the account has
-  no passkey. `verify` takes `{ action, response }` or `{ action, code }` and answers
-  `{ token, method, expires_in }`.
+  `factor.totp.disable`, `factor.totp.reveal` (`get-totp-uri`),
+  `factor.backup-codes.regenerate`.
+- `options` answers `{ method: "passkey", options, totp }` (WebAuthn request
+  options: pass to `navigator.credentials.get`; `totp: true` when the account also
+  has TOTP) or `{ method: "totp" }` when it has no passkey. `verify` takes
+  `{ action, response }` or, whenever TOTP is enrolled (beside a passkey too),
+  `{ action, code }`, and answers `{ token, method, expires_in }`. One code mints
+  one token.
 - A token is good for 2 minutes, for one request, on the session and action it was
   minted for. There is no password fallback.
+- The passkey must verify its user (PIN or biometrics; options ask
+  `userVerification: "required"`). An assertion with presence alone answers 403
+  `step_up_user_verification_required` (its `detail` mentions the authenticator
+  app only when TOTP is enrolled). Passkey sign-in is unchanged.
 - A refused mutation answers 403 with `code`: `step_up_required` (missing, spent,
   expired or for another action/session) or `step_up_enrollment_required` (no
-  passkey and no TOTP on the account; add one first).
+  passkey and no TOTP on the account; add one first). From `options`, that refusal
+  carries `errors.first_factor`: `password`, `recent_sign_in` (no password, and an
+  OAuth sign-in created this session under 5 minutes ago: nothing to ask) or
+  `sign_in_again`.
 
 Sign-in factors are guarded the same way: the first one (passkey or TOTP) needs the
-password (`password` in the `verify-registration` body for a passkey); after that,
-adding a passkey or TOTP, deleting a passkey or disabling TOTP needs a step-up token.
+password (`password` in the `verify-registration` body for a passkey; 403
+`password_required`). An account with no password (OAuth only) instead needs a
+session created by an OAuth sign-in at most 5 minutes ago (403
+`recent_sign_in_required`: sign in with the provider again). After that, adding a
+passkey or TOTP, deleting a passkey, disabling TOTP, reading the TOTP URI back or
+regenerating backup codes needs a step-up token.
 Each change writes an `auth.factor_changed` audit row and, with SMTP configured,
 mails the account.
 

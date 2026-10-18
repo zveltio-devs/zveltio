@@ -4,12 +4,30 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Step-up asks the passkey for a PIN or biometrics, and OAuth-only accounts can
+enroll.** A step-up passkey assertion now needs user verification: a security key
+with no PIN, which proves only a touch, is refused with 403
+`step_up_user_verification_required`, and Studio's step-up dialog tells the person
+to set a PIN or turn on biometrics (all locales). A TOTP code is now accepted
+whenever TOTP is enrolled, beside a passkey too, so a key that cannot verify its
+user does not lock out an account that also has an authenticator app; Studio's
+dialog then offers the code field as well. Passkey sign-in is unchanged. An
+account with no password could not add its first passkey or TOTP, since both asked
+for the password; it now may from a session that an OAuth sign-in created at most
+5 minutes ago (otherwise 403 `recent_sign_in_required`), recorded when Better Auth
+creates that session. Accounts with a password still give it. Because TOTP no
+longer asks a passwordless account for a password, reading the TOTP URI back and
+regenerating backup codes now need a step-up once a factor exists, for every account.
+Studio's passkey section no longer asks such an account for a password (step-up
+options say what enrolls the first factor in `errors.first_factor`) and shows the
+engine's refusals in words instead of "HTTP 403".
+
 **Extension changes need a fresh passkey or TOTP confirmation.** A god session
 alone could install, enable, configure, uninstall or license an extension.
 Every extension mutation on the marketplace routes now needs a single-use
 step-up token, valid for 2 minutes and bound to the session and the action,
 sent as `X-Zveltio-Step-Up`. The token comes from `POST /api/auth/step-up/options`
-and `/verify`, with a passkey or, for a god without one, a TOTP code. A password
+and `/verify`, with a passkey or an enrolled TOTP code. A password
 is not accepted. A god with neither factor gets 403 `step_up_enrollment_required`,
 and Studio sends them to the account page to add one. For every user, the first
 passkey now needs the password, and adding or removing a factor after that needs

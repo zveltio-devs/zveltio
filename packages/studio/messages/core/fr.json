@@ -1034,6 +1034,7 @@
   "stepUp.intro": "Cette modification nécessite une nouvelle confirmation avec votre clé d'accès ou votre application d'authentification.",
   "stepUp.title": "Confirmez qu'il s'agit bien de vous",
   "stepUp.usePasskey": "Utiliser la clé d'accès",
+  "stepUp.userVerificationRequired": "Cette clé d'accès a confirmé un contact, mais pas votre identité. Définissez un code PIN ou activez le déverrouillage par empreinte ou par visage pour votre clé de sécurité, puis réessayez.",
   "stepUp.verifyCode": "Vérifier le code",
   "permissions.actionOnResource": "{action} {resource}",
   "permissions.activeRules": "Règles d'héritage actives ({count})",
@@ -1563,5 +1564,9 @@
   "wh.testNamed": "Tester le webhook {name}",
   "wh.timeout": "Délai d'expiration",
   "wh.timeoutHint": "millisecondes (1000–30000)",
-  "shell.collection_rls_exempt": "{count} extension(s) s'exécutent sans permissions de collection dans la base de données : {names}. Adaptez-les et retirez-les de ZVELTIO_COLLECTION_RLS_EXEMPT — l'exemption prend fin à la 3.0.0."
+  "shell.collection_rls_exempt": "{count} extension(s) s'exécutent sans permissions de collection dans la base de données : {names}. Adaptez-les et retirez-les de ZVELTIO_COLLECTION_RLS_EXEMPT — l'exemption prend fin à la 3.0.0.",
+  "stepUp.userVerificationOrCode": "Cette clé d'accès a confirmé un contact, mais pas votre identité. Définissez un code PIN ou activez le déverrouillage par empreinte ou par visage pour votre clé de sécurité, ou saisissez le code de votre application d'authentification.",
+  "stepUp.orCodeLabel": "Ou un code de votre application d'authentification",
+  "passkeys.passwordWrong": "Ce mot de passe n'est pas correct.",
+  "passkeys.signInAgain": "Pour votre sécurité, déconnectez-vous puis reconnectez-vous avec votre fournisseur de connexion, et ajoutez votre clé d'accès dans les cinq minutes."
 }

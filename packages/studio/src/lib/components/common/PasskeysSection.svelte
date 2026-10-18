@@ -18,7 +18,7 @@ import { Fingerprint, Plus, Trash2, RefreshCw } from '@lucide/svelte';
 import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { startRegistration } from '@simplewebauthn/browser';
-import { stepUp, stepUpAborted, stepUpHeaders } from '$lib/step-up.svelte.js';
+import { refusalText, stepUp, stepUpAborted, stepUpHeaders } from '$lib/step-up.svelte.js';
 import Modal from './Modal.svelte';
 
 interface Passkey {
@@ -34,8 +34,9 @@ let loading = $state(true);
 let registering = $state(false);
 let deletingId = $state<string | null>(null);
 
-// The first sign-in factor is confirmed with the password (the engine refuses it
-// otherwise); every later change with a step-up from an existing factor.
+// The first sign-in factor is confirmed with the password — or, on an account with
+// none, by a fresh OAuth sign-in, which needs nothing asked here; every later
+// change with a step-up from an existing factor.
 let passwordAsk = $state<((pw: string | null) => void) | null>(null);
 let password = $state('');
 function askPassword(): Promise<string | null> {
@@ -80,12 +81,16 @@ async function registerNew(): Promise<void> {
   registering = true;
   try {
     const confirm: { password?: string; headers?: Record<string, string> } = {};
-    if (await stepUp.hasFactor('factor.passkey.add')) {
+    const first = await stepUp.firstFactor('factor.passkey.add');
+    if (first === null) {
       confirm.headers = await stepUpHeaders('factor.passkey.add');
-    } else {
+    } else if (first === 'password') {
       const pw = await askPassword();
       if (pw == null) return;
       confirm.password = pw;
+    } else if (first === 'sign_in_again') {
+      toast.error(m['passkeys.signInAgain']());
+      return;
     }
 
     // 1. Ask the server for a challenge. GET: Better Auth serves it on GET only.
@@ -106,11 +111,9 @@ async function registerNew(): Promise<void> {
       body: JSON.stringify({ response: attestation, name, password: confirm.password }),
     });
     if (!verifyRes.ok) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const body = (await verifyRes.json().catch(() => null)) as any;
-      throw new Error(
-        body?.message ?? body?.error ?? `Verification failed: HTTP ${verifyRes.status}`,
-      );
+      const body = (await verifyRes.json().catch(() => ({}))) as Record<string, unknown>;
+      toast.error(refusalText(body, verifyRes.status));
+      return;
     }
     toast.success(m['passkeys.registered']());
     await load();
@@ -144,7 +147,10 @@ async function deleteOne(id: string): Promise<void> {
       },
       body: JSON.stringify({ id }),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(refusalText(body, res.status));
+    }
     toast.success(m['passkeys.deleted']());
     await load();
   } catch (e) {

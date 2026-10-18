@@ -18,7 +18,7 @@ async function confirm() {
   error = '';
   busy = true;
   try {
-    await stepUp.confirm(p?.method === 'totp' ? code.trim() : undefined);
+    await stepUp.confirm(p?.totp ? code.trim() || undefined : undefined);
     code = '';
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -38,16 +38,18 @@ function cancel() {
 
 <Modal open={!!p} title={m['stepUp.title']()} size="sm" onClose={cancel} onSubmit={confirm}>
   <p class="text-sm text-base-content/70">{m['stepUp.intro']()}</p>
-  {#if p?.method === 'totp'}
+  {#if p?.totp}
     <label class="form-control mt-4">
-      <span class="label-text mb-1">{m['stepUp.codeLabel']()}</span>
+      <span class="label-text mb-1">
+        {p.method === 'totp' ? m['stepUp.codeLabel']() : m['stepUp.orCodeLabel']()}
+      </span>
       <input
         class="input input-bordered w-full tracking-widest"
         inputmode="numeric"
         autocomplete="one-time-code"
         pattern="[0-9]{6}"
         maxlength="6"
-        required
+        required={p.method === 'totp'}
         bind:value={code}
       />
     </label>
@@ -58,7 +60,7 @@ function cancel() {
   <div class="modal-action">
     <button type="button" class="btn btn-ghost btn-sm" onclick={cancel}>{m['common.cancel']()}</button>
     <button type="submit" class="btn btn-primary btn-sm" disabled={busy}>
-      {p?.method === 'totp' ? m['stepUp.verifyCode']() : m['stepUp.usePasskey']()}
+      {p?.method === 'totp' || code.trim() ? m['stepUp.verifyCode']() : m['stepUp.usePasskey']()}
     </button>
   </div>
 </Modal>

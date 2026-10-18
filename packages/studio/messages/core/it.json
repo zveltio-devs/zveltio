@@ -1034,6 +1034,7 @@
   "stepUp.intro": "Questa modifica richiede una nuova conferma con la passkey o l'app di autenticazione.",
   "stepUp.title": "Conferma che sei tu",
   "stepUp.usePasskey": "Usa passkey",
+  "stepUp.userVerificationRequired": "Questa passkey ha confermato un tocco, ma non la tua identità. Imposta un PIN o attiva lo sblocco con impronta o volto per la tua chiave di sicurezza, poi riprova.",
   "stepUp.verifyCode": "Verifica codice",
   "permissions.actionOnResource": "{action} {resource}",
   "permissions.activeRules": "Regole di ereditarietà attive ({count})",
@@ -1563,5 +1564,9 @@
   "wh.testNamed": "Prova il webhook {name}",
   "wh.timeout": "Timeout",
   "wh.timeoutHint": "millisecondi (1000–30000)",
-  "shell.collection_rls_exempt": "{count} estensione/i eseguite senza permessi di collezione nel database: {names}. Adattatele e rimuovetele da ZVELTIO_COLLECTION_RLS_EXEMPT: l'esenzione termina con la 3.0.0."
+  "shell.collection_rls_exempt": "{count} estensione/i eseguite senza permessi di collezione nel database: {names}. Adattatele e rimuovetele da ZVELTIO_COLLECTION_RLS_EXEMPT: l'esenzione termina con la 3.0.0.",
+  "stepUp.userVerificationOrCode": "Questa passkey ha confermato un tocco, ma non la tua identità. Imposta un PIN o attiva lo sblocco con impronta o volto per la tua chiave di sicurezza, oppure inserisci il codice della tua app di autenticazione.",
+  "stepUp.orCodeLabel": "Oppure un codice dalla tua app di autenticazione",
+  "passkeys.passwordWrong": "Questa password non è corretta.",
+  "passkeys.signInAgain": "Per la tua sicurezza, esci e accedi di nuovo con il tuo provider di accesso, poi aggiungi la passkey entro cinque minuti."
 }
