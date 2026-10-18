@@ -14,11 +14,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import {
-  DEFAULT_ROLE_GRANTS,
-  EXTENSION_RESOURCE_GRANTS,
-  isSensitiveResource,
-} from '../tenancy/index.js';
+import { isDefaultGrant } from '../tenancy/index.js';
 import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
 export const SCHEMA_FORMAT = 1;
@@ -64,23 +60,13 @@ const byKey =
   };
 
 /**
- * A grant the engine gives by itself: `materializeDefaultGrants` writes it for
- * every resource that is not sensitive, when the resource is created and again
- * on every boot. Implied by the format like the engine columns, so it is
- * neither written nor planned — a file cannot take it away, the next boot would
- * put it back.
+ * A default grant (`isDefaultGrant`) is implied by the format like the engine
+ * columns, so it is neither written nor planned: a file neither grants nor
+ * revokes one. Revoking a default is a decision about this instance, made
+ * through the permissions API and kept in `zv_default_grant_revocations`; an
+ * apply leaves it standing, and an export does not carry it elsewhere.
  */
-export function isDefaultGrant(role: string, resource: string, action: string): boolean {
-  // ponytail: `execute` counts as default on any resource, collections included —
-  // only extension resources get it, but this cannot tell them apart; on a
-  // collection the grant does nothing (no data handler asks `execute`).
-  return (
-    !isSensitiveResource(resource) &&
-    [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].some(
-      (d) => d.role === role && d.actions.includes(action),
-    )
-  );
-}
+export { isDefaultGrant };
 
 const sortedOrNull = (a: string[] | null | undefined) => (a?.length ? [...a].sort() : null);
 

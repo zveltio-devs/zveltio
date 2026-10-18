@@ -135,8 +135,12 @@ The file holds everything that belongs to one collection:
   state and stay out.
 - The engine's default grants (`DEFAULT_ROLE_GRANTS`: `tenant_member` and
   `tenant_viewer` on every non-sensitive resource) are implied, like the
-  engine columns. They are neither written nor planned: `createCollection`
-  and every boot write them, so a file could not take one away.
+  engine columns. They are neither written nor planned, so a file neither
+  grants nor revokes one. Revoking a default is a decision about the instance,
+  made through the permissions API (or the Studio matrix) and kept in
+  `zv_default_grant_revocations` (migration 086) so that boots and extension
+  loads do not write it back; an apply leaves it standing, and an export does
+  not carry it to another instance.
 
 ### 4.3 `settings.json`
 

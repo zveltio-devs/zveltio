@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
-import { sql } from 'kysely';
+import { type RawBuilder, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { problem } from '../problem.js';
 import {
@@ -492,9 +492,17 @@ class KyselyCasbinAdapter {
     // trigger wrote with the account (migration 059), or one another replica
     // wrote before this model heard of it. Casbin asks this only when its model
     // lacks the row, so a duplicate here means the model was behind the table.
+    // Granting a revoked default again takes back the revocation, in the same
+    // statement (see `deleteRecordingRevokes`).
+    const restore =
+      ptype === 'p' && rule[1] === '*'
+        ? sql`WITH restored AS (DELETE FROM zv_default_grant_revocations
+                WHERE role = ${rule[0] ?? null} AND resource = ${rule[2] ?? null}
+                  AND action = ${rule[3] ?? null}) `
+        : sql``;
     await trackPolicyWrite(() =>
       sql`
-        INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
+        ${restore}INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
         VALUES (${ptype}, ${rule[0] ?? null}, ${rule[1] ?? null}, ${rule[2] ?? null},
                 ${rule[3] ?? null}, ${rule[4] ?? null}, ${rule[5] ?? null})
         ON CONFLICT DO NOTHING
@@ -532,9 +540,7 @@ class KyselyCasbinAdapter {
       const value = rule[i];
       conditions.push(value === undefined ? sql`${column} IS NULL` : sql`${column} = ${value}`);
     }
-    await trackPolicyWrite(() =>
-      sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db),
-    );
+    await trackPolicyWrite(() => deleteRecordingRevokes(conditions));
   }
 
   async removeFilteredPolicy(
@@ -573,10 +579,38 @@ class KyselyCasbinAdapter {
       conditions.push(sql`${sql.ref(`v${column}`)} = ${value}`);
     });
 
-    await trackPolicyWrite(() =>
-      sql`DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}`.execute(_db),
-    );
+    await trackPolicyWrite(() => deleteRecordingRevokes(conditions));
   }
+}
+
+/**
+ * Delete the rules matching `conditions`, recording each default grant among
+ * them in `zv_default_grant_revocations` so `materializeDefaultGrants` does not
+ * write it back on the next boot or extension load. One statement, so the
+ * revocation commits exactly when the delete does.
+ *
+ * Every adapter delete is an operator's: the routes, the Studio matrix's bulk
+ * save, a schema apply. Engine cleanup (collection drop, tenant teardown) deletes
+ * with its own SQL and tells the models through `forgetDeletedPolicies`, which
+ * never reaches the adapter — and a tenant's rules are in its domain, never `*`.
+ */
+function deleteRecordingRevokes(conditions: RawBuilder<unknown>[]) {
+  const defaults = [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].flatMap(
+    ({ role, actions }) => actions.map((action) => sql`(${role}, ${action})`),
+  );
+  const sensitive = [...SENSITIVE_RESOURCES];
+  return sql`
+    WITH gone AS (
+      DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}
+      RETURNING ptype, v0, v1, v2, v3
+    )
+    INSERT INTO zv_default_grant_revocations (role, resource, action)
+    SELECT v0, v2, v3 FROM gone
+     WHERE ptype = 'p' AND v1 = '*' AND v2 IS NOT NULL
+       AND (v0, v3) IN (${sql.join(defaults)})
+       ${sensitive.length > 0 ? sql`AND v2 NOT IN (${sql.join(sensitive)})` : sql``}
+    ON CONFLICT DO NOTHING
+  `.execute(_db);
 }
 
 /**
@@ -679,6 +713,48 @@ export function listSensitiveResources(): string[] {
 /** Whether a resource is withheld from default grants. */
 export function isSensitiveResource(name: string): boolean {
   return SENSITIVE_RESOURCES.has(name);
+}
+
+/**
+ * What the seeded partial wildcards granted, written out.
+ *
+ * Deliberately identical to migration 009's intent — this is a change in how the
+ * rule is expressed, not in who may do what. Owners and tenant admins are absent
+ * because their grant is total (`'*', '*', '*'`) and still matches everything;
+ * they are roles, not resource lists.
+ */
+export const DEFAULT_ROLE_GRANTS: ReadonlyArray<{ role: string; actions: readonly string[] }> = [
+  { role: 'tenant_member', actions: ['read', 'create', 'update'] },
+  { role: 'tenant_viewer', actions: ['read'] },
+];
+
+/**
+ * What a resource an extension declares gets on top of `DEFAULT_ROLE_GRANTS`:
+ * `execute`, the action an extension action's `permission` asks for unless its
+ * manifest names another. Without it every action was administrator-only out of
+ * the box. Collections do not get it — no data handler asks `execute`, and an
+ * action may only be gated on a declared resource — nor do viewers.
+ */
+export const EXTENSION_RESOURCE_GRANTS: ReadonlyArray<{
+  role: string;
+  actions: readonly string[];
+}> = [{ role: 'tenant_member', actions: ['execute'] }];
+
+/**
+ * A grant the engine gives by itself: `materializeDefaultGrants` writes it for
+ * every resource that is not sensitive, when the resource is created and again
+ * on every boot — unless an operator revoked it (`zv_default_grant_revocations`).
+ */
+export function isDefaultGrant(role: string, resource: string, action: string): boolean {
+  // ponytail: `execute` counts as default on any resource, collections included —
+  // only extension resources get it, but this cannot tell them apart; on a
+  // collection the grant does nothing (no data handler asks `execute`).
+  return (
+    !isSensitiveResource(resource) &&
+    [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].some(
+      (d) => d.role === role && d.actions.includes(action),
+    )
+  );
 }
 
 export async function getEnforcer(): Promise<Enforcer> {

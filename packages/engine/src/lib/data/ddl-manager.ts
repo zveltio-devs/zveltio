@@ -1042,6 +1042,15 @@ export class DDLManager {
             .where('created_at', '>=', sql<Date>`${registered.since}::timestamptz`)
             .returning(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
             .execute();
+    // And the default grants an operator revoked on it, by the same rule: a
+    // collection created again under this name is a new resource and gets its
+    // defaults, as it gets none of the old one's explicit grants.
+    if (!keepGrants && registered) {
+      await sql`DELETE FROM zv_default_grant_revocations
+                 WHERE resource = ${name} AND revoked_at >= ${registered.since}::timestamptz`.execute(
+        db,
+      );
+    }
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${name}`.execute(db);
     await db.deleteFrom('zvd_column_permissions').where('collection_name', '=', name).execute();
     await db.deleteFrom('zv_validation_rules').where('collection', '=', name).execute();

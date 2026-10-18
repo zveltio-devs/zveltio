@@ -33,38 +33,15 @@ import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  DEFAULT_ROLE_GRANTS,
   ENGINE_CASBIN_OBJECTS,
+  EXTENSION_RESOURCE_GRANTS,
   getEnforcer,
   invalidateAllPermissionCaches,
   isSensitiveResource,
   publishPolicyChange,
   trackPolicyWrite,
 } from './permissions.js';
-
-/**
- * What the seeded partial wildcards granted, written out.
- *
- * Deliberately identical to migration 009's intent — this is a change in how the
- * rule is expressed, not in who may do what. Owners and tenant admins are absent
- * because their grant is total (`'*', '*', '*'`) and still matches everything;
- * they are roles, not resource lists.
- */
-export const DEFAULT_ROLE_GRANTS: ReadonlyArray<{ role: string; actions: readonly string[] }> = [
-  { role: 'tenant_member', actions: ['read', 'create', 'update'] },
-  { role: 'tenant_viewer', actions: ['read'] },
-];
-
-/**
- * What a resource an extension declares gets on top of `DEFAULT_ROLE_GRANTS`:
- * `execute`, the action an extension action's `permission` asks for unless its
- * manifest names another. Without it every action was administrator-only out of
- * the box. Collections do not get it — no data handler asks `execute`, and an
- * action may only be gated on a declared resource — nor do viewers.
- */
-export const EXTENSION_RESOURCE_GRANTS: ReadonlyArray<{
-  role: string;
-  actions: readonly string[];
-}> = [{ role: 'tenant_member', actions: ['execute'] }];
 
 /**
  * Resource names owned by extensions rather than by `zvd_collections`.
@@ -96,7 +73,8 @@ export const EXTENSION_RESOURCE_GRANTS: ReadonlyArray<{
 /**
  * Give the standard roles their default access to `resources`.
  *
- * Skips anything `isSensitiveResource` withholds, and is idempotent: the unique
+ * Skips anything `isSensitiveResource` withholds and any grant an operator
+ * revoked (`zv_default_grant_revocations`), and is idempotent: the unique
  * index on `zvd_permissions` makes a repeat call a no-op, so this is safe to run
  * on every boot and from every path that creates a resource.
  *
@@ -151,13 +129,26 @@ async function writeDefaultGrants(
         // reports affected rows now, so the ban it enforced would force RETURNING
         // forever for a problem that no longer exists. The RETURNING below stays —
         // it is what makes the count true, gate or no gate.
-        const result = await sql<{ id: string }>`
-          INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
-          VALUES ('p', ${role}, '*', ${resource}, ${action})
-          ON CONFLICT DO NOTHING
-          RETURNING id
+        //
+        // A triple an operator revoked stays revoked (migration 086). Checked in
+        // the INSERT's own statement, not read once ahead of the loop, so a revoke
+        // racing this call can only slip past within that one statement.
+        const result = await sql<{ revoked: boolean; written: number }>`
+          WITH r AS (
+            SELECT EXISTS (SELECT 1 FROM zv_default_grant_revocations
+                            WHERE role = ${role} AND resource = ${resource}
+                              AND action = ${action}) AS revoked
+          ), ins AS (
+            INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
+            SELECT 'p', ${role}, '*', ${resource}, ${action} FROM r WHERE NOT r.revoked
+            ON CONFLICT DO NOTHING
+            RETURNING id
+          )
+          SELECT (SELECT revoked FROM r) AS revoked, (SELECT count(*) FROM ins)::int AS written
         `.execute(db);
-        written += result.rows.length;
+        const row = result.rows[0];
+        if (row?.revoked) continue;
+        written += row?.written ?? 0;
         rules.push([role, '*', resource, action]);
       }
     }

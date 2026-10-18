@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 391
+# tables: 392
 
 table account
   col accessToken                    text
@@ -1059,6 +1059,13 @@ table zv_dashboards
   pk  zv_dashboards_pkey PRIMARY KEY (id)
   rls enabled forced
   pol tenant_isolation_zv_dashboards FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+
+table zv_default_grant_revocations
+  col action                         text NOT NULL
+  col resource                       text NOT NULL
+  col revoked_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col role                           text NOT NULL
+  pk  zv_default_grant_revocations_pkey PRIMARY KEY (role, resource, action)
 
 table zv_doc_templates
   col counter                        integer NOT NULL DEFAULT 0
