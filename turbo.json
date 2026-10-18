@@ -26,6 +26,8 @@
     "BASE_URL",
     "TEST_EMAIL",
     "TEST_PASS",
+    "BETTER_AUTH_URL",
+    "PROBE_PASSKEY_FILE",
     "CHROMIUM_PATH",
     "CAPTURE",
     "SHOT_DIR",

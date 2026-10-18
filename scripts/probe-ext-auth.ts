@@ -26,6 +26,7 @@
 
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
+import { steppedUpFetch } from '../packages/engine/src/testing/step-up.ts';
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3000';
 /**
@@ -95,6 +96,16 @@ if (manifests.length === 0) {
 }
 
 const cookie = await signIn();
+// The god steps up every extension mutation (lib/step-up.ts) with a soft
+// passkey. PROBE_PASSKEY_FILE lets the next probe against the same engine reuse
+// the passkey this one enrolled: a second factor would itself need a step-up.
+const godFetch = await steppedUpFetch(
+  BASE,
+  cookie,
+  TEST_PASS,
+  process.env.BETTER_AUTH_URL ?? BASE,
+  process.env.PROBE_PASSKEY_FILE,
+);
 const failures: string[] = [];
 const softSkips: string[] = [];
 let publicChecks = 0;
@@ -106,7 +117,7 @@ for (const m of manifests) {
   // SOFT condition — the extension simply isn't active in this environment, so
   // we skip its checks rather than fail the build. Mirrors the SDUI probe's
   // soft/hard model.
-  const enableRes = await fetch(`${BASE}/api/marketplace/${enc}/enable`, {
+  const enableRes = await godFetch(`/api/marketplace/${enc}/enable`, {
     method: 'POST',
     headers: { Cookie: cookie },
   }).catch(() => null);

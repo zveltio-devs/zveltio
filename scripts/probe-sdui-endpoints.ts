@@ -20,6 +20,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { SIBLING_ROOT } from './lib/require-sibling.js';
+import { steppedUpFetch } from '../packages/engine/src/testing/step-up.ts';
 
 const EXT_ROOT = process.argv[2] ?? SIBLING_ROOT;
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3000';
@@ -77,6 +78,16 @@ function getPath(body: unknown, path?: string): unknown {
 }
 
 const cookie = await signIn();
+// The god steps up every extension mutation (lib/step-up.ts) with a soft
+// passkey. PROBE_PASSKEY_FILE lets the next probe against the same engine reuse
+// the passkey this one enrolled: a second factor would itself need a step-up.
+const godFetch = await steppedUpFetch(
+  BASE,
+  cookie,
+  PASS,
+  process.env.BETTER_AUTH_URL ?? BASE,
+  process.env.PROBE_PASSKEY_FILE,
+);
 const headers = { Cookie: cookie };
 
 type Sev = 'OK' | 'HARD' | 'SOFT';
@@ -129,7 +140,7 @@ while (queue.length > 0) {
     // limitation, not a broken extension. The gate hard-fails only on an
     // extension that enabled but whose dataSource/dataPath contract is wrong.
     const enc = encodeURIComponent(name);
-    const enableRes = await fetch(`${BASE}/api/marketplace/${enc}/enable`, {
+    const enableRes = await godFetch(`/api/marketplace/${enc}/enable`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: '{}',
