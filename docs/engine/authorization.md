@@ -212,9 +212,9 @@ come from Casbin alone, `member` included); the policies read that set. A statem
 
 | Who | Collection rights in the database |
 |---|---|
-| god, `data:view_all`, an API key with `rls_bypass` | all (`zveltio.rls_bypass`) |
+| god, `data:view_all`, an API key with `rls_bypass` whose issuer holds `data:view_all` | all (`zveltio.rls_bypass`) |
 | a signed-in user | their grants; a tenant admin's `('*','*')` is everything |
-| an API key | its scopes (`write` = create + update, `*` = all) |
+| an API key | its scopes (`write` = create + update, `*` = all), met with its issuer's grants; `rls_bypass` only while the issuer holds `data:view_all` |
 | an anonymous request | the **tenant's `public` role**, in the tenant resolved for the request |
 | the engine's own work with no actor (boot, jobs, reconcilers) | all |
 | an extension's statement in a request | the requesting user's grants |

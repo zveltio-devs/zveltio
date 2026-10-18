@@ -23,6 +23,7 @@ import { __sweepIdle, DEFAULT_TENANT_ID, revalidateSockets } from '../../lib/ten
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import {
   createGodSession,
+  asKeyIssuer,
   createMemberSession,
   dropTestCollection,
   getTestApp,
@@ -84,8 +85,8 @@ d('an API key after its creator row is deleted outside deleteUser', () => {
   });
 
   it('refuses the orphaned key on REST and new streams, and ends its open stream', async () => {
-    const gone = (await createMemberSession(app, db)).userId;
-    const stays = (await createMemberSession(app, db)).userId;
+    const gone = await asKeyIssuer((await createMemberSession(app, db)).userId);
+    const stays = await asKeyIssuer((await createMemberSession(app, db)).userId);
     for (const u of [gone, stays]) {
       await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
                 VALUES (${T.id}::uuid, ${u}, 'member')`.execute(db);
@@ -130,8 +131,8 @@ d('an API key after its creator row is deleted outside deleteUser', () => {
   // admin listings: they read the stored flag, not the rule the door applies.
   it('both key listings report the orphaned key inactive, from the rule the door applies', async () => {
     const cookie = await createGodSession(app, db);
-    const gone = (await createMemberSession(app, db)).userId;
-    const stays = (await createMemberSession(app, db)).userId;
+    const gone = await asKeyIssuer((await createMemberSession(app, db)).userId);
+    const stays = await asKeyIssuer((await createMemberSession(app, db)).userId);
     const orphan = await mintKey(gone, DEFAULT_TENANT_ID);
     const control = await mintKey(stays, DEFAULT_TENANT_ID);
     await sql`DELETE FROM "user" WHERE id = ${gone}`.execute(db);

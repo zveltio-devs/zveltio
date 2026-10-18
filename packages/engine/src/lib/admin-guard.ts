@@ -70,14 +70,20 @@ export async function refuseWithoutSession(
  * - RLS: `publishApiKeyActor` sets `zveltio.user_id` = that id, role(s)
  *   `api_key`, email `''`, `zveltio.rls_bypass` = the key's flag. The tenant
  *   (`zveltio.current_tenant`) is the request's; the key changes nothing there.
- * - Casbin is never asked. Scopes are the key's whole grant: collections
- *   through `checkAccess`, a `$` surface through `apiKeyHoldsScope`, which a
- *   `*` collection does not reach.
+ * - Grant: the key's scope AND its issuer's own permission, as it is now, for
+ *   the same question in the request's tenant (`keyIssuerAllows`) — a key never
+ *   exceeds the person it acts for, so demoting the issuer narrows their keys
+ *   at once. Collections through `checkAccess`; a `$` surface through
+ *   `apiKeyHoldsScope`, which a `*` collection does not reach, plus whatever
+ *   that surface asks a session (`$schema`: `requireInstanceAdmin`; `$rpc`: the
+ *   function's `required_role`; `$ext:<name>`: the extension's own
+ *   `ctx.checkPermission`; `$storage`: nothing beyond signing in). Casbin holds
+ *   no policy for the key itself.
  * - Ownership: the key owns nothing — owner rules compare `apikey:<uuid>`.
  *   Storage is the one exception: a key owns its own uploads through
  *   `zv_media_files.created_by_api_key` (lib/media-visibility.ts).
  *   `rlsBypass` is its one exemption, standing where a session's `data:view_all`
- *   or tenant admin does.
+ *   or tenant admin does — and only while its issuer holds that.
  * - Authorship: `created_by`-style FK columns take `rowAuthorId` — the issuer,
  *   or NULL.
  */

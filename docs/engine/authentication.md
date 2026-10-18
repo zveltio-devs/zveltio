@@ -322,6 +322,7 @@ Authorization: Bearer zvk_abc123...
 
 ### API key limitations
 
+- Never exceeds the person who issued it: each grant of its scopes is also asked of the issuer, as they are now, in the request's tenant. Demote the issuer and their keys lose what they lost; ban them and the keys stop
 - Cannot access system tables (only `zvd_*` user collections)
 - Subject to the tier limits, god's per-key override (`PUT /api/api-keys/:id/rate-limit`) and the key's own `rate_limit` (requests/hour). The own limit is a separate bucket, so it can only make the key stricter
 - Automatically revoked after `expires_at`

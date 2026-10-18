@@ -22,6 +22,7 @@ import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import { _wsPermCacheForTests, websocketHandler } from '../../routes/ws.js';
 import {
   createGodSession,
+  asKeyIssuer,
   createMemberSession,
   dropTestCollection,
   getTestApp,
@@ -104,7 +105,7 @@ d('an API key after its creator leaves the key tenant', () => {
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${T.id}::uuid, ${T.slug}, 'keymem', 'active')`.execute(db);
     for (const k of Object.keys(members) as (keyof typeof members)[]) {
-      members[k] = (await createMemberSession(app, db)).userId;
+      members[k] = await asKeyIssuer((await createMemberSession(app, db)).userId);
       await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
                 VALUES (${T.id}::uuid, ${members[k]}, 'member', now() - interval '1 day',
                         now() + interval '1 hour')`.execute(db);

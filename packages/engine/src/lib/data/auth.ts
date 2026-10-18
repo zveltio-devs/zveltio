@@ -3,9 +3,9 @@
  * (H-05 split of `routes/data.ts`).
  *
  * `authenticate` resolves a session (better-auth) or API key into a
- * `RequestUser`; `checkAccess` enforces API-key scopes and delegates
- * everything else to `checkPermission` (god bypass + Casbin). Byte-identical
- * to the pre-split inline helpers — zero behaviour change.
+ * `RequestUser`; `checkAccess` enforces API-key scopes, met with the key
+ * issuer's own permission (`keyIssuerAllows`), and delegates everything else to
+ * `checkPermission` (god bypass + Casbin).
  */
 
 import { principalRole, publishApiKeyActor } from '../tenancy/index.js';
@@ -18,7 +18,12 @@ import {
   activeMembership,
   apiKeyActsIn,
   checkPermission,
+  collectionGrantsFor,
   DEFAULT_TENANT_ID,
+  getCurrentTenantTrx,
+  keyIssuerAllows,
+  requireInstanceAdmin,
+  runWithDomain,
 } from '../tenancy/index.js';
 import { hashApiKey, isWellFormedApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
@@ -243,7 +248,10 @@ export type RealtimePrincipal =
  * `getRlsFilters` look at — a key's `scopes` and `rlsBypass`, a session's email
  * (a `user_email` row rule resolves from it).
  */
-export type RealtimeUser = Pick<RequestUser, 'id' | 'email' | 'scopes' | 'rlsBypass'> & {
+export type RealtimeUser = Pick<
+  RequestUser,
+  'id' | 'email' | 'scopes' | 'rlsBypass' | 'authorUserId'
+> & {
   role?: string;
 };
 
@@ -261,7 +269,14 @@ export function realtimeIdentity(
     return {
       authType: 'api_key',
       principal: { kind: 'api_key', keyId: apiKeyRowId(p.user.id) },
-      user: { id: p.user.id, role: 'api_key', scopes: p.user.scopes, rlsBypass: p.user.rlsBypass },
+      user: {
+        id: p.user.id,
+        role: 'api_key',
+        scopes: p.user.scopes,
+        rlsBypass: p.user.rlsBypass,
+        // Every check of the key is also asked of its issuer (`keyIssuerAllows`).
+        authorUserId: p.user.authorUserId,
+      },
     };
   }
   if (!p.sessionToken) return null;
@@ -411,11 +426,28 @@ export async function validateApiKey(
   // Published on the transaction the request already holds, so it asks for no
   // new connection; `publishApiKeyActor` is a no-op where there is no
   // transaction, which is what makes it safe on every path.
-  await publishApiKeyActor(
-    `apikey:${apiKey.id}`,
-    (apiKey as { rls_bypass?: boolean }).rls_bypass === true,
-    (apiKey as { scopes?: unknown }).scopes,
-  );
+  //
+  // Bounded by the issuer as they are now, as `checkAccess` is: their collection
+  // grants, and the RLS exemption only while they hold `data:view_all` — the
+  // permission that publishes a session's. `usableApiKeys` refused a key with no
+  // issuer; one that got here anyway is published with nothing.
+  if (getCurrentTenantTrx()) {
+    const issuer = apiKey.created_by;
+    const [issuerGrants, issuerBypasses] = issuer
+      ? await Promise.all([
+          collectionGrantsFor(issuer),
+          apiKey.rls_bypass === true
+            ? checkPermission(issuer, 'data', 'view_all').catch(() => false)
+            : false,
+        ])
+      : [{ all: false, grants: '' }, false];
+    await publishApiKeyActor(
+      `apikey:${apiKey.id}`,
+      apiKey.rls_bypass === true && issuerBypasses,
+      apiKey.scopes,
+      issuerGrants,
+    );
+  }
 
   // Update last_used_at — fire-and-forget; non-blocking on hot path. Through
   // the pool, outside any tenant (065's owner carve-out): `db` is the request
@@ -465,15 +497,22 @@ export function extScope(name: string): string {
 }
 
 /**
- * May a key with `scopes`, acting in `tenantId`, watch the schema?
+ * May key principal `key`, acting in `tenantId`, watch the schema?
  *
  * Only by naming `SCHEMA_SCOPE` with `read` (or `*`) — see `apiKeyHoldsScope`.
  * Only in the root tenant — the rule `requireInstanceAdmin` applies to a root
  * admin, and `apiKeyActsIn` admits no other tenant's key there, so this is also
- * a root-tenant key.
+ * a root-tenant key. And only while its issuer passes that same gate: a key
+ * never exceeds the person it acts for.
  */
-export function apiKeyMayWatchSchema(scopes: unknown, tenantId: string | null): boolean {
-  return tenantId === DEFAULT_TENANT_ID && apiKeyHoldsScope(scopes, SCHEMA_SCOPE, 'read');
+export async function apiKeyMayWatchSchema(
+  key: Pick<RequestUser, 'scopes' | 'authorUserId'>,
+  tenantId: string | null,
+): Promise<boolean> {
+  if (tenantId !== DEFAULT_TENANT_ID || !apiKeyHoldsScope(key.scopes, SCHEMA_SCOPE, 'read'))
+    return false;
+  const issuer = key.authorUserId;
+  return !!issuer && runWithDomain(DEFAULT_TENANT_ID, () => requireInstanceAdmin(issuer));
 }
 
 /**
@@ -530,15 +569,16 @@ function grantsAction(actions: unknown[], action: string): boolean {
 }
 
 /**
- * `user` is narrowed to the three fields this function reads, rather than a
- * whole `RequestUser`. It never looks at `name`, and demanding one obliged
- * every caller outside the data path — `content/pages` renders collections
- * through `ctx.internals.checkAccess` — to invent a value that is discarded.
+ * `user` is narrowed to the fields this function reads, rather than a whole
+ * `RequestUser` — for a key, `authorUserId` too: its issuer bounds it. It never
+ * looks at `name`, and demanding one obliged every caller outside the data
+ * path — `content/pages` renders collections through `ctx.internals.checkAccess`
+ * — to invent a value that is discarded.
  * Which branch is decided by the id (`isApiKeyPrincipal`), not by `role`.
  */
 export async function checkAccess(
   db: Database,
-  user: Pick<RequestUser, 'id' | 'scopes'> & { role?: string },
+  user: Pick<RequestUser, 'id' | 'scopes' | 'authorUserId'> & { role?: string },
   collection: string,
   action: string,
 ): Promise<boolean> {
@@ -618,8 +658,9 @@ export async function checkAccess(
       // adding `{"collection":"*","actions":["read"]}` to an existing key to
       // widen its reads would have silently narrowed everything else.
       const matches = scopes.filter((s) => s.collection === collection || s.collection === '*');
-      if (matches.length === 0) return false;
-      return matches.some((m) => grantsAction(m.actions, action));
+      if (!matches.some((m) => grantsAction(m.actions, action))) return false;
+      // And its issuer may, as they are now — a key never exceeds them.
+      return keyIssuerAllows(user, collection, action);
     }
     // No `scopes` value at all (a NULL column) says the same thing an empty list
     // says: nothing was granted.

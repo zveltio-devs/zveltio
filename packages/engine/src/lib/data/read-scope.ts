@@ -96,7 +96,7 @@ export async function readScope(
   const rls = await getRlsFilters(collection, user, authType);
   // A field no one is served (`password`) is hidden from every reader.
   const { unserved, sealed } = withheldColumns(await DDLManager.getCollection(db, collection));
-  const granted = await getColumnAccess(db, collection, role, user.id);
+  const granted = await getColumnAccess(db, collection, role, user);
   const columns: ColumnAccess =
     unserved.length === 0
       ? granted

@@ -1,6 +1,6 @@
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
-import { checkPermission, revalidateSocketsEverywhere } from './permissions.js';
+import { checkPermission, principalRole, revalidateSocketsEverywhere } from './permissions.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import { noteReconcile } from './reconcile-failures.js';
 import { getTenantDb } from './tenant-manager.js';
@@ -39,9 +39,20 @@ export async function getColumnAccess(
    * is the refusing direction. Optional in the signature because
    * `lib/extensions/internals.ts` exposes this to extensions and an older
    * caller must not silently gain an exemption it never asked for.
+   *
+   * An API key is passed whole, with its `authorUserId`: see `keyColumnAccess`.
    */
-  userId?: string,
+  who?: string | { id: string; authorUserId?: string | null },
 ): Promise<ColumnAccess> {
+  const userId = typeof who === 'string' ? who : who?.id;
+  if (userId?.startsWith('apikey:') && !userId.startsWith('apikey:job:')) {
+    return keyColumnAccess(
+      db,
+      collection,
+      role,
+      typeof who === 'string' ? null : who?.authorUserId,
+    );
+  }
   // The exemption is a PERMISSION, resolved for an identity — not a role name.
   //
   // This used to read `role === 'admin' || role === 'superadmin'`, and both
@@ -128,6 +139,31 @@ export async function getColumnAccess(
     }
   }
 
+  return { hidden, readOnly };
+}
+
+/**
+ * A key's columns: its own rules (`role`, i.e. `api_key`, and `*`) AND its
+ * issuer's, as the issuer is now — the stricter wins. Column rules match one
+ * role, so a rule written for `member` never reached a member's key, which read
+ * and wrote what its issuer may not. The issuer's exemption
+ * (`data:view_all_columns`) covers the issuer's half only; the key itself is
+ * never exempt. No issuer known — a caller that passed the key's bare id — is
+ * every column hidden. A job (`apikey:job:`) has no issuer and keeps its role's.
+ */
+async function keyColumnAccess(
+  db: Database,
+  collection: string,
+  role: string,
+  issuer: string | null | undefined,
+): Promise<ColumnAccess> {
+  if (!issuer) return { hidden: new Set(['*']), readOnly: new Set(['*']) };
+  const [own, theirs] = await Promise.all([
+    getColumnAccess(db, collection, role),
+    principalRole(issuer).then((r) => getColumnAccess(db, collection, r, issuer)),
+  ]);
+  const hidden = new Set([...own.hidden, ...theirs.hidden]);
+  const readOnly = new Set([...own.readOnly, ...theirs.readOnly].filter((c) => !hidden.has(c)));
   return { hidden, readOnly };
 }
 

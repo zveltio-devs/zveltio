@@ -106,9 +106,8 @@ interface StreamSub {
 
 /**
  * May `user` hear the wildcard stream or a non-data channel? A tenant admin
- * only — never an API key: its scopes are its whole grant and none names a
- * channel. So presence and broadcast channels stay with people; a program has
- * no presence.
+ * only — never an API key: no scope names a channel. So presence and broadcast
+ * channels stay with people; a program has no presence.
  */
 function mayHearEverything(user: RealtimeUser): Promise<boolean> {
   return isApiKeyPrincipal(user) ? Promise.resolve(false) : isTenantAdmin(user.id);

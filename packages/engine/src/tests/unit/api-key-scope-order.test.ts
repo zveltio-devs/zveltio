@@ -7,7 +7,8 @@
  * other order allowed the write.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import * as tenancy from '../../lib/tenancy/index.js';
 import { checkAccess } from '../../lib/data/auth.js';
 import type { RequestUser } from '../../lib/data/types.js';
 
@@ -17,6 +18,14 @@ const db = null as never;
 
 const WILDCARD_READ = { collection: '*', actions: ['read'] };
 const POSTS_CREATE = { collection: 'posts', actions: ['create'] };
+
+// The scope half is what this pins; the issuer half (`keyIssuerAllows`) grants.
+beforeAll(() => {
+  spyOn(tenancy, 'keyIssuerAllows').mockResolvedValue(true);
+});
+afterAll(() => {
+  spyOn(tenancy, 'keyIssuerAllows').mockRestore();
+});
 
 describe('api key scope matching', () => {
   it('grants a specific action listed after a broader entry', async () => {

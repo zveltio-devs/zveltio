@@ -322,7 +322,7 @@ export type SchemaChangeAction = 'create' | 'alter' | 'drop';
  */
 async function socketIsSchemaAdmin(conn: WSConnection): Promise<boolean> {
   const tenantId = conn.tenantId;
-  if (conn.authType === 'api_key') return apiKeyMayWatchSchema(conn.user.scopes, tenantId);
+  if (conn.authType === 'api_key') return apiKeyMayWatchSchema(conn.user, tenantId);
   if (!tenantId) return false;
   return runWithDomain(tenantId, () => requireInstanceAdmin(conn.userId));
 }

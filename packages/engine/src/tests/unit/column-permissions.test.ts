@@ -117,6 +117,18 @@ describe('filterWritableFields (write mask)', () => {
 });
 
 describe('getColumnAccess', () => {
+  it('hides every column from a key whose issuer is unknown, before any lookup', async () => {
+    // A key answers to its issuer's column rules too; a caller that passed the
+    // bare key id gave no issuer to ask, so nothing is shown or writable.
+    const db = new CannedDb();
+    for (const who of ['apikey:11111111-1111-4111-8111-111111111111', { id: 'apikey:k' }]) {
+      const access = await getColumnAccess(db.kysely as unknown as Database, 'c', 'api_key', who);
+      expect([...access.hidden]).toEqual(['*']);
+      expect([...access.readOnly]).toEqual(['*']);
+    }
+    expect(db.log.length).toBe(0);
+  });
+
   it('does NOT short-circuit for a role name, admin included', async () => {
     // This asserted the opposite until 2026-09-10, and the assertion was the
     // defect written down: `role === 'admin' || role === 'superadmin'` returned

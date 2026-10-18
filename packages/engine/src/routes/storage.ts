@@ -271,10 +271,14 @@ export function storageRoutes(db: Database, auth: any): Hono {
   });
 
   // Who sees and deletes every file in the tenant. A key is never a tenant
-  // admin — Casbin is not asked for one; its exemption is `rls_bypass`, the
-  // data path's rule (see `guardSessionOrKey`).
-  const seesAllFiles = (user: RequestUser): Promise<boolean> =>
-    isApiKeyPrincipal(user) ? Promise.resolve(user.rlsBypass === true) : isTenantAdmin(user.id);
+  // admin itself; its exemption is `rls_bypass`, the data path's rule (see
+  // `guardSessionOrKey`), and only while its issuer is one.
+  const seesAllFiles = async (user: RequestUser): Promise<boolean> => {
+    if (!isApiKeyPrincipal(user)) return isTenantAdmin(user.id);
+    // The session's own question, asked of the issuer in this request's tenant.
+    const issuer = user.authorUserId;
+    return user.rlsBypass === true && !!issuer && isTenantAdmin(issuer);
+  };
 
   // GET / — List files
   app.get('/', async (c) => {

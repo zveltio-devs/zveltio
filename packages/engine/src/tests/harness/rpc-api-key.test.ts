@@ -6,7 +6,8 @@
  * path's model (`guardSessionOrKey` in lib/admin-guard.ts): the scope must be
  * named — a `*` data key does not reach it — and the function runs in the
  * request's tenant transaction as `zveltio_rls`, under the key's own RLS actor,
- * never its issuer's.
+ * never its issuer's. The function's `required_role` ranks the issuer, as it
+ * ranks a session: a key never exceeds the person it acts for.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -15,6 +16,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import {
+  asKeyIssuer,
   asTenant,
   createMemberSession,
   getTestApp,
@@ -36,7 +38,10 @@ const CREATE_FN = 'create';
 
 type Scope = { collection: string; actions: string[] };
 const RPC: Scope[] = [{ collection: '$rpc', actions: ['execute'] }];
-const KEYS: Record<string, { scopes: Scope[]; tenant: string; active?: false; bypass?: true }> = {
+const KEYS: Record<
+  string,
+  { scopes: Scope[]; tenant: string; active?: false; bypass?: true; byMember?: true }
+> = {
   data: { scopes: [{ collection: '*', actions: ['*'] }], tenant: ROOT },
   read: { scopes: [{ collection: '$rpc', actions: ['read'] }], tenant: ROOT },
   rpc: { scopes: RPC, tenant: ROOT },
@@ -45,6 +50,8 @@ const KEYS: Record<string, { scopes: Scope[]; tenant: string; active?: false; by
   tenant: { scopes: RPC, tenant: TENANT },
   named: { scopes: [{ collection: '$rpc', actions: [WHOAMI, OFF_FN] }], tenant: ROOT },
   write: { scopes: [{ collection: '$rpc', actions: ['write'] }], tenant: ROOT },
+  // Issued by the plain member, who ranks below `admin`.
+  memberIssued: { scopes: RPC, tenant: ROOT, byMember: true },
 };
 const raw: Record<string, string> = {};
 const keyId: Record<string, string> = {};
@@ -62,6 +69,7 @@ d('rpc with an API key', () => {
   let db: Database;
   let cookie = '';
   let member = '';
+  let issuer = '';
 
   const call = (key: string | null, fn: string, body: unknown = {}, slug?: string) =>
     app.request(`/api/rpc/${fn}`, {
@@ -85,11 +93,12 @@ d('rpc with an API key', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     ({ cookie, userId: member } = await createMemberSession(app, db));
+    issuer = await asKeyIssuer((await createMemberSession(app, db)).userId);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${TENANT}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
     // A tenant key acts on its issuer's membership there.
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
-              VALUES (${TENANT}::uuid, ${member}, 'member')`.execute(db);
+              VALUES (${TENANT}::uuid, ${issuer}, 'member')`.execute(db);
     // What the function itself sees: the RLS actor, the tenant and the database role.
     await fn(
       WHOAMI,
@@ -125,7 +134,7 @@ d('rpc with an API key', () => {
           (name, key_hash, key_prefix, scopes, is_active, rls_bypass, tenant_id, created_by)
         VALUES (${`${STAMP}-${name}`}, ${await hashApiKey(raw[name]!)}, ${raw[name]!.slice(0, 12)},
                 ${JSON.stringify(k.scopes)}::jsonb, ${k.active ?? true}, ${k.bypass ?? false},
-                ${k.tenant}::uuid, ${member})
+                ${k.tenant}::uuid, ${k.byMember ? member : issuer})
         RETURNING id::text AS id
       `.execute(db);
       keyId[name] = row.rows[0]!.id;
@@ -202,13 +211,16 @@ d('rpc with an API key', () => {
     }
   });
 
-  it('lets the scope, not a role, stand where required_role does for a session', async () => {
-    // The floor ranks a session's roles; a key has none — its grant is the scope.
+  it('ranks the key’s issuer against required_role, as it ranks a session', async () => {
     const session = await app.request(`/api/rpc/${ADMIN_FN}`, {
       method: 'POST',
       headers: { cookie },
     });
     expect(session.status).toBe(403);
+    // The member's own key is refused what the member is refused.
+    expect((await call('memberIssued', ADMIN_FN)).status).toBe(403);
+    expect((await call('memberIssued', WHOAMI)).status).toBe(200);
+    // An admin's key reaches it.
     expect((await call('rpc', ADMIN_FN)).status).toBe(200);
   });
 

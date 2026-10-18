@@ -1090,6 +1090,28 @@ export async function checkPermission(
   throw err;
 }
 
+/**
+ * May the person who issued API-key principal `key` do `action` on `resource`
+ * here, now? A key acts for its issuer and never beyond them, so every grant a
+ * key's scope makes is also asked of the issuer — `checkPermission` itself, so
+ * god, the request's domain and every cache invalidation are the issuer's own.
+ * Without it a key outlived its issuer's demotion with every scope it was minted
+ * with.
+ *
+ * `apikey:job:<ext>:<job>` (lib/extensions/jobs.ts) has no issuer: it is an
+ * extension holding `data:system`, bounded by its manifest's declared reads and
+ * writes; its enqueue was already asked of the enqueuer. Any other key principal
+ * without an issuer is refused.
+ */
+export async function keyIssuerAllows(
+  key: { id: string; authorUserId?: string | null },
+  resource: string,
+  action: string,
+): Promise<boolean> {
+  if (key.id.startsWith('apikey:job:')) return true;
+  return !!key.authorUserId && checkPermission(key.authorUserId, resource, action);
+}
+
 /** The Casbin half of `checkPermission`: memo, shared cache, resolved set. */
 async function casbinAllows(
   userId: string,

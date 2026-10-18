@@ -57,7 +57,8 @@ function appWith(auth: unknown, prefetchedKey?: KeyRow | null) {
   const casbin: string[] = [];
   const check = keyAwareCheckPermission('finance/invoicing', async (u, r, a) => {
     casbin.push(`${u}:${r}:${a}`);
-    return u === 'u1';
+    // `issuer` holds what it is asked; `demoted` has lost it.
+    return u === 'u1' || u === 'issuer';
   });
   // The previous request's context, kept past its end.
   let kept: unknown;
@@ -210,12 +211,16 @@ describe('extensionAuthGate', () => {
   describe('apiKeyRoutes', () => {
     const KEY_ID = '11111111-1111-4111-8111-111111111111';
     const headers = { 'X-API-Key': 'zvk_0123456789abcdef' };
-    const key = (scopes: unknown, tenant_id: string | null = null): KeyRow => ({
+    const key = (
+      scopes: unknown,
+      tenant_id: string | null = null,
+      created_by = 'issuer',
+    ): KeyRow => ({
       tenant_id,
       id: KEY_ID,
       name: 'k',
       scopes,
-      created_by: 'issuer',
+      created_by,
     });
     const INV = [{ collection: '$ext:finance/invoicing', actions: ['read', 'create'] }];
     const declareRoutes = () =>
@@ -243,12 +248,24 @@ describe('extensionAuthGate', () => {
         const b = await body(res);
         expect(b.user).toBe(`apikey:${KEY_ID}`);
         expect(b.admitted).toBe(`apikey:${KEY_ID}`);
-        // The extension's own checks read the scope — Casbin is never asked for a key.
+        // The extension's own checks read the scope, then ask the same of the
+        // key's issuer — never of the key, and not at all once the scope refuses.
         expect(b.create).toBe(true);
         expect(b.otherKey).toBe(false);
         expect(b.settle).toBe(false);
-        expect(b.casbin).toEqual([]);
+        expect([...new Set(b.casbin)]).toEqual(['issuer:invoices:create']);
       }
+    });
+
+    it('refuses a key what its issuer may no longer do, whatever its scope', async () => {
+      declareRoutes();
+      const res = await appWith(authAnon, key(INV, null, 'demoted')).request(
+        '/ext/finance/invoicing/invoices',
+        { headers },
+      );
+      const b = await body(res);
+      expect(b.create).toBe(false);
+      expect(b.casbin).toEqual(['demoted:invoices:create']);
     });
 
     it('gatePrincipal answers only for the running request’s own context', async () => {

@@ -159,9 +159,21 @@ describe('getRlsFilters — overrides', () => {
     // Was blanket for every key, then per key with a default of true, and now
     // opt-in: migration 032 flipped the default and 040 backfilled the keys
     // issued before it.
+    // Issued by a god, who holds `data:view_all` — see the next case.
     const db = setup();
-    expect(await getRlsFilters('contacts', { ...USER, rlsBypass: true }, 'api_key')).toEqual([]);
+    const key = { ...USER, rlsBypass: true, authorUserId: 'u-god' };
+    expect(await getRlsFilters('contacts', key, 'api_key')).toEqual([]);
     expect(db.log).toHaveLength(0);
+  });
+
+  it('a key with the flag ON is filtered while its issuer lacks data:view_all', async () => {
+    // A key never exceeds its issuer: the exemption is the issuer's to hold.
+    const db = setup();
+    db.when(/FROM zvd_rls_policies/i, [policy()]);
+    for (const authorUserId of ['u-1', null]) {
+      const key = { ...USER, rlsBypass: true, authorUserId };
+      expect(await getRlsFilters('contacts', key, 'api_key')).toHaveLength(1);
+    }
   });
 
   it('a key with the flag OFF is filtered like anyone else', async () => {

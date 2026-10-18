@@ -2,7 +2,7 @@
  * checkAccess (lib/data/auth.ts) — API-key scope enforcement + session delegation.
  */
 
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/ddl-manager.js';
 import { checkAccess } from '../../lib/data/auth.js';
@@ -12,11 +12,40 @@ import { CannedDb } from './fixtures/canned-db.js';
 const db = new CannedDb().kysely as unknown as Database;
 
 function apiUser(scopes: unknown, id = 'apikey:key-1') {
-  return { id, name: 'test key', role: 'api_key' as const, scopes };
+  return { id, name: 'test key', role: 'api_key' as const, scopes, authorUserId: 'issuer-1' };
 }
 
+// The scope half is what these pin; the issuer half (`keyIssuerAllows`) grants.
+beforeEach(() => {
+  spyOn(tenancy, 'keyIssuerAllows').mockResolvedValue(true);
+});
 afterEach(() => {
   spyOn(tenancy, 'checkPermission').mockRestore();
+  spyOn(tenancy, 'keyIssuerAllows').mockRestore();
+});
+
+describe('checkAccess — a key never exceeds its issuer', () => {
+  it('refuses what the scope grants once the issuer may not, and asks for the same thing', async () => {
+    const issuer = spyOn(tenancy, 'keyIssuerAllows').mockResolvedValue(false);
+    const user = apiUser([{ collection: '*', actions: ['*'] }]);
+    expect(await checkAccess(db, user, 'articles', 'create')).toBe(false);
+    expect(issuer).toHaveBeenCalledWith(user, 'articles', 'create');
+  });
+
+  it('does not ask the issuer for what the scope refuses', async () => {
+    const issuer = spyOn(tenancy, 'keyIssuerAllows');
+    expect(await checkAccess(db, apiUser([]), 'articles', 'read')).toBe(false);
+    expect(issuer).not.toHaveBeenCalled();
+  });
+
+  it('bounds a key by its issuer, exempts only a job, and refuses a key with no issuer', async () => {
+    spyOn(tenancy, 'keyIssuerAllows').mockRestore();
+    const perm = spyOn(tenancy, 'checkPermission').mockResolvedValue(true);
+    const job = { id: 'apikey:job:crm:sync' };
+    expect(await tenancy.keyIssuerAllows(job, 'articles', 'read')).toBe(true);
+    expect(await tenancy.keyIssuerAllows({ id: 'apikey:key-1' }, 'articles', 'read')).toBe(false);
+    expect(perm).not.toHaveBeenCalled();
+  });
 });
 
 describe('checkAccess', () => {
