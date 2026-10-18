@@ -8,6 +8,7 @@
  * engine's BETTER_AUTH_URL (in-process: `passkeyRelyingParty().origin`).
  */
 import { createHash, createHmac } from 'node:crypto';
+import { chmod, writeFile } from 'node:fs/promises';
 
 export type Req = (path: string, init?: RequestInit) => Response | Promise<Response>;
 
@@ -278,15 +279,15 @@ export function stepUpActionFor(method: string, path: string): string | null {
  * step-up, so two probes against one engine cannot each enroll their own.
  */
 async function savePasskey(file: string, pk: SoftPasskey): Promise<void> {
-  await Bun.write(
-    file,
-    JSON.stringify({
-      id: b64url(pk.credentialId),
-      counter: pk.counter,
-      privateKey: await crypto.subtle.exportKey('jwk', pk.keys.privateKey),
-      publicKey: await crypto.subtle.exportKey('jwk', pk.keys.publicKey),
-    }),
-  );
+  const data = JSON.stringify({
+    id: b64url(pk.credentialId),
+    counter: pk.counter,
+    privateKey: await crypto.subtle.exportKey('jwk', pk.keys.privateKey),
+    publicKey: await crypto.subtle.exportKey('jwk', pk.keys.publicKey),
+  });
+  // A private key: owner-only. `mode` applies only when the file is created.
+  await writeFile(file, data, { mode: 0o600 });
+  await chmod(file, 0o600);
 }
 
 async function loadPasskey(file: string): Promise<SoftPasskey | null> {
