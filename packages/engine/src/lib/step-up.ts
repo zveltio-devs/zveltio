@@ -26,6 +26,7 @@ import {
 import { auth, authPool, passkeyRelyingParty } from './auth.js';
 import { requestSession } from '../middleware/session-prefetch.js';
 import { refuseWithoutSession } from './admin-guard.js';
+import { isEmailConfigured, sendEmail } from './email.js';
 
 export type StepUpMethod = 'passkey' | 'totp';
 
@@ -90,6 +91,17 @@ export async function hasPassword(userId: string): Promise<boolean> {
        WHERE "userId" = ${userId} AND "providerId" = 'credential' AND password IS NOT NULL
     ) AS yes`.execute(authPool());
   return r.rows[0]?.yes === true;
+}
+
+/** Tell the account its sign-in factors changed (`line` says how), where SMTP is configured. */
+export function mailFactorChange(to: string, line: string): void {
+  if (!isEmailConfigured()) return;
+  sendEmail({
+    to,
+    subject: 'Your sign-in methods changed',
+    html: `<p>${line}</p><p>If this was not you, sign in and review your security settings, or contact your administrator.</p>`,
+    text: `${line}\n\nIf this was not you, sign in and review your security settings, or contact your administrator.`,
+  }).catch((err: Error) => console.error('[step-up] factor-change mail failed:', err.message));
 }
 
 /** Better Auth's endpoints that create a session from an OAuth provider's answer. */

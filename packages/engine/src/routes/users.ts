@@ -12,12 +12,13 @@ import {
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
-import { deleteUser } from '../lib/users.js';
+import { deleteUser, resetUserFactors } from '../lib/users.js';
 import { asEngineRole } from '../lib/role-window.js';
 import { escapeLike } from '../lib/data/index.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { isEmailConfigured, sendEmail } from '../lib/email.js';
-import { hashInvitationToken } from '../lib/security/index.js';
+import { clientIpForAudit, hashInvitationToken } from '../lib/security/index.js';
+import { mailFactorChange, requireStepUp } from '../lib/step-up.js';
 
 function escapeHtml(str: string): string {
   return str
@@ -301,6 +302,47 @@ export function usersRoutes(
       );
     },
   );
+
+  // POST /:id/factors/reset — clear a user's passkeys and TOTP, for one who lost them.
+  app.post('/:id/factors/reset', async (c) => {
+    const targetId = c.req.param('id');
+    const actorId = (c.get('user') as { id: string }).id;
+    const target = await db
+      .selectFrom('user')
+      .select(['id', 'email'])
+      .where('id', '=', targetId)
+      .executeTakeFirst();
+    if (!target) return c.json({ error: 'User not found' }, 404);
+    if (targetId === actorId) {
+      return c.json(
+        { error: 'Your own sign-in methods are reset through recovery (RECOVERY_TOKEN)' },
+        403,
+      );
+    }
+    // A non-god admin resets ordinary users only: else any admin could strip
+    // another's (or god's) factors and enroll the next first factor themselves.
+    if (!(await isGodUser(actorId)) && (await requireInstanceAdmin(targetId))) {
+      return c.json({ error: 'Only god may reset an administrator' }, 403);
+    }
+    const confirmedBy = await requireStepUp(c, `user.factors.reset:${targetId}`);
+    if (confirmedBy instanceof Response) return confirmedBy;
+
+    const cleared = await resetUserFactors(db, poolDb, targetId);
+    await auditLog(db, {
+      type: 'auth.factor_changed',
+      tenantId: null,
+      userId: actorId,
+      resourceId: targetId,
+      resourceType: 'auth_factor',
+      metadata: { change: 'admin.reset', confirmed_by: confirmedBy, ...cleared },
+      ip: clientIpForAudit(c) ?? undefined,
+    });
+    mailFactorChange(
+      target.email,
+      'An administrator reset the passkeys and authenticator app on your account. Add one again in your security settings.',
+    );
+    return c.json({ success: true, ...cleared });
+  });
 
   // DELETE /:id — Delete user
   app.delete('/:id', async (c) => {

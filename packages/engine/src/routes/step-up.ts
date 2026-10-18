@@ -20,11 +20,11 @@ import type { Context, Hono, Next } from 'hono';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
 import { auditLog } from '../lib/audit.js';
-import { isEmailConfigured, sendEmail } from '../lib/email.js';
 import { clientIpForAudit } from '../lib/security/index.js';
 import {
   firstFactorRule,
   hasStepUpFactor,
+  mailFactorChange,
   requireStepUp,
   stepUpOptions,
   stepUpVerify,
@@ -63,14 +63,7 @@ function recordFactorChange(
     ip: clientIpForAudit(c) ?? undefined,
     tenantId: null,
   }).catch((err: Error) => console.error('[step-up] factor-change audit failed:', err.message));
-  if (!isEmailConfigured()) return;
-  const line = DESCRIBE[change] ?? change;
-  sendEmail({
-    to: user.email,
-    subject: 'Your sign-in methods changed',
-    html: `<p>${line}</p><p>If this was not you, sign in and review your security settings, or contact your administrator.</p>`,
-    text: `${line}\n\nIf this was not you, sign in and review your security settings, or contact your administrator.`,
-  }).catch((err: Error) => console.error('[step-up] factor-change mail failed:', err.message));
+  mailFactorChange(user.email, DESCRIBE[change] ?? change);
 }
 
 async function passwordMatches(c: Context): Promise<boolean> {

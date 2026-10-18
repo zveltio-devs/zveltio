@@ -68,6 +68,7 @@ const MANDATORY: ReadonlySet<string> = new Set([
   'collections.ts:POST /:name/fields',
   'collections.ts:PATCH /:name/fields/:field',
   'collections.ts:DELETE /:name/fields/:field',
+  'users.ts:POST /:id/factors/reset',
   // approvals.ts removed from core — owned by extensions/workflow/approvals
   // (/ext/workflow/approvals). Do not re-add /api/approvals twin handlers.
 ]);

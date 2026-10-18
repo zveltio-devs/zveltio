@@ -4,6 +4,15 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Administrators can reset a user's passkeys and TOTP.** A user who lost every
+device had no way back but the RECOVERY_TOKEN bootstrap, which exists for god alone.
+`POST /api/users/:id/factors/reset` now deletes the user's passkeys and TOTP and ends
+the user's sessions; the user enrolls again with the password or a fresh OAuth
+sign-in. God may reset anyone but itself, an instance admin only ordinary users, and
+the caller confirms with a step-up for `user.factors.reset:<id>`. Audited as
+`auth.factor_changed` (`admin.reset`) and mailed to the user when SMTP is configured.
+Studio's users list has a "Reset verification methods" action (all locales).
+
 **Step-up asks the passkey for a PIN or biometrics, and OAuth-only accounts can
 enroll.** A step-up passkey assertion now needs user verification: a security key
 with no PIN, which proves only a touch, is refused with 403

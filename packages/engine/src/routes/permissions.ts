@@ -22,6 +22,7 @@ import {
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { asEngineRole } from '../lib/role-window.js';
+import { clearUserFactors } from '../lib/users.js';
 import { storedEmail } from '../lib/auth-email.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 import { clientIpForAudit } from '../lib/security/index.js';
@@ -199,16 +200,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
 
         let clearedFactors: { passkeys: number; totp: number } | undefined;
         if (clearFactors) {
-          clearedFactors = await asEngineRole(trx, async () => {
-            const passkeys = await sql<{ id: string }>`
-              DELETE FROM passkey WHERE "userId" = ${granted.id} RETURNING id`.execute(trx);
-            const totp = await sql<{ id: string }>`
-              DELETE FROM "twoFactor" WHERE "userId" = ${granted.id} RETURNING id`.execute(trx);
-            await sql`UPDATE "user" SET "twoFactorEnabled" = false WHERE id = ${granted.id}`.execute(
-              trx,
-            );
-            return { passkeys: passkeys.rows.length, totp: totp.rows.length };
-          });
+          clearedFactors = await clearUserFactors(trx, granted.id);
           await auditLog(trx, {
             type: 'auth.factor_changed',
             userId: granted.id,

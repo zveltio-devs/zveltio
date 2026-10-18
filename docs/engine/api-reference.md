@@ -73,7 +73,7 @@ The client names the action, confirms it, and sends the token it gets back as
   `approve-forward-credentials`), `extension.enable-all`, `extension.license-rotate`;
   for factor changes `factor.passkey.add`, `factor.passkey.remove`, `factor.totp.add`,
   `factor.totp.disable`, `factor.totp.reveal` (`get-totp-uri`),
-  `factor.backup-codes.regenerate`.
+  `factor.backup-codes.regenerate`; `user.factors.reset:<user id>` for the reset below.
 - `options` answers `{ method: "passkey", options, totp }` (WebAuthn request
   options: pass to `navigator.credentials.get`; `totp: true` when the account also
   has TOTP) or `{ method: "totp" }` when it has no passkey. `verify` takes
@@ -102,6 +102,23 @@ passkey or TOTP, deleting a passkey, disabling TOTP, reading the TOTP URI back o
 regenerating backup codes needs a step-up token.
 Each change writes an `auth.factor_changed` audit row and, with SMTP configured,
 mails the account.
+
+### POST /api/users/:id/factors/reset
+
+Deletes a user's passkeys and TOTP, for a user who lost them, and ends every session
+the user has (as deactivation does: a reset usually follows a lost or stolen device).
+The user then enrolls again under the first-factor rule above: the password, or a
+fresh OAuth sign-in.
+
+- God may reset anyone but itself; an instance admin may reset ordinary users only
+  (403 for another admin or god). Your own factors are reset through recovery
+  (`clear_factors` on `/api/permissions/bootstrap`), never here (403).
+- The caller sends a step-up token for `user.factors.reset:<id>` as
+  `X-Zveltio-Step-Up` (403 `step_up_required`, or `step_up_enrollment_required` when
+  the caller has no factor of its own).
+- Answers `{ success: true, passkeys, totp }`, the counts deleted; 404 for an unknown
+  id. Audited as `auth.factor_changed` (`change: "admin.reset"`, the caller as actor,
+  the user as resource, the counts) and, with SMTP configured, mailed to the user.
 
 ---
 
