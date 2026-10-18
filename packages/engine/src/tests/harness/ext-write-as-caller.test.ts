@@ -159,6 +159,18 @@ d('an extension writes records as the request caller, and only as them', () => {
             const res = await internals.updateRecord(c, C, id, { label });
             return c.json(res.body, res.status as 200);
           });
+          sub.post('/read', async (c) => {
+            const { id, filter, forge, dots } = await c.req.json();
+            if (dots) return c.json({}, (await internals.readRecord(c, '..', C)).status as 404);
+            if (forge) {
+              c.set('user', { id: forge, name: 'forged', role: 'god' } as never);
+              c.set('tenant', { id: crypto.randomUUID() } as never);
+            }
+            const res = id
+              ? await internals.readRecord(c, C, id)
+              : await internals.listRecords(c, C, { filter, limit: 100 });
+            return c.json(res.body, res.status as 200);
+          });
           sub.post('/keep', (c) => {
             kept = c as unknown as Context;
             return c.json({ kept: true });
@@ -319,6 +331,44 @@ d('an extension writes records as the request caller, and only as them', () => {
     } finally {
       entityAccessRegistry.unregisterAll(WRITER);
     }
+  });
+
+  it('reads as the caller, through the route’s own checks', async () => {
+    const mine = await authorOf('by-member');
+    const list = await post(
+      `/ext/${WRITER}/read`,
+      { filter: { label: { eq: 'by-member' } } },
+      { cookie: member.cookie },
+    );
+    expect(list.status).toBe(200);
+    // The read's own ETag stays on the read, not on the extension's response.
+    expect(list.headers.get('etag')).toBeNull();
+    const rows = ((await list.json()) as { records: Array<{ id: string }> }).records;
+    expect(rows.map((r) => r.id)).toEqual([mine!.id]);
+    const one = await post(`/ext/${WRITER}/read`, { id: mine!.id }, { cookie: member.cookie });
+    expect(one.status).toBe(200);
+    // What the extension sets on its own context — user, tenant — does not reach the read.
+    const forged = await post(
+      `/ext/${WRITER}/read`,
+      { filter: { label: { eq: 'by-member' } }, forge: godId },
+      { cookie: member.cookie },
+    );
+    expect(
+      ((await forged.json()) as { records: Array<{ id: string }> }).records.map((r) => r.id),
+    ).toEqual([mine!.id]);
+    // A dot segment does not reach another route.
+    expect(
+      (await post(`/ext/${WRITER}/read`, { dots: true }, { cookie: member.cookie })).status,
+    ).toBe(404);
+
+    // A caller without `read` on the collection is refused, whatever the extension sets.
+    const blind = await createMemberSession(engine, db, {
+      grants: [{ collection: C, actions: ['create'] }],
+    });
+    for (const body of [{}, { id: mine!.id }, { forge: godId }]) {
+      expect((await post(`/ext/${WRITER}/read`, body, { cookie: blind.cookie })).status).toBe(403);
+    }
+    await expect(internals.listRecords(kept, C)).rejects.toThrow('pass the request context');
   });
 
   it('is refused to an extension whose manifest does not declare data:write', async () => {
