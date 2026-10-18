@@ -267,6 +267,8 @@ const SECTIONS: Section[] = [
       `${E}lib/security/index.ts`,
       `${E}lib/security/loggable-request.ts`,
       `${E}lib/secret-files.ts`,
+      `${E}lib/step-up.ts`,
+      `${E}routes/step-up.ts`,
     ],
   },
   {
@@ -449,6 +451,8 @@ const SECTIONS: Section[] = [
       // The operator's per-extension exemption rides on those roles.
       `${E}lib/extensions/collection-rls-exempt.ts`,
       `${E}lib/extensions/tenant-facts.ts`,
+      `${E}lib/extensions/actions.ts`,
+      `${E}lib/extensions/jobs.ts`,
       `${E}lib/engine-handle.ts`,
     ],
   },
@@ -614,6 +618,7 @@ const SECTIONS: Section[] = [
       `${S}lib/api.ts`,
       `${S}lib/config.ts`,
       `${S}lib/auth.svelte.ts`,
+      `${S}lib/step-up.svelte.ts`,
       `${S}lib/nav-model.ts`,
       `${S}lib/nav-i18n.ts`,
       `${S}lib/i18n.svelte.ts`,
