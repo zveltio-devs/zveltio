@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { sqlState } from '../../db/bun-sql-quirks.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -12,7 +11,8 @@ import {
   deleteRole,
   ENGINE_SEEDED_ROLES,
 } from '../../lib/tenancy/index.js';
-import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
+import { invalidateColumnPermCache, listDeclaredResources } from '../../lib/tenancy/index.js';
+import { resolveExtensionsBase } from '../../lib/extensions/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { withoutAuthValue } from '../../lib/virtual-collection-adapter.js';
@@ -51,30 +51,24 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     // `content/zones` was never a real extension name; the portal architecture
     // became `content/pages`, which migrates out of `zvd_zones` rather than
     // keeping it. The engine no longer creates the table either, so on every
-    // install made from here on this query answers 42P01 and the list is empty —
-    // which is correct, and is why the catch below is the normal path now rather
-    // than the unusual one. Only a database upgraded from an older engine still
-    // has rows to offer.
+    // install made from here on the list is empty — which is correct. Only a
+    // database upgraded from an older engine still has rows to offer.
     //
-    // Read defensively rather than through a service, because this endpoint
-    // exists to ENUMERATE what can be granted: an extension that is present but
-    // broken should cost its own rows here, not the collection list that the
-    // permissions screen is mainly about.
+    // The table is checked for, not queried and caught: the request runs in a
+    // transaction, and a SELECT on a missing table (42P01) aborts it, so every
+    // statement after it — the extension resources below — failed too.
     let zones: Array<{ slug: string; name: string }> = [];
-    try {
+    const hasZones = await sql<{ ok: boolean }>`
+      SELECT to_regclass('public.zvd_zones') IS NOT NULL AS ok
+    `.execute(db);
+    if (hasZones.rows[0]?.ok) {
       zones = (
         await sql<{ slug: string; name: string }>`
           SELECT slug, name FROM zvd_zones ORDER BY name ASC
         `.execute(db)
       ).rows;
-    } catch (err) {
-      // "The table does not exist" is the expected answer on most installs and
-      // means exactly what it says: no portals to grant access to. Anything else
-      // — a permission error, a timeout — is a failure, and answering it with an
-      // empty list would tell an administrator there are no zones to grant when
-      // there may be several.
-      if (sqlState(err) !== '42P01') throw err;
     }
+    const collectionNames = new Set(collections.map((col) => col.name));
     const resources = [
       ...collections.map((col) => ({
         name: col.name,
@@ -84,6 +78,20 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         // check asks for: every tick of it granted nothing (migration 015).
         actions: ['read', 'create', 'update', 'delete'],
       })),
+      // What installed extensions declare in `manifest.resources`, other than a
+      // collection already listed above (CRM declares its own collections). An
+      // extension route asks for these, and an extension action asks `execute`,
+      // which tenant_member holds by default: without this section the matrix
+      // could neither show nor revoke it.
+      ...(await listDeclaredResources(db, resolveExtensionsBase()))
+        .filter((name) => !collectionNames.has(name))
+        .sort()
+        .map((name) => ({
+          name,
+          display_name: name,
+          type: 'extension' as const,
+          actions: ['read', 'create', 'update', 'delete', 'execute'],
+        })),
       ...zones.map((z) => ({
         name: z.slug,
         display_name: z.name,

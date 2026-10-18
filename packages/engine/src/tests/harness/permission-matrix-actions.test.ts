@@ -13,6 +13,9 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -130,5 +133,42 @@ d('permission matrix actions match what the engine checks', () => {
       body: JSON.stringify({ permissions: mine }),
     });
     expect(bulk.status).toBe(200);
+  });
+
+  it('offers what an installed extension declares, with execute, and a declared collection once', async () => {
+    const ext = `permmatrix_ext_${Date.now()}`;
+    const declared = `${ext}_res`;
+    const root = mkdtempSync(join(tmpdir(), 'permmatrix-ext-'));
+    const saved = process.env.EXTENSIONS_DIR;
+    mkdirSync(join(root, ext), { recursive: true });
+    writeFileSync(
+      join(root, ext, 'manifest.json'),
+      JSON.stringify({ name: ext, resources: [declared, COLLECTION] }),
+    );
+    process.env.EXTENSIONS_DIR = root;
+    try {
+      await sql`
+        INSERT INTO zv_extension_registry (name, display_name, version, is_installed, is_enabled)
+        VALUES (${ext}, 'Matrix Test', '1.0.0', true, false)
+      `.execute(db);
+      const res = await app.request('/api/admin/resources', { headers: { cookie: god } });
+      const { resources } = (await res.json()) as {
+        resources: Array<{ name: string; type: string; actions: string[] }>;
+      };
+      expect(resources.find((r) => r.name === declared)).toEqual({
+        name: declared,
+        display_name: declared,
+        type: 'extension',
+        actions: ['read', 'create', 'update', 'delete', 'execute'],
+      } as never);
+      expect(resources.filter((r) => r.name === COLLECTION).map((r) => r.type)).toEqual([
+        'collection',
+      ]);
+    } finally {
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${ext}`.execute(db);
+      if (saved === undefined) delete process.env.EXTENSIONS_DIR;
+      else process.env.EXTENSIONS_DIR = saved;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
