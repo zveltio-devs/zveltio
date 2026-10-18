@@ -38,6 +38,7 @@ import { resolvePublisherTier } from './extension-catalog.js';
 import { DownMissingError } from './extension-errors.js';
 import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
+import { requireStepUp } from '../step-up.js';
 import { guardAdmin } from '../admin-guard.js';
 import {
   announceForwardApproval,
@@ -63,9 +64,11 @@ export function registerMarketplaceRoutes(
   deps: {
     fetchRegistryCatalog: typeof fetchRegistryCatalog;
     downloadExtension: typeof downloadExtension;
+    requireStepUp?: typeof requireStepUp;
   } = { fetchRegistryCatalog, downloadExtension },
 ): void {
   const { fetchRegistryCatalog: fetchCatalog, downloadExtension: doDownload } = deps;
+  const spendStepUp = deps.requireStepUp ?? requireStepUp;
   // Admin-only guard
   const requireAdmin = (c: Context) => guardAdmin(c, auth, requireInstanceAdmin);
 
@@ -90,6 +93,23 @@ export function registerMarketplaceRoutes(
    */
   const requireGod = (c: Context) => guardAdmin(c, auth, isGodUser);
 
+  /**
+   * Every god MUTATION here also spends a step-up token for `action`
+   * (lib/step-up.ts): a session alone — a stolen cookie — does not put code on
+   * the instance. Reads stay on the plain gate. Operators who enable extensions
+   * from config or the CLI never reach these routes.
+   */
+  const requireGodStepUp = async (c: Context, action: string) => {
+    const gate = await requireGod(c);
+    if (gate instanceof Response) return gate;
+    const stepUp = await spendStepUp(c, action);
+    if (stepUp instanceof Response) return stepUp;
+    // What `godAuditMiddleware` reads: without it no god row was written for
+    // any mutation here, and the step-up method had nowhere to be recorded.
+    c.set('user', gate);
+    return gate;
+  };
+
   // Resolve optional tenant scope from X-Tenant-Id header.
   // null = global (no tenant filter); string = scoped to that tenant.
   function getTenantId(c: Context): string | null {
@@ -103,7 +123,7 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/license/:name — store (and optionally verify) a license key
   const setLicense = async (c: Context, name: string) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.license:${name}`);
     if (gate instanceof Response) return gate;
 
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -162,7 +182,7 @@ export function registerMarketplaceRoutes(
 
   // DELETE /api/marketplace/license/:name — remove a stored license key
   app.delete('/api/marketplace/license/:name{.+}', async (c) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.license-delete:${c.req.param('name') ?? ''}`);
     if (gate instanceof Response) return gate;
 
     const name = c.req.param('name') ?? '';
@@ -197,7 +217,7 @@ export function registerMarketplaceRoutes(
 
   // POST /api/admin/license/rotate — mint a fresh marketplace token
   app.post('/api/admin/license/rotate', async (c) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, 'extension.license-rotate');
     if (gate instanceof Response) return gate;
 
     // 32 bytes of high-entropy randomness, hex-encoded → 64 chars.
@@ -440,7 +460,7 @@ export function registerMarketplaceRoutes(
   };
 
   const installExtension = async (c: Context, name: string) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.install:${name}`);
     if (gate instanceof Response) return gate;
 
     return withExtensionLock(db, name, async () => {
@@ -598,7 +618,7 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/:name/enable (registered via the dispatcher below)
   const enableExtension = async (c: Context, name: string) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.enable:${name}`);
     if (gate instanceof Response) return gate;
 
     return withExtensionLock(db, name, async () => {
@@ -745,7 +765,7 @@ export function registerMarketplaceRoutes(
   // the extension is_enabled=true (it self-heals on the next boot) and records
   // last_load_error — never flips it off.
   const enableAllExtensions = async (c: Context) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, 'extension.enable-all');
     if (gate instanceof Response) return gate;
 
     // No `.catch(() => [])`. This is "enable every installed extension": an empty
@@ -814,7 +834,7 @@ export function registerMarketplaceRoutes(
 
   // POST /api/marketplace/:name/disable
   const disableExtension = async (c: Context, name: string) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.disable:${name}`);
     if (gate instanceof Response) return gate;
 
     return withExtensionLock(db, name, async () => {
@@ -859,7 +879,7 @@ export function registerMarketplaceRoutes(
 
   // PUT /api/marketplace/:name/config (registered via the dispatcher below)
   const configExtension = async (c: Context, name: string) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.config:${name}`);
     if (gate instanceof Response) return gate;
 
     const config = await c.req.json();
@@ -891,7 +911,7 @@ export function registerMarketplaceRoutes(
   // Purge (purgeData=true): run DOWN migrations in reverse, delete migration
   // rows, remove files from disk, delete the registry row. Fully destructive.
   const uninstallExtension = async (c: Context, name: string) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.uninstall:${name}`);
     if (gate instanceof Response) return gate;
 
     const purgeData = c.req.query('purgeData') === 'true';
@@ -993,7 +1013,7 @@ export function registerMarketplaceRoutes(
    * click has to mean the specific set the admin was shown.
    */
   const approveCapabilities = async (c: Context, name: string) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.approve-capabilities:${name}`);
     if (gate instanceof Response) return gate;
 
     const extBase = resolveExtensionsBase();
@@ -1071,7 +1091,7 @@ export function registerMarketplaceRoutes(
    * loaded (ZVELTIO_EXTENSIONS_PATH included).
    */
   const approveForwardCredentials = async (c: Context, name: string) => {
-    const gate = await requireGod(c);
+    const gate = await requireGodStepUp(c, `extension.approve-forward-credentials:${name}`);
     if (gate instanceof Response) return gate;
 
     const extBase = resolveExtensionsBase();

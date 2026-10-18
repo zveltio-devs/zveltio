@@ -38,7 +38,7 @@ import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extens
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `fwdappr${String(Date.now()).slice(-7)}`;
@@ -121,7 +121,7 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     const t = await getTestApp();
     engine = t.app;
     db = t.db;
-    god = await createGodSession(engine, db);
+    ({ cookie: god, app: engine } = await createSteppedUpGod(engine, db));
 
     base = mkdtempSync(join(tmpdir(), 'fwd-appr-'));
     process.env.EXTENSIONS_DIR = base;

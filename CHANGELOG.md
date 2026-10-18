@@ -4,6 +4,20 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Extension changes need a fresh passkey or TOTP confirmation.** A god session
+alone could install, enable, configure, uninstall or license an extension.
+Every extension mutation on the marketplace routes now needs a single-use
+step-up token, valid for 2 minutes and bound to the session and the action,
+sent as `X-Zveltio-Step-Up`. The token comes from `POST /api/auth/step-up/options`
+and `/verify`, with a passkey or, for a god without one, a TOTP code. A password
+is not accepted. A god with neither factor gets 403 `step_up_enrollment_required`,
+and Studio sends them to the account page to add one. For every user, the first
+passkey now needs the password, and adding or removing a factor after that needs
+a step-up; each change is audited. `POST /api/permissions/bootstrap` accepts
+`"clear_factors": true` to recover a god who lost every factor. Marketplace
+mutations now also write their `god_action` audit row, which they never did,
+with the step-up method recorded.
+
 **Verified extensions run in a worker.** The `verified` publisher tier (a
 third-party version the Zveltio team read) ran inside the engine process, where
 it received `ctx.db`: raw SQL with no boundary. RFC extension-model-v3 allows

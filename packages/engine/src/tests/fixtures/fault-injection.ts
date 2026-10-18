@@ -11,6 +11,7 @@
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
+import { steppedUpFetch } from '../../testing/step-up.js';
 
 const ENGINE_ROOT = join(import.meta.dir, '..', '..', '..'); // packages/engine
 
@@ -18,6 +19,8 @@ export interface SpawnedEngine {
   baseUrl: string;
   cookie: string;
   godEmail: string;
+  /** fetch on `baseUrl` that steps up each extension mutation (testing/step-up.ts). */
+  request: (path: string, init?: RequestInit) => Promise<Response>;
   proc: Bun.Subprocess;
   stop: () => void;
   logs: () => Promise<string>;
@@ -99,9 +102,10 @@ export async function spawnEngine(opts: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: godEmail, password }),
   });
-  const cookie = (signin.headers.get('set-cookie') ?? '').split(';')[0];
+  const cookie = (signin.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+  const request = await steppedUpFetch(baseUrl, cookie, password);
 
-  return { baseUrl, cookie, godEmail, proc, stop: () => proc.kill(), logs };
+  return { baseUrl, cookie, godEmail, request, proc, stop: () => proc.kill(), logs };
 }
 
 export interface MockRegistry {

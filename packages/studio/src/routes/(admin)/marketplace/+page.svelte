@@ -30,6 +30,7 @@ import PageSpinner from '$lib/components/common/PageSpinner.svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { refreshExtensions } from '$lib/extensions.svelte.js';
+import { StepUpEnrollmentRequired, stepUpAborted, stepUpHeaders } from '$lib/step-up.svelte.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 const CATEGORY_ICONS: Record<string, any> = {
@@ -175,13 +176,19 @@ const stats = $derived({
 // Local wrapper around the shared $lib/api client — keeps the existing
 // call sites unchanged while routing through the centralised credentials/
 // base-URL logic instead of re-implementing it per page.
-async function api(path: string, opts: RequestInit = {}) {
+// `action` names a mutation the engine confirms with a step-up (passkey or TOTP).
+async function api(path: string, opts: RequestInit = {}, action?: string) {
   const res = await marketplaceApi.fetch(path, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', ...opts.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(action ? await stepUpHeaders(action) : {}),
+      ...opts.headers,
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: m['mkt.requestFailed']() }));
+    if (err.code === 'step_up_enrollment_required') throw new StepUpEnrollmentRequired();
     throw new Error(err.error || `HTTP ${res.status}`);
   }
   return res.json();
@@ -199,15 +206,17 @@ async function saveLicense() {
   licenseError = '';
   licenseSaving = true;
   try {
-    await api(`/api/marketplace/license/${encodeURIComponent(licenseExt.name)}`, {
-      method: 'POST',
-      body: JSON.stringify({ license_key: licenseKey }),
-    });
+    await api(
+      `/api/marketplace/license/${encodeURIComponent(licenseExt.name)}`,
+      { method: 'POST', body: JSON.stringify({ license_key: licenseKey }) },
+      `extension.license:${licenseExt.name}`,
+    );
     licenseExt = null;
     await loadCatalog();
     toast.success(m['mkt.licenseSaved']());
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
+    if (stepUpAborted(e)) return;
     licenseError = e.message;
   } finally {
     licenseSaving = false;
@@ -272,10 +281,15 @@ function tierBadgeClass(t: Tier | undefined): string {
 async function install(ext: Extension) {
   processingId = ext.name;
   try {
-    await api(`/api/marketplace/${encodeURIComponent(ext.name)}/install`, { method: 'POST' });
+    await api(
+      `/api/marketplace/${encodeURIComponent(ext.name)}/install`,
+      { method: 'POST' },
+      `extension.install:${ext.name}`,
+    );
     await loadCatalog();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
+    if (stepUpAborted(e)) return;
     toast.error(m['mkt.installFailed']({ error: e.message }));
   } finally {
     processingId = null;
@@ -294,13 +308,15 @@ async function approveCapabilities(ext: Extension) {
   if (pending.length === 0) return;
   processingId = ext.name;
   try {
-    await api(`/api/marketplace/${encodeURIComponent(ext.name)}/approve-capabilities`, {
-      method: 'POST',
-      body: JSON.stringify({ capabilities: ext.declared_capabilities ?? [] }),
-    });
+    await api(
+      `/api/marketplace/${encodeURIComponent(ext.name)}/approve-capabilities`,
+      { method: 'POST', body: JSON.stringify({ capabilities: ext.declared_capabilities ?? [] }) },
+      `extension.approve-capabilities:${ext.name}`,
+    );
     toast.success(m['mkt.approved']({ caps: pending.join(', '), name: ext.displayName }));
     await loadCatalog();
   } catch (e) {
+    if (stepUpAborted(e)) return;
     toast.error(m['mkt.approvalFailed']({ error: (e as Error).message }));
   } finally {
     processingId = null;
@@ -311,13 +327,18 @@ async function approveCapabilities(ext: Extension) {
 async function approveForwarding(ext: Extension) {
   processingId = ext.name;
   try {
-    await api(`/api/marketplace/${encodeURIComponent(ext.name)}/approve-forward-credentials`, {
-      method: 'POST',
-      body: JSON.stringify({ forward_credentials: ext.forwarded_credentials ?? {} }),
-    });
+    await api(
+      `/api/marketplace/${encodeURIComponent(ext.name)}/approve-forward-credentials`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ forward_credentials: ext.forwarded_credentials ?? {} }),
+      },
+      `extension.approve-forward-credentials:${ext.name}`,
+    );
     toast.success(m['mkt.forwardApproved']({ name: ext.displayName }));
     await loadCatalog();
   } catch (e) {
+    if (stepUpAborted(e)) return;
     toast.error(m['mkt.approvalFailed']({ error: (e as Error).message }));
   } finally {
     processingId = null;
@@ -330,9 +351,11 @@ async function enable(ext: Extension) {
     // Engine now awaits the Studio rebuild inline (v2 model: rebuild
     // IS the install step, not a side-effect). The response carries
     // the real outcome — no more "triggered" / unknown end-state.
-    const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/enable`, {
-      method: 'POST',
-    });
+    const res = await api(
+      `/api/marketplace/${encodeURIComponent(ext.name)}/enable`,
+      { method: 'POST' },
+      `extension.enable:${ext.name}`,
+    );
     if (res.needs_restart) restartNeeded = true;
     await loadCatalog();
     await refreshExtensions();
@@ -363,6 +386,7 @@ async function enable(ext: Extension) {
     }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
+    if (stepUpAborted(e)) return;
     toast.error(m['mkt.enableFailed']({ error: e.message }));
   } finally {
     processingId = null;
@@ -380,9 +404,11 @@ async function disable(ext: Extension) {
       confirmState.open = false;
       processingId = ext.name;
       try {
-        const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/disable`, {
-          method: 'POST',
-        });
+        const res = await api(
+          `/api/marketplace/${encodeURIComponent(ext.name)}/disable`,
+          { method: 'POST' },
+          `extension.disable:${ext.name}`,
+        );
         await loadCatalog();
         await refreshExtensions();
 
@@ -402,6 +428,7 @@ async function disable(ext: Extension) {
         }
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (e: any) {
+        if (stepUpAborted(e)) return;
         toast.error(m['mkt.disableFailed']({ error: e.message }));
       } finally {
         processingId = null;
@@ -420,10 +447,15 @@ async function uninstall(ext: Extension) {
       confirmState.open = false;
       processingId = ext.name;
       try {
-        await api(`/api/marketplace/${encodeURIComponent(ext.name)}/uninstall`, { method: 'POST' });
+        await api(
+          `/api/marketplace/${encodeURIComponent(ext.name)}/uninstall`,
+          { method: 'POST' },
+          `extension.uninstall:${ext.name}`,
+        );
         await loadCatalog();
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } catch (e: any) {
+        if (stepUpAborted(e)) return;
         toast.error(m['mkt.uninstallFailed']({ error: e.message }));
       } finally {
         processingId = null;
@@ -443,14 +475,16 @@ async function saveConfig() {
   configError = '';
   try {
     const parsed = JSON.parse(configJson);
-    await api(`/api/marketplace/${encodeURIComponent(configuringExt.name)}/config`, {
-      method: 'PUT',
-      body: JSON.stringify(parsed),
-    });
+    await api(
+      `/api/marketplace/${encodeURIComponent(configuringExt.name)}/config`,
+      { method: 'PUT', body: JSON.stringify(parsed) },
+      `extension.config:${configuringExt.name}`,
+    );
     configuringExt = null;
     await loadCatalog();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (e: any) {
+    if (stepUpAborted(e)) return;
     configError = e instanceof SyntaxError ? m['mkt.invalidJson']() : e.message;
   }
 }

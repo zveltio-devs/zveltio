@@ -266,6 +266,47 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
 }
 
 /**
+ * A god session that can step up (lib/step-up.ts): a software passkey enrolled
+ * the way the Studio does, behind the password. `stepUp(action)` is the header
+ * one extension mutation needs; each call mints a fresh single-use token.
+ *
+ * `app` is the engine behind one door that does that for its caller: a request
+ * carrying exactly this god's cookie to an extension mutation gets a fresh token
+ * on the way in, so suites about what a mutation DOES need not re-spell how it is
+ * confirmed. `god-step-up.test.ts` is where the confirmation itself is tested.
+ */
+export async function createSteppedUpGod(
+  app: Hono,
+  db: Database,
+): Promise<{ cookie: string; app: Hono; stepUp(action: string): Promise<Record<string, string>> }> {
+  const { newSoftPasskey, registerSoftPasskey, passkeyStepUp, stepUpActionFor } = await import(
+    './step-up.js'
+  );
+  const { passkeyRelyingParty } = await import('../lib/auth.js');
+  const { Hono: HonoApp } = await import('hono');
+  const { origin } = passkeyRelyingParty();
+  const req = (path: string, init?: RequestInit) => app.request(path, init);
+  const cookie = await createGodSession(app, db);
+  const pk = await newSoftPasskey();
+  const reg = await registerSoftPasskey(req, cookie, pk, origin, { password: 'HarnessGod123!' });
+  if (!reg.ok)
+    throw new Error(`harness passkey enrollment failed: ${reg.status} ${await reg.text()}`);
+  const stepUp = async (action: string) => ({
+    'X-Zveltio-Step-Up': await passkeyStepUp(req, cookie, pk, action, origin),
+  });
+  const door = new HonoApp();
+  door.all('*', async (c) => {
+    const raw = c.req.raw;
+    const action = stepUpActionFor(raw.method, new URL(raw.url).pathname);
+    if (!action || raw.headers.get('cookie') !== cookie) return app.fetch(raw);
+    const headers = new Headers(raw.headers);
+    headers.set('X-Zveltio-Step-Up', (await stepUp(action))['X-Zveltio-Step-Up']);
+    return app.fetch(new Request(raw, { headers }));
+  });
+  return { cookie, app: door, stepUp };
+}
+
+/**
  * A signed-in user who is NOT god, plus its id.
  *
  * Needed because `createGodSession` is the only session most harness suites
@@ -499,7 +540,11 @@ export async function syncPull(
  * `PATCH /api/users/:id` refuses to change god status (#1161). Each call brings
  * a fresh `RECOVERY_TOKEN`, since a token is spent on use.
  */
-export async function recoverGod(app: Hono, email: string): Promise<Response> {
+export async function recoverGod(
+  app: Hono,
+  email: string,
+  extra: Record<string, unknown> = {},
+): Promise<Response> {
   const saved = process.env.RECOVERY_TOKEN;
   const token = `harness-recovery-${crypto.randomUUID()}`;
   process.env.RECOVERY_TOKEN = token;
@@ -507,7 +552,7 @@ export async function recoverGod(app: Hono, email: string): Promise<Response> {
     return await app.request('/api/permissions/bootstrap', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, ...extra }),
     });
   } finally {
     if (saved === undefined) delete process.env.RECOVERY_TOKEN;

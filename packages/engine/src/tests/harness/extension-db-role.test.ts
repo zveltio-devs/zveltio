@@ -48,7 +48,7 @@ import {
   ALL_COLLECTIONS_ACTOR,
   asTenant,
   connectedAsSuperuser,
-  createGodSession,
+  createSteppedUpGod,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
@@ -429,7 +429,7 @@ d('one extension cannot reach another extension’s tables at the database layer
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
-    cookie = await createGodSession(app, db);
+    ({ cookie, app } = await createSteppedUpGod(app, db));
     for (const t of SEP_TABLES) {
       await sql`CREATE TABLE IF NOT EXISTS ${sql.table(t)} (id serial PRIMARY KEY, note text)`.execute(
         db,

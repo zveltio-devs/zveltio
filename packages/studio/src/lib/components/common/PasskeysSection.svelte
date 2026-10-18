@@ -18,6 +18,8 @@ import { Fingerprint, Plus, Trash2, RefreshCw } from '@lucide/svelte';
 import { api } from '$lib/api.js';
 import { toast } from '$lib/stores/toast.svelte.js';
 import { startRegistration } from '@simplewebauthn/browser';
+import { stepUp, stepUpAborted, stepUpHeaders } from '$lib/step-up.svelte.js';
+import Modal from './Modal.svelte';
 
 interface Passkey {
   id: string;
@@ -31,6 +33,21 @@ let passkeys = $state<Passkey[]>([]);
 let loading = $state(true);
 let registering = $state(false);
 let deletingId = $state<string | null>(null);
+
+// The first sign-in factor is confirmed with the password (the engine refuses it
+// otherwise); every later change with a step-up from an existing factor.
+let passwordAsk = $state<((pw: string | null) => void) | null>(null);
+let password = $state('');
+function askPassword(): Promise<string | null> {
+  password = '';
+  return new Promise((resolve) => {
+    passwordAsk = resolve;
+  });
+}
+function answerPassword(pw: string | null) {
+  passwordAsk?.(pw);
+  passwordAsk = null;
+}
 
 onMount(load);
 
@@ -62,12 +79,20 @@ async function registerNew(): Promise<void> {
 
   registering = true;
   try {
-    // 1. Ask the server for a challenge.
-    const optsRes = await api.fetch('/api/auth/passkey/generate-register-options', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: label.trim() || m['passkeys.unnamed']() }),
-    });
+    const confirm: { password?: string; headers?: Record<string, string> } = {};
+    if (await stepUp.hasFactor('factor.passkey.add')) {
+      confirm.headers = await stepUpHeaders('factor.passkey.add');
+    } else {
+      const pw = await askPassword();
+      if (pw == null) return;
+      confirm.password = pw;
+    }
+
+    // 1. Ask the server for a challenge. GET: Better Auth serves it on GET only.
+    const name = label.trim() || m['passkeys.unnamed']();
+    const optsRes = await api.fetch(
+      `/api/auth/passkey/generate-register-options?name=${encodeURIComponent(name)}`,
+    );
     if (!optsRes.ok) throw new Error(`Failed to get registration options: HTTP ${optsRes.status}`);
     const options = await optsRes.json();
 
@@ -77,20 +102,20 @@ async function registerNew(): Promise<void> {
     // 3. Send the attestation back for verification + storage.
     const verifyRes = await api.fetch('/api/auth/passkey/verify-registration', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        response: attestation,
-        name: label.trim() || m['passkeys.unnamed'](),
-      }),
+      headers: { 'Content-Type': 'application/json', ...confirm.headers },
+      body: JSON.stringify({ response: attestation, name, password: confirm.password }),
     });
     if (!verifyRes.ok) {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const body = (await verifyRes.json().catch(() => null)) as any;
-      throw new Error(body?.message ?? `Verification failed: HTTP ${verifyRes.status}`);
+      throw new Error(
+        body?.message ?? body?.error ?? `Verification failed: HTTP ${verifyRes.status}`,
+      );
     }
     toast.success(m['passkeys.registered']());
     await load();
   } catch (e) {
+    if (stepUpAborted(e)) return;
     const msg = e instanceof Error ? e.message : String(e);
     // User-cancelled ceremonies throw NotAllowedError / AbortError — not real errors.
     if (
@@ -113,13 +138,17 @@ async function deleteOne(id: string): Promise<void> {
   try {
     const res = await api.fetch('/api/auth/passkey/delete-passkey', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(await stepUpHeaders('factor.passkey.remove')),
+      },
       body: JSON.stringify({ id }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     toast.success(m['passkeys.deleted']());
     await load();
   } catch (e) {
+    if (stepUpAborted(e)) return;
     toast.error(`Failed to delete: ${e instanceof Error ? e.message : String(e)}`);
   } finally {
     deletingId = null;
@@ -223,3 +252,27 @@ function formatDate(iso: string): string {
     </div>
   </div>
 </section>
+
+<Modal
+  open={!!passwordAsk}
+  title={m['passkeys.passwordTitle']()}
+  size="sm"
+  onClose={() => answerPassword(null)}
+  onSubmit={() => answerPassword(password)}
+>
+  <p class="text-sm text-base-content/70">{m['passkeys.passwordIntro']()}</p>
+  <input
+    type="password"
+    class="input input-bordered w-full mt-4"
+    autocomplete="current-password"
+    aria-label={m['passkeys.passwordTitle']()}
+    required
+    bind:value={password}
+  />
+  <div class="modal-action">
+    <button type="button" class="btn btn-ghost btn-sm" onclick={() => answerPassword(null)}>
+      {m['common.cancel']()}
+    </button>
+    <button type="submit" class="btn btn-primary btn-sm">{m['passkeys.add']()}</button>
+  </div>
+</Modal>

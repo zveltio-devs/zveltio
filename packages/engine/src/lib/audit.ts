@@ -6,6 +6,8 @@ export type AuditEventType =
   | 'auth.login_failed'
   | 'auth.login_success'
   | 'auth.logout'
+  /** A passkey or TOTP factor was added, removed or disabled (routes/step-up.ts). */
+  | 'auth.factor_changed'
   | 'permission.denied'
   | 'permission.granted'
   | 'permission.revoked'

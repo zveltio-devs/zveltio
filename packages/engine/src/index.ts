@@ -721,7 +721,14 @@ async function buildHonoApp(): Promise<Hono> {
     // No cross-origin by default — see comment block on `/api/*` below.
     origin: process.env.CORS_ORIGINS?.split(',') ?? [],
     credentials: true,
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Tenant-Slug', 'X-Environment'],
+    // X-Zveltio-Step-Up: a split-dev Studio confirming an extension change (lib/step-up.ts).
+    allowHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Tenant-Slug',
+      'X-Environment',
+      'X-Zveltio-Step-Up',
+    ],
   };
   app.use('/ext/*', cors(corsOptions));
   app.use(

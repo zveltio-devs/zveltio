@@ -33,6 +33,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { steppedUpFetch } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const skipAll = !TEST_DB_URL;
@@ -505,8 +506,10 @@ for (const [driver, transport] of LEGS) {
                     ON CONFLICT (tenant_id, user_id) DO UPDATE SET valid_to = NULL`);
       const god = { cookie: await signIn(godEmail) };
       const member = { cookie: await signIn(memberEmail) };
+      // Extension mutations need a step-up (lib/step-up.ts): a soft passkey.
+      const godApi = await steppedUpFetch(leg.url, god.cookie, PASSWORD);
       const asGod = (path: string, method = 'GET', body?: unknown) =>
-        api(path, {
+        godApi(path, {
           method,
           headers: { ...god, ...json },
           ...(body ? { body: JSON.stringify(body) } : {}),
