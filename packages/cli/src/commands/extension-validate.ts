@@ -461,7 +461,14 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
           : undefined;
       const extName =
         typeof manifestRecord?.name === 'string' ? manifestRecord.name : inferExpectedName(dir);
-      const provided = extractEngineRoutes(readEngineSources(dir));
+      // The engine serves each manifest action at `/actions/<name>`, outside the module's own routes.
+      const actionRoutes = Array.isArray(manifestRecord?.actions)
+        ? (manifestRecord.actions as { name?: unknown }[])
+            // The engine's own rule for an action name (manifest-schema.ts).
+            .filter((a) => typeof a?.name === 'string' && /^[a-z][a-zA-Z0-9]*$/.test(a.name))
+            .map((a) => `/actions/${a.name}`)
+        : [];
+      const provided = [...extractEngineRoutes(readEngineSources(dir)), ...actionRoutes];
       const ownMessageKeys = readOwnMessageKeys(dir);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const dependencies: string[] = Array.isArray((manifest as any)?.dependencies)

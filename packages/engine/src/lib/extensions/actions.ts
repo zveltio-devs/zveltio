@@ -11,6 +11,7 @@
 
 import type { Context, Hono } from 'hono';
 import { z } from 'zod';
+import { ACTION_REFUSAL } from '@zveltio/sdk/extension';
 import type {
   ActionHost,
   DataApiAnswer,
@@ -163,9 +164,39 @@ export function mountActions(
       collections: hostCollections(`action "${def.name}"`, def, callerData(c, ctx.internals)),
       enqueue: (job, input) => enqueueJob(extName, p, def, job, input),
     };
-    const result = await def.run(parsed.data, host);
+    let result: unknown;
+    try {
+      result = await def.run(parsed.data, host);
+    } catch (err) {
+      throw refusalProblem(err) ?? err;
+    }
     return c.json({ result: result ?? null });
   });
+}
+
+/**
+ * An `ActionRefusal` the action threw, as the problem its caller gets — still a
+ * throw, so the request transaction rolls back what the action wrote. Only a
+ * 4xx: an extension cannot answer 2xx through a throw, nor dress a failure up
+ * as 401 (which Studio takes for a lost session). Anything else stays a 500.
+ */
+export function refusalProblem(err: unknown): Error | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const r = err as {
+    [ACTION_REFUSAL]?: unknown;
+    status?: unknown;
+    code?: unknown;
+    message?: unknown;
+  };
+  if (r[ACTION_REFUSAL] !== true) return null;
+  const { status } = r;
+  if (typeof status !== 'number' || !Number.isInteger(status) || status < 400 || status > 499) {
+    return null;
+  }
+  if (status === 401 || status === 407) return null;
+  const code =
+    typeof r.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(r.code) ? r.code : 'action_refused';
+  return problem(code, status, typeof r.message === 'string' ? r.message.slice(0, 500) : undefined);
 }
 
 /** One data API call per member of `HostCollections`, answering with the route's status and body. */
