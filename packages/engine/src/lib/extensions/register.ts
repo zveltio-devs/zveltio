@@ -64,6 +64,7 @@ import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
+import { type CompiledAction, compileActions, mountActions } from './actions.js';
 import { buildExtensionConfig } from './config.js';
 import {
   readApprovedForward,
@@ -675,6 +676,7 @@ async function registerExtensionRoutes(
   } | null,
   db: Database,
   serviceDeps: ServiceDeps,
+  actions: ReadonlyMap<string, CompiledAction> = new Map(),
 ): Promise<void> {
   const mountStrategy = extension.mountStrategy ?? 'global';
   if (isolation) {
@@ -723,6 +725,8 @@ async function registerExtensionRoutes(
     // On the sub-app itself, not on `/ext/<name>` in the parent, so it holds
     // wherever the sub-app ends up mounted.
     subApp.use('*', activationMiddlewareFor(extName, db));
+    // Before `register`, so the extension's own middleware never runs for them.
+    mountActions(subApp, extName, actions, restrictedCtx);
     const restore = propagateErrorHandler(subApp);
     try {
       await extension.register(subApp, restrictedCtx);
@@ -804,6 +808,13 @@ export async function finalizeExtensionLoad(
   /** Optional dependencies `resolveManifest` found too old to use: absent to this one. */
   absentOptional: readonly string[] = [],
 ): Promise<void> {
+  // First, so a mismatch refuses the load before anything is granted for it.
+  const actions = compileActions(
+    extName,
+    manifest,
+    extension,
+    manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true,
+  );
   // What the manifest DECLARES is only a request. What an administrator
   // consented to is what the gate enforces — otherwise an extension widens its
   // own power by shipping a new manifest, and the contract means nothing on the
@@ -911,6 +922,7 @@ export async function finalizeExtensionLoad(
       workerIsolation ?? null,
       ctx.db,
       serviceDeps,
+      actions,
     );
   } catch (regErr: unknown) {
     if ((regErr as Error)?.message?.includes('matcher is already built')) {
@@ -966,6 +978,7 @@ export async function finalizeExtensionLoad(
     apiKeyRoutes,
     workerIsolation,
     serviceDeps,
+    actions,
   });
   console.log(`🔌 Extension loaded: ${extName}`);
 
@@ -1026,6 +1039,7 @@ export async function reRegisterExtension(
         loaded?.workerIsolation ?? null,
         loader.ctx.db,
         loaded?.serviceDeps ?? new Map(),
+        loaded?.actions,
       );
     }
 

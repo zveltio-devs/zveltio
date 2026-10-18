@@ -1307,6 +1307,42 @@ export interface ZveltioExtension<DB = any, C extends string = Capability> {
    * Note: Hono routes cannot be de-registered at runtime — they persist until restart.
    */
   cleanup?: () => Promise<void>;
+  /**
+   * The implementations of the manifest's `actions`, by name — one each, and no
+   * more: the engine refuses to load an extension whose two lists differ. The
+   * engine serves each at `POST /ext/<name>/actions/<action>`: it checks the
+   * declared permission, validates the body against the declared `input`, and
+   * runs the function with that body inside the request's transaction. A throw
+   * fails the request and rolls back everything the action wrote.
+   */
+  actions?: Record<string, ExtensionAction>;
+}
+
+/** One action: business logic over the input the engine validated. Returns the response's `result`. */
+export type ExtensionAction = (input: unknown, host: ActionHost) => Promise<unknown>;
+
+/**
+ * How an action reaches data: the data API, as the caller, inside the request's
+ * transaction — permissions, RLS, column rules, hooks and audit are the route's.
+ * Only the collections the manifest declares for the action: `reads` for
+ * `read`/`list`, `writes` for `insert`/`update`/`delete` (which also need
+ * `data:write`). A refused write throws with the data API's status, and the
+ * request fails with it.
+ */
+export interface ActionHost {
+  collections: {
+    /** The record, or `null` when the caller cannot see one with this id. */
+    read(collection: string, id: string): Promise<Record<string, unknown> | null>;
+    /** `GET /api/data/:collection`'s body: `{ records, … }`. */
+    list(collection: string, query?: DataApiReadQuery): Promise<Record<string, unknown>>;
+    insert(collection: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
+    update(
+      collection: string,
+      id: string,
+      data: Record<string, unknown>,
+    ): Promise<Record<string, unknown>>;
+    delete(collection: string, id: string): Promise<void>;
+  };
 }
 
 // ─── Studio extension API (available via window.__zveltio in IIFE bundles) ───

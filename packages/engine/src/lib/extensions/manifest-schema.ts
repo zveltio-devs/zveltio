@@ -227,6 +227,26 @@ export const ManifestSchema = z
      * until a role is granted them by name.
      */
     sensitiveResources: z.array(z.string()).default([]),
+    /**
+     * Synchronous business logic the engine serves at `POST /ext/<name>/actions/<action>`
+     * (RFC v3 "Actions"): the caller must hold `permission` on one of `resources`,
+     * the body must match `input` (JSON Schema), and the implementation reaches
+     * only the collections in `reads` and `writes`, inside the request transaction.
+     */
+    actions: z
+      .array(
+        z.object({
+          name: z.string().regex(/^[a-z][a-zA-Z0-9]*$/),
+          permission: z.object({
+            resource: z.string().min(1),
+            action: z.string().min(1).default('execute'),
+          }),
+          input: z.record(z.string(), z.unknown()),
+          reads: z.array(z.string()).default([]),
+          writes: z.array(z.string()).default([]),
+        }),
+      )
+      .default([]),
     contributes: z
       .object({
         engine: z.boolean().default(true),
@@ -299,6 +319,35 @@ export const ManifestSchema = z
   })
   .passthrough()
   .superRefine((m, ctx) => {
+    const names = new Set<string>();
+    m.actions.forEach((a, i) => {
+      if (names.has(a.name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['actions', i, 'name'],
+          message: `action "${a.name}" is declared twice`,
+        });
+      }
+      names.add(a.name);
+      // Granted and refused per resource: one this manifest does not declare
+      // gets no default grants and no place in the role editor.
+      if (!m.resources.includes(a.permission.resource)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['actions', i, 'permission', 'resource'],
+          message: `action "${a.name}" is gated on "${a.permission.resource}", which is not in resources`,
+        });
+      }
+      try {
+        z.fromJSONSchema(a.input as Parameters<typeof z.fromJSONSchema>[0]);
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['actions', i, 'input'],
+          message: `action "${a.name}": input is not a usable JSON Schema (${(err as Error).message})`,
+        });
+      }
+    });
     for (const route of Object.keys(m.forwardCredentials)) {
       if (!m.publicRoutes.includes(route)) {
         ctx.addIssue({
