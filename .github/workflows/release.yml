@@ -180,6 +180,8 @@ jobs:
         with:
           name: binary-zveltio-linux-x64
           path: ./
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: '1.3.14' }
       - name: Stage smoke fixtures (inline subapp, worker isolation, global mount)
         # Three fixtures, three code paths:
         #   hello-ext        — inline + subapp (default for first-party)
@@ -226,6 +228,13 @@ jobs:
           ZVELTIO_EXT_RUNNER_SOCKET: /run/zveltio-ext/runner.sock
           PORT: '3000'
           NODE_ENV: production
+          # Every extension install/enable needs the god's step-up (lib/step-up.ts):
+          # scripts/god-request.ts enrolls a soft passkey once and reuses it.
+          GOD_PASSWORD: SmokePass123!
+          PROBE_PASSKEY_FILE: ${{ runner.temp }}/smoke-passkey.json
+          # One step-up (options + verify on /api/auth/*) per install/enable: eight
+          # of them from one address pass the auth rate limit.
+          RATE_LIMIT_ALLOWLIST: 127.0.0.1/32,::1/128
         run: |
           chmod +x zveltio-linux-x64
           ./zveltio-linux-x64 &
@@ -274,17 +283,13 @@ jobs:
           # autocrlf etc.) on the compiled binary. The fixture is on
           # disk under EXTENSIONS_DIR so no registry round-trip — the
           # smoke job stays green even if registry.zveltio.com is down.
-          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext/install \
-            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
-            -o /tmp/install.json
+          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext/install > /tmp/install.json || true
           if ! grep -q '"success":true' /tmp/install.json; then
             echo "::error::Install failed"; cat /tmp/install.json
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
 
-          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext/enable \
-            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
-            -o /tmp/enable.json
+          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext/enable > /tmp/enable.json || true
           if ! grep -q '"success":true' /tmp/enable.json; then
             echo "::error::Enable failed — likely a module-resolution or schema-mismatch regression."
             echo "::error::Body: $(cat /tmp/enable.json)"
@@ -307,17 +312,13 @@ jobs:
           # worker isolation path (manifest.engine.isolation: 'worker').
           # If anything in the IPC chain (route proxy / DB proxy /
           # bundle re-import inside worker) regresses, this fails.
-          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-worker/install \
-            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
-            -o /tmp/install-worker.json
+          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext-worker/install > /tmp/install-worker.json || true
           if ! grep -q '"success":true' /tmp/install-worker.json; then
             echo "::error::hello-ext-worker install failed"; cat /tmp/install-worker.json
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
 
-          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-worker/enable \
-            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
-            -o /tmp/enable-worker.json
+          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext-worker/enable > /tmp/enable-worker.json || true
           if ! grep -q '"success":true' /tmp/enable-worker.json; then
             echo "::error::hello-ext-worker enable failed — likely a worker-host wiring regression."
             echo "::error::Body: $(cat /tmp/enable-worker.json)"
@@ -337,16 +338,12 @@ jobs:
           # Repeat for hello-ext-global — exercises mountStrategy='global'
           # which is what extensions use when they need a route outside
           # the per-extension /ext/<name>/ namespace.
-          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-global/install \
-            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
-            -o /tmp/install-global.json
+          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext-global/install > /tmp/install-global.json || true
           if ! grep -q '"success":true' /tmp/install-global.json; then
             echo "::error::hello-ext-global install failed"; cat /tmp/install-global.json
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
-          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-global/enable \
-            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
-            -o /tmp/enable-global.json
+          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext-global/enable > /tmp/enable-global.json || true
           if ! grep -q '"success":true' /tmp/enable-global.json; then
             echo "::error::hello-ext-global enable failed"
             echo "::error::Body: $(cat /tmp/enable-global.json)"
@@ -367,17 +364,13 @@ jobs:
           # extensions instead of 422'ing with "no files found / registry
           # unreachable". There is no /ext route to hit — succeeding install +
           # enable IS the assertion.
-          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-uionly/install \
-            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
-            -o /tmp/install-uionly.json
+          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext-uionly/install > /tmp/install-uionly.json || true
           if ! grep -q '"success":true' /tmp/install-uionly.json; then
             echo "::error::hello-ext-uionly install failed — UI-only (engine:false) install regression."
             echo "::error::Body: $(cat /tmp/install-uionly.json)"
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
-          curl -fsS -X POST http://localhost:3000/api/marketplace/hello-ext-uionly/enable \
-            -b cookies.txt -H 'Content-Type: application/json' -d '{}' \
-            -o /tmp/enable-uionly.json
+          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext-uionly/enable > /tmp/enable-uionly.json || true
           if ! grep -q '"success":true' /tmp/enable-uionly.json; then
             echo "::error::hello-ext-uionly enable failed — UI-only (engine:false) enable regression."
             echo "::error::Body: $(cat /tmp/enable-uionly.json)"

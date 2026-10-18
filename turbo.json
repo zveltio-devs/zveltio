@@ -28,6 +28,7 @@
     "TEST_PASS",
     "BETTER_AUTH_URL",
     "PROBE_PASSKEY_FILE",
+    "GOD_PASSWORD",
     "CHROMIUM_PATH",
     "CAPTURE",
     "SHOT_DIR",
