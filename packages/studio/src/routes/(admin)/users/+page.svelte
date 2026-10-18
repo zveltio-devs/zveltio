@@ -5,8 +5,9 @@ import { replaceState } from '$app/navigation';
 import { fmtDate } from '$lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
-import { usersApi } from '$lib/api.js';
-import { UserPlus, Users, Shield, Trash2 } from '@lucide/svelte';
+import { api, usersApi } from '$lib/api.js';
+import { KeyRound, UserPlus, Users, Shield, Trash2 } from '@lucide/svelte';
+import { refusalText, stepUpAborted, stepUpHeaders } from '$lib/step-up.svelte.js';
 import { base } from '$app/paths';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import Modal from '$lib/components/common/Modal.svelte';
@@ -190,6 +191,34 @@ async function deleteUser(id: string, email: string) {
   };
 }
 
+// The engine decides who may (god: anyone else; an admin: ordinary users) and
+// asks the actor for a step-up bound to this user.
+function resetFactors(id: string, email: string) {
+  confirmState = {
+    open: true,
+    title: m['users.resetFactors'](),
+    message: m['users.resetFactorsMsg']({ email }),
+    confirmLabel: m['users.resetFactors'](),
+    onconfirm: async () => {
+      confirmState.open = false;
+      try {
+        const res = await api.fetch(`/api/users/${id}/factors/reset`, {
+          method: 'POST',
+          headers: await stepUpHeaders(`user.factors.reset:${id}`),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+          throw new Error(refusalText(body, res.status));
+        }
+        toast.success(m['users.resetFactorsDone']({ email }));
+      } catch (e) {
+        if (stepUpAborted(e)) return;
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+  };
+}
+
 async function deleteSelected() {
   const ids = Array.from(selectedIds);
   if (ids.length === 0) return;
@@ -358,6 +387,16 @@ function confirmDelete(user: any) {
                    >
                      <Shield size={13} />
                    </a>
+                   {#if user.id !== auth.user?.id}
+                     <button type="button"
+                       class="btn btn-ghost btn-xs"
+                       onclick={() => resetFactors(user.id, user.email)}
+                       title={m['users.resetFactors']()}
+                       aria-label={m['users.resetFactorsItem']({ email: user.email })}
+                     >
+                       <KeyRound size={13} />
+                     </button>
+                   {/if}
                    <button type="button"
                      class="btn btn-ghost btn-xs text-error"
                      onclick={() => confirmDelete(user)}

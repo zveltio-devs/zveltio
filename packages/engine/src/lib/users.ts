@@ -368,6 +368,36 @@ async function revokeThroughCommit(poolDb: Database, userId: string): Promise<vo
   if (getCurrentTenantTrx()) onAfterCommit(() => revokeAllUserSessions(poolDb, userId));
 }
 
+/** Delete `userId`'s passkeys and TOTP on `db`'s transaction; how many of each went. */
+export async function clearUserFactors(
+  db: Database,
+  userId: string,
+): Promise<{ passkeys: number; totp: number }> {
+  return asEngineRole(db, async () => {
+    const passkeys = await sql<{ id: string }>`
+      DELETE FROM passkey WHERE "userId" = ${userId} RETURNING id`.execute(db);
+    const totp = await sql<{ id: string }>`
+      DELETE FROM "twoFactor" WHERE "userId" = ${userId} RETURNING id`.execute(db);
+    await sql`UPDATE "user" SET "twoFactorEnabled" = false WHERE id = ${userId}`.execute(db);
+    return { passkeys: passkeys.rows.length, totp: totp.rows.length };
+  });
+}
+
+/**
+ * An administrator's reset of a user's factors. Their sessions end too, as on
+ * deactivation: a reset usually follows a lost or stolen device, and a session
+ * left alive could enroll the thief's factor before the owner does.
+ */
+export async function resetUserFactors(
+  db: Database,
+  poolDb: Database,
+  userId: string,
+): Promise<{ passkeys: number; totp: number }> {
+  const cleared = await clearUserFactors(db, userId);
+  await revokeThroughCommit(poolDb, userId);
+  return cleared;
+}
+
 /** Options for {@link createBetterAuthSession}. */
 export interface CreateSsoSessionOptions {
   ipAddress?: string;
