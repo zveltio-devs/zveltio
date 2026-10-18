@@ -1034,6 +1034,7 @@
   "stepUp.intro": "Diese Änderung erfordert eine neue Bestätigung mit Ihrem Passkey oder Ihrer Authenticator-App.",
   "stepUp.title": "Bestätigen Sie, dass Sie es sind",
   "stepUp.usePasskey": "Passkey verwenden",
+  "stepUp.userVerificationRequired": "Dieser Passkey hat eine Berührung bestätigt, aber nicht Sie. Legen Sie eine PIN fest oder aktivieren Sie Fingerabdruck- oder Gesichtsentsperrung für Ihren Sicherheitsschlüssel und versuchen Sie es erneut.",
   "stepUp.verifyCode": "Code prüfen",
   "permissions.actionOnResource": "{action} {resource}",
   "permissions.activeRules": "Aktive Vererbungsregeln ({count})",
@@ -1563,5 +1564,9 @@
   "wh.testNamed": "Webhook {name} testen",
   "wh.timeout": "Zeitlimit",
   "wh.timeoutHint": "Millisekunden (1000–30000)",
-  "shell.collection_rls_exempt": "{count} Erweiterung(en) laufen ohne Sammlungsberechtigungen in der Datenbank: {names}. Passen Sie sie an und entfernen Sie sie aus ZVELTIO_COLLECTION_RLS_EXEMPT — die Ausnahme endet mit 3.0.0."
+  "shell.collection_rls_exempt": "{count} Erweiterung(en) laufen ohne Sammlungsberechtigungen in der Datenbank: {names}. Passen Sie sie an und entfernen Sie sie aus ZVELTIO_COLLECTION_RLS_EXEMPT — die Ausnahme endet mit 3.0.0.",
+  "stepUp.userVerificationOrCode": "Dieser Passkey hat eine Berührung bestätigt, aber nicht Sie. Legen Sie eine PIN fest oder aktivieren Sie Fingerabdruck- oder Gesichtsentsperrung für Ihren Sicherheitsschlüssel, oder geben Sie den Code aus Ihrer Authenticator-App ein.",
+  "stepUp.orCodeLabel": "Oder ein Code aus Ihrer Authenticator-App",
+  "passkeys.passwordWrong": "Dieses Passwort ist nicht korrekt.",
+  "passkeys.signInAgain": "Melden Sie sich zu Ihrer Sicherheit ab und erneut über Ihren Anmeldeanbieter an, und fügen Sie Ihren Passkey innerhalb von fünf Minuten hinzu."
 }

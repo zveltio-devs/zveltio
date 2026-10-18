@@ -14,7 +14,14 @@ vi.mock('@simplewebauthn/browser', () => ({
   startAuthentication: vi.fn(async () => ({ id: 'cred-1', response: {} })),
 }));
 
-import { StepUpCancelled, stepUp, stepUpAborted, stepUpHeaders } from './step-up.svelte.js';
+import { m } from './i18n.svelte.js';
+import {
+  refusalText,
+  StepUpCancelled,
+  stepUp,
+  stepUpAborted,
+  stepUpHeaders,
+} from './step-up.svelte.js';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -51,6 +58,72 @@ describe('stepUp', () => {
     await stepUp.confirm('123456');
     expect(await token).toBe('tok-2');
     expect(bodyOf(2)).toEqual({ action: 'extension.enable:crm', code: '123456' });
+  });
+
+  it("a passkey that did not verify its user says to set a PIN, in the person's language", async () => {
+    apiFetch
+      .mockResolvedValueOnce(json({ method: 'passkey', options: { challenge: 'c' } }))
+      .mockResolvedValueOnce(
+        json({ code: 'step_up_user_verification_required', detail: 'engine words' }, 403),
+      )
+      .mockResolvedValueOnce(json({ method: 'passkey', options: { challenge: 'c2' } }));
+    void stepUp.token('extension.install:crm').catch(() => {});
+    await vi.waitFor(() => expect(stepUp.pending?.method).toBe('passkey'));
+    await expect(stepUp.confirm()).rejects.toThrow(m['stepUp.userVerificationRequired']());
+    expect(stepUp.pending).not.toBeNull();
+    stepUp.cancel();
+  });
+
+  it("shows the engine's problem detail for any other refusal", async () => {
+    apiFetch
+      .mockResolvedValueOnce(json({ method: 'totp' }))
+      .mockResolvedValueOnce(
+        json({ code: 'step_up_failed', detail: 'The code is not valid' }, 403),
+      );
+    void stepUp.token('extension.enable:crm').catch(() => {});
+    await vi.waitFor(() => expect(stepUp.pending?.method).toBe('totp'));
+    await expect(stepUp.confirm('000000')).rejects.toThrow('The code is not valid');
+    stepUp.cancel();
+  });
+
+  it('a passkey account with an authenticator app may confirm with a code instead', async () => {
+    apiFetch
+      .mockResolvedValueOnce(json({ method: 'passkey', options: { challenge: 'c' }, totp: true }))
+      .mockResolvedValueOnce(
+        json({ code: 'step_up_user_verification_required', detail: 'engine words' }, 403),
+      )
+      .mockResolvedValueOnce(json({ method: 'passkey', options: { challenge: 'c2' }, totp: true }))
+      .mockResolvedValueOnce(json({ token: 'tok-3' }));
+    const token = stepUp.token('extension.install:crm');
+    await vi.waitFor(() => expect(stepUp.pending?.totp).toBe(true));
+    await expect(stepUp.confirm()).rejects.toThrow(m['stepUp.userVerificationOrCode']());
+    await stepUp.confirm('123456');
+    expect(await token).toBe('tok-3');
+    expect(bodyOf(3)).toEqual({ action: 'extension.install:crm', code: '123456' });
+  });
+
+  it('tells the passkey section what enrolls a first factor', async () => {
+    apiFetch
+      .mockResolvedValueOnce(
+        json(
+          { code: 'step_up_enrollment_required', errors: { first_factor: 'recent_sign_in' } },
+          403,
+        ),
+      )
+      .mockResolvedValueOnce(json({ method: 'totp' }));
+    expect(await stepUp.firstFactor('factor.passkey.add')).toBe('recent_sign_in');
+    expect(await stepUp.firstFactor('factor.passkey.add')).toBeNull();
+  });
+
+  it('puts factor refusals in words, not "HTTP 403"', () => {
+    expect(refusalText({ code: 'password_required', detail: 'x' }, 403)).toBe(
+      m['passkeys.passwordWrong'](),
+    );
+    expect(refusalText({ code: 'recent_sign_in_required', detail: 'x' }, 403)).toBe(
+      m['passkeys.signInAgain'](),
+    );
+    expect(refusalText({ code: 'forbidden', detail: 'Nope' }, 403)).toBe('Nope');
+    expect(refusalText({}, 500)).toBe('HTTP 500');
   });
 
   it('sends a god with no factor to the security settings', async () => {

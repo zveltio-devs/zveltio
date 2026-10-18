@@ -8,9 +8,12 @@
  * passkey or delete one; a stolen cookie could add the thief's authenticator and
  * then pass every step-up. So:
  * - the FIRST factor needs the password (TOTP enable already demands it; the
- *   passkey path is gated here), since there is nothing stronger to ask for;
- * - once one exists, adding a passkey or TOTP, deleting a passkey or disabling
- *   TOTP needs a step-up token earned with an existing factor.
+ *   passkey path is gated here), since there is nothing stronger to ask for. An
+ *   account with no password (OAuth only) instead needs a session that an OAuth
+ *   sign-in created at most five minutes ago: the provider just checked the person;
+ * - once one exists, adding a passkey or TOTP, deleting a passkey, disabling
+ *   TOTP, reading its secret back or regenerating backup codes needs a step-up
+ *   token earned with an existing factor.
  * Each change is audited and, where SMTP is configured, mailed to the account.
  */
 import type { Context, Hono, Next } from 'hono';
@@ -20,6 +23,7 @@ import { auditLog } from '../lib/audit.js';
 import { isEmailConfigured, sendEmail } from '../lib/email.js';
 import { clientIpForAudit } from '../lib/security/index.js';
 import {
+  firstFactorRule,
   hasStepUpFactor,
   requireStepUp,
   stepUpOptions,
@@ -28,9 +32,15 @@ import {
 } from '../lib/step-up.js';
 import { type RequestSession, requestSession } from '../middleware/session-prefetch.js';
 
-type FactorChange = 'passkey.add' | 'passkey.remove' | 'totp.add' | 'totp.disable';
+type FactorChange =
+  | 'passkey.add'
+  | 'passkey.remove'
+  | 'totp.add'
+  | 'totp.disable'
+  | 'totp.reveal'
+  | 'backup-codes.regenerate';
 
-const DESCRIBE: Record<FactorChange, string> = {
+const DESCRIBE: Partial<Record<FactorChange, string>> = {
   'passkey.add': 'A passkey was added to your account.',
   'passkey.remove': 'A passkey was removed from your account.',
   'totp.add': 'An authenticator app was enabled on your account.',
@@ -54,7 +64,7 @@ function recordFactorChange(
     tenantId: null,
   }).catch((err: Error) => console.error('[step-up] factor-change audit failed:', err.message));
   if (!isEmailConfigured()) return;
-  const line = DESCRIBE[change];
+  const line = DESCRIBE[change] ?? change;
   sendEmail({
     to: user.email,
     subject: 'Your sign-in methods changed',
@@ -79,6 +89,37 @@ async function passwordMatches(c: Context): Promise<boolean> {
   }
 }
 
+/**
+ * What confirms `change`, or the refusal: a step-up from an existing factor; for
+ * the first one, the password — or, on an account that has none, a fresh OAuth sign-in.
+ */
+async function confirmChange(
+  c: Context,
+  session: RequestSession,
+  change: FactorChange,
+): Promise<string | Response> {
+  const userId = session.user.id;
+  if (await hasStepUpFactor(userId)) return requireStepUp(c, `factor.${change}`);
+  const rule = await firstFactorRule(userId, session.session.token);
+  if (rule === 'password') {
+    // Better Auth checks it on its two-factor routes; its passkey route asks for none.
+    if (change !== 'passkey.add' || (await passwordMatches(c))) return 'password';
+    return c.json(
+      { error: 'Enter your password to add your first sign-in factor', code: 'password_required' },
+      403,
+    );
+  }
+  if (rule === 'recent_sign_in') return 'oauth';
+  return c.json(
+    {
+      error:
+        'Sign in again with your sign-in provider, then add your first sign-in factor within five minutes.',
+      code: 'recent_sign_in_required',
+    },
+    403,
+  );
+}
+
 export function registerStepUpRoutes(app: Hono, poolDb: Database): void {
   app.post('/api/auth/step-up/options', stepUpOptions);
   app.post('/api/auth/step-up/verify', stepUpVerify);
@@ -86,23 +127,11 @@ export function registerStepUpRoutes(app: Hono, poolDb: Database): void {
   const gate = (change: FactorChange) => async (c: Context, next: Next) => {
     const session = await requestSession(c, auth);
     if (!session) return next(); // Better Auth refuses it in its own words.
-    let confirmedBy = 'password';
-    if (await hasStepUpFactor(session.user.id)) {
-      const method = await requireStepUp(c, `factor.${change}`);
-      if (method instanceof Response) return method;
-      confirmedBy = method;
-    } else if (change === 'passkey.add' && !(await passwordMatches(c))) {
-      return c.json(
-        {
-          error: 'Enter your password to add your first sign-in factor',
-          code: 'password_required',
-        },
-        403,
-      );
-    }
+    const confirmedBy = await confirmChange(c, session, change);
+    if (confirmedBy instanceof Response) return confirmedBy;
     await next();
     // A TOTP secret is live only once verify-totp confirms it; that is audited there.
-    if (c.res.status < 400 && change !== 'totp.add') {
+    if (c.res.status < 400 && change !== 'totp.add' && DESCRIBE[change]) {
       recordFactorChange(c, poolDb, session.user, change, confirmedBy);
     }
   };
@@ -110,6 +139,9 @@ export function registerStepUpRoutes(app: Hono, poolDb: Database): void {
   app.post('/api/auth/passkey/delete-passkey', gate('passkey.remove'));
   app.post('/api/auth/two-factor/enable', gate('totp.add'));
   app.post('/api/auth/two-factor/disable', gate('totp.disable'));
+  // With `allowPasswordless`, Better Auth asks an account with no password for nothing here.
+  app.post('/api/auth/two-factor/get-totp-uri', gate('totp.reveal'));
+  app.post('/api/auth/two-factor/generate-backup-codes', gate('backup-codes.regenerate'));
 
   app.post('/api/auth/two-factor/verify-totp', async (c, next) => {
     const session = await requestSession(c, auth);

@@ -15,7 +15,8 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _settleAuditWrites } from '../../lib/audit.js';
-import { passkeyRelyingParty } from '../../lib/auth.js';
+import { github } from 'better-auth/social-providers';
+import { getAuth, passkeyRelyingParty } from '../../lib/auth.js';
 import {
   createGodSession,
   getTestApp,
@@ -91,6 +92,39 @@ d('god step-up for extension mutations', () => {
     expect(wrong.status).toBe(403);
     const ok = await registerSoftPasskey(req, cookie, pk, origin, { password: PASSWORD });
     expect(ok.status).toBe(200);
+  });
+
+  it('a step-up passkey must verify its user (PIN or biometrics); presence alone is refused', async () => {
+    const action = `extension.config:${PROBE}`;
+    const post = (path: string, body: unknown) =>
+      app.request(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify(body),
+      });
+    const options = async () => {
+      const o = await post('/api/auth/step-up/options', { action });
+      return (
+        (await o.json()) as {
+          options: { challenge: string; rpId: string; userVerification: string };
+        }
+      ).options;
+    };
+    const o1 = await options();
+    expect(o1.userVerification).toBe('required');
+    const bare = await softAssertion(pk, o1.challenge, o1.rpId, origin, { uv: false });
+    const refused = await post('/api/auth/step-up/verify', { action, response: bare });
+    expect(refused.status).toBe(403);
+    const body = (await refused.json()) as { code: string; detail: string };
+    expect(body.code).toBe('step_up_user_verification_required');
+    expect(body.detail).toMatch(/PIN/);
+    // No authenticator app on this account, so the message does not offer one.
+    expect(body.detail).not.toMatch(/authenticator app/);
+    const o2 = await options();
+    const verified = await softAssertion(pk, o2.challenge, o2.rpId, origin);
+    expect((await post('/api/auth/step-up/verify', { action, response: verified })).status).toBe(
+      200,
+    );
   });
 
   it('a mutation without a token is refused; reads are not', async () => {
@@ -273,5 +307,240 @@ d('god step-up by TOTP (no passkey on the account)', () => {
 
   it('disabling TOTP needs a step-up on top of the password', async () => {
     expect((await post('/api/auth/two-factor/disable', { password: PASSWORD })).status).toBe(403);
+  });
+});
+
+/**
+ * An account with no password (OAuth only) has nothing to re-enter for its first
+ * factor. It may enroll one from a session that an OAuth sign-in created at most
+ * five minutes ago; an account with a password still gives the password.
+ *
+ * Better Auth's real `/sign-in/social` and `/callback/:id`, with a stand-in
+ * identity provider: the token exchange and profile are the only parts faked.
+ */
+d('first factor on an account with no password', () => {
+  let app: Hono;
+  let db: Database;
+  let origin: string;
+  const req = (path: string, init?: RequestInit) => app.request(path, init);
+  const idp = { email: '' };
+  const cookieOf = (res: Response) =>
+    res.headers
+      .getSetCookie()
+      .map((c) => c.split(';')[0])
+      .join('; ');
+  type Providers = { socialProviders: { id: string }[] };
+
+  beforeAll(async () => {
+    ({ app, db } = await getTestApp());
+    origin = passkeyRelyingParty().origin;
+    // Better Auth's GitHub provider with the network half replaced.
+    const fake = Object.assign(github({ clientId: 'harness', clientSecret: 'harness' }), {
+      validateAuthorizationCode: async () => ({ accessToken: 'harness', tokenType: 'bearer' }),
+      getUserInfo: async () => ({
+        user: { id: idp.email, email: idp.email, name: 'OAuth Harness', emailVerified: true },
+        data: { id: idp.email },
+      }),
+    });
+    const ctx = (await getAuth().$context) as unknown as Providers;
+    ctx.socialProviders = [...ctx.socialProviders.filter((p) => p.id !== 'github'), fake];
+  });
+
+  afterAll(async () => {
+    const ctx = (await getAuth().$context) as unknown as Providers;
+    ctx.socialProviders = ctx.socialProviders.filter((p) => p.id !== 'github');
+  });
+
+  const oauthSignIn = async (email: string) => {
+    idp.email = email;
+    const start = await app.request('/api/auth/sign-in/social', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'github', callbackURL: '/admin', disableRedirect: true }),
+    });
+    const { url } = (await start.json()) as { url: string };
+    const state = new URL(url).searchParams.get('state') ?? '';
+    const cb = await app.request(
+      `/api/auth/callback/github?code=harness&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: cookieOf(start) } },
+    );
+    expect(cb.status).toBe(302);
+    const cookie = cookieOf(cb);
+    expect(cookie).toContain('session_token');
+    return cookie;
+  };
+  const newEmail = () => `oauth-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
+  const enableTotp = (cookie: string, body: unknown = {}) =>
+    app.request('/api/auth/two-factor/enable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify(body),
+    });
+  const firstFactor = async (cookie: string) => {
+    const r = await app.request('/api/auth/step-up/options', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ action: 'factor.passkey.add' }),
+    });
+    const b = (await r.json()) as { code: string; errors?: { first_factor?: string } };
+    expect(b.code).toBe('step_up_enrollment_required');
+    return b.errors?.first_factor;
+  };
+  const ageOAuthSignIns = () =>
+    sql`UPDATE verification SET "expiresAt" = now() - interval '1 second'
+         WHERE identifier = 'step-up:oauth-sign-in'`.execute(db);
+
+  it('a fresh OAuth sign-in enrolls a first passkey without a password, and says so in the audit', async () => {
+    const email = newEmail();
+    const cookie = await oauthSignIn(email);
+    // What the Studio asks before the ceremony: no password prompt for this account.
+    expect(await firstFactor(cookie)).toBe('recent_sign_in');
+    const res = await registerSoftPasskey(req, cookie, await newSoftPasskey(), origin);
+    expect(res.status).toBe(200);
+    await _settleAuditWrites();
+    const rows = await sql<{ metadata: { change: string; confirmed_by: string } }>`
+      SELECT metadata FROM zv_audit_log
+       WHERE event_type = 'auth.factor_changed'
+         AND user_id = (SELECT id FROM "user" WHERE email = ${email})`.execute(db);
+    expect(rows.rows.map((r) => `${r.metadata.change}/${r.metadata.confirmed_by}`)).toEqual([
+      'passkey.add/oauth',
+    ]);
+  });
+
+  it('a fresh OAuth sign-in enables TOTP without a password; its secret then needs a step-up', async () => {
+    const cookie = await oauthSignIn(newEmail());
+    const res = await enableTotp(cookie);
+    expect(res.status).toBe(200);
+    const { totpURI } = (await res.json()) as { totpURI: string };
+    expect(totpURI).toStartWith('otpauth://');
+    const v = await app.request('/api/auth/two-factor/verify-totp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ code: totpCode(totpURI) }),
+    });
+    expect(v.status).toBe(200);
+    // Without a password Better Auth asks for nothing here: the secret is the factor.
+    const confirmed = cookieOf(v) || cookie;
+    for (const path of [
+      '/api/auth/two-factor/get-totp-uri',
+      '/api/auth/two-factor/generate-backup-codes',
+    ]) {
+      const r = await app.request(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: confirmed },
+        body: '{}',
+      });
+      expect(r.status).toBe(403);
+      expect(((await r.json()) as { code: string }).code).toBe('step_up_required');
+    }
+  });
+
+  it('an OAuth sign-in older than five minutes enrolls nothing', async () => {
+    const cookie = await oauthSignIn(newEmail());
+    await ageOAuthSignIns();
+    expect(await firstFactor(cookie)).toBe('sign_in_again');
+    const pk = await registerSoftPasskey(req, cookie, await newSoftPasskey(), origin);
+    expect(pk.status).toBe(403);
+    expect(((await pk.json()) as { code: string }).code).toBe('recent_sign_in_required');
+    const totp = await enableTotp(cookie);
+    expect(totp.status).toBe(403);
+    expect(((await totp.json()) as { code: string }).code).toBe('recent_sign_in_required');
+  });
+
+  it('an account with a password still gives it, even right after an OAuth sign-in', async () => {
+    const email = newEmail();
+    const up = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: PASSWORD, name: 'Password Harness' }),
+    });
+    expect(up.ok).toBe(true);
+    // Better Auth links a provider to an existing account only once its address is verified.
+    await sql`UPDATE "user" SET "emailVerified" = true WHERE email = ${email}`.execute(db);
+    const cookie = await oauthSignIn(email);
+    expect(await firstFactor(cookie)).toBe('password');
+    const pk = await registerSoftPasskey(req, cookie, await newSoftPasskey(), origin);
+    expect(pk.status).toBe(403);
+    expect(((await pk.json()) as { code: string }).code).toBe('password_required');
+    expect((await enableTotp(cookie)).status).toBe(400);
+    expect((await enableTotp(cookie, { password: PASSWORD })).status).toBe(200);
+  });
+});
+
+/**
+ * TOTP is accepted whenever it is enrolled, beside a passkey too (owner,
+ * 2026-10-18): a passkey that cannot verify its user (a key with no PIN) does not
+ * lock out an account that also has an authenticator app.
+ */
+d('god step-up on an account with a passkey and TOTP', () => {
+  let app: Hono;
+  let cookie: string;
+  let totpURI: string;
+  let pk: SoftPasskey;
+  let origin: string;
+  const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+    app.request(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie, ...headers },
+      body: JSON.stringify(body),
+    });
+  const action = 'extension.license-rotate';
+
+  beforeAll(async () => {
+    const t = await getTestApp();
+    app = t.app;
+    origin = passkeyRelyingParty().origin;
+    const req = (p: string, i?: RequestInit) => app.request(p, i);
+    cookie = await createGodSession(app, t.db);
+    pk = await newSoftPasskey();
+    const reg = await registerSoftPasskey(req, cookie, pk, origin, { password: PASSWORD });
+    expect(reg.status).toBe(200);
+    const stepped = await passkeyStepUp(req, cookie, pk, 'factor.totp.add', origin);
+    const en = await post(
+      '/api/auth/two-factor/enable',
+      { password: PASSWORD },
+      { 'X-Zveltio-Step-Up': stepped },
+    );
+    expect(en.status).toBe(200);
+    ({ totpURI } = (await en.json()) as { totpURI: string });
+    const v = await post('/api/auth/two-factor/verify-totp', { code: totpCode(totpURI) });
+    expect(v.status).toBe(200);
+    // Confirming TOTP replaces the session.
+    cookie =
+      v.headers
+        .getSetCookie()
+        .map((c) => c.split(';')[0])
+        .join('; ') || cookie;
+  });
+
+  it('options offer the passkey and say the app is accepted too', async () => {
+    const o = (await (await post('/api/auth/step-up/options', { action })).json()) as {
+      method: string;
+      totp: boolean;
+    };
+    expect(o).toMatchObject({ method: 'passkey', totp: true });
+  });
+
+  it('a TOTP code mints a token beside a passkey, once', async () => {
+    const code = totpCode(totpURI);
+    const v = await post('/api/auth/step-up/verify', { action, code });
+    expect(v.status).toBe(200);
+    const { token, method } = (await v.json()) as { token: string; method: string };
+    expect(method).toBe('totp');
+    expect(
+      (await post('/api/admin/license/rotate', {}, { 'X-Zveltio-Step-Up': token })).status,
+    ).toBe(200);
+    expect((await post('/api/auth/step-up/verify', { action, code })).status).toBe(403);
+  });
+
+  it('a passkey assertion without user verification is still refused, and points at the app', async () => {
+    const o = await post('/api/auth/step-up/options', { action });
+    const { options } = (await o.json()) as { options: { challenge: string; rpId: string } };
+    const bare = await softAssertion(pk, options.challenge, options.rpId, origin, { uv: false });
+    const v = await post('/api/auth/step-up/verify', { action, response: bare });
+    expect(v.status).toBe(403);
+    const body = (await v.json()) as { code: string; detail: string };
+    expect(body.code).toBe('step_up_user_verification_required');
+    expect(body.detail).toMatch(/authenticator app/);
   });
 });

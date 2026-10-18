@@ -19,11 +19,19 @@ const apiFetch = vi.fn(
 vi.mock('$lib/api.js', () => ({
   api: { fetch: (path: string, init?: RequestInit) => apiFetch(path, init) },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+const toast = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warning: vi.fn(),
 }));
-vi.mock('@simplewebauthn/browser', () => ({ startRegistration: vi.fn() }));
+vi.mock('$lib/stores/toast.svelte.js', () => ({ toast }));
+vi.mock('@simplewebauthn/browser', () => ({
+  startRegistration: vi.fn(async () => ({ id: 'att-1' })),
+}));
 
+import { fireEvent } from '@testing-library/svelte';
+import { m } from '$lib/i18n.svelte.js';
 import PasskeysSection from './PasskeysSection.svelte';
 
 afterEach(() => {
@@ -49,5 +57,62 @@ describe('PasskeysSection', () => {
     // page down. No test rendered this branch, so nothing said so.
     const { findByText } = render(PasskeysSection);
     expect(await findByText('This browser does not support passkeys')).toBeTruthy();
+  });
+});
+
+/**
+ * An account with no password (OAuth only) enrolls its first passkey from a fresh
+ * OAuth sign-in; the engine says so (`first_factor`). The section asked for a
+ * password anyway, and showed the engine's refusals as "HTTP 403".
+ */
+describe('PasskeysSection, first passkey on an account with no password', () => {
+  const firstFactor = (rule: string) =>
+    new Response(
+      JSON.stringify({ code: 'step_up_enrollment_required', errors: { first_factor: rule } }),
+      { status: 403 },
+    );
+  const ok = (body: unknown = {}) => new Response(JSON.stringify(body), { status: 200 });
+  const register = async (verify: Response, rule = 'recent_sign_in') => {
+    Object.assign(window, { PublicKeyCredential: () => {} });
+    Object.assign(navigator, { credentials: { create: () => {} } });
+    vi.spyOn(window, 'prompt').mockReturnValue('laptop');
+    apiFetch.mockImplementation(async (path: string) => {
+      if (path === '/api/auth/step-up/options') return firstFactor(rule);
+      if (path.startsWith('/api/auth/passkey/generate-register-options')) return ok({});
+      if (path === '/api/auth/passkey/verify-registration') return verify;
+      return ok({ passkeys: [] });
+    });
+    const view = render(PasskeysSection);
+    await fireEvent.click(await view.findByRole('button', { name: /add/i }));
+    return view;
+  };
+
+  afterEach(() => {
+    apiFetch.mockReset();
+    toast.error.mockClear();
+    toast.success.mockClear();
+  });
+
+  it('does not ask for a password after a fresh OAuth sign-in', async () => {
+    const view = await register(ok());
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const call = apiFetch.mock.calls.find((c) => c[0] === '/api/auth/passkey/verify-registration');
+    expect(JSON.parse(call![1]!.body as string).password).toBeUndefined();
+    expect(view.queryByLabelText(/password/i)).toBeNull();
+  });
+
+  it("shows the engine's refusal in words, not HTTP 403", async () => {
+    await register(
+      new Response(JSON.stringify({ code: 'recent_sign_in_required', detail: 'x' }), {
+        status: 403,
+      }),
+    );
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(m['passkeys.signInAgain']()));
+  });
+
+  it('sends a stale OAuth session to sign in again before any ceremony', async () => {
+    await register(ok(), 'sign_in_again');
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(m['passkeys.signInAgain']()));
+    expect(apiFetch.mock.calls.some((c) => String(c[0]).includes('generate-register'))).toBe(false);
   });
 });

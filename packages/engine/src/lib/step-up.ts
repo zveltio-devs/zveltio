@@ -2,8 +2,8 @@
  * God step-up (RFC extension model v3, "Installing and trusting code", item 3).
  *
  * A session alone does not install code. A mutation that does asks for a token
- * minted by a fresh passkey assertion — or a TOTP code, for an account that has
- * no passkey — bound to that session and to one named action, good for two
+ * minted by a fresh passkey assertion (with user verification) or a TOTP code
+ * from an enrolled authenticator app — bound to that session and to one named action, good for two
  * minutes and for one use. There is no password fallback: a password is what a
  * stolen session's owner is most likely to have lost along with it.
  *
@@ -83,15 +83,55 @@ export async function totpActive(userId: string): Promise<boolean> {
   return (await factorsOf(userId)).totp;
 }
 
+export async function hasPassword(userId: string): Promise<boolean> {
+  const r = await sql<{ yes: boolean }>`
+    SELECT EXISTS (
+      SELECT 1 FROM account
+       WHERE "userId" = ${userId} AND "providerId" = 'credential' AND password IS NOT NULL
+    ) AS yes`.execute(authPool());
+  return r.rows[0]?.yes === true;
+}
+
+/** Better Auth's endpoints that create a session from an OAuth provider's answer. */
+const OAUTH_SIGN_IN_PATHS = new Set(['/callback/:id', '/sign-in/social']);
+const OAUTH_SIGN_IN_SECONDS = 300;
+
+/**
+ * Note a session an OAuth sign-in is creating; called from Better Auth's session
+ * create hook, the one place that sees both the new token and the endpoint. The
+ * session row records neither the method nor survives a replacement unchanged, so
+ * this row — five minutes, keyed by the token's hash — is the record.
+ */
+export async function noteSessionOrigin(token: string, path: string | undefined): Promise<void> {
+  if (!path || !OAUTH_SIGN_IN_PATHS.has(path)) return;
+  await put(rowId('oauth-sign-in', token), 'oauth-sign-in', '', OAUTH_SIGN_IN_SECONDS);
+}
+
+/**
+ * What enrolls this account's first factor: its password; or, with none, this
+ * session if an OAuth sign-in created it at most five minutes ago, else a new sign-in.
+ */
+export type FirstFactor = 'password' | 'recent_sign_in' | 'sign_in_again';
+
+export async function firstFactorRule(userId: string, sessionToken: string): Promise<FirstFactor> {
+  if (await hasPassword(userId)) return 'password';
+  const r = await sql<{ id: string }>`
+    SELECT id FROM verification
+     WHERE id = ${rowId('oauth-sign-in', sessionToken)} AND "expiresAt" > now()`.execute(
+    authPool(),
+  );
+  return r.rows.length === 1 ? 'recent_sign_in' : 'sign_in_again';
+}
+
 /** Store a row; false when one with this id is already there (a replayed TOTP code). */
-async function put(id: string, kind: string, value: string): Promise<boolean> {
+async function put(id: string, kind: string, value: string, ttl = TTL_SECONDS): Promise<boolean> {
   const db = authPool();
   // Better Auth never reads these, so nothing else sweeps them.
   await sql`DELETE FROM verification
              WHERE identifier LIKE 'step-up:%' AND "expiresAt" < now()`.execute(db);
   const r = await sql<{ id: string }>`
     INSERT INTO verification (id, identifier, value, "expiresAt")
-    VALUES (${id}, ${`step-up:${kind}`}, ${value}, now() + interval '120 seconds')
+    VALUES (${id}, ${`step-up:${kind}`}, ${value}, now() + make_interval(secs => ${ttl}))
     ON CONFLICT (id) DO NOTHING RETURNING id`.execute(db);
   return r.rows.length === 1;
 }
@@ -105,12 +145,14 @@ async function take(id: string): Promise<string | null> {
   return r.rows[0]?.value ?? null;
 }
 
-const enrollmentRequired = (c: Context) =>
+/** `first_factor` rides in `errors`, the one extra member the problem+json envelope keeps. */
+const enrollmentRequired = (c: Context, firstFactor?: FirstFactor) =>
   c.json(
     {
       error:
         'This action needs a passkey or an authenticator app on your account. Add one in your security settings first.',
       code: 'step_up_enrollment_required',
+      ...(firstFactor ? { errors: { first_factor: firstFactor } } : {}),
     },
     403,
   );
@@ -126,7 +168,7 @@ export async function stepUpOptions(c: Context): Promise<Response> {
   if (passkeys.length > 0) {
     const options = await generateAuthenticationOptions({
       rpID: passkeyRelyingParty().rpID,
-      userVerification: 'preferred',
+      userVerification: 'required',
       timeout: TTL_SECONDS * 1000,
       allowCredentials: passkeys.map((p) => ({
         id: p.credentialID,
@@ -138,10 +180,11 @@ export async function stepUpOptions(c: Context): Promise<Response> {
       'challenge',
       '',
     );
-    return c.json({ method: 'passkey', action: body.action, options });
+    // `totp`: the authenticator app is accepted too, for a key that cannot verify its user.
+    return c.json({ method: 'passkey', action: body.action, options, totp });
   }
   if (totp) return c.json({ method: 'totp', action: body.action });
-  return enrollmentRequired(c);
+  return enrollmentRequired(c, await firstFactorRule(session.user.id, session.session.token));
 }
 
 /** POST /api/auth/step-up/verify — a passkey assertion or TOTP code in, a token out. */
@@ -161,8 +204,8 @@ export async function stepUpVerify(c: Context): Promise<Response> {
 
   const { passkeys, totp } = await factorsOf(userId);
   let method: StepUpMethod;
-  if (passkeys.length > 0) {
-    // TOTP is refused here: a passkey on the account is the factor that counts.
+  // A code is taken whenever TOTP is enrolled, beside a passkey too (owner, 2026-10-18).
+  if (passkeys.length > 0 && !(totp && body.code !== undefined)) {
     const resp = body.response;
     let challenge: unknown;
     try {
@@ -178,6 +221,17 @@ export async function stepUpVerify(c: Context): Promise<Response> {
     }
     const pk = passkeys.find((p) => p.credentialID === resp?.id);
     if (!resp || !pk) return refuse('That passkey is not registered to this account');
+    // A security key with no PIN signs on a touch: that proves a key, not its owner.
+    const flags = Buffer.from(resp.response.authenticatorData ?? '', 'base64url')[32] ?? 0;
+    if (!(flags & 0x04)) {
+      return c.json(
+        {
+          error: `This passkey confirmed a touch but not you. Set a PIN or turn on fingerprint or face unlock for it, then try again${totp ? ', or use the code from your authenticator app' : ''}.`,
+          code: 'step_up_user_verification_required',
+        },
+        403,
+      );
+    }
     const { rpID, origin } = passkeyRelyingParty();
     let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
     try {
@@ -191,8 +245,8 @@ export async function stepUpVerify(c: Context): Promise<Response> {
           publicKey: new Uint8Array(Buffer.from(pk.publicKey, 'base64')),
           counter: pk.counter,
         },
-        // As Better Auth's own passkey sign-in: presence, not necessarily a PIN.
-        requireUserVerification: false,
+        // Unlike Better Auth's passkey sign-in, which takes presence alone.
+        requireUserVerification: true,
       });
     } catch {
       return refuse('The passkey assertion did not verify');

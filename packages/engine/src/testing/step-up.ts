@@ -138,17 +138,21 @@ export async function registerSoftPasskey(
   });
 }
 
-/** An assertion over `challenge`, as `navigator.credentials.get` would return it. */
+/**
+ * An assertion over `challenge`, as `navigator.credentials.get` would return it.
+ * `uv: false` is a security key with no PIN set: present, not verified.
+ */
 export async function softAssertion(
   pk: SoftPasskey,
   challenge: string,
   rpID: string,
   origin: string,
+  { uv = true }: { uv?: boolean } = {},
 ) {
   pk.counter += 1;
   const authData = concat(
     sha256(rpID),
-    new Uint8Array([0x05]), // UP | UV
+    new Uint8Array([uv ? 0x05 : 0x01]), // UP | UV, or UP alone
     new Uint8Array([
       pk.counter >>> 24,
       (pk.counter >>> 16) & 0xff,

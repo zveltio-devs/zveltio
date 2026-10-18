@@ -1034,6 +1034,7 @@
   "stepUp.intro": "Ta zmiana wymaga ponownego potwierdzenia kluczem dostępu lub aplikacją uwierzytelniającą.",
   "stepUp.title": "Potwierdź, że to Ty",
   "stepUp.usePasskey": "Użyj klucza dostępu",
+  "stepUp.userVerificationRequired": "Ten klucz dostępu potwierdził dotyk, ale nie Twoją tożsamość. Ustaw PIN lub włącz odblokowywanie odciskiem palca albo twarzą dla klucza zabezpieczeń i spróbuj ponownie.",
   "stepUp.verifyCode": "Sprawdź kod",
   "permissions.actionOnResource": "{action} {resource}",
   "permissions.activeRules": "Aktywne reguły dziedziczenia ({count})",
@@ -1563,5 +1564,9 @@
   "wh.testNamed": "Testuj webhook {name}",
   "wh.timeout": "Limit czasu",
   "wh.timeoutHint": "milisekundy (1000–30000)",
-  "shell.collection_rls_exempt": "{count} rozszerzenie(-a) działa bez uprawnień do kolekcji w bazie danych: {names}. Dostosuj je i usuń z ZVELTIO_COLLECTION_RLS_EXEMPT — zwolnienie wygasa w 3.0.0."
+  "shell.collection_rls_exempt": "{count} rozszerzenie(-a) działa bez uprawnień do kolekcji w bazie danych: {names}. Dostosuj je i usuń z ZVELTIO_COLLECTION_RLS_EXEMPT — zwolnienie wygasa w 3.0.0.",
+  "stepUp.userVerificationOrCode": "Ten klucz dostępu potwierdził dotyk, ale nie Twoją tożsamość. Ustaw PIN lub włącz odblokowywanie odciskiem palca albo twarzą dla klucza zabezpieczeń albo wpisz kod z aplikacji uwierzytelniającej.",
+  "stepUp.orCodeLabel": "Albo kod z aplikacji uwierzytelniającej",
+  "passkeys.passwordWrong": "To hasło jest nieprawidłowe.",
+  "passkeys.signInAgain": "Ze względów bezpieczeństwa wyloguj się i zaloguj ponownie przez dostawcę logowania, a następnie dodaj klucz dostępu w ciągu pięciu minut."
 }

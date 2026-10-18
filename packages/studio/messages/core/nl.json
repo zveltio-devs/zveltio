@@ -1034,6 +1034,7 @@
   "stepUp.intro": "Deze wijziging vraagt een nieuwe bevestiging met je passkey of authenticator-app.",
   "stepUp.title": "Bevestig dat jij het bent",
   "stepUp.usePasskey": "Passkey gebruiken",
+  "stepUp.userVerificationRequired": "Deze passkey bevestigde een aanraking, maar niet uw identiteit. Stel een pincode in of schakel ontgrendeling met vingerafdruk of gezicht in voor uw beveiligingssleutel en probeer het opnieuw.",
   "stepUp.verifyCode": "Code controleren",
   "permissions.actionOnResource": "{action} {resource}",
   "permissions.activeRules": "Actieve overervingsregels ({count})",
@@ -1563,5 +1564,9 @@
   "wh.testNamed": "Webhook {name} testen",
   "wh.timeout": "Time-out",
   "wh.timeoutHint": "milliseconden (1000–30000)",
-  "shell.collection_rls_exempt": "{count} extensie(s) draaien zonder collectierechten in de database: {names}. Pas ze aan en haal ze uit ZVELTIO_COLLECTION_RLS_EXEMPT — de uitzondering vervalt bij 3.0.0."
+  "shell.collection_rls_exempt": "{count} extensie(s) draaien zonder collectierechten in de database: {names}. Pas ze aan en haal ze uit ZVELTIO_COLLECTION_RLS_EXEMPT — de uitzondering vervalt bij 3.0.0.",
+  "stepUp.userVerificationOrCode": "Deze passkey bevestigde een aanraking, maar niet uw identiteit. Stel een pincode in of schakel ontgrendeling met vingerafdruk of gezicht in voor uw beveiligingssleutel, of voer de code uit uw authenticator-app in.",
+  "stepUp.orCodeLabel": "Of een code uit uw authenticator-app",
+  "passkeys.passwordWrong": "Dat wachtwoord is niet juist.",
+  "passkeys.signInAgain": "Meld u voor uw veiligheid af en opnieuw aan via uw aanmeldprovider, en voeg uw passkey binnen vijf minuten toe."
 }
