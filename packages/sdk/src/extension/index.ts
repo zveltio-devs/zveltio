@@ -3,6 +3,7 @@ import type { Context, Hono } from 'hono';
 import type { Kysely, RawBuilder } from 'kysely';
 
 export { permissionGate } from './permission-gate.js';
+export { ActionRefusal, ACTION_REFUSAL } from './action-refusal.js';
 export { readMultipart, MULTIPART_REQUIRED } from './multipart.js';
 export { toJsonb } from './jsonb.js';
 export {
@@ -1330,7 +1331,10 @@ export interface ZveltioExtension<DB = any, C extends string = Capability> {
   jobs?: Record<string, ExtensionJob>;
 }
 
-/** One action: business logic over the input the engine validated. Returns the response's `result`. */
+/**
+ * One action: business logic over the input the engine validated. Returns the
+ * response's `result`; throws `ActionRefusal` to answer the caller with a 4xx.
+ */
 export type ExtensionAction = (input: unknown, host: ActionHost) => Promise<unknown>;
 
 /**

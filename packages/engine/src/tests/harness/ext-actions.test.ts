@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
-import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import { ActionRefusal, type ZveltioExtension } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { finalizeExtensionLoad } from '../../lib/extensions/register.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
@@ -168,6 +168,18 @@ d('extension actions run as the caller, in the request transaction', () => {
             await host.collections.insert(C, input as Record<string, unknown>);
             throw new Error('the action failed after writing');
           },
+          addThenRefuse: async (input, host) => {
+            await host.collections.insert(C, input as Record<string, unknown>);
+            throw new ActionRefusal(409, 'item_conflicts', 'This item conflicts with another.');
+          },
+          // Another SDK copy's refusal — what an extension bundling its own throws.
+          refuseOddly: async (input) => {
+            throw Object.assign(new Error('odd'), {
+              [Symbol.for('zveltio.extension.action-refusal')]: true,
+              status: (input as { status: number }).status,
+              code: 'odd',
+            });
+          },
           sneak: async (input, host) =>
             (input as { mode: string }).mode === 'read'
               ? host.collections.list(C)
@@ -191,6 +203,12 @@ d('extension actions run as the caller, in the request transaction', () => {
             writes: [C],
           },
           { name: 'addThenThrow', permission: { resource: RES }, input: labelInput, writes: [C] },
+          { name: 'addThenRefuse', permission: { resource: RES }, input: labelInput, writes: [C] },
+          {
+            name: 'refuseOddly',
+            permission: { resource: RES },
+            input: { type: 'object', properties: { status: { type: 'integer' } } },
+          },
           {
             name: 'sneak',
             permission: { resource: RES },
@@ -336,6 +354,23 @@ d('extension actions run as the caller, in the request transaction', () => {
     const res = await act(EXT, 'addThenThrow', { label: 'rolled-back' }, member.cookie);
     expect(res.status).toBe(500);
     expect(await rowsLabelled('rolled-back')).toEqual([]);
+  });
+
+  it('answers an ActionRefusal with its 4xx and code, and still rolls back', async () => {
+    const res = await act(EXT, 'addThenRefuse', { label: 'refused' }, member.cookie);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: 'item_conflicts',
+      detail: 'This item conflicts with another.',
+    });
+    expect(await rowsLabelled('refused')).toEqual([]);
+  });
+
+  it('honours another SDK copy’s refusal, but only a 4xx other than 401', async () => {
+    expect((await act(EXT, 'refuseOddly', { status: 422 }, member.cookie)).status).toBe(422);
+    for (const status of [200, 302, 401, 500]) {
+      expect((await act(EXT, 'refuseOddly', { status }, member.cookie)).status).toBe(500);
+    }
   });
 
   it('is not intercepted by the extension’s own middleware', async () => {
