@@ -20,7 +20,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { resolveExtensionsBase } from '../../lib/extensions/extension-paths.js';
 import { clearRevocationCache } from '../../lib/extensions/revocations.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -77,7 +77,7 @@ d('capability approval + revocation (in-process)', () => {
     const t = await getTestApp();
     app = t.app;
     db = t.db;
-    cookie = await createGodSession(app, db);
+    ({ cookie, app } = await createSteppedUpGod(app, db));
     ensureFixtureOnDisk();
     await sql`
       INSERT INTO zv_extension_registry (name, display_name, category, version, is_installed, is_enabled)

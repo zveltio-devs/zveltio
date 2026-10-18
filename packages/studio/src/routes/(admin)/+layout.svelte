@@ -48,6 +48,7 @@ import MobileSidebar from '$lib/components/layout/MobileSidebar.svelte';
 import DemoBanner from '$lib/components/common/DemoBanner.svelte';
 import Slot from '$lib/components/common/Slot.svelte';
 import ToastContainer from '$lib/components/common/ToastContainer.svelte';
+import StepUpModal from '$lib/components/common/StepUpModal.svelte';
 import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
 import CollectionRlsExemptBanner from '$lib/components/common/CollectionRlsExemptBanner.svelte';
 import CommandPalette from '$lib/components/common/CommandPalette.svelte';
@@ -309,6 +310,7 @@ async function signOut() {
 {/if}
 
 <ToastContainer />
+<StepUpModal />
 <UpdateBanner />
 <CollectionRlsExemptBanner />
 <CommandPalette open={cmdOpen} onclose={() => (cmdOpen = false)} navItems={paletteNavItems} />

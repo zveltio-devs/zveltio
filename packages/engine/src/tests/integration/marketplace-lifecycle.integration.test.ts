@@ -26,6 +26,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'bun:test';
+import { steppedUpFetch } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const TEST_PORT = process.env.TEST_PORT || '3099';
@@ -52,10 +53,17 @@ async function signIn(): Promise<void> {
   const match = setCookie.match(/better-auth\.session_token=([^;]+)/);
   if (!match) throw new Error('sign-in response had no session cookie');
   sessionCookie = `better-auth.session_token=${match[1]}`;
+  // Extension mutations need a step-up (lib/step-up.ts): a soft passkey, enrolled
+  // as this god's first factor. A god that already has one cannot be driven here.
+  godFetch = await steppedUpFetch(BASE_URL, sessionCookie, PASSWORD);
 }
 
+let godFetch: (path: string, init?: RequestInit) => Promise<Response> = () => {
+  throw new Error('signIn() first');
+};
+
 function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(`${BASE_URL}${path}`, {
+  return godFetch(path, {
     ...init,
     headers: {
       ...(init.headers as Record<string, string> | undefined),

@@ -102,7 +102,7 @@ describe.skipIf(skipAll)('H-14 — failure injection', () => {
     });
     try {
       const install = () =>
-        fetch(`${engine.baseUrl}/api/marketplace/${extName}/install`, {
+        engine.request(`/api/marketplace/${extName}/install`, {
           method: 'POST',
           headers: { Cookie: engine.cookie },
         });

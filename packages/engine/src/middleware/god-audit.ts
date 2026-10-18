@@ -33,6 +33,7 @@ async function logGodAction(
     durationMs: number;
     ip: string | null;
     tenantId: string | null;
+    stepUp?: string;
   },
 ): Promise<void> {
   await auditLog(db, {
@@ -45,6 +46,8 @@ async function logGodAction(
       path: params.path,
       status: params.status,
       duration_ms: params.durationMs,
+      // How a step-up gated route (lib/step-up.ts) was confirmed: passkey or totp.
+      ...(params.stepUp ? { step_up: params.stepUp } : {}),
     },
     ip: params.ip ?? undefined,
     tenantId: params.tenantId,
@@ -122,6 +125,7 @@ export function godAuditMiddleware(poolDb: Database) {
             status: c.res.status,
             durationMs,
             ip,
+            stepUp: c.get('stepUpMethod'),
             tenantId:
               c.get('tenantTrx') && c.req.path.startsWith(TENANT_DATA_PREFIX)
                 ? (c.get('tenant')?.id ?? null)

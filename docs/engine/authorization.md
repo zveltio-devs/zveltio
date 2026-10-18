@@ -536,6 +536,10 @@ curl -X POST http://localhost:3000/api/permissions/bootstrap \
 
 Remove `RECOVERY_TOKEN` from `.env` after recovery.
 
+A god who lost every passkey and authenticator app cannot step up, so cannot
+install or change extensions. Send `"clear_factors": true` in the same request to
+remove that account's factors; then add a passkey again from the account page.
+
 ### Session issues
 
 1. Check cookie settings in browser DevTools

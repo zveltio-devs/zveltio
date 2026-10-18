@@ -57,9 +57,12 @@ const triggerReloadMock = mock(async () => {});
 // registerMarketplaceRoutes via its `deps` param — NO mock.module, which leaks
 // across bun test files (one shared module registry) and flaked the catalog +
 // download tests depending on file load order.
+// Step-up (lib/step-up.ts) reads Better Auth's tables; the harness suites drive
+// it for real (god-step-up.test.ts). Here every mutation arrives stepped up.
 const marketplaceDeps = {
   fetchRegistryCatalog: fetchCatalogMock,
   downloadExtension: downloadMock,
+  requireStepUp: async () => 'passkey',
 } as never;
 
 const { registerMarketplaceRoutes } = await import(

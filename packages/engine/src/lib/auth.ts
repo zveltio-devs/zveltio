@@ -760,11 +760,11 @@ export async function initAuth(db: Database) {
       // see during ceremonies. For dev, both default to localhost. Set
       // BETTER_AUTH_URL / PASSKEY_RP_ID in production.
       passkey({
-        rpID: process.env.PASSKEY_RP_ID || new URL(baseURL).hostname,
+        rpID: passkeyRelyingParty().rpID,
         rpName: process.env.APP_NAME || 'Zveltio',
         // Origin must match the page the user is authenticating from.
         // Most installations serve Studio + API on the same baseURL.
-        origin: baseURL,
+        origin: passkeyRelyingParty().origin,
       }),
     ],
   });
@@ -805,6 +805,18 @@ export function isBenignGetSessionError(err: unknown): boolean {
     (typeof e?.status === 'number' && e.status >= 400 && e.status < 500) ||
     (typeof e?.statusCode === 'number' && e.statusCode >= 400 && e.statusCode < 500)
   );
+}
+
+/** The relying party passkeys are registered under; step-up (lib/step-up.ts) verifies against the same. */
+export function passkeyRelyingParty(): { rpID: string; origin: string } {
+  const origin = process.env.BETTER_AUTH_URL || `http://localhost:${process.env.PORT || '3000'}`;
+  return { rpID: process.env.PASSKEY_RP_ID || new URL(origin).hostname, origin };
+}
+
+/** Better Auth's own pool: the credential tables are not the request role's to read. */
+export function authPool(): Kysely<DbSchema> {
+  if (!_authPool) throw new Error('Auth not initialized. Call initAuth() first.');
+  return _authPool;
 }
 
 export function getAuth() {

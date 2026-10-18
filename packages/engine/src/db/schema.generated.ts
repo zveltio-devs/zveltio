@@ -2958,6 +2958,7 @@ export interface ZvdContactsTable {
   source: string | null;
   metadata: Generated<unknown>;
   tenant_id: Generated<string | null>;
+  updated_by: string | null;
 }
 
 export interface ZvdContractAmendmentsTable {
@@ -4142,6 +4143,7 @@ export interface ZvdOrganizationsTable {
   email: string | null;
   metadata: Generated<unknown>;
   tenant_id: Generated<string | null>;
+  updated_by: string | null;
 }
 
 export interface ZvdPanelCacheTable {
@@ -5304,6 +5306,7 @@ export interface ZvdTransactionsTable {
   metadata: Generated<unknown>;
   tenant_id: Generated<string | null>;
   payment_status: string | null;
+  updated_by: string | null;
 }
 
 export interface ZvdTranslationGlossaryTable {

@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import { resolveExtensionsBase } from '../../lib/extensions/extension-paths.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -87,7 +87,7 @@ d('extension marketplace routes (in-process)', () => {
     const t = await getTestApp();
     app = t.app;
     db = t.db;
-    cookie = await createGodSession(app, db);
+    ({ cookie, app } = await createSteppedUpGod(app, db));
     ensureHelloExtOnDisk();
   });
 

@@ -61,6 +61,34 @@ Sign in with email and password. Sets a session cookie.
 
 Invalidate the current session.
 
+### Step-up: POST /api/auth/step-up/options, POST /api/auth/step-up/verify
+
+Extension mutations (every non-GET god route under `/api/marketplace/*` and
+`POST /api/admin/license/rotate`) need a fresh confirmation, not only a session.
+The client names the action, confirms it, and sends the token it gets back as
+`X-Zveltio-Step-Up` on that one request.
+
+- Actions: `extension.<verb>:<name>` (`install`, `enable`, `disable`, `uninstall`,
+  `config`, `license`, `license-delete`, `approve-capabilities`,
+  `approve-forward-credentials`), `extension.enable-all`, `extension.license-rotate`;
+  for factor changes `factor.passkey.add`, `factor.passkey.remove`, `factor.totp.add`,
+  `factor.totp.disable`.
+- `options` answers `{ method: "passkey", options }` (WebAuthn request options:
+  pass to `navigator.credentials.get`) or `{ method: "totp" }` when the account has
+  no passkey. `verify` takes `{ action, response }` or `{ action, code }` and answers
+  `{ token, method, expires_in }`.
+- A token is good for 2 minutes, for one request, on the session and action it was
+  minted for. There is no password fallback.
+- A refused mutation answers 403 with `code`: `step_up_required` (missing, spent,
+  expired or for another action/session) or `step_up_enrollment_required` (no
+  passkey and no TOTP on the account; add one first).
+
+Sign-in factors are guarded the same way: the first one (passkey or TOTP) needs the
+password (`password` in the `verify-registration` body for a passkey); after that,
+adding a passkey or TOTP, deleting a passkey or disabling TOTP needs a step-up token.
+Each change writes an `auth.factor_changed` audit row and, with SMTP configured,
+mails the account.
+
 ---
 
 ## Collections
@@ -452,6 +480,10 @@ curl -X POST /api/permissions/bootstrap \
   -H "Content-Type: application/json" \
   -d '{"email": "admin@yourapp.com"}'
 ```
+
+Add `"clear_factors": true` to also delete that account's passkeys and TOTP — for a
+god who lost every device and so can no longer step up. The god then enrolls again
+(the first factor behind the password). Audited as `auth.factor_changed`.
 
 ---
 

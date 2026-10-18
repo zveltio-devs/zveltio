@@ -4,6 +4,7 @@ import type { Database } from '../db/index.js';
 import { collectionsRoutes } from './collections.js';
 import { dataRoutes } from './data.js';
 import { authRoutes, invitationRoutes } from './auth.js';
+import { registerStepUpRoutes } from './step-up.js';
 import { revokeAllUserSessions } from '../lib/auth.js';
 import { usersRoutes } from './users.js';
 import { permissionsRoutes } from './permissions.js';
@@ -290,6 +291,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // ── Preview environments — X-Preview-Token switches PostgreSQL search_path ─
   app.use('/api/data/*', previewEnvMiddleware(db));
+
+  // Step-up tokens, and the gates on adding or removing a sign-in factor
+  // (routes/step-up.ts). Before the Better Auth catch-all below.
+  registerStepUpRoutes(app, poolDb);
 
   // Changing a password ends every other session, and the client does not get
   // a say.

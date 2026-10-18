@@ -145,7 +145,8 @@ conditions alike.
      (name, version, digest, granted capabilities and forward maps). The UI is
      read-only for extensions.
 3. **God step-up.** Every extension mutation needs a fresh passkey assertion
-   (TOTP or password as fallbacks in `standard`; passkey only in `locked`).
+   (TOTP when the god has no passkey; no password fallback — owner decision
+   2026-10-18; passkey only in `locked`). Implemented in `lib/step-up.ts`.
    - Passkey and TOTP are already wired in `lib/auth.ts`; enforcement goes in
      `requireGod` (`extension-marketplace-routes.ts`).
    - No approver role is added under god.

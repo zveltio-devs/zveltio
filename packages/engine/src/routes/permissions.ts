@@ -72,6 +72,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
   // Usage: curl -X POST /api/permissions/bootstrap \
   //   -H "Authorization: Bearer <RECOVERY_TOKEN>" \
   //   -d '{"email":"admin@example.com"}'
+  // Add "clear_factors": true to also remove that account's passkeys and TOTP.
   //
   // Rate limited here rather than in routes/index.ts so the guard travels with
   // the route: this is the one endpoint on the instance that hands out the god
@@ -144,6 +145,10 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     if (!email || typeof email !== 'string') {
       return c.json({ error: 'email is required' }, 400);
     }
+    // A god who lost every passkey and TOTP device can no longer step up
+    // (lib/step-up.ts), so cannot change an extension. Recovery may clear them;
+    // the god then enrolls again, the first factor behind the password.
+    const clearFactors = body?.clear_factors === true;
     // The grant, the spending of the token, and the record of both.
     //
     // The note below says a failed token-spend must not be swallowed, because a
@@ -192,6 +197,32 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         }));
         if (!granted) return null;
 
+        let clearedFactors: { passkeys: number; totp: number } | undefined;
+        if (clearFactors) {
+          clearedFactors = await asEngineRole(trx, async () => {
+            const passkeys = await sql<{ id: string }>`
+              DELETE FROM passkey WHERE "userId" = ${granted.id} RETURNING id`.execute(trx);
+            const totp = await sql<{ id: string }>`
+              DELETE FROM "twoFactor" WHERE "userId" = ${granted.id} RETURNING id`.execute(trx);
+            await sql`UPDATE "user" SET "twoFactorEnabled" = false WHERE id = ${granted.id}`.execute(
+              trx,
+            );
+            return { passkeys: passkeys.rows.length, totp: totp.rows.length };
+          });
+          await auditLog(trx, {
+            type: 'auth.factor_changed',
+            userId: granted.id,
+            resourceId: granted.id,
+            resourceType: 'auth_factor',
+            metadata: {
+              change: 'recovery.cleared',
+              confirmed_by: 'recovery_token',
+              ...clearedFactors,
+              ip,
+            },
+          });
+        }
+
         // Spend the token before reporting success. If this write fails the grant
         // has already happened, so it must not be swallowed: a token that silently
         // stays live is the finding this is here to close.
@@ -222,7 +253,13 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
           userId: granted.id,
           resourceId: granted.id,
           resourceType: 'recovery_bootstrap',
-          metadata: { outcome: 'granted', role: 'god', email: granted.email, ip },
+          metadata: {
+            outcome: 'granted',
+            role: 'god',
+            email: granted.email,
+            ip,
+            ...(clearedFactors ? { cleared_factors: clearedFactors } : {}),
+          },
         });
         return { granted, demotedIds: demoted.map((d) => d.id) };
       });

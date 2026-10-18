@@ -3903,6 +3903,7 @@ table zvd_contacts
   col tags                           ARRAY NOT NULL DEFAULT '{}'::text[]
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
   fk  fk_crm_contact_org FOREIGN KEY (organization_id) REFERENCES zvd_organizations(id) ON DELETE SET NULL
   pk  zvd_contacts_pkey PRIMARY KEY (id)
   rls enabled forced
@@ -5338,6 +5339,7 @@ table zvd_organizations
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col type                           text NOT NULL DEFAULT 'company'::text
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
   col website                        text
   pk  zvd_organizations_pkey PRIMARY KEY (id)
   rls enabled forced
@@ -6800,6 +6802,7 @@ table zvd_transactions
   col total_amount                   numeric NOT NULL DEFAULT 0
   col type                           text NOT NULL DEFAULT 'invoice'::text
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
   fk  fk_txn_pipeline_stage FOREIGN KEY (pipeline_stage_id) REFERENCES zvd_crm_pipeline_stages(id) ON DELETE SET NULL
   fk  zvd_transactions_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES zvd_contacts(id) ON DELETE SET NULL
   fk  zvd_transactions_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES zvd_organizations(id) ON DELETE SET NULL

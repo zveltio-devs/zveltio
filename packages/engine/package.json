@@ -34,6 +34,7 @@
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
     "@opentelemetry/sdk-node": "^0.222.0",
+    "@simplewebauthn/server": "13.3.2",
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.7.5",
     "casbin": "^5.51.1",
