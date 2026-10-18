@@ -10,7 +10,7 @@
 // the default tenant — and migrated policies live at domain '*', which matches
 // every domain, so authorization is unchanged until per-tenant policies exist.
 
-import { encodeApiKeyScopes } from './collection-permissions.js';
+import { encodeApiKeyScopes, intersectGrants } from './collection-permissions.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -599,11 +599,14 @@ export async function publishApiKeyActor(
   userId: string,
   bypass: boolean,
   scopes?: unknown,
+  issuerGrants?: { all: boolean; grants: string },
 ): Promise<void> {
   const trx = getCurrentTenantTrx();
   if (!trx) return;
-  // The key's scopes, for the collection-permission policies (R1).
-  const { all, grants } = encodeApiKeyScopes(scopes);
+  // The key's scopes, for the collection-permission policies (R1) — met with
+  // its issuer's grants when it has one (`validateApiKey`); a job has none.
+  const own = encodeApiKeyScopes(scopes);
+  const { all, grants } = issuerGrants ? intersectGrants(own, issuerGrants) : own;
   await sql`
     SELECT set_config('zveltio.user_id', ${userId}, true),
            set_config('zveltio.user_email', '', true),

@@ -2,13 +2,12 @@
  * An API key running an extension action: `POST /ext/<name>/actions/<action>`
  * with `X-API-Key`.
  *
- * The key model of every other `/ext/*` surface: the key's scopes are its whole
- * grant and Casbin is never asked. `$ext:<name>` with the action's declared
- * permission action (`execute` by default) opens the action — no manifest
- * `apiKeyRoutes` entry, and no `create` on the extension's other POST routes.
- * The action's writes go through the data API as the key, so each collection
- * it touches must be in the key's scopes too. A key's creator gates it only by
- * still being allowed to sign in (and, in an ordinary tenant, by membership).
+ * The key model of every other `/ext/*` surface: `$ext:<name>` with the
+ * action's declared permission action (`execute` by default) opens the action —
+ * no manifest `apiKeyRoutes` entry, and no `create` on the extension's other
+ * POST routes. The action's writes go through the data API as the key, so each
+ * collection it touches must be in the key's scopes too. Every check is also
+ * asked of the key's issuer, as they are now: a key never exceeds its issuer.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -37,6 +36,7 @@ import {
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
+import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -227,11 +227,67 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
     expect(((await other.json()) as { code: string }).code).toBe('EXT_SESSION_REQUIRED');
   });
 
-  // Scopes are the key's whole grant: its creator's roles are not consulted —
-  // keys are minted by an instance administrator only (`/api/admin/api-keys`).
-  // What the creator's standing does decide is whether the key works at all.
-  it('a key acts on its scopes, and stops when its creator may no longer sign in', async () => {
-    const creator = await createMemberSession(engine, db); // holds nothing on RES or C
+  // A key acts for its issuer and never beyond them: each check is the key's
+  // scope AND the issuer's own permission now. Keys are minted by an instance
+  // administrator, so the bound only bites once the issuer is demoted.
+  it('a key loses what its demoted issuer lost, and has it back once they are promoted', async () => {
+    const issuer = await createMemberSession(engine, db, {
+      grants: [{ collection: C, actions: ['read'] }],
+    });
+    const role = (method: 'POST' | 'DELETE') =>
+      engine.request('/api/permissions/roles', {
+        method,
+        headers: { cookie: godCookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ userId: issuer.userId, role: 'admin' }),
+      });
+    expect((await role('POST')).status).toBe(200);
+    const raw = generateApiKey();
+    const row = await sql<{ id: string }>`
+      INSERT INTO zv_api_keys
+        (name, key_hash, key_prefix, scopes, created_by, is_active, tenant_id)
+      VALUES ('akact-issuer', ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
+              ${JSON.stringify([execute, writeC])}::jsonb, ${issuer.userId}, true,
+              ${DEFAULT_TENANT_ID})
+      RETURNING id
+    `.execute(db);
+    keys.push(row.rows[0]!.id);
+    const read = () => engine.request(`/api/data/${C}`, { headers: { 'x-api-key': raw } });
+    const create = (label: string) =>
+      engine.request(`/api/data/${C}`, {
+        method: 'POST',
+        headers: { 'x-api-key': raw, 'content-type': 'application/json' },
+        body: JSON.stringify({ label }),
+      });
+
+    expect((await read()).status).toBe(200);
+    expect((await create('admin-issued')).ok).toBe(true);
+    expect((await act('addItem', { label: 'admin-action' }, raw)).status).toBe(200);
+
+    // Demoted to a role holding only `read` on C.
+    expect((await role('DELETE')).status).toBe(200);
+    expect((await read()).status).toBe(200);
+    expect((await create('demoted')).status).toBe(403);
+    // Refused at the action's own gate — the issuer lost `execute` on RES.
+    const refused = await act('addItem', { label: 'demoted-action' }, raw);
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { code: string }).code).toBe('permission_required');
+    expect(await rowsLabelled('demoted')).toEqual([]);
+    expect(await rowsLabelled('demoted-action')).toEqual([]);
+
+    // Promoted back: no answer cached from the demotion survives it.
+    expect((await role('POST')).status).toBe(200);
+    expect((await create('promoted')).ok).toBe(true);
+    expect((await act('addItem', { label: 'promoted-action' }, raw)).status).toBe(200);
+    await role('DELETE');
+  });
+
+  // What the creator's standing also decides is whether the key works at all.
+  it('a key stops when its creator may no longer sign in', async () => {
+    const creator = await createMemberSession(engine, db, {
+      grants: [{ collection: C, actions: ['read', 'create'] }],
+    });
+    await (await getEnforcer()).addPolicy(creator.userId, '*', RES, 'execute');
+    await invalidateUserPermCache(creator.userId);
     const raw = generateApiKey();
     const row = await sql<{ id: string }>`
       INSERT INTO zv_api_keys

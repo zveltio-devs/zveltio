@@ -846,10 +846,21 @@ Create an API key. The raw key is returned **only once** in the response.
 }
 ```
 
+A key never exceeds the person who issued it. Every grant its scopes make is
+also asked of the issuer, as they are now, in the request's tenant: a
+collection action is the issuer's own `checkPermission`, `rls_bypass` holds
+only while the issuer holds `data:view_all` (and, on storage, is a tenant
+admin), column rules are the key's own (`api_key`, `*`) and its issuer's
+together, the stricter winning, and each surface below asks the issuer what it
+asks a session. Keys are
+minted by an instance administrator, so this changes nothing until the issuer
+is demoted — then their keys lose, at once, what they lost, and get it back if
+they are promoted again. Scopes can only narrow a key below its issuer.
+
 `{ "collection": "$schema", "actions": ["read"] }` lets a root-tenant key watch
 the schema — `GET /api/collections`, `GET /api/collections/:name` and the
-realtime `$schema` channel — and nothing else. It must be named: a `*`
-collection does not include it.
+realtime `$schema` channel — and nothing else, while its issuer is an instance
+administrator. It must be named: a `*` collection does not include it.
 
 `{ "collection": "$storage", "actions": ["read", "create", "delete"] }` lets a
 key use `/api/storage`: `read` lists and fetches files (metadata, signed URL,
@@ -860,8 +871,8 @@ deletes none; with it, it sees and deletes every file in its tenant, as a
 tenant admin does.
 
 `{ "collection": "$rpc", "actions": ["execute"] }` lets a key call every enabled
-function on the RPC whitelist, whatever its `required_role` — that role ranks a
-session's roles, and a key has none. `{ "collection": "$rpc", "actions":
+function on the RPC whitelist whose `required_role` its issuer holds — that role
+ranks the issuer, as it ranks a session. `{ "collection": "$rpc", "actions":
 ["get_user_stats", "close_month"] }` lets it call only the functions it names.
 Names match exactly: `execute` and `*` always mean every function, and no other
 action word stands for a function — `write` does not grant a function called
@@ -879,8 +890,9 @@ The extension's manifest `actions` (`POST /ext/<name>/actions/<action>`) need no
 declaration: each takes its own permission action, `execute` by default, and
 writes only to collections the key's scopes grant.
 The extension's own permission checks for the key are answered from the same
-entry (an action it asks by name, such as `settle`, must be named there too);
-Casbin is not asked. An extension may check collections against the key's
+entry (an action it asks by name, such as `settle`, must be named there too)
+and then asked of the key's issuer for the resource itself, as the extension
+asks a session. An extension may check collections against the key's
 collection scopes instead, as developer/graphql does: there the `$ext` entry
 admits the endpoint and grants no collection. It too must be named. A 401 means no key, or one that is
 unknown, revoked, expired or of another tenant; a 403, a valid key without the

@@ -63,7 +63,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const effectiveDb = getDb(c, db);
   // Column-level write permission — mirror single createRecord. Without it the
   // bulk endpoint was an escalation hole around read-only columns.
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
+  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user);
   // Create without read: ids only in the answer (see `engineRead`).
   const canRead = await checkAccess(db, user, collection, 'read');
   const created: DynamicRecord[] = [];
@@ -203,7 +203,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   // not the row.
   const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
   // Column-level write permission — mirror single patchRecord.
-  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
+  const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user);
   // Update without read: the engine reads in the window, the answer names rows.
   const canRead = await checkAccess(db, user, collection, 'read');
   const updated: DynamicRecord[] = [];

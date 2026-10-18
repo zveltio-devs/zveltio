@@ -31,6 +31,7 @@ import {
   checkPermission,
   collectionGrantsFor,
   encodeApiKeyScopes,
+  intersectGrants,
   getCurrentTenantTrx,
   getEnforcer,
   getRequestActor,
@@ -442,6 +443,13 @@ d('collection permissions in the database (R1)', () => {
       return getRequestActor()?.identity;
     });
     expect(await viaWorker(noScope as RlsIdentity)).toBe(0);
+    // Its scope met with an issuer who may not read COLL: nothing.
+    const demoted = await attempt(await anonymous(), async () => {
+      const scopes = [{ collection: COLL, actions: ['read'] }];
+      await publishApiKeyActor('apikey:probe', false, scopes, { all: false, grants: ',x:read,' });
+      return getRequestActor()?.identity;
+    });
+    expect(await viaWorker(demoted as RlsIdentity)).toBe(0);
   });
 
   it("encodes an API key's scopes as checkAccess reads them", () => {
@@ -456,5 +464,17 @@ d('collection permissions in the database (R1)', () => {
     expect(encodeApiKeyScopes([{ collection: '*', actions: ['read'] }]).grants).toBe(',*:read,');
     expect(encodeApiKeyScopes('not json')).toEqual({ all: false, grants: '' });
     expect(encodeApiKeyScopes([])).toEqual({ all: false, grants: '' });
+  });
+
+  it("meets an API key's grants with its issuer's: what both allow, wildcards included", () => {
+    const g = (grants: string, all = false) => ({ all, grants });
+    expect(intersectGrants(g('', true), g('', true))).toEqual(g('', true));
+    expect(intersectGrants(g('', true), g(',posts:read,'))).toEqual(g(',posts:read,'));
+    expect(intersectGrants(g(',*:read,'), g(',posts:*,tags:create,'))).toEqual(g(',posts:read,'));
+    expect(intersectGrants(g(',posts:*,'), g(',posts:read,posts:update,'))).toEqual(
+      g(',posts:read,posts:update,'),
+    );
+    expect(intersectGrants(g(',posts:create,'), g(',posts:read,'))).toEqual(g(''));
+    expect(intersectGrants(g(',posts:read,'), g(''))).toEqual(g(''));
   });
 });

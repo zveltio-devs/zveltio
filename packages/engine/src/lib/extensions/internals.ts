@@ -748,8 +748,13 @@ function buildUnboundInternals(): ExtensionInternals {
     // the refusing direction. Pass the acting user's id to have the host
     // resolve `data:view_all_columns` for them — that is how a god sees every
     // column through an extension, the same way it does through the data API.
-    getColumnAccess: (collection: string, role: string, userId?: string) =>
-      getColumnAccess(getDb(), collection, role, userId),
+    // An API key must come whole (`c.get('user')`, with its `authorUserId`):
+    // its bare id names no issuer, and a key with none sees no column.
+    getColumnAccess: (
+      collection: string,
+      role: string,
+      userId?: string | { id: string; authorUserId?: string | null },
+    ) => getColumnAccess(getDb(), collection, role, userId),
     resolveUserRole,
     // The host picks the handle, as for `getColumnAccess`.
     readScope: (collection, user, authType) => readScope(getDb(), collection, user, authType),

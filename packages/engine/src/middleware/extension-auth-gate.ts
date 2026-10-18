@@ -90,9 +90,16 @@ function compileKeyRoute(entry: string): KeyRoute {
  * `ctx.checkPermission` answers an `apikey:` id from this and never from Casbin,
  * which holds no policy for a key and would refuse it on every call.
  */
-const admitted = new AsyncLocalStorage<{ id: string; scopes: unknown }>();
+const admitted = new AsyncLocalStorage<AdmittedKey>();
 
-export function admittedApiKey(): { id: string; scopes: unknown } | undefined {
+/** The key the gate admitted: its id, its scopes and the person who issued it. */
+interface AdmittedKey {
+  id: string;
+  scopes: unknown;
+  authorUserId: string | null;
+}
+
+export function admittedApiKey(): AdmittedKey | undefined {
   return admitted.getStore();
 }
 
@@ -146,9 +153,11 @@ export function gatePrincipal(c: unknown): GatePrincipal | undefined {
  * Casbin holds no policy for `apikey:<uuid>`, so asking it refused every key
  * the gate had just admitted — `permissionGate` would 403 each `apiKeyRoutes`
  * route. A key is answered by `$ext:<extName>` for the asked action, and only
- * while it is the key this gate admitted for this request; the resource
- * is not consulted — the scope is per extension. Outside such a request (a job,
- * a listener after the response) a key id is refused. Sessions: unchanged.
+ * while it is the key this gate admitted for this request (the scope is per
+ * extension) — AND by `base` asking the key's issuer for the resource itself: a
+ * key never exceeds the person it acts for, so a demoted issuer's key loses what
+ * they lost. Outside such a request (a job, a listener after the response) a key
+ * id is refused. Sessions: unchanged.
  */
 export function keyAwareCheckPermission(
   extName: string,
@@ -157,7 +166,9 @@ export function keyAwareCheckPermission(
   return async (userId, resource, action) => {
     if (!isApiKeyPrincipal({ id: userId })) return base(userId, resource, action);
     const key = admittedApiKey();
-    return key?.id === userId && apiKeyHoldsScope(key.scopes, extScope(extName), action);
+    if (key?.id !== userId || !apiKeyHoldsScope(key.scopes, extScope(extName), action))
+      return false;
+    return !!key.authorUserId && base(key.authorUserId, resource, action);
   };
 }
 
@@ -278,7 +289,8 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
       c.set('user', user);
       // A session sent alongside the key wins, as it does in `authenticate`.
       if (!isApiKeyPrincipal(user)) return runAdmitted(c, user, next);
-      return admitted.run({ id: user.id, scopes: user.scopes }, () => runAdmitted(c, user, next));
+      const key = { id: user.id, scopes: user.scopes, authorUserId: user.authorUserId ?? null };
+      return admitted.run(key, () => runAdmitted(c, user, next));
     }
 
     // Fail-closed: require an authenticated session.

@@ -547,11 +547,12 @@ EXT_SESSION_REQUIRED`, as before. On a declared route:
   `auth.api.getSession` is `null` for a key, so a middleware of your own that
   requires a session must accept `c.get('user')` first:
   `if (c.get('user')) return next();`.
-- **`ctx.checkPermission` answers the key from its scope**, not from Casbin:
-  the action you ask must be in the `$ext:<name>` entry (or `*`); the resource
-  is not consulted. `permissionGate` therefore asks the same action the gate
-  already required. An action you ask by name (`settle`) must be named in the
-  scope. Outside the request the gate admitted, a key id is refused.
+- **`ctx.checkPermission` answers the key from its scope and its issuer**:
+  the action you ask must be in the `$ext:<name>` entry (or `*`), and the
+  person who issued the key must hold that resource and action themselves, as
+  a session would — a key never exceeds its issuer. An action you ask by name
+  (`settle`) must be named in the scope. Outside the request the gate
+  admitted, a key id is refused.
 - **Authorship:** the key's id is not a `user` row. Record `user.authorUserId
   ?? user.id` — the person who issued the key — in a `created_by` column.
 - The request runs in its tenant's transaction with the key as the RLS actor

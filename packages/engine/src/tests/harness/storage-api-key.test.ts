@@ -21,6 +21,7 @@ import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import {
   asEveryTenant,
   asTenant,
+  asKeyIssuer,
   createMemberSession,
   getTestApp,
   harnessAvailable,
@@ -35,7 +36,10 @@ const STAMP = `kstor-${Date.now()}`;
 
 type Scope = { collection: string; actions: string[] };
 const STORAGE_ALL: Scope[] = [{ collection: '$storage', actions: ['read', 'create', 'delete'] }];
-const KEYS: Record<string, { scopes: Scope[]; tenant: string; active?: false; bypass?: true }> = {
+const KEYS: Record<
+  string,
+  { scopes: Scope[]; tenant: string; active?: false; bypass?: true; byColleague?: true }
+> = {
   data: { scopes: [{ collection: '*', actions: ['*'] }], tenant: ROOT },
   read: { scopes: [{ collection: '$storage', actions: ['read'] }], tenant: ROOT },
   write: { scopes: STORAGE_ALL, tenant: ROOT },
@@ -43,6 +47,8 @@ const KEYS: Record<string, { scopes: Scope[]; tenant: string; active?: false; by
   doomed: { scopes: STORAGE_ALL, tenant: ROOT },
   revoked: { scopes: STORAGE_ALL, tenant: ROOT, active: false },
   tenant: { scopes: STORAGE_ALL, tenant: TENANT },
+  // `rls_bypass`, issued by someone who is no tenant admin.
+  plainBypass: { scopes: STORAGE_ALL, tenant: ROOT, bypass: true, byColleague: true },
 };
 const raw: Record<string, string> = {};
 const keyIds: Record<string, string> = {};
@@ -101,7 +107,7 @@ d('storage with an API key', () => {
     ({ app, db } = await getTestApp());
     const member = await createMemberSession(app, db);
     cookie = member.cookie;
-    issuer = member.userId;
+    issuer = await asKeyIssuer(member.userId);
     const colleague = (await createMemberSession(app, db)).userId;
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${TENANT}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
@@ -115,7 +121,7 @@ d('storage with an API key', () => {
           (name, key_hash, key_prefix, scopes, is_active, rls_bypass, tenant_id, created_by)
         VALUES (${`${STAMP}-${name}`}, ${await hashApiKey(raw[name]!)}, ${raw[name]!.slice(0, 12)},
                 ${JSON.stringify(k.scopes)}::jsonb, ${k.active ?? true}, ${k.bypass ?? false},
-                ${k.tenant}::uuid, ${issuer})
+                ${k.tenant}::uuid, ${k.byColleague ? colleague : issuer})
       `.execute(db);
       keyIds[name] = (
         await db
@@ -200,6 +206,11 @@ d('storage with an API key', () => {
     expect(await listed('bypass')).toContain(file.id);
     expect(await listed('bypass')).toContain(files.private);
     expect((await as('bypass', `/api/storage/${file.id}`, { method: 'DELETE' })).status).toBe(200);
+  });
+
+  it('holds a bypass key to its issuer: one who is no tenant admin sees no private file', async () => {
+    expect(await listed('plainBypass')).toContain(files.shared);
+    expect(await listed('plainBypass')).not.toContain(files.private);
   });
 
   it('keeps the file, owned by its issuer alone, when the key row is deleted', async () => {

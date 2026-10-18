@@ -404,11 +404,13 @@ export async function createMemberSession(
  * ordinary tenant acts there on its creator's membership, so the creator is
  * enrolled in each of `tenantIds` that exists — the default tenant counts
  * everyone, and a tenant that does not exist cannot be joined.
+ * An administrator — see `asKeyIssuer`.
  */
 export async function createKeyCreator(db: Database, tenantIds: string[] = []): Promise<string> {
   const id = `harness-keycreator-${crypto.randomUUID()}`;
   await sql`INSERT INTO "user" (id, name, email)
             VALUES (${id}, 'Harness key creator', ${`${id}@test.local`})`.execute(db);
+  await asKeyIssuer(id);
   for (const tenantId of tenantIds) {
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
               SELECT id, ${id}, 'member' FROM zv_tenants
@@ -416,6 +418,18 @@ export async function createKeyCreator(db: Database, tenantIds: string[] = []): 
               ON CONFLICT DO NOTHING`.execute(db);
   }
   return id;
+}
+
+/**
+ * Make `userId` an administrator (`admin`, which holds `('*','*')` everywhere),
+ * as the people who mint keys are, and return it: a key never exceeds its
+ * issuer (`keyIssuerAllows`), so a hand-inserted key's reach is then its scopes
+ * alone. Not god, so the issuer's tenant membership still binds the key.
+ */
+export async function asKeyIssuer(userId: string): Promise<string> {
+  await (await getEnforcer()).addRoleForUser(userId, 'admin', '*');
+  await invalidateUserPermCache(userId);
+  return userId;
 }
 
 /**

@@ -2,12 +2,21 @@
  * checkAccess — API key scopes provided as a JSON string (lib/data/auth.ts).
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import * as tenancy from '../../lib/tenancy/index.js';
 import type { Database } from '../../db/index.js';
 import { checkAccess } from '../../lib/data/auth.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const db = new CannedDb().kysely as unknown as Database;
+
+// The scope half is what this pins; the issuer half (`keyIssuerAllows`) grants.
+beforeAll(() => {
+  spyOn(tenancy, 'keyIssuerAllows').mockResolvedValue(true);
+});
+afterAll(() => {
+  spyOn(tenancy, 'keyIssuerAllows').mockRestore();
+});
 
 describe('checkAccess — stringified scopes', () => {
   afterEach(() => {

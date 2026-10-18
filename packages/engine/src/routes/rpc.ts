@@ -77,16 +77,17 @@ export function rpcRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Function not found' }, 404);
     }
 
-    // Check role. A key has none to rank — Casbin is never asked for one — and
-    // its grant is the `$rpc` scope checked above (see `guardSessionOrKey`).
+    // Check role. A key has none to rank: its grant is the `$rpc` scope checked
+    // above (see `guardSessionOrKey`), and the rank is its issuer's — a key never
+    // exceeds the person it acts for.
     // The real role, not `user.role ?? 'member'` — `session.user.role` is
     // always undefined (not declared in better-auth's additionalFields), so
     // every caller was ranked as `member` and the `god` short-circuit below
     // never fired. The Casbin fallback covered it, but ranking a god as a
     // member is the wrong input to a rank comparison.
+    const ranked = isApiKeyPrincipal(user) ? user.authorUserId && { id: user.authorUserId } : user;
     const hasAccess =
-      isApiKeyPrincipal(user) ||
-      (await userHasRole(user.id, fn.required_role, await resolveUserRole(user)));
+      !!ranked && (await userHasRole(ranked.id, fn.required_role, await resolveUserRole(ranked)));
     if (!hasAccess) return c.json({ error: 'Forbidden' }, 403);
 
     // Parse args — optional JSON body

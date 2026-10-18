@@ -25,6 +25,7 @@ import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   asEveryTenant,
   asTenant,
+  asKeyIssuer,
   createMemberSession,
   getTestApp,
   harnessAvailable,
@@ -61,7 +62,7 @@ d('zv_revisions and zv_import_logs under tenant RLS', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
-    const { userId } = await createMemberSession(app, db);
+    const userId = await asKeyIssuer((await createMemberSession(app, db)).userId);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
     // A tenant key acts on its issuer's membership there.

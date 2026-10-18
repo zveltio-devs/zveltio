@@ -168,6 +168,7 @@ API keys are hashed with **HMAC-SHA256** (not plain SHA-256) using `BETTER_AUTH_
 - Optional expiry date and own rate limit (`rate_limit`, requests/hour; enforced since migration 056 as a separate bucket, so it only tightens — god's `apikey:<id>` override is the ceiling)
 - Revocable immediately via `DELETE /api/api-keys/:id`
 - A key acts on its creator's standing: it stops when the creator is banned, loses membership in the key's tenant, or is deleted — by any path, including a direct `DELETE FROM "user"`
+- A key never exceeds its creator: every grant of its scopes is also asked of the creator's current permissions in the request's tenant (`keyIssuerAllows`), in the engine and in the collection policies, so demoting the creator narrows their keys at once
 
 ---
 

@@ -85,7 +85,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const principal = await authenticate(c, auth, db);
       if (
         principal?.authType === 'api_key' &&
-        apiKeyMayWatchSchema(principal.user.scopes, getCurrentDomainOrNull())
+        (await apiKeyMayWatchSchema(principal.user, getCurrentDomainOrNull()))
       )
         schemaReaders.add(c.req.raw);
     }

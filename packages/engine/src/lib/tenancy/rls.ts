@@ -19,6 +19,7 @@ import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import {
   checkPermission,
   getUserRoles,
+  keyIssuerAllows,
   principalRole,
   revalidateSocketsEverywhere,
 } from './permissions.js';
@@ -227,7 +228,13 @@ async function dropRlsCaches(collection: string): Promise<void> {
  */
 export async function getRlsFilters(
   collection: string,
-  user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
+  user: {
+    id: string;
+    email?: string;
+    role?: string;
+    rlsBypass?: boolean;
+    authorUserId?: string | null;
+  },
   authType: 'session' | 'api_key',
 ): Promise<Array<{ field: string; condition: FilterCondition }>> {
   // This used to read `user.role === 'god' || authType === 'api_key'`. Both
@@ -253,7 +260,13 @@ export async function getRlsFilters(
     // second reader of the same flag, and the two must not disagree about what
     // an absent value means. `rlsBypass` is optional on the type, so `!== false`
     // handed a full bypass to any caller that simply never set it.
-    if (user.rlsBypass === true) return [];
+    // And only while its issuer holds the session's exemption: a key never
+    // exceeds the person it acts for (`keyIssuerAllows`).
+    if (
+      user.rlsBypass === true &&
+      (await keyIssuerAllows(user, 'data', 'view_all').catch(() => false))
+    )
+      return [];
   } else if (await checkPermission(user.id, 'data', 'view_all').catch(() => false)) {
     return [];
   }

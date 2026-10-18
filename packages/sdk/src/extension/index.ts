@@ -565,8 +565,12 @@ export interface ExtensionInternals<DB = unknown> {
      * columns: `checkPermission` returns true for a god user before consulting
      * any policy, and everything else is deny-by-default. Without the id there
      * is no identity to resolve it for, so even a god is masked.
+     *
+     * For an API key pass the principal itself (`c.get('user')`): its bare
+     * `apikey:<id>` names no issuer, and a key's columns are bounded by its
+     * issuer's, so a bare key id sees none.
      */
-    userId?: string,
+    userId?: string | { id: string; authorUserId?: string | null },
   ) => Promise<{ hidden: Set<string>; readOnly: Set<string> }>;
   /**
    * The single role behind a user — what `getColumnAccess` keys on. Drawn from

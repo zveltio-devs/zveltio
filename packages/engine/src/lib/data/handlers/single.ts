@@ -273,12 +273,7 @@ export async function createRecord(
     try {
       const body = await w.body();
       // Column-level write permission applies to virtual writes too.
-      const vColAccess = await getColumnAccess(
-        db,
-        collection,
-        await resolveUserRole(user),
-        user.id,
-      );
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user);
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -299,12 +294,7 @@ export async function createRecord(
   const { errors, processed } = await processInput(body, collectionDef);
   if (errors.length > 0) return c.json({ errors }, 422);
 
-  const colAccessCreate = await getColumnAccess(
-    db,
-    collection,
-    await resolveUserRole(user),
-    user.id,
-  );
+  const colAccessCreate = await getColumnAccess(db, collection, await resolveUserRole(user), user);
   const { data: allowedData, blocked: blockedCreate } = filterWritableFields(
     processed,
     colAccessCreate,
@@ -387,12 +377,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   if (virtualConfigPut) {
     try {
       const body = await c.req.json();
-      const vColAccess = await getColumnAccess(
-        db,
-        collection,
-        await resolveUserRole(user),
-        user.id,
-      );
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user);
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -425,7 +410,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // Without this, PUT was an escalation hole: a role denied write access to a
   // column could still overwrite it via replace, since POST and PATCH block it
   // but PUT did not.
-  const colAccessPut = await getColumnAccess(db, collection, await resolveUserRole(user), user.id);
+  const colAccessPut = await getColumnAccess(db, collection, await resolveUserRole(user), user);
   const { data: allowedPut, blocked: blockedPut } = filterWritableFields(processed, colAccessPut);
   if (blockedPut.length > 0) {
     return c.json({ error: `Fields are read-only for your role: ${blockedPut.join(', ')}` }, 403);
@@ -526,12 +511,7 @@ export async function patchRecord(
   if (virtualConfigPatch) {
     try {
       const body = await w.body();
-      const vColAccess = await getColumnAccess(
-        db,
-        collection,
-        await resolveUserRole(user),
-        user.id,
-      );
+      const vColAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user);
       const { data: writable, blocked } = filterWritableFields(body, vColAccess);
       if (blocked.length > 0) {
         return c.json({ error: `Fields are read-only for your role: ${blocked.join(', ')}` }, 403);
@@ -554,12 +534,7 @@ export async function patchRecord(
   const { errors, processed } = await processInput(body, collectionDef, true);
   if (errors.length > 0) return c.json({ errors }, 422);
 
-  const colAccessPatch = await getColumnAccess(
-    db,
-    collection,
-    await resolveUserRole(user),
-    user.id,
-  );
+  const colAccessPatch = await getColumnAccess(db, collection, await resolveUserRole(user), user);
   const { data: allowedPatch, blocked: blockedPatch } = filterWritableFields(
     processed,
     colAccessPatch,

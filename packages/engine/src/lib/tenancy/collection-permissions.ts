@@ -184,3 +184,35 @@ export function encodeApiKeyScopes(raw: unknown): { all: boolean; grants: string
   }
   return { all, grants: parts.size > 0 ? `,${[...parts].join(',')},` : '' };
 }
+
+/**
+ * What both `a` and `b` allow, in the same encoding — an API key's scopes met
+ * with its issuer's grants, so the database bounds a key as `checkAccess` does.
+ * A (collection, action) is allowed by some entry of each side, so the meet of
+ * every pair of entries (`*` yielding to the other side) is the intersection.
+ */
+export function intersectGrants(
+  a: { all: boolean; grants: string },
+  b: { all: boolean; grants: string },
+): { all: boolean; grants: string } {
+  const entries = (g: { all: boolean; grants: string }) =>
+    [...(g.all ? ['*:*'] : []), ...g.grants.split(',').filter(Boolean)].flatMap((e) => {
+      const at = e.lastIndexOf(':');
+      const coll = e.slice(0, at);
+      // A resource named with `:` is never a collection (`zvd_<identifier>`).
+      return at > 0 && !coll.includes(':') ? [[coll, e.slice(at + 1)] as const] : [];
+    });
+  const meet = (x: string, y: string) => (x === '*' ? y : y === '*' || y === x ? x : null);
+  let all = false;
+  const parts = new Set<string>();
+  for (const [ca, aa] of entries(a)) {
+    for (const [cb, ab] of entries(b)) {
+      const coll = meet(ca, cb);
+      const act = meet(aa, ab);
+      if (coll === null || act === null) continue;
+      if (coll === '*' && act === '*') all = true;
+      else parts.add(`${coll}:${act}`);
+    }
+  }
+  return { all, grants: parts.size > 0 ? `,${[...parts].join(',')},` : '' };
+}
