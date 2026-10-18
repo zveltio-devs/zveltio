@@ -13,6 +13,7 @@ import {
   ArrowRight,
   Database,
   Globe,
+  Puzzle,
 } from '@lucide/svelte';
 import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
 import PageHeader from '$lib/components/common/PageHeader.svelte';
@@ -23,7 +24,7 @@ import { toast } from '$lib/stores/toast.svelte.js';
 type Resource = {
   name: string;
   display_name: string;
-  type: 'collection' | 'zone';
+  type: 'collection' | 'extension' | 'zone';
   actions: string[];
 };
 
@@ -67,6 +68,16 @@ const collections = $derived(
         r.name.toLowerCase().includes(matrixFilter.toLowerCase()),
     ),
 );
+const extensionResources = $derived(
+  resources
+    .filter((r) => r.type === 'extension')
+    .filter(
+      (r) =>
+        !matrixFilter ||
+        r.display_name.toLowerCase().includes(matrixFilter.toLowerCase()) ||
+        r.name.toLowerCase().includes(matrixFilter.toLowerCase()),
+    ),
+);
 const zones = $derived(
   resources
     .filter((r) => r.type === 'zone')
@@ -79,6 +90,7 @@ const zones = $derived(
 );
 const totalCollections = $derived(resources.filter((r) => r.type === 'collection').length);
 const totalZones = $derived(resources.filter((r) => r.type === 'zone').length);
+const totalExtensionResources = $derived(resources.filter((r) => r.type === 'extension').length);
 
 onMount(async () => {
   await loadAll();
@@ -296,6 +308,53 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                 {#each collections as res}
                 <tr class="hover">
                   <td class="font-medium">{res.display_name}</td>
+                  {#each res.actions as action}
+                  <td class="text-center">
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-sm checkbox-primary"
+                      aria-label={m['permissions.actionOnResource']({ action, resource: res.display_name })}
+                      checked={has(selectedRole.id, res.name, action)}
+                      onchange={() => toggle(selectedRole.id, res.name, action)}
+                    />
+                  </td>
+                  {/each}
+                </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {/if}
+
+        <!-- Extension resources section -->
+        {#if extensionResources.length > 0}
+        <div>
+          <div class="flex items-center gap-2 mb-3">
+            <Puzzle size={15} class="text-base-content/65" />
+            <span class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">
+              {matrixFilter
+                ? m['permissions.extensionResourcesFiltered']({ count: extensionResources.length, total: totalExtensionResources })
+                : m['permissions.extensionResourcesCount']({ count: extensionResources.length })}
+            </span>
+          </div>
+
+          <div class="border border-base-300 rounded-xl overflow-x-auto">
+            <table class="table table-sm w-full">
+              <thead class="bg-base-200">
+                <tr>
+                  <th class="w-1/3">{m['permissions.extensionResource']()}</th>
+                  <th class="text-center text-info">{m['common.view']()}</th>
+                  <th class="text-center text-success">{m['common.create']()}</th>
+                  <th class="text-center text-warning">{m['common.op.update']()}</th>
+                  <th class="text-center text-error">{m['common.delete']()}</th>
+                  <th class="text-center text-secondary">{m['permissions.execute']()}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each extensionResources as res}
+                <tr class="hover">
+                  <td class="font-medium font-mono text-xs">{res.display_name}</td>
                   {#each res.actions as action}
                   <td class="text-center">
                     <input
