@@ -33,6 +33,8 @@ export type AuditEventType =
   | 'extension.forward_credentials.approved'
   /** One run of an extension action (lib/extensions/actions.ts), with its outcome. */
   | 'extension.action.executed'
+  /** One run of an extension job (lib/extensions/jobs.ts), with its outcome and enqueuer. */
+  | 'extension.job.executed'
   // An anonymous execution of a public edge function. Its own type because the
   // authenticated invocations are attributable by their user and these are not
   // attributable by anything but time and address.

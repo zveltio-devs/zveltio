@@ -25,6 +25,8 @@
  * for colleagues regardless of the uploader's visibility setting.
  */
 
+import { apiKeyRowId } from './data/index.js';
+
 /** The only shape this needs from a query builder. */
 interface Filterable<Q> {
   // biome-ignore lint/suspicious/noExplicitAny: Kysely's expression builder, over a runtime table
@@ -39,7 +41,7 @@ interface Filterable<Q> {
  */
 function ownerColumn(principalId: string): ['created_by' | 'created_by_api_key', string] {
   return principalId.startsWith('apikey:')
-    ? ['created_by_api_key', principalId.slice('apikey:'.length)]
+    ? ['created_by_api_key', apiKeyRowId(principalId)]
     : ['created_by', principalId];
 }
 

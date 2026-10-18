@@ -24,6 +24,24 @@ export const CREDENTIAL_HEADERS = [
   'x-api-key',
 ] as const;
 
+/** An action's or a job's `input` must compile, or the manifest is refused. */
+function inputSchemaIssue(
+  ctx: z.RefinementCtx,
+  path: (string | number)[],
+  what: string,
+  input: Record<string, unknown>,
+): void {
+  try {
+    z.fromJSONSchema(input as Parameters<typeof z.fromJSONSchema>[0]);
+  } catch (err) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: `${what}: input is not a usable JSON Schema (${(err as Error).message})`,
+    });
+  }
+}
+
 export const ManifestSchema = z
   .object({
     name: z.string().min(1),
@@ -244,6 +262,31 @@ export const ManifestSchema = z
           input: z.record(z.string(), z.unknown()),
           reads: z.array(z.string()).default([]),
           writes: z.array(z.string()).default([]),
+          /** The `jobs` this action may enqueue (`ActionHost.enqueue`). */
+          enqueues: z.array(z.string()).default([]),
+        }),
+      )
+      .default([]),
+    /**
+     * Asynchronous work (RFC v3 "Jobs"): an action enqueues one in its request
+     * transaction, and the engine runs it after that commits, out of any request,
+     * in the enqueuing tenant. `input` is a JSON Schema checked at enqueue; the
+     * implementation reaches only the collections in `reads` and `writes`.
+     * `retry.limit` failed runs are retried, with exponential `backoff` by default.
+     */
+    jobs: z
+      .array(
+        z.object({
+          name: z.string().regex(/^[a-z][a-zA-Z0-9]*$/),
+          input: z.record(z.string(), z.unknown()),
+          reads: z.array(z.string()).default([]),
+          writes: z.array(z.string()).default([]),
+          retry: z
+            .object({
+              limit: z.number().int().min(0).max(10).default(2),
+              backoff: z.boolean().default(true),
+            })
+            .default({ limit: 2, backoff: true }),
         }),
       )
       .default([]),
@@ -338,15 +381,28 @@ export const ManifestSchema = z
           message: `action "${a.name}" is gated on "${a.permission.resource}", which is not in resources`,
         });
       }
-      try {
-        z.fromJSONSchema(a.input as Parameters<typeof z.fromJSONSchema>[0]);
-      } catch (err) {
+      inputSchemaIssue(ctx, ['actions', i, 'input'], `action "${a.name}"`, a.input);
+      for (const job of a.enqueues) {
+        if (!m.jobs.some((j) => j.name === job)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['actions', i, 'enqueues'],
+            message: `action "${a.name}" enqueues "${job}", which is not in jobs`,
+          });
+        }
+      }
+    });
+    const jobNames = new Set<string>();
+    m.jobs.forEach((j, i) => {
+      if (jobNames.has(j.name)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ['actions', i, 'input'],
-          message: `action "${a.name}": input is not a usable JSON Schema (${(err as Error).message})`,
+          path: ['jobs', i, 'name'],
+          message: `job "${j.name}" is declared twice`,
         });
       }
+      jobNames.add(j.name);
+      inputSchemaIssue(ctx, ['jobs', i, 'input'], `job "${j.name}"`, j.input);
     });
     for (const route of Object.keys(m.forwardCredentials)) {
       if (!m.publicRoutes.includes(route)) {

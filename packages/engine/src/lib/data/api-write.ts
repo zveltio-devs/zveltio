@@ -27,6 +27,43 @@ type ReadCaller = Pick<WriteRequest, 'user' | 'authType' | 'trx' | 'tenantId'>;
 type ReadEnv = { Bindings: { db: Database; who: ReadCaller } };
 let readApp: Promise<Hono<ReadEnv>> | undefined;
 
+/** The variables the data handlers read off their context, from `who` alone. */
+function bindCaller(c: Context, who: ReadCaller): void {
+  c.set('user', who.user);
+  c.set('authType', who.authType);
+  c.set('tenantTrx', who.trx ?? null);
+  // The handlers read the tenant's id alone (`getTenantId`).
+  c.set('tenant', (who.tenantId ? { id: who.tenantId } : null) as never);
+}
+
+type WriteEnv = { Bindings: { db: Database; op: 'create' | 'update' | 'delete'; w: WriteRequest } };
+let writeApp: Promise<Hono<WriteEnv>> | undefined;
+
+/**
+ * `dataApiWrite` for work that has no request — an extension job. The handlers
+ * get a context of their own, holding only what `w` says, as `dataApiRead` does.
+ */
+export async function dataApiWriteDetached(
+  op: 'create' | 'update' | 'delete',
+  db: Database,
+  w: WriteRequest,
+): Promise<Response> {
+  writeApp ??= (async () => {
+    const { Hono } = await import('hono');
+    const app = new Hono<WriteEnv>();
+    app.post('/', (c) => {
+      bindCaller(c as unknown as Context, c.env.w);
+      return dataApiWrite(c.env.op, c as unknown as Context, c.env.db, c.env.w);
+    });
+    return app;
+  })().catch((err) => {
+    writeApp = undefined;
+    throw err;
+  });
+  const app = await writeApp;
+  return app.fetch(new Request('http://data.internal/', { method: 'POST' }), { db, op, w });
+}
+
 /**
  * The data API's reads — `GET /api/data/:collection[/:id]` — for a caller that
  * is not their route. The route's handlers and query validation, mounted on an
@@ -56,12 +93,7 @@ export async function dataApiRead(
     ]);
     const app = new Hono<ReadEnv>();
     app.use('*', async (c, next) => {
-      const { who } = c.env;
-      c.set('user', who.user);
-      c.set('authType', who.authType);
-      c.set('tenantTrx', who.trx ?? null);
-      // The handlers read the tenant's id alone (`getTenantId`).
-      c.set('tenant', (who.tenantId ? { id: who.tenantId } : null) as never);
+      bindCaller(c as unknown as Context, c.env.who);
       await next();
     });
     app.get('/:collection', zValidator('query', QuerySchema), (c) =>

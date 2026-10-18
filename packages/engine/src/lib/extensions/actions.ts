@@ -14,7 +14,9 @@ import { z } from 'zod';
 import type {
   ActionHost,
   DataApiAnswer,
+  DataApiReadQuery,
   ExtensionAction,
+  HostCollections,
   ZveltioExtension,
 } from '@zveltio/sdk/extension';
 import { getDb } from '../../db/index.js';
@@ -24,6 +26,7 @@ import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
 import { afterRequestSettles } from '../../middleware/tenant.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
+import { enqueueJob } from './jobs.js';
 
 export interface CompiledAction {
   name: string;
@@ -31,7 +34,39 @@ export interface CompiledAction {
   input: z.ZodType;
   reads: ReadonlySet<string>;
   writes: ReadonlySet<string>;
+  /** The jobs `ActionHost.enqueue` may queue. */
+  enqueues: ReadonlySet<string>;
   run: ExtensionAction;
+}
+
+/**
+ * Pair a manifest list with the module's implementations by name, compiling
+ * each input schema. Throws through `refuse` on any mismatch, in either direction.
+ */
+export function pairImplementations<D extends { name: string; input: Record<string, unknown> }, F>(
+  kind: 'action' | 'job',
+  declared: readonly D[],
+  implemented: Record<string, F>,
+  refuse: (why: string) => never,
+): { declared: D; input: z.ZodType; run: F }[] {
+  const out = declared.map((d) => {
+    const run = Object.hasOwn(implemented, d.name) ? implemented[d.name] : undefined;
+    if (typeof run !== 'function') refuse(`manifest ${kind} "${d.name}" has no implementation`);
+    try {
+      const input = z.fromJSONSchema(d.input as Parameters<typeof z.fromJSONSchema>[0]);
+      return { declared: d, input, run: run as F };
+    } catch (err) {
+      return refuse(
+        `${kind} "${d.name}": input is not a usable JSON Schema (${(err as Error).message})`,
+      );
+    }
+  });
+  for (const name of Object.keys(implemented)) {
+    if (!declared.some((d) => d.name === name)) {
+      refuse(`${kind} "${name}" is implemented but not declared in the manifest`);
+    }
+  }
+  return out;
 }
 
 /**
@@ -51,33 +86,26 @@ export function compileActions(
   const implemented = extension.actions ?? {};
   const out = new Map<string, CompiledAction>();
   if (declared.length === 0 && Object.keys(implemented).length === 0) return out;
-  const refuse = (why: string) => {
+  const refuse = (why: string): never => {
     throw new Error(`Extension "${extName}": ${why}`);
   };
   if (worker) refuse('actions are not served for a worker-isolated extension yet');
   if (extension.mountStrategy !== 'subapp') refuse("actions need mountStrategy 'subapp'");
-  for (const a of declared) {
-    const run = Object.hasOwn(implemented, a.name) ? implemented[a.name] : undefined;
-    if (typeof run !== 'function') refuse(`manifest action "${a.name}" has no implementation`);
-    let input: z.ZodType;
-    try {
-      input = z.fromJSONSchema(a.input as Parameters<typeof z.fromJSONSchema>[0]);
-    } catch (err) {
-      return refuse(
-        `action "${a.name}": input is not a usable JSON Schema (${(err as Error).message})`,
-      );
-    }
+  for (const { declared: a, input, run } of pairImplementations(
+    'action',
+    declared,
+    implemented,
+    refuse,
+  )) {
     out.set(a.name, {
       name: a.name,
       permission: a.permission,
       input,
       reads: new Set(a.reads),
       writes: new Set(a.writes),
-      run: run as ExtensionAction,
+      enqueues: new Set(a.enqueues),
+      run,
     });
-  }
-  for (const name of Object.keys(implemented)) {
-    if (!out.has(name)) refuse(`action "${name}" is implemented but not declared in the manifest`);
   }
   return out;
 }
@@ -131,22 +159,49 @@ export function mountActions(
         tenantId: p.tenantId,
       }),
     );
-    const result = await def.run(parsed.data, actionHost(c, def, ctx.internals));
+    const host: ActionHost = {
+      collections: hostCollections(`action "${def.name}"`, def, callerData(c, ctx.internals)),
+      enqueue: (job, input) => enqueueJob(extName, p, def, job, input),
+    };
+    const result = await def.run(parsed.data, host);
     return c.json({ result: result ?? null });
   });
 }
 
-/** The data API as the request's caller, narrowed to what the action declares. */
-function actionHost(c: Context, def: CompiledAction, internals: ExtensionInternals): ActionHost {
+/** One data API call per member of `HostCollections`, answering with the route's status and body. */
+export interface DataIo {
+  read(collection: string, id: string): Promise<DataApiAnswer>;
+  list(collection: string, query?: DataApiReadQuery): Promise<DataApiAnswer>;
+  create(collection: string, data: Record<string, unknown>): Promise<DataApiAnswer>;
+  update(collection: string, id: string, data: Record<string, unknown>): Promise<DataApiAnswer>;
+  delete(collection: string, id: string): Promise<DataApiAnswer>;
+}
+
+/** The data API as the request's caller. */
+function callerData(c: Context, internals: ExtensionInternals): DataIo {
+  return {
+    read: (collection, id) => internals.readRecord(c, collection, id),
+    list: (collection, query) => internals.listRecords(c, collection, query),
+    create: (collection, data) => internals.createRecord(c, collection, data),
+    update: (collection, id, data) => internals.updateRecord(c, collection, id, data),
+    delete: (collection, id) => internals.deleteRecord(c, collection, id),
+  };
+}
+
+/** `io`, narrowed to the collections `def` declares; a refused call throws. */
+export function hostCollections(
+  what: string,
+  def: { reads: ReadonlySet<string>; writes: ReadonlySet<string> },
+  io: DataIo,
+): HostCollections {
   const declared = (kind: 'reads' | 'writes', collection: string) => {
     if (!def[kind].has(collection)) {
       throw new Error(
-        `action "${def.name}" reached collection "${collection}", which its manifest does not ` +
-          `list in ${kind}`,
+        `${what} reached collection "${collection}", which its manifest does not list in ${kind}`,
       );
     }
   };
-  // A refused write fails the action, so the request rolls back what it wrote before.
+  // A refused write fails the action or job, so its transaction rolls back what it wrote before.
   const ok = (a: DataApiAnswer): Record<string, unknown> => {
     if (a.status < 400) return a.body;
     const detail = a.body.error ?? a.body.detail ?? a.body.reason;
@@ -158,28 +213,26 @@ function actionHost(c: Context, def: CompiledAction, internals: ExtensionInterna
     );
   };
   return {
-    collections: {
-      read: async (collection, id) => {
-        declared('reads', collection);
-        const a = await internals.readRecord(c, collection, id);
-        return a.status === 404 ? null : ok(a);
-      },
-      list: async (collection, query) => {
-        declared('reads', collection);
-        return ok(await internals.listRecords(c, collection, query));
-      },
-      insert: async (collection, data) => {
-        declared('writes', collection);
-        return ok(await internals.createRecord(c, collection, data));
-      },
-      update: async (collection, id, data) => {
-        declared('writes', collection);
-        return ok(await internals.updateRecord(c, collection, id, data));
-      },
-      delete: async (collection, id) => {
-        declared('writes', collection);
-        ok(await internals.deleteRecord(c, collection, id));
-      },
+    read: async (collection, id) => {
+      declared('reads', collection);
+      const a = await io.read(collection, id);
+      return a.status === 404 ? null : ok(a);
+    },
+    list: async (collection, query) => {
+      declared('reads', collection);
+      return ok(await io.list(collection, query));
+    },
+    insert: async (collection, data) => {
+      declared('writes', collection);
+      return ok(await io.create(collection, data));
+    },
+    update: async (collection, id, data) => {
+      declared('writes', collection);
+      return ok(await io.update(collection, id, data));
+    },
+    delete: async (collection, id) => {
+      declared('writes', collection);
+      ok(await io.delete(collection, id));
     },
   };
 }

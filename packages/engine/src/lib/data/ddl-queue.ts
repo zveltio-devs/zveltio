@@ -72,6 +72,16 @@ interface PublicJobShape {
   created_at: Date;
 }
 
+/**
+ * Per-queue retention matching the pg-boss 10 defaults we relied on: completed
+ * jobs auto-delete after 7 days (was archiveCompletedAfterSeconds), created and
+ * retrying ones after 30 (was retentionDays). Extension job queues use it too.
+ */
+export const QUEUE_RETENTION = {
+  deleteAfterSeconds: 7 * 24 * 60 * 60,
+  retentionSeconds: 30 * 24 * 60 * 60,
+};
+
 const DEFAULT_RETRY = {
   retryLimit: 3,
   retryDelay: 5, // seconds — initial backoff
@@ -110,13 +120,6 @@ export async function initDDLQueue(db: Database): Promise<void> {
     });
     await _boss.start();
 
-    // Per-queue retention matching the pg-boss 10 defaults we relied on:
-    //   - Completed jobs auto-delete after 7 days (was archiveCompletedAfterSeconds).
-    //   - Created/retry jobs auto-delete after 30 days (was retentionDays).
-    const QUEUE_RETENTION = {
-      deleteAfterSeconds: 7 * 24 * 60 * 60,
-      retentionSeconds: 30 * 24 * 60 * 60,
-    };
     for (const qname of Object.values(QUEUE_NAMES)) {
       // One active build per index (its name is the singletonKey), on any replica.
       const policy = qname === QUEUE_NAMES.build_index ? { policy: 'singleton' } : {};
@@ -133,6 +136,11 @@ export async function initDDLQueue(db: Database): Promise<void> {
     void reindexInvalid(db).catch(() => {});
 
     await registerHandlers(_boss, db);
+    for (const fn of startListeners) {
+      await fn(_boss).catch((err: Error) =>
+        console.warn('[ddl-queue] start listener:', err.message),
+      );
+    }
     console.log('✅ DDL queue (pg-boss) started');
   } catch (err) {
     console.warn('[ddl-queue] failed to start pg-boss:', (err as Error).message);
@@ -553,6 +561,24 @@ async function skipForByod(trx: any, payload: any, _kind: string): Promise<boole
     .where('name', '=', collectionName)
     .executeTakeFirst();
   return meta?.is_managed === false;
+}
+
+export type JobQueue = PgBossInst;
+const startListeners: ((boss: PgBossInst) => Promise<void>)[] = [];
+
+/** The started pg-boss, shared with extension jobs (lib/extensions/jobs.ts); null until then. */
+export function jobQueue(): PgBossInst | null {
+  return _boss;
+}
+
+/**
+ * Run `fn` with pg-boss once it starts — at once, if it has. Extensions load
+ * before the queue starts at boot, and after it when enabled at runtime.
+ */
+export function onJobQueueStart(fn: (boss: PgBossInst) => Promise<void>): void {
+  startListeners.push(fn);
+  if (_boss)
+    void fn(_boss).catch((err: Error) => console.warn('[ddl-queue] start listener:', err.message));
 }
 
 /** Whether the pg-boss DDL queue worker is started (health probe, H-1.4). */
