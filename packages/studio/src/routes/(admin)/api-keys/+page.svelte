@@ -64,8 +64,14 @@ let copied = $state(false);
 // engine never checks it: a key made with it could not create or update.
 const ALL_ACTIONS = ['read', 'create', 'update', 'delete'];
 // `$rpc` takes `execute` (every whitelisted function) or function names; the
-// four above would mint a key that calls nothing.
-const actionsFor = (collection: string) => (collection === '$rpc' ? ['execute'] : ALL_ACTIONS);
+// four above would mint a key that calls nothing. `$ext:<name>` adds `execute`,
+// what the extension's manifest actions ask.
+const actionsFor = (collection: string) =>
+  collection === '$rpc'
+    ? ['execute']
+    : collection.startsWith('$ext:')
+      ? [...ALL_ACTIONS, 'execute']
+      : ALL_ACTIONS;
 
 const emptyForm = () => ({
   name: '',
@@ -307,7 +313,7 @@ function formatRelative(dateStr: string): string {
             <option value="$storage"></option>
             <option value="$schema"></option>
             <option value="$rpc"></option>
-            <!-- `$ext:<name>` reaches only the routes that extension declares in `apiKeyRoutes`. -->
+            <!-- `$ext:<name>` reaches the routes that extension declares in `apiKeyRoutes`, and its actions. -->
             {#each extensions.active as name}
               <option value={`$ext:${name}`}></option>
             {/each}

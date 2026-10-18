@@ -875,6 +875,9 @@ lets a key call the routes that extension declares in its manifest
 `apiKeyRoutes` — nothing else under `/ext/finance/invoicing`, which still
 answers a key 403 `EXT_SESSION_REQUIRED`. Each route needs the action its
 method maps to: GET `read`, POST `create`, PUT/PATCH `update`, DELETE `delete`.
+The extension's manifest `actions` (`POST /ext/<name>/actions/<action>`) need no
+declaration: each takes its own permission action, `execute` by default, and
+writes only to collections the key's scopes grant.
 The extension's own permission checks for the key are answered from the same
 entry (an action it asks by name, such as `settle`, must be named there too);
 Casbin is not asked. An extension may check collections against the key's

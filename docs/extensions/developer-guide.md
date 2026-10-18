@@ -557,6 +557,12 @@ EXT_SESSION_REQUIRED`, as before. On a declared route:
 - The request runs in its tenant's transaction with the key as the RLS actor
   (`zveltio.user_id = apikey:<uuid>`), as on the data API.
 
+**Manifest `actions` need no `apiKeyRoutes` entry.** `POST /actions/<action>`
+admits a key holding `$ext:<name>` with the action's declared permission action
+(`execute` unless the manifest names another) — not `create`. Its writes go
+through the data API as the key, so each collection the action writes must be
+in the key's scopes as well: `execute` opens the action, not its collections.
+
 A declaration changes the published package, so raise the manifest version;
 a handler change also needs a repack.
 

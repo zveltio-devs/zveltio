@@ -457,7 +457,8 @@ export const RPC_SCOPE = '$rpc';
  * The scope that lets an API key use extension `name`'s routes declared in its
  * manifest `apiKeyRoutes`: `$ext:<name>`, e.g. `$ext:finance/invoicing`. Its
  * actions are what the `/ext/*` gate asks per route (method-derived) and what
- * the extension's own `ctx.checkPermission` asks — see extension-auth-gate.ts.
+ * the extension's own `ctx.checkPermission` asks, and a manifest action's own
+ * permission action (`execute`) — see extension-auth-gate.ts.
  */
 export function extScope(name: string): string {
   return `$ext:${name}`;
