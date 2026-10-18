@@ -968,7 +968,7 @@ export async function finalizeExtensionLoad(
   // middleware/extension-auth-gate.ts.
   const publicRoutes = (manifest as { publicRoutes?: string[] } | null)?.publicRoutes ?? [];
   const apiKeyRoutes = (manifest as { apiKeyRoutes?: string[] } | null)?.apiKeyRoutes ?? [];
-  registerExtensionPublicRoutes(extName, publicRoutes, apiKeyRoutes);
+  registerExtensionPublicRoutes(extName, publicRoutes, apiKeyRoutes, actions.values());
 
   // With the effective capabilities: an unapproved `data:system` runs no job.
   registerJobs(extName, jobs, effective);
@@ -1023,7 +1023,12 @@ export async function reRegisterExtension(
   const loaded = loader.loaded.get(name);
   // Re-assert the public-route allowlist on hot-reload (the registry is process
   // -global, but this keeps it correct if the module map was rebuilt).
-  registerExtensionPublicRoutes(name, loaded?.publicRoutes ?? [], loaded?.apiKeyRoutes ?? []);
+  registerExtensionPublicRoutes(
+    name,
+    loaded?.publicRoutes ?? [],
+    loaded?.apiKeyRoutes ?? [],
+    loaded?.actions?.values(),
+  );
   const restrictedCtx = buildRestrictedContext(
     loader.ctx,
     name,

@@ -16,6 +16,9 @@
  * API keys: a route the manifest declares in `apiKeyRoutes` (`"POST /invoices"`)
  * also admits a key holding `$ext:<name>` for the method's action — GET read,
  * POST create, PUT/PATCH update, DELETE delete, as `permissionGate` derives it.
+ * A declared action (`POST /actions/<action>`) admits a key holding `$ext:<name>`
+ * for the action's own permission action (`execute` by default) — never `create`,
+ * which would open every POST route the extension declares for keys.
  * The key principal is set as `user` and, for the rest of the request,
  * `admittedApiKey()` answers the extension's `ctx.checkPermission` from that
  * scope instead of Casbin (lib/extensions/register.ts). Every other route
@@ -186,10 +189,18 @@ export function registerExtensionPublicRoutes(
   extName: string,
   publicRoutes: readonly string[],
   apiKeyRoutes: readonly string[] = [],
+  actions: Iterable<{ name: string; permission: { action: string } }> = [],
 ): void {
+  // Actions first: `keyRouteAction` takes the first match, and an `apiKeyRoutes`
+  // `POST /actions/*` must not turn the action's gate back into `create`.
+  const actionRoutes = [...actions].map((a) => ({
+    method: 'POST',
+    path: compilePattern(`/actions/${a.name}`),
+    action: a.permission.action,
+  }));
   registry.set(extName, {
     publicRoutes: publicRoutes.map(compilePattern),
-    apiKeyRoutes: apiKeyRoutes.map(compileKeyRoute),
+    apiKeyRoutes: [...actionRoutes, ...apiKeyRoutes.map(compileKeyRoute)],
   });
 }
 
