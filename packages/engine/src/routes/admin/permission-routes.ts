@@ -204,7 +204,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     return c.json({ permissions });
   });
 
-  // POST /permissions/bulk — Replace all custom-role permissions atomically
+  // POST /permissions/bulk — Replace every role's permissions with the posted set
   app.post(
     '/permissions/bulk',
     zValidator(
@@ -228,20 +228,32 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
 
       const e = await getEnforcer();
 
-      // Remove all existing policies for custom roles
-      for (const role of roles) {
-        await e.deletePermissionsForUser(role.name);
-      }
-
-      // Add new policies
+      // The posted set per role, as rules. `view` is what this screen used to
+      // offer; it means `read` (see /resources). Domain '*' = global (applies
+      // in every tenant). A rule for a role with no row is dropped, as before.
+      const wanted = new Map<string, Set<string>>(roles.map((r) => [r.name, new Set<string>()]));
       for (const perm of permissions) {
         const roleName = roleIdToName.get(perm.role_id);
         if (!roleName) continue;
-        // Domain '*' = global (applies in every tenant), matching the pre-domain
-        // behaviour. Per-tenant policies use a concrete tenant id instead.
-        // `view` is what this screen used to offer; it means `read` (see /resources).
         const action = perm.action === 'view' ? 'read' : perm.action;
-        await e.addPolicy(roleName, '*', perm.resource, action);
+        wanted.get(roleName)!.add(JSON.stringify([roleName, '*', perm.resource, action]));
+      }
+
+      // A diff, not delete-all-then-add: an unchanged rule is never touched, so a
+      // save that dies half-way cannot leave every default grant removed — and
+      // recorded as revoked by the adapter, which would outlive the next boot.
+      // A default the save omits is removed (and stays revoked); one it adds back
+      // is re-added (and its revocation cleared).
+      for (const [roleName, keep] of wanted) {
+        const have = new Set(
+          (await e.getFilteredPolicy(0, roleName)).map((r) => JSON.stringify(r)),
+        );
+        for (const rule of have) {
+          if (!keep.has(rule)) await e.removePolicy(...(JSON.parse(rule) as string[]));
+        }
+        for (const rule of keep) {
+          if (!have.has(rule)) await e.addPolicy(...(JSON.parse(rule) as string[]));
+        }
       }
 
       await invalidateAllPermissionCaches();

@@ -632,6 +632,13 @@ export interface ZvDashboardsTable {
   tenant_id: Generated<string | null>;
 }
 
+export interface ZvDefaultGrantRevocationsTable {
+  role: string;
+  resource: string;
+  action: string;
+  revoked_at: Generated<Date>;
+}
+
 export interface ZvDocTemplatesTable {
   id: Generated<string>;
   name: string;
@@ -5523,6 +5530,7 @@ export interface DbSchema {
   zv_content_drafts: ZvContentDraftsTable;
   zv_dashboard_layouts: ZvDashboardLayoutsTable;
   zv_dashboards: ZvDashboardsTable;
+  zv_default_grant_revocations: ZvDefaultGrantRevocationsTable;
   zv_doc_templates: ZvDocTemplatesTable;
   zv_document_access_log: ZvDocumentAccessLogTable;
   zv_document_number_sequences: ZvDocumentNumberSequencesTable;

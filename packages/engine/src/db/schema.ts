@@ -707,6 +707,17 @@ export interface ZvExtensionForwardApprovalsTable {
   approved_at: Generated<Date>;
 }
 
+/**
+ * Default grants (role, '*', resource, action) an operator revoked (migration
+ * 086); `materializeDefaultGrants` skips them. Written by the Casbin adapter.
+ */
+export interface ZvDefaultGrantRevocationsTable {
+  role: string;
+  resource: string;
+  action: string;
+  revoked_at: Generated<Date>;
+}
+
 export interface ZvEdgeFunctionsTable {
   id: Generated<string>;
   tenant_id: Generated<string>;
@@ -1449,6 +1460,7 @@ export interface DbSchema {
   zv_ai_memory: ZvAiMemoryTable;
   zv_extension_registry: ZvExtensionRegistryTable;
   zv_extension_forward_approvals: ZvExtensionForwardApprovalsTable;
+  zv_default_grant_revocations: ZvDefaultGrantRevocationsTable;
   zv_edge_functions: ZvEdgeFunctionsTable;
   zv_edge_function_logs: ZvEdgeFunctionLogsTable;
   zv_audit_log: ZvAuditLogTable;
