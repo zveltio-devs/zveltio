@@ -186,6 +186,9 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       .selectFrom('zvd_permissions')
       .selectAll()
       .where('ptype', '=', 'p')
+      // The matrix edits global rules only, and bulk saves what it shows as
+      // domain '*': a tenant's rule listed here came back from a save global.
+      .where('v1', '=', '*')
       .execute();
 
     const permissions = policies
@@ -245,8 +248,10 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       // A default the save omits is removed (and stays revoked); one it adds back
       // is re-added (and its revocation cleared).
       for (const [roleName, keep] of wanted) {
+        // Domain '*' only, as GET /permissions lists: a tenant's rule for the
+        // role is not on the screen, so a save neither drops nor globalizes it.
         const have = new Set(
-          (await e.getFilteredPolicy(0, roleName)).map((r) => JSON.stringify(r)),
+          (await e.getFilteredPolicy(0, roleName, '*')).map((r) => JSON.stringify(r)),
         );
         for (const rule of have) {
           if (!keep.has(rule)) await e.removePolicy(...(JSON.parse(rule) as string[]));

@@ -221,4 +221,34 @@ d('a revoked default grant stays revoked', () => {
        WHERE role = 'tenant_member' AND resource = ${COLL}`.execute(db);
     expect(rows).toEqual([]);
   });
+
+  it('the matrix leaves a tenant-domain rule alone: not listed, not dropped, not made global', async () => {
+    expect(tenantMemberRoleId).toBeDefined();
+    const tenantDomain = crypto.randomUUID();
+    const e = await getEnforcer();
+    await e.addPolicy('tenant_member', tenantDomain, COLL, 'delete');
+    try {
+      const current = await app.request('/api/admin/permissions', { headers: { cookie: god } });
+      const { permissions } = (await current.json()) as {
+        permissions: { role_id: string; resource: string; action: string }[];
+      };
+      expect(
+        permissions.some(
+          (p) => p.role_id === tenantMemberRoleId && p.resource === COLL && p.action === 'delete',
+        ),
+      ).toBe(false);
+      const saved = await app.request('/api/admin/permissions/bulk', {
+        method: 'POST',
+        headers: { cookie: god, 'content-type': 'application/json' },
+        body: JSON.stringify({ permissions }),
+      });
+      expect(saved.status).toBe(200);
+      const { rows } = await sql<{ v1: string }>`
+        SELECT v1 FROM zvd_permissions
+         WHERE ptype = 'p' AND v0 = 'tenant_member' AND v2 = ${COLL} AND v3 = 'delete'`.execute(db);
+      expect(rows.map((r) => r.v1)).toEqual([tenantDomain]);
+    } finally {
+      await e.removePolicy('tenant_member', tenantDomain, COLL, 'delete');
+    }
+  });
 });
