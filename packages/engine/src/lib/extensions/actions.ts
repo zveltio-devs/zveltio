@@ -11,7 +11,6 @@
 
 import type { Context, Hono } from 'hono';
 import { z } from 'zod';
-import { ACTION_REFUSAL } from '@zveltio/sdk/extension';
 import type {
   ActionHost,
   DataApiAnswer,
@@ -180,6 +179,10 @@ export function mountActions(
  * 4xx: an extension cannot answer 2xx through a throw, nor dress a failure up
  * as 401 (which Studio takes for a lost session). Anything else stays a 500.
  */
+// The SDK's `ACTION_REFUSAL`, by its registered key: the engine imports only
+// types from the SDK, and the compiled binary does not resolve it at runtime.
+const ACTION_REFUSAL = Symbol.for('zveltio.extension.action-refusal');
+
 export function refusalProblem(err: unknown): Error | null {
   if (typeof err !== 'object' || err === null) return null;
   const r = err as {
