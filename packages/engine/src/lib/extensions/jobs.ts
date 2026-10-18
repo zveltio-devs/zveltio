@@ -18,7 +18,12 @@
 
 import { CompiledQuery } from 'kysely';
 import type { z } from 'zod';
-import type { ExtensionJob, RequestUser, ZveltioExtension } from '@zveltio/sdk/extension';
+import type {
+  ExtensionJob,
+  RequestUser,
+  UpdateExpect,
+  ZveltioExtension,
+} from '@zveltio/sdk/extension';
 import { getDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
@@ -336,12 +341,14 @@ function jobData(user: RequestUser, trx: Database, tenantId: string): DataIo {
     collection: string,
     id: string,
     data: Record<string, unknown>,
+    expect?: UpdateExpect,
   ) => {
     const res = await dataApiWriteDetached(op, db, {
       ...who,
       collection,
       id,
       body: async () => data,
+      expect,
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };
@@ -353,7 +360,7 @@ function jobData(user: RequestUser, trx: Database, tenantId: string): DataIo {
     read: (collection, id) => read(collection, id),
     list: (collection, query) => read(collection, null, query),
     create: (collection, data) => write('create', collection, '', data),
-    update: (collection, id, data) => write('update', collection, id, data),
+    update: (collection, id, data, expect) => write('update', collection, id, data, expect),
     delete: (collection, id) => write('delete', collection, id, {}),
   };
 }

@@ -3,7 +3,7 @@ import type { Context, Hono } from 'hono';
 import type { Kysely, RawBuilder } from 'kysely';
 
 export { permissionGate } from './permission-gate.js';
-export { ActionRefusal, ACTION_REFUSAL } from './action-refusal.js';
+export { ActionRefusal, ACTION_REFUSAL, type RefusalStatus } from './action-refusal.js';
 export { readMultipart, MULTIPART_REQUIRED } from './multipart.js';
 export { toJsonb } from './jsonb.js';
 export {
@@ -1363,13 +1363,27 @@ export interface HostCollections {
   /** `GET /api/data/:collection`'s body: `{ records, … }`. */
   list(collection: string, query?: DataApiReadQuery): Promise<Record<string, unknown>>;
   insert(collection: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /**
+   * With `expect`, the update happens only if the row's current value of each
+   * listed field is one of the given values — checked on the row locked for the
+   * write, so a concurrent update waits and is then tested against the new row.
+   * Otherwise it throws with status 409, code `precondition_failed`. Each field
+   * must be one the caller can read.
+   */
   update(
     collection: string,
     id: string,
     data: Record<string, unknown>,
+    options?: { expect?: UpdateExpect },
   ): Promise<Record<string, unknown>>;
   delete(collection: string, id: string): Promise<void>;
 }
+
+/**
+ * A precondition on an update: field name to the values it may currently hold.
+ * Values compare as text (`String(value)`), `null` as SQL NULL.
+ */
+export type UpdateExpect = Record<string, readonly (string | number | boolean | null)[]>;
 
 /** One job: work over the input the engine validated when it was enqueued. */
 export type ExtensionJob = (input: unknown, host: JobHost) => Promise<void>;

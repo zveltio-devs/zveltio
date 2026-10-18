@@ -14,7 +14,7 @@ import type { Context } from 'hono';
 import type { ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { getDb } from '../../db/index.js';
-import type { DataApiAnswer, RlsFilter } from '@zveltio/sdk/extension';
+import type { DataApiAnswer, RlsFilter, UpdateExpect } from '@zveltio/sdk/extension';
 import { dynamicInsert } from '../../db/dynamic.js';
 import type { EventBus } from '../runtime/index.js';
 import type { FieldTypeRegistry } from '../data/index.js';
@@ -331,6 +331,7 @@ export interface ExtensionInternals {
     collection: string,
     id: string,
     data: Record<string, unknown>,
+    options?: { expect?: UpdateExpect },
   ) => Promise<DataApiAnswer>;
   deleteRecord: (c: unknown, collection: string, id: string) => Promise<DataApiAnswer>;
   /**
@@ -581,6 +582,7 @@ function writeAsCaller(op: 'create' | 'update' | 'delete') {
     collection: string,
     id: string,
     data: Record<string, unknown>,
+    expect?: UpdateExpect,
   ): Promise<DataApiAnswer> => {
     const p = gatePrincipal(c);
     if (!p) {
@@ -598,6 +600,7 @@ function writeAsCaller(op: 'create' | 'update' | 'delete') {
       authType: p.authType,
       trx: p.trx,
       tenantId: p.tenantId,
+      expect,
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };
@@ -760,7 +763,8 @@ function buildUnboundInternals(): ExtensionInternals {
     readScope: (collection, user, authType) => readScope(getDb(), collection, user, authType),
     // Fixed arity: anything an extension passes past these is never read.
     createRecord: (c, collection, data) => createAsCaller(c, collection, '', data),
-    updateRecord: (c, collection, id, data) => updateAsCaller(c, collection, id, data),
+    updateRecord: (c, collection, id, data, options) =>
+      updateAsCaller(c, collection, id, data, options?.expect),
     deleteRecord: (c, collection, id) => deleteAsCaller(c, collection, id, {}),
     readRecord: (c, collection, id) => readAsCaller(c, collection, id),
     listRecords: (c, collection, query) => readAsCaller(c, collection, null, query),

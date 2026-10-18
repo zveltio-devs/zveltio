@@ -17,6 +17,7 @@ import type {
   DataApiReadQuery,
   ExtensionAction,
   HostCollections,
+  UpdateExpect,
   ZveltioExtension,
 } from '@zveltio/sdk/extension';
 import { getDb } from '../../db/index.js';
@@ -173,16 +174,21 @@ export function mountActions(
   });
 }
 
-/**
- * An `ActionRefusal` the action threw, as the problem its caller gets — still a
- * throw, so the request transaction rolls back what the action wrote. Only a
- * 4xx: an extension cannot answer 2xx through a throw, nor dress a failure up
- * as 401 (which Studio takes for a lost session). Anything else stays a 500.
- */
 // The SDK's `ACTION_REFUSAL`, by its registered key: the engine imports only
 // types from the SDK, and the compiled binary does not resolve it at runtime.
 const ACTION_REFUSAL = Symbol.for('zveltio.extension.action-refusal');
+/** The SDK's `RefusalStatus`. */
+const REFUSAL_STATUSES: ReadonlySet<number> = new Set([
+  400, 403, 404, 409, 410, 412, 422, 423, 429,
+]);
 
+/**
+ * An `ActionRefusal` the action threw, as the problem its caller gets — still a
+ * throw, so the request transaction rolls back what the action wrote. Only the
+ * SDK's `RefusalStatus` set: an extension cannot answer 2xx through a throw, nor
+ * dress a failure up as 401 (which Studio takes for a lost session). Anything
+ * else stays a 500.
+ */
 export function refusalProblem(err: unknown): Error | null {
   if (typeof err !== 'object' || err === null) return null;
   const r = err as {
@@ -193,10 +199,7 @@ export function refusalProblem(err: unknown): Error | null {
   };
   if (r[ACTION_REFUSAL] !== true) return null;
   const { status } = r;
-  if (typeof status !== 'number' || !Number.isInteger(status) || status < 400 || status > 499) {
-    return null;
-  }
-  if (status === 401 || status === 407) return null;
+  if (typeof status !== 'number' || !REFUSAL_STATUSES.has(status)) return null;
   const code =
     typeof r.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(r.code) ? r.code : 'action_refused';
   return problem(code, status, typeof r.message === 'string' ? r.message.slice(0, 500) : undefined);
@@ -207,7 +210,12 @@ export interface DataIo {
   read(collection: string, id: string): Promise<DataApiAnswer>;
   list(collection: string, query?: DataApiReadQuery): Promise<DataApiAnswer>;
   create(collection: string, data: Record<string, unknown>): Promise<DataApiAnswer>;
-  update(collection: string, id: string, data: Record<string, unknown>): Promise<DataApiAnswer>;
+  update(
+    collection: string,
+    id: string,
+    data: Record<string, unknown>,
+    expect?: UpdateExpect,
+  ): Promise<DataApiAnswer>;
   delete(collection: string, id: string): Promise<DataApiAnswer>;
 }
 
@@ -217,7 +225,8 @@ function callerData(c: Context, internals: ExtensionInternals): DataIo {
     read: (collection, id) => internals.readRecord(c, collection, id),
     list: (collection, query) => internals.listRecords(c, collection, query),
     create: (collection, data) => internals.createRecord(c, collection, data),
-    update: (collection, id, data) => internals.updateRecord(c, collection, id, data),
+    update: (collection, id, data, expect) =>
+      internals.updateRecord(c, collection, id, data, { expect }),
     delete: (collection, id) => internals.deleteRecord(c, collection, id),
   };
 }
@@ -260,9 +269,9 @@ export function hostCollections(
       declared('writes', collection);
       return ok(await io.create(collection, data));
     },
-    update: async (collection, id, data) => {
+    update: async (collection, id, data, options) => {
       declared('writes', collection);
-      return ok(await io.update(collection, id, data));
+      return ok(await io.update(collection, id, data, options?.expect));
     },
     delete: async (collection, id) => {
       declared('writes', collection);
