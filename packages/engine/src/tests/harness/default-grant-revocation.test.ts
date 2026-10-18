@@ -214,9 +214,11 @@ d('a revoked default grant stays revoked', () => {
 
     expect((await bulk(permissions)).status).toBe(200);
     expect(await held('tenant_member', COLL, 'create')).toBe(true);
+    // This collection only: on a shared database other suites' cleanups delete
+    // default rules on their own collections, and those are revocations too.
     const { rows } = await sql`
       SELECT 1 FROM zv_default_grant_revocations
-       WHERE role = 'tenant_member' AND resource <> ${EXT_RES}`.execute(db);
+       WHERE role = 'tenant_member' AND resource = ${COLL}`.execute(db);
     expect(rows).toEqual([]);
   });
 });
