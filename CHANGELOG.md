@@ -4,6 +4,82 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.83] - 2026-10-18
+
+**An API key never exceeds its issuer's current rights.** A key's scopes were its
+whole grant: once the admin who issued it was demoted, the key kept every scope —
+data API, the database actor and `rls_bypass`, storage see-all, rpc
+`required_role`, `$schema`, extension checks and actions. Every decision for an
+`apikey:<uuid>` caller is now its scope and the issuer's current permission,
+asked the way the issuer's own session is asked; promoting the issuer back
+restores the key on the next request. Column rules apply the key's rules and the
+issuer's, the stricter winning: a key resolved to role `api_key` and read columns
+hidden from its issuer's role. A root-tenant key used in another tenant needs its
+issuer to hold the grant there. Job principals (`apikey:job:*`) keep their
+manifest bound. `ctx.internals.getColumnAccess` accepts the principal, so an
+extension passes a key whole (a bare `apikey:<id>` names no issuer and sees no
+column).
+
+**An operator's revoke of a default grant lasts (migration 086).** The default
+grants (`tenant_member` read/create/update, `execute` on extension resources;
+`tenant_viewer` read) were written again at every boot, extension load and
+collection create, so a default an operator removed came back. A revoked default
+is now recorded in `zv_default_grant_revocations` in the statement that deletes
+it, skipped by the materializer, and cleared by granting the triple again. A
+dropped collection takes its records with it. Schema files neither grant nor
+revoke a default.
+
+**The permission matrix saves what it shows.** `GET /api/admin/permissions`
+dropped each rule's domain and the bulk save wrote everything back as domain
+`*`: a rule a role held in one tenant came back from a matrix save as a global
+grant. The matrix now lists and saves global rules only, and the save is a diff
+instead of delete-everything-then-re-add, so an unchanged rule is never touched
+and a save that dies half-way cannot remove every default. The bulk endpoint
+accepts `execute`.
+
+**The permission matrix lists extension resources.** `GET /api/admin/resources`
+offered collections and zones only, so a grant on a resource an extension
+declares — including the default `execute` — could not be seen or revoked in
+Studio. Installed extensions' `manifest.resources` now come back as
+`type: "extension"` with read/create/update/delete/execute, in their own
+section (all locales). The retired zones lookup checks for the table instead of
+catching 42P01, which aborted the request transaction for every later statement.
+
+**Extension actions, jobs and caller reads (RFC v3 phase B).** An extension
+declares `actions` in its manifest (name, `permission`, JSON-Schema `input`,
+`reads`, `writes`, `enqueues`) and the engine serves
+`POST /ext/<name>/actions/<action>`: the caller's permission, the input schema,
+then the action in the request transaction, its collection access going through
+the data API as the caller, audited as `extension.action.executed`. `jobs` run
+from a transactional pg-boss enqueue as `apikey:job:<ext>:<job>`, scoped to their
+declared collections, in the enqueuing tenant, audited as
+`extension.job.executed`. `ctx.internals.readRecord`/`listRecords` read as the
+caller, as the write members already did. `zveltio extension validate` checks
+`actions` and `jobs`.
+
+**Tenant members may run extension actions by default.** An action asks
+`execute` unless its manifest names another action, and no role held it, so
+every action answered 403 to all but administrators. `tenant_member` now gets
+`execute` on the resources an extension declares; collections, `tenant_viewer`
+and sensitive resources get nothing new.
+
+**An API key scoped `execute` runs an action.** A key reached an action only if
+the manifest listed it in `apiKeyRoutes`, and then needed `$ext:<name>`
+`create` — every POST route of the extension — besides `execute`. Each declared
+action is now a key route that asks the key for the action's own permission
+action. Studio's API-key page offers `execute` on `$ext:<name>` scopes. An
+existing key holding `$ext:<name>` with `*` now also reaches that extension's
+actions.
+
+**A collection owns its `status` column (migration 085).** Every collection got
+`status TEXT NOT NULL DEFAULT 'active'` with the engine's CHECK, which the data
+API stripped from every write, so no collection could have a writable status and
+an extension's business status (CRM transactions) was lost. New collections get
+no `status` unless they declare one; an existing one is registered as the field
+it is (`enum` of its three values when it carries the engine's CHECK) and becomes
+writable. A collection with no fields recorded keeps a writable but unregistered
+status until `POST /api/collections/:name/sync-schema`.
+
 **Administrators can reset a user's passkeys and TOTP.** A user who lost every
 device had no way back but the RECOVERY_TOKEN bootstrap, which exists for god alone.
 `POST /api/users/:id/factors/reset` now deletes the user's passkeys and TOTP and ends
