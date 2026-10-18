@@ -33,6 +33,7 @@ import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
   asEveryTenant,
+  asTenant,
   createMemberSession,
   dropTestCollection,
   getTestApp,
@@ -235,14 +236,17 @@ d('extension jobs run after the request commits, in its tenant, as the extension
                   () => 200,
                   (e: { status?: number }) => e.status,
                 );
+              // Another connection, in the row's tenant: under FORCE RLS (a
+              // non-superuser owner) it sees no row without the tenant GUC.
               const other = new SQL(process.env.DATABASE_URL!);
-              const nowait =
-                await other`SELECT 1 FROM ${other(`zvd_${C}`)} WHERE id = ${id} FOR UPDATE NOWAIT`
-                  .then(
-                    () => 'free',
-                    (e: { errno?: string }) => e.errno,
-                  )
-                  .finally(() => other.close());
+              const nowait = await other
+                .begin(async (tx) => {
+                  await tx`SELECT set_config('zveltio.current_tenant', ${OTHER}, true)`;
+                  await tx`SELECT 1 FROM ${tx(`zvd_${C}`)} WHERE id = ${id} FOR UPDATE NOWAIT`;
+                  return 'free';
+                })
+                .catch((e: { errno?: string }) => e.errno)
+                .finally(() => other.close());
               await host.collections.update(
                 C,
                 id,
@@ -361,7 +365,8 @@ d('extension jobs run after the request commits, in its tenant, as the extension
 
   it('tests a precondition on the row locked in the job’s transaction', async () => {
     const id = crypto.randomUUID();
-    await asEveryTenant(db, (trx) =>
+    // A write: `asTenant`, which is what a non-superuser owner needs under FORCE RLS.
+    await asTenant(db, OTHER, (trx) =>
       sql`INSERT INTO ${sql.table(`zvd_${C}`)} (id, label, tenant_id)
           VALUES (${id}, 'guard-a', ${OTHER}::uuid)`.execute(trx),
     );
