@@ -1483,15 +1483,23 @@ async function bootstrap() {
   // administrators, with no error message that points at the cause. Idempotent,
   // so on a settled install this writes nothing and costs one query.
   try {
-    const { listKnownResources, materializeDefaultGrants } = await import('./lib/tenancy/index.js');
+    const { listDeclaredResources, listKnownResources, materializeDefaultGrants } = await import(
+      './lib/tenancy/index.js'
+    );
     const { resolveExtensionsBase } = await import('./lib/extensions/index.js');
     // The extensions directory is resolved here and handed over: `tenancy`
     // reaching into `extensions` for it closes an import cycle (see the note on
-    // `resourcesDeclaredOnDisk`).
-    const n = await materializeDefaultGrants(
-      db,
-      await listKnownResources(db, resolveExtensionsBase()),
-    );
+    // `resourcesDeclaredOnDisk`). Collections and extension resources apart:
+    // only the second get `execute`, which extension actions ask for.
+    const n =
+      (await materializeDefaultGrants(db, await listKnownResources(db))) +
+      (await materializeDefaultGrants(
+        db,
+        await listDeclaredResources(db, resolveExtensionsBase()),
+        {
+          extension: true,
+        },
+      ));
     // Row rules onto the tables, for an install that already has rules and no
     // policies — which is every install upgrading into this. A feature that only
     // protected collections created afterwards would protect the ones with no

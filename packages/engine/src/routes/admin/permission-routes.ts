@@ -214,7 +214,9 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
           z.object({
             role_id: z.string().uuid(),
             resource: z.string().min(1),
-            action: z.enum(['view', 'create', 'update', 'delete', 'read', 'write', '*']),
+            // `execute` is what an extension action asks for: a role holding it,
+            // granted elsewhere, comes back from GET /permissions and is saved back.
+            action: z.enum(['view', 'create', 'update', 'delete', 'read', 'write', 'execute', '*']),
           }),
         ),
       }),

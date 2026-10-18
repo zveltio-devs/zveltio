@@ -33,6 +33,8 @@ import {
   harnessAvailable,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
+import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/permissions.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -42,6 +44,8 @@ const EXT = `act-ext-${STAMP}`;
 const NOCAP = `act-nocap-${STAMP}`;
 const REFUSED = `act-refused-${STAMP}`;
 const NOTRX = `act-notrx-${STAMP}`;
+const SENS = `act_sens_${STAMP}`;
+const SENSEXT = `act-sens-${STAMP}`;
 
 const labelInput = {
   type: 'object',
@@ -56,6 +60,9 @@ d('extension actions run as the caller, in the request transaction', () => {
   let app: Hono;
   let member: { cookie: string; userId: string };
   let outsider: { cookie: string; userId: string };
+  /** Only the seeded tenant roles: no per-user grant on the data or the resource. */
+  let tenantMember: { cookie: string; userId: string };
+  let tenantViewer: { cookie: string; userId: string };
 
   function loader(ctx: ExtensionContext): ExtensionLoader {
     return {
@@ -135,6 +142,12 @@ d('extension actions run as the caller, in the request transaction', () => {
     });
     // Everything on the data, nothing on the action's resource.
     outsider = await createMemberSession(engine, db, { grants: [dataGrant] });
+    tenantMember = await createMemberSession(engine, db);
+    tenantViewer = await createMemberSession(engine, db);
+    const e = await getEnforcer();
+    await e.addRoleForUser(tenantMember.userId, 'tenant_member', DEFAULT_TENANT_ID);
+    await e.addRoleForUser(tenantViewer.userId, 'tenant_viewer', DEFAULT_TENANT_ID);
+    await invalidateAllPermissionCaches();
 
     app = new Hono();
     app.use('/ext/*', sessionPrefetch(getAuth(), db));
@@ -203,15 +216,30 @@ d('extension actions run as the caller, in the request transaction', () => {
         ],
       },
     );
+    await load(
+      {
+        name: SENSEXT,
+        category: 'custom',
+        mountStrategy: 'subapp',
+        actions: { go: async () => 'ran' },
+        async register() {},
+      },
+      {
+        resources: [SENS],
+        sensitiveResources: [SENS],
+        actions: [{ name: 'go', permission: { resource: SENS }, input: { type: 'object' } }],
+      },
+    );
     invalidateActivationCache();
   }, 60_000);
 
   afterAll(async () => {
     invalidateActivationCache();
     if (!db) return;
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${NOCAP}, ${REFUSED}, ${NOTRX})`.execute(
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${NOCAP}, ${REFUSED}, ${NOTRX}, ${SENSEXT})`.execute(
       db,
     );
+    await sql`DELETE FROM zvd_permissions WHERE v2 IN (${RES}, ${SENS})`.execute(db);
     await sql`DELETE FROM zv_audit_log WHERE event_type = 'extension.action.executed'`.execute(db);
     await sql`DELETE FROM zv_revisions WHERE collection = ${C}`.execute(db);
     await dropTestCollection(db, C);
@@ -232,6 +260,60 @@ d('extension actions run as the caller, in the request transaction', () => {
     expect(((await res.json()) as { code: string }).code).toBe('permission_required');
     expect(await rowsLabelled('by-outsider')).toEqual([]);
     expect((await act(EXT, 'nope', {}, member.cookie)).status).toBe(404);
+  });
+
+  // The manifest's default action is `execute`: a role must hold it for any
+  // action to be reachable by someone who is not an administrator.
+  it('a tenant member runs an action on a declared resource by default', async () => {
+    const res = await act(EXT, 'addItem', { label: 'by-tenant-member' }, tenantMember.cookie);
+    expect(res.status).toBe(200);
+    expect((await rowsLabelled('by-tenant-member')).map((r) => r.created_by)).toEqual([
+      tenantMember.userId,
+    ]);
+  });
+
+  it('a tenant viewer is refused an action', async () => {
+    const res = await act(EXT, 'addItem', { label: 'by-tenant-viewer' }, tenantViewer.cookie);
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code: string }).code).toBe('permission_required');
+    expect(await rowsLabelled('by-tenant-viewer')).toEqual([]);
+  });
+
+  it('grants execute on extension resources only, never on collections or sensitive ones', async () => {
+    const execute = async (resource: string) =>
+      (
+        await sql<{ v0: string }>`
+          SELECT v0 FROM zvd_permissions
+          WHERE ptype = 'p' AND v1 = '*' AND v2 = ${resource} AND v3 = 'execute'
+            AND v0 IN ('tenant_member', 'tenant_viewer')
+        `.execute(db)
+      ).rows.map((r) => r.v0);
+    expect(await execute(RES)).toEqual(['tenant_member']);
+    expect(await execute(C)).toEqual([]);
+    expect((await sql`SELECT 1 FROM zvd_permissions WHERE v2 = ${SENS}`.execute(db)).rows).toEqual(
+      [],
+    );
+    const res = await act(SENSEXT, 'go', {}, tenantMember.cookie);
+    expect(res.status).toBe(403);
+  });
+
+  it('a tenant member holding execute is still refused a write the collection refuses', async () => {
+    // The action's writes go through the data API as the caller: `execute`
+    // opens the action, not the collections it touches.
+    const rule = ['tenant_member', '*', C, 'create'];
+    const e = await getEnforcer();
+    await e.removePolicy(...rule);
+    await invalidateAllPermissionCaches();
+    try {
+      const res = await act(EXT, 'addItem', { label: 'member-refused' }, tenantMember.cookie);
+      // Past the action's own gate: refused by the data API, not `permission_required`.
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { code: string }).code).toBe('action_data_refused');
+      expect(await rowsLabelled('member-refused')).toEqual([]);
+    } finally {
+      await e.addPolicy(...rule);
+      await invalidateAllPermissionCaches();
+    }
   });
 
   it('refuses an input the declared schema does not accept', async () => {

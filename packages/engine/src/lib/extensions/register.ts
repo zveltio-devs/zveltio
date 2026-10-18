@@ -858,7 +858,9 @@ export async function finalizeExtensionLoad(
   const declaredResources = manifest?.resources ?? [];
   if (declaredResources.length > 0) {
     try {
-      const written = await materializeDefaultGrants(ctx.db, declaredResources);
+      const written = await materializeDefaultGrants(ctx.db, declaredResources, {
+        extension: true,
+      });
       if (written > 0) {
         console.log(`   🔑 ${extName}: default access granted on ${written} permission(s)`);
       }
