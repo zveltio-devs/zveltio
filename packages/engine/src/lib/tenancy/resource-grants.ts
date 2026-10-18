@@ -55,6 +55,18 @@ export const DEFAULT_ROLE_GRANTS: ReadonlyArray<{ role: string; actions: readonl
 ];
 
 /**
+ * What a resource an extension declares gets on top of `DEFAULT_ROLE_GRANTS`:
+ * `execute`, the action an extension action's `permission` asks for unless its
+ * manifest names another. Without it every action was administrator-only out of
+ * the box. Collections do not get it — no data handler asks `execute`, and an
+ * action may only be gated on a declared resource — nor do viewers.
+ */
+export const EXTENSION_RESOURCE_GRANTS: ReadonlyArray<{
+  role: string;
+  actions: readonly string[];
+}> = [{ role: 'tenant_member', actions: ['execute'] }];
+
+/**
  * Resource names owned by extensions rather than by `zvd_collections`.
  *
  * Harvested from every `permissionGate(ctx, '…')` call across the 57 extensions
@@ -99,6 +111,8 @@ export const DEFAULT_ROLE_GRANTS: ReadonlyArray<{ role: string; actions: readonl
 export async function materializeDefaultGrants(
   db: Database,
   resources: readonly string[],
+  /** `resources` are an extension's `manifest.resources`, not collections. */
+  opts: { extension?: boolean } = {},
 ): Promise<number> {
   // Its rows would be announced to every instance and put into this one's
   // model before they commit — and kept there if the caller rolled back.
@@ -110,14 +124,21 @@ export async function materializeDefaultGrants(
   }
   const targets = [...new Set(resources)].filter((r) => r && !isSensitiveResource(r));
   if (targets.length === 0) return 0;
-  return trackPolicyWrite(() => writeDefaultGrants(db, targets));
+  const grants = opts.extension
+    ? [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS]
+    : DEFAULT_ROLE_GRANTS;
+  return trackPolicyWrite(() => writeDefaultGrants(db, targets, grants));
 }
 
-async function writeDefaultGrants(db: Database, targets: string[]): Promise<number> {
+async function writeDefaultGrants(
+  db: Database,
+  targets: string[],
+  grants: typeof DEFAULT_ROLE_GRANTS,
+): Promise<number> {
   let written = 0;
   const rules: string[][] = [];
   for (const resource of targets) {
-    for (const { role, actions } of DEFAULT_ROLE_GRANTS) {
+    for (const { role, actions } of grants) {
       for (const action of actions) {
         // RETURNING, not `numAffectedRows`. This dialect reports 0n whether or
         // not a row was written, and omits the field entirely for raw `sql`
@@ -272,6 +293,18 @@ async function retiredZoneSlugs(db: Database): Promise<string[]> {
   return (await sql<{ slug: string }>`SELECT slug FROM zvd_zones`.execute(db)).rows.map(
     (r) => r.slug,
   );
+}
+
+/**
+ * `manifest.resources` of every installed extension, read from disk: the boot
+ * reconcile materializes these with `{ extension: true }` on top of
+ * `listKnownResources`.
+ */
+export async function listDeclaredResources(
+  db: Database,
+  extensionsBase: string,
+): Promise<string[]> {
+  return [...new Set(await resourcesDeclaredOnDisk(db, extensionsBase))];
 }
 
 /**

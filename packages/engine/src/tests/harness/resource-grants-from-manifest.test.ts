@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
-import { listKnownResources } from '../../lib/tenancy/resource-grants.js';
+import { listDeclaredResources, listKnownResources } from '../../lib/tenancy/resource-grants.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -63,6 +63,8 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
 
     const known = await listKnownResources(db, extRoot);
     expect(known).toContain(NOVEL_RESOURCE);
+    // What the boot reconcile grants `execute` on: the declarations, no collection.
+    expect(await listDeclaredResources(db, extRoot)).toEqual([NOVEL_RESOURCE]);
   });
 
   it('ignores an extension that is recorded but not installed', async () => {

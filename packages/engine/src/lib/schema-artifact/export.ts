@@ -14,7 +14,11 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DEFAULT_ROLE_GRANTS, isSensitiveResource } from '../tenancy/index.js';
+import {
+  DEFAULT_ROLE_GRANTS,
+  EXTENSION_RESOURCE_GRANTS,
+  isSensitiveResource,
+} from '../tenancy/index.js';
 import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
 export const SCHEMA_FORMAT = 1;
@@ -67,9 +71,14 @@ const byKey =
  * put it back.
  */
 export function isDefaultGrant(role: string, resource: string, action: string): boolean {
+  // ponytail: `execute` counts as default on any resource, collections included —
+  // only extension resources get it, but this cannot tell them apart; on a
+  // collection the grant does nothing (no data handler asks `execute`).
   return (
     !isSensitiveResource(resource) &&
-    DEFAULT_ROLE_GRANTS.some((d) => d.role === role && d.actions.includes(action))
+    [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].some(
+      (d) => d.role === role && d.actions.includes(action),
+    )
   );
 }
 

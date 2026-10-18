@@ -109,4 +109,26 @@ d('permission matrix actions match what the engine checks', () => {
     });
     expect(read.status).toBe(200);
   });
+
+  it('saves back a role’s execute grant, which extension actions ask for', async () => {
+    // Granted outside the matrix, as `POST /api/permissions/policies` does.
+    const grant = await app.request('/api/permissions/policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: god },
+      body: JSON.stringify({ subject: ROLE, resource: `${COLLECTION}_res`, action: 'execute' }),
+    });
+    expect(grant.status).toBe(200);
+    // The screen saves every grant it loaded, so one it refuses makes it unsavable.
+    const loaded = (await (
+      await app.request('/api/admin/permissions', { headers: { cookie: god } })
+    ).json()) as { permissions: Array<{ role_id: string; resource: string; action: string }> };
+    const mine = loaded.permissions.filter((p) => p.role_id === roleId);
+    expect(mine.map((p) => p.action)).toContain('execute');
+    const bulk = await app.request('/api/admin/permissions/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: god },
+      body: JSON.stringify({ permissions: mine }),
+    });
+    expect(bulk.status).toBe(200);
+  });
 });
