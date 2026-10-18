@@ -63,6 +63,7 @@ import { loadDynamic, reloadExtensionFromDisk, unloadExtension } from './lifecyc
 import { loadExtensionFromDir } from './load.js';
 import { discoverExternal, getActiveExtensionNames, topoSortExtensions } from './discovery.js';
 import { noteExtensionNames } from './worker-sql-policy.js';
+import type { CompiledAction } from './actions.js';
 
 export { serviceRegistry } from '../service-registry.js';
 
@@ -264,6 +265,8 @@ interface LoadedExtension {
    * worker broker, on first load and on a reload alike.
    */
   serviceDeps?: ServiceDeps;
+  /** Manifest actions paired with their implementations at load, for a reload to mount. */
+  actions?: ReadonlyMap<string, CompiledAction>;
 }
 
 // ManifestMeta, ExtensionManifest, and embedPageSchemas moved to
