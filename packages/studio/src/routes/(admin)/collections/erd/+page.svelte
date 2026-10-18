@@ -818,7 +818,6 @@ function isSystemField(name: string): boolean {
     'id',
     'created_at',
     'updated_at',
-    'status',
     'created_by',
     'updated_by',
     'search_vector',

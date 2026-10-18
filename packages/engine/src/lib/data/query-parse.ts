@@ -41,14 +41,7 @@ export const QuerySchema = z.object({
 export type ParsedQuery = z.infer<typeof QuerySchema>;
 
 /** System columns always allowed for sort/filter, regardless of schema. */
-const SYSTEM_COLS = new Set([
-  'id',
-  'created_at',
-  'updated_at',
-  'status',
-  'created_by',
-  'updated_by',
-]);
+const SYSTEM_COLS = new Set(['id', 'created_at', 'updated_at', 'created_by', 'updated_by']);
 
 /** Map client-facing filter operator names to the canonical `FilterCondition` op. */
 const OP_ALIAS: Record<string, FilterCondition['op']> = {

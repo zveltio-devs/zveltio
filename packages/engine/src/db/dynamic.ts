@@ -573,7 +573,6 @@ export async function dynamicSelect(
 
 // System columns never accepted from user input:
 //   id / created_at / updated_at — managed by the table defaults and triggers.
-//   status                        — set via dedicated lifecycle endpoints.
 //   created_by / updated_by       — set from the authenticated session.
 //   search_vector                 — computed by per-table FTS trigger.
 // Filtering these here is defence-in-depth; processInput() normally strips
@@ -582,7 +581,6 @@ const RESERVED = new Set([
   'id',
   'created_at',
   'updated_at',
-  'status',
   'created_by',
   'updated_by',
   'search_vector',

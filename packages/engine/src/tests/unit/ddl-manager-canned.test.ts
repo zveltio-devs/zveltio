@@ -88,7 +88,7 @@ describe('createCollection', () => {
     // concurrent build waits for every older transaction — a caller's included.
     expect(db.executed(/CONCURRENTLY/)).toHaveLength(0);
     expect(db.executed(/CREATE INDEX IF NOT EXISTS idx_zvd_articles_created_at/)).toHaveLength(1);
-    expect(db.executed(/CREATE INDEX IF NOT EXISTS idx_zvd_articles_status/)).toHaveLength(1);
+    expect(db.executed(/idx_zvd_articles_status/)).toHaveLength(0);
     // Two now: the bare index and the tenant-first
     // `(tenant_id, <field>, created_at DESC)`, which is the one a tenant-scoped
     // read can use. See `fieldTypeRegistry.getTenantIndexDDL` for the measurement.

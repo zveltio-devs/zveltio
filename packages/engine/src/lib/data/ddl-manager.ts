@@ -146,7 +146,6 @@ const SYSTEM_COLUMN_DDL: readonly string[] = [
   'id UUID PRIMARY KEY DEFAULT gen_random_uuid()',
   'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
   'updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()',
-  "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'draft', 'archived'))",
   'created_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
   'updated_by TEXT REFERENCES "user"(id) ON DELETE SET NULL',
   // Multi-tenant: every row belongs to a tenant, defaulted from the request
@@ -197,12 +196,17 @@ function toConcurrentIndex(indexSQL: string): string {
  * them. `search_text` was missing from the routes' copy of this list, so a user
  * field with that name was accepted and then silently overwritten by the FTS
  * trigger on every write.
+ *
+ * `status` is not one. Every table got an `active|draft|archived` column that
+ * the data API stripped from every write and nothing ever set, so no
+ * collection could have a writable status — and an extension's own (CRM's
+ * `zvd_transactions`) was dropped from every insert. A collection that wants
+ * one declares it (migration 085 registers the old column as a field).
  */
 export const SYSTEM_COLUMNS: ReadonlySet<string> = new Set([
   'id',
   'created_at',
   'updated_at',
-  'status',
   'created_by',
   'updated_by',
   'tenant_id',
@@ -270,7 +274,7 @@ export const CollectionSchema = z.preprocess(
     isPermissioned: z.boolean().optional(),
     sort: z.number().int().min(0).optional(),
     // Upper bound because Postgres has one: a table can hold at most 1600
-    // columns, and the engine adds its own (id, tenant_id, status, created_at,
+    // columns, and the engine adds its own (id, tenant_id, created_at,
     // created_by, updated_at, updated_by, …) on top of whatever is declared.
     //
     // Without it the API answered 202 "being created" to a definition Postgres
@@ -579,7 +583,6 @@ export class DDLManager {
     // and fills it (ai-alchemist), which held the build forever (virtualxid).
     const indexes: string[] = [
       `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC)`,
-      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status)`,
     ];
 
     const ALLOWED_PG_EXTENSIONS = new Set([
@@ -1597,9 +1600,6 @@ export class DDLManager {
       // The keyset the sync pull walks, for the same reason (see applyTenantRLS).
       `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'tenant_updated')} ON ${tableName}(tenant_id, updated_at, (id::text COLLATE "C"));`,
     );
-    statements.push(
-      `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'status')} ON ${tableName}(status);`,
-    );
 
     for (const field of schema.fields) {
       if (RELATION_FK_TYPES.has(field.type)) {
@@ -1672,9 +1672,9 @@ export class DDLManager {
    * Every physical column of a collection's table the request role may read,
    * system columns included, in table order — `[]` when the table is not there.
    *
-   * `introspectTable` answers the USER fields and skips `id`, `status` and the
-   * rest; a caller that checks a name against the table (a page filtering on
-   * `status`, a record addressed by `id`) needs all of them. Extensions read
+   * `introspectTable` answers the USER fields and skips `id`, `created_at` and
+   * the rest; a caller that checks a name against the table (a page sorting on
+   * `created_at`, a record addressed by `id`) needs all of them. Extensions read
    * this through `ctx.DDLManager`, because `ctx.db` refuses `information_schema`
    * to them (#858) — the engine runs this on its own view of the catalog.
    */

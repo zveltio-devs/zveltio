@@ -22,7 +22,7 @@ import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
-import { DDLManager, ExistingRulesError } from '../lib/data/index.js';
+import { DDLManager, ExistingRulesError, SYSTEM_COLUMNS } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import { enqueueDDLJob } from '../lib/data/index.js';
 import { dynamicInsert } from '../db/dynamic.js';
@@ -196,19 +196,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
 
       // Validate field types + reserved-name conflicts upfront. Fail fast
       // before any DDL is enqueued so we never leave half-installed
-      // collections with phantom metadata in zvd_collections (which is
-      // what happened when an early version of the helpdesk/invoicing/
-      // project templates used "status" as a user field name — that
-      // column already exists as a system column added by DDLManager).
-      const SYSTEM_FIELDS = new Set([
-        'id',
-        'created_at',
-        'updated_at',
-        'status',
-        'created_by',
-        'updated_by',
-        'search_vector',
-      ]);
+      // collections with phantom metadata in zvd_collections.
       for (const coll of renamed) {
         const reserved = await DDLManager.reservedName(db, coll.name);
         if (reserved) return c.json({ error: reserved }, 409);
@@ -219,7 +207,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
               400,
             );
           }
-          if (SYSTEM_FIELDS.has(f.name)) {
+          if (SYSTEM_COLUMNS.has(f.name)) {
             return c.json(
               {
                 error: `Field name '${f.name}' in collection '${coll.name}' conflicts with a reserved system column. Rename the field in the template manifest.`,

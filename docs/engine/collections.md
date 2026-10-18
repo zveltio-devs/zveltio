@@ -25,6 +25,13 @@ POST /api/collections
 
 The response is `202 Accepted` with a `job_id`. Table creation is async — poll `GET /api/collections/:name` until `status: "ready"`.
 
+The engine adds `id`, `created_at`, `updated_at`, `created_by`, `updated_by`
+and `tenant_id` to every table; no field may take those names. Nothing else is
+added: a collection that needs a `status` declares it, usually as an `enum`
+(`"options": { "values": ["open", "closed"] }`). A collection created before
+migration 085 keeps the `active | draft | archived` `status` column it was
+given, registered by 085 as such a field.
+
 If access rules already name the collection — granted before it existed, or
 left by an earlier collection of that name — the create answers `409` with
 `code: "existing_rules"` and the rules in `errors`, and creates nothing. Delete

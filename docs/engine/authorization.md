@@ -255,8 +255,9 @@ whenever they change. For the request's role and for `*`:
   default that is not reproducible, such as `gen_random_uuid()`, cannot be told
   from a chosen value, so that column is not checked on INSERT.
 
-The system columns (`id`, timestamps, `created_by`/`updated_by`, `status`,
-`tenant_id`, search columns) are never checked: the engine sets them. A refused
+The system columns (`id`, timestamps, `created_by`/`updated_by`, `tenant_id`,
+search columns) are never checked: the engine sets them. `status` is not one:
+a collection that has it declares it, and its rules apply like any field's. A refused
 write is `42501`, answered as 403 `column_write_denied`.
 
 | Who | Column write rules in the database |

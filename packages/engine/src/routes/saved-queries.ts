@@ -331,7 +331,6 @@ async function executeQueryConfig(
     'id',
     'created_at',
     'updated_at',
-    'status',
     'created_by',
     'updated_by',
     'tenant_id',

@@ -58,7 +58,6 @@ const SYSTEM_FIELDS = new Set([
   'id',
   'created_at',
   'updated_at',
-  'status',
   'created_by',
   'updated_by',
   'search_vector',

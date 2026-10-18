@@ -94,6 +94,7 @@ import m075 from './sql/081_hash_preview_tokens.sql' with { type: 'text' };
 import m076 from './sql/082_casbin_trigger_functions_execute.sql' with { type: 'text' };
 import m077 from './sql/083_sync_tombstone_execute.sql' with { type: 'text' };
 import m078 from './sql/084_scrub_stale_revision_password_hashes.sql' with { type: 'text' };
+import m079 from './sql/085_collection_owned_status.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -176,4 +177,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '082_casbin_trigger_functions_execute.sql': m076,
   '083_sync_tombstone_execute.sql': m077,
   '084_scrub_stale_revision_password_hashes.sql': m078,
+  '085_collection_owned_status.sql': m079,
 };
