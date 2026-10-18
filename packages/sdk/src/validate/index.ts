@@ -216,6 +216,77 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
     }
   }
 
+  // Actions and jobs: the engine's manifest schema refuses the whole extension
+  // on any of these. Whether `input` compiles as a JSON Schema needs Zod, so
+  // that one is left to the engine.
+  const NAME = /^[a-z][a-zA-Z0-9]*$/;
+  const strings = (v: unknown) =>
+    v === undefined || (Array.isArray(v) && v.every((s) => typeof s === 'string'));
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    !!v && typeof v === 'object' && !Array.isArray(v);
+  const entries = (field: 'actions' | 'jobs', code: string): Record<string, unknown>[] => {
+    const v = obj[field];
+    if (v === undefined) return [];
+    if (!Array.isArray(v)) {
+      out.push(err(code, `"${field}" must be an array`));
+      return [];
+    }
+    const seen = new Set<string>();
+    return v.filter((e, i) => {
+      if (!isObject(e) || typeof e.name !== 'string' || !NAME.test(e.name)) {
+        out.push(err(code, `${field}[${i}] needs a camelCase "name"`));
+        return false;
+      }
+      if (seen.has(e.name)) out.push(err(code, `"${e.name}" is declared twice in ${field}`));
+      seen.add(e.name);
+      if (!isObject(e.input))
+        out.push(err(code, `"${e.name}": "input" must be a JSON Schema object`));
+      for (const k of ['reads', 'writes', 'enqueues']) {
+        if (!strings(e[k])) out.push(err(code, `"${e.name}": "${k}" must be an array of names`));
+      }
+      return true;
+    });
+  };
+  const jobs = entries('jobs', 'MANIFEST_BAD_JOB');
+  const resources = Array.isArray(obj.resources) ? obj.resources : [];
+  for (const a of entries('actions', 'MANIFEST_BAD_ACTION')) {
+    const p = a.permission;
+    if (!isObject(p) || typeof p.resource !== 'string' || !resources.includes(p.resource)) {
+      out.push(
+        err(
+          'MANIFEST_BAD_ACTION',
+          `action "${a.name}": "permission.resource" must be in resources`,
+        ),
+      );
+    } else if (p.action !== undefined && (typeof p.action !== 'string' || !p.action)) {
+      out.push(
+        err('MANIFEST_BAD_ACTION', `action "${a.name}": "permission.action" must be a name`),
+      );
+    }
+    for (const job of Array.isArray(a.enqueues) ? a.enqueues : []) {
+      if (!jobs.some((j) => j.name === job)) {
+        out.push(
+          err('MANIFEST_BAD_ACTION', `action "${a.name}" enqueues "${job}", which is not in jobs`),
+        );
+      }
+    }
+  }
+  for (const j of jobs) {
+    const r = j.retry;
+    const limit = isObject(r) ? r.limit : undefined;
+    if (
+      r !== undefined &&
+      (!isObject(r) ||
+        (limit !== undefined &&
+          !(Number.isInteger(limit) && (limit as number) >= 0 && (limit as number) <= 10)) ||
+        (r.backoff !== undefined && typeof r.backoff !== 'boolean'))
+    ) {
+      out.push(
+        err('MANIFEST_BAD_JOB', `job "${j.name}": "retry" is { limit: 0-10, backoff: boolean }`),
+      );
+    }
+  }
+
   // The host strips these from a worker's request; a public route may ask for some back.
   if (obj.forwardCredentials !== undefined) {
     const fwd = obj.forwardCredentials;
