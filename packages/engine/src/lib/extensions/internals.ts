@@ -53,7 +53,8 @@ import {
 import { runEdgeFunction } from '../edge-function-runner.js';
 import { getCurrentDomainOrNull, runWithDomain, withTenantIsolation } from '../tenancy/index.js';
 import { applyColumnAccess } from '../tenancy/index.js';
-import { checkAccess, dataApiWrite, readScope } from '../data/index.js';
+import { checkAccess, dataApiRead, dataApiWrite, readScope } from '../data/index.js';
+import type { ReadQuery } from '../data/index.js';
 import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
 import {
   addTenantMember,
@@ -333,6 +334,14 @@ export interface ExtensionInternals {
   ) => Promise<DataApiAnswer>;
   deleteRecord: (c: unknown, collection: string, id: string) => Promise<DataApiAnswer>;
   /**
+   * `GET /api/data/:collection/:id` and `GET /api/data/:collection`, as the same
+   * caller as the writes above and with the route's own checks: permission, RLS,
+   * column rules, query alters. Ungated, like `readScope`: it reads only what the
+   * caller could read through the API itself.
+   */
+  readRecord: (c: unknown, collection: string, id: string) => Promise<DataApiAnswer>;
+  listRecords: (c: unknown, collection: string, query?: ReadQuery) => Promise<DataApiAnswer>;
+  /**
    * The tenant to add as an explicit `tenant_id =` beside the policy, or `null`
    * when one must not be added.
    *
@@ -593,6 +602,25 @@ function writeAsCaller(op: 'create' | 'update' | 'delete') {
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };
 }
+/** One data API read, as the caller the `/ext/*` gate admitted for `c`. */
+async function readAsCaller(
+  c: unknown,
+  collection: string,
+  id: string | null,
+  query?: ReadQuery,
+): Promise<DataApiAnswer> {
+  const p = gatePrincipal(c);
+  if (!p) {
+    throw new Error(
+      `ctx.internals.${id === null ? 'listRecords' : 'readRecord'}: pass the request context ` +
+        '`c` of the /ext/* request being handled. Reads act as the caller that request ' +
+        'authenticated; outside one there is no caller, so there is no read.',
+    );
+  }
+  const res = await dataApiRead(createRequestScopedDb(getDb()), p, collection, id, query);
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
 const createAsCaller = writeAsCaller('create');
 const updateAsCaller = writeAsCaller('update');
 const deleteAsCaller = writeAsCaller('delete');
@@ -729,6 +757,8 @@ function buildUnboundInternals(): ExtensionInternals {
     createRecord: (c, collection, data) => createAsCaller(c, collection, '', data),
     updateRecord: (c, collection, id, data) => updateAsCaller(c, collection, id, data),
     deleteRecord: (c, collection, id) => deleteAsCaller(c, collection, id, {}),
+    readRecord: (c, collection, id) => readAsCaller(c, collection, id),
+    listRecords: (c, collection, query) => readAsCaller(c, collection, null, query),
     getUserNames,
     countMembers: () => countMembers(),
     getDataStats: () => getDataStats(),

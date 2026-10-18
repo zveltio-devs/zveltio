@@ -45,6 +45,20 @@ export interface DataApiAnswer {
   body: Record<string, unknown>;
 }
 
+/** The query of `ctx.internals.listRecords`: `GET /api/data/:collection`'s own parameters. */
+export interface DataApiReadQuery {
+  page?: number;
+  limit?: number;
+  sort?: string;
+  order?: 'asc' | 'desc';
+  /** The route's `?filter=` JSON, as an object or already serialized. */
+  filter?: Record<string, unknown> | string;
+  search?: string;
+  cursor?: string;
+  count?: 'exact' | 'none';
+  expand?: string;
+}
+
 /** What `ctx.internals.readScope` resolves: one caller's read gate on one collection. */
 export interface ReadScope {
   /** The physical table the alters and entity checks are registered against. */
@@ -601,6 +615,14 @@ export interface ExtensionInternals<DB = unknown> {
   ) => Promise<DataApiAnswer>;
   /** `DELETE /api/data/:collection/:id`, as `updateRecord`. */
   deleteRecord: (c: Context, collection: string, id: string) => Promise<DataApiAnswer>;
+  /**
+   * Read one record exactly as `GET /api/data/:collection/:id` does — permission,
+   * RLS, column rules — as the same caller as `createRecord`. 200 and the record,
+   * 404 for one the caller cannot see. Throws outside the request.
+   */
+  readRecord: (c: Context, collection: string, id: string) => Promise<DataApiAnswer>;
+  /** `GET /api/data/:collection` with the route's own query parameters, as `readRecord`. */
+  listRecords: (c: Context, collection: string, query?: DataApiReadQuery) => Promise<DataApiAnswer>;
   /** Is this user an administrator of the current tenant? */
   /**
    * The tenant to add as an explicit `tenant_id =` beside the RLS policy, or

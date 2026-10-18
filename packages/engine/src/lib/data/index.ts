@@ -51,7 +51,7 @@ export { inOrder, readScope, recordReadable, type ReadScope } from './read-scope
 export { readableRevisions, revertPatch, shapeRevisionData } from './revisions-read.js';
 //   - `dataApiWrite` so an extension's writes (`ctx.internals.createRecord` …)
 //     take the data API's own handlers instead of Kysely through `ctx.db`.
-export { dataApiWrite, type WriteRequest } from './api-write.js';
+export { dataApiRead, dataApiWrite, type ReadQuery, type WriteRequest } from './api-write.js';
 export { validateApiKey } from './auth.js';
 //   - `findApiKey`/`requestApiKey` so `sessionPrefetch` resolves the key once,
 //     before the rate limiters, and `authenticate` reuses that row.
