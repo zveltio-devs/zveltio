@@ -1316,6 +1316,14 @@ export interface ZveltioExtension<DB = any, C extends string = Capability> {
    * fails the request and rolls back everything the action wrote.
    */
   actions?: Record<string, ExtensionAction>;
+  /**
+   * The implementations of the manifest's `jobs`, by name — one each, and no
+   * more, as for `actions`. An action enqueues one (`ActionHost.enqueue`) inside
+   * its request transaction, so a job whose action failed never runs. The engine
+   * runs it after that commits, out of any request, in the enqueuing tenant; a
+   * throw fails the run, which is retried as the manifest's `retry` says.
+   */
+  jobs?: Record<string, ExtensionJob>;
 }
 
 /** One action: business logic over the input the engine validated. Returns the response's `result`. */
@@ -1330,19 +1338,43 @@ export type ExtensionAction = (input: unknown, host: ActionHost) => Promise<unkn
  * request fails with it.
  */
 export interface ActionHost {
-  collections: {
-    /** The record, or `null` when the caller cannot see one with this id. */
-    read(collection: string, id: string): Promise<Record<string, unknown> | null>;
-    /** `GET /api/data/:collection`'s body: `{ records, … }`. */
-    list(collection: string, query?: DataApiReadQuery): Promise<Record<string, unknown>>;
-    insert(collection: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
-    update(
-      collection: string,
-      id: string,
-      data: Record<string, unknown>,
-    ): Promise<Record<string, unknown>>;
-    delete(collection: string, id: string): Promise<void>;
-  };
+  collections: HostCollections;
+  /**
+   * Queue one of the jobs this action's manifest entry lists in `enqueues`, with
+   * an `input` its schema accepts — anything else throws. Written in the request
+   * transaction: the job exists only if the request commits. Needs `data:system`.
+   * Resolves to the job's id.
+   */
+  enqueue(job: string, input: unknown): Promise<string>;
+}
+
+/** The data API, through `ActionHost` or `JobHost`, for the collections the manifest declares. */
+export interface HostCollections {
+  /** The record, or `null` when the caller cannot see one with this id. */
+  read(collection: string, id: string): Promise<Record<string, unknown> | null>;
+  /** `GET /api/data/:collection`'s body: `{ records, … }`. */
+  list(collection: string, query?: DataApiReadQuery): Promise<Record<string, unknown>>;
+  insert(collection: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  update(
+    collection: string,
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+  delete(collection: string, id: string): Promise<void>;
+}
+
+/** One job: work over the input the engine validated when it was enqueued. */
+export type ExtensionJob = (input: unknown, host: JobHost) => Promise<void>;
+
+/**
+ * How a job reaches data. A job has no caller: it acts as the extension, with
+ * exactly the job's declared `reads` (read) and `writes` (create, update,
+ * delete) — the data API's checks, as for an API key holding those scopes — in
+ * the tenant it was enqueued in, in a transaction of its own. Rows it writes are
+ * authored by the user whose action enqueued it.
+ */
+export interface JobHost {
+  collections: HostCollections;
 }
 
 // ─── Studio extension API (available via window.__zveltio in IIFE bundles) ───

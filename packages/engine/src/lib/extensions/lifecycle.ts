@@ -30,6 +30,7 @@ import { getWorkerHostIfInitialized } from '../worker-extension-host.js';
 import { resolveExtensionsBase } from './extension-paths.js';
 import type { Hono } from 'hono';
 import type { ExtensionLoader } from './extension-loader.js';
+import { unregisterJobs } from './jobs.js';
 
 /**
  * Unloads an extension from memory.
@@ -117,6 +118,8 @@ export async function unloadExtension(
   entityAccessRegistry.unregisterAll(name);
   // Drop the extension's scheduled tasks so the runner stops invoking them.
   cronRunner.unregisterAll(name);
+  // And its job workers: a queued job waits for the extension to load again.
+  await unregisterJobs(name);
 
   loader.loaded.delete(name);
   loader.forgetExtensionMessages(name);

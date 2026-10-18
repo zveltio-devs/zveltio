@@ -129,6 +129,20 @@ export function isApiKeyPrincipal(user: { id: string }): boolean {
   return user.id.startsWith('apikey:');
 }
 
+const KEY_ROW = /^apikey:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/**
+ * The `zv_api_keys` row behind a key principal. Throws for one that has none:
+ * an extension job acts as `apikey:job:<ext>:<job>` (lib/extensions/jobs.ts) so
+ * that every scope check treats it as a key, and slicing the prefix off that id
+ * would name a key that does not exist.
+ */
+export function apiKeyRowId(principalId: string): string {
+  const row = KEY_ROW.exec(principalId)?.[1];
+  if (!row) throw new Error(`${principalId} is not backed by an API key row`);
+  return row;
+}
+
 /** The request's `zvk_` key, from `X-API-Key` or a bearer header; null when none. */
 export function requestApiKey(c: Context): string | null {
   const raw = c.req.header('X-API-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
@@ -246,7 +260,7 @@ export function realtimeIdentity(
   if (p.authType === 'api_key') {
     return {
       authType: 'api_key',
-      principal: { kind: 'api_key', keyId: p.user.id.replace(/^apikey:/, '') },
+      principal: { kind: 'api_key', keyId: apiKeyRowId(p.user.id) },
       user: { id: p.user.id, role: 'api_key', scopes: p.user.scopes, rlsBypass: p.user.rlsBypass },
     };
   }

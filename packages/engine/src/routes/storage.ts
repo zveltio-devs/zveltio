@@ -1,6 +1,7 @@
 import { type Context, Hono } from 'hono';
 import { guardSessionOrKey } from '../lib/admin-guard.js';
 import {
+  apiKeyRowId,
   isApiKeyPrincipal,
   type RequestUser,
   rowAuthorId,
@@ -464,7 +465,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
         height,
         created_by: author,
         // The key itself, so it can find its private uploads again.
-        created_by_api_key: isApiKeyPrincipal(user) ? user.id.slice('apikey:'.length) : null,
+        created_by_api_key: isApiKeyPrincipal(user) ? apiKeyRowId(user.id) : null,
         tenant_id: tenantId(c),
         // A public upload is served from a bare URL with no authentication at
         // all, so hiding it from a listing would be theatre — and it is what a

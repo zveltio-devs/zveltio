@@ -65,6 +65,7 @@ import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import { type CompiledAction, compileActions, mountActions } from './actions.js';
+import { compileJobs, registerJobs } from './jobs.js';
 import { buildExtensionConfig } from './config.js';
 import {
   readApprovedForward,
@@ -815,6 +816,12 @@ export async function finalizeExtensionLoad(
     extension,
     manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true,
   );
+  const jobs = compileJobs(
+    extName,
+    manifest,
+    extension,
+    manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true,
+  );
   // What the manifest DECLARES is only a request. What an administrator
   // consented to is what the gate enforces — otherwise an extension widens its
   // own power by shipping a new manifest, and the contract means nothing on the
@@ -961,6 +968,8 @@ export async function finalizeExtensionLoad(
   const apiKeyRoutes = (manifest as { apiKeyRoutes?: string[] } | null)?.apiKeyRoutes ?? [];
   registerExtensionPublicRoutes(extName, publicRoutes, apiKeyRoutes);
 
+  // With the effective capabilities: an unapproved `data:system` runs no job.
+  registerJobs(extName, jobs, effective);
   loader.loaded.set(extName, {
     name: extName,
     version: manifest?.version,
