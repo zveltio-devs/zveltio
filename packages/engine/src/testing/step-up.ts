@@ -115,8 +115,11 @@ export async function registerSoftPasskey(
   const id = b64url(pk.credentialId);
   return req('/api/auth/passkey/verify-registration', {
     method: 'POST',
+    // A browser sends Origin; Better Auth refuses a POST without one outside
+    // NODE_ENV=test (MISSING_OR_NULL_ORIGIN).
     headers: {
       'Content-Type': 'application/json',
+      Origin: origin,
       cookie: joinCookies(cookie, cookieOf(optsRes)),
       ...extra.headers,
     },
@@ -195,7 +198,7 @@ export async function passkeyStepUp(
   const post = (path: string, body: unknown) =>
     req(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
+      headers: { 'Content-Type': 'application/json', Origin: origin, cookie },
       body: JSON.stringify(body),
     });
   const o = await post('/api/auth/step-up/options', { action });
@@ -270,27 +273,73 @@ export function stepUpActionFor(method: string, path: string): string | null {
 }
 
 /**
+ * A soft passkey kept in `file` so a second process can step up as the same
+ * account: a first factor is enrolled with the password, any later one needs a
+ * step-up, so two probes against one engine cannot each enroll their own.
+ */
+async function savePasskey(file: string, pk: SoftPasskey): Promise<void> {
+  await Bun.write(
+    file,
+    JSON.stringify({
+      id: b64url(pk.credentialId),
+      counter: pk.counter,
+      privateKey: await crypto.subtle.exportKey('jwk', pk.keys.privateKey),
+      publicKey: await crypto.subtle.exportKey('jwk', pk.keys.publicKey),
+    }),
+  );
+}
+
+async function loadPasskey(file: string): Promise<SoftPasskey | null> {
+  const f = Bun.file(file);
+  if (!(await f.exists())) return null;
+  const s = (await f.json()) as {
+    id: string;
+    counter: number;
+    privateKey: JsonWebKey;
+    publicKey: JsonWebKey;
+  };
+  const alg = { name: 'ECDSA', namedCurve: 'P-256' };
+  return {
+    credentialId: new Uint8Array(Buffer.from(s.id, 'base64url')),
+    counter: s.counter,
+    keys: {
+      privateKey: await crypto.subtle.importKey('jwk', s.privateKey, alg, true, ['sign']),
+      publicKey: await crypto.subtle.importKey('jwk', s.publicKey, alg, true, ['verify']),
+    },
+  };
+}
+
+/**
  * Enroll a soft passkey as the session's first factor (behind `password`) and
  * return a fetch on `baseUrl` that steps up each extension mutation it sends.
  * For an out-of-process engine whose BETTER_AUTH_URL is `origin`. The caller's
- * own headers (its cookie) go through as given.
+ * own headers (its cookie) go through as given. With `keyFile`, a passkey
+ * already saved there is reused instead of enrolled, and the one enrolled is
+ * saved there (with its counter after every step-up).
  */
 export async function steppedUpFetch(
   baseUrl: string,
   cookie: string,
   password: string,
   origin = baseUrl,
+  keyFile?: string,
 ): Promise<(path: string, init?: RequestInit) => Promise<Response>> {
   const req = (path: string, init?: RequestInit) => fetch(`${baseUrl}${path}`, init);
-  const pk = await newSoftPasskey();
-  const reg = await registerSoftPasskey(req, cookie, pk, origin, { password });
-  if (!reg.ok)
-    throw new Error(`passkey enrollment on ${baseUrl}: ${reg.status} ${await reg.text()}`);
+  let pk = keyFile ? await loadPasskey(keyFile) : null;
+  if (!pk) {
+    pk = await newSoftPasskey();
+    const reg = await registerSoftPasskey(req, cookie, pk, origin, { password });
+    if (!reg.ok)
+      throw new Error(`passkey enrollment on ${baseUrl}: ${reg.status} ${await reg.text()}`);
+    if (keyFile) await savePasskey(keyFile, pk);
+  }
+  const key = pk;
   return async (path, init = {}) => {
     const action = stepUpActionFor(init.method ?? 'GET', new URL(path, baseUrl).pathname);
     if (!action) return req(path, init);
     const headers = new Headers(init.headers);
-    headers.set('X-Zveltio-Step-Up', await passkeyStepUp(req, cookie, pk, action, origin));
+    headers.set('X-Zveltio-Step-Up', await passkeyStepUp(req, cookie, key, action, origin));
+    if (keyFile) await savePasskey(keyFile, key);
     return req(path, { ...init, headers });
   };
 }
