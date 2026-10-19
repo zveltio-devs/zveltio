@@ -140,6 +140,11 @@ export function registerStepUpRoutes(app: Hono, poolDb: Database): void {
     const session = await requestSession(c, auth);
     // Without a session this is the sign-in challenge, not an enrollment.
     const enrolling = !!session && !(await totpActive(session.user.id));
+    // With a session and TOTP already on, Better Auth only answers right or
+    // wrong: an uncounted oracle for the code step-up would then accept.
+    if (session && !enrolling) {
+      return c.json({ error: 'TOTP is already enabled', code: 'totp_already_enabled' }, 400);
+    }
     await next();
     if (session && enrolling && c.res.status < 400 && (await totpActive(session.user.id))) {
       recordFactorChange(c, poolDb, session.user, 'totp.add', 'totp');

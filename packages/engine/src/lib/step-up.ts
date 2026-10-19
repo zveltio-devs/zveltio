@@ -148,6 +148,31 @@ async function put(id: string, kind: string, value: string, ttl = TTL_SECONDS): 
   return r.rows.length === 1;
 }
 
+/**
+ * Wrong TOTP codes an account may send to step-up per window. The per-IP auth
+ * limit alone let a stolen session guess from as many addresses as it had: one
+ * code in ~333k is accepted, and nothing counted per account.
+ */
+const TOTP_MAX_FAILURES = 5;
+const TOTP_FAILURE_SECONDS = 900;
+
+/**
+ * Reserve one TOTP attempt for `userId`: the row's id when it is within the
+ * budget, else null. Reserved before the code is checked, so concurrent guesses
+ * each see the others' rows and at most `TOTP_MAX_FAILURES` get through.
+ */
+async function reserveTotpAttempt(userId: string): Promise<string | null> {
+  const id = rowId('totp-attempt', randomBytes(16).toString('base64url'));
+  const kind = `totp-attempt:${userId}`;
+  await put(id, kind, '', TOTP_FAILURE_SECONDS);
+  const r = await sql<{ n: number }>`
+    SELECT count(*)::int AS n FROM verification
+     WHERE identifier = ${`step-up:${kind}`} AND "expiresAt" > now()`.execute(authPool());
+  if ((r.rows[0]?.n ?? 0) <= TOTP_MAX_FAILURES) return id;
+  await take(id); // A refused attempt does not extend the lock.
+  return null;
+}
+
 /** Delete and return a live row: the one statement makes it single-use under concurrency. */
 async function take(id: string): Promise<string | null> {
   const r = await sql<{ value: string }>`
@@ -271,6 +296,16 @@ export async function stepUpVerify(c: Context): Promise<Response> {
     const code = body.code;
     if (typeof code !== 'string' || !/^\d{6}$/.test(code))
       return refuse('A 6-digit code is required');
+    const attempt = await reserveTotpAttempt(userId);
+    if (!attempt) {
+      return c.json(
+        {
+          error: 'Too many wrong codes. Wait a few minutes, then try again.',
+          code: 'step_up_locked',
+        },
+        429,
+      );
+    }
     try {
       // Better Auth's own check, against its encrypted secret; with a session it
       // verifies and creates nothing.
@@ -279,8 +314,9 @@ export async function stepUpVerify(c: Context): Promise<Response> {
         body: { code },
       });
     } catch {
-      return refuse('The code is not valid');
+      return refuse('The code is not valid'); // The attempt row stays: it was a guess.
     }
+    await take(attempt);
     // A code stays valid for its whole window; one code mints one token.
     if (!(await put(rowId('totp', userId, code), 'totp', ''))) {
       return refuse('This code was already used. Wait for the next one.');
