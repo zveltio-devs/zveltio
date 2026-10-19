@@ -1576,5 +1576,7 @@
   "stepUp.userVerificationOrCode": "Ez a jelszókulcs egy érintést igazolt, de nem a személyazonosságodat. Állíts be PIN-kódot, vagy kapcsold be az ujjlenyomatos vagy arcfelismerős feloldást a biztonsági kulcsodon, vagy add meg a hitelesítő alkalmazásod kódját.",
   "stepUp.orCodeLabel": "Vagy egy kód a hitelesítő alkalmazásodból",
   "passkeys.passwordWrong": "A jelszó nem helyes.",
-  "passkeys.signInAgain": "A biztonságod érdekében jelentkezz ki, majd jelentkezz be újra a bejelentkezési szolgáltatóddal, és öt percen belül add hozzá a jelszókulcsot."
+  "passkeys.signInAgain": "A biztonságod érdekében jelentkezz ki, majd jelentkezz be újra a bejelentkezési szolgáltatóddal, és öt percen belül add hozzá a jelszókulcsot.",
+  "settings.tenantTimezone": "A szervezet időzónája",
+  "settings.tenantTimezoneHint": "Üres = a példányé. Érvényes most: {zone}"
 }

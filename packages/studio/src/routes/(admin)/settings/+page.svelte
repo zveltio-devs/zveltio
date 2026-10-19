@@ -92,7 +92,41 @@ onMount(async () => {
     loading = false;
   }
   loadRateLimiting();
+  loadTenantTz();
 });
+
+// The organization's own time zone — what "today" means for its records. Shown
+// to a tenant admin only: the GET answers 403 to anyone else.
+let tenantTz = $state<{ timezone: string; effective: string } | null>(null);
+let tenantTzSaving = $state(false);
+
+async function loadTenantTz() {
+  try {
+    const res = await api.get<{ timezone: string | null; effective: string }>(
+      '/api/tenants/current/timezone',
+    );
+    tenantTz = { timezone: res.timezone ?? '', effective: res.effective };
+  } catch {
+    tenantTz = null;
+  }
+}
+
+async function saveTenantTz() {
+  if (!tenantTz) return;
+  tenantTzSaving = true;
+  try {
+    const res = await api.put<{ timezone: string | null; effective: string }>(
+      '/api/tenants/current/timezone',
+      { timezone: tenantTz.timezone.trim() || null },
+    );
+    tenantTz = { timezone: res.timezone ?? '', effective: res.effective };
+    toast.success(m['settings.saved']());
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+  } finally {
+    tenantTzSaving = false;
+  }
+}
 
 async function loadRateLimiting() {
   try {
@@ -328,6 +362,18 @@ let confirmState = $state<{
  </label>
  <input id="setting-timezone" class="input font-mono w-64" bind:value={s.timezone} placeholder="Europe/Bucharest" />
  </div>
+ {#if tenantTz}
+ <div class="form-control">
+ <label class="label" for="setting-tenant-timezone">
+ <span class="label-text font-medium">{m['settings.tenantTimezone']()}</span>
+ <span class="label-text-alt text-base-content/65">{m['settings.tenantTimezoneHint']({ zone: tenantTz.effective })}</span>
+ </label>
+ <div class="flex gap-2 items-center">
+ <input id="setting-tenant-timezone" class="input font-mono w-64" bind:value={tenantTz.timezone} placeholder="Europe/Bucharest" />
+ <button type="button" class="btn btn-sm" disabled={tenantTzSaving} onclick={saveTenantTz}>{m['common.save']()}</button>
+ </div>
+ </div>
+ {/if}
  <div class="form-control">
  <label class="label" for="setting-date-format"><span class="label-text font-medium">{m['settings.dateFormat']()}</span></label>
  <select id="setting-date-format" class="select w-48" bind:value={s.date_format}>

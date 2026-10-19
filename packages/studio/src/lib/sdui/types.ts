@@ -271,7 +271,8 @@ export interface ActionDef {
   confirm?: string;
   /** Request body, with "{field}" tokens substituted from the row. A token may
    * carry an arithmetic op: "{total-amount_paid}" → subtract. e.g.
-   * { amount: "{total-amount_paid}" } for invoicing markPaid. */
+   * { amount: "{total-amount_paid}" } for invoicing markPaid. "{today}" is reserved:
+   * today's date in the tenant's time zone, never a row field. */
   body?: Record<string, string>;
   /**
    * Ask the person for something before calling the endpoint.

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { fmtDate } from '$lib/stores/format.svelte.js';
+import { fmtDate, localToday } from '$lib/stores/format.svelte.js';
 import { copyText } from '$lib/clipboard.js';
 import Modal from '$lib/components/common/Modal.svelte';
 /**
@@ -249,7 +249,7 @@ function applyAutofill(f: FieldDef, id: unknown, target: Record<string, any>): v
 // part of it means editing the number down.
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 function defaultFor(f: FieldDef, row?: any): any {
-  if (f.default === 'today') return new Date().toISOString().split('T')[0];
+  if (f.default === 'today') return localToday();
   if (row !== undefined && typeof f.default === 'string') return resolveToken(f.default, row);
   if (f.default !== undefined) return f.default;
   if (f.type === 'boolean') return false;
@@ -678,6 +678,8 @@ async function inlineEdit(row: any, col: ColumnDef, value: string) {
 function resolveToken(tmpl: string, row: any): any {
   const mt = /^\{(.+)\}$/.exec(tmpl);
   if (!mt) return tmpl;
+  // Reserved: the tenant's date today, not a row field.
+  if (mt[1] === 'today') return localToday();
   const parts = mt[1].split('-');
   return parts.length === 2
     ? Number(getPath(row, parts[0].trim()) || 0) - Number(getPath(row, parts[1].trim()) || 0)

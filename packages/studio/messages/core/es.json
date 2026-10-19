@@ -1576,5 +1576,7 @@
   "stepUp.userVerificationOrCode": "Esta llave de acceso confirmó un toque, pero no tu identidad. Configura un PIN o activa el desbloqueo con huella o rostro en tu llave de seguridad, o introduce el código de tu aplicación de autenticación.",
   "stepUp.orCodeLabel": "O un código de tu aplicación de autenticación",
   "passkeys.passwordWrong": "Esa contraseña no es correcta.",
-  "passkeys.signInAgain": "Por tu seguridad, cierra sesión y vuelve a iniciarla con tu proveedor de inicio de sesión, y añade tu llave de acceso en un plazo de cinco minutos."
+  "passkeys.signInAgain": "Por tu seguridad, cierra sesión y vuelve a iniciarla con tu proveedor de inicio de sesión, y añade tu llave de acceso en un plazo de cinco minutos.",
+  "settings.tenantTimezone": "Zona horaria de la organización",
+  "settings.tenantTimezoneHint": "Vacío = la de la instancia. Se aplica: {zone}"
 }

@@ -1576,5 +1576,7 @@
   "stepUp.userVerificationOrCode": "Deze passkey bevestigde een aanraking, maar niet uw identiteit. Stel een pincode in of schakel ontgrendeling met vingerafdruk of gezicht in voor uw beveiligingssleutel, of voer de code uit uw authenticator-app in.",
   "stepUp.orCodeLabel": "Of een code uit uw authenticator-app",
   "passkeys.passwordWrong": "Dat wachtwoord is niet juist.",
-  "passkeys.signInAgain": "Meld u voor uw veiligheid af en opnieuw aan via uw aanmeldprovider, en voeg uw passkey binnen vijf minuten toe."
+  "passkeys.signInAgain": "Meld u voor uw veiligheid af en opnieuw aan via uw aanmeldprovider, en voeg uw passkey binnen vijf minuten toe.",
+  "settings.tenantTimezone": "Tijdzone van de organisatie",
+  "settings.tenantTimezoneHint": "Leeg = die van de instantie. Geldt nu: {zone}"
 }

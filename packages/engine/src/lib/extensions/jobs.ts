@@ -39,6 +39,7 @@ import {
 import { asEngineRole } from '../role-window.js';
 import {
   createRequestScopedDb,
+  effectiveTimeZone,
   publishApiKeyActor,
   runOutsideTenantContext,
   withTenantIsolation,
@@ -273,12 +274,14 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
       return;
     }
     const user = jobPrincipal(extName, def, data.author);
+    // On the pool, as the status above: the job's transaction runs as the tenant.
+    const timezone = await effectiveTimeZone(getDb(), tenantId);
     // Outside any tenant context (`work`), so the transaction's domain is this
     // tenant, not one inherited from wherever pg-boss resumed.
     await withTenantIsolation(tenantId, async (trx) => {
       await publishApiKeyActor(user.id, false, user.scopes);
       const collections = hostCollections(`job "${job}"`, def, jobData(user, trx, tenantId));
-      await def.run(input, { collections });
+      await def.run(input, { collections, timezone });
     });
   } catch (err) {
     failure = (err as Error)?.message ?? String(err);

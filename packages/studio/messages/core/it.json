@@ -1576,5 +1576,7 @@
   "stepUp.userVerificationOrCode": "Questa passkey ha confermato un tocco, ma non la tua identità. Imposta un PIN o attiva lo sblocco con impronta o volto per la tua chiave di sicurezza, oppure inserisci il codice della tua app di autenticazione.",
   "stepUp.orCodeLabel": "Oppure un codice dalla tua app di autenticazione",
   "passkeys.passwordWrong": "Questa password non è corretta.",
-  "passkeys.signInAgain": "Per la tua sicurezza, esci e accedi di nuovo con il tuo provider di accesso, poi aggiungi la passkey entro cinque minuti."
+  "passkeys.signInAgain": "Per la tua sicurezza, esci e accedi di nuovo con il tuo provider di accesso, poi aggiungi la passkey entro cinque minuti.",
+  "settings.tenantTimezone": "Fuso orario dell'organizzazione",
+  "settings.tenantTimezoneHint": "Vuoto = quello dell'istanza. In uso: {zone}"
 }

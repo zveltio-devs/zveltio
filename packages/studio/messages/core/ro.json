@@ -1576,5 +1576,7 @@
   "stepUp.userVerificationOrCode": "Această cheie de acces a confirmat o atingere, dar nu identitatea ta. Setează un PIN sau activează deblocarea cu amprentă ori cu fața pentru cheia ta de securitate, sau introdu codul din aplicația de autentificare.",
   "stepUp.orCodeLabel": "Sau un cod din aplicația de autentificare",
   "passkeys.passwordWrong": "Parola nu este corectă.",
-  "passkeys.signInAgain": "Pentru siguranța ta, deconectează-te și autentifică-te din nou prin furnizorul tău de autentificare, apoi adaugă cheia de acces în cel mult cinci minute."
+  "passkeys.signInAgain": "Pentru siguranța ta, deconectează-te și autentifică-te din nou prin furnizorul tău de autentificare, apoi adaugă cheia de acces în cel mult cinci minute.",
+  "settings.tenantTimezone": "Fusul orar al organizației",
+  "settings.tenantTimezoneHint": "Gol = cel al instanței. Se aplică acum: {zone}"
 }
