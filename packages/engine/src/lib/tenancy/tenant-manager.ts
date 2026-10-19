@@ -1701,7 +1701,9 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         -- grant, a lifted column guard or row rule, or a self-approved credential
         -- forward: inline ctx.db and the worker bridge fall back to this role.
         -- zv_roles and zv_settings (registration, SMTP, storage, spent recovery
-        -- tokens) joined with migration 082. And "user": god status is its role
+        -- tokens) joined with migration 082; zv_default_grant_revocations (086)
+        -- with it, because deleting a row there hands a revoked default grant
+        -- back to every tenant at the next boot. And "user": god status is its role
         -- column (isGodUser), email and banned decide who signs in, and a user
         -- row named after a role took that role's grants when deleted (080's
         -- trigger). The engine writes it under its own role (asEngineRole).
@@ -1711,7 +1713,7 @@ async function ensureRlsEnforcementRole(db: Database): Promise<void> {
           WHERE schemaname = 'public'
             AND tablename IN ('zvd_permissions', 'zvd_column_permissions', 'zvd_rls_policies',
                               'zv_extension_forward_approvals', 'zv_extension_registry',
-                              'zv_roles', 'zv_settings', 'user')
+                              'zv_roles', 'zv_settings', 'zv_default_grant_revocations', 'user')
         LOOP
           EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;

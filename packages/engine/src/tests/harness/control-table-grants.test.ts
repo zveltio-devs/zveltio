@@ -34,6 +34,9 @@ const CONTROL_TABLES = [
   'zvd_rls_policies',
   'zv_extension_forward_approvals',
   'zv_extension_registry',
+  // An operator's revoke of a default grant (086): deleting one hands the grant
+  // back to every tenant at the next boot.
+  'zv_default_grant_revocations',
   // Roles and instance settings (registration, SMTP, storage, recovery tokens).
   'zv_roles',
   'zv_settings',
