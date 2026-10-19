@@ -3880,13 +3880,18 @@ table zvd_company_profile
 table zvd_contact_organizations
   col contact_id                     uuid NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col is_primary                     boolean NOT NULL DEFAULT false
   col organization_id                uuid NOT NULL
   col role                           text
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
   fk  zvd_contact_organizations_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES zvd_contacts(id) ON DELETE CASCADE
   fk  zvd_contact_organizations_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES zvd_organizations(id) ON DELETE CASCADE
-  pk  zvd_contact_organizations_pkey PRIMARY KEY (contact_id, organization_id)
+  uq  zvd_contact_organizations_pair_key UNIQUE (contact_id, organization_id)
+  pk  zvd_contact_organizations_pkey PRIMARY KEY (id)
   idx idx_zvd_contact_organizations_one_primary UNIQUE (tenant_id, contact_id) WHERE is_primary
   rls enabled forced
   pol tenant_isolation_zvd_contact_organizations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
