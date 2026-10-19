@@ -41,3 +41,21 @@ UPDATE zv_validation_rules
          SELECT 1
            FROM regexp_matches(rule_config->>'expression', '''[^'']*''|"[^"]*"', 'g') AS lit(m)
           WHERE lit.m[1] ~ '\m(and|or)\M');
+
+-- DOWN
+-- The engine before this migration runs expr-eval, which has no `&&` / `||`
+-- operators (its `||` concatenates). Spell them back as `and` / `or`, under the
+-- same guards. A rule that uses CEL-only syntax (`size()`, macros, `!`) stays
+-- as written and is refused by that engine, as any unparseable rule is.
+UPDATE zv_validation_rules
+   SET rule_config = jsonb_set(
+         rule_config,
+         '{expression}',
+         to_jsonb(replace(replace(rule_config->>'expression', '&&', ' and '), '||', ' or ')))
+ WHERE rule_type IN ('custom', 'nlp')
+   AND rule_config->>'expression' !~ '\\'
+   AND regexp_replace(rule_config->>'expression', '''[^'']*''|"[^"]*"', '', 'g') ~ '&&|\|\|'
+   AND NOT EXISTS (
+         SELECT 1
+           FROM regexp_matches(rule_config->>'expression', '''[^'']*''|"[^"]*"', 'g') AS lit(m)
+          WHERE lit.m[1] ~ '&&|\|\|');
