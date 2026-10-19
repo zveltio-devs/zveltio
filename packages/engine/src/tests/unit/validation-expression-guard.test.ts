@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { checkValidationExpression, evaluateExpressionRule } from '../../lib/validation-engine.js';
+import {
+  checkValidationExpression,
+  evaluateExpressionRule,
+  validateFieldValue,
+  type ValidationRule,
+} from '../../lib/validation-engine.js';
 
 /**
  * SEC-02. The validation extension evaluated stored rules with
@@ -125,6 +130,27 @@ describe('CEL specifics', () => {
     const outcome = evaluateExpressionRule('value.matches("^(a+)+$")', `${'a'.repeat(40)}!`);
     expect(outcome).toEqual({ status: 'failed' });
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  // Nested macros cost N^k. This one took 19 s over 300 elements with nothing
+  // to stop it, blocking every request in the process; it must be cut off and
+  // refused, and a refused rule refuses the write.
+  test('refuses an evaluation that runs past its deadline', async () => {
+    const expression = 'value.all(a, value.all(b, value.all(c, a + b + c >= 0)))';
+    const value = Array.from({ length: 200 }, (_, i) => i);
+    const started = performance.now();
+    const outcome = evaluateExpressionRule(expression, value);
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(outcome).toEqual({ status: 'refused', reason: 'took longer than 50 ms to evaluate' });
+    const rule: ValidationRule = {
+      field_name: 'n',
+      rule_type: 'custom',
+      rule_config: { expression },
+      error_message: null,
+    };
+    expect(await validateFieldValue(value, [rule])).toHaveLength(1);
+    // The interrupted interpreter is still usable.
+    expect(evaluateExpressionRule('value.all(x, x >= 0)', value)).toEqual({ status: 'passed' });
   });
 
   test('bounds length and nesting', () => {

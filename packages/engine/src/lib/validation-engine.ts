@@ -7,6 +7,7 @@
  * eval/Function usage, no loops beyond the bounded macros, no I/O.
  */
 
+import { Script, createContext } from 'node:vm';
 import { celEnv, isCelError, parse, plan } from '@bufbuild/cel';
 import { RE2JS } from '@bufbuild/re2';
 import { sql } from 'kysely';
@@ -29,13 +30,31 @@ const env = celEnv({
   },
 });
 
-// CEL has no unbounded loops, but the macros (`all`, `exists`, `map`, …) nest,
-// and each level multiplies the work by the size of a list. These two bounds
-// keep a stored rule's cost proportional to the value it checks. They are
-// generous for a validation rule and are not a contract: a rule that needs more
-// is a rule that belongs in an action.
+// Bounds on what may be stored. They keep a rule readable and its plan small;
+// they do NOT bound what it costs to run — see EVALUATION_TIMEOUT_MS.
 const MAX_EXPRESSION_LENGTH = 1024;
 const MAX_EXPRESSION_DEPTH = 32;
+
+// CEL has no unbounded loops, but its cost is not proportional to the value it
+// checks. The macros (`all`, `exists`, `map`, …) nest, so
+// `value.all(a, value.all(b, value.all(c, a+b+c >= 0)))` is N^3 — 19 s of a
+// blocked event loop over a 300-element list — and `x in value` or
+// `value == value` inside a single loop is N^2. No static cap closes that:
+// every cap on the expression leaves the value's size as a free multiplier.
+// So evaluation is preempted instead. `node:vm`'s `timeout` interrupts the
+// running JavaScript wherever it is — inside @bufbuild/cel's interpreter too,
+// which is plain functions of this realm — synchronously and in-process, with
+// no worker to start or message. A rule that runs out the clock is refused,
+// which on the write path refuses the write. 50 ms is orders of magnitude above
+// what a validation rule needs (a microsecond or two per element).
+// ponytail: memory is bounded only by what can be allocated within the deadline
+// (measured: about 50 MB for the worst shapes found); a heap cap needs a Worker.
+// An interrupted evaluation skips @bufbuild/cel's `finally` and leaves one
+// stale entry on its internal context stack — one array slot per refusal.
+const EVALUATION_TIMEOUT_MS = 50;
+let evaluateNow: () => unknown = () => null;
+const evaluationRealm = createContext({ run: () => evaluateNow() });
+const runEvaluation = new Script('run()');
 
 // expr-eval-fork, which this replaced, reached JavaScript objects directly, so
 // rules were screened for prototype-pollution names. CEL selects only declared
@@ -236,14 +255,26 @@ export function evaluateExpressionRule(
     if (programs.size >= MAX_CACHED_PROGRAMS) programs.clear();
     programs.set(expression, program);
   }
+  // The binding type is CEL's input union; `toCelValue` returns `unknown`
+  // because a column can hold anything. An unsupported shape is reported by
+  // the evaluator as an error, which lands in the refusal below.
+  const bindings = { value: toCelValue(value, fieldType) } as Parameters<CelProgram>[0];
+  const run = program;
   let result: unknown;
   try {
-    // The binding type is CEL's input union; `toCelValue` returns `unknown`
-    // because a column can hold anything. An unsupported shape is reported by
-    // the evaluator as an error, which lands in the refusal below.
-    result = program({ value: toCelValue(value, fieldType) } as Parameters<CelProgram>[0]);
+    evaluateNow = () => run(bindings);
+    result = runEvaluation.runInContext(evaluationRealm, { timeout: EVALUATION_TIMEOUT_MS });
   } catch (err) {
+    if ((err as { code?: unknown }).code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') {
+      return {
+        status: 'refused',
+        reason: `took longer than ${EVALUATION_TIMEOUT_MS} ms to evaluate`,
+      };
+    }
     return { status: 'refused', reason: `could not be evaluated: ${(err as Error).message}` };
+  } finally {
+    // Do not keep the last record's value reachable between writes.
+    evaluateNow = () => null;
   }
   if (isCelError(result)) {
     return { status: 'refused', reason: `could not be evaluated: ${result.message}` };
