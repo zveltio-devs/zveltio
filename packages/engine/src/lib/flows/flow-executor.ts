@@ -143,8 +143,14 @@ async function executeStep(
   // NOT derived from caller-supplied trigger data, which a caller could set to another
   // tenant's id to read/export across tenants.
   flowTenantId: string = DEFAULT_TENANT_ID,
+): Promise<{
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-): Promise<{ output: any; logs?: string[]; skip?: string[]; stop?: boolean }> {
+  output: any;
+  logs?: string[];
+  skip?: string[];
+  stop?: boolean;
+  branches?: string[];
+}> {
   // The Bun SQL driver hands jsonb columns back as strings, so step.config read via
   // `SELECT * FROM zv_flow_steps` can be a JSON string (see the pervasive
   // `typeof x === 'string' ? JSON.parse(x)` guards elsewhere). Without parsing it,
@@ -551,6 +557,7 @@ async function executeStep(
         logs: [`condition ${passed}${stop ? ': run ends here' : ''}`],
         skip: passed ? falseBranch : trueBranch,
         stop,
+        branches: [...trueBranch, ...falseBranch],
       };
     }
 
@@ -678,7 +685,7 @@ export async function executeFlow(
 
   try {
     const skipped = new Set<string>();
-    for (const step of steps) {
+    for (const [index, step] of steps.entries()) {
       if (step.id && skipped.has(step.id)) continue;
       try {
         const result = await traced(
@@ -693,10 +700,24 @@ export async function executeFlow(
         output = result.output;
         if (step.id) stepResults[step.id] = output;
         if (result.logs?.length) stepLogs[step.id] = result.logs;
+        if (result.branches) {
+          // A branch can only name a step after the condition in this flow. Any
+          // other id skips nothing, so the steps it was meant to gate would run.
+          // ponytail: checked at run time; save time sees one step, not the flow.
+          const later = new Set(steps.slice(index + 1).map((s: { id?: string }) => s.id));
+          const stray = result.branches.filter((id) => !later.has(id));
+          if (stray.length > 0) {
+            throw new Error(
+              `Condition branch names ${stray.join(', ')}, which is not a later step of this flow`,
+            );
+          }
+        }
         for (const id of result.skip ?? []) skipped.add(id);
         if (result.stop) break;
       } catch (stepErr) {
-        if (step.on_error === 'continue') {
+        // A condition that cannot decide stops the run whatever on_error says:
+        // continuing would run both branches, which is the gate opening.
+        if (step.on_error === 'continue' && step.type !== 'condition') {
           output = { error: String(stepErr), step: step.name };
           continue;
         }

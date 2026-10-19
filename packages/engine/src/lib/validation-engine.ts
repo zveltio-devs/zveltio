@@ -278,9 +278,28 @@ export function evaluateCondition(
   bindings: { trigger: unknown; output: unknown },
 ): ExpressionRuleResult {
   return evaluate(expression, FLOW_CONDITION_SCOPE, {
-    trigger: toCelValue(bindings.trigger, undefined),
-    output: toCelValue(bindings.output, undefined),
+    trigger: toCelJson(bindings.trigger),
+    output: toCelJson(bindings.output),
   } as Parameters<CelProgram>[0]);
+}
+
+/**
+ * Trigger data and step output, as CEL sees JSON: a Date is its ISO string, an
+ * undefined property is absent (`has()` is false), and a bigint (an int8
+ * column in a trigger's record) a double like every other number, so
+ * `trigger.record.n * 2.0` does not depend on the column's width.
+ */
+function toCelJson(value: unknown): unknown {
+  if (value === undefined || value === null) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'bigint') return Number(value);
+  if (Array.isArray(value)) return value.map(toCelJson);
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) if (v !== undefined) out[k] = toCelJson(v);
+    return out;
+  }
+  return value;
 }
 
 function evaluate(

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { executeFlow } from '../../lib/flows/flow-executor.js';
 import { validateStepConfig } from '../../lib/flows/flow-step-schemas.js';
+import { evaluateCondition } from '../../lib/validation-engine.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 function dbForFlow(steps: unknown[]): CannedDb {
@@ -86,6 +87,44 @@ describe('flow condition step', () => {
     const r = await run([mark('a', 1), condition({ expression }), mark('b', 3)], { total: 5 });
     expect(r.status).toBe('failed');
     expect(r.error ?? '').toContain('Condition');
+  });
+
+  it('fails the run, even with on_error continue, rather than run both branches', async () => {
+    const r = await run(
+      [
+        mark('a', 1),
+        {
+          ...condition({ expression: 'trigger.total', false_branch: ['b'] }),
+          on_error: 'continue',
+        },
+        mark('b', 3),
+      ],
+      { total: 5 },
+    );
+    expect(r.status).toBe('failed');
+    expect(r.output.ran).toBe('a');
+  });
+
+  it('fails the run when a branch names a step that is not after it', async () => {
+    const r = await run(
+      [mark('a', 1), condition({ expression: 'trigger.big', true_branch: ['a'] }), mark('b', 3)],
+      { big: false },
+    );
+    expect(r.status).toBe('failed');
+    expect(r.error ?? '').toContain('not a later step');
+  });
+
+  it('sees a nested Date, bigint and undefined as JSON would', () => {
+    const trigger = { record: { n: 3n, at: new Date('2026-10-19T00:00:00Z'), gone: undefined } };
+    for (const expression of [
+      'trigger.record.n * 2.0 == 6.0',
+      'trigger.record.at.startsWith("2026-")',
+      '!has(trigger.record.gone)',
+    ]) {
+      expect(evaluateCondition(expression, { trigger, output: null })).toEqual({
+        status: 'passed',
+      });
+    }
   });
 
   it('refuses at save time an expression that can never evaluate', () => {

@@ -148,7 +148,8 @@ the type). Its `expression` is CEL over `trigger` (the run's trigger data) and
 checked when the step is saved. `true` skips the steps listed in
 `false_branch`, `false` those in `true_branch`; with neither list given, `false`
 ends the run, recorded as a success. An expression that does not evaluate to a
-boolean fails the step. Transitions are the next slice.
+boolean, or a branch naming a step that is not after the condition, fails the
+run whatever the step's `on_error` says. Transitions are the next slice.
 
 ### Installing and trusting code
 
