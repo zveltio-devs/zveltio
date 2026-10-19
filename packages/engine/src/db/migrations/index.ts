@@ -921,6 +921,13 @@ export async function runPending(db: Database, opts: ChainOptions = {}): Promise
       applied.push(filename);
     }
   }
+  // A table a migration just created holds the request role's default DML grant
+  // (001), control tables too; take the role's grants back to what boot sets.
+  // tests/harness/control-table-grants.test.ts.
+  if (applied.length > 0) {
+    const { ensureRlsEnforcementRole } = await import('../../lib/tenancy/index.js');
+    await ensureRlsEnforcementRole(db);
+  }
   return applied;
 }
 

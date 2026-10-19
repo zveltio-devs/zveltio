@@ -61,7 +61,7 @@ d('control tables are read-only to the request roles', () => {
     await reconcileTenantRLS(db);
   }, 120_000);
 
-  it('no request role holds INSERT, UPDATE or DELETE on one', async () => {
+  const writeGrants = async (): Promise<string[]> => {
     const r = await sql<{ w: string }>`
       SELECT r.rolname || ' ' || t || ' ' || p AS w
         FROM pg_roles r, unnest(${CONTROL_TABLES}::text[]) t,
@@ -71,8 +71,24 @@ d('control tables are read-only to the request roles', () => {
          AND has_table_privilege(r.oid, ('public.' || t)::regclass, p)
        ORDER BY 1
     `.execute(db);
-    expect(r.rows.map((x) => x.w)).toEqual([]);
+    return r.rows.map((x) => x.w);
+  };
+
+  it('no request role holds INSERT, UPDATE or DELETE on one', async () => {
+    expect(await writeGrants()).toEqual([]);
   });
+
+  // Migration 001's ALTER DEFAULT PRIVILEGES hands zveltio_rls DML on every
+  // table created later, control tables included (071, 086), and only boot took
+  // it back. POST /admin/migrate and `zveltio migrate` beside a running engine
+  // left the grant in place until the next restart; in the harness a test that
+  // rolled back and re-applied a migration left it for every file after it.
+  it('a migration applied on a running engine does not hand one back', async () => {
+    const { rollbackMigration, runMigrations } = await import('../../db/migrations/index.js');
+    expect((await rollbackMigration(db, 85)).success).toBe(true);
+    await runMigrations(db);
+    expect(await writeGrants()).toEqual([]);
+  }, 120_000);
 
   it('zveltio_rls still reads them', async () => {
     const r = await sql<{ t: string }>`
