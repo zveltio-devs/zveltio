@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "A jelszó nem helyes.",
   "passkeys.signInAgain": "A biztonságod érdekében jelentkezz ki, majd jelentkezz be újra a bejelentkezési szolgáltatóddal, és öt percen belül add hozzá a jelszókulcsot.",
   "settings.tenantTimezone": "A szervezet időzónája",
-  "settings.tenantTimezoneHint": "Üres = a példányé. Érvényes most: {zone}"
+  "settings.tenantTimezoneHint": "Üres = a példányé. Érvényes most: {zone}",
+  "passkeys.registerFailed": "A passkey regisztrálása nem sikerült: {error}",
+  "passkeys.deleteFailed": "A passkey törlése nem sikerült: {error}"
 }

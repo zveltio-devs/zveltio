@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "That password is not correct.",
   "passkeys.signInAgain": "For your security, sign out and sign in again with your sign-in provider, then add your passkey within five minutes.",
   "settings.tenantTimezone": "Organization time zone",
-  "settings.tenantTimezoneHint": "Empty = the instance's. Applies now: {zone}"
+  "settings.tenantTimezoneHint": "Empty = the instance's. Applies now: {zone}",
+  "passkeys.registerFailed": "Failed to register passkey: {error}",
+  "passkeys.deleteFailed": "Failed to delete passkey: {error}"
 }
