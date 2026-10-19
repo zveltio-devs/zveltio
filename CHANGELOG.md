@@ -4,6 +4,35 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.84] - 2026-10-19
+
+**"Today" is the tenant's date, not the UTC one.** Every default "today" was the
+UTC date — Studio's SDUI `default: 'today'`, extension defaults such as CRM's
+payment date — so a firm east or west of UTC got yesterday's or tomorrow's date
+for part of every day. A tenant now has its own time zone
+(`zv_tenants.settings.timezone`, set by its admin through
+`GET/PUT /api/tenants/current/timezone`, or in Settings); the zone that applies
+is the tenant's, else the instance's `timezone` setting, else UTC.
+`/api/settings/public` serves the tenant's own zone, Studio formats and takes
+"today" in it (`localToday()`, the SDUI body token `"{today}"`), and extensions
+get `ActionHost.timezone` / `JobHost.timezone` with the SDK's `todayIn(tz)` (#1187).
+
+**An extension update can carry a precondition.**
+`host.collections.update(collection, id, data, { expect: { status: ['draft'] } })`
+locks the row before reading it and answers 409 `precondition_failed` when a
+field's current value is not one expected, so a read-check-write action is
+atomic: two concurrent CRM `markPaid` calls on one open transaction both
+succeeded before. The comparison runs on the row a GET would serve; a field the
+caller cannot read is refused (403 `expect_unreadable`), never compared (#1186).
+
+**An extension action can refuse with a 4xx.** Every throw from an action
+answered 500, so a business rule ("this transaction is already cancelled")
+looked like a crash. The SDK's `ActionRefusal(status, code, message)` answers
+its status (`RefusalStatus`: 400, 403, 404, 409, 410, 412, 422, 423, 429) and
+`code` as a problem, still rolling back what the action wrote. `extension
+validate` now knows the engine serves `/actions/<name>`, so an SDUI page can
+call an action (#1185).
+
 ## [3.0.0-beta.83] - 2026-10-18
 
 **An API key never exceeds its issuer's current rights.** A key's scopes were its
