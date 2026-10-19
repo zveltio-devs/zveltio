@@ -1051,7 +1051,8 @@ export interface ZvFlowStepsTable {
     | 'webhook'
     | 'send_notification'
     | 'export_collection'
-    | 'ai_decision';
+    | 'ai_decision'
+    | 'condition';
   config: Generated<unknown>;
   on_error: Generated<'stop' | 'continue' | 'retry'>;
   created_at: Generated<Date>;
