@@ -4,6 +4,7 @@ import type { Kysely, RawBuilder } from 'kysely';
 
 export { permissionGate } from './permission-gate.js';
 export { ActionRefusal, ACTION_REFUSAL, type RefusalStatus } from './action-refusal.js';
+export { todayIn } from './dates.js';
 export { readMultipart, MULTIPART_REQUIRED } from './multipart.js';
 export { toJsonb } from './jsonb.js';
 export {
@@ -1348,6 +1349,11 @@ export type ExtensionAction = (input: unknown, host: ActionHost) => Promise<unkn
 export interface ActionHost {
   collections: HostCollections;
   /**
+   * The IANA zone "today" means for the request's tenant: the tenant's own
+   * setting, else the instance's, else `UTC`. Pair with `todayIn`.
+   */
+  timezone: string;
+  /**
    * Queue one of the jobs this action's manifest entry lists in `enqueues`, with
    * an `input` its schema accepts — anything else throws. Written in the request
    * transaction: the job exists only if the request commits. Needs `data:system`.
@@ -1397,6 +1403,8 @@ export type ExtensionJob = (input: unknown, host: JobHost) => Promise<void>;
  */
 export interface JobHost {
   collections: HostCollections;
+  /** As `ActionHost.timezone`, for the tenant that enqueued the job. */
+  timezone: string;
 }
 
 // ─── Studio extension API (available via window.__zveltio in IIFE bundles) ───

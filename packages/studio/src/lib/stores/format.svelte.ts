@@ -38,6 +38,31 @@ export function initFormat(): Promise<void> {
   return loading;
 }
 
+/**
+ * Today, `YYYY-MM-DD`, in the tenant's zone (its own, else the instance's — the
+ * public settings carry the one that applies), else the browser's. Not
+ * `toISOString()`: that is the UTC date, a day off for the hours a non-UTC
+ * firm's day and UTC's differ. en-CA formats as ISO.
+ */
+export function localToday(now: Date = new Date()): string {
+  const tz = s.timezone ? { timeZone: s.timezone } : {};
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      ...tz,
+    }).format(now);
+  } catch {
+    // A zone this browser does not know: its own date, never a broken form.
+    return new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  }
+}
+
 /** Current settings (reactive) — exposed for the settings screen / debugging. */
 export function formatSettings(): Readonly<FormatSettings> {
   return s;

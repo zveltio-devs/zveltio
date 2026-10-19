@@ -1576,5 +1576,7 @@
   "stepUp.userVerificationOrCode": "This passkey confirmed a touch but not you. Set a PIN or turn on fingerprint or face unlock for your security key, or enter the code from your authenticator app.",
   "stepUp.orCodeLabel": "Or a code from your authenticator app",
   "passkeys.passwordWrong": "That password is not correct.",
-  "passkeys.signInAgain": "For your security, sign out and sign in again with your sign-in provider, then add your passkey within five minutes."
+  "passkeys.signInAgain": "For your security, sign out and sign in again with your sign-in provider, then add your passkey within five minutes.",
+  "settings.tenantTimezone": "Organization time zone",
+  "settings.tenantTimezoneHint": "Empty = the instance's. Applies now: {zone}"
 }

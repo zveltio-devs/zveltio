@@ -35,6 +35,8 @@ import {
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/permissions.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
+import { effectiveTimeZone } from '../../lib/tenancy/timezone.js';
+import { _setConnectionTracing, tracedAcquisitionSite } from '../../db/connection-trace.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -180,6 +182,7 @@ d('extension actions run as the caller, in the request transaction', () => {
               code: 'odd',
             });
           },
+          zone: async (_input, host) => host.timezone,
           relabel: async (input, host) => {
             const { id, from, to, field } = input as {
               id: string;
@@ -218,6 +221,7 @@ d('extension actions run as the caller, in the request transaction', () => {
           },
           { name: 'addThenThrow', permission: { resource: RES }, input: labelInput, writes: [C] },
           { name: 'addThenRefuse', permission: { resource: RES }, input: labelInput, writes: [C] },
+          { name: 'zone', permission: { resource: RES }, input: { type: 'object' } },
           {
             name: 'relabel',
             permission: { resource: RES },
@@ -438,6 +442,25 @@ d('extension actions run as the caller, in the request transaction', () => {
     `.execute(db);
     const iso = new Date(at.rows[0]!.at).toISOString();
     expect((await relabel(iso, 'exp-h', 'updated_at')).status).toBe(200);
+  });
+
+  it('hands the action the zone "today" means for the request’s tenant', async () => {
+    // Read on the request's own connection: a second one taken while the
+    // transaction is held is how the engine stands still at `c = DB_POOL_MAX`.
+    _setConnectionTracing(true);
+    let res: Response;
+    try {
+      res = await act(EXT, 'zone', {}, member.cookie);
+    } finally {
+      _setConnectionTracing(false);
+    }
+    expect(
+      `${res.headers.get('x-zveltio-extra-connections') ?? '0'} — ${tracedAcquisitionSite()}`,
+    ).toBe('0 — ');
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { result: string }).result).toBe(
+      await effectiveTimeZone(db, DEFAULT_TENANT_ID),
+    );
   });
 
   it('is not intercepted by the extension’s own middleware', async () => {

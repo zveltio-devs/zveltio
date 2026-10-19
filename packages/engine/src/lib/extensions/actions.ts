@@ -28,6 +28,7 @@ import { afterRequestSettles } from '../../middleware/tenant.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { enqueueJob } from './jobs.js';
+import { effectiveTimeZone } from '../tenancy/index.js';
 
 export interface CompiledAction {
   name: string;
@@ -161,6 +162,9 @@ export function mountActions(
       }),
     );
     const host: ActionHost = {
+      // On the request's transaction, not the pool: a second connection taken
+      // while this one is held is how the engine stands still at c = DB_POOL_MAX.
+      timezone: await effectiveTimeZone(p.trx, p.tenantId),
       collections: hostCollections(`action "${def.name}"`, def, callerData(c, ctx.internals)),
       enqueue: (job, input) => enqueueJob(extName, p, def, job, input),
     };

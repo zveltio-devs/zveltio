@@ -4,7 +4,13 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { toJsonb } from '../lib/jsonb.js';
-import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
+import { sql } from 'kysely';
+import {
+  checkPermission,
+  getCurrentDomainOrNull,
+  isTimeZone,
+  requireInstanceAdmin,
+} from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 
 /**
@@ -205,6 +211,17 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     // when it isn't a stored is_public row, so the login UI shows/hides the
     // "Create Account" action correctly and never disagrees with the server gate.
     result.registration_enabled = await isRegistrationEnabled(db);
+    // The tenant's own zone, where it set one (`PUT /api/tenants/current/timezone`),
+    // over the instance's: the firm's dates are shown — and "today" taken — there.
+    const domain = getCurrentDomainOrNull();
+    if (domain) {
+      const own = await db
+        .selectFrom('zv_tenants')
+        .select(sql<string | null>`settings->>'timezone'`.as('timezone'))
+        .where('id', '=', domain)
+        .executeTakeFirst();
+      if (isTimeZone(own?.timezone)) result.timezone = own.timezone;
+    }
     return c.json(result);
   });
 

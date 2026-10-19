@@ -19,3 +19,4 @@ export * from './temp-privilege.js';
 export * from './tenant-index-reconcile.js';
 export * from './collection-permissions.js';
 export * from './electric-shape.js';
+export { effectiveTimeZone, isTimeZone } from './timezone.js';

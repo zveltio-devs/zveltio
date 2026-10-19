@@ -28,6 +28,7 @@ import {
   type TenantPurgeResult,
 } from '../lib/tenancy/index.js';
 import { getStorage } from '../lib/storage/index.js';
+import { effectiveTimeZone, isTimeZone } from '../lib/tenancy/index.js';
 import {
   invalidateRateLimitCache,
   parseTenantLimitKey,
@@ -739,6 +740,58 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
     invalidateRateLimitCache(key);
     return c.json({ success: true });
   });
+
+  // The tenant's own time zone: what "today" means for its records. `timezone`
+  // is the tenant's setting (null = the instance's); `effective` what applies.
+  router.get('/current/timezone', async (c) => {
+    const user = c.get('user' as never) as { id: string };
+    if (!(await isTenantAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
+    const id = getCurrentDomain();
+    const row = await db
+      .selectFrom('zv_tenants')
+      .select(sql<string | null>`settings->>'timezone'`.as('timezone'))
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return c.json({
+      timezone: row?.timezone ?? null,
+      effective: await effectiveTimeZone(db, id),
+    });
+  });
+
+  router.put(
+    '/current/timezone',
+    zValidator('json', z.object({ timezone: z.string().refine(isTimeZone).nullable() })),
+    async (c) => {
+      const user = c.get('user' as never) as { id: string };
+      if (!(await isTenantAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
+      const id = getCurrentDomain();
+      const { timezone } = c.req.valid('json');
+      // One key, in place: the rest of `settings` is not the tenant admin's to rewrite.
+      const updated = await db
+        .updateTable('zv_tenants')
+        .set({
+          settings:
+            timezone === null
+              ? sql`COALESCE(settings, '{}'::jsonb) - 'timezone'`
+              : sql`jsonb_set(COALESCE(settings, '{}'::jsonb), '{timezone}', to_jsonb(${timezone}::text))`,
+          updated_at: new Date(),
+        })
+        .where('id', '=', id)
+        .returning(['slug'])
+        .executeTakeFirst();
+      if (!updated) return c.json({ error: 'Tenant not found' }, 404);
+      await invalidateTenantCache(updated.slug, id);
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user.id,
+        resourceId: id,
+        resourceType: 'tenant_timezone',
+        tenantId: id,
+        metadata: { timezone },
+      });
+      return c.json({ timezone, effective: await effectiveTimeZone(db, id) });
+    },
+  );
 
   return router;
 }

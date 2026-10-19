@@ -1576,5 +1576,7 @@
   "stepUp.userVerificationOrCode": "Cette clé d'accès a confirmé un contact, mais pas votre identité. Définissez un code PIN ou activez le déverrouillage par empreinte ou par visage pour votre clé de sécurité, ou saisissez le code de votre application d'authentification.",
   "stepUp.orCodeLabel": "Ou un code de votre application d'authentification",
   "passkeys.passwordWrong": "Ce mot de passe n'est pas correct.",
-  "passkeys.signInAgain": "Pour votre sécurité, déconnectez-vous puis reconnectez-vous avec votre fournisseur de connexion, et ajoutez votre clé d'accès dans les cinq minutes."
+  "passkeys.signInAgain": "Pour votre sécurité, déconnectez-vous puis reconnectez-vous avec votre fournisseur de connexion, et ajoutez votre clé d'accès dans les cinq minutes.",
+  "settings.tenantTimezone": "Fuseau horaire de l'organisation",
+  "settings.tenantTimezoneHint": "Vide = celui de l'instance. Appliqué : {zone}"
 }
