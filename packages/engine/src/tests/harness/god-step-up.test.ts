@@ -19,6 +19,7 @@ import { github } from 'better-auth/social-providers';
 import { getAuth, passkeyRelyingParty } from '../../lib/auth.js';
 import {
   createGodSession,
+  createMemberSession,
   getTestApp,
   harnessAvailable,
   recoverGod,
@@ -502,6 +503,37 @@ d('first factor on an account with no password', () => {
     expect(((await totp.json()) as { code: string }).code).toBe('recent_sign_in_required');
   });
 
+  // noteSessionOrigin: only a session the OAuth endpoints create is noted, and the
+  // note is that session's alone — a later password sign-in is no fresh OAuth sign-in.
+  it('only the session an OAuth sign-in created skips the first-factor check', async () => {
+    const email = newEmail();
+    const up = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: PASSWORD, name: 'Origin Harness' }),
+    });
+    expect(up.ok).toBe(true);
+    await sql`UPDATE "user" SET "emailVerified" = true WHERE email = ${email}`.execute(db);
+    const viaOAuth = await oauthSignIn(email);
+    const viaPassword = cookieOf(
+      await app.request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: PASSWORD }),
+      }),
+    );
+    expect(viaPassword).toContain('session_token');
+    // The account now has no password: what is left is how each session began.
+    await sql`UPDATE account SET password = NULL
+               WHERE "providerId" = 'credential'
+                 AND "userId" = (SELECT id FROM "user" WHERE email = ${email})`.execute(db);
+    expect(await firstFactor(viaOAuth)).toBe('recent_sign_in');
+    expect(await firstFactor(viaPassword)).toBe('sign_in_again');
+    const pk = await registerSoftPasskey(req, viaPassword, await newSoftPasskey(), origin);
+    expect(pk.status).toBe(403);
+    expect(((await pk.json()) as { code: string }).code).toBe('recent_sign_in_required');
+  });
+
   it('an account with a password still gives it, even right after an OAuth sign-in', async () => {
     const email = newEmail();
     const up = await app.request('/api/auth/sign-up/email', {
@@ -597,5 +629,116 @@ d('god step-up on an account with a passkey and TOTP', () => {
     const body = (await v.json()) as { code: string; detail: string };
     expect(body.code).toBe('step_up_user_verification_required');
     expect(body.detail).toMatch(/authenticator app/);
+  });
+});
+
+/**
+ * A step-up proves who holds the session, not whose passkey the id names. The
+ * owner check is Better Auth's (`requireResourceOwnership` on delete-passkey);
+ * the engine's gate must not audit the refused removal as done.
+ */
+d('removing another account’s passkey', () => {
+  it('is refused even with a step-up, and leaves the passkey and the audit untouched', async () => {
+    const { app, db } = await getTestApp();
+    const origin = passkeyRelyingParty().origin;
+    const req = (path: string, init?: RequestInit) => app.request(path, init);
+    const password = 'HarnessMember123!';
+    const a = await createMemberSession(app, db);
+    const b = await createMemberSession(app, db);
+    const bKey = await newSoftPasskey();
+    expect(
+      (await registerSoftPasskey(req, a.cookie, await newSoftPasskey(), origin, { password }))
+        .status,
+    ).toBe(200);
+    expect((await registerSoftPasskey(req, b.cookie, bKey, origin, { password })).status).toBe(200);
+    const aPasskeys = () =>
+      sql<{ id: string }>`SELECT id FROM passkey WHERE "userId" = ${a.userId}`.execute(db);
+    const [target] = (await aPasskeys()).rows;
+    const t = await passkeyStepUp(req, b.cookie, bKey, 'factor.passkey.remove', origin);
+    const del = await app.request('/api/auth/passkey/delete-passkey', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: b.cookie, 'X-Zveltio-Step-Up': t },
+      body: JSON.stringify({ id: target!.id }),
+    });
+    expect(del.status).toBe(401);
+    expect((await aPasskeys()).rows.map((r) => r.id)).toEqual([target!.id]);
+    await _settleAuditWrites();
+    const removed = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM zv_audit_log
+       WHERE event_type = 'auth.factor_changed' AND metadata->>'change' = 'passkey.remove'
+         AND user_id IN (${a.userId}, ${b.userId})`.execute(db);
+    expect(removed.rows[0]?.n).toBe(0);
+  });
+});
+
+/**
+ * The signature counter (WebAuthn §6.1.1): a step-up assertion whose counter is
+ * not above the stored one is a cloned authenticator or a replay. The challenge
+ * is single-use; the counter is what refuses a stale assertion on a fresh one.
+ */
+d('passkey step-up signature counter', () => {
+  it('advances on a good assertion and refuses one that does not exceed it', async () => {
+    const { app, db } = await getTestApp();
+    const origin = passkeyRelyingParty().origin;
+    const req = (path: string, init?: RequestInit) => app.request(path, init);
+    const m = await createMemberSession(app, db);
+    const pk = await newSoftPasskey();
+    const reg = await registerSoftPasskey(req, m.cookie, pk, origin, {
+      password: 'HarnessMember123!',
+    });
+    expect(reg.status).toBe(200);
+    const action = 'factor.passkey.add';
+    const post = (path: string, body: unknown) =>
+      app.request(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: origin, cookie: m.cookie },
+        body: JSON.stringify(body),
+      });
+    /** A step-up whose assertion carries authenticator counter `n`. */
+    const stepUpAt = async (n: number) => {
+      const o = await post('/api/auth/step-up/options', { action });
+      const { options } = (await o.json()) as { options: { challenge: string; rpId: string } };
+      pk.counter = n - 1; // softAssertion increments before signing.
+      const response = await softAssertion(pk, options.challenge, options.rpId, origin);
+      return { response, res: await post('/api/auth/step-up/verify', { action, response }) };
+    };
+    const stored = async () =>
+      (
+        await sql<{
+          counter: number;
+        }>`SELECT counter FROM passkey WHERE "userId" = ${m.userId}`.execute(db)
+      ).rows[0]?.counter;
+
+    const good = await stepUpAt(5);
+    expect(good.res.status).toBe(200);
+    expect(await stored()).toBe(5);
+    // The same assertion again: its challenge is spent.
+    expect(
+      (await post('/api/auth/step-up/verify', { action, response: good.response })).status,
+    ).toBe(403);
+    // Fresh challenges, counters equal to and below the stored one.
+    for (const n of [5, 2]) {
+      const stale = await stepUpAt(n);
+      expect(stale.res.status).toBe(403);
+      expect(((await stale.res.json()) as { code: string }).code).toBe('step_up_failed');
+    }
+    expect(await stored()).toBe(5);
+    expect((await stepUpAt(6)).res.status).toBe(200);
+    expect(await stored()).toBe(6);
+
+    // Two assertions with the same counter, verified concurrently: both read the
+    // stored 6 and both verify, but only one may advance it.
+    const signed = async () => {
+      const o = await post('/api/auth/step-up/options', { action });
+      const { options } = (await o.json()) as { options: { challenge: string; rpId: string } };
+      pk.counter = 6;
+      return softAssertion(pk, options.challenge, options.rpId, origin);
+    };
+    const [r1, r2] = [await signed(), await signed()];
+    const raced = await Promise.all(
+      [r1, r2].map((response) => post('/api/auth/step-up/verify', { action, response })),
+    );
+    expect(raced.map((r) => r.status).sort()).toEqual([200, 403]);
+    expect(await stored()).toBe(7);
   });
 });
