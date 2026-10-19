@@ -236,7 +236,7 @@ function formatDate(iso: string): string {
             <li class="py-2.5 flex items-center gap-3">
               <Fingerprint size={16} class="text-base-content/65 shrink-0" />
               <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium truncate">{pk.name ?? 'Unnamed passkey'}</p>
+                <p class="text-sm font-medium truncate">{pk.name ?? m['passkeys.unnamed']()}</p>
                 <p class="text-xs text-base-content/65 mt-0.5">
                   {m['passkeys.added']({ date: formatDate(pk.createdAt) })}
                   {#if pk.deviceType}· {pk.deviceType}{/if}
