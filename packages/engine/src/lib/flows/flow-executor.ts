@@ -24,6 +24,7 @@ import { recordsToCsv } from '../security/index.js';
 import { sendNotification } from '../../routes/notifications.js';
 import { serviceRegistry } from '../service-registry.js';
 import { traced } from '../runtime/index.js';
+import { evaluateCondition } from '../validation-engine.js';
 import { safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 
 export interface FlowRunResult {
@@ -111,7 +112,7 @@ let _flowReaderRole = 'zveltio_flow_reader';
  * `default` arm returned success.
  *
  * Deliberately NOT the same list as `flow-step-schemas.ts`, which defines
- * twelve types. Eight of those never execute and three of these have no schema.
+ * twelve types. Seven of those never execute and three of these have no schema.
  * The two lists disagreeing with nothing to notice is the shape of this bug,
  * so this one is anchored to the code that runs.
  */
@@ -123,6 +124,7 @@ export const EXECUTABLE_STEP_TYPES = [
   'send_notification',
   'export_collection',
   'ai_decision',
+  'condition',
 ] as const;
 
 export type ExecutableStepType = (typeof EXECUTABLE_STEP_TYPES)[number];
@@ -142,7 +144,7 @@ async function executeStep(
   // tenant's id to read/export across tenants.
   flowTenantId: string = DEFAULT_TENANT_ID,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-): Promise<{ output: any; logs?: string[] }> {
+): Promise<{ output: any; logs?: string[]; skip?: string[]; stop?: boolean }> {
   // The Bun SQL driver hands jsonb columns back as strings, so step.config read via
   // `SELECT * FROM zv_flow_steps` can be a JSON string (see the pervasive
   // `typeof x === 'string' ? JSON.parse(x)` guards elsewhere). Without parsing it,
@@ -527,12 +529,37 @@ async function executeStep(
       }
     }
 
+    case 'condition': {
+      // CEL over `trigger` and `output`, the same evaluator as validation rules.
+      // The losing branch's steps are skipped; with no branches named, false
+      // ends the run — "only if total > 10,000" is the case the Studio form
+      // (expression only) can express. An expression that does not evaluate
+      // to a boolean fails the step: a gate that cannot decide must not open.
+      const verdict = evaluateCondition(String(cfg.expression ?? ''), {
+        trigger: flowContext.trigger ?? null,
+        output: prevOutput ?? null,
+      });
+      if (verdict.status === 'refused') {
+        throw new Error(`Condition "${cfg.expression}" ${verdict.reason}`);
+      }
+      const passed = verdict.status === 'passed';
+      const trueBranch: string[] = Array.isArray(cfg.true_branch) ? cfg.true_branch : [];
+      const falseBranch: string[] = Array.isArray(cfg.false_branch) ? cfg.false_branch : [];
+      const stop = !passed && trueBranch.length === 0 && falseBranch.length === 0;
+      return {
+        output: prevOutput,
+        logs: [`condition ${passed}${stop ? ': run ends here' : ''}`],
+        skip: passed ? falseBranch : trueBranch,
+        stop,
+      };
+    }
+
     default:
       // Was `return { output: prevOutput }` — success, silently, passing the
       // previous step's output straight through. The Studio offers step types
-      // this switch does not implement (`condition`, `create_record`,
-      // `update_record`), so a flow reading "if total > 10,000 then create an
-      // approval" ran green and did nothing at all. A conditional that always
+      // this switch does not implement (`create_record`, `update_record`), so
+      // a flow reading "if total > 10,000 then create an approval" ran green
+      // and did nothing at all. A conditional that always
       // proceeds is worse than one that fails: the run is recorded successful
       // and nobody looks at it again.
       throw new Error(
@@ -650,7 +677,9 @@ export async function executeFlow(
   }
 
   try {
+    const skipped = new Set<string>();
     for (const step of steps) {
+      if (step.id && skipped.has(step.id)) continue;
       try {
         const result = await traced(
           `flow.step.${step.type}`,
@@ -664,6 +693,8 @@ export async function executeFlow(
         output = result.output;
         if (step.id) stepResults[step.id] = output;
         if (result.logs?.length) stepLogs[step.id] = result.logs;
+        for (const id of result.skip ?? []) skipped.add(id);
+        if (result.stop) break;
       } catch (stepErr) {
         if (step.on_error === 'continue') {
           output = { error: String(stepErr), step: step.name };

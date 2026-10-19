@@ -65,7 +65,7 @@ d('unimplemented flow step (in-process)', () => {
     await sql`
       ALTER TABLE zv_flow_steps ADD CONSTRAINT zv_flow_steps_type_check
       CHECK (type IN ('query_db','run_script','send_email','webhook',
-                      'send_notification','export_collection','ai_decision')) NOT VALID
+                      'send_notification','export_collection','ai_decision','condition')) NOT VALID
     `
       .execute(db)
       .catch(() => {});
@@ -76,7 +76,7 @@ d('unimplemented flow step (in-process)', () => {
     }
   });
 
-  it.each(['condition', 'transform', 'delay'])(
+  it.each(['transform', 'delay', 'create_record'])(
     'fails the run on a %s step instead of reporting success',
     async (stepType) => {
       const flowId = await makeFlow(stepType);
@@ -91,7 +91,7 @@ d('unimplemented flow step (in-process)', () => {
   );
 
   it('records the failure in the run history', async () => {
-    const flowId = await makeFlow('condition');
+    const flowId = await makeFlow('transform');
     await executeFlow(db, flowId, {});
 
     const { rows } = await sql<{ status: string }>`

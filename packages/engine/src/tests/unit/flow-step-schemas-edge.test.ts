@@ -24,7 +24,7 @@ describe('validateStepConfig — edge cases', () => {
 
   it('condition rejects non-uuid branch ids', () => {
     const r = validateStepConfig('condition', {
-      expression: 'ctx.ok',
+      expression: 'trigger.ok',
       true_branch: ['not-a-uuid'],
       false_branch: [],
     });

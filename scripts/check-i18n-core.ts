@@ -137,6 +137,8 @@ const ALLOWED_EXACT: RegExp[] = [
   // an English "Select all" checkbox on it.
   /^SELECT /,
   /^[A-Za-z]+\/[A-Za-z_]+$/, // IANA timezone, e.g. Europe/Bucharest
+  // A CEL expression shown as a sample (flow condition step). Code, not prose.
+  /^trigger\.[a-z_]+ == '[a-z]+'$/,
   // Sample values inside placeholders. `Română` is a locale endonym — a
   // locale's name is written in its own language whatever the UI language is,
   // so translating the example would teach the wrong convention.

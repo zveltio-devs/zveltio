@@ -510,7 +510,7 @@ function updateStepName(name: string) {
                 <input
                   id="step-expression"
                   class="input input-sm font-mono"
-                  placeholder="&#123;&#123;record.status&#125;&#125; === 'active'"
+                  placeholder="trigger.status == 'active'"
                   value={selectedStep.config.expression ?? ''}
                   oninput={(e) => updateStepConfig('expression', (e.target as HTMLInputElement).value)}
                 />
