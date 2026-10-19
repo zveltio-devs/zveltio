@@ -539,7 +539,9 @@ Remove `RECOVERY_TOKEN` from `.env` after recovery.
 
 A god who lost every passkey and authenticator app cannot step up, so cannot
 install or change extensions. Send `"clear_factors": true` in the same request to
-remove that account's factors; then add a passkey again from the account page.
+remove that account's factors. That also signs the account out everywhere — a lost
+device may still hold a session — so sign in again, then add a passkey from the account
+page.
 
 ### Session issues
 

@@ -22,7 +22,7 @@ import {
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { asEngineRole } from '../lib/role-window.js';
-import { clearUserFactors } from '../lib/users.js';
+import { clearUserFactors, revokeUserSessions } from '../lib/users.js';
 import { storedEmail } from '../lib/auth-email.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 import { clientIpForAudit } from '../lib/security/index.js';
@@ -201,6 +201,10 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
         let clearedFactors: { passkeys: number; totp: number } | undefined;
         if (clearFactors) {
           clearedFactors = await clearUserFactors(trx, granted.id);
+          // Factors are cleared because a device was lost or stolen; a session
+          // still open on it would keep the god role this recovery hands back.
+          // Inside the transaction, so a failed revocation undoes the recovery.
+          await revokeUserSessions(trx, granted.id);
           await auditLog(trx, {
             type: 'auth.factor_changed',
             userId: granted.id,
@@ -210,6 +214,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
               change: 'recovery.cleared',
               confirmed_by: 'recovery_token',
               ...clearedFactors,
+              sessions_revoked: true,
               ip,
             },
           });
@@ -281,6 +286,14 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       // Logging is the minimum — operator may need to bounce the cache.
       console.error('[permissions] cache invalidation failed after role grant:', err.message);
     });
+    // Again after the commit: the sockets the in-transaction revocation asked to
+    // re-check could still see the uncommitted sessions, and a sign-in that
+    // landed in between would otherwise keep its session.
+    if (clearFactors) {
+      await revokeUserSessions(db, result.id).catch((err: Error) => {
+        console.error('[permissions] post-commit session revocation failed:', err.message);
+      });
+    }
     return c.json({
       success: true,
       user: { id: result.id, email: result.email, role: result.role },
