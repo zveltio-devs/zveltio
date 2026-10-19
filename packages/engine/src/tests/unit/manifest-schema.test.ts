@@ -130,3 +130,37 @@ describe('ManifestSchema — forwardCredentials', () => {
     expect(parse({ '/admin/*': ['authorization'] })).toBe(false);
   });
 });
+
+// extension-api v1 (frozen 2026-10-19): a manifest written against v1 keeps
+// loading, with the same defaults. Only additive changes may land after this —
+// see docs/extensions/authoring.md "Actions and jobs".
+describe('ManifestSchema — extension-api v1 actions and jobs', () => {
+  const v1 = {
+    name: 'probe',
+    resources: ['transactions'],
+    actions: [
+      {
+        name: 'markPaid',
+        permission: { resource: 'transactions' },
+        input: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        reads: ['transactions'],
+        writes: ['transactions'],
+        enqueues: ['notify'],
+      },
+    ],
+    jobs: [{ name: 'notify', input: { type: 'object' }, retry: { limit: 3 } }],
+  };
+
+  it('accepts a v1 manifest and applies its defaults', () => {
+    const m = ManifestSchema.parse(v1);
+    expect(m.actions[0].permission.action).toBe('execute');
+    expect(m.jobs[0]).toMatchObject({ reads: [], writes: [], retry: { limit: 3, backoff: true } });
+    const bare = ManifestSchema.parse({ name: 'p', jobs: [{ name: 'j', input: {} }] });
+    expect(bare.jobs[0].retry).toEqual({ limit: 2, backoff: true });
+    expect(bare.actions).toEqual([]);
+  });
+
+  it('refuses an action that enqueues an undeclared job', () => {
+    expect(ManifestSchema.safeParse({ ...v1, jobs: [] }).success).toBe(false);
+  });
+});
