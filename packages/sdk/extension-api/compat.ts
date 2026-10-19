@@ -16,14 +16,12 @@ const ok = <T extends true>(): T => true as T;
 // TypeScript compares method parameters bivariantly, so a host method that
 // grew a required argument still "assigns". Check each method both ways by hand:
 // v1 arguments must still be accepted, live results must still satisfy v1.
-// biome-ignore lint/suspicious/noExplicitAny: matching any function shape
-type Fn = (...args: any[]) => any;
 type MethodsCompat<L, F> = {
   [K in keyof F]: K extends keyof L
-    ? F[K] extends Fn
-      ? L[K] extends Fn
-        ? Assignable<Parameters<F[K]>, Parameters<L[K]>> extends true
-          ? Assignable<ReturnType<L[K]>, ReturnType<F[K]>>
+    ? F[K] extends (...args: infer FP) => infer FR
+      ? L[K] extends (...args: infer LP) => infer LR
+        ? Assignable<FP, LP> extends true
+          ? Assignable<LR, FR>
           : false
         : false
       : true
