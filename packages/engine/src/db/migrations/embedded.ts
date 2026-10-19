@@ -97,6 +97,7 @@ import m078 from './sql/084_scrub_stale_revision_password_hashes.sql' with { typ
 import m079 from './sql/085_collection_owned_status.sql' with { type: 'text' };
 import m080 from './sql/086_default_grant_revocations.sql' with { type: 'text' };
 import m081 from './sql/087_validation_rules_cel.sql' with { type: 'text' };
+import m082 from './sql/088_flow_condition_step.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -182,4 +183,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '085_collection_owned_status.sql': m079,
   '086_default_grant_revocations.sql': m080,
   '087_validation_rules_cel.sql': m081,
+  '088_flow_condition_step.sql': m082,
 };

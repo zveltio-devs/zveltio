@@ -78,7 +78,7 @@ describe('validateStepConfig — per-type happy paths', () => {
   it('condition parses branch uuid arrays', () => {
     const id = '550e8400-e29b-41d4-a716-446655440000';
     const r = validateStepConfig('condition', {
-      expression: 'ctx.ok',
+      expression: 'trigger.ok',
       true_branch: [id],
       false_branch: [],
     });

@@ -1560,7 +1560,7 @@ table zv_flow_steps
   fk  zv_flow_steps_flow_id_fkey FOREIGN KEY (flow_id) REFERENCES zv_flows(id) ON DELETE CASCADE
   ck  zv_flow_steps_on_error_check CHECK ((on_error = ANY (ARRAY['stop'::text, 'continue'::text, 'retry'::text])))
   pk  zv_flow_steps_pkey PRIMARY KEY (id)
-  ck  zv_flow_steps_type_check CHECK ((type = ANY (ARRAY['query_db'::text, 'run_script'::text, 'send_email'::text, 'webhook'::text, 'send_notification'::text, 'export_collection'::text, 'ai_decision'::text]))) NOT VALID
+  ck  zv_flow_steps_type_check CHECK ((type = ANY (ARRAY['query_db'::text, 'run_script'::text, 'send_email'::text, 'webhook'::text, 'send_notification'::text, 'export_collection'::text, 'ai_decision'::text, 'condition'::text]))) NOT VALID
 
 table zv_flows
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()

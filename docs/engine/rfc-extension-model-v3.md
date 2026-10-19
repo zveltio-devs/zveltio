@@ -140,7 +140,16 @@ nesting, only `value` (and macro variables inside their macro) in scope, only
 functions CEL defines. Migration 087 rewrites stored `and` / `or` to `&&` /
 `||` where that is certain; any rule it leaves that is not CEL is refused at
 evaluation, so the writes touching that field are refused and the log names the
-rule. Flow `condition` and transitions are the next slices.
+rule.
+
+**Second slice (landed):** the flow `condition` step runs (migration 088 admits
+the type). Its `expression` is CEL over `trigger` (the run's trigger data) and
+`output` (the previous step's output), with the same bounds and deadline, and is
+checked when the step is saved. `true` skips the steps listed in
+`false_branch`, `false` those in `true_branch`; with neither list given, `false`
+ends the run, recorded as a success. An expression that does not evaluate to a
+boolean, or a branch naming a step that is not after the condition, fails the
+run whatever the step's `on_error` says. Transitions are the next slice.
 
 ### Installing and trusting code
 
@@ -204,7 +213,7 @@ The estimates are in engineer-weeks for the engine, from the code as it stands.
 |---|---|---|
 | **A. Close today's gaps** (no dependency on the rest) | signature + digest verified at load, tier from the signed catalog (`load.ts`, `load-phases.ts`, `extension-sandbox.ts`); verified tier stops running inline; profiles; god step-up in `requireGod` | 1–2 |
 | **B. Contract** | `extension-api v1` types in the SDK; `host.collections` on the data write pipeline (permissions, RLS, column rules, flows, audit); the action primitive (manifest, route, Casbin `execute`, audit, request transaction); outbox table and dispatcher (migration); ctx v3 replacing `ctx.internals` (85 call sites, 47 extensions use `ctx.db`) | 5–7 |
-| **C. Rules** | CEL adopted for validation, transitions and flow `condition` (the step is not implemented today); migration of stored rules | 2–4 |
+| **C. Rules** | CEL adopted for validation, transitions and flow `condition`; migration of stored rules | 2–4 |
 | **D. Backends** | the process backend speaks `host.*` over IPC instead of `db:query` (reuses `ext-runner.ts` supervision); the Deno job runner (spawn, permissions from the manifest, memory flag, timeout); the per-extension egress proxy | 4–6 |
 | **E. Delete** | third-party `db:query`, the request-transaction bridge, `worker-extension-ctx.ts` parity, most of `worker-extension-host.ts`, the text SQL policy for third parties: about 2,500–3,000 lines and 8–10 harness tests | 1–2 |
 | **Engine total** | | **13–21** |

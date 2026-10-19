@@ -12,6 +12,7 @@
 
 import { z } from 'zod';
 import { parseEgress } from '../edge-functions/egress.js';
+import { checkConditionExpression } from '../validation-engine.js';
 
 // ── Per-type schemas ──────────────────────────────────────────────────────────
 
@@ -107,7 +108,13 @@ export const stepSchemas = {
 
   /** Conditional branching — evaluate an expression and follow true/false branch */
   condition: z.object({
-    expression: z.string().min(1, 'Condition expression is required'),
+    expression: z
+      .string()
+      .min(1, 'Condition expression is required')
+      .superRefine((expr, ctx) => {
+        const check = checkConditionExpression(expr);
+        if (!check.ok) ctx.addIssue({ code: 'custom', message: `The expression ${check.reason}` });
+      }),
     true_branch: z.array(z.string().uuid()).default([]),
     false_branch: z.array(z.string().uuid()).default([]),
   }),

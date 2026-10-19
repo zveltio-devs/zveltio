@@ -139,6 +139,8 @@ function inspect(
 }
 
 const VALUE_ONLY: ReadonlySet<string> = new Set(['value']);
+/** A flow `condition` step sees the run's trigger data and the previous step's output. */
+const FLOW_CONDITION_SCOPE: ReadonlySet<string> = new Set(['trigger', 'output']);
 
 /**
  * Decide whether an expression may be stored at all, and compile it if so.
@@ -151,6 +153,7 @@ const VALUE_ONLY: ReadonlySet<string> = new Set(['value']);
  */
 function compile(
   expression: string,
+  scope: ReadonlySet<string>,
 ): { ok: true; program: CelProgram } | { ok: false; reason: string } {
   if (expression.length > MAX_EXPRESSION_LENGTH) {
     return { ok: false, reason: `is longer than ${MAX_EXPRESSION_LENGTH} characters` };
@@ -171,7 +174,7 @@ function compile(
     };
   }
   const found = { unknown: new Set<string>(), unknownFuncs: new Set<string>(), depth: 0 };
-  inspect(parsed.expr, VALUE_ONLY, 1, found);
+  inspect(parsed.expr, scope, 1, found);
   if (found.depth > MAX_EXPRESSION_DEPTH) {
     return { ok: false, reason: `nests deeper than ${MAX_EXPRESSION_DEPTH} levels` };
   }
@@ -179,8 +182,9 @@ function compile(
     return {
       ok: false,
       reason:
-        `refers to ${[...found.unknown].map((v) => `\`${v}\``).join(', ')}, and the only value in ` +
-        'scope is `value`',
+        `refers to ${[...found.unknown].map((v) => `\`${v}\``).join(', ')}, and the only ` +
+        `${scope.size === 1 ? 'value' : 'values'} in scope ${scope.size === 1 ? 'is' : 'are'} ` +
+        [...scope].map((v) => `\`${v}\``).join(', '),
     };
   }
   if (found.unknownFuncs.size > 0) {
@@ -207,7 +211,15 @@ const MAX_CACHED_PROGRAMS = 1000;
 export function checkValidationExpression(
   expression: string,
 ): { ok: true } | { ok: false; reason: string } {
-  const compiled = compile(expression);
+  const compiled = compile(expression, VALUE_ONLY);
+  return compiled.ok ? { ok: true } : compiled;
+}
+
+/** Save-time check for a flow `condition` step's expression. */
+export function checkConditionExpression(
+  expression: string,
+): { ok: true } | { ok: false; reason: string } {
+  const compiled = compile(expression, FLOW_CONDITION_SCOPE);
   return compiled.ok ? { ok: true } : compiled;
 }
 
@@ -247,18 +259,65 @@ export function evaluateExpressionRule(
   value: unknown,
   fieldType?: string,
 ): ExpressionRuleResult {
-  let program = programs.get(expression);
-  if (!program) {
-    const compiled = compile(expression);
-    if (!compiled.ok) return { status: 'refused', reason: compiled.reason };
-    program = compiled.program;
-    if (programs.size >= MAX_CACHED_PROGRAMS) programs.clear();
-    programs.set(expression, program);
-  }
   // The binding type is CEL's input union; `toCelValue` returns `unknown`
   // because a column can hold anything. An unsupported shape is reported by
   // the evaluator as an error, which lands in the refusal below.
-  const bindings = { value: toCelValue(value, fieldType) } as Parameters<CelProgram>[0];
+  return evaluate(expression, VALUE_ONLY, {
+    value: toCelValue(value, fieldType),
+  } as Parameters<CelProgram>[0]);
+}
+
+/**
+ * Evaluate a flow `condition` step. Same compiler, cache and deadline as an
+ * expression rule; only the names in scope differ. Trigger data and step
+ * output are JSON, so numbers are CEL `double` (`trigger.total > 10000` still
+ * compares, CEL orders int and double together).
+ */
+export function evaluateCondition(
+  expression: string,
+  bindings: { trigger: unknown; output: unknown },
+): ExpressionRuleResult {
+  return evaluate(expression, FLOW_CONDITION_SCOPE, {
+    trigger: toCelJson(bindings.trigger),
+    output: toCelJson(bindings.output),
+  } as Parameters<CelProgram>[0]);
+}
+
+/**
+ * Trigger data and step output, as CEL sees JSON: a Date is its ISO string, an
+ * undefined property is absent (`has()` is false), and a bigint (an int8
+ * column in a trigger's record) a double like every other number, so
+ * `trigger.record.n * 2.0` does not depend on the column's width.
+ */
+function toCelJson(value: unknown): unknown {
+  if (value === undefined || value === null) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'bigint') return Number(value);
+  if (Array.isArray(value)) return value.map(toCelJson);
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) if (v !== undefined) out[k] = toCelJson(v);
+    return out;
+  }
+  return value;
+}
+
+function evaluate(
+  expression: string,
+  scope: ReadonlySet<string>,
+  bindings: Parameters<CelProgram>[0],
+): ExpressionRuleResult {
+  // Keyed by scope too: the same text compiles against `value` and fails
+  // against `trigger`, and the other way round.
+  const key = `${[...scope].join(',')}\n${expression}`;
+  let program = programs.get(key);
+  if (!program) {
+    const compiled = compile(expression, scope);
+    if (!compiled.ok) return { status: 'refused', reason: compiled.reason };
+    program = compiled.program;
+    if (programs.size >= MAX_CACHED_PROGRAMS) programs.clear();
+    programs.set(key, program);
+  }
   const run = program;
   let result: unknown;
   try {
