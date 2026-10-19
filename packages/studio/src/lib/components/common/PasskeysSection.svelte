@@ -85,9 +85,24 @@ async function registerNew(): Promise<void> {
     if (first === null) {
       confirm.headers = await stepUpHeaders('factor.passkey.add');
     } else if (first === 'password') {
-      const pw = await askPassword();
-      if (pw == null) return;
-      confirm.password = pw;
+      // Checked before the ceremony: refused only at verify-registration, a wrong
+      // password leaves a passkey in the authenticator that the server never stored.
+      for (;;) {
+        const pw = await askPassword();
+        if (pw == null) return;
+        const res = await api.fetch('/api/auth/step-up/check-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pw }),
+        });
+        if (res.ok) {
+          confirm.password = pw;
+          break;
+        }
+        const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        toast.error(refusalText(body, res.status));
+        if (body.code !== 'password_required') return;
+      }
     } else if (first === 'sign_in_again') {
       toast.error(m['passkeys.signInAgain']());
       return;
@@ -129,7 +144,7 @@ async function registerNew(): Promise<void> {
       // Quiet — user backed out.
       return;
     }
-    toast.error(`Failed to register passkey: ${msg}`);
+    toast.error(m['passkeys.registerFailed']({ error: msg }));
   } finally {
     registering = false;
   }
@@ -155,7 +170,7 @@ async function deleteOne(id: string): Promise<void> {
     await load();
   } catch (e) {
     if (stepUpAborted(e)) return;
-    toast.error(`Failed to delete: ${e instanceof Error ? e.message : String(e)}`);
+    toast.error(m['passkeys.deleteFailed']({ error: e instanceof Error ? e.message : String(e) }));
   } finally {
     deletingId = null;
   }
