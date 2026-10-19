@@ -229,6 +229,21 @@ These are scripts to rerun; they are not in this repository.
 - **Jobs:** an escape script, run under Deno `--no-prompt --allow-net=<engine>`,
   Node `--permission`, Supabase Edge Runtime and workerd with a `globalOutbound`
   gate.
+- **CEL conformance** (phase C, week 1, 2026-10-19): the official cel-spec
+  simple tests, as `@bufbuild/cel-spec` 0.6.1 ships them (2,344 tests), run
+  against `@bufbuild/cel` 0.6.1 and `@marcbachmann/cel-js` 8.0.0. Tests that
+  need protobuf messages or a container (594) were left out, because rules
+  evaluate over records, not messages. Of the 1,750 that ran:
+  - `@bufbuild/cel` passed **every core-language suite**: literals, equality and
+    ordering across numeric types, conversions, `int64`/`uint64` overflow,
+    strings, bytes, maps, lists, `has`, macros, timestamps, durations, errors.
+    What failed was optional extensions the run did not load or the library
+    does not ship: math, bindings, `cel.block`, two-variable comprehensions,
+    optionals, encoders (about 350 tests). Two core misses: backtick-quoted
+    field names (a recent spec addition) and one heterogeneous map-key case.
+  - `@marcbachmann/cel-js` failed 661, many in the core: wrapper equality,
+    numeric conversions, `quote`/`format`, duration and timestamp ranges,
+    receiver-style calls.
 
 ## Decisions
 
@@ -246,6 +261,17 @@ Owner, 2026-10-17.
    conformance tests in phase C's first week. If none does, freeze
    expr-eval-fork behind a typed wrapper with decimals. Either way the choice is
    made before rc.1.
+   **Result (2026-10-19): `@bufbuild/cel` passes** (see Measurements), so CEL
+   is adopted, pinned to an exact version since the library is pre-1.0. Two
+   things the proposal assumed do not come with it, and the engine supplies
+   them:
+   - **No cost estimate.** CEL cannot loop forever, but nested
+     comprehensions grow with their input. Limits are the engine's: expression
+     length, and comprehension nesting checked on the parsed AST when a rule is
+     saved.
+   - **No public type checker** (one exists internally, not exported). A rule
+     is parsed and evaluated against a sample record when it is saved; a type
+     error otherwise shows at evaluation time.
 4. **Deno is the job runtime**, added in phase D as an optional component
    fetched when the first job-capable third-party extension is enabled. It is
    not bundled in every install. First-party jobs may run inline.
