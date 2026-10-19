@@ -289,8 +289,15 @@ export async function stepUpVerify(c: Context): Promise<Response> {
       return refuse('The passkey assertion did not verify');
     }
     if (!verification.verified) return refuse('The passkey assertion did not verify');
-    await sql`UPDATE passkey SET counter = ${verification.authenticationInfo.newCounter}
-               WHERE id = ${pk.id}`.execute(authPool());
+    // Compare-and-set: two concurrent assertions read the same stored counter and
+    // both verify; only the one whose update lands counts. An authenticator that
+    // never counts (0 stored, 0 sent) is left alone, as the library allows.
+    const newCounter = verification.authenticationInfo.newCounter;
+    const advanced = await sql`UPDATE passkey SET counter = ${newCounter}
+               WHERE id = ${pk.id}
+                 AND (counter < ${newCounter} OR (counter = 0 AND ${newCounter} = 0))
+               RETURNING id`.execute(authPool());
+    if (advanced.rows.length === 0) return refuse('The passkey assertion did not verify');
     method = 'passkey';
   } else if (totp) {
     const code = body.code;
