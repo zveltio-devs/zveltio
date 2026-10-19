@@ -60,6 +60,7 @@ const SYSTEM_FIELDS = new Set([
   'updated_at',
   'created_by',
   'updated_by',
+  'tenant_id',
   'search_vector',
   'search_text',
 ]);

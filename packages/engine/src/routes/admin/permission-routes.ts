@@ -69,21 +69,27 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       ).rows;
     }
     const collectionNames = new Set(collections.map((col) => col.name));
+    const declared = await listDeclaredResources(db, resolveExtensionsBase());
+    const declaredSet = new Set(declared);
     const resources = [
       ...collections.map((col) => ({
         name: col.name,
         display_name: col.display_name || col.name,
         type: 'collection' as const,
         // The names the data handlers ask Casbin for. This said `view`, which no
-        // check asks for: every tick of it granted nothing (migration 015).
-        actions: ['read', 'create', 'update', 'delete'],
+        // check asks for: every tick of it granted nothing (migration 015). A
+        // collection an extension also declares can gate its actions, which ask
+        // `execute`: without it here the matrix could not show or revoke that.
+        actions: declaredSet.has(col.name)
+          ? ['read', 'create', 'update', 'delete', 'execute']
+          : ['read', 'create', 'update', 'delete'],
       })),
       // What installed extensions declare in `manifest.resources`, other than a
       // collection already listed above (CRM declares its own collections). An
       // extension route asks for these, and an extension action asks `execute`,
       // which tenant_member holds by default: without this section the matrix
       // could neither show nor revoke it.
-      ...(await listDeclaredResources(db, resolveExtensionsBase()))
+      ...declared
         .filter((name) => !collectionNames.has(name))
         .sort()
         .map((name) => ({
