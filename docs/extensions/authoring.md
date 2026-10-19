@@ -155,6 +155,76 @@ unknown types.
 - **`peerDependencies`** are **bundled into `engine/index.js`** at pack time, not installed on the target. Declare anything beyond the four core packages here — and expect the platform allow-list to be enforced: a package it does not carry fails validation with `PEERDEP_NOT_ALLOWED`. (The `bun add`-at-activation path still exists for unbundled extensions; see "How the engine resolves extensions at runtime".)
 - **`contributes.engine: false`** marks UI-only extensions — `register()` may be a no-op.
 
+## Actions and jobs — `extension-api v1`
+
+Business logic belongs in **actions** (synchronous, inside the caller's request
+transaction) and **jobs** (asynchronous, run after that transaction commits).
+Declare both in `manifest.json` and export their implementations from the
+extension; the engine refuses an extension whose two lists differ.
+
+```json
+"resources": ["transactions"],
+"actions": [{
+  "name": "markPaid",
+  "permission": { "resource": "transactions" },
+  "input": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } },
+  "reads": ["transactions"], "writes": ["transactions"],
+  "enqueues": ["sendReceipt"]
+}],
+"jobs": [{ "name": "sendReceipt", "input": { "type": "object" }, "retry": { "limit": 3 } }]
+```
+
+```ts
+import { ActionRefusal, defineExtension, todayIn } from '@zveltio/sdk/extension';
+
+export default defineExtension(['data:write', 'data:system'], {
+  name: 'crm', category: 'business', register: async () => {},
+  actions: {
+    async markPaid(input, host) {
+      const { id } = input as { id: string };
+      const tx = await host.collections.read('transactions', id);
+      if (!tx) throw new ActionRefusal(404, 'transaction_not_found', 'No such transaction.');
+      if (tx.status !== 'open') throw new ActionRefusal(409, 'not_open', 'Already settled.');
+      // `expect` re-checks the status on the locked row: a concurrent call gets 409.
+      await host.collections.update('transactions', id,
+        { status: 'paid', paid_date: todayIn(host.timezone) },
+        { expect: { status: ['open'] } });
+      await host.enqueue('sendReceipt', { id });
+      return { id };
+    },
+  },
+  jobs: { async sendReceipt(input, host) { /* network I/O is fine here */ } },
+});
+```
+
+- `POST /ext/<name>/actions/<action>` runs the action: the caller must hold
+  `permission`, and the body must match `input`.
+- `host.collections` is the only data path. It is the data API as the caller
+  (a job: as the extension, scoped to its `reads`/`writes`), with permissions,
+  RLS, column rules, hooks and audit. No SQL. A refused write throws with the
+  data API's status and `code`, and the request fails with it.
+- `throw new ActionRefusal(status, code, message)` answers the caller with that
+  4xx. Any other throw answers 500. Both roll back what the action wrote.
+- `host.timezone` is the tenant's IANA zone. Use `todayIn(host.timezone)` for
+  "today", never `new Date().toISOString().slice(0, 10)`.
+
+### The v1 contract is frozen
+
+These exports of `@zveltio/sdk/extension` are `extension-api v1`, frozen on
+2026-10-19 (3.0.0-beta.84): `ActionHost`, `JobHost`, `HostCollections`,
+`UpdateExpect`, `DataApiReadQuery`, `ExtensionAction`, `ExtensionJob`,
+`ZveltioExtension.actions`/`jobs`, `ActionRefusal`, `ACTION_REFUSAL`,
+`RefusalStatus`, `todayIn`, and the manifest's `actions` and `jobs` blocks.
+
+An extension written against v1 keeps compiling and running on every later
+3.x engine. From now on these only grow: a new optional member, a new host
+method, a wider union, a new manifest key with a default. Removing or renaming
+something, making an argument required or narrowing a type is a v2 change.
+
+The frozen copy is `packages/sdk/extension-api/v1.d.ts`. CI runs
+`bun run check:extension-api`, which fails when the live types stop accepting
+what that copy promises. Never edit `v1.d.ts` to make the check pass.
+
 ## `engine/index.ts` — the entry point
 
 ```ts

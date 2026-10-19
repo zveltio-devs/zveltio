@@ -206,6 +206,7 @@ const SECTIONS: Section[] = [
       `${E}lib/tenancy/tenant-index-reconcile.ts`,
       `${E}lib/tenancy/index.ts`,
       `${E}lib/tenancy/temp-privilege.ts`,
+      `${E}lib/tenancy/timezone.ts`,
       // Role windows on one transaction (asEngineRole, asExtensionDbRole).
       `${E}lib/role-window.ts`,
     ],
@@ -772,7 +773,8 @@ const SECTIONS: Section[] = [
     track: 'D — SDK, CLI, bindings',
     title: 'SDK extension surface',
     focus: 'What an extension author is promised — the contract the engine must keep honouring.',
-    match: ['packages/sdk/src/extension/'],
+    // extension-api/: the frozen v1 copy and the gate that holds the live types to it.
+    match: ['packages/sdk/src/extension/', 'packages/sdk/extension-api/'],
   },
   {
     id: 'D03',
@@ -928,6 +930,8 @@ const SECTIONS: Section[] = [
       'scripts/any-ratchet.ts',
       'scripts/lint-warning-ratchet.ts',
       'scripts/release-gate.ts',
+      // The release smoke's stepped-up god requests (#1184).
+      'scripts/god-request.ts',
       'scripts/suppress-existing-any.ts',
       'scripts/review-inventory.ts',
       'scripts/lib/',
