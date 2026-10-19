@@ -308,6 +308,24 @@ d('god step-up by TOTP (no passkey on the account)', () => {
   it('disabling TOTP needs a step-up on top of the password', async () => {
     expect((await post('/api/auth/two-factor/disable', { password: PASSWORD })).status).toBe(403);
   });
+
+  // Last in this block: it locks the account's TOTP step-up.
+  it('wrong codes are counted per account, and no other endpoint checks a code for free', async () => {
+    // Better Auth's verify-totp with a session only answered right or wrong.
+    const oracle = await post('/api/auth/two-factor/verify-totp', { code: totpCode(totpURI) });
+    expect(oracle.status).toBe(400);
+    const action = 'extension.license-rotate';
+    const statuses: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const bad = totpCode(totpURI, 7 + i);
+      statuses.push((await post('/api/auth/step-up/verify', { action, code: bad })).status);
+    }
+    // Five wrong codes per window, the earlier test's one included; then locked.
+    expect(statuses.filter((s) => s === 403).length).toBeLessThanOrEqual(5);
+    expect(statuses.at(-1)).toBe(429);
+    const right = await post('/api/auth/step-up/verify', { action, code: totpCode(totpURI) });
+    expect(right.status).toBe(429);
+  });
 });
 
 /**
