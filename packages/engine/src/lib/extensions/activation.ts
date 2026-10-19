@@ -23,9 +23,11 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { withSavepoint } from '../savepoint.js';
 import {
   getCurrentDomain,
   getCurrentDomainOrNull,
+  getCurrentTenantTrx,
   runWithDomain,
   withTenantIsolation,
 } from '../tenancy/index.js';
@@ -63,26 +65,37 @@ async function resolve(db: Database, names: string[], tenantId: string): Promise
   if (names.length === 0) return false;
   // The firm's own row wins over the global one - `NULLS LAST` puts it first.
   // Both are covered by idx_zv_ext_registry_tenant_enabled.
-  const res = await sql<{ is_enabled: boolean }>`
-    SELECT is_enabled
-      FROM zv_extension_registry
-     WHERE name = ANY(${sql.val(names)}::text[])
-       AND (tenant_id IS NULL OR tenant_id = ${tenantId})
-     ORDER BY tenant_id NULLS LAST
-     LIMIT 1
-  `.execute(db);
+  const ask = (on: Database) =>
+    sql<{ is_enabled: boolean }>`
+      SELECT is_enabled
+        FROM zv_extension_registry
+       WHERE name = ANY(${sql.val(names)}::text[])
+         AND (tenant_id IS NULL OR tenant_id = ${tenantId})
+       ORDER BY tenant_id NULLS LAST
+       LIMIT 1
+    `.execute(on);
+  // Every `/ext/*` request and every event listener asks from inside the tenant
+  // transaction; asking the pool there holds a SECOND connection, the DB_POOL_MAX
+  // standstill. The table has no RLS and `zveltio_rls` may read it, so the held
+  // connection sees both rows whichever firm its GUC names. The savepoint keeps a
+  // failed lookup from aborting the request (25P02) — it fails open instead.
+  const trx = getCurrentTenantTrx();
+  const res = trx
+    ? await withSavepoint(
+        trx,
+        'zv_activation',
+        () => ask(trx),
+        (err) => {
+          throw err;
+        },
+      )
+    : await ask(db);
   return res.rows[0]?.is_enabled === true;
 }
 
 /**
- * In-flight lookups, so a burst on a cold cache asks once.
- *
- * Not a micro-optimisation. This query runs on the pool while the request's own
- * transaction is still open, which is a SECOND connection held at the same time
- * — the exact shape that put `/api/insights` at DB_POOL_MAX with ten
- * connections `idle in transaction` and none active. With the cache, a firm
- * costs one lookup per extension per TTL; without this map, `c` simultaneous
- * cold requests would cost `c` of them at once, which is that bug again.
+ * In-flight lookups, so a burst on a cold cache asks once. Callers outside a
+ * tenant transaction (cron, boot) still ask on the pool.
  */
 const inFlight = new Map<string, Promise<boolean>>();
 
