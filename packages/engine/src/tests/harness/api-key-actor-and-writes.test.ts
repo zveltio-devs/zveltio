@@ -193,6 +193,54 @@ d('API keys and writes meet the same rules (in-process)', () => {
     }
   });
 
+  it("a key's exemption holds only while its issuer holds data:view_all", async () => {
+    // `validateApiKey` publishes `rls_bypass` to the database only when the
+    // issuer may still `data:view_all` (#1182): a key never exceeds the person
+    // it acts for. The engine-side filter has its own check; this one is what
+    // holds a query that reaches the table without it.
+    const keyFor = async (issuer: string) => {
+      const raw = generateApiKey();
+      const id = (
+        await sql<{ id: string }>`
+          INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by, rls_bypass)
+          VALUES ('bypass probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid,
+                  ${issuer}, true)
+          RETURNING id
+        `.execute(db)
+      ).rows[0]!.id;
+      return { raw, id };
+    };
+    const seenWith = (raw: string) =>
+      withTenantIsolation(
+        tenant,
+        async (trx) => {
+          await validateApiKey(db, raw, tenant);
+          const r = await sql
+            .raw<{ title: string }>(`SELECT title FROM ${TABLE} ORDER BY title`)
+            .execute(trx);
+          return r.rows.map((x) => x.title);
+        },
+        { userId: null },
+      );
+
+    // An administrator's key: the exemption stands.
+    const admin = await keyFor(await createKeyCreator(db, [tenant]));
+    // A member's: no data:view_all, so the key is held to the rule.
+    const memberId = `harness-member-${crypto.randomUUID()}`;
+    await sql`INSERT INTO "user" (id, name, email)
+              VALUES (${memberId}, 'Member issuer', ${`${memberId}@test.local`})`.execute(db);
+    const member = await keyFor(memberId);
+    try {
+      expect(await seenWith(admin.raw)).toEqual(['mine', 'someone']);
+      expect(await seenWith(member.raw)).toEqual([]);
+    } finally {
+      await sql`DELETE FROM zv_api_keys WHERE id IN (${admin.id}::uuid, ${member.id}::uuid)`
+        .execute(db)
+        .catch(() => {});
+      await sql`DELETE FROM "user" WHERE id = ${memberId}`.execute(db).catch(() => {});
+    }
+  });
+
   it('the real authentication path publishes it, not just this test', async () => {
     // The four cases above call `publishApiKeyActor` by hand, so they prove the
     // mechanism and nothing about whether anything uses it. This drives
