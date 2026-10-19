@@ -17,6 +17,7 @@ import type {
   DataApiReadQuery,
   ExtensionAction,
   HostCollections,
+  RefusalStatus,
   UpdateExpect,
   ZveltioExtension,
 } from '@zveltio/sdk/extension';
@@ -181,10 +182,20 @@ export function mountActions(
 // The SDK's `ACTION_REFUSAL`, by its registered key: the engine imports only
 // types from the SDK, and the compiled binary does not resolve it at runtime.
 const ACTION_REFUSAL = Symbol.for('zveltio.extension.action-refusal');
-/** The SDK's `RefusalStatus`. */
-const REFUSAL_STATUSES: ReadonlySet<number> = new Set([
-  400, 403, 404, 409, 410, 412, 422, 423, 429,
-]);
+/** The SDK's `RefusalStatus` — the record's keys must be exactly that union, so the two cannot drift. */
+const REFUSAL_STATUSES: ReadonlySet<number> = new Set(
+  Object.keys({
+    400: 1,
+    403: 1,
+    404: 1,
+    409: 1,
+    410: 1,
+    412: 1,
+    422: 1,
+    423: 1,
+    429: 1,
+  } satisfies Record<RefusalStatus, 1>).map(Number),
+);
 
 /**
  * An `ActionRefusal` the action threw, as the problem its caller gets — still a

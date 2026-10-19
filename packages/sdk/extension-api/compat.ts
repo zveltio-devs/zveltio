@@ -37,10 +37,15 @@ ok<Assignable<Live.HostCollections, V1.HostCollections>>();
 ok<MethodsCompat<Live.HostCollections, V1.HostCollections>>();
 ok<MethodsCompat<Live.ActionHost, V1.ActionHost>>();
 
+// An object type with a key removed still "assigns" (extra properties pass), but
+// the engine would then ignore what a v1 extension sends in it.
+type NoKeysRemoved<F, L> = [Exclude<keyof F, keyof L>] extends [never] ? true : false;
+
 // Extension-provided values: v1 ones still type-check against live.
 ok<Assignable<V1.ExtensionAction, Live.ExtensionAction>>();
 ok<Assignable<V1.ExtensionJob, Live.ExtensionJob>>();
 ok<Assignable<V1.DataApiReadQuery, Live.DataApiReadQuery>>();
+ok<NoKeysRemoved<V1.DataApiReadQuery, Live.DataApiReadQuery>>();
 ok<Assignable<V1.UpdateExpect, Live.UpdateExpect>>();
 ok<Assignable<V1.RefusalStatus, Live.RefusalStatus>>();
 ok<Assignable<V1.ZveltioExtensionV1['actions'], Live.ZveltioExtension['actions']>>();
@@ -62,3 +67,12 @@ ok<
   >
 >();
 ok<Assignable<typeof liveTodayIn, typeof V1.todayIn>>();
+
+// A whole v1 extension still compiles: no member of `ZveltioExtension` became required.
+export const v1Extension: Live.ZveltioExtension = {
+  name: 'v1',
+  category: 'custom',
+  register: async () => {},
+  actions: {},
+  jobs: {},
+};
