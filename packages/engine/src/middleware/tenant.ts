@@ -188,6 +188,21 @@ const TXN_SKIP_PREFIXES = [
   // across that wait is a pooled connection per live client; the route reads
   // only instance metadata and resolves the tenant reach itself (routes/electric.ts).
   '/api/electric',
+
+  // Mounted outside `routes/index.ts` on the bare pool, so
+  // `check-pooldb-txn-skip.ts` never saw them: the marketplace and licence routes
+  // (`extensionLoader.registerMarketplace(app, db)`) and the Studio's
+  // `/api/extensions` list (index.ts). Nothing here reads the request
+  // transaction — every query names the pool, none of the tables they touch has
+  // RLS, and a firm's (de)activation takes its tenant from `c.get('tenant')`,
+  // which is set on this path too. Inside the transaction `GET /api/marketplace`
+  // reserved three connections more and `GET /api/extensions`, asked on every
+  // Studio load, one (`second-reservation.test.ts`). Install and enable also
+  // load extension code, which then runs as it does at boot rather than inside
+  // one firm's request.
+  '/api/marketplace',
+  '/api/admin/license',
+  '/api/extensions',
 ];
 
 export const tenantMiddleware = createMiddleware(async (c, next) => {

@@ -74,6 +74,12 @@ const ROUTES = [
   '/api/storage/files',
   '/api/permissions/roles',
   '/api/admin/rls',
+  // On the bare pool, mounted outside `routes/index.ts` (the marketplace by
+  // `extensionLoader.registerMarketplace`, the extension list in index.ts) —
+  // so `check-pooldb-txn-skip.ts`, which reads only that file, never saw them.
+  '/api/marketplace',
+  '/api/admin/license/history',
+  '/api/extensions',
 ];
 
 /** The hottest path of all, and the reason any of this matters. */
