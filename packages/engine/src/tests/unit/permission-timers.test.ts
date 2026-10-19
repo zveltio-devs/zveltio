@@ -11,14 +11,17 @@
  * real SSE registry entry whose re-check throws, and counts its runs.
  */
 import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from 'bun:test';
+import type { Database } from '../../db/index.js';
 import {
   __sweepIdle,
+  initPermissions,
   revalidateSockets,
   startPolicyReconcile,
   stopPolicyReconcile,
   sweepGeneration,
 } from '../../lib/tenancy/index.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
+import { CannedDb } from './fixtures/canned-db.js';
 
 /** Let an async timer callback run to completion (microtasks only: no timer is involved). */
 async function flush(): Promise<void> {
@@ -158,6 +161,13 @@ describe('the default reconcile tick', () => {
   // An expired session or key sends no event, and a lost bus message sends
   // nothing either: only this tick re-asks who each open connection is.
   it('asks for a principals-only sweep', async () => {
+    // The tick also reconciles the Casbin model and the row rules, and a real
+    // change there rightly sweeps everything. Pin both to "unchanged": left to
+    // whatever `_db` and enforcer an earlier file in this process installed, the
+    // model can differ from that file's canned table and the rebuild's full
+    // sweep fails this test depending only on file order.
+    process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
+    await initPermissions(new CannedDb().kysely as unknown as Database);
     await __sweepIdle();
     let permissionPassRuns = 0;
     const sub = {
