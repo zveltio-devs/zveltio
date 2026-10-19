@@ -370,11 +370,12 @@ const m2oTargetMap = $derived.by(() => {
                 <span>{collection.description}</span>
               {/if}
               <span class="text-base-content/65">{m['common.fields']()}</span>
-              <!-- 7, not 6: DDLManager.createTable adds id, created_at, updated_at,
-                   status, created_by, updated_by and tenant_id to every table.
+              <!-- 6: DDLManager.createTable adds id, created_at, updated_at,
+                   created_by, updated_by and tenant_id to every table; `status`
+                   is the collection's own field since migration 085.
                    (search_vector / search_text are added on top when the
                    collection has a text field, and are never user-visible.) -->
-              <span>{m['col.fieldCounts']({ custom: customFields.length, system: 7 })}</span>
+              <span>{m['col.fieldCounts']({ custom: customFields.length, system: 6 })}</span>
               <span class="text-base-content/65">{m['col.relations']()}</span>
               <span>{relations.length}</span>
             </div>
