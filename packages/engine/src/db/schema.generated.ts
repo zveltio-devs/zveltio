@@ -2944,6 +2944,10 @@ export interface ZvdContactOrganizationsTable {
   tenant_id: Generated<string | null>;
   role: string | null;
   is_primary: Generated<boolean>;
+  id: Generated<string>;
+  updated_at: Generated<Date>;
+  created_by: string | null;
+  updated_by: string | null;
 }
 
 export interface ZvdContactsTable {
