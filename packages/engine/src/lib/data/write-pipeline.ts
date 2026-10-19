@@ -225,7 +225,12 @@ export async function processInput(
     // pattern and a ReDoS timeout. This was the one place the posture inverted.
     let verdict: Awaited<ReturnType<typeof validateRecord>> | null = null;
     try {
-      verdict = await validateRecord(vdb, collectionDef.name, processed);
+      verdict = await validateRecord(
+        vdb,
+        collectionDef.name,
+        processed,
+        new Map(fields.map((f) => [f.name, f.type])),
+      );
     } catch (err) {
       console.error(
         `[validation] rules for "${collectionDef.name}" could not be evaluated; refusing the write:`,

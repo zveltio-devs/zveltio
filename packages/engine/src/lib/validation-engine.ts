@@ -3,34 +3,47 @@
  *
  * Loads validation rules from zv_validation_rules, caches them in-memory for 60s,
  * and provides helpers to validate field values and entire records.
- * Uses expr-eval-fork for safe expression parsing (no eval/Function usage).
+ * Expression rules are CEL (https://cel.dev), evaluated by @bufbuild/cel — no
+ * eval/Function usage, no loops beyond the bounded macros, no I/O.
  */
 
-import { Parser } from 'expr-eval-fork';
+import { celEnv, isCelError, parse, plan } from '@bufbuild/cel';
+import { RE2JS } from '@bufbuild/re2';
 import { sql } from 'kysely';
 import { withSavepoint } from './savepoint.js';
 import type { Database } from '../db/index.js';
 
-const parser = new Parser({
-  operators: {
-    logical: true,
-    comparison: true,
-    in: true,
-    assignment: false, // disallow assignment for safety
+type CelExpr = ReturnType<typeof parse>['expr'];
+type CelProgram = ReturnType<typeof plan>;
+
+// `matches()` would otherwise run a JavaScript RegExp synchronously on the
+// write path, where a backtracking pattern stalls the whole process. RE2 is
+// linear-time, and it is also the dialect the CEL specification defines
+// `matches` in, so a rule behaves here as it does in any other CEL runtime.
+const env = celEnv({
+  re2: {
+    compile(pattern: string) {
+      const re = new RE2JS(pattern);
+      return { test: (text: string) => re.test(text) };
+    },
   },
 });
 
-// expr-eval-fork@3 patches upstream expr-eval's prototype-pollution and
-// unrestricted-functions advisories (the original is unmaintained at 2.0.2).
-// The token guard stays as defense-in-depth: our Parser exposes only `{ value }`
-// and a legitimate validation expression (comparisons/logic over `value`) never
-// needs `constructor`/`__proto__`/`prototype` — reject them before parsing, so a
-// tenant-admin-authored rule can't even attempt to pollute the shared process.
+// CEL has no unbounded loops, but the macros (`all`, `exists`, `map`, …) nest,
+// and each level multiplies the work by the size of a list. These two bounds
+// keep a stored rule's cost proportional to the value it checks. They are
+// generous for a validation rule and are not a contract: a rule that needs more
+// is a rule that belongs in an action.
+const MAX_EXPRESSION_LENGTH = 1024;
+const MAX_EXPRESSION_DEPTH = 32;
+
+// expr-eval-fork, which this replaced, reached JavaScript objects directly, so
+// rules were screened for prototype-pollution names. CEL selects only declared
+// fields of a value (`value.constructor` is "field not found"), so this guard
+// no longer stands between a rule and the process. It stays because a
+// legitimate rule never needs these names and refusing them costs nothing.
 const UNSAFE_EXPR_TOKEN =
   /(__proto__|constructor|prototype|__define[GS]etter__|__lookup[GS]etter__)/;
-function isSafeExpression(expr: string): boolean {
-  return !UNSAFE_EXPR_TOKEN.test(expr);
-}
 
 /**
  * Result of evaluating an expression rule.
@@ -47,49 +60,153 @@ export type ExpressionRuleResult =
   | { status: 'refused'; reason: string };
 
 /**
- * Decide whether an expression may be stored at all.
+ * Names an expression refers to without binding them, functions it calls that
+ * the environment does not define, and its nesting depth.
  *
- * Two independent checks, because the blocklist alone is a guess about what an
- * attacker will type. Parsing with expr-eval is the load-bearing one: the
- * grammar has no property access, no calls to anything it was not given, and no
- * statements, so an expression that parses cannot express `process.exit(1)`
- * whether or not anyone thought to blocklist `process`.
+ * Comprehension variables are scoped to the parts of the macro that see them —
+ * `value.all(x, x > 0)` binds `x` in the predicate, not in the list it ranges
+ * over — so a name is "unknown" exactly when evaluation would report it
+ * unresolved.
  */
-export function checkValidationExpression(
+function inspect(
+  e: CelExpr | undefined,
+  bound: ReadonlySet<string>,
+  depth: number,
+  out: { unknown: Set<string>; unknownFuncs: Set<string>; depth: number },
+): void {
+  if (!e) return;
+  out.depth = Math.max(out.depth, depth);
+  const next = depth + 1;
+  const k = e.exprKind;
+  switch (k.case) {
+    case 'identExpr':
+      if (!bound.has(k.value.name)) out.unknown.add(k.value.name);
+      return;
+    case 'selectExpr':
+      inspect(k.value.operand, bound, next, out);
+      return;
+    case 'callExpr':
+      // Operators are spelled `_&&_`, `@in`, …; only a plain name can be a
+      // function the environment does not define.
+      if (/^[A-Za-z]\w*$/.test(k.value.function) && !env.funcs.find(k.value.function)) {
+        out.unknownFuncs.add(k.value.function);
+      }
+      inspect(k.value.target, bound, next, out);
+      for (const a of k.value.args) inspect(a, bound, next, out);
+      return;
+    case 'listExpr':
+      for (const a of k.value.elements) inspect(a, bound, next, out);
+      return;
+    case 'structExpr':
+      for (const entry of k.value.entries) {
+        if (entry.keyKind.case === 'mapKey') inspect(entry.keyKind.value, bound, next, out);
+        inspect(entry.value, bound, next, out);
+      }
+      return;
+    case 'comprehensionExpr': {
+      const c = k.value;
+      inspect(c.iterRange, bound, next, out);
+      inspect(c.accuInit, bound, next, out);
+      const inner = new Set(bound);
+      for (const name of [c.iterVar, c.iterVar2, c.accuVar]) if (name) inner.add(name);
+      inspect(c.loopCondition, inner, next, out);
+      inspect(c.loopStep, inner, next, out);
+      inspect(c.result, inner, next, out);
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+const VALUE_ONLY: ReadonlySet<string> = new Set(['value']);
+
+/**
+ * Decide whether an expression may be stored at all, and compile it if so.
+ *
+ * Parsing is the load-bearing check: CEL has no statements, no property access
+ * beyond a value's own fields, and no calls to anything the environment did not
+ * declare. The allowlist on top is not about safety — `process.exit(1)` would
+ * only ever be refused as unresolved — but about a rule that can never evaluate
+ * sitting in the database looking configured.
+ */
+function compile(
   expression: string,
-): { ok: true } | { ok: false; reason: string } {
-  if (!isSafeExpression(expression)) {
+): { ok: true; program: CelProgram } | { ok: false; reason: string } {
+  if (expression.length > MAX_EXPRESSION_LENGTH) {
+    return { ok: false, reason: `is longer than ${MAX_EXPRESSION_LENGTH} characters` };
+  }
+  if (UNSAFE_EXPR_TOKEN.test(expression)) {
     return { ok: false, reason: 'contains a blocked token (prototype-pollution vector)' };
   }
-  let parsed: ReturnType<typeof parser.parse>;
+  let parsed: ReturnType<typeof parse>;
   try {
-    parsed = parser.parse(expression);
+    parsed = parse(expression);
   } catch (err) {
     // Phrased to read after "The expression ..." in the extension's 400, which
-    // is where a rule author sees it.
-    return { ok: false, reason: `could not be parsed: ${(err as Error).message}` };
+    // is where a rule author sees it. Rules written before the switch to CEL
+    // most often fail here on `and`/`or`/`not`, hence the pointer.
+    return {
+      ok: false,
+      reason: `could not be parsed as CEL (use \`&&\`, \`||\`, \`!\`): ${(err as Error).message}`,
+    };
   }
-
-  // Parsing alone is not enough to store an expression, only to run one safely.
-  // `process.exit(1)` PARSES: expr-eval reads it as a call on a variable named
-  // `process`, and refuses it at evaluation because nothing is bound to that
-  // name. The process is never in danger — but a rule that can only ever be
-  // refused would sit in the database looking configured, so the write path
-  // needs the stricter test.
-  //
-  // An allowlist rather than a blocklist, because the set of names this scope
-  // provides is one, and enumerating what an attacker might reach for is a game
-  // with no end.
-  const unknown = parsed.variables({ withMembers: false }).filter((v) => v !== 'value');
-  if (unknown.length > 0) {
+  const found = { unknown: new Set<string>(), unknownFuncs: new Set<string>(), depth: 0 };
+  inspect(parsed.expr, VALUE_ONLY, 1, found);
+  if (found.depth > MAX_EXPRESSION_DEPTH) {
+    return { ok: false, reason: `nests deeper than ${MAX_EXPRESSION_DEPTH} levels` };
+  }
+  if (found.unknown.size > 0) {
     return {
       ok: false,
       reason:
-        `refers to ${unknown.map((v) => `\`${v}\``).join(', ')}, and the only value in ` +
+        `refers to ${[...found.unknown].map((v) => `\`${v}\``).join(', ')}, and the only value in ` +
         'scope is `value`',
     };
   }
-  return { ok: true };
+  if (found.unknownFuncs.size > 0) {
+    return {
+      ok: false,
+      reason: `calls ${[...found.unknownFuncs].map((f) => `\`${f}\``).join(', ')}, which CEL does not define`,
+    };
+  }
+  try {
+    return { ok: true, program: plan(env, parsed) };
+  } catch (err) {
+    // The planner throws on a few shapes the parser accepts (an invalid
+    // selection, for one). That is a rule that can never run, not a crash.
+    return { ok: false, reason: `could not be compiled: ${(err as Error).message}` };
+  }
+}
+
+// Rules are re-read every 60s and evaluated on every write that touches their
+// field, so compiling once per distinct expression matters.
+// ponytail: cleared wholesale at the cap; an LRU only if rule churn ever makes that visible.
+const programs = new Map<string, CelProgram>();
+const MAX_CACHED_PROGRAMS = 1000;
+
+export function checkValidationExpression(
+  expression: string,
+): { ok: true } | { ok: false; reason: string } {
+  const compiled = compile(expression);
+  return compiled.ok ? { ok: true } : compiled;
+}
+
+// Field types whose values CEL should see as `int`. Everything else numeric is
+// `double`. CEL does not mix the two in arithmetic (`value * 2` on a double is
+// a type error; write `value * 2.0`), so binding by the column's declared type
+// keeps a rule's meaning from depending on whether one particular value
+// happened to be whole.
+const INTEGER_FIELD_TYPES = new Set(['integer', 'int', 'bigint', 'smallint']);
+
+function toCelValue(value: unknown, fieldType: string | undefined): unknown {
+  if (value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (fieldType && INTEGER_FIELD_TYPES.has(fieldType)) {
+    if (typeof value === 'number' && Number.isInteger(value)) return BigInt(value);
+    if (typeof value === 'string' && /^-?\d+$/.test(value)) return BigInt(value);
+  }
+  return value;
 }
 
 /**
@@ -102,21 +219,39 @@ export function checkValidationExpression(
  * and is not: a Function body closes over the global scope, so a stored rule
  * could reach `process`, `Bun`, and the filesystem. Two implementations of one
  * rule type is how the safe one ends up unused.
+ *
+ * `fieldType` is the type of the field the rule sits on; it decides whether a
+ * whole number is a CEL `int` or `double`. Without it numbers are `double`.
  */
-export function evaluateExpressionRule(expression: string, value: unknown): ExpressionRuleResult {
-  const check = checkValidationExpression(expression);
-  if (!check.ok) return { status: 'refused', reason: check.reason };
+export function evaluateExpressionRule(
+  expression: string,
+  value: unknown,
+  fieldType?: string,
+): ExpressionRuleResult {
+  let program = programs.get(expression);
+  if (!program) {
+    const compiled = compile(expression);
+    if (!compiled.ok) return { status: 'refused', reason: compiled.reason };
+    program = compiled.program;
+    if (programs.size >= MAX_CACHED_PROGRAMS) programs.clear();
+    programs.set(expression, program);
+  }
+  let result: unknown;
   try {
-    // expr-eval's scope type does not admit `unknown`. The cast sits at this
-    // boundary rather than in the signature: callers pass whatever a column
-    // holds, and narrowing here would push a cast onto every one of them.
-    const scope = { value } as unknown as Parameters<
-      ReturnType<typeof parser.parse>['evaluate']
-    >[0];
-    return parser.parse(expression).evaluate(scope) ? { status: 'passed' } : { status: 'failed' };
+    // The binding type is CEL's input union; `toCelValue` returns `unknown`
+    // because a column can hold anything. An unsupported shape is reported by
+    // the evaluator as an error, which lands in the refusal below.
+    result = program({ value: toCelValue(value, fieldType) } as Parameters<CelProgram>[0]);
   } catch (err) {
     return { status: 'refused', reason: `could not be evaluated: ${(err as Error).message}` };
   }
+  if (isCelError(result)) {
+    return { status: 'refused', reason: `could not be evaluated: ${result.message}` };
+  }
+  if (typeof result !== 'boolean') {
+    return { status: 'refused', reason: 'does not evaluate to true or false' };
+  }
+  return result ? { status: 'passed' } : { status: 'failed' };
 }
 
 export interface ValidationRule {
@@ -403,8 +538,13 @@ async function safeRegexTest(pattern: string, value: string, timeoutMs = 200): P
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export async function validateFieldValue(value: any, rules: ValidationRule[]): Promise<string[]> {
+export async function validateFieldValue(
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  value: any,
+  rules: ValidationRule[],
+  /** The field's declared type; decides how an expression rule sees a number. */
+  fieldType?: string,
+): Promise<string[]> {
   const errors: string[] = [];
 
   for (const rule of rules) {
@@ -454,7 +594,7 @@ export async function validateFieldValue(value: any, rules: ValidationRule[]): P
           misconfigured = 'has no expression';
           break;
         }
-        const outcome = evaluateExpressionRule(expression, value);
+        const outcome = evaluateExpressionRule(expression, value, fieldType);
         if (outcome.status === 'refused') misconfigured = outcome.reason;
         else violated = outcome.status === 'failed';
         break;
@@ -495,12 +635,15 @@ export async function validateRecord(
   collection: string,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   data: Record<string, any>,
+  /** Declared type per field name, for expression rules; see validateFieldValue. */
+  fieldTypes: ReadonlyMap<string, string> = new Map(),
 ): Promise<{ valid: boolean; errors: Record<string, string[]> }> {
   const errors: Record<string, string[]> = {};
   const groups = await getRuleGroups(db, collection);
 
   for (const [fieldName, value] of Object.entries(data)) {
     const fieldRules = await getValidationRules(db, collection, fieldName);
+    const fieldType = fieldTypes.get(fieldName);
     if (fieldRules.length === 0) continue;
 
     const fieldGroups = groups.filter((g) => g.field_name === fieldName);
@@ -508,7 +651,8 @@ export async function validateRecord(
 
     // Rules nobody grouped keep the old behaviour: all of them must hold.
     const ungrouped = fieldRules.filter((r) => r.id === undefined || !grouped.has(r.id));
-    const fieldErrors = ungrouped.length > 0 ? await validateFieldValue(value, ungrouped) : [];
+    const fieldErrors =
+      ungrouped.length > 0 ? await validateFieldValue(value, ungrouped, fieldType) : [];
 
     for (const group of fieldGroups) {
       const members = fieldRules.filter((r) => r.id !== undefined && group.rule_ids.includes(r.id));
@@ -518,10 +662,12 @@ export async function validateRecord(
         // registration number" is the case the feature exists for. Only when
         // every member fails does the group contribute, and then it contributes
         // all of their messages, because none of them is the one that had to hold.
-        const perRule = await Promise.all(members.map((r) => validateFieldValue(value, [r])));
+        const perRule = await Promise.all(
+          members.map((r) => validateFieldValue(value, [r], fieldType)),
+        );
         if (perRule.every((e) => e.length > 0)) fieldErrors.push(...perRule.flat());
       } else {
-        fieldErrors.push(...(await validateFieldValue(value, members)));
+        fieldErrors.push(...(await validateFieldValue(value, members, fieldType)));
       }
     }
 
