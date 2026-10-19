@@ -1559,8 +1559,16 @@ let _rlsRoleAvailable = false;
  * create roles is a legitimate deployment, and it should keep starting and keep
  * warning, exactly as it does now. Failing here would turn a degraded restore
  * into no restore at all.
+ *
+ * The migration runner calls it too, after it applied anything: migration 001's
+ * default privileges hand this role DML on every table a later migration
+ * creates, control tables included (071, 086), and a migration applied on a
+ * running engine — POST /admin/migrate, `zveltio migrate` — left that grant in
+ * place until the next restart. Unlocked there: the runner already holds the
+ * migration lock, and a second holder beside it starves a small pool
+ * (`db/advisory-lock.ts`); a concurrent boot's loop ends with the same revokes.
  */
-async function ensureRlsEnforcementRole(db: Database): Promise<void> {
+export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
   // Three steps, three statements, three independent failures — deliberately.
   //
   // This was one DO block, and Postgres aborts a DO block at the first error.
