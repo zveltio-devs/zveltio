@@ -129,6 +129,19 @@ Stored rules are a compatibility surface, so the language must be chosen
 estimate built in. It would be used for validation, transitions and flow
 conditions alike.
 
+**Phase C, first slice (landed):** validation expression rules (`custom`,
+`nlp`) are CEL, run by `@bufbuild/cel` (pinned exact). `value` is bound by the
+field's declared type: `integer`/`int`/`bigint`/`smallint` as CEL `int`, every
+other number as `double` — CEL does not mix the two, so a rule on a decimal
+field writes `value * 2.0`. `matches()` runs on RE2 (`@bufbuild/re2`), which is
+linear-time. The library has no cost estimate and exports no type checker, so
+the engine bounds a rule instead: at most 1,024 characters and 32 levels of
+nesting, only `value` (and macro variables inside their macro) in scope, only
+functions CEL defines. Migration 087 rewrites stored `and` / `or` to `&&` /
+`||` where that is certain; any rule it leaves that is not CEL is refused at
+evaluation, so the writes touching that field are refused and the log names the
+rule. Flow `condition` and transitions are the next slices.
+
 ### Installing and trusting code
 
 1. **The signature is checked at every load**, not only at download. The tier

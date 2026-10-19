@@ -98,6 +98,51 @@ d('validation rules are enforced on writes', () => {
     expect(rows.rows.length).toBe(0);
   });
 
+  // An expression rule is CEL, and CEL does not mix int and double: `value * 2`
+  // is a type error on a double. The write path binds `value` by the field's
+  // declared type, so on an `integer` field the integer literal is right. If the
+  // type stopped reaching the evaluator, every write here would be refused as
+  // "cannot be evaluated" instead of passing or failing on the rule.
+  it('evaluates a CEL expression rule with the field type', async () => {
+    const other = `${COLLECTION}_cel`;
+    await DDLManager.createCollection(db, {
+      name: other,
+      fields: [{ name: 'qty', type: 'integer', required: false, unique: false, indexed: false }],
+    } as never);
+    const row = await sql<{ id: string }>`
+      INSERT INTO zv_validation_rules
+        (collection, field_name, rule_type, rule_config, error_message, is_active)
+      VALUES (${other}, 'qty', 'nlp', ${JSON.stringify({ expression: 'value * 2 > 10' })}::jsonb,
+              'Double the quantity must exceed 10', TRUE)
+      RETURNING id
+    `.execute(db);
+    const post = (qty: number) =>
+      app.request(`/api/data/${other}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ qty }),
+      });
+    try {
+      expect((await post(7)).status).toBe(201);
+      const refused = await post(3);
+      expect(refused.status).toBe(422);
+      expect(JSON.stringify(await refused.json())).toMatch(/must exceed 10/);
+    } finally {
+      await sql`DELETE FROM zv_validation_rules WHERE id = ${row.rows[0]!.id}::uuid`
+        .execute(db)
+        .catch(() => {});
+      await sql
+        .raw(`DROP TABLE IF EXISTS "zvd_${other}" CASCADE`)
+        .execute(db)
+        .catch(() => {});
+      await db
+        .deleteFrom('zvd_collections')
+        .where('name', '=', other)
+        .execute()
+        .catch(() => {});
+    }
+  });
+
   it('ignores a rule that is not active', async () => {
     // What migration 027 relies on: it disables every rule that predates
     // enforcement so an upgrade does not start rejecting writes that have been
