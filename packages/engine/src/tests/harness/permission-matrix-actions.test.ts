@@ -135,7 +135,7 @@ d('permission matrix actions match what the engine checks', () => {
     expect(bulk.status).toBe(200);
   });
 
-  it('offers what an installed extension declares, with execute, and a declared collection once', async () => {
+  it('offers what an installed extension declares, with execute, and a declared collection once, with execute', async () => {
     const ext = `permmatrix_ext_${Date.now()}`;
     const declared = `${ext}_res`;
     const root = mkdtempSync(join(tmpdir(), 'permmatrix-ext-'));
@@ -161,9 +161,11 @@ d('permission matrix actions match what the engine checks', () => {
         type: 'extension',
         actions: ['read', 'create', 'update', 'delete', 'execute'],
       } as never);
-      expect(resources.filter((r) => r.name === COLLECTION).map((r) => r.type)).toEqual([
-        'collection',
-      ]);
+      // Listed once, as the collection — and with execute, which the extension's
+      // actions gated on it ask for.
+      expect(
+        resources.filter((r) => r.name === COLLECTION).map((r) => [r.type, r.actions]),
+      ).toEqual([['collection', ['read', 'create', 'update', 'delete', 'execute']]]);
     } finally {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${ext}`.execute(db);
       if (saved === undefined) delete process.env.EXTENSIONS_DIR;

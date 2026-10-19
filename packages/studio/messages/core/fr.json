@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "Ce mot de passe n'est pas correct.",
   "passkeys.signInAgain": "Pour votre sécurité, déconnectez-vous puis reconnectez-vous avec votre fournisseur de connexion, et ajoutez votre clé d'accès dans les cinq minutes.",
   "settings.tenantTimezone": "Fuseau horaire de l'organisation",
-  "settings.tenantTimezoneHint": "Vide = celui de l'instance. Appliqué : {zone}"
+  "settings.tenantTimezoneHint": "Vide = celui de l'instance. Appliqué : {zone}",
+  "passkeys.registerFailed": "Impossible d'enregistrer la clé d'accès : {error}",
+  "passkeys.deleteFailed": "Impossible de supprimer la clé d'accès : {error}"
 }

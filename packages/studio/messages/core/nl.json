@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "Dat wachtwoord is niet juist.",
   "passkeys.signInAgain": "Meld u voor uw veiligheid af en opnieuw aan via uw aanmeldprovider, en voeg uw passkey binnen vijf minuten toe.",
   "settings.tenantTimezone": "Tijdzone van de organisatie",
-  "settings.tenantTimezoneHint": "Leeg = die van de instantie. Geldt nu: {zone}"
+  "settings.tenantTimezoneHint": "Leeg = die van de instantie. Geldt nu: {zone}",
+  "passkeys.registerFailed": "Passkey registreren is mislukt: {error}",
+  "passkeys.deleteFailed": "Passkey verwijderen is mislukt: {error}"
 }

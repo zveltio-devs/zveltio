@@ -116,3 +116,64 @@ describe('PasskeysSection, first passkey on an account with no password', () => 
     expect(apiFetch.mock.calls.some((c) => String(c[0]).includes('generate-register'))).toBe(false);
   });
 });
+
+/**
+ * The first passkey on an account with a password: the engine checks the password
+ * at verify-registration, after the browser ceremony. A wrong one refused only
+ * there left a discoverable credential in the authenticator that the server never
+ * stored. The section now checks it first and asks again on a wrong one.
+ */
+describe('PasskeysSection, first passkey confirmed with the password', () => {
+  afterEach(() => {
+    apiFetch.mockReset();
+    toast.error.mockClear();
+    toast.success.mockClear();
+  });
+
+  it('refuses a wrong password before the ceremony and asks again', async () => {
+    Object.assign(window, { PublicKeyCredential: () => {} });
+    Object.assign(navigator, { credentials: { create: () => {} } });
+    vi.spyOn(window, 'prompt').mockReturnValue('laptop');
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+    apiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/api/auth/step-up/options')
+        return json(
+          { code: 'step_up_enrollment_required', errors: { first_factor: 'password' } },
+          403,
+        );
+      if (path === '/api/auth/step-up/check-password') {
+        const { password } = JSON.parse(init!.body as string) as { password: string };
+        return password === 'right-one'
+          ? new Response(null, { status: 204 })
+          : json({ code: 'password_required' }, 403);
+      }
+      if (path.startsWith('/api/auth/passkey/generate-register-options')) return json({});
+      if (path === '/api/auth/passkey/verify-registration') return json({});
+      return json({ passkeys: [] });
+    });
+    const view = render(PasskeysSection);
+    await fireEvent.click(await view.findByRole('button', { name: /add/i }));
+    const answer = async (pw: string) => {
+      const input = await waitFor(() => {
+        const el = document.querySelector<HTMLInputElement>('input[type="password"]');
+        if (!el) throw new Error('no password prompt');
+        return el;
+      });
+      await fireEvent.input(input, { target: { value: pw } });
+      await fireEvent.submit(input.closest('form')!);
+    };
+    const ceremonyStarted = () =>
+      apiFetch.mock.calls.some((c) => String(c[0]).includes('generate-register'));
+
+    await answer('wrong-one');
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(m['passkeys.passwordWrong']()));
+    expect(ceremonyStarted()).toBe(false);
+
+    await answer('right-one');
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const verify = apiFetch.mock.calls.find(
+      (c) => c[0] === '/api/auth/passkey/verify-registration',
+    );
+    expect(JSON.parse(verify![1]!.body as string).password).toBe('right-one');
+  });
+});

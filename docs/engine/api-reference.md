@@ -95,7 +95,12 @@ The client names the action, confirms it, and sends the token it gets back as
 
 Sign-in factors are guarded the same way: the first one (passkey or TOTP) needs the
 password (`password` in the `verify-registration` body for a passkey; 403
-`password_required`). An account with no password (OAuth only) instead needs a
+`password_required`). Check it first with `POST /api/auth/step-up/check-password`
+`{ password }` — 204 when it matches, 403 `password_required` when not, 409
+`password_not_used` when the account already has a factor or no password — so a wrong
+one is refused before the WebAuthn ceremony, which otherwise leaves the authenticator
+holding a passkey the server never stored. It decides nothing:
+`verify-registration` still checks the password. An account with no password (OAuth only) instead needs a
 session created by an OAuth sign-in at most 5 minutes ago (403
 `recent_sign_in_required`: sign in with the provider again). After that, adding a
 passkey or TOTP, deleting a passkey, disabling TOTP, reading the TOTP URI back or

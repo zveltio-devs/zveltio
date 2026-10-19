@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "Questa password non è corretta.",
   "passkeys.signInAgain": "Per la tua sicurezza, esci e accedi di nuovo con il tuo provider di accesso, poi aggiungi la passkey entro cinque minuti.",
   "settings.tenantTimezone": "Fuso orario dell'organizzazione",
-  "settings.tenantTimezoneHint": "Vuoto = quello dell'istanza. In uso: {zone}"
+  "settings.tenantTimezoneHint": "Vuoto = quello dell'istanza. In uso: {zone}",
+  "passkeys.registerFailed": "Impossibile registrare la passkey: {error}",
+  "passkeys.deleteFailed": "Impossibile eliminare la passkey: {error}"
 }

@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "Parola nu este corectă.",
   "passkeys.signInAgain": "Pentru siguranța ta, deconectează-te și autentifică-te din nou prin furnizorul tău de autentificare, apoi adaugă cheia de acces în cel mult cinci minute.",
   "settings.tenantTimezone": "Fusul orar al organizației",
-  "settings.tenantTimezoneHint": "Gol = cel al instanței. Se aplică acum: {zone}"
+  "settings.tenantTimezoneHint": "Gol = cel al instanței. Se aplică acum: {zone}",
+  "passkeys.registerFailed": "Înregistrarea passkey-ului a eșuat: {error}",
+  "passkeys.deleteFailed": "Ștergerea passkey-ului a eșuat: {error}"
 }

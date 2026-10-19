@@ -92,6 +92,9 @@ export function compileActions(
   const refuse = (why: string): never => {
     throw new Error(`Extension "${extName}": ${why}`);
   };
+  // When they are: an ActionRefusal is recognised by a Symbol.for property, which
+  // a structured clone drops — carry status and code across explicitly, or every
+  // refusal from a worker answers 500.
   if (worker) refuse('actions are not served for a worker-isolated extension yet');
   if (extension.mountStrategy !== 'subapp') refuse("actions need mountStrategy 'subapp'");
   for (const { declared: a, input, run } of pairImplementations(

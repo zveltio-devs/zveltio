@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "Esa contraseña no es correcta.",
   "passkeys.signInAgain": "Por tu seguridad, cierra sesión y vuelve a iniciarla con tu proveedor de inicio de sesión, y añade tu llave de acceso en un plazo de cinco minutos.",
   "settings.tenantTimezone": "Zona horaria de la organización",
-  "settings.tenantTimezoneHint": "Vacío = la de la instancia. Se aplica: {zone}"
+  "settings.tenantTimezoneHint": "Vacío = la de la instancia. Se aplica: {zone}",
+  "passkeys.registerFailed": "No se pudo registrar la passkey: {error}",
+  "passkeys.deleteFailed": "No se pudo eliminar la passkey: {error}"
 }

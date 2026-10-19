@@ -90,6 +90,11 @@ const zones = $derived(
 );
 const totalCollections = $derived(resources.filter((r) => r.type === 'collection').length);
 const totalZones = $derived(resources.filter((r) => r.type === 'zone').length);
+// A collection an extension declares also carries `execute` (its actions);
+// the column shows only when one listed does, empty where a row has none.
+const COLLECTION_ACTIONS = ['read', 'create', 'update', 'delete'];
+const COLLECTION_ACTIONS_EXEC = [...COLLECTION_ACTIONS, 'execute'];
+const collectionsExecute = $derived(collections.some((r) => r.actions.includes('execute')));
 const totalExtensionResources = $derived(resources.filter((r) => r.type === 'extension').length);
 
 onMount(async () => {
@@ -302,14 +307,18 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                   <th class="text-center text-success">{m['common.create']()}</th>
                   <th class="text-center text-warning">{m['common.op.update']()}</th>
                   <th class="text-center text-error">{m['common.delete']()}</th>
+                  {#if collectionsExecute}
+                  <th class="text-center text-secondary">{m['permissions.execute']()}</th>
+                  {/if}
                 </tr>
               </thead>
               <tbody>
                 {#each collections as res}
                 <tr class="hover">
                   <td class="font-medium">{res.display_name}</td>
-                  {#each res.actions as action}
+                  {#each collectionsExecute ? COLLECTION_ACTIONS_EXEC : COLLECTION_ACTIONS as action}
                   <td class="text-center">
+                    {#if res.actions.includes(action)}
                     <input
                       type="checkbox"
                       class="checkbox checkbox-sm checkbox-primary"
@@ -317,6 +326,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                       checked={has(selectedRole.id, res.name, action)}
                       onchange={() => toggle(selectedRole.id, res.name, action)}
                     />
+                    {/if}
                   </td>
                   {/each}
                 </tr>

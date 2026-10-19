@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "Dieses Passwort ist nicht korrekt.",
   "passkeys.signInAgain": "Melden Sie sich zu Ihrer Sicherheit ab und erneut über Ihren Anmeldeanbieter an, und fügen Sie Ihren Passkey innerhalb von fünf Minuten hinzu.",
   "settings.tenantTimezone": "Zeitzone der Organisation",
-  "settings.tenantTimezoneHint": "Leer = die der Instanz. Gilt jetzt: {zone}"
+  "settings.tenantTimezoneHint": "Leer = die der Instanz. Gilt jetzt: {zone}",
+  "passkeys.registerFailed": "Passkey konnte nicht registriert werden: {error}",
+  "passkeys.deleteFailed": "Passkey konnte nicht gelöscht werden: {error}"
 }

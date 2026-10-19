@@ -1578,5 +1578,7 @@
   "passkeys.passwordWrong": "To hasło jest nieprawidłowe.",
   "passkeys.signInAgain": "Ze względów bezpieczeństwa wyloguj się i zaloguj ponownie przez dostawcę logowania, a następnie dodaj klucz dostępu w ciągu pięciu minut.",
   "settings.tenantTimezone": "Strefa czasowa organizacji",
-  "settings.tenantTimezoneHint": "Puste = strefa instancji. Obowiązuje: {zone}"
+  "settings.tenantTimezoneHint": "Puste = strefa instancji. Obowiązuje: {zone}",
+  "passkeys.registerFailed": "Nie udało się zarejestrować klucza dostępu: {error}",
+  "passkeys.deleteFailed": "Nie udało się usunąć klucza dostępu: {error}"
 }

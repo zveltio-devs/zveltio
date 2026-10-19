@@ -20,6 +20,7 @@ import type { Context, Hono, Next } from 'hono';
 import type { Database } from '../db/index.js';
 import { auth } from '../lib/auth.js';
 import { auditLog } from '../lib/audit.js';
+import { refuseWithoutSession } from '../lib/admin-guard.js';
 import { clientIpForAudit } from '../lib/security/index.js';
 import {
   firstFactorRule,
@@ -116,6 +117,30 @@ async function confirmChange(
 export function registerStepUpRoutes(app: Hono, poolDb: Database): void {
   app.post('/api/auth/step-up/options', stepUpOptions);
   app.post('/api/auth/step-up/verify', stepUpVerify);
+
+  // Whether the password confirms the account's first passkey, asked BEFORE the
+  // WebAuthn ceremony: a refusal at verify-registration comes after the
+  // authenticator has created a discoverable credential the server never stores.
+  // Answers only where verify-registration checks the password, so it tells a
+  // session nothing that route (or sign-in itself) does not; same per-IP auth
+  // limit. verify-registration still checks it — this decides nothing.
+  app.post('/api/auth/step-up/check-password', async (c) => {
+    const session = await requestSession(c, auth);
+    if (!session) return refuseWithoutSession(c);
+    if (
+      (await hasStepUpFactor(session.user.id)) ||
+      (await firstFactorRule(session.user.id, session.session.token)) !== 'password'
+    ) {
+      return c.json(
+        { error: 'No password confirms a factor on this account', code: 'password_not_used' },
+        409,
+      );
+    }
+    if (!(await passwordMatches(c))) {
+      return c.json({ error: 'That password is not correct', code: 'password_required' }, 403);
+    }
+    return c.body(null, 204);
+  });
 
   const gate = (change: FactorChange) => async (c: Context, next: Next) => {
     const session = await requestSession(c, auth);

@@ -84,6 +84,26 @@ d('god step-up for extension mutations', () => {
     expect(((await res.json()) as { code: string }).code).toBe('step_up_enrollment_required');
   });
 
+  it('the password for a first passkey can be checked before the ceremony, and only then', async () => {
+    // A wrong one refused only at verify-registration leaves the authenticator
+    // holding a discoverable credential the server never stored.
+    const check = (password?: string, as = cookie) =>
+      app.request('/api/auth/step-up/check-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: as },
+        body: JSON.stringify({ password }),
+      });
+    const wrong = await check('nope-nope-1');
+    expect(wrong.status).toBe(403);
+    expect(((await wrong.json()) as { code: string }).code).toBe('password_required');
+    expect((await check()).status).toBe(403);
+    expect((await check(PASSWORD)).status).toBe(204);
+    expect((await check(PASSWORD, '')).status).toBe(401);
+    // A probe changes nothing: the password is still asked at registration.
+    const none = await registerSoftPasskey(req, cookie, pk, origin);
+    expect(((await none.json()) as { code: string }).code).toBe('password_required');
+  });
+
   it('the first passkey needs the password', async () => {
     const none = await registerSoftPasskey(req, cookie, pk, origin);
     expect(none.status).toBe(403);
@@ -214,6 +234,15 @@ d('god step-up for extension mutations', () => {
     const pw = await registerSoftPasskey(req, cookie, second, origin, { password: PASSWORD });
     expect(pw.status).toBe(403);
     expect(((await pw.json()) as { code: string }).code).toBe('step_up_required');
+    // Nor does the pre-ceremony check answer, right password or not, once a factor exists.
+    for (const password of [PASSWORD, 'nope-nope-1']) {
+      const check = await app.request('/api/auth/step-up/check-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ password }),
+      });
+      expect(check.status).toBe(409);
+    }
     const t = await token('factor.passkey.add');
     const ok = await registerSoftPasskey(req, cookie, second, origin, { headers: header(t) });
     expect(ok.status).toBe(200);
@@ -413,6 +442,12 @@ d('first factor on an account with no password', () => {
     const cookie = await oauthSignIn(email);
     // What the Studio asks before the ceremony: no password prompt for this account.
     expect(await firstFactor(cookie)).toBe('recent_sign_in');
+    const check = await app.request('/api/auth/step-up/check-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ password: 'anything-1' }),
+    });
+    expect(check.status).toBe(409);
     const res = await registerSoftPasskey(req, cookie, await newSoftPasskey(), origin);
     expect(res.status).toBe(200);
     await _settleAuditWrites();
