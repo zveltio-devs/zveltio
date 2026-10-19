@@ -519,7 +519,10 @@ curl -X POST /api/permissions/bootstrap \
 
 Add `"clear_factors": true` to also delete that account's passkeys and TOTP — for a
 god who lost every device and so can no longer step up. The god then enrolls again
-(the first factor behind the password). Audited as `auth.factor_changed`.
+(the first factor behind the password). It also ends every existing session of that
+account — the lost device may still be signed in — so the god signs in again. Audited as
+`auth.factor_changed` (`sessions_revoked: true`). Without `clear_factors`, sessions are
+left alone.
 
 ---
 

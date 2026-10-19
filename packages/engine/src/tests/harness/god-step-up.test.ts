@@ -288,7 +288,9 @@ d('god step-up for extension mutations', () => {
       SELECT count(*)::int AS n FROM passkey
        WHERE "userId" = (SELECT id FROM "user" WHERE email = ${email})`.execute(db);
     expect(left.rows[0]?.n).toBe(0);
-    const after = await config(PROBE);
+    // The recovery ended every session of the account; the god signs in again.
+    expect((await config(PROBE)).status).toBe(401);
+    const after = await config(PROBE, {}, await signIn());
     expect(((await after.json()) as { code: string }).code).toBe('step_up_enrollment_required');
   });
 });

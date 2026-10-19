@@ -17,8 +17,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { _settleAuditWrites } from '../../lib/audit.js';
 import { ACCESS_RULES_CHANGED_EVENT, realtimeBus } from '../../lib/runtime/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+  recoverGod,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TOKEN = `recovery-test-${'x'.repeat(40)}`;
@@ -158,5 +164,39 @@ d('recovery bootstrap (in-process)', () => {
       process.env.RECOVERY_TOKEN = TOKEN;
       await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db).catch(() => {});
     }
+  });
+});
+
+d('recovery bootstrap ends the sessions of an account whose factors it clears', () => {
+  let app: Hono;
+  let db: Database;
+  const me = (cookie: string) => app.request('/api/me', { headers: { cookie } });
+
+  beforeAll(async () => {
+    ({ app, db } = await getTestApp());
+  });
+
+  // Factors are cleared because a device was lost or stolen; a session still
+  // open on it would keep the god role the recovery just handed back.
+  it('with clear_factors, every existing session of the account answers 401', async () => {
+    const { cookie, email } = await createMemberSession(app, db);
+    expect((await me(cookie)).status).toBe(200);
+    expect((await recoverGod(app, email, { clear_factors: true })).status).toBe(200);
+    expect((await me(cookie)).status).toBe(401);
+    await _settleAuditWrites();
+    const row = await sql<{ metadata: { change: string; sessions_revoked?: boolean } }>`
+      SELECT metadata FROM zv_audit_log
+       WHERE event_type = 'auth.factor_changed'
+         AND user_id = (SELECT id FROM "user" WHERE email = ${email})`.execute(db);
+    expect(row.rows[0]?.metadata).toMatchObject({
+      change: 'recovery.cleared',
+      sessions_revoked: true,
+    });
+  });
+
+  it('without clear_factors, the sessions are left alone', async () => {
+    const { cookie, email } = await createMemberSession(app, db);
+    expect((await recoverGod(app, email)).status).toBe(200);
+    expect((await me(cookie)).status).toBe(200);
   });
 });
