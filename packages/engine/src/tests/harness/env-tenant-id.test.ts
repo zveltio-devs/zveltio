@@ -80,7 +80,8 @@ d('ZVELTIO_TENANT_ID must name a real tenant', () => {
       env: {
         ...process.env,
         ZVELTIO_TENANT_ID: crypto.randomUUID(),
-        DATABASE_URL: String(process.env.TEST_DATABASE_URL),
+        // The harness's own fallback: without it an unset TEST_DATABASE_URL is "undefined".
+        DATABASE_URL: String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL),
         NATIVE_DATABASE_URL: '',
         PORT: '0',
       },

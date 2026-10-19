@@ -60,6 +60,26 @@ describe('stepUp', () => {
     expect(bodyOf(2)).toEqual({ action: 'extension.enable:crm', code: '123456' });
   });
 
+  it('a confirmation that lands after another request opened the dialog leaves that one open', async () => {
+    let verified!: (r: Response) => void;
+    apiFetch
+      .mockResolvedValueOnce(json({ method: 'totp' }))
+      .mockReturnValueOnce(new Promise<Response>((r) => (verified = r)))
+      .mockResolvedValueOnce(json({ method: 'totp' }));
+    const first = stepUp.token('extension.enable:crm');
+    first.catch(() => {});
+    await vi.waitFor(() => expect(stepUp.pending?.action).toBe('extension.enable:crm'));
+    const confirming = stepUp.confirm('123456');
+    const second = stepUp.token('extension.disable:crm');
+    second.catch(() => {});
+    await vi.waitFor(() => expect(stepUp.pending?.action).toBe('extension.disable:crm'));
+    verified(json({ token: 'tok-3' }));
+    await confirming;
+    await expect(first).rejects.toBeInstanceOf(StepUpCancelled);
+    expect(stepUp.pending?.action).toBe('extension.disable:crm');
+    stepUp.cancel();
+  });
+
   it("a passkey that did not verify its user says to set a PIN, in the person's language", async () => {
     apiFetch
       .mockResolvedValueOnce(json({ method: 'passkey', options: { challenge: 'c' } }))

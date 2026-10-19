@@ -126,7 +126,8 @@ export const stepUp = {
       if (p.method === 'passkey') p.options = (await options(p.action)).options;
       throw refusal(r, p.totp);
     }
-    pending = null;
+    // Another request may have opened the dialog while this one was verifying.
+    if (pending === p) pending = null;
     p.resolve(r.body.token as string);
   },
 

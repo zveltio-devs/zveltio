@@ -291,7 +291,7 @@ function fieldCount(col: any): number {
   return f?.length ?? 0;
 }
 
-// Note: system fields (id, status, created_at, updated_at, created_by, updated_by)
+// Note: system fields (id, created_at, updated_at, created_by, updated_by)
 // are added automatically to every collection — do NOT include them here.
 const TEMPLATES = [
   {
