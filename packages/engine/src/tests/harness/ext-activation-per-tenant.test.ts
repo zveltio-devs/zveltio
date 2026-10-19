@@ -36,7 +36,7 @@ import {
   isExtensionActiveAnywhere,
   isExtensionActiveForTenant,
 } from '../../lib/extensions/activation.js';
-import { runWithDomain } from '../../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID, runWithDomain, withTenantIsolation } from '../../lib/tenancy/index.js';
 import type { Database } from '../../db/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -325,5 +325,58 @@ d('the other things an extension acts through (in-process)', () => {
       );
       expect(answers).toEqual(Array.from({ length: 8 }, () => true));
     });
+  });
+
+  describe('inside the request transaction', () => {
+    // Every `/ext/*` request runs inside the tenant middleware's transaction,
+    // and the gates ask from there. A lookup on the pool is a SECOND connection
+    // held at once: the shape that stalls the engine at c = DB_POOL_MAX.
+    const refusingPool = {
+      getExecutor() {
+        throw new Error('the pool must not be asked while a transaction is held');
+      },
+    } as unknown as Database;
+
+    it('asks on the connection the request already holds, not the pool', async () => {
+      invalidateActivationCache();
+      // The pool refuses, so a pool lookup would fail open and answer true.
+      // Only the held transaction can say "off for B" and "inherited for A".
+      const [b, a] = await withTenantIsolation(DEFAULT_TENANT_ID, async () => [
+        await isExtensionActiveForTenant(refusingPool, EXT, FIRM_B),
+        await isExtensionActiveForTenant(refusingPool, EXT, FIRM_A),
+      ]);
+      expect(b).toBe(false);
+      expect(a).toBe(true);
+    });
+
+    it('a lookup that fails there does not abort the request transaction', async () => {
+      // Hold the table on another connection so the lookup times out inside
+      // the request transaction — a real failure, not a stub.
+      let release!: () => void;
+      const held = new Promise<void>((r) => {
+        release = r;
+      });
+      let locked!: () => void;
+      const isLocked = new Promise<void>((r) => {
+        locked = r;
+      });
+      const holder = db.transaction().execute(async (t) => {
+        await sql`LOCK TABLE zv_extension_registry IN ACCESS EXCLUSIVE MODE`.execute(t);
+        locked();
+        await held;
+      });
+      await isLocked;
+      try {
+        const after = await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+          await sql`SET LOCAL lock_timeout = '100ms'`.execute(trx);
+          expect(await isExtensionActiveForTenant(db, EXT, `${FIRM_A}-locked`)).toBe(true);
+          return (await sql<{ one: number }>`SELECT 1 AS one`.execute(trx)).rows[0]?.one;
+        });
+        expect(after).toBe(1);
+      } finally {
+        release();
+        await holder;
+      }
+    }, 15_000);
   });
 });
