@@ -16,6 +16,7 @@
 import { withSavepoint } from '../savepoint.js';
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
@@ -238,7 +239,9 @@ export async function processInput(
         collectionDef.name,
         processed,
         new Map(fields.map((f) => [f.name, f.type])),
-        previous === 'later' ? { transitions: 'skip' } : { previous },
+        previous === 'later'
+          ? { transitions: 'skip' }
+          : { previous, opaque: encryptedFields(fields) },
       );
     } catch (err) {
       console.error(
@@ -698,37 +701,63 @@ export async function hasTransitionRules(
   return false;
 }
 
+/** Fields stored as ciphertext: a transition rule cannot compare them. */
+function encryptedFields(fields: ReturnType<typeof normalizeFields>): Set<string> {
+  return new Set(fields.filter((f) => f.encrypted).map((f) => f.name));
+}
+
 /**
- * The `transition` rules `processInput(..., 'later')` left out, against the
- * stored record the caller read (and locked: see `hasTransitionRules`). Fails
- * closed like the other rules: an evaluation error refuses the write.
+ * The `transition` rules `processInput(..., 'later')` left out, judged against
+ * the stored row. Call it once the caller's own probes (RLS, query alters,
+ * entity access) have found the row, so the lock below waits only on a row the
+ * caller may write. It locks the row `FOR UPDATE` and reads it again through
+ * `readStored`, so a concurrent write cannot change what the rule was judged
+ * against before this UPDATE commits. Without a transaction there is nothing
+ * to hold the lock: the write is refused. Fails closed like the other rules.
  */
 export async function validateTransitions(
-  collectionDef: CollectionDef | null | undefined,
+  db: Database,
+  canRead: boolean,
+  collectionDef: CollectionDef,
+  id: string,
   processed: Record<string, unknown>,
-  before: Record<string, unknown>,
+  readStored: () => Promise<Record<string, unknown> | undefined>,
 ): Promise<string[]> {
   const vdb = getValidationDb();
-  if (!vdb || !collectionDef?.name || Object.keys(processed).length === 0) return [];
+  const name = collectionDef.name;
+  if (!vdb || !name || Object.keys(processed).length === 0) return [];
+  const refused = [
+    'validation: the rules for this collection could not be evaluated, so the write was refused',
+  ];
+  if (!(db as unknown as { isTransaction?: boolean }).isTransaction) {
+    console.error(
+      `[validation] transition rules for "${name}" need the request transaction to lock the row; refusing the write`,
+    );
+    return refused;
+  }
   const fields = normalizeFields(collectionDef);
   try {
+    const table = DDLManager.getTableName(name);
+    const stored = await engineRead(canRead, db, name, async () => {
+      await sql`SELECT 1 FROM ${sql.table(table)} WHERE id = ${id} FOR UPDATE`.execute(db);
+      return readStored();
+    });
+    if (!stored) return ['Record not found'];
     const verdict = await validateRecord(
       vdb,
-      collectionDef.name,
+      name,
       processed,
       new Map(fields.map((f) => [f.name, f.type])),
-      { previous: before, transitions: 'only' },
+      { previous: stored, transitions: 'only', opaque: encryptedFields(fields) },
     );
     return Object.entries(verdict.errors).flatMap(([field, messages]) =>
       messages.map((m) => `${field}: ${m}`),
     );
   } catch (err) {
     console.error(
-      `[validation] transition rules for "${collectionDef.name}" could not be evaluated; refusing the write:`,
+      `[validation] transition rules for "${name}" could not be evaluated; refusing the write:`,
       err instanceof Error ? err.message : err,
     );
-    return [
-      'validation: the rules for this collection could not be evaluated, so the write was refused',
-    ];
+    return refused;
   }
 }

@@ -155,8 +155,8 @@ run whatever the step's `on_error` says.
 sees `value` and `previous` (the stored value, `null` on create), with the same
 bounds and deadline. Create, PATCH, PUT and bulk PATCH evaluate it after
 locking the stored row (`FOR UPDATE`, as `expect` does), so a concurrent write
-cannot change what it was judged against. Paths that read no stored row (sync,
-`ctx.db` updates) refuse a write that sets the field: fail closed rather than
+cannot change what it was judged against. Paths that read no stored row (sync
+and `ctx.db` updates) refuse a write that sets the field: fail closed rather than
 judge against nothing. Transition rules sit outside rule groups.
 
 ### Installing and trusting code

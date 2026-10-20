@@ -55,13 +55,23 @@ d('transition rules', () => {
       fields: [
         { name: 'title', type: 'text', required: false, unique: false, indexed: false },
         { name: 'status', type: 'text', required: false, unique: false, indexed: false },
+        {
+          name: 'secret',
+          type: 'text',
+          required: false,
+          unique: false,
+          indexed: false,
+          encrypted: true,
+        },
       ],
     } as never);
     await sql`
       INSERT INTO zv_validation_rules
         (collection, field_name, rule_type, rule_config, error_message, is_active)
       VALUES (${COLLECTION}, 'status', 'transition', ${JSON.stringify({ expression: RULE })}::jsonb,
-              'Status cannot move that way', TRUE)`.execute(db);
+              'Status cannot move that way', TRUE),
+             (${COLLECTION}, 'secret', 'transition', ${JSON.stringify({ expression: 'value != previous' })}::jsonb,
+              'Secret cannot stay the same', TRUE)`.execute(db);
     invalidateRulesCache(COLLECTION);
   });
 
@@ -114,5 +124,12 @@ d('transition rules', () => {
     const { errors } = await processInput({ status: 'sent' }, def, true);
     expect(errors.join()).toContain('cannot be evaluated');
     expect((await processInput({ title: 'x' }, def, true)).errors).toEqual([]);
+  });
+
+  it('refuses a transition rule on an encrypted field, whose values are ciphertext', async () => {
+    // `value != previous` would pass every ciphertext pair, judged naively.
+    expect((await send('POST', '', { status: 'draft', secret: 's' })).status).toBe(422);
+    const id = await create('draft');
+    expect((await send('PATCH', `/${id}`, { secret: 's' })).status).toBe(422);
   });
 });

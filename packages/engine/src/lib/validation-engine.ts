@@ -727,7 +727,8 @@ export async function validateFieldValue(
         }
         if (previous === undefined) {
           misconfigured =
-            'is a transition rule, and this write path does not read the stored record';
+            'is a transition rule without the stored value to compare with (this write path ' +
+            'reads no stored record, the read withheld the column, or the field is encrypted)';
           break;
         }
         const outcome = evaluateTransitionRule(expression, value, previous.value, fieldType);
@@ -786,6 +787,11 @@ export async function validateRecord(
      * it, and each must hold on its own.
      */
     transitions?: 'skip' | 'only';
+    /**
+     * Fields whose written and stored values are ciphertext (`encrypted`):
+     * a transition rule cannot compare them, so it refuses.
+     */
+    opaque?: ReadonlySet<string>;
   } = {},
 ): Promise<{ valid: boolean; errors: Record<string, string[]> }> {
   const errors: Record<string, string[]> = {};
@@ -800,8 +806,9 @@ export async function validateRecord(
     const fieldType = fieldTypes.get(fieldName);
     // A stored record without this field (a column the read withheld) is as
     // good as no record: the rule cannot be evaluated, so it refuses.
-    const previous =
-      opts.previous === null
+    const previous = opts.opaque?.has(fieldName)
+      ? undefined
+      : opts.previous === null
         ? { value: null }
         : opts.previous && fieldName in opts.previous
           ? { value: opts.previous[fieldName] }

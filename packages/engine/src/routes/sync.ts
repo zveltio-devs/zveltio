@@ -178,6 +178,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     raw: Record<string, any>,
     actor: { id: string; role: string },
+    operation: 'create' | 'update',
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   ): Promise<{ safe: true; payload: Record<string, any> } | { safe: false; reason: string }> {
     const collectionDef = await DDLManager.getCollection(db, collectionName.replace(/^zvd_/, ''));
@@ -214,9 +215,15 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
     // not encrypted through this one. Sync is the path that runs unattended.
     //
     // `partial: true` because a sync operation carries only the columns the
-    // client actually changed. No stored record: sync reads none before it
-    // writes, so a field with a `transition` rule refuses the operation.
-    const { errors, processed } = await processInput(payload, collectionDef, true);
+    // client actually changed. A create is judged by `transition` rules against
+    // no stored value; an update reads none before it writes, so a field with
+    // a transition rule refuses it.
+    const { errors, processed } = await processInput(
+      payload,
+      collectionDef,
+      true,
+      operation === 'create' ? null : undefined,
+    );
     if (errors.length > 0) {
       return { safe: false, reason: errors.join('; ') };
     }
@@ -355,10 +362,12 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
 
       // Sanitize payload — strip system fields, validate known columns
       if (op.operation !== 'delete') {
-        const sanitized = await sanitizeSyncPayload(op.collection, op.payload, {
-          id: user.id,
-          role: user.role,
-        });
+        const sanitized = await sanitizeSyncPayload(
+          op.collection,
+          op.payload,
+          { id: user.id, role: user.role },
+          op.operation === 'create' ? 'create' : 'update',
+        );
         if (!sanitized.safe) {
           results.push({
             recordId: op.recordId,

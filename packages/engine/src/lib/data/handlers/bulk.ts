@@ -10,7 +10,6 @@
  */
 
 import type { Context } from 'hono';
-import { sql } from 'kysely';
 import type { Database } from '../../../db/index.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 import { DDLManager } from '../ddl-manager.js';
@@ -265,28 +264,16 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         // three, and the only one this file did not mirror -- so a row an
         // extension hid (soft-delete, tenant isolation) answered 404 to
         // `PATCH /:id` and was rewritten by `PATCH /bulk`. Measured, both.
-        //
-        // Locked first when a transition rule applies, as in patchRecord.
-        if (transitions) {
-          await engineRead(canRead, trx, collection, () =>
-            sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(trx),
-          );
-        }
+        const beforeQuery = queryAlterRegistry.applyAll(
+          applyRlsFilters((await selectReadable(trx, tableName)).where('id', '=', id), rlsFilters),
+          tableName,
+          user,
+        );
         const beforeRow = await engineRead<DynamicRecord | undefined>(
           canRead,
           trx,
           collection,
-          async () =>
-            queryAlterRegistry
-              .applyAll(
-                applyRlsFilters(
-                  (await selectReadable(trx, tableName)).where('id', '=', id),
-                  rlsFilters,
-                ),
-                tableName,
-                user,
-              )
-              .executeTakeFirst(),
+          () => beforeQuery.executeTakeFirst(),
         );
         if (!beforeRow) {
           errors.push({ index: i, id, errors: ['Record not found'] });
@@ -300,7 +287,14 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           continue;
         }
         if (transitions) {
-          const transitionErrors = await validateTransitions(collectionDef, processed, beforeRow);
+          const transitionErrors = await validateTransitions(
+            trx,
+            canRead,
+            collectionDef,
+            id,
+            processed,
+            () => beforeQuery.executeTakeFirst(),
+          );
           if (transitionErrors.length > 0) {
             errors.push({ index: i, id, errors: transitionErrors });
             continue;

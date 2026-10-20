@@ -190,7 +190,9 @@ previous == null ? value == 'draft'
 Create, `PATCH`, `PUT` and bulk `PATCH` judge it against the stored row, locked
 for the rest of the write. Sync and `ctx.db` updates read no stored row, so a
 write through them that sets the field is refused; write it through the data
-API. A transition rule is never part of a rule group: each must hold.
+API. A transition rule on an `encrypted` field refuses every write to it: both
+values are ciphertext. A transition rule is never part of a rule group: each
+must hold.
 
 A rule the engine cannot evaluate — an expression that does not parse or
 refers to anything but `value` (and `previous` in a `transition` rule), an `nlp` rule with no expression, a rule type

@@ -451,12 +451,6 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // we short-circuit before invoking any hooks.
   // Same authorisation probe as patchRecord: RLS conditions on the before-row,
   // so a row the caller cannot see cannot be replaced either.
-  if (transitions) {
-    // As in patchRecord: the transition rules judge the row this UPDATE writes.
-    await engineRead(canRead, effectiveDb, collection, () =>
-      sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(effectiveDb),
-    );
-  }
   let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
   beforeQuery = applyRlsFilters(
     beforeQuery,
@@ -478,7 +472,14 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
     return c.json({ error: 'Forbidden' }, 403);
   }
   if (transitions) {
-    const transitionErrors = await validateTransitions(collectionDef, processed, beforeRow);
+    const transitionErrors = await validateTransitions(
+      effectiveDb,
+      canRead,
+      collectionDef,
+      id,
+      processed,
+      () => beforeQuery.executeTakeFirst(),
+    );
     if (transitionErrors.length > 0) return c.json({ errors: transitionErrors }, 422);
   }
 
@@ -605,14 +606,13 @@ export async function patchRecord(
       403,
     );
   }
-  if (w.expect || transitions) {
-    // Locked before the before-row read, so the precondition and the transition
-    // rules are tested on the row this UPDATE writes: a concurrent write waits
-    // here, then reads the committed result (READ COMMITTED takes a new snapshot
-    // per statement). With `expect` the caller can read, so this runs as the
-    // caller, under its RLS; a transition needs no read grant, hence engineRead.
-    await engineRead(canRead, effectiveDb, collection, () =>
-      sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(effectiveDb),
+  if (w.expect) {
+    // Locked before the before-row read, so the precondition is tested on the row
+    // this UPDATE writes: a concurrent precondition write waits here, then reads
+    // the committed result (READ COMMITTED takes a new snapshot per statement).
+    // The caller can read, so this runs as the caller, under its RLS.
+    await sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(
+      effectiveDb,
     );
   }
   let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
@@ -663,7 +663,14 @@ export async function patchRecord(
     }
   }
   if (transitions) {
-    const transitionErrors = await validateTransitions(collectionDef, processed, beforeRow);
+    const transitionErrors = await validateTransitions(
+      effectiveDb,
+      canRead,
+      collectionDef,
+      id,
+      processed,
+      () => beforeQuery.executeTakeFirst(),
+    );
     if (transitionErrors.length > 0) return c.json({ errors: transitionErrors }, 422);
   }
 
