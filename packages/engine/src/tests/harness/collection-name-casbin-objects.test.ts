@@ -179,6 +179,31 @@ d('collection names and the Casbin objects that are not collections', () => {
     }
   }, 60_000);
 
+  it('a create over a ghost registry row dates the collection from the create', async () => {
+    // A registry row with no table (left by a failed create or a hand edit) kept
+    // its old created_at through the create's upsert, so a rule written between
+    // the ghost and the create counted as the collection's and went with a drop.
+    const obj = `hghost_${Date.now()}`;
+    const e = await getEnforcer();
+    await sql`INSERT INTO zvd_collections (name, display_name, fields, created_at)
+              VALUES (${obj}, ${obj}, '[]'::jsonb, now() - interval '1 day')`.execute(db);
+    await e.addPolicy(ROLE, '*', obj, 'write');
+    try {
+      await DDLManager.createCollection(db, {
+        name: obj,
+        fields: FIELDS,
+        adoptRules: true,
+      } as never);
+      await DDLManager.dropCollection(db, obj);
+      expect(await e.hasPolicy(ROLE, '*', obj, 'write')).toBe(true);
+      expect(await grantRows(db, obj)).toBe(1);
+    } finally {
+      await e.removePolicy(ROLE, '*', obj, 'write');
+      await sql.raw(`DROP TABLE IF EXISTS "zvd_${obj}" CASCADE`).execute(db);
+      await db.deleteFrom('zvd_collections').where('name', '=', obj).execute();
+    }
+  }, 60_000);
+
   it('an installed extension whose manifest cannot be read stops creates and drops', async () => {
     // Its resources are unknown, so any name may be one of them: a create could
     // land under grants written for it, a drop could take them.
