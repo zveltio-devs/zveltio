@@ -456,6 +456,15 @@ export interface ExtensionInternals<DB = unknown> {
     expression: string,
     value: unknown,
   ) => { status: 'passed' } | { status: 'failed' } | { status: 'refused'; reason: string };
+  /**
+   * The same, for a `transition` rule: `value` is being written, `previous` is
+   * the stored value (`null` on create). Engine 3.0.0-beta.85 and later.
+   */
+  evaluateTransitionRule: (
+    expression: string,
+    value: unknown,
+    previous: unknown,
+  ) => { status: 'passed' } | { status: 'failed' } | { status: 'refused'; reason: string };
   /** Vet an expression before storing it. A `transition` rule also sees `previous`. */
   checkValidationExpression: (
     expression: string,

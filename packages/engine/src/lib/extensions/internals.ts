@@ -35,6 +35,7 @@ import { introspectSchema } from '../introspection.js';
 import {
   checkValidationExpression,
   evaluateExpressionRule,
+  evaluateTransitionRule,
   invalidateRulesCache,
 } from '../validation-engine.js';
 // The engine's own edge-function entry point — the same one `/api/fn/:name`
@@ -219,6 +220,8 @@ export interface ExtensionInternals {
    * missing was a way for an extension to reach it.
    */
   evaluateExpressionRule: typeof evaluateExpressionRule;
+  /** The same, for a `transition` rule: `previous` is the stored value, `null` on create. */
+  evaluateTransitionRule: typeof evaluateTransitionRule;
   checkValidationExpression: typeof checkValidationExpression;
   /**
    * Run a callback inside a tenant transaction, outside any request.
@@ -713,6 +716,7 @@ function buildUnboundInternals(): ExtensionInternals {
     introspectSchema,
     invalidateRulesCache,
     evaluateExpressionRule,
+    evaluateTransitionRule,
     checkValidationExpression,
     runEdgeFunction,
     extensionRegistry,
