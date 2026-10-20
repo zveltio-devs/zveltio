@@ -4,6 +4,38 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.86] - 2026-10-20
+
+**`ctx.internals.dynamicInsert` runs the field pipeline.** It was the raw
+insert: no type validation, no deserialization, no field encryption, no
+validation rules, while `ctx.db.insertInto` on the same table had all of them.
+It now runs the same pipeline (a `transition` rule is judged against no
+previous value); a row the pipeline refuses throws and nothing is written.
+Pass raw values: an extension that deserializes or encrypts before calling it
+now has ciphertext rejected by type validation (#1211).
+
+**Fixed: every `ctx.internals.dynamicInsert` through an extension's handle
+threw after its INSERT had run** (since beta.80, migration 075). The read-back
+through the masking view asked for the engine read window on the extension's
+restricted handle, which refuses it. The data/import extension reported stored
+rows as failed; import 1.0.10 (requires this release) hands its rows to the
+pipeline raw (#1211).
+
+**Fixed: transition rules compare the stored value typed like the written one.**
+A `numeric` column reads back as a string, so on a `decimal` field
+`value >= previous` was refused as `(double, string)` and every write touching
+the field was refused. Both sides are now bound by the field's type: `number`,
+`float`, `real`, `decimal` as doubles, `date` as `YYYY-MM-DD`, `datetime` as
+UTC ISO instants, so an unchanged date equals itself. A `custom` rule on a
+`datetime` field now also sees the UTC ISO form (#1213).
+
+**Docs.** `record.beforeInsert` / `record.beforeUpdate` hooks run after the
+field pipeline, and what they `mutate()` is written as given: hooks are
+trusted, in-process only (#1210).
+
+`zvd_validation_test_cases.previous_value` is in the schema snapshot (#1209);
+schema-apply's expression vetting is covered by a test (#1212).
+
 ## [3.0.0-beta.85] - 2026-10-20
 
 **Rules are CEL.** Validation expression rules (`custom`, `nlp`) run on
