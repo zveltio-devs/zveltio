@@ -16,7 +16,7 @@ import {
   migrationTimeoutPreamble,
   splitSqlStatements,
 } from '../../db/migrations/index.js';
-import { reconcileExtensionTenantRLS } from '../tenancy/index.js';
+import { noteReconcile, reconcileExtensionTenantRLS, reconcileFailures } from '../tenancy/index.js';
 import { DownMissingError } from './extension-errors.js';
 import { parseMigrationSql } from './extension-utils.js';
 
@@ -134,10 +134,14 @@ export async function runExtensionMigrations(
   const migrations = extension.getMigrations?.() || [];
   if (migrations.length === 0) return;
 
+  // A retry finds nothing to migrate, so nothing touched: without this the
+  // extension refused for a permissive policy loaded on the second try.
+  const owed = unreconciled.get(extension.name);
+  if (owed) await reconcileOrRefuse(extension.name, db, owed);
+
   // Phase 1 — read all migrations + skip the ones already applied. Done
   // outside the outer transaction so an early-skipped chain (everything
   // already applied) doesn't open a useless transaction.
-  type Pending = { name: string; up: string; down: string | null };
   const pending: Pending[] = [];
   for (const migrationPath of migrations) {
     const name = `ext:${extension.name}:${migrationPath.split('/').pop()?.replace('.sql', '')}`;
@@ -187,7 +191,6 @@ export async function runExtensionMigrations(
   // succeeds, so a failed run is retried whole on the next boot.
   const policiesBefore = await tenantIsolationPolicies(db);
 
-  type Segment = { transactional: boolean; items: Pending[] };
   const segments: Segment[] = [];
   for (const m of pending) {
     const transactional = !isNonTransactional(m.up);
@@ -196,6 +199,27 @@ export async function runExtensionMigrations(
     else segments.push({ transactional, items: [m] });
   }
 
+  // Reconciled whether or not a segment throws: one that fails after an earlier
+  // segment committed leaves that segment's policies in force, and only this
+  // rewrites them before the next boot.
+  try {
+    await runSegments(segments, db);
+  } catch (err) {
+    await reconcileTouched(extension.name, db, policiesBefore).catch((e: Error) =>
+      console.warn(
+        `[tenant-rls] ${extension.name}: reconcile after a failed migration:`,
+        e.message,
+      ),
+    );
+    throw err;
+  }
+  await reconcileTouched(extension.name, db, policiesBefore);
+}
+
+type Pending = { name: string; up: string; down: string | null };
+type Segment = { transactional: boolean; items: Pending[] };
+
+async function runSegments(segments: Segment[], db: Database): Promise<void> {
   for (const segment of segments) {
     if (segment.transactional) {
       await db.transaction().execute(async (trx) => {
@@ -227,17 +251,53 @@ export async function runExtensionMigrations(
       console.log(`  ✓ Extension migration (no transaction): ${m.name}`);
     }
   }
+}
 
-  // Extension templates put the READ predicate (`zveltio_tenant_scope_ok`, a
-  // whole subtree for a consolidating parent) in WITH CHECK, which lets a parent
-  // write into a child's rows. The boot reconciler rewrites that, but an install
-  // or enable at run time used to keep it until the next restart. Only the
-  // policies this run created or changed are touched.
+/** Per extension, the tables its last run could not put on the host's predicate. */
+const unreconciled = new Map<string, string[]>();
+
+/**
+ * Extension templates put the READ predicate (`zveltio_tenant_scope_ok`, a
+ * whole subtree for a consolidating parent) in WITH CHECK, which lets a parent
+ * write into a child's rows. The boot reconciler rewrites that, but an install
+ * or enable at run time used to keep it until the next restart. Only the
+ * policies this run created or changed are touched.
+ */
+async function reconcileTouched(
+  extName: string,
+  db: Database,
+  policiesBefore: Map<string, string>,
+): Promise<void> {
   const policiesAfter = await tenantIsolationPolicies(db);
   const touched = [...policiesAfter]
     .filter(([table, def]) => policiesBefore.get(table) !== def)
     .map(([table]) => table);
-  if (touched.length > 0) await reconcileExtensionTenantRLS(db, touched);
+  if (touched.length > 0) await reconcileOrRefuse(extName, db, touched);
+}
+
+/**
+ * Rewrite `tables`' policies, or refuse the load. It was best-effort, so a table
+ * the rewrite failed on kept the template's WITH CHECK and the extension loaded
+ * on it. A refusal names the tables; `/health` reports them (`tenant_rls`).
+ */
+async function reconcileOrRefuse(extName: string, db: Database, tables: string[]): Promise<void> {
+  await reconcileExtensionTenantRLS(db, tables);
+  const failed = reconcileFailures('ext_tenant_rls').filter((f) => tables.includes(f.table));
+  if (failed.length === 0) {
+    unreconciled.delete(extName);
+    return;
+  }
+  unreconciled.set(
+    extName,
+    failed.map((f) => f.table),
+  );
+  for (const f of failed) noteReconcile('ext_tenant_rls', f.table, `${extName}: ${f.error}`);
+  throw new Error(
+    `Extension "${extName}": tenant isolation could not be applied to ` +
+      `${failed.map((f) => `${f.table} (${f.error})`).join(', ')}. Its own policy would let a ` +
+      `parent tenant write into a child's rows, so the extension is not loaded; the next load ` +
+      `retries it.`,
+  );
 }
 
 /** `tenant_isolation_*` policies per table, as text, to tell which a run changed. */
