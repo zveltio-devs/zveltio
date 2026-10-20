@@ -57,6 +57,7 @@ d('transition rules', () => {
         { name: 'status', type: 'text', required: false, unique: false, indexed: false },
         { name: 'amount', type: 'decimal', required: false, unique: false, indexed: false },
         { name: 'due', type: 'date', required: false, unique: false, indexed: false },
+        { name: 'price', type: 'money', required: false, unique: false, indexed: false },
         {
           name: 'secret',
           type: 'text',
@@ -77,7 +78,9 @@ d('transition rules', () => {
              (${COLLECTION}, 'amount', 'transition', ${JSON.stringify({ expression: 'previous == null || value >= previous' })}::jsonb,
               'Amount cannot go down', TRUE),
              (${COLLECTION}, 'due', 'transition', ${JSON.stringify({ expression: 'previous == null || value >= previous' })}::jsonb,
-              'Due date cannot move earlier', TRUE)`.execute(db);
+              'Due date cannot move earlier', TRUE),
+             (${COLLECTION}, 'price', 'transition', ${JSON.stringify({ expression: 'previous == null || value >= previous' })}::jsonb,
+              'Price cannot go down', TRUE)`.execute(db);
     invalidateRulesCache(COLLECTION);
   });
 
@@ -187,5 +190,15 @@ d('transition rules', () => {
     expect((await send('POST', '', { status: 'draft', secret: 's' })).status).toBe(422);
     const id = await create('draft');
     expect((await send('PATCH', `/${id}`, { secret: 's' })).status).toBe(422);
+  });
+
+  it('refuses a transition rule on a money field, which reads back locale-formatted', async () => {
+    // Stored "$10.00" against written "9.00": as strings, "9" sorts after "$".
+    const id = await create('draft');
+    await sql`UPDATE ${sql.table(`zvd_${COLLECTION}`)} SET price = '10.00' WHERE id = ${id}`.execute(
+      db,
+    );
+    expect((await send('PATCH', `/${id}`, { price: '9.00' })).status).toBe(422);
+    expect((await send('PATCH', `/${id}`, { title: 'untouched' })).status).toBe(200);
   });
 });

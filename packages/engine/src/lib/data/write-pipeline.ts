@@ -241,7 +241,7 @@ export async function processInput(
         new Map(fields.map((f) => [f.name, f.type])),
         previous === 'later'
           ? { transitions: 'skip' }
-          : { previous, opaque: encryptedFields(fields) },
+          : { previous, opaque: incomparableFields(fields) },
       );
     } catch (err) {
       console.error(
@@ -701,9 +701,14 @@ export async function hasTransitionRules(
   return false;
 }
 
-/** Fields stored as ciphertext: a transition rule cannot compare them. */
-function encryptedFields(fields: ReturnType<typeof normalizeFields>): Set<string> {
-  return new Set(fields.filter((f) => f.encrypted).map((f) => f.name));
+/**
+ * Fields a transition rule cannot compare: ciphertext (`encrypted`), and
+ * `money`, which Postgres reads back in the locale's format ("$10.00") while
+ * the written value is whatever the caller sent ("9.00"), so `value >= previous`
+ * compared the two as strings and let a decrease through.
+ */
+function incomparableFields(fields: ReturnType<typeof normalizeFields>): Set<string> {
+  return new Set(fields.filter((f) => f.encrypted || f.type === 'money').map((f) => f.name));
 }
 
 /**
@@ -748,7 +753,7 @@ export async function validateTransitions(
       name,
       processed,
       new Map(fields.map((f) => [f.name, f.type])),
-      { previous: stored, transitions: 'only', opaque: encryptedFields(fields) },
+      { previous: stored, transitions: 'only', opaque: incomparableFields(fields) },
     );
     return Object.entries(verdict.errors).flatMap(([field, messages]) =>
       messages.map((m) => `${field}: ${m}`),
