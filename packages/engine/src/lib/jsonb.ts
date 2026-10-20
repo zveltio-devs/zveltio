@@ -34,7 +34,11 @@ import { sql } from 'kysely';
  * people have to remember per column.
  *
  * Works in `.values()` and in `.set()`.
+ *
+ * A bigint (an int8 column read back) becomes its decimal string, as in
+ * revisions-read: JSON has no bigint and a double would lose digits.
  */
 export function toJsonb(value: unknown) {
-  return sql`${JSON.stringify(value ?? null)}::text::jsonb`;
+  const text = JSON.stringify(value ?? null, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+  return sql`${text}::text::jsonb`;
 }
