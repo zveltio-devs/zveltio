@@ -113,6 +113,8 @@ d('ctx.internals tenant facts', () => {
     expect(inA).toContain(ROLE_A);
     expect(inA).not.toContain(ROLE_B);
     expect(inA).toContain('member');
+    // `god` is the instance attribute, never a granted role.
+    expect(inA).not.toContain('god');
   });
 
   it('getPublicSetting serves public settings only', async () => {

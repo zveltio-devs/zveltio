@@ -352,6 +352,12 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const { child, parent } = c.req.valid('json');
       if (child === parent) return c.json({ error: 'A role cannot inherit from itself' }, 400);
       if (await isUserId(child)) return c.json(notARole, 400);
+      // `god` is the `"user".role` instance attribute, not a Casbin role, as
+      // POST /api/permissions/roles refuses it: a `g` edge naming it grants
+      // nothing and would surface `god` as a tenant role in listRoles().
+      if (child === 'god' || parent === 'god') {
+        return c.json({ error: '"god" is set by PATCH /api/users/:id, not as a role' }, 422);
+      }
 
       const e = await getEnforcer();
       // Circular inheritance, at any depth.
