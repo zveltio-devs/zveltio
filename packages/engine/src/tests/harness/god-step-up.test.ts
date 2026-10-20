@@ -17,6 +17,7 @@ import type { Database } from '../../db/index.js';
 import { _settleAuditWrites } from '../../lib/audit.js';
 import { github } from 'better-auth/social-providers';
 import { getAuth, passkeyRelyingParty } from '../../lib/auth.js';
+import { firstFactorRule, noteSessionOrigin } from '../../lib/step-up.js';
 import {
   createGodSession,
   createMemberSession,
@@ -668,6 +669,51 @@ d('removing another account’s passkey', () => {
        WHERE event_type = 'auth.factor_changed' AND metadata->>'change' = 'passkey.remove'
          AND user_id IN (${a.userId}, ${b.userId})`.execute(db);
     expect(removed.rows[0]?.n).toBe(0);
+  });
+});
+
+d('a passkey registered to another account', () => {
+  it('does not verify a step-up, even though its signature is good', async () => {
+    const { app, db } = await getTestApp();
+    const origin = passkeyRelyingParty().origin;
+    const req = (path: string, init?: RequestInit) => app.request(path, init);
+    const password = 'HarnessMember123!';
+    const a = await createMemberSession(app, db);
+    const b = await createMemberSession(app, db);
+    const aKey = await newSoftPasskey();
+    expect((await registerSoftPasskey(req, a.cookie, aKey, origin, { password })).status).toBe(200);
+    expect(
+      (await registerSoftPasskey(req, b.cookie, await newSoftPasskey(), origin, { password }))
+        .status,
+    ).toBe(200);
+    // B's session, B's challenge, A's authenticator.
+    await expect(passkeyStepUp(req, b.cookie, aKey, 'factor.passkey.add', origin)).rejects.toThrow(
+      'step-up verify: 403',
+    );
+    // A's own step-up with the same key still verifies.
+    expect(await passkeyStepUp(req, a.cookie, aKey, 'factor.passkey.add', origin)).toBeString();
+  });
+});
+
+/**
+ * Only an OAuth sign-in marks a session as one that may enroll a first factor
+ * without a password; any other session create (email sign-in, a refresh) must not.
+ */
+d('noteSessionOrigin', () => {
+  it('records the OAuth sign-in paths and no other', async () => {
+    await getTestApp();
+    const noPasswordUser = crypto.randomUUID();
+    const tokenFor = async (path: string | undefined) => {
+      const t = `origin-probe-${crypto.randomUUID()}`;
+      await noteSessionOrigin(t, path);
+      return firstFactorRule(noPasswordUser, t);
+    };
+    for (const path of ['/sign-in/email', '/sign-up/email', '/get-session', undefined]) {
+      expect(await tokenFor(path)).toBe('sign_in_again');
+    }
+    for (const path of ['/callback/:id', '/sign-in/social']) {
+      expect(await tokenFor(path)).toBe('recent_sign_in');
+    }
   });
 });
 
