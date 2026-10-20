@@ -688,14 +688,20 @@ export async function reconcileExtensionTenantRLS(
       }
       await sql`ALTER TABLE ${sql.id(tablename)} ENABLE ROW LEVEL SECURITY`.execute(db);
       await sql`ALTER TABLE ${sql.id(tablename)} FORCE ROW LEVEL SECURITY`.execute(db);
-      await sql`DROP POLICY IF EXISTS ${sql.id(policyname)} ON ${sql.id(tablename)}`.execute(db);
-      const visibleFn = await visibleTenantsFn(db, tablename);
-      await sql`
-        CREATE POLICY ${sql.id(policyname)} ON ${sql.id(tablename)}
-        USING (tenant_id = ANY (${sql.raw(visibleFn)}))
-        WITH CHECK (zveltio_tenant_write_ok(tenant_id))
-      `.execute(db);
-      await applyOwnNodeWrites(db, tablename);
+      // The swap is one transaction: a failure between DROP and CREATE left the
+      // table under FORCE with no policy, refusing every read until next boot.
+      const swap = async (h: Database) => {
+        await sql`DROP POLICY IF EXISTS ${sql.id(policyname)} ON ${sql.id(tablename)}`.execute(h);
+        const visibleFn = await visibleTenantsFn(h, tablename);
+        await sql`
+          CREATE POLICY ${sql.id(policyname)} ON ${sql.id(tablename)}
+          USING (tenant_id = ANY (${sql.raw(visibleFn)}))
+          WITH CHECK (zveltio_tenant_write_ok(tenant_id))
+        `.execute(h);
+        await applyOwnNodeWrites(h, tablename);
+      };
+      if ((db as unknown as { isTransaction?: boolean }).isTransaction) await swap(db);
+      else await db.transaction().execute(swap);
       applied++;
     } catch (err) {
       failed.set(tablename, err);
