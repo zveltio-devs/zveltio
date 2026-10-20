@@ -17,7 +17,7 @@
  * everything above storage looked correct.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { _resetExtensionDbRoleForTests } from '../../lib/extensions/ext-db-role.js';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -150,6 +150,27 @@ d('extension writes run through the field pipeline', () => {
       .raw(`SELECT id FROM "${TABLE}" WHERE label = 'short-pw'`)
       .execute(db)) as { rows: unknown[] };
     expect(rows.rows.length).toBe(0);
+  });
+
+  it('refuses the write when the collection metadata cannot be read', async () => {
+    // The read failing (a lock_timeout behind DDL on zvd_collections, measured)
+    // read as "not a collection": the row went in verbatim, the encrypted
+    // field in plaintext.
+    const spy = spyOn(DDLManager, 'getCollection').mockRejectedValueOnce(
+      Object.assign(new Error('canceling statement due to lock timeout'), { errno: '55P03' }),
+    );
+    const id = crypto.randomUUID();
+    try {
+      await expect(
+        extDb.insertInto(TABLE).values({ id, label: 'meta-down', api_key: SECRET }).execute(),
+      ).rejects.toThrow(/lock timeout/);
+    } finally {
+      spy.mockRestore();
+    }
+    const rows = (await sql
+      .raw(`SELECT api_key FROM "${TABLE}" WHERE id = '${id}'`)
+      .execute(db)) as { rows: unknown[] };
+    expect(rows.rows).toEqual([]);
   });
 
   it('leaves the extension’s own namespace alone', async () => {

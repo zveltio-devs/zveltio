@@ -913,7 +913,9 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
       // returned it in the clear. And the column mask was a hand-written
       // `delete` loop covering `hidden` but not `readOnly`, where
       // `applyColumnAccess` covers both.
-      const pullDef = await DDLManager.getCollection(db, collectionShortName).catch(() => null);
+      // No `.catch`: a null definition serializes nothing, so a failed read
+      // would send `password` hashes out instead of failing the pull.
+      const pullDef = await DDLManager.getCollection(db, collectionShortName);
       // In keyset order: a delete and a later re-insert of one id must apply
       // in that order.
       for (const item of page) {
