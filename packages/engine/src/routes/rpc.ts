@@ -15,6 +15,7 @@ import { isApiKeyPrincipal, RPC_SCOPE } from '../lib/data/index.js';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { reqDb } from '../lib/route-db.js';
+import { asEngineRole } from '../lib/role-window.js';
 import { checkPermission, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { getUserRoles, resolveUserRole } from '../lib/tenancy/index.js';
 
@@ -187,11 +188,16 @@ export function rpcRoutes(db: Database, auth: any): Hono {
       return c.json({ error: 'Valid function_name required' }, 400);
     }
 
-    const rows = await sql`
-      INSERT INTO zvd_rpc_functions (function_name, description, required_role, is_enabled)
-      VALUES (${body.function_name}, ${body.description ?? null}, ${body.required_role ?? 'member'}, ${body.is_enabled ?? true})
-      RETURNING *
-    `.execute(db);
+    // The whitelist is read by the request role and written by the engine's own
+    // (`ensureRlsEnforcementRole`): a row here makes a function callable and
+    // sets the rank it asks for.
+    const rows = await asEngineRole(db, () =>
+      sql`
+        INSERT INTO zvd_rpc_functions (function_name, description, required_role, is_enabled)
+        VALUES (${body.function_name}, ${body.description ?? null}, ${body.required_role ?? 'member'}, ${body.is_enabled ?? true})
+        RETURNING *
+      `.execute(db),
+    );
     return c.json({ function: rows.rows[0] }, 201);
   });
 
@@ -203,15 +209,17 @@ export function rpcRoutes(db: Database, auth: any): Hono {
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: 'Body required' }, 400);
 
-    const rows = await sql`
-      UPDATE zvd_rpc_functions
-      SET
-        description  = COALESCE(${body.description ?? null}, description),
-        required_role = COALESCE(${body.required_role ?? null}, required_role),
-        is_enabled   = COALESCE(${body.is_enabled ?? null}, is_enabled)
-      WHERE id = ${c.req.param('id')}
-      RETURNING *
-    `.execute(db);
+    const rows = await asEngineRole(db, () =>
+      sql`
+        UPDATE zvd_rpc_functions
+        SET
+          description  = COALESCE(${body.description ?? null}, description),
+          required_role = COALESCE(${body.required_role ?? null}, required_role),
+          is_enabled   = COALESCE(${body.is_enabled ?? null}, is_enabled)
+        WHERE id = ${c.req.param('id')}
+        RETURNING *
+      `.execute(db),
+    );
     if (!rows.rows[0]) return c.json({ error: 'Not found' }, 404);
     return c.json({ function: rows.rows[0] });
   });
@@ -221,7 +229,9 @@ export function rpcRoutes(db: Database, auth: any): Hono {
     if (session instanceof Response) return session;
     if (!(await requireInstanceAdmin(session.user.id))) return c.json({ error: 'Forbidden' }, 403);
 
-    await sql`DELETE FROM zvd_rpc_functions WHERE id = ${c.req.param('id')}`.execute(db);
+    await asEngineRole(db, () =>
+      sql`DELETE FROM zvd_rpc_functions WHERE id = ${c.req.param('id')}`.execute(db),
+    );
     return c.json({ success: true });
   });
 

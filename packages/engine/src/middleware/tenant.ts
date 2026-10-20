@@ -170,12 +170,13 @@ const TXN_SKIP_PREFIXES = [
   '/api/admin/rls',
   '/api/admin/column-permissions',
   // Likewise `zv_roles` and `zv_settings` (082): the role list, the settings
-  // routes, the storage and tenant-admin rate-limit switches, and recovery,
-  // which spends its token in `zv_settings`.
+  // routes, the storage switch, and recovery, which spends its token in
+  // `zv_settings`. And `zv_rate_limit_configs`: the god-only tier and tenant
+  // limits, with the tenant-admin switch beneath them.
   '/api/admin/roles',
   '/api/settings',
   '/api/admin/storage',
-  '/api/admin/rate-limits/tenant-admins',
+  '/api/admin/rate-limits',
   '/api/permissions/bootstrap',
 
   // The instance audit trail (migration 040). Instance-level rows are visible
