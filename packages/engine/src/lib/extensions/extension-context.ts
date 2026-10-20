@@ -482,7 +482,7 @@ function asDynamic(builder: unknown): DynamicBuilder {
  *
  * Collections are metadata-cached, so the steady state costs no query.
  */
-async function runFieldPipeline(
+export async function runFieldPipeline(
   db: Database,
   table: string,
   extName: string,

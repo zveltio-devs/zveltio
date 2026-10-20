@@ -402,7 +402,13 @@ export interface ExtensionContext<DB = any, C extends string = Capability> {
  * import these directly from `../../../packages/engine/src/...` paths.
  */
 export interface ExtensionInternals<DB = unknown> {
-  /** Type-safe insert into a dynamic (user-defined) collection table. */
+  /**
+   * Insert one row into a collection table (`zvd_<name>`). The row goes
+   * through the engine's field pipeline first, as a `ctx.db` insert does: type
+   * validation, deserialization, field encryption and the collection's
+   * validation rules. Pass RAW values — do not deserialize or encrypt them
+   * yourself. A row the pipeline refuses throws and nothing is written.
+   */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   dynamicInsert: (db: any, collection: string, values: Record<string, unknown>) => Promise<unknown>;
   /**
