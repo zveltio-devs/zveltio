@@ -4,6 +4,30 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.87] - 2026-10-20
+
+**Fixed: an extension write could skip the field pipeline.** `ctx.db` writes
+and `ctx.internals.dynamicInsert` read the collection definition with any error
+taken for "not a collection", so a failed read (a lock timeout behind DDL on
+`zvd_collections`, a dropped connection) wrote the row verbatim: plaintext in an
+`encrypted` field, no password hashing, no validation. The write now fails. The
+sync pull had the same fallback, where it would have sent `password` hashes
+(#1215).
+
+**Fixed: a `transition` rule on a `money` field compared strings.** Postgres
+reads money back locale-formatted (`"$10.00"`), so `value >= previous` let
+`"9.00"` through. A transition rule on a money field now refuses, as it does on
+an encrypted field; use `decimal` for amounts a rule must order (#1217).
+
+**Fixed: with `ZVELTIO_DB_DRIVER=pg`, a `date` came back one day early** on a
+server whose TZ is east of UTC (local midnight). It now reads as midnight UTC,
+as Bun.SQL does (#1218).
+
+Sync push's transition-rule wiring is covered end to end (#1216). The
+data/import extension 1.0.11 runs each row in its own savepoint, so one failed
+row no longer loses the import, and a dry run now validates each row as a real
+import would.
+
 ## [3.0.0-beta.86] - 2026-10-20
 
 **`ctx.internals.dynamicInsert` runs the field pipeline.** It was the raw
