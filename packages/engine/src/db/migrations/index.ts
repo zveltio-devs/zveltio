@@ -748,6 +748,17 @@ async function applyMigration(
     for (let si = 0; si < statements.length; si++) {
       await runStatements(db as unknown as StatementExecutor, si);
     }
+    try {
+      await recordApplied(db, migrationNumber, filename, checksum, Date.now() - startTime);
+    } catch (err) {
+      // Nothing to roll back with: the statements above have committed. Not
+      // recorded means pending, so the next run applies the file again.
+      throw new Error(
+        `Migration ${migrationNumber} (${filename}) ran but could not be recorded, so it is ` +
+          `still pending and the next run applies it again: ${(err as Error).message}`,
+        { cause: err },
+      );
+    }
   } else {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     await (db as any).transaction().execute(async (trx: any) => {
@@ -773,13 +784,14 @@ async function applyMigration(
         await runStatements(trx, si);
       }
       if (inTransaction) await inTransaction(trx as Database);
+      // In the migration's transaction: a file that cannot be recorded is
+      // rolled back with its row, not left applied and pending.
+      await recordApplied(trx, migrationNumber, filename, checksum, Date.now() - startTime);
     });
   }
 
-  const executionMs = Date.now() - startTime;
-  await recordApplied(db, migrationNumber, filename, checksum, executionMs);
   console.log(
-    `   ✅ Migration ${String(migrationNumber).padStart(3, '0')} — ${migrationName(filename)} (${executionMs}ms)`,
+    `   ✅ Migration ${String(migrationNumber).padStart(3, '0')} — ${migrationName(filename)} (${Date.now() - startTime}ms)`,
   );
   return true;
 }
@@ -788,7 +800,15 @@ function migrationName(filename: string): string {
   return filename.replace(/^\d+_/, '').replace('.sql', '').replace(/_/g, ' ');
 }
 
-/** The ledger rows for one applied migration. */
+/**
+ * The ledger rows for one applied migration. Throws on failure: both tracking
+ * inserts used to end `.catch(console.warn)` after the migration had committed,
+ * so a refused row left the schema changed, nothing recorded, the file reported
+ * applied, and the next run applying it again (tests/harness/migration-tracking-fatal.test.ts).
+ * Inside a transaction the swallowed error also aborted it. Both tables come
+ * from the first migration, so neither is ever legitimately missing here.
+ * Schema-qualified because a baseline empties `search_path` for its transaction.
+ */
 async function recordApplied(
   db: Database,
   migrationNumber: number,
@@ -798,8 +818,8 @@ async function recordApplied(
 ): Promise<void> {
   const name = migrationName(filename);
 
-  // Record in zv_schema_versions
   await db
+    .withSchema('public')
     .insertInto('zv_schema_versions')
     .values({
       // INTEGER in the database; the Kysely type says string.
@@ -810,9 +830,8 @@ async function recordApplied(
       engine_version: process.env.ZVELTIO_VERSION ?? ENGINE_VERSION,
       execution_ms: executionMs,
     })
-    // `version` is UNIQUE and `rollbackMigration` keeps the row, marked. A
-    // plain insert hit the conflict, the catch below swallowed it, and the row
-    // stayed marked rolled back — so every boot re-applied the migration.
+    // `version` is UNIQUE and `rollbackMigration` keeps the row, marked: a
+    // re-applied migration reuses it.
     .onConflict((oc) =>
       oc.column('version').doUpdateSet({
         name,
@@ -824,30 +843,19 @@ async function recordApplied(
         rolled_back_at: null,
       }),
     )
-    .execute()
-    .catch((err: Error) => {
-      // Tracking failure is non-fatal because the migration itself
-      // already succeeded — but a chronic failure means the next run
-      // will re-apply the same migration, which can break idempotence.
-      console.warn(`[migrations] zv_schema_versions tracking failed for ${filename}:`, err.message);
-    });
+    .execute();
 
   // Also record in legacy zv_migrations table for backward compat
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await (db as any)
+    .withSchema('public')
     .insertInto('zv_migrations')
     .values({ name: filename.replace('.sql', '') })
     // A re-applied (rolled-back) migration already has its row.
     .onConflict((oc: { column: (c: string) => { doNothing: () => unknown } }) =>
       oc.column('name').doNothing(),
     )
-    .execute()
-    .catch((err: Error) => {
-      console.warn(
-        `[migrations] legacy zv_migrations row insert failed for ${filename}:`,
-        err.message,
-      );
-    });
+    .execute();
 }
 
 /**
