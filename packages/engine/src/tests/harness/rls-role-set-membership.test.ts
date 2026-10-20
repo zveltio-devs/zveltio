@@ -11,7 +11,8 @@
  *
  * Same gap for the two narrow roles: boot granted no SET on `zveltio_worker` or
  * `zveltio_flow_reader`, and the worker SQL bridge picked its role by EXISTENCE,
- * so a SET FALSE membership failed every worker query on `SET LOCAL ROLE`.
+ * so a SET FALSE membership failed every worker query on `SET LOCAL ROLE`. The
+ * bridge never falls back to `zveltio_rls` (narrow-roles-collection-grants).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
@@ -109,8 +110,10 @@ d(TITLE, () => {
     }
   }, 60_000);
 
-  it('the worker SQL bridge never picks a role it cannot SET', async () => {
-    // NO_SET holds zveltio_worker with SET FALSE; give it a usable zveltio_rls.
+  it('the worker SQL bridge never picks a role it cannot SET — nor zveltio_rls', async () => {
+    // NO_SET holds zveltio_worker with SET FALSE; give it a usable zveltio_rls,
+    // which the bridge must still not take: the collection policy passes a
+    // no-actor statement under the request role as engine work.
     await sql.raw(`GRANT zveltio_rls TO ${NO_SET} WITH SET TRUE`).execute(su);
     const url = new URL(String(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL));
     url.username = NO_SET;
@@ -119,9 +122,14 @@ d(TITLE, () => {
     const reserved = await pool.reserve();
     try {
       await reserved.unsafe('BEGIN');
+      expect(await pickWorkerSqlRole(reserved)).toBeNull(); // the bridge then refuses
+      // Once SET-able, zveltio_worker is the pick, and SET LOCAL ROLE takes it.
+      await reserved.unsafe('ROLLBACK');
+      await sql.raw(`GRANT zveltio_worker TO ${NO_SET} WITH SET TRUE`).execute(su);
+      await reserved.unsafe('BEGIN'); // a new transaction sees the grant
       const role = await pickWorkerSqlRole(reserved);
+      expect(role).toBe('zveltio_worker');
       await reserved.unsafe(`SET LOCAL ROLE ${role}`); // what the bridge does next
-      expect(role).toBe('zveltio_rls');
       await reserved.unsafe('ROLLBACK');
     } finally {
       reserved.release();
