@@ -2,7 +2,7 @@
 // Manages tenant schema lifecycle and resolution
 
 import { applyCollectionPermissions } from './collection-permissions.js';
-import { startReconcile } from './reconcile-failures.js';
+import { noteReconcile, startReconcile } from './reconcile-failures.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { type RawBuilder, sql } from 'kysely';
 import { indexName } from '../pg-identifier.js';
@@ -536,6 +536,8 @@ async function revokeNarrowRolesFromNonCollections(db: Database, tables: string[
  * isolation for a table that deliberately has none (catalogues, lookup data).
  *
  * Best-effort per table: one failure must not stop the engine from booting.
+ * Each is recorded as `ext_tenant_rls` for `/health`, and is how
+ * `runExtensionMigrations` learns which of its tables failed.
  *
  * `only` narrows it to the tables an extension's migrations just touched — the
  * runtime path (`runExtensionMigrations`), which must not lock every other
@@ -547,6 +549,10 @@ export async function reconcileExtensionTenantRLS(
   /** As for `applyTenantRLS`: the `(tenant_id, created_at)` build goes post-listen. */
   opts: { deferIndexes?: boolean } = {},
 ): Promise<number> {
+  // A full run replaces the last one's report; a narrowed run only its tables'.
+  const note = only
+    ? (table: string, err?: unknown) => noteReconcile('ext_tenant_rls', table, err)
+    : startReconcile('ext_tenant_rls');
   let targets: { tablename: string; policyname: string }[];
   try {
     const rows = await sql<{ tablename: string; policyname: string }>`
@@ -556,7 +562,8 @@ export async function reconcileExtensionTenantRLS(
          AND policyname LIKE 'tenant\\_isolation\\_%'
     `.execute(db);
     targets = only ? rows.rows.filter((r) => only.includes(r.tablename)) : rows.rows;
-  } catch {
+  } catch (err) {
+    for (const table of only ?? ['*']) note(table, err);
     return 0;
   }
 
@@ -597,6 +604,8 @@ export async function reconcileExtensionTenantRLS(
   }
 
   let applied = 0;
+  /** Per table, not per policy: a table's second policy applying clears nothing. */
+  const failed = new Map<string, unknown>();
   for (const { tablename, policyname } of targets) {
     // Extension tables are `zv_*` (their own namespace) or `zvd_*` (collection
     // data) — SAFE_COLLECTION_TABLE only matches the latter, so it would have
@@ -689,10 +698,16 @@ export async function reconcileExtensionTenantRLS(
       await applyOwnNodeWrites(db, tablename);
       applied++;
     } catch (err) {
+      failed.set(tablename, err);
       console.warn(
         `[tenant-rls] extension reconcile failed for ${tablename}:`,
         (err as Error).message,
       );
+    }
+  }
+  for (const { tablename, policyname } of targets) {
+    if (SAFE_TENANT_TABLE.test(tablename) && SAFE_POLICY_NAME.test(policyname)) {
+      note(tablename, failed.get(tablename));
     }
   }
   return applied;

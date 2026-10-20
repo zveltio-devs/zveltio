@@ -254,19 +254,19 @@ export function healthRoutes(db: Database, auth?: any): Hono {
       },
       {
         // The boot reconcile re-applies tenant isolation to every collection
-        // table and goes on past a table it cannot; this is where that shows.
+        // and extension table and goes on past a table it cannot; this is where
+        // that shows. So does an extension refused for its table's policy.
         name: 'tenant_rls',
         critical: false,
         run: () => {
-          const failed = reconcileFailures('tenant_rls').map(({ table, error }) => ({
-            table,
-            error,
-          }));
+          const failed = reconcileFailures('tenant_rls', 'ext_tenant_rls').map(
+            ({ table, error }) => ({ table, error }),
+          );
           return {
             ok: failed.length === 0,
             detail: { failed },
             error: failed.length
-              ? `tenant isolation could not be re-applied to ${failed.map((f) => f.table).join(', ')} at boot; the previous policies stay in force`
+              ? `tenant isolation could not be re-applied to ${failed.map((f) => f.table).join(', ')}; the previous policies stay in force`
               : undefined,
           };
         },

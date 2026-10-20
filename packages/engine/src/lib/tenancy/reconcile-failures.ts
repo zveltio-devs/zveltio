@@ -2,14 +2,18 @@
  * What the last boot reconcile of each database layer could not apply, by
  * table: the message. Each failure only warned, and a warning at boot is read by
  * nobody; `/health` reports these instead (`tenant_rls`, `db_rules`). A table
- * that failed keeps what it had — every layer replaces its objects in one
- * transaction — so this is visibility, not an open door. On an upgrade it is
+ * that failed keeps what it had — every layer except `ext_tenant_rls` replaces
+ * its objects in one transaction — so this is visibility, not an open door. On an upgrade it is
  * the layer never having been applied at all, which is why it must be seen.
  *
  * `*` stands for the reconcile as a whole: its list of tables could not be read.
  */
 export type ReconcileStep =
   | 'tenant_rls'
+  // An extension table's `tenant_isolation_*` policy (`reconcileExtensionTenantRLS`),
+  // at boot and after every extension migration run; until it applies the
+  // extension's own template policy is in force, and the extension is not loaded.
+  | 'ext_tenant_rls'
   | 'row_rules'
   | 'column_guards'
   | 'column_seals'
