@@ -161,11 +161,10 @@ d('a unique field is unique per tenant', () => {
     // it read "the same tenant_id, code … (value: <tenant uuid>, API-1)".
     //
     // Under tenant RLS Postgres withholds the key DETAIL altogether
-    // (BuildIndexValueDescription), so the generic message is what a
-    // tenant-scoped write gets. This read the field and value only while
-    // `createCollection` left the table without RLS (fixed 2026-10-14).
+    // (BuildIndexValueDescription): the field comes from the engine's
+    // constraint name, `<table>_tenant_id_<field>_key`, and the value is not said.
     const body = (await dup.json()) as { errors?: string[] };
-    expect(body.errors).toEqual(['A record with the same unique value already exists.']);
+    expect(body.errors).toEqual(['A record with the same code already exists.']);
     expect(JSON.stringify(body)).not.toContain(TENANT_A);
   });
 

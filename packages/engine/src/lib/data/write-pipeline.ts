@@ -316,7 +316,23 @@ export function mapPgError(
     matchKey[2] = (matchKey[2] ?? '').replace(/^[0-9a-f-]{36}, /i, '');
   }
 
-  const referencedBy = /is (?:still )?referenced from table "([^"]+)"/.exec(detail || message)?.[1];
+  // Under RLS Postgres withholds DETAIL (measured: Bun.SQL then carries only
+  // `table` and `constraint`), and every collection is under RLS. The message
+  // still names both tables, and the engine's own constraint names say the
+  // field: `<table>_tenant_id_<field>_key`, `<table>_<field>_fkey`.
+  const referencedBy =
+    /is (?:still )?referenced from table "([^"]+)"/.exec(detail || message)?.[1] ??
+    /^update or delete on table "[^"]+" violates foreign key constraint "[^"]+" on table "([^"]+)"/.exec(
+      message,
+    )?.[1];
+  const table = String(
+    (e.table_name as string | undefined) ?? (e.table as string | undefined) ?? '',
+  );
+  const constraintField = (suffix: string): string | null => {
+    if (!table || !constraint.startsWith(`${table}_`) || !constraint.endsWith(suffix)) return null;
+    const f = constraint.slice(table.length + 1, -suffix.length).replace(/^tenant_id_/, '');
+    return f || null;
+  };
 
   // The column write guard (migration 072): the same answer the engine's own
   // filter gives, so a path that forgot the filter still reads as a 403.
@@ -361,9 +377,11 @@ export function mapPgError(
           ? `This record is still referenced by "${referencedBy.replace(/^zvd_/, '')}" and cannot be deleted.`
           : matchKey
             ? `Field "${matchKey[1]}" references "${(matchKey[3] ?? '').replace(/^zvd_/, '') || 'another collection'}" but no record with id "${matchKey[2]}" exists.`
-            : 'Referenced record does not exist.',
+            : constraintField('_fkey')
+              ? `Field "${constraintField('_fkey')}" references a record that does not exist.`
+              : 'Referenced record does not exist.',
         code: code || '23503',
-        field: referencedBy ? null : (matchKey?.[1] ?? (column || null)),
+        field: referencedBy ? null : (matchKey?.[1] ?? (column || constraintField('_fkey'))),
       },
     };
   }
@@ -379,9 +397,11 @@ export function mapPgError(
         error: 'unique_violation',
         message: matchKey
           ? `A record with the same ${matchKey[1]} already exists (value: ${matchKey[2]}).`
-          : 'A record with the same unique value already exists.',
+          : constraintField('_key')
+            ? `A record with the same ${constraintField('_key')} already exists.`
+            : 'A record with the same unique value already exists.',
         code: code || '23505',
-        field: matchKey?.[1] ?? null,
+        field: matchKey?.[1] ?? constraintField('_key'),
       },
     };
   }
