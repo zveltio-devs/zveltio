@@ -92,13 +92,15 @@ export async function getDataStats(db: Database = getDb()): Promise<DataStats> {
 
 /**
  * Role names in force in the running tenant: grants made in it or in every
- * tenant (`'*'`), plus the `"user".role` column roles. `listAllRoles()` reads
+ * tenant (`'*'`), plus `member`. Not `god`: that is the `"user".role` instance
+ * attribute, never granted, so nothing keyed on a role name ever matches it
+ * (a layout saved for it applied to no one). `listAllRoles()` reads
  * every tenant's grants, which names another customer's custom roles.
  */
 export async function listRoles(): Promise<string[]> {
   const tenant = runningTenant('listRoles');
   const e = await getEnforcer();
-  const set = new Set<string>(['god', 'member']);
+  const set = new Set<string>(['member']);
   for (const row of ((await e.getNamedGroupingPolicy('g')) ?? []) as string[][]) {
     const [, role, domain] = row;
     if (role && (domain === tenant || domain === '*' || domain === undefined)) set.add(role);

@@ -113,6 +113,18 @@ d('role hierarchy excludes user assignments (in-process)', () => {
     expect(await count(userId, PARENT)).toBe(0);
   });
 
+  it('refuses god as either end of an edge: it is not a Casbin role', async () => {
+    for (const body of [
+      { child: 'god', parent: PARENT },
+      { child: CHILD, parent: 'god' },
+    ]) {
+      const res = await send('/api/admin/roles/hierarchy', 'POST', body);
+      expect(res.status).toBe(422);
+    }
+    expect(await count('god', PARENT)).toBe(0);
+    expect(await count(CHILD, 'god')).toBe(0);
+  });
+
   it('removes a role edge (DELETE was shadowed by DELETE /roles/:id)', async () => {
     const res = await send('/api/admin/roles/hierarchy', 'DELETE', {
       child: CHILD,
