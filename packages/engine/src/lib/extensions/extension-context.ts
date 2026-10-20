@@ -491,7 +491,12 @@ export async function runFieldPipeline(
 ): Promise<Record<string, unknown>> {
   const { DDLManager, processInput, normalizeFields } = await import('../data/index.js');
   const collection = table.replace(/^zvd_/, '');
-  const collectionDef = await DDLManager.getCollection(db, collection).catch(() => null);
+  // No `.catch`: a failed metadata read (a lock_timeout behind DDL on
+  // zvd_collections, a dropped connection) used to read as "not a collection"
+  // and the row went in verbatim — plaintext in an `encrypted` field, no
+  // validation. The read runs on `target` itself, outside the extension's role
+  // window, as the engine or request role: both may read zvd_collections.
+  const collectionDef = await DDLManager.getCollection(db, collection);
   // No collection definition means no field metadata to apply — the table is
   // not a user collection (or is being written during its own creation).
   if (!collectionDef) return data;
