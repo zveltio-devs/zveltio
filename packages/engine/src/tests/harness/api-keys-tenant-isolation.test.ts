@@ -159,4 +159,53 @@ d('api-keys/invitations tenant isolation (in-process)', () => {
     expect(del.status).toBe(404);
     expect(await config()).toEqual({ window_ms: 60_000, max_requests: 5 });
   });
+
+  // The request role reads that table and writes none of it (control-table-
+  // grants): the override is written as the engine, inside the request.
+  it("the tenant's own key rate limit is set and removed", async () => {
+    const { DEFAULT_TENANT_ID } = await import('../../lib/tenancy/index.js');
+    const id = '00000000-0000-4000-8000-0000000000e3';
+    await db
+      .insertInto('zv_api_keys')
+      .values({
+        id,
+        name: `own-key-${STAMP}`,
+        key_hash: `own-hash-${STAMP}`,
+        key_prefix: 'zvk_own00000',
+        scopes: toJsonb([]),
+        rate_limit: 1000,
+        is_active: true,
+        created_by: null,
+        request_count: 0,
+        tenant_id: DEFAULT_TENANT_ID,
+      } as never)
+      .execute();
+    const config = () =>
+      db
+        .selectFrom('zv_rate_limit_configs')
+        .select(['max_requests'])
+        .where('key_prefix', '=', `apikey:${id}`)
+        .executeTakeFirst();
+    try {
+      const put = await app.request(`/api/api-keys/${id}/rate-limit`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ window_ms: 60_000, max_requests: 7 }),
+      });
+      expect(put.status).toBe(200);
+      expect(await config()).toEqual({ max_requests: 7 });
+      const del = await app.request(`/api/api-keys/${id}/rate-limit`, {
+        method: 'DELETE',
+        headers: { cookie },
+      });
+      expect(del.status).toBe(200);
+      expect(await config()).toBeUndefined();
+    } finally {
+      await db
+        .deleteFrom('zv_rate_limit_configs')
+        .where('key_prefix', '=', `apikey:${id}`)
+        .execute();
+      await db.deleteFrom('zv_api_keys').where('id', '=', id).execute();
+    }
+  });
 });

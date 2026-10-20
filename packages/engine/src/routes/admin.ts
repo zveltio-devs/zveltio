@@ -25,6 +25,7 @@ import { registerPermissionRoutes } from './admin/permission-routes.js';
 import { registerConfigRoutes } from './admin/config-routes.js';
 import { registerStorageAdminRoutes } from './admin/storage-routes.js';
 import { guardAdmin } from '../lib/admin-guard.js';
+import { asEngineRole } from '../lib/role-window.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function adminRoutes(db: Database, auth: any): Hono {
@@ -334,19 +335,25 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       if (!key) return c.json({ error: 'API key not found' }, 404);
 
       const keyPrefix = `apikey:${id}`;
-      await db
-        .insertInto('zv_rate_limit_configs')
-        .values({
-          key_prefix: keyPrefix,
-          window_ms,
-          max_requests,
-          description: `Per-key override for ${id}`,
-        })
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        .onConflict((oc: any) =>
-          oc.column('key_prefix').doUpdateSet({ window_ms, max_requests, updated_at: new Date() }),
-        )
-        .execute();
+      // Instance-wide, so the request role reads it and the engine's own writes
+      // it (`ensureRlsEnforcementRole`); the key check above scopes the row.
+      await asEngineRole(db, () =>
+        db
+          .insertInto('zv_rate_limit_configs')
+          .values({
+            key_prefix: keyPrefix,
+            window_ms,
+            max_requests,
+            description: `Per-key override for ${id}`,
+          })
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          .onConflict((oc: any) =>
+            oc
+              .column('key_prefix')
+              .doUpdateSet({ window_ms, max_requests, updated_at: new Date() }),
+          )
+          .execute(),
+      );
 
       invalidateRateLimitCache(keyPrefix);
 
@@ -374,7 +381,9 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
     if (!key) return c.json({ error: 'API key not found' }, 404);
     const keyPrefix = `apikey:${key.id}`;
-    await db.deleteFrom('zv_rate_limit_configs').where('key_prefix', '=', keyPrefix).execute();
+    await asEngineRole(db, () =>
+      db.deleteFrom('zv_rate_limit_configs').where('key_prefix', '=', keyPrefix).execute(),
+    );
     invalidateRateLimitCache(keyPrefix);
 
     const user = c.get('user') as RequestUser;

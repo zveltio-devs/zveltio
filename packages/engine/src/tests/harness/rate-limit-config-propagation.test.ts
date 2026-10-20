@@ -26,6 +26,7 @@ import {
   realtimeBus,
   type RealtimeBusMessage,
 } from '../../lib/runtime/index.js';
+import { asEngineRole } from '../../lib/role-window.js';
 import { getCurrentTenantTrx, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   clearLocalRateLimitCache,
@@ -167,8 +168,13 @@ d('rate-limit config: every tier tunable, changes reach every instance', () => {
     const writer = withTenantIsolation(
       tenant,
       async () => {
-        await sql`UPDATE zv_rate_limit_configs SET max_requests = 2
-                   WHERE key_prefix = 'files'`.execute(getCurrentTenantTrx()!);
+        // Inside a request transaction the engine writes this table as itself
+        // (the request role reads it only), as the per-key override route does.
+        const trx = getCurrentTenantTrx()!;
+        await asEngineRole(trx, () =>
+          sql`UPDATE zv_rate_limit_configs SET max_requests = 2
+               WHERE key_prefix = 'files'`.execute(trx),
+        );
         invalidateRateLimitCache('files');
         changed();
         await readP; // commit only after another request has re-read the old row

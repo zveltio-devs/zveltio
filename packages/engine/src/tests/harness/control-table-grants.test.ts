@@ -42,6 +42,19 @@ const CONTROL_TABLES = [
   'zv_settings',
   // God status is "user".role, and email and banned decide who signs in.
   'user',
+  // Instance metadata. A tenant's status, parent and tier; every tenant's rate
+  // limits; the RPC whitelist and the rank it asks; a collection's virtual
+  // upstream and its fields; preview tokens; and the migration ledgers, whose
+  // `down_sql` the engine runs as itself when an extension is purged.
+  'zv_tenants',
+  'zv_rate_limit_configs',
+  'zvd_rpc_functions',
+  'zvd_collections',
+  'zvd_relations',
+  'zv_schema_branches',
+  'zv_schema_versions',
+  'zv_schema_migrations',
+  'zv_migrations',
 ];
 const REQUEST_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext'];
 
@@ -94,7 +107,8 @@ d('control tables are read-only to the request roles', () => {
     const r = await sql<{ t: string }>`
       SELECT t FROM unnest(${CONTROL_TABLES}::text[]) t
        WHERE to_regclass('public.' || t) IS NOT NULL
-         AND NOT has_table_privilege('zveltio_rls', ('public.' || t)::regclass, 'SELECT')
+         -- Column-wise for zv_schema_branches, whose preview_token it may not read.
+         AND NOT has_any_column_privilege('zveltio_rls', ('public.' || t)::regclass, 'SELECT')
     `.execute(db);
     expect(r.rows).toEqual([]);
   });
@@ -130,6 +144,11 @@ d('control tables are read-only to the request roles', () => {
         sql`INSERT INTO "user" (id, name, email) VALUES ('ctl-probe', 'p', 'ctl-probe@probe.invalid')`,
       ),
       attempt(sql`SELECT 1 FROM "user" WHERE false FOR UPDATE`),
+      attempt(sql`UPDATE zv_tenants SET status = 'active', parent_id = NULL WHERE false`),
+      attempt(sql`UPDATE zv_rate_limit_configs SET is_active = false WHERE false`),
+      attempt(sql`UPDATE zvd_rpc_functions SET required_role = 'member' WHERE false`),
+      attempt(sql`UPDATE zvd_collections SET virtual_config = NULL WHERE false`),
+      attempt(sql`DELETE FROM zv_schema_versions WHERE false`),
     ]);
     await sql`DELETE FROM "user" WHERE id = 'ctl-probe'`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v0 = 'ctl-probe'`.execute(db);
@@ -137,6 +156,30 @@ d('control tables are read-only to the request roles', () => {
     await sql`DELETE FROM zv_roles WHERE name = 'ctl-probe'`.execute(db);
     await sql`DELETE FROM zv_settings WHERE key = 'ctl-probe'`.execute(db);
     for (const r of results) expect(r).toMatch(/permission denied/i);
+  });
+
+  // `zv_migrations.down_sql` is what an extension uninstall with purge runs, as
+  // the engine's login role (`purgeExtensionData`) — a superuser on a stock
+  // install. A row planted from a tenant transaction was SQL run as the owner.
+  it("a tenant transaction cannot plant the SQL an extension's purge runs as the engine", async () => {
+    const { withTenantIsolation, DEFAULT_TENANT_ID } = await import('../../lib/tenancy/index.js');
+    const { purgeExtensionData } = await import('../../lib/extensions/migration-runner.js');
+    let result = 'ALLOWED';
+    try {
+      await withTenantIsolation(DEFAULT_TENANT_ID, (trx) =>
+        sql`INSERT INTO zv_migrations (name, down_sql)
+            VALUES ('ext:ctl-probe:001_x', 'CREATE TABLE ctl_probe_owned (x int)')`.execute(trx),
+      );
+    } catch (err) {
+      result = (err as Error).message;
+    }
+    await purgeExtensionData('ctl-probe', db);
+    const owned = await sql<{ t: string | null }>`
+      SELECT to_regclass('public.ctl_probe_owned')::text AS t`.execute(db);
+    await sql`DROP TABLE IF EXISTS ctl_probe_owned`.execute(db);
+    await sql`DELETE FROM zv_migrations WHERE name LIKE 'ext:ctl-probe:%'`.execute(db);
+    expect(owned.rows[0]?.t).toBeNull();
+    expect(result).toMatch(/permission denied/i);
   });
 
   // Migration 080's trigger drops every Casbin row whose subject is the deleted

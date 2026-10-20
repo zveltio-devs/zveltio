@@ -1730,13 +1730,25 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         -- column (isGodUser), email and banned decide who signs in, and a user
         -- row named after a role took that role's grants when deleted (080's
         -- trigger). The engine writes it under its own role (asEngineRole).
+        -- And the instance metadata, none of it tenant-scoped: zv_tenants (a
+        -- tenant's status and parent), every tenant's rate limits, the RPC
+        -- whitelist and its required rank, collections (a virtual one's upstream
+        -- and credential) and relations, schema branches (preview tokens), and
+        -- the migration ledgers — zv_migrations.down_sql is what an extension
+        -- purge runs as the engine (purgeExtensionData). Not zv_validation_rules:
+        -- the validation extension writes it through ctx.db, which keeps this
+        -- role where the extension roles could not be made.
         -- tests/harness/control-table-grants.test.ts.
         FOR t IN
           SELECT tablename FROM pg_tables
           WHERE schemaname = 'public'
             AND tablename IN ('zvd_permissions', 'zvd_column_permissions', 'zvd_rls_policies',
                               'zv_extension_forward_approvals', 'zv_extension_registry',
-                              'zv_roles', 'zv_settings', 'zv_default_grant_revocations', 'user')
+                              'zv_roles', 'zv_settings', 'zv_default_grant_revocations', 'user',
+                              'zv_tenants', 'zv_rate_limit_configs', 'zvd_rpc_functions',
+                              'zvd_collections', 'zvd_relations',
+                              'zv_schema_branches', 'zv_schema_versions',
+                              'zv_schema_migrations', 'zv_migrations')
         LOOP
           EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;
