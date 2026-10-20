@@ -5427,6 +5427,7 @@ export interface ZvdValidationTestCasesTable {
   created_by: string;
   created_at: Generated<Date>;
   tenant_id: Generated<string | null>;
+  previous_value: string | null;
 }
 
 export interface ZvdWarehousesTable {
