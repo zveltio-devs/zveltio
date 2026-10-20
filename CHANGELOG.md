@@ -4,6 +4,52 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.85] - 2026-10-20
+
+**Rules are CEL.** Validation expression rules (`custom`, `nlp`) run on
+`@bufbuild/cel`, bounded at 1,024 characters, 32 levels of nesting and an
+evaluation deadline; `matches()` runs on RE2. `value` is bound by the field's
+type: integer columns as CEL `int`, every other number as `double` (a rule on a
+decimal field writes `value * 2.0`). Migration 087 rewrites stored `and` / `or`
+to `&&` / `||` where that is certain; a rule it leaves that is not CEL is
+refused at evaluation, so writes touching that field are refused and the log
+names the rule. Check `[validation-engine]` lines after upgrading (#1200, #1199).
+
+**Transition rules.** A new validation `rule_type`, `transition`: CEL over
+`value` and `previous` (the stored value, `null` on create), for a status that
+may only move `draft` → `sent` | `cancelled`, say. Create, PATCH, PUT and bulk
+PATCH judge it against the stored row, locked for the rest of the write. Sync
+updates and `ctx.db` updates read no stored row and refuse a write that sets
+such a field; so does an `encrypted` field. Extensions get
+`ctx.internals.evaluateTransitionRule` (#1206, #1207).
+
+**The flow `condition` step runs.** Its `expression` is CEL over `trigger` and
+`output`; `true` skips the steps in `false_branch`, `false` those in
+`true_branch`, and with neither list `false` ends the run as a success.
+Migration 088 admits the type (#1204, #1205).
+
+**extension-api v1 is frozen** (`packages/sdk/extension-api/v1.d.ts`), checked in
+CI by `check:extension-api`: additive changes only from here (#1189).
+
+**Security.**
+- TOTP step-up codes are counted per account (5 live attempts, then 429
+  `step_up_locked`), not only per IP, and `/api/auth/two-factor/verify-totp`
+  on an account with TOTP enabled is refused instead of answering right or
+  wrong outside that count (#1192).
+- A passkey step-up advances the authenticator counter compare-and-set, so a
+  cloned authenticator racing its owner is refused (#1196).
+- God recovery with `clear_factors` ends every session of the account (#1195).
+- A first passkey behind a password checks the password before the ceremony
+  (#1194).
+- A migration applied on a running engine no longer leaves the request role
+  write access to control tables (`zv_extension_forward_approvals`,
+  `zv_default_grant_revocations`) (#1202, #1191).
+
+**Fixes.** Marketplace, licence and extension-list routes, and the extension
+activation lookup, no longer hold a second pooled connection per request
+(#1197, #1198). Studio's step-up dialog no longer closes a second pending
+confirmation (#1193).
+
 ## [3.0.0-beta.84] - 2026-10-19
 
 **"Today" is the tenant's date, not the UTC one.** Every default "today" was the
