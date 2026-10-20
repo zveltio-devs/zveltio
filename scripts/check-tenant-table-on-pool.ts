@@ -345,7 +345,13 @@ for (const [file, sf] of files) {
         }
       }
       // `sql\`…\`.execute(<pool>)` — a raw statement is exactly as unbound.
-      const tpl = strip(n.expression.expression);
+      // So is one built first, `const q = sql\`…\`; q.execute(<pool>)`:
+      // planted 2026-10-20, green before the name was followed.
+      let tpl = strip(n.expression.expression);
+      if (ts.isIdentifier(tpl)) {
+        const d = resolve(tpl);
+        if (d && ts.isVariableDeclaration(d) && d.initializer) tpl = strip(d.initializer);
+      }
       if (op === 'execute' && arg && onPool(arg) && ts.isTaggedTemplateExpression(tpl)) {
         if (ts.isIdentifier(tpl.tag) && tpl.tag.text === 'sql') {
           sitesSeen++;
