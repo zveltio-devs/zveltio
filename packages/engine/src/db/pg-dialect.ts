@@ -255,6 +255,16 @@ export function createPgDialect(config: PgDialectConfig): Dialect {
     max: config.max ?? 20,
     idleTimeoutMillis: config.idleTimeoutMs ?? 300_000,
     connectionTimeoutMillis: ACQUIRE_TIMEOUT_MS,
+    // `date` (OID 1082) as midnight UTC, as `Bun.SQL` reads it. `pg` builds a
+    // local-midnight Date, so on a server whose TZ is east of UTC the ISO day
+    // came out one earlier ("2026-10-20" read as 2026-10-19T21:00Z in Bucharest).
+    // Per pool, not `pg.types`: that is process-wide and pg-boss shares it.
+    types: {
+      getTypeParser: ((oid: number, format?: 'text' | 'binary') =>
+        oid === 1082 && format !== 'binary'
+          ? (v: string) => new Date(`${v}T00:00:00Z`)
+          : pg.types.getTypeParser(oid, format as 'text')) as typeof pg.types.getTypeParser,
+    },
   });
   // A client whose backend dies (terminated, idle-in-transaction timeout) emits
   // `error`. With no listener, a checked-out client's event is thrown out of

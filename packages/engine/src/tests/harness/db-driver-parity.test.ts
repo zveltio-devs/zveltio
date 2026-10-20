@@ -107,6 +107,22 @@ d('the pg dialect stores what Bun.SQL stores', () => {
     expect(await read(pgdb)).toEqual(await read(bun));
   });
 
+  it('reads a date as midnight UTC through both drivers, whatever the server TZ', async () => {
+    const tz = process.env.TZ;
+    process.env.TZ = 'Europe/Bucharest';
+    try {
+      const read = async (db: Db) =>
+        (
+          await sql<{ d: Date }>`SELECT '2026-10-20'::date AS d`.execute(db)
+        ).rows[0]!.d.toISOString();
+      expect(await read(pgdb)).toBe('2026-10-20T00:00:00.000Z');
+      expect(await read(bun)).toBe('2026-10-20T00:00:00.000Z');
+    } finally {
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
+  });
+
   it('a failed statement carries its SQLSTATE on errno through both drivers', async () => {
     for (const db of [bun, pgdb]) {
       const err = await sql`SELECT 1 / 0`.execute(db).then(
