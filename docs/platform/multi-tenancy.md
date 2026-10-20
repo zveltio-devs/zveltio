@@ -465,14 +465,19 @@ because they are counter-intuitive and have been written wrongly more than once:
 
 ### When a rule is withdrawn — per source, not uniformly
 
-`getRlsFilters` skips a rule **only** if the value resolves to `null`:
+`getRlsFilters` skips a rule **only** if the value resolves to `null`, which
+only an unknown source does:
 
 ```
-user_id     → user.id             ''  does NOT skip
-user_email  → user.email ?? null  absent SKIPS
-user_role   → user.role           ''  does NOT skip
+user_id     → user.id                  ''  does NOT skip
+user_email  → user.email ?? ''         absent does NOT skip (matches no owner)
+user_role   → resolved role ?? ''      absent does NOT skip
 static:VAL  → VAL
 ```
+
+An API key has no email, and the WebSocket and SSE paths build their user
+without one. `''` keeps an `owner_email eq user_email` rule in force for them
+and matches no real owner; `null` would drop the rule on exactly those doors.
 
 The generated policy must do the same, or the two layers say different things.
 It did it wrongly until 31 August: it skipped on any empty setting, so a rule on
