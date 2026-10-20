@@ -245,6 +245,44 @@ d('electric shapes', () => {
     }
   });
 
+  it("an upstream 400 is the client's; 429/503 keep their status and Retry-After; others are 502", async () => {
+    const realFetch = globalThis.fetch;
+    let answer = new Response('', { status: 500 });
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      if (!String(input).startsWith(process.env.ELECTRIC_URL!)) return realFetch(input, init);
+      return Promise.resolve(answer);
+    }) as typeof fetch;
+    try {
+      const cases: [Response, number, string, string | null][] = [
+        [new Response('bad offset', { status: 400 }), 400, 'electric.bad_request', null],
+        [
+          new Response('', { status: 429, headers: { 'retry-after': '7' } }),
+          429,
+          'electric.busy',
+          '7',
+        ],
+        [
+          new Response('', { status: 503, headers: { 'retry-after': '3' } }),
+          503,
+          'electric.busy',
+          '3',
+        ],
+        [new Response('', { status: 503 }), 503, 'electric.busy', null],
+        [new Response('', { status: 500 }), 502, 'electric.upstream', null],
+      ];
+      for (const [upstream, status, code, retryAfter] of cases) {
+        answer = upstream;
+        const { res, text } = await shape(asMember(), { offset: '-1' });
+        expect(res.status).toBe(status);
+        expect(text).toContain(code);
+        expect(text).not.toContain('bad offset');
+        expect(res.headers.get('retry-after')).toBe(retryAfter);
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   live('against a real Electric', () => {
     it("the member's shape is their tenant's allowed rows and allowed columns", async () => {
       const { rows, raw, schema } = await sync(asMember());

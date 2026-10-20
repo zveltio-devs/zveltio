@@ -96,4 +96,20 @@ d('revoking an API key reports what it did (in-process)', () => {
     `.execute(db);
     expect(audited.rows[0]!.n).toBe(1);
   });
+
+  it("PATCH refuses permissions_mode 'god': the column grants nothing by it", async () => {
+    const id = await mint('permissions-mode-probe');
+    const patch = (mode: string) =>
+      app.request(`/api/admin/api-keys/${id}`, {
+        method: 'PATCH',
+        headers: { cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions_mode: mode }),
+      });
+    expect((await patch('god')).status).toBe(400);
+    expect((await patch('casbin')).status).toBe(200);
+    const row = await sql<{ permissions_mode: string }>`
+      SELECT permissions_mode FROM zv_api_keys WHERE id = ${id}
+    `.execute(db);
+    expect(row.rows[0]?.permissions_mode).toBe('casbin');
+  });
 });

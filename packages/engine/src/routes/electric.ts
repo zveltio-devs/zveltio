@@ -195,6 +195,21 @@ export function electricRoutes(
     // Any other refusal may quote the WHERE and its values, so it stays in the log.
     if (!res.ok) {
       console.warn(`[electric] upstream ${res.status} for ${scope.table}:`, await res.text());
+      // A bad request (offset, handle, cursor) is the client's: 400, not 502.
+      if (res.status === 400) {
+        throw problem('electric.bad_request', 400, 'The Electric service refused the request.');
+      }
+      // Busy or throttled upstream: the same status, and its Retry-After.
+      if (res.status === 429 || res.status === 503) {
+        const err = problem(
+          'electric.busy',
+          res.status,
+          `The Electric service answered ${res.status}.`,
+        );
+        const after = Number(res.headers.get('retry-after') ?? NaN);
+        if (Number.isInteger(after) && after >= 0) err.retryAfter = after;
+        throw err;
+      }
       throw problem('electric.upstream', 502, `The Electric service answered ${res.status}.`);
     }
 
