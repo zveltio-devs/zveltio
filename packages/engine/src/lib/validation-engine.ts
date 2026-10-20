@@ -811,8 +811,8 @@ export async function validateRecord(
      */
     transitions?: 'skip' | 'only';
     /**
-     * Fields whose written and stored values are ciphertext (`encrypted`):
-     * a transition rule cannot compare them, so it refuses.
+     * Fields whose written and stored values cannot be compared (ciphertext,
+     * locale-formatted `money`): a transition rule on them refuses.
      */
     opaque?: ReadonlySet<string>;
   } = {},
