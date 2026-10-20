@@ -99,6 +99,7 @@ import m080 from './sql/086_default_grant_revocations.sql' with { type: 'text' }
 import m081 from './sql/087_validation_rules_cel.sql' with { type: 'text' };
 import m082 from './sql/088_flow_condition_step.sql' with { type: 'text' };
 import m083 from './sql/089_user_email_lowercase.sql' with { type: 'text' };
+import m084 from './sql/090_validation_rules_cel_down_guard.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -186,4 +187,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '087_validation_rules_cel.sql': m081,
   '088_flow_condition_step.sql': m082,
   '089_user_email_lowercase.sql': m083,
+  '090_validation_rules_cel_down_guard.sql': m084,
 };

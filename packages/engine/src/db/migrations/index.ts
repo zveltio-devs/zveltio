@@ -1115,6 +1115,11 @@ export async function rollbackMigration(
             for (const stmt of migrationTimeoutPreamble()) {
               await trx.executeQuery({ sql: stmt, parameters: [] });
             }
+            // Where this rollback stops, for a DOWN that guards a lower file's
+            // DOWN: 090 refuses only when 087's DOWN is going to run.
+            await sql`SELECT set_config('zveltio.rollback_target', ${String(targetVersion)}, true)`.execute(
+              trx,
+            );
             for (const stmt of splitSqlStatements(down)) {
               await trx.executeQuery({ sql: stmt, parameters: [] });
             }
