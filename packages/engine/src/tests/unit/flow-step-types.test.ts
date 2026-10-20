@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { EXECUTABLE_STEP_TYPES } from '../../lib/flows/flow-executor.js';
+import type { ZvFlowStepsTable } from '../../db/schema.generated.js';
+import { EXECUTABLE_STEP_TYPES, type ExecutableStepType } from '../../lib/flows/flow-executor.js';
 
 /**
  * C-6 — the Studio offered six flow step types and the executor implemented
@@ -32,6 +33,17 @@ describe('flow step types', () => {
   it('the exported list is exactly what the switch implements', () => {
     const declared: string[] = [...EXECUTABLE_STEP_TYPES];
     expect(declared.sort()).toEqual(casesInExecutor().sort());
+  });
+
+  // The CHECK on zv_flow_steps.type is the third list. schema.generated.ts is
+  // derived from the migrations (the Type Check job fails when it is stale),
+  // so this compiles only while the CHECK admits exactly what the switch runs:
+  // a type admitted but not run is a stored flow that fails every run, and a
+  // type run but not admitted is a case no flow can reach.
+  it('the zv_flow_steps.type CHECK admits exactly the executable types', () => {
+    type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+    const same: Same<ZvFlowStepsTable['type'], ExecutableStepType> = true;
+    expect(same).toBe(true);
   });
 
   // Two of the three the Studio offered and the executor never had; `condition`
