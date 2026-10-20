@@ -679,6 +679,12 @@ export class DDLManager {
       await sql.raw(syncTombstoneTrigger(tableName)).execute(trx);
     });
 
+    // A registry row already under this name has no table (CREATE TABLE above
+    // just made it): a ghost. Its old created_at survived the upsert, and the
+    // drop's rule cutoff then took rules written before this create.
+    await sql`UPDATE zvd_collections SET created_at = now() WHERE name = ${validated.name}`.execute(
+      db,
+    );
     // Register metadata first so relation inserts can reference valid collection names
     await this.registerMetadata(db, validated);
 
