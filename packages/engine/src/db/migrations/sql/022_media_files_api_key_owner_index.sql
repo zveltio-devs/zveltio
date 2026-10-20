@@ -20,4 +20,4 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_zv_media_files_created_by_api_key
 
 -- DOWN
 
-DROP INDEX IF EXISTS idx_zv_media_files_created_by_api_key;
+DROP INDEX CONCURRENTLY IF EXISTS idx_zv_media_files_created_by_api_key;
