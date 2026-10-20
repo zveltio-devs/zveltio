@@ -110,4 +110,47 @@ d('relations m2m (in-process)', () => {
     }
     relationId = '';
   });
+
+  it('DELETE refuses an m2m relation whose junction an extension made, before any change', async () => {
+    // crm registers `contact_organizations` over its own table. The engine
+    // drops only the `zvd_jnc_*` tables it makes; before, the delete removed
+    // the source field's metadata and then threw on the junction name.
+    const junction = `zvd_extjnc_${Date.now()}`;
+    await sql.raw(`CREATE TABLE "${junction}" (id uuid PRIMARY KEY)`).execute(db);
+    const rel = await db
+      .insertInto('zvd_relations')
+      .values({
+        name: `ext_rel_${Date.now()}`,
+        type: 'm2m',
+        source_collection: A,
+        source_field: 'title',
+        target_collection: B,
+        junction_table: junction,
+      } as never)
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    try {
+      const res = await app.request(`/api/relations/${rel.id}`, {
+        method: 'DELETE',
+        headers: { cookie },
+      });
+      expect(res.status).toBe(409);
+      const left = await db
+        .selectFrom('zvd_relations')
+        .select('id')
+        .where('id', '=', rel.id)
+        .execute();
+      expect(left).toHaveLength(1);
+      expect(await DDLManager.tableExists(db, junction.slice(4))).toBe(true);
+      const fields = await db
+        .selectFrom('zvd_collections')
+        .select('fields')
+        .where('name', '=', A)
+        .executeTakeFirstOrThrow();
+      expect(JSON.stringify(fields.fields)).toContain('"title"');
+    } finally {
+      await db.deleteFrom('zvd_relations').where('id', '=', rel.id).execute();
+      await sql.raw(`DROP TABLE IF EXISTS "${junction}"`).execute(db);
+    }
+  });
 });

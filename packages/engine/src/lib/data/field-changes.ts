@@ -335,6 +335,12 @@ export async function dropField(db: Database, name: string, fieldName: string): 
         .where('source_field', '=', fieldName)
         .executeTakeFirst();
       if (relation?.junction_table) {
+        if (!DDLManager.isEngineJunction(relation.junction_table)) {
+          throw new FieldChangeError(
+            `Field "${fieldName}" joins through "${relation.junction_table}", which an extension made; remove it through that extension.`,
+            409,
+          );
+        }
         await DDLManager.dropJunctionTable(trx, relation.junction_table);
       }
     } else {
