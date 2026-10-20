@@ -6950,6 +6950,7 @@ table zvd_validation_test_cases
   col label                          text NOT NULL
   col last_run_at                    timestamp with time zone
   col last_run_result                boolean
+  col previous_value                 text
   col rule_id                        uuid NOT NULL
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   pk  zvd_validation_test_cases_pkey PRIMARY KEY (id)
