@@ -851,6 +851,14 @@ Key semantics:
 - `mutate(patch)` shallow-merges into the in-flight payload — for `beforeInsert`
   it targets `data`; for `beforeUpdate` it targets `patch`. Subsequent handlers
   see the merged result.
+- A hook runs **after** the field pipeline, and what it merges is written as
+  given. The payload already passed column-level write access, type
+  validation, the collection's validation rules (`transition` rules
+  included) and field encryption; values a hook adds or replaces go through
+  none of them. A hook is trusted engine-side code (only in-process
+  extensions can register one; the runner refuses `events.onBefore`), so it
+  owns what it writes: store the shape the column expects, and encrypt with
+  `ctx.internals.maybeEncrypt` before writing to an `encrypted: true` field.
 - `abort(reason)` throws `AbortHookError`. The data layer catches it and
   returns HTTP 422 `{ code: 'EXT_HOOK_ABORTED', reason }`. No row is written.
 - A handler that throws anything other than `AbortHookError` becomes a 500.
