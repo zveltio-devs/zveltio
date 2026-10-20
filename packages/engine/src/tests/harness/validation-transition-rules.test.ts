@@ -55,6 +55,8 @@ d('transition rules', () => {
       fields: [
         { name: 'title', type: 'text', required: false, unique: false, indexed: false },
         { name: 'status', type: 'text', required: false, unique: false, indexed: false },
+        { name: 'amount', type: 'decimal', required: false, unique: false, indexed: false },
+        { name: 'due', type: 'date', required: false, unique: false, indexed: false },
         {
           name: 'secret',
           type: 'text',
@@ -71,7 +73,11 @@ d('transition rules', () => {
       VALUES (${COLLECTION}, 'status', 'transition', ${JSON.stringify({ expression: RULE })}::jsonb,
               'Status cannot move that way', TRUE),
              (${COLLECTION}, 'secret', 'transition', ${JSON.stringify({ expression: 'value != previous' })}::jsonb,
-              'Secret cannot stay the same', TRUE)`.execute(db);
+              'Secret cannot stay the same', TRUE),
+             (${COLLECTION}, 'amount', 'transition', ${JSON.stringify({ expression: 'previous == null || value >= previous' })}::jsonb,
+              'Amount cannot go down', TRUE),
+             (${COLLECTION}, 'due', 'transition', ${JSON.stringify({ expression: 'previous == null || value >= previous' })}::jsonb,
+              'Due date cannot move earlier', TRUE)`.execute(db);
     invalidateRulesCache(COLLECTION);
   });
 
@@ -124,6 +130,18 @@ d('transition rules', () => {
     const { errors } = await processInput({ status: 'sent' }, def, true);
     expect(errors.join()).toContain('cannot be evaluated');
     expect((await processInput({ title: 'x' }, def, true)).errors).toEqual([]);
+  });
+
+  it('judges the stored value as the written one is typed (numeric, date)', async () => {
+    const id = await create('draft');
+    expect((await send('PATCH', `/${id}`, { amount: '10.50', due: '2026-10-20' })).status).toBe(
+      200,
+    );
+    expect((await send('PATCH', `/${id}`, { amount: '10.75', due: '2026-10-21' })).status).toBe(
+      200,
+    );
+    expect((await send('PATCH', `/${id}`, { amount: '9' })).status).toBe(422);
+    expect((await send('PATCH', `/${id}`, { due: '2026-10-19' })).status).toBe(422);
   });
 
   it('refuses a transition rule on an encrypted field, whose values are ciphertext', async () => {

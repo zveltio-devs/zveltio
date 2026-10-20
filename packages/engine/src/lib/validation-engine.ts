@@ -237,13 +237,36 @@ export function checkConditionExpression(
 // keeps a rule's meaning from depending on whether one particular value
 // happened to be whole.
 const INTEGER_FIELD_TYPES = new Set(['integer', 'int', 'bigint', 'smallint']);
+const DOUBLE_FIELD_TYPES = new Set(['number', 'float', 'real', 'decimal']);
 
+/**
+ * One value as CEL sees it, by the field's declared type. A `transition` rule
+ * binds the written value (deserialized by the field pipeline) and the stored
+ * one (as the driver returned it) through here, so both sides must land in the
+ * same shape: a `numeric` column reads back as the string `"10.50"` while the
+ * write carries the number, and `value >= previous` was refused as
+ * `(double, string)` on every write. Dates compare as ISO text: `date` as
+ * `YYYY-MM-DD`, `datetime` as UTC instants, so the order of the strings is the
+ * order of the dates.
+ */
 function toCelValue(value: unknown, fieldType: string | undefined): unknown {
   if (value === undefined) return null;
+  if (fieldType === 'date' || fieldType === 'datetime') {
+    const instant =
+      value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null;
+    if (instant && !Number.isNaN(instant.getTime())) {
+      const iso = instant.toISOString();
+      return fieldType === 'date' ? iso.slice(0, 10) : iso;
+    }
+  }
   if (value instanceof Date) return value.toISOString();
   if (fieldType && INTEGER_FIELD_TYPES.has(fieldType)) {
     if (typeof value === 'number' && Number.isInteger(value)) return BigInt(value);
     if (typeof value === 'string' && /^-?\d+$/.test(value)) return BigInt(value);
+  }
+  if (fieldType && DOUBLE_FIELD_TYPES.has(fieldType) && typeof value === 'string') {
+    const n = Number(value);
+    if (value.trim() !== '' && Number.isFinite(n)) return n;
   }
   return value;
 }
