@@ -99,10 +99,9 @@ d('flows CRUD + steps + run (in-process)', () => {
   it('appends a step (POST /:id/steps)', async () => {
     const res = await app.request(
       `/api/flows/${flowId}/steps`,
-      // `query_db`, not `condition`. This case is about step CRUD, and
-      // `condition` is no longer an accepted type: the executor never
-      // implemented it, so a flow built on it reported success and did nothing
-      // (C-6). The route refuses it at creation now.
+      // `query_db`: this case is about step CRUD, not about what a step
+      // evaluates. (`condition` was refused here while the executor had no
+      // case for it (C-6); it runs as CEL since migration 088.)
       json('POST', {
         type: 'query_db',
         name: 'gate',
