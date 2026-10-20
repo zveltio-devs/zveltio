@@ -8,6 +8,7 @@
 
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -103,6 +104,19 @@ d('admin system routes (in-process)', () => {
     const res = await app.request('/api/admin/migrate', { method: 'POST', headers: h() });
     // Already migrated by the harness boot → a clean no-op success.
     expect([200, 201]).toContain(res.status);
+  });
+
+  it('POST /api/admin/migrate applies a pending migration (runs on the pool, not the request role)', async () => {
+    // 090's UP is a no-op, so un-recording it makes a harmless pending file.
+    // On the request transaction the ledger write was refused: zveltio_rls may
+    // not write zv_schema_versions (ensureRlsEnforcementRole).
+    await sql`DELETE FROM zv_schema_versions WHERE version = 90`.execute(db);
+    const res = await app.request('/api/admin/migrate', { method: 'POST', headers: h() });
+    const back = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM zv_schema_versions WHERE version = 90
+    `.execute(db);
+    expect(res.status).toBe(200);
+    expect(back.rows[0]?.n).toBe(1);
   });
 
   it('requires a session — anonymous /api/admin/status is 401', async () => {

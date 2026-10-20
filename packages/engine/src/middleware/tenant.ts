@@ -162,6 +162,9 @@ const TXN_SKIP_PREFIXES = [
   // and apply creates tables and builds indexes CONCURRENTLY — the reason
   // `/api/collections` and `/api/schema` are above.
   '/api/admin/schema',
+  // Running pending migrations: DDL, and the ledgers (zv_schema_versions,
+  // zv_migrations) the request role may not write.
+  '/api/admin/migrate',
 
   // The row rules and column permissions: instance-level tables the request
   // role may read but not write (`ensureRlsEnforcementRole`), so their admin
