@@ -223,6 +223,7 @@ describe('getRlsFilters — policy matching', () => {
     expect(filters[0]).toEqual({
       field: 'owner_id',
       condition: { op: 'eq', value: 'u1@x.com' },
+      caseless: true,
     });
   });
 
@@ -244,7 +245,7 @@ describe('getRlsFilters — policy matching', () => {
       // Unknown source: it used to be skipped, so it hid nothing. `in []` is
       // the condition all four appliers read as "no row".
       { field: 'x', condition: { op: 'in', value: [] } },
-      { field: 'y', condition: { op: 'eq', value: '' } },
+      { field: 'y', condition: { op: 'eq', value: '' }, caseless: true },
     ]);
   });
 

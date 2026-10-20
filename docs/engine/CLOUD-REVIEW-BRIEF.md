@@ -115,9 +115,9 @@ The closing PRs of this brief's own session are listed in the section below.
   extension statement, so a temp table cannot shadow an engine table for the
   engine's next statement.
 - #884 — accounts stored with a mixed-case email are found by every lookup
-  (better-auth adapter, tenant create/members, god recovery). Stored emails
-  are deliberately not rewritten: `user_email` row rules compare exactly
-  against row values written with the stored spelling.
+  (better-auth adapter, tenant create/members, god recovery). Migration 089
+  later lowercased the stored emails, and `user_email` row rules compare
+  without case, so rows written with the old spelling still match.
 - #885 — each extension runs as its own database role (inline, BYPASSRLS twin,
   worker); owned prefixes resolve to the longest matching extension; disable
   revokes, uninstall drops. `scripts/bootstrap-db-role.sh` now grants

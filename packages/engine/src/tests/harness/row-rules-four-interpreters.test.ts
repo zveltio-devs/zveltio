@@ -76,6 +76,8 @@ const ROWS = [
   { id: 2, bucket: 'beta', code: 7 },
   { id: 3, bucket: null as string | null, code: null as number | null },
   { id: 4, bucket: 'user-1', code: 1 },
+  // The session's address in another case: still the caller's (see the email test).
+  { id: 5, bucket: 'User-1@Test.Local', code: 2 },
 ];
 
 const TYPES = { bucket: 'text', code: 'integer' };
@@ -419,6 +421,29 @@ d('one rule, four interpreters (in-process)', () => {
           });
         }
       }
+    }
+  });
+
+  it('an email rule matches the address in any case, in all five', async () => {
+    // One account per address whatever its case (migration 048), so a row that
+    // names the caller's address in another spelling is still the caller's.
+    const cases: Array<[string, number[]]> = [
+      ['eq', [5]],
+      ['neq', [1, 2, 4]],
+      ['in', [5]],
+      ['not_in', [1, 2, 4]],
+    ];
+    for (const [op, kept] of cases) {
+      const rule = ruleOf('bucket', op, 'user_email');
+      const filters = await resolveFor(rule);
+      expect({
+        op,
+        engine: await viaEngineSql(filters),
+        policy: await viaPolicy(rule),
+        matcher: viaMatcher(filters),
+        snapshot: await viaSnapshot(filters),
+        electric: await viaElectric(filters),
+      }).toEqual({ op, engine: kept, policy: kept, matcher: kept, snapshot: kept, electric: kept });
     }
   });
 

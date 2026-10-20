@@ -45,6 +45,15 @@
  * `not_in`. In-memory code that reasons `undefined !== 'x'` therefore KEEPS a
  * row the database hides. Both negative operators say so explicitly here so no
  * applier has to re-derive it.
+ *
+ * **An email compares without case.** An address is one account whatever its
+ * case (migration 048), every engine path writes it in lower case, and 089
+ * lowercased the rest — so a row naming the caller's address in another
+ * spelling is still the caller's. `user_email` only: an id or a role is exact.
+ * Both sides are folded. Accounts that share an address in another case (048
+ * could not build its index) see each other's rows — the same mailbox.
+ * ponytail: `lower(col)` misses a plain index on the column; an index on
+ * `lower(col)` serves it if an email rule's table is large.
  */
 
 /** The operators a stored rule may use. Anything else fails closed, loudly. */
@@ -65,6 +74,11 @@ export interface OperatorSemantics {
    * the one every hand-written version got wrong.
    */
   readonly keep: (value: unknown, condition: unknown) => boolean;
+}
+
+/** Whether a rule from this source compares without case. See the header. */
+export function foldsCase(source: string): boolean {
+  return source === 'user_email';
 }
 
 /** Text comparison — the one that agrees with Postgres. See the header. */

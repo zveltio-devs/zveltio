@@ -8,11 +8,11 @@
  * locked out. The engine's own admin lookups (`/api/tenants`) compared exactly
  * without lowercasing at all.
  *
- * The fix resolves the address to the spelling that is stored and leaves the
- * stored value alone. That is the half these tests pin as hard as the first:
- * a row rule `owner_email eq user_email` compares exactly against row values
- * written with the stored casing, so rewriting the stored address would have
- * cost its owner every row the rule granted.
+ * The fix resolves the address to the spelling that is stored. Migration 089
+ * then lowercases the stored address, and a row rule `owner_email eq
+ * user_email` compares without case, so the account keeps the rows written
+ * with its old spelling and gains the ones written in lower case — the spelling
+ * every engine path writes.
  *
  * With migration 048's index missing (accounts sharing an address in another
  * case), the exact spelling wins and an ambiguous address matches nobody —
@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
   createGodSession,
@@ -76,6 +77,17 @@ d('a mixed-case stored address is found by any spelling', () => {
       UPDATE "user" SET email = ${spelling} WHERE email = ${email} RETURNING id`.execute(db);
     return r.rows[0]!.id;
   };
+  /** Migration 089's UP, the way the runner applies a transactional file. */
+  const migrate089 = async () => {
+    const file = new URL('../../db/migrations/sql/089_user_email_lowercase.sql', import.meta.url);
+    const { up } = parseMigrationFile(await Bun.file(file).text());
+    await db.transaction().execute(async (trx) => {
+      for (const stmt of splitSqlStatements(up)) await sql.raw(stmt).execute(trx);
+    });
+  };
+  const emailOf = async (id: string) =>
+    (await sql<{ email: string }>`SELECT email FROM "user" WHERE id = ${id}`.execute(db)).rows[0]
+      ?.email;
   const titles = async (cookie: string) => {
     const res = await app.request(`/api/data/${COLLECTION}?sort=title`, { headers: { cookie } });
     expect(res.status).toBe(200);
@@ -135,15 +147,24 @@ d('a mixed-case stored address is found by any spelling', () => {
     expect((await signIn(member.email, 'not-the-password')).status).toBe(401);
   });
 
-  it('the stored address is not rewritten, and the email row rule grants exactly what it did', async () => {
+  it('sign-in does not rewrite the stored address; the email row rule grants it in any case', async () => {
     const res = await signIn(member.email);
     expect(res.status).toBe(200);
-    const row = await sql<{ email: string }>`
-      SELECT email FROM "user" WHERE id = ${member.userId}`.execute(db);
-    expect(row.rows[0]?.email).toBe(stored);
-    // The rule compares exactly: the row written with the stored spelling, and
-    // nothing else — not the lowercase twin of it, not anyone else's.
-    expect(await titles(cookieOf(res))).toEqual(['stored-spelling']);
+    expect(await emailOf(member.userId)).toBe(stored);
+    // Both spellings of the caller's address, and nobody else's.
+    expect(await titles(cookieOf(res))).toEqual(['lowercase-spelling', 'stored-spelling']);
+  });
+
+  it('migration 089 lowercases the stored address; sign-in and the row rule are unchanged by it', async () => {
+    await migrate089();
+    expect(await emailOf(member.userId)).toBe(member.email);
+    await migrate089(); // re-runnable
+    for (const spelling of [member.email, stored]) {
+      const res = await signIn(spelling);
+      expect(res.status).toBe(200);
+      expect(await signedInId(res)).toBe(member.userId);
+      expect(await titles(cookieOf(res))).toEqual(['lowercase-spelling', 'stored-spelling']);
+    }
   });
 
   it('sign-up with another spelling of the stored address is refused as an existing account', async () => {
@@ -199,6 +220,17 @@ d('a mixed-case stored address is found by any spelling', () => {
       expect(res.status).toBe(200);
       expect(await signedInId(res)).toBe(exact);
       expect(await signedInId(res)).not.toBe(mixed);
+    });
+
+    it('migration 089 leaves accounts sharing an address in their case, and lowercases the rest', async () => {
+      const lower = `keep-ecl-${TAG}@test.local`;
+      const mixed = await accountStoredAs(legacySpelling(lower));
+      const exact = await accountStoredAs(lower);
+      const alone = await accountStoredAs(legacySpelling(`alone-ecl-${TAG}@test.local`));
+      await migrate089(); // an upgrade must not stop here, and must not merge them
+      expect(await emailOf(mixed)).toBe(legacySpelling(lower));
+      expect(await emailOf(exact)).toBe(lower);
+      expect(await emailOf(alone)).toBe(`alone-ecl-${TAG}@test.local`);
     });
 
     it('an address no account holds exactly matches nobody rather than either twin', async () => {

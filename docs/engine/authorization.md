@@ -387,7 +387,7 @@ Multiple matching policies are **ANDed** together (most restrictive wins).
 | Source | Resolved value |
 |--------|---------------|
 | `user_id` | The authenticated user's UUID |
-| `user_email` | The authenticated user's email address |
+| `user_email` | The authenticated user's email address, compared without case |
 | `user_role` | The authenticated user's role string |
 | `static:VALUE` | A literal value (e.g. `static:published`) |
 
