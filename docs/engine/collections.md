@@ -177,8 +177,25 @@ a boot warning.
 
 For complex business rules, use `POST /api/validation-rules` to create natural language rules (e.g. *"price must be greater than cost"*) that are enforced on every write.
 
+A `transition` rule constrains how a field's value may change. Its CEL
+`expression` sees `value` (being written) and `previous` (stored before this
+write, `null` on create), for example a status that starts as `draft` and may
+only move to `sent` or `cancelled`:
+
+```
+previous == null ? value == 'draft'
+  : (previous == 'draft' ? value in ['sent', 'cancelled'] : value == previous)
+```
+
+Create, `PATCH`, `PUT` and bulk `PATCH` judge it against the stored row, locked
+for the rest of the write. Sync and `ctx.db` updates read no stored row, so a
+write through them that sets the field is refused; write it through the data
+API. A transition rule on an `encrypted` field refuses every write to it: both
+values are ciphertext. A transition rule is never part of a rule group: each
+must hold.
+
 A rule the engine cannot evaluate — an expression that does not parse or
-refers to anything but `value`, an `nlp` rule with no expression, a rule type
+refers to anything but `value` (and `previous` in a `transition` rule), an `nlp` rule with no expression, a rule type
 the engine does not implement — refuses every write that sets its field, with
 422 `<field>: a validation rule on this field cannot be evaluated`. The log
 names the rule and the reason. Fix the rule or set `is_active = false`.

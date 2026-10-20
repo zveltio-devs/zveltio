@@ -294,10 +294,14 @@ function checkEntry(target: string, list: string, e: Record<string, unknown>) {
           optional(e.active, 'boolean');
   if (!ok)
     throw new SchemaFileError(`${target}: entry is missing a key or has one of the wrong type`);
-  if (list === 'validation' && e.rule === 'nlp') {
+  if (
+    list === 'validation' &&
+    (e.rule === 'nlp' || e.rule === 'custom' || e.rule === 'transition')
+  ) {
     // The same check the validation rules API runs before storing an expression.
     const verdict = checkValidationExpression(
       String((e.config as { expression?: unknown })?.expression ?? ''),
+      e.rule,
     );
     if (!verdict.ok) throw new SchemaFileError(`${target}: the expression ${verdict.reason}`);
   }

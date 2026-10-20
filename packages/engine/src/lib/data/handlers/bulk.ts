@@ -26,6 +26,8 @@ import {
   runAtomic,
   isUuid,
   engineRead,
+  hasTransitionRules,
+  validateTransitions,
 } from '../write-pipeline.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { serializeRecord } from '../shape.js';
@@ -84,7 +86,12 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const failed = await handlePgErrors(c, async () => {
     await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
-        const { errors: valErrors, processed } = await processInput(body.records[i], collectionDef);
+        const { errors: valErrors, processed } = await processInput(
+          body.records[i],
+          collectionDef,
+          false,
+          null,
+        );
         if (valErrors.length > 0) {
           errors.push({ index: i, errors: valErrors });
           continue;
@@ -225,11 +232,17 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
     await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
         const { id, ...fields } = body.records[i];
-        const { errors: valErrors, processed } = await processInput(fields, collectionDef, true);
+        const { errors: valErrors, processed } = await processInput(
+          fields,
+          collectionDef,
+          true,
+          'later',
+        );
         if (valErrors.length > 0) {
           errors.push({ index: i, id, errors: valErrors });
           continue;
         }
+        const transitions = await hasTransitionRules(collectionDef, processed);
 
         const { data: writable, blocked } = filterWritableFields(processed, colAccess);
         if (blocked.length > 0) {
@@ -251,21 +264,16 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         // three, and the only one this file did not mirror -- so a row an
         // extension hid (soft-delete, tenant isolation) answered 404 to
         // `PATCH /:id` and was rewritten by `PATCH /bulk`. Measured, both.
+        const beforeQuery = queryAlterRegistry.applyAll(
+          applyRlsFilters((await selectReadable(trx, tableName)).where('id', '=', id), rlsFilters),
+          tableName,
+          user,
+        );
         const beforeRow = await engineRead<DynamicRecord | undefined>(
           canRead,
           trx,
           collection,
-          async () =>
-            queryAlterRegistry
-              .applyAll(
-                applyRlsFilters(
-                  (await selectReadable(trx, tableName)).where('id', '=', id),
-                  rlsFilters,
-                ),
-                tableName,
-                user,
-              )
-              .executeTakeFirst(),
+          () => beforeQuery.executeTakeFirst(),
         );
         if (!beforeRow) {
           errors.push({ index: i, id, errors: ['Record not found'] });
@@ -277,6 +285,20 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
           errors.push({ index: i, id, errors: ['Forbidden'] });
           continue;
+        }
+        if (transitions) {
+          const transitionErrors = await validateTransitions(
+            trx,
+            canRead,
+            collectionDef,
+            id,
+            processed,
+            () => beforeQuery.executeTakeFirst(),
+          );
+          if (transitionErrors.length > 0) {
+            errors.push({ index: i, id, errors: transitionErrors });
+            continue;
+          }
         }
 
         let finalPatch: Record<string, unknown>;

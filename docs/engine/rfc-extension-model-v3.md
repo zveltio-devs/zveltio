@@ -149,7 +149,15 @@ checked when the step is saved. `true` skips the steps listed in
 `false_branch`, `false` those in `true_branch`; with neither list given, `false`
 ends the run, recorded as a success. An expression that does not evaluate to a
 boolean, or a branch naming a step that is not after the condition, fails the
-run whatever the step's `on_error` says. Transitions are the next slice.
+run whatever the step's `on_error` says.
+
+**Third slice (landed):** `transition` validation rules. The CEL expression
+sees `value` and `previous` (the stored value, `null` on create), with the same
+bounds and deadline. Create, PATCH, PUT and bulk PATCH evaluate it after
+locking the stored row (`FOR UPDATE`, as `expect` does), so a concurrent write
+cannot change what it was judged against. Paths that read no stored row (sync
+and `ctx.db` updates) refuse a write that sets the field: fail closed rather than
+judge against nothing. Transition rules sit outside rule groups.
 
 ### Installing and trusting code
 

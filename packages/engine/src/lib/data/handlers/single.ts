@@ -53,6 +53,8 @@ import {
   selectReadable,
   isUuid,
   engineRead,
+  hasTransitionRules,
+  validateTransitions,
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
@@ -312,7 +314,7 @@ export async function createRecord(
   const tableName = DDLManager.getTableName(collection);
   const body = await w.body();
 
-  const { errors, processed } = await processInput(body, collectionDef);
+  const { errors, processed } = await processInput(body, collectionDef, false, null);
   if (errors.length > 0) return c.json({ errors }, 422);
 
   const colAccessCreate = await getColumnAccess(db, collection, await resolveUserRole(user), user);
@@ -424,8 +426,9 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   const tableName = DDLManager.getTableName(collection);
   const body = await c.req.json();
 
-  const { errors, processed } = await processInput(body, collectionDef);
+  const { errors, processed } = await processInput(body, collectionDef, false, 'later');
   if (errors.length > 0) return c.json({ errors }, 422);
+  const transitions = await hasTransitionRules(collectionDef, processed);
 
   // Column-level write permission — MUST mirror createRecord/patchRecord.
   // Without this, PUT was an escalation hole: a role denied write access to a
@@ -467,6 +470,17 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // touch this row" from the 404 we'd return for a hidden row.
   if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
     return c.json({ error: 'Forbidden' }, 403);
+  }
+  if (transitions) {
+    const transitionErrors = await validateTransitions(
+      effectiveDb,
+      canRead,
+      collectionDef,
+      id,
+      processed,
+      () => beforeQuery.executeTakeFirst(),
+    );
+    if (transitionErrors.length > 0) return c.json({ errors: transitionErrors }, 422);
   }
 
   let finalPatch: Record<string, unknown>;
@@ -562,8 +576,9 @@ export async function patchRecord(
   const tableName = DDLManager.getTableName(collection);
   const body = await w.body();
 
-  const { errors, processed } = await processInput(body, collectionDef, true);
+  const { errors, processed } = await processInput(body, collectionDef, true, 'later');
   if (errors.length > 0) return c.json({ errors }, 422);
+  const transitions = await hasTransitionRules(collectionDef, processed);
 
   const colAccessPatch = await getColumnAccess(db, collection, await resolveUserRole(user), user);
   const { data: allowedPatch, blocked: blockedPatch } = filterWritableFields(
@@ -646,6 +661,17 @@ export async function patchRecord(
         409,
       );
     }
+  }
+  if (transitions) {
+    const transitionErrors = await validateTransitions(
+      effectiveDb,
+      canRead,
+      collectionDef,
+      id,
+      processed,
+      () => beforeQuery.executeTakeFirst(),
+    );
+    if (transitionErrors.length > 0) return c.json({ errors: transitionErrors }, 422);
   }
 
   let finalPatch: Record<string, unknown>;

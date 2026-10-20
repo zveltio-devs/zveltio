@@ -141,6 +141,12 @@ function inspect(
 const VALUE_ONLY: ReadonlySet<string> = new Set(['value']);
 /** A flow `condition` step sees the run's trigger data and the previous step's output. */
 const FLOW_CONDITION_SCOPE: ReadonlySet<string> = new Set(['trigger', 'output']);
+/**
+ * A `transition` rule sees the value being written and the one stored before
+ * it: `previous` is `null` on create. `previous == 'draft' ? value in ['sent',
+ * 'cancelled'] : value == previous` is the shape the rule type exists for.
+ */
+const TRANSITION_SCOPE: ReadonlySet<string> = new Set(['value', 'previous']);
 
 /**
  * Decide whether an expression may be stored at all, and compile it if so.
@@ -210,8 +216,10 @@ const MAX_CACHED_PROGRAMS = 1000;
 
 export function checkValidationExpression(
   expression: string,
+  /** `transition` rules also see `previous`; every other expression rule only `value`. */
+  ruleType?: string,
 ): { ok: true } | { ok: false; reason: string } {
-  const compiled = compile(expression, VALUE_ONLY);
+  const compiled = compile(expression, ruleType === 'transition' ? TRANSITION_SCOPE : VALUE_ONLY);
   return compiled.ok ? { ok: true } : compiled;
 }
 
@@ -264,6 +272,22 @@ export function evaluateExpressionRule(
   // the evaluator as an error, which lands in the refusal below.
   return evaluate(expression, VALUE_ONLY, {
     value: toCelValue(value, fieldType),
+  } as Parameters<CelProgram>[0]);
+}
+
+/**
+ * Evaluate a `transition` rule: the value being written against the one stored
+ * before it (`null` on create). Both bound by the field's declared type.
+ */
+export function evaluateTransitionRule(
+  expression: string,
+  value: unknown,
+  previous: unknown,
+  fieldType?: string,
+): ExpressionRuleResult {
+  return evaluate(expression, TRANSITION_SCOPE, {
+    value: toCelValue(value, fieldType),
+    previous: toCelValue(previous, fieldType),
   } as Parameters<CelProgram>[0]);
 }
 
@@ -634,6 +658,12 @@ export async function validateFieldValue(
   rules: ValidationRule[],
   /** The field's declared type; decides how an expression rule sees a number. */
   fieldType?: string,
+  /**
+   * The value stored before this write, for `transition` rules: `{ value: null }`
+   * on create. Absent when the caller did not read the stored record, and then
+   * a transition rule cannot be evaluated and refuses the write.
+   */
+  previous?: { value: unknown },
 ): Promise<string[]> {
   const errors: string[] = [];
 
@@ -689,6 +719,23 @@ export async function validateFieldValue(
         else violated = outcome.status === 'failed';
         break;
       }
+      case 'transition': {
+        const expression = String(cfg?.expression ?? '');
+        if (expression === '') {
+          misconfigured = 'has no expression';
+          break;
+        }
+        if (previous === undefined) {
+          misconfigured =
+            'is a transition rule without the stored value to compare with (this write path ' +
+            'reads no stored record, the read withheld the column, or the field is encrypted)';
+          break;
+        }
+        const outcome = evaluateTransitionRule(expression, value, previous.value, fieldType);
+        if (outcome.status === 'refused') misconfigured = outcome.reason;
+        else violated = outcome.status === 'failed';
+        break;
+      }
       default:
         misconfigured = `has rule type \`${rule.rule_type}\`, which this engine does not implement`;
     }
@@ -727,25 +774,61 @@ export async function validateRecord(
   data: Record<string, any>,
   /** Declared type per field name, for expression rules; see validateFieldValue. */
   fieldTypes: ReadonlyMap<string, string> = new Map(),
+  opts: {
+    /**
+     * The stored record for `transition` rules: `null` on create. Left out, a
+     * transition rule on a field in `data` refuses the write.
+     */
+    previous?: Record<string, unknown> | null;
+    /**
+     * `skip` leaves transition rules out (the caller evaluates them once it has
+     * read and locked the stored record); `only` evaluates nothing else.
+     * Transition rules are not grouped: inside a group they are dropped from
+     * it, and each must hold on its own.
+     */
+    transitions?: 'skip' | 'only';
+    /**
+     * Fields whose written and stored values are ciphertext (`encrypted`):
+     * a transition rule cannot compare them, so it refuses.
+     */
+    opaque?: ReadonlySet<string>;
+  } = {},
 ): Promise<{ valid: boolean; errors: Record<string, string[]> }> {
   const errors: Record<string, string[]> = {};
   const groups = await getRuleGroups(db, collection);
 
   for (const [fieldName, value] of Object.entries(data)) {
-    const fieldRules = await getValidationRules(db, collection, fieldName);
+    const fieldRules = (await getValidationRules(db, collection, fieldName)).filter((r) =>
+      opts.transitions === 'skip'
+        ? r.rule_type !== 'transition'
+        : opts.transitions !== 'only' || r.rule_type === 'transition',
+    );
     const fieldType = fieldTypes.get(fieldName);
+    // A stored record without this field (a column the read withheld) is as
+    // good as no record: the rule cannot be evaluated, so it refuses.
+    const previous = opts.opaque?.has(fieldName)
+      ? undefined
+      : opts.previous === null
+        ? { value: null }
+        : opts.previous && fieldName in opts.previous
+          ? { value: opts.previous[fieldName] }
+          : undefined;
     if (fieldRules.length === 0) continue;
 
     const fieldGroups = groups.filter((g) => g.field_name === fieldName);
     const grouped = new Set(fieldGroups.flatMap((g) => g.rule_ids));
 
     // Rules nobody grouped keep the old behaviour: all of them must hold.
-    const ungrouped = fieldRules.filter((r) => r.id === undefined || !grouped.has(r.id));
+    const ungrouped = fieldRules.filter(
+      (r) => r.id === undefined || !grouped.has(r.id) || r.rule_type === 'transition',
+    );
     const fieldErrors =
-      ungrouped.length > 0 ? await validateFieldValue(value, ungrouped, fieldType) : [];
+      ungrouped.length > 0 ? await validateFieldValue(value, ungrouped, fieldType, previous) : [];
 
     for (const group of fieldGroups) {
-      const members = fieldRules.filter((r) => r.id !== undefined && group.rule_ids.includes(r.id));
+      const members = fieldRules.filter(
+        (r) => r.id !== undefined && group.rule_ids.includes(r.id) && r.rule_type !== 'transition',
+      );
       if (members.length === 0) continue;
       if (group.logic === 'OR') {
         // Satisfying ONE member satisfies the group — "either a VAT number or a

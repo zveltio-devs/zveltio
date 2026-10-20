@@ -496,7 +496,15 @@ async function runFieldPipeline(
   // not a user collection (or is being written during its own creation).
   if (!collectionDef) return data;
 
-  const { errors, processed } = await processInput(data, collectionDef, partial);
+  // An insert has no stored record for a `transition` rule to compare with
+  // (`null`). An update through ctx.db reads none, so a transition rule on a
+  // field it sets refuses it: such writes go through the data API instead.
+  const { errors, processed } = await processInput(
+    data,
+    collectionDef,
+    partial,
+    partial ? undefined : null,
+  );
   if (errors.length > 0) {
     throw new ExtensionSecurityError(
       `Extension "${extName}" wrote invalid data to "${table}": ${errors.join('; ')}. ` +
