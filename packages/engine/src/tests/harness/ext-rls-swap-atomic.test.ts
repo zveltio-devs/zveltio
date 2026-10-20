@@ -21,9 +21,17 @@ const TRIGGER = `${TABLE}_refuse`;
 
 d('extension policy swap is atomic', () => {
   let db: Database;
+  // An event trigger needs a superuser; the non-superuser-owner CI job has none.
+  let superuser = false;
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    superuser = (
+      await sql<{
+        s: boolean;
+      }>`SELECT rolsuper AS s FROM pg_roles WHERE rolname = current_user`.execute(db)
+    ).rows[0]!.s;
+    if (!superuser) return;
     await sql
       .raw(`CREATE TABLE ${TABLE} (id serial primary key, tenant_id uuid NOT NULL, label text)`)
       .execute(db);
@@ -48,12 +56,14 @@ d('extension policy swap is atomic', () => {
   });
 
   afterAll(async () => {
+    if (!superuser) return;
     await sql.raw(`DROP EVENT TRIGGER IF EXISTS ${TRIGGER}`).execute(db);
     await sql.raw(`DROP FUNCTION IF EXISTS ${TRIGGER}()`).execute(db);
     await sql.raw(`DROP TABLE IF EXISTS ${TABLE}`).execute(db);
   });
 
   it('keeps the old policy when the new one cannot be created', async () => {
+    if (!superuser) return;
     expect(await reconcileExtensionTenantRLS(db, [TABLE])).toBe(0);
     const left = await sql<{ policyname: string }>`
       SELECT policyname FROM pg_policies WHERE tablename = ${TABLE}
