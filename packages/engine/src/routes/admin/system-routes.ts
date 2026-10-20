@@ -242,7 +242,8 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         allowed_ips: z.array(z.string()).nullable().optional(),
         organization: z.string().nullable().optional(),
         description: z.string().nullable().optional(),
-        permissions_mode: z.enum(['scoped', 'casbin', 'god']).optional(),
+        // 'god' is in the column's type but grants nothing: refused, not stored.
+        permissions_mode: z.enum(['scoped', 'casbin']).optional(),
         casbin_subject: z.string().nullable().optional(),
         rate_limit: z.number().int().min(1).max(1_000_000).nullable().optional(),
       }),

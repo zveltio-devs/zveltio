@@ -17,4 +17,4 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_zv_audit_log_tenant_created
 
 -- DOWN
 
-DROP INDEX IF EXISTS idx_zv_audit_log_tenant_created;
+DROP INDEX CONCURRENTLY IF EXISTS idx_zv_audit_log_tenant_created;
