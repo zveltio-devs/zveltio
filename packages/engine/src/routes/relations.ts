@@ -144,6 +144,20 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (!relation) return c.json({ error: 'Relation not found' }, 404);
+    // An extension's m2m over its own table (crm `contact_organizations`) is the
+    // extension's: refused before the transaction removes the source field.
+    if (
+      relation.type === 'm2m' &&
+      relation.junction_table &&
+      !DDLManager.isEngineJunction(relation.junction_table)
+    ) {
+      return c.json(
+        {
+          error: `Relation "${relation.name}" joins through "${relation.junction_table}", which an extension made; remove it through that extension.`,
+        },
+        409,
+      );
+    }
 
     try {
       const sourceTable = DDLManager.getTableName(relation.source_collection);

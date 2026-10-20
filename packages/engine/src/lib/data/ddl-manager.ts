@@ -469,9 +469,14 @@ export class DDLManager {
       .catch((err: any) => console.warn('[registerRelation]', err?.message ?? err));
   }
 
+  /** A junction the engine made (`zvd_jnc_*`); an extension's own m2m table is its to drop. */
+  static isEngineJunction(junctionTable: string): boolean {
+    return /^zvd_jnc_[a-z][a-z0-9_]*$/.test(junctionTable);
+  }
+
   /** Drops a m2m junction table by its full name. Validates the name is a safe zvd_jnc_ table. */
   static async dropJunctionTable(db: Database, junctionTable: string): Promise<void> {
-    if (!/^zvd_jnc_[a-z][a-z0-9_]*$/.test(junctionTable)) {
+    if (!DDLManager.isEngineJunction(junctionTable)) {
       throw new Error(`Invalid junction table name: "${junctionTable}"`);
     }
     await withLockTimeout(db, async (trx) => {
