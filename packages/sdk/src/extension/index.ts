@@ -456,8 +456,11 @@ export interface ExtensionInternals<DB = unknown> {
     expression: string,
     value: unknown,
   ) => { status: 'passed' } | { status: 'failed' } | { status: 'refused'; reason: string };
-  /** Vet an expression before storing it. */
-  checkValidationExpression: (expression: string) => { ok: true } | { ok: false; reason: string };
+  /** Vet an expression before storing it. A `transition` rule also sees `previous`. */
+  checkValidationExpression: (
+    expression: string,
+    ruleType?: string,
+  ) => { ok: true } | { ok: false; reason: string };
   /**
    * Run a callback inside a tenant transaction, outside any request.
    *

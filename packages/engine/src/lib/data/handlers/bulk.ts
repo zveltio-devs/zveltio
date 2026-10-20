@@ -10,6 +10,7 @@
  */
 
 import type { Context } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../../db/index.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 import { DDLManager } from '../ddl-manager.js';
@@ -26,6 +27,8 @@ import {
   runAtomic,
   isUuid,
   engineRead,
+  hasTransitionRules,
+  validateTransitions,
 } from '../write-pipeline.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { serializeRecord } from '../shape.js';
@@ -84,7 +87,12 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const failed = await handlePgErrors(c, async () => {
     await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
-        const { errors: valErrors, processed } = await processInput(body.records[i], collectionDef);
+        const { errors: valErrors, processed } = await processInput(
+          body.records[i],
+          collectionDef,
+          false,
+          null,
+        );
         if (valErrors.length > 0) {
           errors.push({ index: i, errors: valErrors });
           continue;
@@ -225,11 +233,17 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
     await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
         const { id, ...fields } = body.records[i];
-        const { errors: valErrors, processed } = await processInput(fields, collectionDef, true);
+        const { errors: valErrors, processed } = await processInput(
+          fields,
+          collectionDef,
+          true,
+          'later',
+        );
         if (valErrors.length > 0) {
           errors.push({ index: i, id, errors: valErrors });
           continue;
         }
+        const transitions = await hasTransitionRules(collectionDef, processed);
 
         const { data: writable, blocked } = filterWritableFields(processed, colAccess);
         if (blocked.length > 0) {
@@ -251,6 +265,13 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         // three, and the only one this file did not mirror -- so a row an
         // extension hid (soft-delete, tenant isolation) answered 404 to
         // `PATCH /:id` and was rewritten by `PATCH /bulk`. Measured, both.
+        //
+        // Locked first when a transition rule applies, as in patchRecord.
+        if (transitions) {
+          await engineRead(canRead, trx, collection, () =>
+            sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(trx),
+          );
+        }
         const beforeRow = await engineRead<DynamicRecord | undefined>(
           canRead,
           trx,
@@ -277,6 +298,13 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
           errors.push({ index: i, id, errors: ['Forbidden'] });
           continue;
+        }
+        if (transitions) {
+          const transitionErrors = await validateTransitions(collectionDef, processed, beforeRow);
+          if (transitionErrors.length > 0) {
+            errors.push({ index: i, id, errors: transitionErrors });
+            continue;
+          }
         }
 
         let finalPatch: Record<string, unknown>;

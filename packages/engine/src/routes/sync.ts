@@ -214,7 +214,8 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
     // not encrypted through this one. Sync is the path that runs unattended.
     //
     // `partial: true` because a sync operation carries only the columns the
-    // client actually changed.
+    // client actually changed. No stored record: sync reads none before it
+    // writes, so a field with a `transition` rule refuses the operation.
     const { errors, processed } = await processInput(payload, collectionDef, true);
     if (errors.length > 0) {
       return { safe: false, reason: errors.join('; ') };

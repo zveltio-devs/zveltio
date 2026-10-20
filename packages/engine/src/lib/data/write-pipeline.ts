@@ -19,7 +19,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
-import { getValidationDb, validateRecord } from '../validation-engine.js';
+import { getValidationDb, getValidationRules, validateRecord } from '../validation-engine.js';
 import { maybeEncrypt } from './field-crypto.js';
 import { WebhookManager } from '../webhooks.js';
 import { broadcastEvent } from '../../routes/ws.js';
@@ -131,6 +131,14 @@ export async function processInput(
   data: Record<string, unknown>,
   collectionDef: CollectionDef | null | undefined,
   partial = false,
+  /**
+   * What `transition` rules compare against: `null` on create, the stored
+   * record on an update, `'later'` when the caller reads and locks that record
+   * after this and runs `validateTransitions` itself. Left out, a write that
+   * touches a field with a transition rule is refused: this path never read
+   * what the field held, so the rule cannot be evaluated.
+   */
+  previous?: Record<string, unknown> | null | 'later',
 ): Promise<{ errors: string[]; processed: Record<string, unknown> }> {
   const errors: string[] = [];
   const processed: Record<string, unknown> = {};
@@ -230,6 +238,7 @@ export async function processInput(
         collectionDef.name,
         processed,
         new Map(fields.map((f) => [f.name, f.type])),
+        previous === 'later' ? { transitions: 'skip' } : { previous },
       );
     } catch (err) {
       console.error(
@@ -668,4 +677,58 @@ export async function afterWrite(
     userId,
     tenantId: tenantId ?? null,
   });
+}
+
+/**
+ * Does any active `transition` rule sit on a field this write sends? The
+ * update paths ask before reading the stored record, to lock it first: a rule
+ * judged against a value a concurrent write has since replaced would admit a
+ * move the rule forbids.
+ */
+export async function hasTransitionRules(
+  collectionDef: CollectionDef | null | undefined,
+  processed: Record<string, unknown>,
+): Promise<boolean> {
+  const vdb = getValidationDb();
+  if (!vdb || !collectionDef?.name) return false;
+  for (const field of Object.keys(processed)) {
+    const rules = await getValidationRules(vdb, collectionDef.name, field);
+    if (rules.some((r) => r.rule_type === 'transition')) return true;
+  }
+  return false;
+}
+
+/**
+ * The `transition` rules `processInput(..., 'later')` left out, against the
+ * stored record the caller read (and locked: see `hasTransitionRules`). Fails
+ * closed like the other rules: an evaluation error refuses the write.
+ */
+export async function validateTransitions(
+  collectionDef: CollectionDef | null | undefined,
+  processed: Record<string, unknown>,
+  before: Record<string, unknown>,
+): Promise<string[]> {
+  const vdb = getValidationDb();
+  if (!vdb || !collectionDef?.name || Object.keys(processed).length === 0) return [];
+  const fields = normalizeFields(collectionDef);
+  try {
+    const verdict = await validateRecord(
+      vdb,
+      collectionDef.name,
+      processed,
+      new Map(fields.map((f) => [f.name, f.type])),
+      { previous: before, transitions: 'only' },
+    );
+    return Object.entries(verdict.errors).flatMap(([field, messages]) =>
+      messages.map((m) => `${field}: ${m}`),
+    );
+  } catch (err) {
+    console.error(
+      `[validation] transition rules for "${collectionDef.name}" could not be evaluated; refusing the write:`,
+      err instanceof Error ? err.message : err,
+    );
+    return [
+      'validation: the rules for this collection could not be evaluated, so the write was refused',
+    ];
+  }
 }

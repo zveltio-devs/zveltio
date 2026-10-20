@@ -53,6 +53,8 @@ import {
   selectReadable,
   isUuid,
   engineRead,
+  hasTransitionRules,
+  validateTransitions,
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
@@ -312,7 +314,7 @@ export async function createRecord(
   const tableName = DDLManager.getTableName(collection);
   const body = await w.body();
 
-  const { errors, processed } = await processInput(body, collectionDef);
+  const { errors, processed } = await processInput(body, collectionDef, false, null);
   if (errors.length > 0) return c.json({ errors }, 422);
 
   const colAccessCreate = await getColumnAccess(db, collection, await resolveUserRole(user), user);
@@ -424,8 +426,9 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   const tableName = DDLManager.getTableName(collection);
   const body = await c.req.json();
 
-  const { errors, processed } = await processInput(body, collectionDef);
+  const { errors, processed } = await processInput(body, collectionDef, false, 'later');
   if (errors.length > 0) return c.json({ errors }, 422);
+  const transitions = await hasTransitionRules(collectionDef, processed);
 
   // Column-level write permission — MUST mirror createRecord/patchRecord.
   // Without this, PUT was an escalation hole: a role denied write access to a
@@ -448,6 +451,12 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // we short-circuit before invoking any hooks.
   // Same authorisation probe as patchRecord: RLS conditions on the before-row,
   // so a row the caller cannot see cannot be replaced either.
+  if (transitions) {
+    // As in patchRecord: the transition rules judge the row this UPDATE writes.
+    await engineRead(canRead, effectiveDb, collection, () =>
+      sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(effectiveDb),
+    );
+  }
   let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
   beforeQuery = applyRlsFilters(
     beforeQuery,
@@ -467,6 +476,10 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // touch this row" from the 404 we'd return for a hidden row.
   if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
     return c.json({ error: 'Forbidden' }, 403);
+  }
+  if (transitions) {
+    const transitionErrors = await validateTransitions(collectionDef, processed, beforeRow);
+    if (transitionErrors.length > 0) return c.json({ errors: transitionErrors }, 422);
   }
 
   let finalPatch: Record<string, unknown>;
@@ -562,8 +575,9 @@ export async function patchRecord(
   const tableName = DDLManager.getTableName(collection);
   const body = await w.body();
 
-  const { errors, processed } = await processInput(body, collectionDef, true);
+  const { errors, processed } = await processInput(body, collectionDef, true, 'later');
   if (errors.length > 0) return c.json({ errors }, 422);
+  const transitions = await hasTransitionRules(collectionDef, processed);
 
   const colAccessPatch = await getColumnAccess(db, collection, await resolveUserRole(user), user);
   const { data: allowedPatch, blocked: blockedPatch } = filterWritableFields(
@@ -591,13 +605,14 @@ export async function patchRecord(
       403,
     );
   }
-  if (w.expect) {
-    // Locked before the before-row read, so the precondition is tested on the row
-    // this UPDATE writes: a concurrent precondition write waits here, then reads
-    // the committed result (READ COMMITTED takes a new snapshot per statement).
-    // The caller can read, so this runs as the caller, under its RLS.
-    await sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(
-      effectiveDb,
+  if (w.expect || transitions) {
+    // Locked before the before-row read, so the precondition and the transition
+    // rules are tested on the row this UPDATE writes: a concurrent write waits
+    // here, then reads the committed result (READ COMMITTED takes a new snapshot
+    // per statement). With `expect` the caller can read, so this runs as the
+    // caller, under its RLS; a transition needs no read grant, hence engineRead.
+    await engineRead(canRead, effectiveDb, collection, () =>
+      sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(effectiveDb),
     );
   }
   let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
@@ -646,6 +661,10 @@ export async function patchRecord(
         409,
       );
     }
+  }
+  if (transitions) {
+    const transitionErrors = await validateTransitions(collectionDef, processed, beforeRow);
+    if (transitionErrors.length > 0) return c.json({ errors: transitionErrors }, 422);
   }
 
   let finalPatch: Record<string, unknown>;
