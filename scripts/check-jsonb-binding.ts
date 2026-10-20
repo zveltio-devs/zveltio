@@ -335,6 +335,13 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
         }
       };
       if (head && src[from + head[0].length] === '{') literal(from + head[0].length, from);
+      // A later reassignment, `patch = { ...patch, col: … }`, replaces the
+      // object the declaration built: planted 2026-10-20, green before this.
+      // ponytail: a value routed through a second variable (`const v =
+      // JSON.stringify(x); p.col = v`) is still not followed.
+      const reassign = new RegExp(`(?<![\\w$.])${name}\\s*=\\s*\\{`, 'g');
+      for (const r of src.slice(from, at).matchAll(reassign))
+        literal(from + r.index + r[0].length - 1, from + r.index);
       const merge = new RegExp(`\\bObject\\.assign\\(\\s*${name}\\s*,\\s*\\{`, 'g');
       for (const o of src.slice(from, at).matchAll(merge))
         literal(from + o.index + o[0].length - 1, from + o.index);
