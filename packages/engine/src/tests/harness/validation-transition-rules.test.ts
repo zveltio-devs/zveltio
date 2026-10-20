@@ -132,6 +132,44 @@ d('transition rules', () => {
     expect((await processInput({ title: 'x' }, def, true)).errors).toEqual([]);
   });
 
+  it('sync push judges a create against no previous value and refuses an update', async () => {
+    const draftId = crypto.randomUUID();
+    const res = await app.request('/api/sync/push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        operations: [
+          {
+            collection: COLLECTION,
+            recordId: draftId,
+            operation: 'create',
+            payload: { status: 'draft' },
+          },
+          {
+            collection: COLLECTION,
+            recordId: crypto.randomUUID(),
+            operation: 'create',
+            payload: { status: 'sent' },
+          },
+          {
+            collection: COLLECTION,
+            recordId: draftId,
+            operation: 'update',
+            payload: { status: 'sent' },
+          },
+        ],
+      }),
+    });
+    const { results } = (await res.json()) as { results: { status: string; error?: string }[] };
+    // Refusals are reported as each operation is vetted, the writes after.
+    expect(results.map((r) => r.error ?? r.status).sort()).toEqual([
+      'ok',
+      'status: Status cannot move that way',
+      'status: a validation rule on this field cannot be evaluated; an administrator must fix or deactivate it',
+    ]);
+    expect(await stored(draftId)).toBe('draft');
+  });
+
   it('judges the stored value as the written one is typed (numeric, date)', async () => {
     const id = await create('draft');
     expect((await send('PATCH', `/${id}`, { amount: '10.50', due: '2026-10-20' })).status).toBe(
