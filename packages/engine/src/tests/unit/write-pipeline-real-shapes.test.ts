@@ -178,3 +178,58 @@ describe('mapPgError — no column known', () => {
     expect(mapPgError({ code: BUN, errno: '23503', message: 'x' })?.body.field).toBeNull();
   });
 });
+
+// Measured on PG 18 with Bun.SQL as zveltio_rls on FORCE RLS tables: Postgres
+// withholds the key and value, so only `table` and `constraint` name the field.
+describe('mapPgError — constraint errors under RLS', () => {
+  it('names the unique field from the constraint when DETAIL is withheld', () => {
+    const mapped = mapPgError({
+      code: BUN,
+      errno: '23505',
+      message: 'duplicate key value violates unique constraint "zvd_uqprobe_tenant_id_code_key"',
+      table: 'zvd_uqprobe',
+      constraint: 'zvd_uqprobe_tenant_id_code_key',
+    });
+    expect(mapped?.status).toBe(409);
+    expect(mapped?.body.field).toBe('code');
+    expect(mapped?.body.message).toBe('A record with the same code already exists.');
+  });
+
+  it('names the reference field from the constraint when the key is withheld', () => {
+    const mapped = mapPgError({
+      code: BUN,
+      errno: '23503',
+      message:
+        'insert or update on table "zvd_fkc" violates foreign key constraint "zvd_fkc_parent_fkey"',
+      detail: 'Key is not present in table "zvd_fkp".',
+      table: 'zvd_fkc',
+      constraint: 'zvd_fkc_parent_fkey',
+    });
+    expect(mapped?.body.field).toBe('parent');
+    expect(mapped?.body.message).toBe('Field "parent" references a record that does not exist.');
+  });
+
+  it('still reads a delete of a referenced parent as referenced, not as a missing field', () => {
+    const mapped = mapPgError({
+      code: BUN,
+      errno: '23503',
+      message:
+        'update or delete on table "zvd_fkp" violates foreign key constraint "zvd_fkc_parent_fkey" on table "zvd_fkc"',
+      detail: 'Key is still referenced from table "zvd_fkc".',
+      table: 'zvd_fkc',
+      constraint: 'zvd_fkc_parent_fkey',
+    });
+    expect(mapped?.body.field).toBeNull();
+    expect(String(mapped?.body.message)).toContain('still referenced by "fkc"');
+  });
+
+  it('leaves a constraint that is not the engine naming unattributed', () => {
+    const mapped = mapPgError({
+      errno: '23505',
+      message: 'duplicate key value violates unique constraint "custom_idx"',
+      table: 'zvd_uqprobe',
+      constraint: 'custom_idx',
+    });
+    expect(mapped?.body.field).toBeNull();
+  });
+});
