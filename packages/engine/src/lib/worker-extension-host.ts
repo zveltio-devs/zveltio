@@ -1445,10 +1445,11 @@ const WORKER_QUERY_TIMEOUT_S = 10;
  *    single message away. On a reserved connection the server rejects it;
  *  - a statement_timeout, so one extension cannot pin a connection forever.
  *
- *  - `SET ROLE zveltio_rls`, so the query runs as a plain role rather than as
- *    the database owner. On a stock install the engine connects as the image's
- *    POSTGRES_USER, which is a SUPERUSER, so worker SQL previously ran with
- *    every privilege Postgres has and RLS did not apply to it at all. Under the
+ *  - `SET LOCAL ROLE zveltio_worker` (or the extension's own role under it), so
+ *    the query runs as a plain role rather than as the database owner. On a
+ *    stock install the engine connects as the image's POSTGRES_USER, which is
+ *    a SUPERUSER, so worker SQL previously ran with every privilege Postgres
+ *    has and RLS did not apply to it at all. Under the
  *    role, the isolation policies bind: with no tenant GUC on this connection
  *    the predicate resolves to the DEFAULT tenant (engine migration 029), so an
  *    extension sees one tenant's rows instead of all of them.
@@ -1469,8 +1470,16 @@ const WORKER_QUERY_TIMEOUT_S = 10;
 /**
  * The role the worker SQL bridge switches to: the extension's own (`own`, made
  * at load under `zveltio_worker` — lib/extensions/ext-db-role.ts), else
- * `zveltio_worker`, else `zveltio_rls`, else null, and the bridge then refuses the query
- * rather than run it as the engine role (migration 001 creates both roles).
+ * `zveltio_worker`, else null, and the bridge then refuses the query rather
+ * than run it as the engine role (migration 001 creates `zveltio_worker`).
+ *
+ * Never `zveltio_rls`. It used to be the last fallback, and it is the request
+ * role: the collection policy (migration 058) passes a statement with no actor
+ * under it as the engine's own work, so a background hook — no tenant, no
+ * caller — read the default tenant's rows of every collection, where under
+ * `zveltio_worker` it reads none. Measured. It also holds `user`, `session` and
+ * `account`, leaving the text allowlist as the only layer between an untrusted
+ * extension and every session token.
  *
  * Usable means this login may SET it, not merely that it exists: a membership
  * with SET FALSE failed `SET LOCAL ROLE`, which aborts the
@@ -1482,9 +1491,9 @@ export async function pickWorkerSqlRole(
 ): Promise<string | null> {
   const [picked] = (await conn.unsafe(
     `SELECT (SELECT rolname FROM pg_roles
-              WHERE rolname IN ($1, 'zveltio_worker', 'zveltio_rls')
+              WHERE rolname IN ($1, 'zveltio_worker')
                 AND pg_has_role(current_user, oid, 'SET')
-              ORDER BY rolname = 'zveltio_rls', rolname = 'zveltio_worker' LIMIT 1) AS role`,
+              ORDER BY rolname = 'zveltio_worker' LIMIT 1) AS role`,
     [own ?? 'zveltio_worker'],
   )) as { role?: string | null }[];
   const role = picked?.role;
@@ -1497,14 +1506,14 @@ function noWorkerSqlRole(extName: string): Error {
   if (!_warnedNoWorkerSqlRole) {
     _warnedNoWorkerSqlRole = true;
     console.warn(
-      '[worker-host] worker SQL is refused: this engine may SET neither zveltio_worker nor ' +
-        'zveltio_rls, and will not run a worker extension query as its own role. Run ' +
+      '[worker-host] worker SQL is refused: this engine may not SET zveltio_worker, and ' +
+        'will not run a worker extension query as its own role or as zveltio_rls. Run ' +
         'scripts/bootstrap-db-role.sh as a superuser, then restart.',
     );
   }
   return new Error(
-    `Worker SQL refused for "${extName}": no database role to run it as (zveltio_worker or ` +
-      'zveltio_rls must exist and be SET-able by the engine role; see scripts/bootstrap-db-role.sh).',
+    `Worker SQL refused for "${extName}": no database role to run it as (zveltio_worker ` +
+      'must exist and be SET-able by the engine role; see scripts/bootstrap-db-role.sh).',
   );
 }
 
@@ -1623,19 +1632,20 @@ async function setWorkerRole(
   // as it does for a request. The engine's own `zvd_*` metadata tables are
   // revoked at boot (reconcileTenantRLS).
   //
-  // Where a managed Postgres would not let migration 001 create it, fall back
-  // to `zveltio_rls` rather than take every worker extension down, and let the
-  // allowlist in worker-sql-policy.ts be the layer that holds. ASKED which role
-  // exists rather than attempting `SET ROLE` and catching: a refused statement
-  // aborts this transaction, so the old `catch` fallback ran its second
-  // `SET ROLE` — and then the extension's query — on an aborted transaction,
-  // and every worker query on such a deployment failed with 25P02. Measured.
+  // ASKED which role is usable rather than attempting `SET ROLE` and catching:
+  // a refused statement aborts this transaction, so the old `catch` fallback
+  // ran its second `SET ROLE` — and then the extension's query — on an aborted
+  // transaction, and every worker query on such a deployment failed with 25P02.
+  // Measured.
   //
-  // No usable role is refused, never run as the engine's own login: that role
-  // owns every table and, on a superuser, bypasses RLS — measured, a worker
-  // under tenant A read tenant B's rows. Only a broken install gets here:
-  // migration 001 creates both roles wherever it may (superuser, CREATEROLE),
-  // and scripts/bootstrap-db-role.sh does it where it may not.
+  // No usable role is refused — never run as the engine's own login, which owns
+  // every table and, on a superuser, bypasses RLS (measured: a worker under
+  // tenant A read tenant B's rows), and never as `zveltio_rls`, which the
+  // collection policy treats as the engine when no actor is set (measured: a
+  // no-tenant worker query read the default tenant's rows; see
+  // pickWorkerSqlRole). Only a broken install gets here: migration 001 creates
+  // `zveltio_worker` wherever it may (superuser, CREATEROLE), and
+  // scripts/bootstrap-db-role.sh does it where it may not.
   const role = await pickWorkerSqlRole(conn, workerDbRoleFor(extName));
   if (!role) throw noWorkerSqlRole(extName);
   await conn.unsafe(`SET LOCAL ROLE ${role}`);

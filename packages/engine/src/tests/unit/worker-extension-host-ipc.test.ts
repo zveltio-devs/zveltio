@@ -160,8 +160,8 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     const ran: string[] = [];
     const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
       reserve: async () => ({
-        unsafe: async (sql: string) => {
-          ran.push(sql);
+        unsafe: async (sql: string, params?: unknown[]) => {
+          ran.push(sql, ...((params ?? []) as string[]));
           return sql.includes('FROM pg_roles') ? [{ role: null }] : [];
         },
         release: () => undefined,
@@ -181,6 +181,9 @@ describe('WorkerExtensionHost — IPC message routing', () => {
       expect(err?.type).toBe('db:err');
       if (err?.type === 'db:err') expect(err.error).toContain('no database role');
       expect(ran).not.toContain('SELECT secret FROM zvd_notes');
+      // The pick never offers the request role: under it the collection policy
+      // passes a no-actor statement as the engine's own work.
+      expect(ran.join('\n')).not.toContain('zveltio_rls');
     } finally {
       poolSpy.mockRestore();
     }

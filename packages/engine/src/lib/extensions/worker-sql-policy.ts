@@ -56,7 +56,7 @@ const STATEMENT_KINDS =
  * allowlist, because each reaches past it through an argument:
  *
  *   - `set_config` is `SET` spelled as a function. The request transaction runs
- *     as `zveltio_rls` with the tenant in a GUC, and the session user is the
+ *     as `zveltio_worker` with the tenant in a GUC, and the session user is the
  *     engine's: `set_config('role', 'none', true)` drops back to it, and
  *     `set_config('zveltio.rls_bypass', 'on', true)` switches RLS off for the
  *     rest of the request. `current_setting` (reading) stays legal.

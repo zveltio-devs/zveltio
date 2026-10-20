@@ -389,7 +389,7 @@ export async function grantWorkerDbRole(
   let perExtension = false;
   try {
     // The bridge picks the role when it exists; absent (001 could not create
-    // it), it falls back to `zveltio_rls` and there is nothing to grant.
+    // it), the bridge refuses worker SQL and there is nothing to grant.
     // SET, as the bridge's own pick (pickWorkerSqlRole): a role it cannot switch
     // to is one it does not use.
     const r = await sql<{ member: boolean }>`

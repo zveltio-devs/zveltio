@@ -21,9 +21,9 @@
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
-import { createDb, type Database } from '../../db/index.js';
+import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { reconcileTenantRLS } from '../../lib/tenancy/index.js';
+import { DEFAULT_TENANT_ID, reconcileTenantRLS } from '../../lib/tenancy/index.js';
 import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
@@ -35,11 +35,9 @@ import {
   createGodSession,
   getTestApp,
   harnessAvailable,
-  superuserUrl,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const SUPER_URL = harnessAvailable() ? await superuserUrl() : null;
 
 const COLL = `wkr_grant_${Date.now().toString(36)}`;
 const TABLE = `zvd_${COLL}`;
@@ -49,8 +47,12 @@ const PROBE = `wkr-grant-probe-${Date.now()}`;
 
 type Reply = { ok: true; rows: unknown[] } | { ok: false; error: string };
 
-/** One `db:query` through the host, as a worker request under `tenantId` sends it. */
-async function workerQuery(sqlText: string, tenantId: string): Promise<Reply> {
+/**
+ * One `db:query` through the host, as a worker request under `tenantId` sends
+ * it — or, with no tenant, as a background hook or scheduled task does: no
+ * invocation id, so no tenant and no actor.
+ */
+async function workerQuery(sqlText: string, tenantId?: string): Promise<Reply> {
   const host = new WorkerExtensionHost(new Hono());
   const reply = await new Promise<HostToWorkerMessage>((resolve) => {
     const managed = {
@@ -72,7 +74,7 @@ async function workerQuery(sqlText: string, tenantId: string): Promise<Reply> {
       {
         type: 'db:query',
         id: 'q-1',
-        requestId: 'req-1',
+        ...(tenantId ? { requestId: 'req-1' } : {}),
         sql: sqlText,
         params: [],
       } as WorkerToHostMessage,
@@ -160,6 +162,7 @@ d('the narrow roles hold exactly the collection tables', () => {
     for (const [title, tenant] of [
       ['a-row', TENANT_A],
       ['b-row', TENANT_B],
+      ['default-row', DEFAULT_TENANT_ID],
     ]) {
       await asTenant(db, tenant!, (trx) =>
         sql`INSERT INTO ${sql.id(TABLE)} (title, tenant_id) VALUES (${title}, ${tenant}::uuid)`.execute(
@@ -228,62 +231,45 @@ d('the narrow roles hold exactly the collection tables', () => {
     ).rejects.toThrow(/permission denied for table zvd_permissions/);
   }, 60_000);
 
-  it('without zveltio_worker the bridge falls back to zveltio_rls — and still cannot write Casbin', async () => {
-    const res = await withoutWorkerRole(db, async () => ({
-      who: await workerQuery('SELECT current_user AS u', TENANT_A),
-      write: await workerQuery(
-        `INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES ('g', '${PROBE}', 'god', '*')`,
-        TENANT_A,
-      ),
-    }));
-    // The fallback really happened, so the refusal below is the policy's.
-    expect(res.who).toEqual({ ok: true, rows: [{ u: 'zveltio_rls' }] });
-    expect(res.write.ok).toBe(false);
-    if (!res.write.ok) expect(res.write.error).toContain('zvd_permissions');
-    const written = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zvd_permissions WHERE v0 = ${PROBE}
-    `.execute(db);
-    expect(written.rows[0]!.n).toBe(0);
-  }, 60_000);
+  it('a worker query with no tenant and no actor reads no collection', async () => {
+    // A background hook: no caller, so no grants. The collection policy gives
+    // the narrow role nothing here (migration 058, rule 3).
+    expect(await workerQuery(`SELECT title FROM ${TABLE}`)).toEqual({ ok: true, rows: [] });
+  });
 
-  // Renaming `zveltio_rls` (a cluster role the owner holds without ADMIN) is a
-  // superuser's setup; the bridge under test still runs as the harness engine.
-  it.skipIf(!SUPER_URL)(
-    'with no narrow role usable the bridge refuses — it never runs as the engine role',
-    async () => {
-      // A non-superuser engine without CREATEROLE where bootstrap-db-role.sh was
-      // not run: migration 001 created neither role. The bridge used to run the
-      // query as the engine's own login, which owns every table and, on a
-      // superuser, bypasses RLS: tenant A read tenant B's rows.
-      _internalForTests.resetNoWorkerSqlRoleWarning();
-      const warn = spyOn(console, 'warn');
-      const su = createDb(SUPER_URL!);
-      try {
-        const res = await withoutWorkerRole(db, () =>
-          withoutRole(su, 'zveltio_rls', async () => ({
-            read: await workerQuery(`SELECT title FROM ${TABLE} ORDER BY title`, TENANT_A),
-            again: await workerQuery('SELECT current_user AS u', TENANT_A),
-          })),
-        );
-        for (const r of [res.read, res.again]) {
-          expect(r.ok).toBe(false);
-          if (!r.ok) expect(r.error).toMatch(/no database role.*zveltio_worker/i);
-        }
-        const told = warn.mock.calls.flat().join('\n');
-        expect(told).toContain('scripts/bootstrap-db-role.sh');
-        expect(told.split('scripts/bootstrap-db-role.sh').length - 1).toBe(1);
-      } finally {
-        warn.mockRestore();
-        await su.destroy();
+  it('without zveltio_worker the bridge refuses — never zveltio_rls, never the engine role', async () => {
+    // `zveltio_rls` was the fallback here. It is the request role: the
+    // collection policy reads a statement with no actor under it as the engine's
+    // own work and passes it, and it holds `user`, `session` and `account`.
+    // Measured with the fallback: the no-tenant read below answered
+    // `[{ title: 'default-row' }]`. Before that the fallback was the engine's
+    // own login, which owns every table and, on a superuser, bypasses RLS:
+    // tenant A read tenant B's rows.
+    _internalForTests.resetNoWorkerSqlRoleWarning();
+    const warn = spyOn(console, 'warn');
+    try {
+      const res = await withoutWorkerRole(db, async () => ({
+        who: await workerQuery('SELECT current_user AS u', TENANT_A),
+        read: await workerQuery(`SELECT title FROM ${TABLE}`),
+        tenantRead: await workerQuery(`SELECT title FROM ${TABLE}`, TENANT_A),
+      }));
+      for (const r of Object.values(res)) {
+        expect(r).toEqual({
+          ok: false,
+          error: expect.stringMatching(/no database role.*zveltio_worker/i),
+        });
       }
-      // And the bridge works again once a role is back.
-      expect(await workerQuery('SELECT current_user AS u', TENANT_A)).toEqual({
-        ok: true,
-        rows: [{ u: 'zveltio_worker' }],
-      });
-    },
-    60_000,
-  );
+      const told = warn.mock.calls.flat().join('\n');
+      expect(told.split('scripts/bootstrap-db-role.sh').length - 1).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+    // And the bridge works again once the role is back.
+    expect(await workerQuery('SELECT current_user AS u', TENANT_A)).toEqual({
+      ok: true,
+      rows: [{ u: 'zveltio_worker' }],
+    });
+  }, 60_000);
 
   it('the flow reader holds SELECT on the new collection and reads its own tenant only', async () => {
     expect(await privileges(db, TABLE, 'zveltio_flow_reader')).toEqual(['SELECT']);
