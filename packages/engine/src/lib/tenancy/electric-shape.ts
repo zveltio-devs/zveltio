@@ -16,8 +16,8 @@
  */
 
 import type { Database } from '../../db/index.js';
-import type { FilterCondition } from '../../db/dynamic.js';
 import { isGodUser } from './permissions.js';
+import type { RuleFilter } from './rls.js';
 import {
   isRuleOperator,
   keepsEveryPresent,
@@ -49,7 +49,7 @@ export interface ShapeInput {
   withheld: Set<string>;
   /** The caller's `ReadScope` (lib/data/read-scope.ts), the parts a shape can carry. */
   scope: {
-    rls: Array<{ field: string; condition: FilterCondition }>;
+    rls: RuleFilter[];
     readable(column: string): boolean;
     altersRestrict: boolean;
     entityChecks: boolean;
@@ -134,7 +134,7 @@ export function buildShapeDefinition(input: ShapeInput): ShapeDefinition {
     );
   }
 
-  for (const { field, condition } of scope.rls) {
+  for (const { field, condition, caseless } of scope.rls) {
     // A rule on a column the table lacks errors on REST; here it must not
     // become a shape Electric rejects later, or one that silently drops it.
     if (!physical.has(field) || !isRuleOperator(condition.op)) {
@@ -143,7 +143,7 @@ export function buildShapeDefinition(input: ShapeInput): ShapeDefinition {
         `A row rule on "${table}" (${field} ${condition.op}) cannot be applied by Electric.`,
       );
     }
-    const col = ident(field);
+    const col = caseless ? `lower(${ident(field)})` : ident(field);
     if (keepsNothing(condition.op, condition.value)) clauses.push('false');
     else if (keepsEveryPresent(condition.op, condition.value)) clauses.push(`${col} IS NOT NULL`);
     else {

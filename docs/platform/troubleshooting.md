@@ -115,6 +115,8 @@ the admin routes) takes the account stored in exactly the spelling looked up —
 for sign-in that is the all-lowercase one, since better-auth lowercases what is
 typed. When no twin holds that exact spelling, the address matches no account
 and the engine logs `matches several accounts in another case and none exactly`.
+A row rule on `user_email` compares without case, so until then each twin also
+sees the rows that rule grants the other.
 
 ```sql
 -- 1. The twins, oldest first in each group.
@@ -133,6 +135,8 @@ SELECT lower(email) AS address, id, email, "createdAt",
 -- 3. Build the index without blocking writes. If it fails, a twin is left:
 --    DROP INDEX CONCURRENTLY user_email_lower_key; and go back to step 1.
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS user_email_lower_key ON "user" (lower(email));
+-- 4. Migration 089 left the twins in their spelling; the kept one in lower case.
+UPDATE "user" SET email = lower(email) WHERE email <> lower(email);
 ```
 
 The boot warning and the health check clear once the index is valid.

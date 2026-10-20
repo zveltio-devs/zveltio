@@ -41,6 +41,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { startReconcile } from './reconcile-failures.js';
 import {
+  foldsCase,
   isRuleOperator,
   keepsEveryPresent,
   keepsNothing,
@@ -242,6 +243,10 @@ export function buildRowRulePredicate(
     if (!value) continue; // unreachable: unknown sources returned above
 
     const opSem = RULE_OPERATORS[rule.filter_op];
+    // An email compares without case (rule-operators.ts): both sides folded.
+    const fold = foldsCase(rule.filter_value_source);
+    const lhs = fold ? `lower(${col})` : col;
+    const rhs = fold ? `lower(${value.sql})` : value.sql;
     let condition: string;
     if (opSem.list) {
       // Only a `static:` source can be a list; the user_* ones are scalars, and
@@ -255,14 +260,14 @@ export function buildRowRulePredicate(
         : null;
       const list = items
         ? items.map((v) => (pgType === 'text' ? lit(v) : `CAST(${lit(v)} AS ${pgType})`)).join(', ')
-        : value.sql;
+        : rhs;
       // An empty list means what it means in the engine (rule-operators.ts):
       // `in []` keeps nothing, `not_in []` keeps every row whose field is present.
       if (items && keepsNothing(rule.filter_op, items)) condition = 'false';
       else if (items && keepsEveryPresent(rule.filter_op, items)) condition = `${col} IS NOT NULL`;
-      else condition = `${col} ${opSem.sql} (${list})`;
+      else condition = `${lhs} ${opSem.sql} (${list})`;
     } else {
-      condition = `${col} ${opSem.sql} ${value.sql}`;
+      condition = `${lhs} ${opSem.sql} ${rhs}`;
     }
 
     if (condition !== 'false') columns.add(rule.filter_field);

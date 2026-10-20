@@ -10,7 +10,7 @@
  *   - api_key auth (scope-based; no user context for user_id/email filters)
  */
 
-import { sql } from 'kysely';
+import { type RawBuilder, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
@@ -26,12 +26,16 @@ import {
 import type { FilterCondition } from '../../db/dynamic.js';
 import {
   droppedForMissingValue,
+  foldsCase,
   isRuleOperator,
   keepsEveryPresent,
   keepsNothing,
   RULE_OPERATORS,
   unsupportedOperator,
 } from './rule-operators.js';
+
+/** One resolved rule. `caseless`: its value is lower case, and the field is folded to match. */
+export type RuleFilter = { field: string; condition: FilterCondition; caseless?: boolean };
 
 const RLS_CACHE_TTL = 30; // seconds — short TTL so policy changes apply quickly
 
@@ -236,7 +240,7 @@ export async function getRlsFilters(
     authorUserId?: string | null;
   },
   authType: 'session' | 'api_key',
-): Promise<Array<{ field: string; condition: FilterCondition }>> {
+): Promise<RuleFilter[]> {
   // This used to read `user.role === 'god' || authType === 'api_key'`. Both
   // halves were wrong, in opposite directions.
   //
@@ -297,7 +301,7 @@ export async function getRlsFilters(
   if (direct === 'api_key') userRoles.add(direct);
   const actor = { id: user.id, email: user.email, role: direct };
 
-  const result: Array<{ field: string; condition: FilterCondition }> = [];
+  const result: RuleFilter[] = [];
 
   for (const policy of policies) {
     // Match if policy role is '*' or user has that role
@@ -343,7 +347,10 @@ export async function getRlsFilters(
             .map((v) => v.trim())
             .filter(Boolean)
         : value;
-    result.push({ field: policy.filter_field, condition: { op, value: condValue } });
+    if (foldsCase(policy.filter_value_source)) {
+      const lower = String(condValue).toLowerCase();
+      result.push({ field: policy.filter_field, condition: { op, value: lower }, caseless: true });
+    } else result.push({ field: policy.filter_field, condition: { op, value: condValue } });
   }
 
   return result;
@@ -367,16 +374,13 @@ const warnedUnknownSource = new Set<string>();
  */
 /** The only shape this needs from a query builder. */
 type WhereChain = {
-  where(field: string, op: string, value: unknown): WhereChain;
+  where(field: string | RawBuilder<unknown>, op: string, value: unknown): WhereChain;
   where(expr: unknown): WhereChain;
 };
 
-export function applyRlsFilters<Q>(
-  query: Q,
-  filters: Array<{ field: string; condition: FilterCondition }>,
-): Q {
+export function applyRlsFilters<Q>(query: Q, filters: RuleFilter[]): Q {
   let out = query as unknown as WhereChain;
-  for (const { field, condition } of filters) {
+  for (const { field, condition, caseless } of filters) {
     const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
     if (keepsNothing(condition.op, condition.value)) {
       out = out.where(sql<boolean>`false`);
@@ -384,7 +388,11 @@ export function applyRlsFilters<Q>(
       out = out.where(field, 'is not', null);
     } else if (isRuleOperator(condition.op)) {
       const op = RULE_OPERATORS[condition.op];
-      out = out.where(field, op.kysely, op.list ? asList(condition.value) : condition.value);
+      out = out.where(
+        caseless ? sql`lower(${sql.ref(field)}::text)` : field,
+        op.kysely,
+        op.list ? asList(condition.value) : condition.value,
+      );
     } else {
       throw unsupportedOperator(field, condition.op);
     }
@@ -405,13 +413,11 @@ export function applyRlsFilters<Q>(
  * `applyRlsFilters`, so the two cannot drift into disagreeing about what a
  * policy means. Kept next to it for the same reason.
  */
-export function matchesRlsFilters(
-  record: Record<string, unknown>,
-  filters: Array<{ field: string; condition: FilterCondition }>,
-): boolean {
-  for (const { field, condition } of filters) {
+export function matchesRlsFilters(record: Record<string, unknown>, filters: RuleFilter[]): boolean {
+  for (const { field, condition, caseless } of filters) {
     if (!isRuleOperator(condition.op)) throw unsupportedOperator(field, condition.op);
-    const value = record[field];
+    const raw = record[field];
+    const value = caseless && !droppedForMissingValue(raw) ? String(raw).toLowerCase() : raw;
     // A missing or NULL field drops the row, on EVERY operator including the
     // negatives — the rule that had to be written by hand here and was written
     // wrong. See rule-operators.ts.
@@ -470,12 +476,12 @@ export function matchesRlsFilters(
  * now walks all four over the whole matrix, which is what actually stops it.
  */
 export function rlsJsonConditions(
-  filters: Array<{ field: string; condition: FilterCondition }>,
+  filters: RuleFilter[],
   column = 'data',
 ): Array<ReturnType<typeof sql<boolean>>> {
   const col = sql.ref(column);
   const out: Array<ReturnType<typeof sql<boolean>>> = [];
-  for (const { field, condition } of filters) {
+  for (const { field, condition, caseless } of filters) {
     if (!isRuleOperator(condition.op)) throw unsupportedOperator(field, condition.op);
     if (keepsNothing(condition.op, condition.value)) {
       out.push(sql<boolean>`false`);
@@ -492,7 +498,7 @@ export function rlsJsonConditions(
     // row. That is silent: the query succeeds and the page comes back empty,
     // and a suite that only checks "these rows are hidden" passes for entirely
     // the wrong reason.
-    const at = sql`${col} ->> ${field}::text`;
+    const at = caseless ? sql`lower(${col} ->> ${field}::text)` : sql`${col} ->> ${field}::text`;
     const one = (v: unknown) => sql`${String(v)}::text`;
     const rendered = sql.raw(op.sql);
     // No special case for a missing key on any of the four: `->>` gives NULL,
