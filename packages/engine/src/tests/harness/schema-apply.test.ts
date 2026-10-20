@@ -251,6 +251,24 @@ d('schema apply', () => {
     expect(((await res.json()) as { detail: string }).detail).toContain('row rule');
   });
 
+  it('vets custom and transition expressions as the validation rules API does', async () => {
+    const files = await pull();
+    const path = `collections/${EXISTING}.json`;
+    const probe = JSON.parse(files[path]);
+    const withRule = (rule: string, expression: string) => {
+      probe.validation = [{ field: 'title', rule, config: { expression }, message: 'No' }];
+      return call('apply', { ...files, [path]: serialize(probe) });
+    };
+    // `previous` is in scope for a transition rule only.
+    const custom = await withRule('custom', 'value == previous');
+    expect(custom.status).toBe(400);
+    expect(((await custom.json()) as { detail: string }).detail).toContain('the expression');
+    expect((await withRule('transition', 'value == (')).status).toBe(400);
+    expect((await withRule('transition', 'value == previous')).status).toBe(200);
+    probe.validation = [];
+    expect((await call('apply', { ...files, [path]: serialize(probe) })).status).toBe(200);
+  });
+
   it('refuses a plan with a step it cannot run yet, and changes nothing', async () => {
     const files = await pull();
     const path = `collections/${EXISTING}.json`;
