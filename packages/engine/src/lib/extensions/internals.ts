@@ -99,6 +99,7 @@ import {
 } from '../users.js';
 import { type AsSystemOptions, asSystemAs, markSystemJob } from './as-system.js';
 import { bindsCaller } from './capabilities.js';
+import { runFieldPipeline } from './extension-context.js';
 import {
   auditAs,
   countMembers,
@@ -193,6 +194,12 @@ export interface ExtensionContext {
 export interface ExtensionInternals {
   // Fields typed as `typeof <helper>` mirror the engine helper's real signature
   // (single source of truth) — no `any`, no cast in buildExtensionInternals().
+  /**
+   * The row goes through the field pipeline first — type validation,
+   * deserialization, field encryption, validation rules (a `transition` rule
+   * judged against no previous value) — as a `ctx.db` insert does. A row the
+   * pipeline refuses throws and nothing is written.
+   */
   dynamicInsert: typeof dynamicInsert;
   /**
    * The three an extension needs to render a collection the way the engine's own
@@ -685,6 +692,17 @@ function enterTenantAs(
  */
 export function buildExtensionInternals(): ExtensionInternals {
   return bindsCaller(buildUnboundInternals(), (caller, granted) => ({
+    // The raw helper wrote what it was given: no type check, no encryption, no
+    // validation rule, while `ctx.db.insertInto` on the same table got all of
+    // them. Its one caller (import) redid deserialize + encrypt by hand and
+    // nothing else, so a CSV row the data API refuses went in.
+    dynamicInsert: async (db, table, data, system) =>
+      dynamicInsert(
+        db,
+        table,
+        await runFieldPipeline(engineHandle(db), table, caller.replace(/^ext:/, ''), data, false),
+        system,
+      ),
     provisionUser: (input) => provisionUser(input, caller),
     updateUserProfile: (db, userId, patch) =>
       updateUserProfile(db as Database, userId, patch, caller),

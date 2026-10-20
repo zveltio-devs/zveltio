@@ -254,10 +254,15 @@ async function written(
 ): Promise<Record<string, unknown> | undefined> {
   const { view, version } = await readSource(db, table);
   if (!view || !row) return row;
-  const r = await withEngineColumns(db, () =>
+  // The engine's own read of the row the checked INSERT/UPDATE just wrote: an
+  // extension's handle (`ctx.internals.dynamicInsert`) refuses the window's
+  // `set_config` and the view, so every write through it threw AFTER its INSERT
+  // had run. See engine-handle.ts.
+  const own = engineHandle(db);
+  const r = await withEngineColumns(own, () =>
     sql<
       Record<string, unknown>
-    >`SELECT * FROM ${sql.table(view)} WHERE id = ${row.id} ${version}`.execute(db),
+    >`SELECT * FROM ${sql.table(view)} WHERE id = ${row.id} ${version}`.execute(own),
   );
   return r.rows[0] ?? row;
 }
