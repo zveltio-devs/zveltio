@@ -326,19 +326,31 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
       let from = 0;
       for (const d of src.slice(0, at).matchAll(decl)) from = d.index;
       const head = decl.exec(src.slice(from, at));
+      /**
+       * A bare name stands for its last declaration before the site: `const v =
+       * JSON.stringify(x); p.col = v` stayed green until 2026-10-20. One hop.
+       */
+      const traced = (value: string, site: number) => {
+        if (!/^[A-Za-z_$][\w$]*$/.test(value)) return value;
+        const v = value.replace(/\$/g, '\\$');
+        let last = value;
+        for (const d of src
+          .slice(0, site)
+          .matchAll(new RegExp(`\\b(?:const|let|var)\\s+${v}\\b[^=;]*=\\s*([^;\\n]+)`, 'g')))
+          last = d[1]!.trim();
+        return last;
+      };
       /** The pairs of the object literal whose `{` is at `open`. */
       const literal = (open: number, site: number) => {
         const body = balanced(src, open);
         for (const pair of body === null ? [] : topLevelPairs(body)) {
           const kv = /^\s*["'`]?([a-z_][\w]*)["'`]?\s*:\s*([\s\S]+)$/i.exec(pair);
-          if (kv) flag(site, kv[1]!.toLowerCase(), wrongForm(kv[2]!.trim()));
+          if (kv) flag(site, kv[1]!.toLowerCase(), wrongForm(traced(kv[2]!.trim(), site)));
         }
       };
       if (head && src[from + head[0].length] === '{') literal(from + head[0].length, from);
       // A later reassignment, `patch = { ...patch, col: … }`, replaces the
       // object the declaration built: planted 2026-10-20, green before this.
-      // ponytail: a value routed through a second variable (`const v =
-      // JSON.stringify(x); p.col = v`) is still not followed.
       const reassign = new RegExp(`(?<![\\w$.])${name}\\s*=\\s*\\{`, 'g');
       for (const r of src.slice(from, at).matchAll(reassign))
         literal(from + r.index + r[0].length - 1, from + r.index);
@@ -353,7 +365,7 @@ function scan(file: string, jsonb: Map<string, Set<string>>): Site[] {
       const region = src.slice(from, at);
       // biome-ignore lint/suspicious/noAssignInExpressions: the standard exec loop
       while ((a = assign.exec(region)) !== null) {
-        const value = a[3]!.trim();
+        const value = traced(a[3]!.trim(), from + a.index);
         const named = a[1] ?? a[2];
         if (named) flag(from + a.index, named.toLowerCase(), wrongForm(value));
         else
