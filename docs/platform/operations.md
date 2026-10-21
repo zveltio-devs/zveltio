@@ -41,6 +41,13 @@ these:
   is in [multi-tenancy.md](multi-tenancy.md) and
   `scripts/bootstrap-db-role.sh`
   provisions it.
+- **Extensions want their own database roles.** The engine creates `zveltio_ext`
+  (and one role per extension under it) at boot, which needs `CREATEROLE` or a
+  role pre-created by `scripts/bootstrap-db-role.sh`. Without it the engine still
+  boots and logs `[extensions] could not set up the zveltio_ext role`: every
+  extension's `ctx.db` then runs as the tenant role `zveltio_rls`, and only the
+  SQL analyzer keeps an extension out of tables it was not granted. Supported,
+  but weaker; re-run the bootstrap script to restore the database-level wall.
 
 Work through the checklist in [security.md](security.md#security-checklist).
 

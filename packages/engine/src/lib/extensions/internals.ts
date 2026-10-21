@@ -108,6 +108,7 @@ import { runFieldPipeline } from './extension-context.js';
 import { asEngineRole } from '../role-window.js';
 import { withSavepoint } from '../savepoint.js';
 import { toJsonb } from '../jsonb.js';
+import { auditLog } from '../audit.js';
 import {
   auditAs,
   countMembers,
@@ -673,6 +674,21 @@ async function writeValidationRule(
         'instance admin may write one.',
     );
   }
+  if (write.op === 'create' && EXPRESSION_RULE_TYPES.has(write.rule.rule_type)) {
+    // The extension checks too, but the host is the boundary: a rule that
+    // cannot compile is stored as one that refuses every write to its field.
+    const cfg = write.rule.rule_config as { expression?: unknown } | null | undefined;
+    const expression = String(cfg?.expression ?? '');
+    const verdict =
+      expression === ''
+        ? { ok: false as const, reason: 'is missing' }
+        : checkValidationExpression(expression, write.rule.rule_type);
+    if (!verdict.ok) {
+      throw new Error(
+        `ctx.internals.writeValidationRule: the \`${write.rule.rule_type}\` rule's expression ${verdict.reason}.`,
+      );
+    }
+  }
   const db = p.trx ?? getDb();
   const run = async (): Promise<Record<string, unknown> | undefined> => {
     if (write.op === 'create') {
@@ -711,9 +727,30 @@ async function writeValidationRule(
       throw err;
     }),
   );
-  if (row) invalidateRulesCache(String(row.collection));
+  if (row) {
+    invalidateRulesCache(String(row.collection));
+    // Instance-level: a rule binds every tenant, so the trail is not one tenant's.
+    await auditLog(db, {
+      type: VALIDATION_RULE_AUDIT[write.op],
+      tenantId: null,
+      userId: p.user.id,
+      resourceId: String(row.id),
+      resourceType: 'validation_rule',
+      metadata:
+        write.op === 'setActive'
+          ? { collection: row.collection, is_active: write.is_active }
+          : { collection: row.collection, field_name: row.field_name, rule_type: row.rule_type },
+    });
+  }
   return row ?? null;
 }
+
+const EXPRESSION_RULE_TYPES = new Set(['custom', 'nlp', 'transition']);
+const VALIDATION_RULE_AUDIT = {
+  create: 'validation_rule.created',
+  setActive: 'validation_rule.updated',
+  delete: 'validation_rule.deleted',
+} as const;
 
 const createAsCaller = writeAsCaller('create');
 const updateAsCaller = writeAsCaller('update');

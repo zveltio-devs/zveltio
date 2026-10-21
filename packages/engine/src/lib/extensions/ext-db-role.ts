@@ -268,12 +268,13 @@ export function ensureExtensionDbRole(db: Database): Promise<boolean> {
       `.execute(db);
       _ready = Boolean(r.rows[0]?.ok);
       _loginBypasses = Boolean(r.rows[0]?.bypasses);
+      if (!_ready) {
+        // Created by someone else, or held without SET: no exception, and no
+        // warning either, so the install ran degraded without saying so.
+        warnNoExtRole('the role exists but the engine cannot SET it, or it bypasses RLS');
+      }
     } catch (err) {
-      console.warn(
-        `[extensions] could not set up the ${EXT_DB_ROLE} role; ctx.db keeps the tenant ` +
-          `role and the SQL analyzer is the only layer (continuing):`,
-        (err as Error).message,
-      );
+      warnNoExtRole((err as Error).message);
       _ready = false;
     }
     _bypassReady = _ready && _loginBypasses && (await ensureBypassTwin(db));
@@ -285,6 +286,16 @@ export function ensureExtensionDbRole(db: Database): Promise<boolean> {
     return _ready;
   })();
   return _ensuring;
+}
+
+/** Once per process (ensureExtensionDbRole runs once): extensions run on the tenant role. */
+function warnNoExtRole(reason: string): void {
+  console.warn(
+    `[extensions] could not set up the ${EXT_DB_ROLE} role (${reason}); ctx.db keeps the ` +
+      'tenant role, so extensions read and write with what zveltio_rls holds and the SQL ' +
+      'analyzer is the only layer between one extension and the tables it was not granted ' +
+      '(continuing). Re-run scripts/bootstrap-db-role.sh; see docs/platform/operations.md.',
+  );
 }
 
 /** Once per process: every extension runs on the shared role. */

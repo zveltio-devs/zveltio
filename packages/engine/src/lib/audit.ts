@@ -64,6 +64,11 @@ export type AuditEventType =
   | 'rls_rule.created'
   | 'rls_rule.updated'
   | 'rls_rule.deleted'
+  // Validation rules (`ctx.internals.writeValidationRule`): instance-wide, they
+  // decide which writes every tenant may make.
+  | 'validation_rule.created'
+  | 'validation_rule.updated'
+  | 'validation_rule.deleted'
   // Tenant lifecycle and membership.
   //
   // `routes/tenants.ts` held no audit call at all: creating a firm, suspending

@@ -499,7 +499,9 @@ export interface ExtensionInternals<DB = unknown> {
    * for an instance admin only: the caller is the one the `/ext/*` gate
    * admitted for `c`, and anyone else (a tenant admin, an API key) throws.
    * Answers the stored row (the removed one for `delete`), or `null` when no
-   * rule has that id. Engine 3.0.0-beta.88 and later.
+   * rule has that id. A `custom`, `nlp` or `transition` rule whose expression
+   * does not compile throws, and every write is audited as an instance event.
+   * Engine 3.0.0-beta.88 and later.
    */
   writeValidationRule: (
     c: Context,
