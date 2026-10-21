@@ -233,6 +233,25 @@ d('validation rules per tenant, tighten-only', () => {
     expect(files).not.toContain('A wants 5+');
   });
 
+  it("the data API enforces A's rule on A's writes only", async () => {
+    // Rules from the previous case: A's minLength 5, the instance maxLength 10.
+    const write = async (headers: Record<string, string>, code: string) => {
+      const res = await engine.request(`/api/data/${COLL}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ code }),
+      });
+      return { status: res.status, text: await res.text() };
+    };
+    const inA = await write({ ...god, 'x-tenant-slug': A.slug }, 'abc');
+    expect(inA.status).toBe(422);
+    expect(inA.text).toContain('A wants 5+');
+    expect((await write({ ...god, 'x-tenant-slug': B.slug }, 'abc')).status).toBe(201);
+    const tooLong = await write({ ...god, 'x-tenant-slug': B.slug }, 'abcdefghijkl');
+    expect(tooLong.status).toBe(422);
+    expect(tooLong.text).toContain('at most 10');
+  });
+
   it("a tenant admin cannot touch an instance rule or another tenant's rule", async () => {
     // B on A's rule, A on the instance rule: no such rule for them.
     for (const [who, id] of [
