@@ -4,6 +4,31 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.89] - 2026-10-21
+
+**Edge functions: invoking a private function needs a grant.**
+`/api/fn/:name` used to run any non-public function for any signed-in member
+of the tenant, or for any valid API key whatever its scopes. It now requires
+`execute` on `$edge`. `tenant_member` gets it by default (migration 094);
+`tenant_viewer` and plain `member` do not, so on installs where users hold only
+`member`, grant `$edge` execute to every role that must invoke functions. API
+keys need a `$edge` scope: `execute` for every function, or the function names.
+Public functions (`ZVELTIO_PUBLIC=true`) are unchanged. The admin resource list
+and the Studio permission matrix and API-key form show `$edge` (#1250).
+`developer/edge-functions` 1.1.3 applies the same check to functions mounted on
+their own paths and requires this engine version.
+
+**Extension and edge runtimes no longer read the engine's `.env`.** Bun loads
+`.env` and `bunfig.toml` from its working directory, and the `process`
+transport and the edge-function pool started their child in the engine's, so
+extension and edge code could read the engine's secrets from disk. Both now
+start in `/` (#1248).
+
+**Tenant isolation.** An extension refused because its tenant policy could not
+be rewritten stays refused after a restart (#1249). Tenants cannot read each
+other's validation rules (migration 093, #1247). Rule groups follow their
+field on rename and drop, and only instance rules can be group members (#1246).
+
 ## [3.0.0-beta.88] - 2026-10-21
 
 **Validation rules: instance-wide by default, tighten-only per tenant.** A
