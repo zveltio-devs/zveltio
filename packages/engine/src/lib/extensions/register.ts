@@ -201,7 +201,11 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
  * engine writes them, after its own check. `zv_validation_rules` is every
  * tenant's schema metadata, and a tenant admin wrote it through `ctx.db`.
  */
-export const READ_ONLY_TABLE_GRANTS: readonly string[] = ['zv_validation_rules'];
+export const READ_ONLY_TABLE_GRANTS: readonly string[] = [
+  'zv_validation_rules',
+  // developer/validation's own table, instance-wide since 091: writeValidationRuleGroup.
+  'zvd_validation_rule_groups',
+];
 
 /**
  * Every table the ENGINE creates, read once from its own migration SQL.

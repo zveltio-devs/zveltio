@@ -57,6 +57,8 @@ const CONTROL_TABLES = [
   'zv_migrations',
   // Collections are every tenant's, and so are the rules on their fields.
   'zv_validation_rules',
+  // developer/validation's, instance-wide since 091; absent unless it is installed.
+  'zvd_validation_rule_groups',
 ];
 const REQUEST_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext'];
 

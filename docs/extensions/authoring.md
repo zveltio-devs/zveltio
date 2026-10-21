@@ -355,6 +355,7 @@ ctx.internals.introspectSchema        // Postgres schema introspection
 ctx.internals.runQualityScan          // Data-quality scan
 ctx.internals.invalidateRulesCache    // Clear cached validation rules
 ctx.internals.writeValidationRule     // Write a validation rule (instance admin; ctx.db only reads them)
+ctx.internals.writeValidationRuleGroup // Write a validation rule group (same rule)
 ctx.internals.runEdgeFunction         // Sandbox-execute edge function code
 ctx.internals.extensionRegistry       // Cross-extension hook registry
 ctx.internals.generatePDFAsync        // Queue HTML→PDF render

@@ -11,6 +11,7 @@
  */
 
 import type { Context } from 'hono';
+import { sql } from 'kysely';
 import type { ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { getDb } from '../../db/index.js';
@@ -18,6 +19,7 @@ import type {
   DataApiAnswer,
   RlsFilter,
   UpdateExpect,
+  ValidationRuleGroupWrite,
   ValidationRuleWrite,
 } from '@zveltio/sdk/extension';
 import { dynamicInsert } from '../../db/dynamic.js';
@@ -247,6 +249,11 @@ export interface ExtensionInternals {
   writeValidationRule: (
     c: unknown,
     write: ValidationRuleWrite,
+  ) => Promise<Record<string, unknown> | null>;
+  /** The same for `zvd_validation_rule_groups`, instance-wide since migration 091. */
+  writeValidationRuleGroup: (
+    c: unknown,
+    write: ValidationRuleGroupWrite,
   ) => Promise<Record<string, unknown> | null>;
   /**
    * Run a callback inside a tenant transaction, outside any request.
@@ -661,19 +668,7 @@ async function writeValidationRule(
   c: unknown,
   write: ValidationRuleWrite,
 ): Promise<Record<string, unknown> | null> {
-  const p = gatePrincipal(c);
-  if (!p) {
-    throw new Error(
-      'ctx.internals.writeValidationRule: pass the request context `c` of the /ext/* request ' +
-        'being handled; outside one there is no caller, so there is no write.',
-    );
-  }
-  if (!(await requireInstanceAdmin(p.user.id))) {
-    throw new Error(
-      'ctx.internals.writeValidationRule: validation rules apply to every tenant, so only an ' +
-        'instance admin may write one.',
-    );
-  }
+  const p = await instanceAdminCaller(c, 'writeValidationRule');
   if (write.op === 'create' && EXPRESSION_RULE_TYPES.has(write.rule.rule_type)) {
     // The extension checks too, but the host is the boundary: a rule that
     // cannot compile is stored as one that refuses every write to its field.
@@ -740,6 +735,75 @@ async function writeValidationRule(
         write.op === 'setActive'
           ? { collection: row.collection, is_active: write.is_active }
           : { collection: row.collection, field_name: row.field_name, rule_type: row.rule_type },
+    });
+  }
+  return row ?? null;
+}
+
+/** The `/ext/*` gate's caller for `c`, when an instance admin; anything else throws. */
+async function instanceAdminCaller(
+  c: unknown,
+  name: string,
+): Promise<NonNullable<ReturnType<typeof gatePrincipal>>> {
+  const p = gatePrincipal(c);
+  if (!p) {
+    throw new Error(
+      `ctx.internals.${name}: pass the request context \`c\` of the /ext/* request ` +
+        'being handled; outside one there is no caller, so there is no write.',
+    );
+  }
+  if (!(await requireInstanceAdmin(p.user.id))) {
+    throw new Error(
+      `ctx.internals.${name}: validation rules apply to every tenant, so only an ` +
+        'instance admin may write one.',
+    );
+  }
+  return p;
+}
+
+/**
+ * `ctx.internals.writeValidationRuleGroup`. A group turns a field's rules from
+ * AND into OR, so it binds every tenant as the rules do (migration 091); the
+ * extension wrote it through `ctx.db`, inside one tenant.
+ */
+async function writeValidationRuleGroup(
+  c: unknown,
+  write: ValidationRuleGroupWrite,
+): Promise<Record<string, unknown> | null> {
+  const p = await instanceAdminCaller(c, 'writeValidationRuleGroup');
+  const db = p.trx ?? getDb();
+  // The extension's table: not in the engine's Database type.
+  const run = async (): Promise<Record<string, unknown> | undefined> => {
+    if (write.op === 'delete') {
+      const r = await sql<Record<string, unknown>>`
+        DELETE FROM zvd_validation_rule_groups WHERE id = ${write.id} RETURNING *`.execute(db);
+      return r.rows[0];
+    }
+    const g = write.group;
+    const r = await sql<Record<string, unknown>>`
+      INSERT INTO zvd_validation_rule_groups
+        (name, collection, field_name, description, logic, rule_ids, is_active, created_by)
+      VALUES (${g.name}, ${g.collection}, ${g.field_name}, ${g.description ?? null},
+              ${g.logic ?? 'AND'}, ${g.rule_ids}::uuid[], ${g.is_active ?? true}, ${p.user.id})
+      RETURNING *`.execute(db);
+    return r.rows[0];
+  };
+  // A duplicate name (23505) is the caller's to answer; the request goes on.
+  const row = await asEngineRole(db, () =>
+    withSavepoint(db, 'zv_validation_rule_group_write', run, (err) => {
+      throw err;
+    }),
+  );
+  if (row) {
+    invalidateRulesCache(String(row.collection));
+    await auditLog(db, {
+      type:
+        write.op === 'create' ? 'validation_rule_group.created' : 'validation_rule_group.deleted',
+      tenantId: null,
+      userId: p.user.id,
+      resourceId: String(row.id),
+      resourceType: 'validation_rule_group',
+      metadata: { collection: row.collection, name: row.name, logic: row.logic },
     });
   }
   return row ?? null;
@@ -855,6 +919,7 @@ function buildUnboundInternals(): ExtensionInternals {
     evaluateTransitionRule,
     checkValidationExpression,
     writeValidationRule,
+    writeValidationRuleGroup,
     runEdgeFunction,
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],

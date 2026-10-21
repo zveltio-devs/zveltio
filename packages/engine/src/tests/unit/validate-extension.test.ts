@@ -210,6 +210,31 @@ describe('validateMigrations', () => {
     expect(errors).toEqual([]);
   });
 
+  it('accepts a key on a table a later migration took out of tenancy, and only then', () => {
+    const files = [
+      { filename: '001.sql', sql: 'CREATE TABLE g (collection TEXT, name TEXT);' },
+      { filename: '002.sql', sql: 'ALTER TABLE g ADD COLUMN IF NOT EXISTS tenant_id UUID;' },
+      {
+        filename: '004.sql',
+        sql: 'DO $$ BEGIN ALTER TABLE g DROP COLUMN tenant_id; END $$;\nCREATE UNIQUE INDEX IF NOT EXISTS g_cn ON g (collection, name);',
+      },
+    ];
+    expect(validateMigrations({ files })).toEqual([]);
+    // Back in tenancy, the same key is a tenant key again.
+    const readded = [
+      ...files,
+      { filename: '005.sql', sql: 'ALTER TABLE g ADD COLUMN tenant_id UUID;' },
+    ];
+    expect(validateMigrations({ files: readded }).map((e) => e.code)).toEqual([
+      'SCHEMA_UNIQUE_WITHOUT_TENANT',
+    ]);
+    // Another table's key is not excused by it.
+    const other = [...files, { filename: '006.sql', sql: 'CREATE UNIQUE INDEX h_n ON h (name);' }];
+    expect(validateMigrations({ files: other }).map((e) => e.code)).toEqual([
+      'SCHEMA_UNIQUE_WITHOUT_TENANT',
+    ]);
+  });
+
   it('accepts a widened key whose columns are in a different order', () => {
     const errors = validateMigrations({
       files: [

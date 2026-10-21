@@ -1744,7 +1744,8 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         -- purge runs as the engine (purgeExtensionData). And zv_validation_rules:
         -- collections are every tenant's, so a tenant admin's rule refused every
         -- tenant's writes; the engine writes it for an instance admin
-        -- (ctx.internals.writeValidationRule).
+        -- (ctx.internals.writeValidationRule). zvd_validation_rule_groups (091)
+        -- the same: a group decides how those rules combine (writeValidationRuleGroup).
         -- tests/harness/control-table-grants.test.ts.
         FOR t IN
           SELECT tablename FROM pg_tables
@@ -1755,7 +1756,8 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
                               'zv_tenants', 'zv_rate_limit_configs', 'zvd_rpc_functions',
                               'zvd_collections', 'zvd_relations',
                               'zv_schema_branches', 'zv_schema_versions',
-                              'zv_schema_migrations', 'zv_migrations', 'zv_validation_rules')
+                              'zv_schema_migrations', 'zv_migrations', 'zv_validation_rules',
+                              'zvd_validation_rule_groups')
         LOOP
           EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;

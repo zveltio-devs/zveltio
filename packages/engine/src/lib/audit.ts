@@ -69,6 +69,8 @@ export type AuditEventType =
   | 'validation_rule.created'
   | 'validation_rule.updated'
   | 'validation_rule.deleted'
+  | 'validation_rule_group.created'
+  | 'validation_rule_group.deleted'
   // Tenant lifecycle and membership.
   //
   // `routes/tenants.ts` held no audit call at all: creating a firm, suspending
