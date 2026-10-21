@@ -13,6 +13,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { withLockWaitBound } from '../../db/dynamic.js';
 import { startReconcile } from '../tenancy/index.js';
 import { SYSTEM_COLUMNS } from './ddl-manager.js';
 
@@ -53,7 +54,8 @@ function q(name: string): string {
  * Put a collection's column write restrictions onto its table, or take them off.
  *
  * Joins the caller's transaction when there is one — `createIsolatedTable`
- * calls it in the CREATE's, so a table is created guarded or not at all.
+ * calls it in the CREATE's, so a table is created guarded or not at all. The
+ * lock wait is bounded either way (`withLockWaitBound`).
  */
 export async function applyColumnGuard(db: Database, collection: string): Promise<boolean> {
   const table = `zvd_${collection}`;
@@ -86,8 +88,7 @@ export async function applyColumnGuard(db: Database, collection: string): Promis
       .execute(h);
     return true;
   };
-  if ((db as unknown as { isTransaction?: boolean }).isTransaction) return run(db);
-  return db.transaction().execute(run);
+  return withLockWaitBound(db, run);
 }
 
 /**

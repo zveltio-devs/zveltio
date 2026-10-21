@@ -826,3 +826,30 @@ export async function dynamicSetColumnRequired(
     }
   });
 }
+
+/**
+ * Run `fn` with its lock waits bounded, in the caller's transaction or a new one.
+ *
+ * The column guard and row-rule rebuilds lock a collection's table (SHARE ROW
+ * EXCLUSIVE, ACCESS EXCLUSIVE) and the seal locks its view (ACCESS EXCLUSIVE). Unbounded, one long writer or reader of it held the
+ * rebuild at the head of the lock queue, and every write or read of the
+ * collection queued behind it. Only an unbounded wait is bounded: a caller's
+ * own `lock_timeout` stands, and is the one it has after — `set_config(…, true)`
+ * and the prior value back, not `SET LOCAL`, which would outlive the call and
+ * change the caller's remaining statements. A failure aborts the transaction
+ * (or rolls back the caller's savepoint), which takes the setting with it.
+ */
+export async function withLockWaitBound<T>(
+  db: Database,
+  fn: (h: Database) => Promise<T>,
+): Promise<T> {
+  if (!(db as unknown as { isTransaction?: boolean }).isTransaction) {
+    return db.transaction().execute((trx) => withLockWaitBound(trx, fn));
+  }
+  const r = await sql<{ v: string }>`SELECT current_setting('lock_timeout') AS v`.execute(db);
+  if (r.rows[0]?.v !== '0') return fn(db);
+  await sql`SELECT set_config('lock_timeout', '2s', true)`.execute(db);
+  const out = await fn(db);
+  await sql`SELECT set_config('lock_timeout', '0', true)`.execute(db);
+  return out;
+}
