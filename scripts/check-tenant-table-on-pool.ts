@@ -307,6 +307,41 @@ function rawTables(body: string): Set<string> {
 }
 
 /**
+ * The text of every raw statement an `.execute()` receiver can be: a `sql` template,
+ * `sql.raw('…')`, either branch of a ternary, or a name declared as one of those
+ * (`const q = sql\`…\``, then `const r = q`). A bare string is read only as the
+ * argument of `sql.raw`, the one place it reaches `.execute()`. Planted 2026-10-20 and 2026-10-21:
+ * the name, the alias of a name, the ternary and `sql.raw` were each green.
+ */
+function rawBodies(e: ts.Expression, depth = 0): string[] {
+  const x = strip(e);
+  if (depth > 8) return [];
+  if (ts.isIdentifier(x)) {
+    const d = resolve(x);
+    return d && ts.isVariableDeclaration(d) && d.initializer
+      ? rawBodies(d.initializer, depth + 1)
+      : [];
+  }
+  if (ts.isConditionalExpression(x)) {
+    return [...rawBodies(x.whenTrue, depth + 1), ...rawBodies(x.whenFalse, depth + 1)];
+  }
+  if (ts.isTaggedTemplateExpression(x) && ts.isIdentifier(x.tag) && x.tag.text === 'sql') {
+    return [x.template.getText()];
+  }
+  if (
+    ts.isCallExpression(x) &&
+    ts.isPropertyAccessExpression(x.expression) &&
+    x.expression.name.text === 'raw' &&
+    ts.isIdentifier(x.expression.expression) &&
+    x.expression.expression.text === 'sql'
+  ) {
+    // `sql.raw('…')`, or `sql.raw(name)` with the string held in a const.
+    return x.arguments[0] ? rawBodies(x.arguments[0], depth + 1) : [];
+  }
+  return ts.isStringLiteralLike(x) ? [x.text] : [];
+}
+
+/**
  * Sites read and understood, keyed `file:table`. Empty, and meant to stay that
  * way: an entry here is a promise that somebody checked the tenant binding by
  * hand, and an earlier version of this file shows how easily that becomes a
@@ -345,18 +380,10 @@ for (const [file, sf] of files) {
         }
       }
       // `sql\`…\`.execute(<pool>)` — a raw statement is exactly as unbound.
-      // So is one built first, `const q = sql\`…\`; q.execute(<pool>)`:
-      // planted 2026-10-20, green before the name was followed.
-      let tpl = strip(n.expression.expression);
-      if (ts.isIdentifier(tpl)) {
-        const d = resolve(tpl);
-        if (d && ts.isVariableDeclaration(d) && d.initializer) tpl = strip(d.initializer);
-      }
-      if (op === 'execute' && arg && onPool(arg) && ts.isTaggedTemplateExpression(tpl)) {
-        if (ts.isIdentifier(tpl.tag) && tpl.tag.text === 'sql') {
-          sitesSeen++;
-          for (const t of rawTables(tpl.template.getText())) report(n, t);
-        }
+      if (op === 'execute' && arg && onPool(arg)) {
+        const bodies = rawBodies(n.expression.expression);
+        if (bodies.length > 0) sitesSeen++;
+        for (const b of bodies) for (const t of rawTables(b)) report(n, t);
       }
     }
     ts.forEachChild(n, visit);
