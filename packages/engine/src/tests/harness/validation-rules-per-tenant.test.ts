@@ -260,15 +260,22 @@ d('validation rules per tenant, tighten-only', () => {
     expect(await rule(ruleA)).toBeUndefined();
 
     await _settleAuditWrites();
-    const trail = await sql<{ resource_id: string; event_type: string; tenant_id: string | null }>`
-      SELECT resource_id, event_type, tenant_id FROM zv_audit_log
-       WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}
-       ORDER BY created_at, id`.execute(db);
-    expect(trail.rows).toEqual([
+    // Read each scope where its rows are visible: a NOBYPASSRLS owner sees a
+    // tenant's audit rows only from inside that tenant.
+    const trailIn = (q: Database) =>
+      sql<{ resource_id: string; event_type: string; tenant_id: string | null }>`
+        SELECT resource_id, event_type, tenant_id FROM zv_audit_log
+         WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}
+         ORDER BY created_at, id`
+        .execute(q)
+        .then((r) => r.rows);
+    expect(await withTenantIsolation(A.id, (trx) => trailIn(trx as Database))).toEqual([
       { resource_id: ruleA, event_type: 'validation_rule.created', tenant_id: A.id },
-      { resource_id: instanceRule, event_type: 'validation_rule.created', tenant_id: null },
       { resource_id: ruleA, event_type: 'validation_rule.updated', tenant_id: A.id },
       { resource_id: ruleA, event_type: 'validation_rule.deleted', tenant_id: A.id },
+    ]);
+    expect((await trailIn(db)).filter((r) => r.tenant_id === null)).toEqual([
+      { resource_id: instanceRule, event_type: 'validation_rule.created', tenant_id: null },
     ]);
   });
 

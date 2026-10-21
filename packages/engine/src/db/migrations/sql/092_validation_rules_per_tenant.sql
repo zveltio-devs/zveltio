@@ -9,15 +9,15 @@
 -- none (writes: ctx.internals.writeValidationRule, as the engine).
 --
 -- Tenant purge deletes the rows by the column (lib/tenancy/tenant-purge.ts);
--- the cascade covers a bare delete. The key validates at once: every existing
--- row is an instance rule.
+-- the cascade covers a bare delete. NOT VALID and never validated: the column is
+-- new, every existing row is NULL (nothing to check), and Postgres enforces a
+-- NOT VALID key on every row written after it, which is every tenant rule.
 
 ALTER TABLE zv_validation_rules ADD COLUMN IF NOT EXISTS tenant_id UUID;
 ALTER TABLE zv_validation_rules DROP CONSTRAINT IF EXISTS zv_validation_rules_tenant_id_fkey;
 ALTER TABLE zv_validation_rules
   ADD CONSTRAINT zv_validation_rules_tenant_id_fkey
   FOREIGN KEY (tenant_id) REFERENCES zv_tenants(id) ON DELETE CASCADE NOT VALID;
-ALTER TABLE zv_validation_rules VALIDATE CONSTRAINT zv_validation_rules_tenant_id_fkey;
 -- For the purge and the cascade; instance rules (NULL) stay out of it.
 CREATE INDEX IF NOT EXISTS idx_validation_rules_tenant
   ON zv_validation_rules (tenant_id) WHERE tenant_id IS NOT NULL;
