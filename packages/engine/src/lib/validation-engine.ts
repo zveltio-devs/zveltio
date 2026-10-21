@@ -510,9 +510,11 @@ const groupsCache = new Map<string, { groups: RuleGroup[]; ts: number }>();
  * `zv_validation_rules` belongs to the engine, so this reads across a boundary
  * that points the wrong way. It is guarded rather than typed: absent table,
  * uninstalled extension, or any error means no groups and the previous
- * behaviour, which is the safe direction. The honest fix is to move the table
- * into the engine beside the rules it groups — a schema change to a table
- * holding customer configuration, and an owner's call rather than mine.
+ * behaviour, which is the safe direction.
+ *
+ * Instance-wide since migration 091, like the rules: the cache below is keyed by
+ * collection alone, and while the table was tenant-scoped one tenant's groups
+ * were served to every other tenant's writes until it expired.
  */
 /**
  * Does the extension's table exist? Asked once per process, not per write.

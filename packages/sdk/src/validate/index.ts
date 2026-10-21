@@ -527,19 +527,26 @@ function columnLevelUniqueColumns(sql: string): string[] {
   return out;
 }
 
-function keyColumnSets(upSql: string): string[][] {
+/** A key's columns, and its table where the statement names it (`CREATE UNIQUE INDEX … ON t`). */
+type KeyColumns = string[] & { table?: string };
+
+function keyColumnSets(upSql: string): KeyColumns[] {
   const s = upSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  const sets: string[][] = [];
-  const add = (cols: string) =>
-    sets.push(
-      cols
-        .split(',')
-        .map((c) => c.trim().replace(/["`]/g, '').toLowerCase())
-        .filter(Boolean),
-    );
+  const sets: KeyColumns[] = [];
+  const add = (cols: string, table?: string) => {
+    const key: KeyColumns = cols
+      .split(',')
+      .map((c) => c.trim().replace(/["`]/g, '').toLowerCase())
+      .filter(Boolean);
+    if (table) key.table = bareTable(table);
+    sets.push(key);
+  };
   for (const m of s.matchAll(/\bUNIQUE\s*\(([^)]+)\)/gi)) add(m[1]);
   for (const m of s.matchAll(/\bPRIMARY\s+KEY\s*\(([^)]+)\)/gi)) add(m[1]);
-  for (const m of s.matchAll(/CREATE\s+UNIQUE\s+INDEX[^(]*\(([^)]+)\)/gi)) add(m[1]);
+  for (const m of s.matchAll(
+    /CREATE\s+UNIQUE\s+INDEX[^(]*?\bON\s+(?:ONLY\s+)?([\w."]+)[^(]*\(([^)]+)\)/gi,
+  ))
+    add(m[2], m[1]);
   // Column-level `sku TEXT NOT NULL UNIQUE` — the same constraint, written
   // inline. Fifty-eight of these are in the shipped extensions and every one was
   // invisible here, because the three patterns above all require a parenthesised
@@ -551,6 +558,23 @@ function keyColumnSets(upSql: string): string[][] {
   ))
     add(m[1]);
   return sets;
+}
+
+const bareTable = (t: string) => t.replace(/"/g, '').split('.').pop()!.toLowerCase();
+
+/**
+ * `tenant_id` added to or dropped from a table, in statement order. A table
+ * whose last word is a drop has left tenancy on purpose (`developer/validation`
+ * 004): a key on it is instance-wide and needs no tenant column.
+ */
+function tenantColumnChanges(upSql: string): Array<[table: string, dropped: boolean]> {
+  const s = upSql.replace(/--[^\n]*/g, '');
+  const out: Array<[string, boolean]> = [];
+  for (const m of s.matchAll(
+    /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([\w."]+)\s[^;]*?\b(ADD|DROP)\s+COLUMN\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?"?tenant_id"?\b/gi,
+  ))
+    out.push([bareTable(m[1]), m[2].toUpperCase() === 'DROP']);
+  return out;
 }
 
 /** Narrow: a key over plain names with no `tenant_id`. Returns the joined columns. */
@@ -582,7 +606,8 @@ export function validateMigrations(input: MigrationsValidationInput): Validation
 
   // Accumulated across every file, because a migration set is a sequence and the
   // only thing that matters is where it ends up.
-  const narrowKeys: Array<{ cols: string; filename: string }> = [];
+  const narrowKeys: Array<{ cols: string; table?: string; filename: string }> = [];
+  const untenanted = new Set<string>();
   const widened = new Set<string>();
   const uuidRefs: Array<{ column: string; filename: string }> = [];
   const fixedRefs = new Set<string>();
@@ -625,12 +650,14 @@ export function validateMigrations(input: MigrationsValidationInput): Validation
     // extension that declared a column wrong in 001 and put it right in 006 is
     // correct, and complaining about 001 would only teach people to edit
     // history.
-    narrowKeys.push(
-      ...keyColumnSets(parsed.up)
-        .map(narrowKey)
-        .filter((k): k is string => k !== null)
-        .map((cols) => ({ cols, filename: file.filename })),
-    );
+    for (const key of keyColumnSets(parsed.up)) {
+      const cols = narrowKey(key);
+      if (cols !== null) narrowKeys.push({ cols, table: key.table, filename: file.filename });
+    }
+    for (const [table, dropped] of tenantColumnChanges(parsed.up)) {
+      if (dropped) untenanted.add(table);
+      else untenanted.delete(table);
+    }
     for (const parts of keyColumnSets(parsed.up)) {
       const wide = widenedKey(parts);
       if (wide) widened.add(wide);
@@ -656,8 +683,8 @@ export function validateMigrations(input: MigrationsValidationInput): Validation
     );
   }
 
-  for (const { cols, filename } of narrowKeys) {
-    if (widened.has(cols)) continue;
+  for (const { cols, table, filename } of narrowKeys) {
+    if (widened.has(cols) || (table && untenanted.has(table))) continue;
     out.push(
       err(
         'SCHEMA_UNIQUE_WITHOUT_TENANT',

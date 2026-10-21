@@ -16,7 +16,12 @@ import {
   migrationTimeoutPreamble,
   splitSqlStatements,
 } from '../../db/migrations/index.js';
-import { noteReconcile, reconcileExtensionTenantRLS, reconcileFailures } from '../tenancy/index.js';
+import {
+  ensureRlsEnforcementRole,
+  noteReconcile,
+  reconcileExtensionTenantRLS,
+  reconcileFailures,
+} from '../tenancy/index.js';
 import { DownMissingError } from './extension-errors.js';
 import { parseMigrationSql } from './extension-utils.js';
 
@@ -214,6 +219,9 @@ export async function runExtensionMigrations(
     throw err;
   }
   await reconcileTouched(extension.name, db, policiesBefore);
+  // A table just created holds the request role's default DML grant (001) until
+  // the next boot; take back what boot takes back (zvd_validation_rule_groups).
+  await ensureRlsEnforcementRole(db);
 }
 
 type Pending = { name: string; up: string; down: string | null };

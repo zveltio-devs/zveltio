@@ -6935,11 +6935,9 @@ table zvd_validation_rule_groups
   col logic                          text NOT NULL DEFAULT 'AND'::text
   col name                           text NOT NULL
   col rule_ids                       ARRAY NOT NULL DEFAULT '{}'::uuid[]
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   ck  zvd_validation_rule_groups_logic_check CHECK ((logic = ANY (ARRAY['AND'::text, 'OR'::text])))
   pk  zvd_validation_rule_groups_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_validation_rule_groups FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  idx zvd_validation_rule_groups_collection_name UNIQUE (collection, name)
 
 table zvd_validation_test_cases
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()

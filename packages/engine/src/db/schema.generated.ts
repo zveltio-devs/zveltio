@@ -5413,7 +5413,6 @@ export interface ZvdValidationRuleGroupsTable {
   is_active: Generated<boolean>;
   created_by: string;
   created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvdValidationTestCasesTable {

@@ -63,6 +63,22 @@ export type ValidationRuleWrite =
   | { op: 'setActive'; id: string; is_active: boolean; collection?: string }
   | { op: 'delete'; id: string; collection?: string };
 
+/** One `ctx.internals.writeValidationRuleGroup` write. */
+export type ValidationRuleGroupWrite =
+  | {
+      op: 'create';
+      group: {
+        name: string;
+        collection: string;
+        field_name: string;
+        description?: string | null;
+        logic?: 'AND' | 'OR';
+        rule_ids: string[];
+        is_active?: boolean;
+      };
+    }
+  | { op: 'delete'; id: string };
+
 /** The query of `ctx.internals.listRecords`: `GET /api/data/:collection`'s own parameters. */
 export interface DataApiReadQuery {
   page?: number;
@@ -506,6 +522,18 @@ export interface ExtensionInternals<DB = unknown> {
   writeValidationRule: (
     c: Context,
     write: ValidationRuleWrite,
+  ) => Promise<Record<string, unknown> | null>;
+  /**
+   * Create or delete a rule group (`AND` / `OR` over a field's rules). Groups
+   * are instance-wide like the rules they combine, so the same caller rule
+   * applies: an instance admin only, written as the engine, audited. A second
+   * group with the same name on a collection throws (SQLSTATE 23505 on
+   * `errno`). Answers the stored row (the removed one for `delete`), or `null`
+   * when no group has that id. Engine 3.0.0-beta.88 and later.
+   */
+  writeValidationRuleGroup: (
+    c: Context,
+    write: ValidationRuleGroupWrite,
   ) => Promise<Record<string, unknown> | null>;
   /**
    * Run a callback inside a tenant transaction, outside any request.
