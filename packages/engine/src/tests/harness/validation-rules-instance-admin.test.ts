@@ -48,6 +48,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { _settleAuditWrites } from '../../lib/audit.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -158,6 +159,9 @@ d('validation rules are written by an instance admin only', () => {
     _resetExtensionDbRoleForTests();
     if (!db) return;
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);
+    await sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`.execute(
+      db,
+    );
     await sql`DELETE FROM zv_extension_registry WHERE name = ${PROBE}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v0 = ${firmAdmin.userId}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${FIRM.id}::uuid`.execute(db);
@@ -195,6 +199,41 @@ d('validation rules are written by an instance admin only', () => {
     expect((await rulesOn()).map((r) => r.is_active)).toEqual([false]);
     expect((await call('DELETE', `/rules/${id}`, god)).status).toBe(200);
     expect(await rulesOn()).toEqual([]);
+
+    // Each write left an instance-level audit row, the firm's refused ones none.
+    await _settleAuditWrites();
+    const trail = await sql<{ event_type: string; tenant_id: string | null }>`
+      SELECT event_type, tenant_id FROM zv_audit_log
+       WHERE resource_type = 'validation_rule' AND resource_id = ${id} ORDER BY created_at, id`.execute(
+      db,
+    );
+    expect(trail.rows).toEqual([
+      { event_type: 'validation_rule.created', tenant_id: null },
+      { event_type: 'validation_rule.updated', tenant_id: null },
+      { event_type: 'validation_rule.deleted', tenant_id: null },
+    ]);
+  });
+
+  it('refuses an expression rule that does not compile, whatever the extension checked', async () => {
+    const god = { cookie: godCookie };
+    for (const [rule_type, rule_config] of [
+      ['custom', { expression: 'value >' }],
+      ['nlp', {}],
+      ['transition', { expression: 'value > nosuch' }],
+    ] as const) {
+      const res = await call('POST', '/rules', god, { ...rule, rule_type, rule_config });
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { refused: string }).refused).toContain('expression');
+    }
+    expect(await rulesOn()).toEqual([]);
+    // A transition rule sees `previous`; the same expression compiles there.
+    const ok = await call('POST', '/rules', god, {
+      ...rule,
+      rule_type: 'transition',
+      rule_config: { expression: 'value >= previous' },
+    });
+    expect(ok.status).toBe(200);
+    await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);
   });
 
   it('refuses a direct write from a tenant transaction (zveltio_rls)', async () => {
