@@ -442,8 +442,12 @@ export async function loadExtensionFromDir(
       loader.lastLoadError.set(extName, err.message);
       return;
     }
+    // Build allowed-tables set from migration CREATE TABLE statements + explicit
+    // grants. Before the migrations: they read it too, and reading it twice
+    // printed its engine-table warning twice per load.
+    const allowedTables = await buildAllowedTables(migrationPaths, extName);
     if (migrationPaths.length > 0) {
-      await runExtensionMigrations(extension, ctx.db);
+      await runExtensionMigrations(extension, ctx.db, allowedTables);
     }
 
     // Register new field types contributed by extension
@@ -451,8 +455,6 @@ export async function loadExtensionFromDir(
       extension.registerFieldTypes(ctx.fieldTypeRegistry);
     }
 
-    // Build allowed-tables set from migration CREATE TABLE statements + explicit grants.
-    const allowedTables = await buildAllowedTables(migrationPaths, extName);
     for (const t of EXTENSION_TABLE_GRANTS[extName] ?? []) allowedTables.add(t);
     // The same set, as Postgres privileges for the role `ctx.db` runs as inside a
     // tenant transaction — so a statement the analyzer misreads still cannot

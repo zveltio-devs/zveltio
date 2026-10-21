@@ -135,9 +135,16 @@ function ownersOf(grants: Record<string, readonly string[]>, table: string): str
 export async function runExtensionMigrations(
   extension: ZveltioExtension,
   db: Database,
+  ownTables?: Set<string>,
 ): Promise<void> {
   const migrations = extension.getMigrations?.() || [];
   if (migrations.length === 0) return;
+  // The loader passes the set it built; computing it again prints its
+  // engine-table warning a second time.
+  if (!ownTables) {
+    const { buildAllowedTables } = await import('./register.js');
+    ownTables = await buildAllowedTables(migrations, extension.name);
+  }
 
   // A retry finds nothing to migrate, so nothing touched: without this the
   // extension refused for a permissive policy loaded on the second try. And a
@@ -146,7 +153,7 @@ export async function runExtensionMigrations(
   // tables are read as well: one not on the host's predicate is owed too.
   const owed = new Set([
     ...(unreconciled.get(extension.name) ?? []),
-    ...(await offPredicateTables(extension.name, migrations, db)),
+    ...(await offPredicateTables(ownTables, db)),
   ]);
   if (owed.size > 0) await reconcileOrRefuse(extension.name, db, [...owed]);
 
@@ -315,17 +322,12 @@ async function reconcileOrRefuse(extName: string, db: Database, tables: string[]
 }
 
 /**
- * The extension's tables — the ones `buildAllowedTables` gives it, so third-party
+ * The extension's tables (`ownTables`, from `buildAllowedTables`), so third-party
  * extensions too — whose `tenant_isolation_*` policy is not the one
  * `reconcileExtensionTenantRLS` writes. On a settled install: none, no DDL.
  */
-async function offPredicateTables(
-  extName: string,
-  migrations: string[],
-  db: Database,
-): Promise<string[]> {
-  const { buildAllowedTables } = await import('./register.js');
-  const own = [...(await buildAllowedTables(migrations, extName))].map((t) => t.toLowerCase());
+async function offPredicateTables(ownTables: Set<string>, db: Database): Promise<string[]> {
+  const own = [...ownTables].map((t) => t.toLowerCase());
   const rows = await _sql<{ t: string }>`
     SELECT DISTINCT tablename AS t
       FROM pg_policies
