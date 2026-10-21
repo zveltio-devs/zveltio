@@ -10,7 +10,7 @@
 
 import { sql as _sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
-import type { Database } from '../../db/index.js';
+import { type Database, recycleActivePool } from '../../db/index.js';
 import {
   isNonTransactional,
   migrationTimeoutPreamble,
@@ -230,6 +230,13 @@ export async function runExtensionMigrations(
       ),
     );
     throw err;
+  } finally {
+    // An UP may reshape an engine table (`ai` adds columns to `zvd_collections`),
+    // and every pooled connection that prepared a `SELECT *` over it then fails
+    // it with 0A000 — a 500 inside a request transaction — until it is replaced.
+    // Here, not at the boot call site alone: an enable or upgrade on a running
+    // engine reaches this too.
+    await recycleActivePool();
   }
   await reconcileTouched(extension.name, db, policiesBefore);
   // A table just created holds the request role's default DML grant (001) until
@@ -398,4 +405,6 @@ export async function purgeExtensionData(extensionName: string, db: Database): P
       console.log(`  ✓ Extension purge: rolled back ${r.name}`);
     }
   });
+  // A DOWN reshapes what its UP did: see `runExtensionMigrations`.
+  await recycleActivePool();
 }

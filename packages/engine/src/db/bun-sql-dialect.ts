@@ -159,7 +159,7 @@ interface BunSQLPool {
 /**
  * Bun's `close()` with no timeout never resolves once a reserved connection's
  * backend has died (terminated, idle-in-transaction timeout), released or not —
- * measured on 1.3.14. The boot-time `recyclePool()` would hang on it.
+ * measured on 1.3.14. `destroy()` would hang on it.
  */
 const CLOSE = { timeout: 5 };
 
@@ -355,7 +355,7 @@ class BunSqlDriver implements Driver {
   /**
    * Throw away every pooled backend and open a fresh pool.
    *
-   * Called once at boot, after extension migrations. Those migrations alter
+   * Called after extension migrations, at boot and at run time. Those migrations alter
    * tables the ENGINE owns — ten of them today, `zvd_collections` among them —
    * and they run AFTER the boot steps that already queried the database, so the
    * pool is holding prepared plans built against the old shape. The next request
@@ -370,17 +370,23 @@ class BunSqlDriver implements Driver {
    * so the very next query fails with `26000 prepared statement … does not
    * exist` — and keeps failing. A fresh pool drops both sides at once.
    *
-   * Safe where it is called: extension loading is awaited, and `Bun.serve` has
-   * not started, so nothing is mid-request.
+   * At run time (an enable, an upgrade, a purge) transactions are open on the
+   * old pool — the enable's own advisory-lock holder among them. So the old pool
+   * is closed gracefully and not awaited: Bun lets each open transaction finish
+   * and then closes the old pool's connections, idle ones included (measured) —
+   * so for that moment up to twice the pool is open, inside the half of
+   * `max_connections` the autosizer leaves. `close(CLOSE)` force-closed them
+   * after five seconds — measured: the holder's COMMIT then fails — and awaiting
+   * it stalled the enable for those seconds. A close that never resolves (a dead
+   * reserved backend, see `CLOSE`) keeps the old pool's connections open.
    */
   async recyclePool(): Promise<void> {
     if (!this.#pool) return;
-    // New pool first, then drain the old one: the close can take up to its
-    // timeout, and a query arriving meanwhile must find a pool, not a driver
-    // that throws "not initialized".
+    // New pool first: a query arriving meanwhile must find a pool, not a
+    // driver that throws "not initialized".
     const old = this.#pool;
     await this.init();
-    await old.close(CLOSE).catch(() => {});
+    void old.close().catch(() => {});
   }
 
   /**
@@ -391,7 +397,7 @@ class BunSqlDriver implements Driver {
    */
   async acquireConnection(): Promise<DatabaseConnection> {
     if (!this.#pool) throw new Error('[BunSqlDriver] Driver not initialized. Call initDatabase().');
-    return new BunSqlSmartConnection(this.#pool);
+    return new BunSqlSmartConnection(() => this.getPool());
   }
 
   async beginTransaction(
@@ -585,7 +591,11 @@ function inlineParams(sql: string, params: unknown[]): string {
  *   BEGIN / queries / COMMIT all run on the same PostgreSQL backend socket.
  */
 class BunSqlSmartConnection implements DatabaseConnection {
-  readonly #pool: BunSQLPool;
+  /**
+   * The driver's pool AT EACH USE, not at acquire: a recycle on a running
+   * engine closes the old pool, which then refuses every new statement.
+   */
+  readonly #pool: () => BunSQLPool;
   #reserved: BunReservedConnection | null = null;
   /** True between BEGIN and COMMIT/ROLLBACK. Read by `release()`. */
   #inTransaction = false;
@@ -601,14 +611,14 @@ class BunSqlSmartConnection implements DatabaseConnection {
    */
   #skipPrepared = false;
 
-  constructor(pool: BunSQLPool) {
+  constructor(pool: () => BunSQLPool) {
     this.#pool = pool;
   }
 
   /** Called by beginTransaction() to pin a backend connection. */
   async reserveForTransaction(): Promise<void> {
     if (this.#reserved) return;
-    this.#reserved = await reserveWithTimeout(this.#pool);
+    this.#reserved = await reserveWithTimeout(this.#pool());
   }
 
   /**
@@ -646,8 +656,8 @@ class BunSqlSmartConnection implements DatabaseConnection {
       }
       const rows = await withQueryDeadline(
         params.length > 0
-          ? this.#pool.unsafe<R>(compiledQuery.sql, params)
-          : this.#pool.unsafe<R>(compiledQuery.sql),
+          ? this.#pool().unsafe<R>(compiledQuery.sql, params)
+          : this.#pool().unsafe<R>(compiledQuery.sql),
       );
       return BunSqlSmartConnection.#wrap(rows);
     };
@@ -660,7 +670,7 @@ class BunSqlSmartConnection implements DatabaseConnection {
       const inlined = inlineParams(compiledQuery.sql, params);
       const rows = this.#reserved
         ? await this.#reserved.unsafe<R>(inlined)
-        : await withQueryDeadline(this.#pool.unsafe<R>(inlined));
+        : await withQueryDeadline(this.#pool().unsafe<R>(inlined));
       return BunSqlSmartConnection.#wrap(rows);
     };
 
