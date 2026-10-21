@@ -197,9 +197,11 @@ function frameChannel(
 /**
  * Spawn the runtime as a child process speaking frames on stdin/stdout.
  *
- * `env` REPLACES the environment: none of the engine's variables reach it. Run with
- * the engine's own executable: under a `bun build --compile` binary that is
- * the engine, and `BUN_BE_BUN` makes it act as `bun`. stderr is inherited, so
+ * `env` REPLACES the environment: none of the engine's variables reach it. `cwd`
+ * is `/` because Bun loads `.env` and `bunfig.toml` from its working directory:
+ * started in the engine's, the child read the engine's secrets back from disk.
+ * Run with the engine's own executable: under a `bun build --compile` binary
+ * that is the engine, and `BUN_BE_BUN` makes it act as `bun`. stderr is inherited, so
  * what the runtime cannot forward as a `log` frame still reaches the journal.
  */
 export function spawnProcessRunner(
@@ -211,6 +213,7 @@ export function spawnProcessRunner(
     stdout: 'pipe',
     stderr: 'inherit',
     env: { ...env, BUN_BE_BUN: '1' },
+    cwd: '/',
   });
   return frameChannel(
     (bytes) => {

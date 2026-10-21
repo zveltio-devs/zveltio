@@ -899,6 +899,9 @@ function spawnRunner(memoryLimitMb: number): Runner {
     stdout: 'pipe',
     stderr: 'pipe',
     env: spawnEnv(),
+    // Not the engine's directory: Bun loads `.env` and `bunfig.toml` from the
+    // working directory, which would hand user code the engine's secrets.
+    cwd: '/',
   });
   // A runner that is only WAITING must not keep the process alive. Without
   // this, a process whose work is done hangs until something drains the pool —
