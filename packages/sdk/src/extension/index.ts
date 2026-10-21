@@ -47,6 +47,22 @@ export interface DataApiAnswer {
   body: Record<string, unknown>;
 }
 
+/** One `ctx.internals.writeValidationRule` write; `collection` narrows a toggle or delete. */
+export type ValidationRuleWrite =
+  | {
+      op: 'create';
+      rule: {
+        collection: string;
+        field_name: string;
+        rule_type: string;
+        rule_config?: unknown;
+        error_message: string;
+        nl_description?: string | null;
+      };
+    }
+  | { op: 'setActive'; id: string; is_active: boolean; collection?: string }
+  | { op: 'delete'; id: string; collection?: string };
+
 /** The query of `ctx.internals.listRecords`: `GET /api/data/:collection`'s own parameters. */
 export interface DataApiReadQuery {
   page?: number;
@@ -476,6 +492,19 @@ export interface ExtensionInternals<DB = unknown> {
     expression: string,
     ruleType?: string,
   ) => { ok: true } | { ok: false; reason: string };
+  /**
+   * Create, toggle or delete a validation rule. Rules are instance-wide schema
+   * metadata — every tenant's writes to the collection answer to them — so
+   * `ctx.db` only reads `zv_validation_rules`, and this writes it as the engine
+   * for an instance admin only: the caller is the one the `/ext/*` gate
+   * admitted for `c`, and anyone else (a tenant admin, an API key) throws.
+   * Answers the stored row (the removed one for `delete`), or `null` when no
+   * rule has that id. Engine 3.0.0-beta.88 and later.
+   */
+  writeValidationRule: (
+    c: Context,
+    write: ValidationRuleWrite,
+  ) => Promise<Record<string, unknown> | null>;
   /**
    * Run a callback inside a tenant transaction, outside any request.
    *

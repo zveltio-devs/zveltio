@@ -1741,9 +1741,10 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         -- whitelist and its required rank, collections (a virtual one's upstream
         -- and credential) and relations, schema branches (preview tokens), and
         -- the migration ledgers — zv_migrations.down_sql is what an extension
-        -- purge runs as the engine (purgeExtensionData). Not zv_validation_rules:
-        -- the validation extension writes it through ctx.db, which keeps this
-        -- role where the extension roles could not be made.
+        -- purge runs as the engine (purgeExtensionData). And zv_validation_rules:
+        -- collections are every tenant's, so a tenant admin's rule refused every
+        -- tenant's writes; the engine writes it for an instance admin
+        -- (ctx.internals.writeValidationRule).
         -- tests/harness/control-table-grants.test.ts.
         FOR t IN
           SELECT tablename FROM pg_tables
@@ -1754,7 +1755,7 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
                               'zv_tenants', 'zv_rate_limit_configs', 'zvd_rpc_functions',
                               'zvd_collections', 'zvd_relations',
                               'zv_schema_branches', 'zv_schema_versions',
-                              'zv_schema_migrations', 'zv_migrations')
+                              'zv_schema_migrations', 'zv_migrations', 'zv_validation_rules')
         LOOP
           EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;

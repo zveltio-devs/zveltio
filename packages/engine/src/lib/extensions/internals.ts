@@ -14,7 +14,12 @@ import type { Context } from 'hono';
 import type { ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { getDb } from '../../db/index.js';
-import type { DataApiAnswer, RlsFilter, UpdateExpect } from '@zveltio/sdk/extension';
+import type {
+  DataApiAnswer,
+  RlsFilter,
+  UpdateExpect,
+  ValidationRuleWrite,
+} from '@zveltio/sdk/extension';
 import { dynamicInsert } from '../../db/dynamic.js';
 import type { EventBus } from '../runtime/index.js';
 import type { FieldTypeRegistry } from '../data/index.js';
@@ -100,6 +105,9 @@ import {
 import { type AsSystemOptions, asSystemAs, markSystemJob } from './as-system.js';
 import { bindsCaller } from './capabilities.js';
 import { runFieldPipeline } from './extension-context.js';
+import { asEngineRole } from '../role-window.js';
+import { withSavepoint } from '../savepoint.js';
+import { toJsonb } from '../jsonb.js';
 import {
   auditAs,
   countMembers,
@@ -230,6 +238,15 @@ export interface ExtensionInternals {
   /** The same, for a `transition` rule: `previous` is the stored value, `null` on create. */
   evaluateTransitionRule: typeof evaluateTransitionRule;
   checkValidationExpression: typeof checkValidationExpression;
+  /**
+   * The one writer an extension has for `zv_validation_rules`, which every
+   * tenant's writes answer to: as the engine, for an instance admin the `/ext/*`
+   * gate admitted for `c`. `ctx.db` reads the table only (`READ_ONLY_TABLE_GRANTS`).
+   */
+  writeValidationRule: (
+    c: unknown,
+    write: ValidationRuleWrite,
+  ) => Promise<Record<string, unknown> | null>;
   /**
    * Run a callback inside a tenant transaction, outside any request.
    *
@@ -634,6 +651,70 @@ async function readAsCaller(
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
+/**
+ * `ctx.internals.writeValidationRule`. A tenant admin passed the extension's old
+ * gate (`checkPermission(admin, '*')`) and stored rules that refused every
+ * tenant's writes; the identity here is the gate's, never an argument.
+ */
+async function writeValidationRule(
+  c: unknown,
+  write: ValidationRuleWrite,
+): Promise<Record<string, unknown> | null> {
+  const p = gatePrincipal(c);
+  if (!p) {
+    throw new Error(
+      'ctx.internals.writeValidationRule: pass the request context `c` of the /ext/* request ' +
+        'being handled; outside one there is no caller, so there is no write.',
+    );
+  }
+  if (!(await requireInstanceAdmin(p.user.id))) {
+    throw new Error(
+      'ctx.internals.writeValidationRule: validation rules apply to every tenant, so only an ' +
+        'instance admin may write one.',
+    );
+  }
+  const db = p.trx ?? getDb();
+  const run = async (): Promise<Record<string, unknown> | undefined> => {
+    if (write.op === 'create') {
+      const r = write.rule;
+      return db
+        .insertInto('zv_validation_rules')
+        .values({
+          collection: r.collection,
+          field_name: r.field_name,
+          rule_type: r.rule_type,
+          nl_description: r.nl_description ?? null,
+          rule_config: toJsonb(r.rule_config ?? {}),
+          error_message: r.error_message,
+          is_active: true,
+          created_by: p.user.id,
+        })
+        .returningAll()
+        .executeTakeFirst();
+    }
+    if (write.op === 'setActive') {
+      let q = db
+        .updateTable('zv_validation_rules')
+        .set({ is_active: write.is_active, updated_at: new Date() })
+        .where('id', '=', write.id);
+      if (write.collection) q = q.where('collection', '=', write.collection);
+      return q.returningAll().executeTakeFirst();
+    }
+    let q = db.deleteFrom('zv_validation_rules').where('id', '=', write.id);
+    if (write.collection) q = q.where('collection', '=', write.collection);
+    return q.returningAll().executeTakeFirst();
+  };
+  // A savepoint, so a refused row (bulk import goes on to the next) leaves the
+  // request's transaction usable.
+  const row = await asEngineRole(db, () =>
+    withSavepoint(db, 'zv_validation_rule_write', run, (err) => {
+      throw err;
+    }),
+  );
+  if (row) invalidateRulesCache(String(row.collection));
+  return row ?? null;
+}
+
 const createAsCaller = writeAsCaller('create');
 const updateAsCaller = writeAsCaller('update');
 const deleteAsCaller = writeAsCaller('delete');
@@ -736,6 +817,7 @@ function buildUnboundInternals(): ExtensionInternals {
     evaluateExpressionRule,
     evaluateTransitionRule,
     checkValidationExpression,
+    writeValidationRule,
     runEdgeFunction,
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],

@@ -55,6 +55,8 @@ const CONTROL_TABLES = [
   'zv_schema_versions',
   'zv_schema_migrations',
   'zv_migrations',
+  // Collections are every tenant's, and so are the rules on their fields.
+  'zv_validation_rules',
 ];
 const REQUEST_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext'];
 
@@ -149,6 +151,7 @@ d('control tables are read-only to the request roles', () => {
       attempt(sql`UPDATE zvd_rpc_functions SET required_role = 'member' WHERE false`),
       attempt(sql`UPDATE zvd_collections SET virtual_config = NULL WHERE false`),
       attempt(sql`DELETE FROM zv_schema_versions WHERE false`),
+      attempt(sql`UPDATE zv_validation_rules SET is_active = false WHERE false`),
     ]);
     await sql`DELETE FROM "user" WHERE id = 'ctl-probe'`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v0 = 'ctl-probe'`.execute(db);
