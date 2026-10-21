@@ -1137,7 +1137,7 @@ async function invokeLocally(
       stdout,
       stderr,
       exitCode: proc.exitCode,
-      signal: proc.signalCode ?? null,
+      signal: proc.signalCode == null ? null : String(proc.signalCode),
       cpuSeconds: cpuSecondsOf(proc),
       timedOut,
     };
@@ -1421,7 +1421,7 @@ export function serveEdgeConnection(
           stdout,
           stderr,
           exitCode: started.exitCode,
-          signal: started.signalCode ?? null,
+          signal: started.signalCode == null ? null : String(started.signalCode),
           cpuSeconds: cpuSecondsOf(started),
         })}\n`,
       );
