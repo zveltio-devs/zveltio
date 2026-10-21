@@ -80,10 +80,15 @@ d('worker transport contract: the process transport carries the protocol', () =>
   const envs: Record<string, string[]> = {};
   let nodeProc: { status: number; body: unknown } | undefined;
   const saved = process.env.ZVELTIO_EXT_TRANSPORT;
+  const cwd = process.cwd();
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'wkr-transport-'));
+    // Bun loads `.env` from its working directory. CI has none, so plant one
+    // where the engine runs: a child started there read it back.
+    writeFileSync(join(base, '.env'), 'ZVELTIO_PLANTED_SECRET=1\n');
+    process.chdir(base);
     for (const transport of ['process'] as const) {
       const name = `wkrtp${transport[0]}${SFX}`;
       const dir = join(base, name);
@@ -123,6 +128,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
   }, 60_000);
 
   afterAll(() => {
+    process.chdir(cwd);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;
     _resetWorkerHostForTests();
@@ -149,6 +155,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
     expect(envs.process).not.toContain('DATABASE_URL');
     expect(envs.process).not.toContain('BETTER_AUTH_SECRET');
     expect(envs.process).not.toContain('FIELD_ENCRYPTION_KEY');
+    expect(envs.process).not.toContain('ZVELTIO_PLANTED_SECRET');
   });
 
   it("it runs outside the engine's process", () => {
