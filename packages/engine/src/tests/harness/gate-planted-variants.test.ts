@@ -399,6 +399,24 @@ describe('check-tenant-table-on-pool sees a chain the formatter has wrapped', ()
       'a pool transaction whose callback has a parenthesis in a string',
       "export const p = (poolDb: D) =>\n  poolDb.transaction().execute(async (trx) => {\n    log(':)');\n    await trx.selectFrom('zv_api_keys').execute();\n  });\n",
     ],
+    // Only a template written inline in front of `.execute(<pool>)` was read
+    // (ledger E01-2026-10-21).
+    [
+      'a template held in a const, then aliased',
+      'export const p = (poolDb: D) => {\n  const a = sql`SELECT id FROM zv_api_keys`;\n  const q = a;\n  return q.execute(poolDb);\n};\n',
+    ],
+    [
+      'either branch of a ternary',
+      'export const p = (poolDb: D, f: boolean) =>\n  (f ? sql`SELECT 1` : sql`SELECT id FROM zv_api_keys`).execute(poolDb);\n',
+    ],
+    [
+      'sql.raw with a literal',
+      "export const p = (poolDb: D) => sql.raw('SELECT id FROM zv_api_keys').execute(poolDb);\n",
+    ],
+    [
+      'sql.raw with the string in a const',
+      "export const p = (poolDb: D) => {\n  const s = 'DELETE FROM zv_api_keys';\n  return sql.raw(s).execute(poolDb);\n};\n",
+    ],
   ]) {
     it(`catches ${shape}`, async () => {
       const r = root(body);
