@@ -889,6 +889,15 @@ action word stands for a function — `write` does not grant a function called
 does. It too must be named. The function sees the key as `apikey:<uuid>`, never
 as the person who issued it.
 
+`{ "collection": "$edge", "actions": ["execute"] }` lets a key invoke every
+non-public edge function at `/api/fn/:name`; `{ "collection": "$edge",
+"actions": ["send_receipt"] }` only the functions it names, matched as `$rpc`
+matches. Its issuer must hold Casbin `execute` on `$edge`, which a session needs
+too: `tenant_member` has it by default (migration 094), the bare `member` and
+`tenant_viewer` roles do not, and the permissions matrix lists it under
+extension resources. A function whose `env_vars` set `ZVELTIO_PUBLIC=true` asks
+nobody for it, signed in or not. It too must be named.
+
 `{ "collection": "$ext:finance/invoicing", "actions": ["read", "create"] }`
 lets a key call the routes that extension declares in its manifest
 `apiKeyRoutes` — nothing else under `/ext/finance/invoicing`, which still

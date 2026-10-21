@@ -365,8 +365,10 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                 {#each extensionResources as res}
                 <tr class="hover">
                   <td class="font-medium font-mono text-xs">{res.display_name}</td>
-                  {#each res.actions as action}
+                  <!-- By column, not by position: `$edge` offers `execute` alone. -->
+                  {#each COLLECTION_ACTIONS_EXEC as action}
                   <td class="text-center">
+                    {#if res.actions.includes(action)}
                     <input
                       type="checkbox"
                       class="checkbox checkbox-sm checkbox-primary"
@@ -374,6 +376,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                       checked={has(selectedRole.id, res.name, action)}
                       onchange={() => toggle(selectedRole.id, res.name, action)}
                     />
+                    {/if}
                   </td>
                   {/each}
                 </tr>

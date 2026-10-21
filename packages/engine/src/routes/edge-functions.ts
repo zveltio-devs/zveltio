@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
-import { requestSession } from '../middleware/session-prefetch.js';
 import type { Database } from '../db/index.js';
+import { guardSessionOrKey } from '../lib/admin-guard.js';
 import { auditLog } from '../lib/audit.js';
+import { authenticate, EDGE_SCOPE, isApiKeyPrincipal } from '../lib/data/index.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
+import { checkPermission, keyIssuerAllows } from '../lib/tenancy/index.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 
 /**
@@ -27,8 +29,8 @@ const publicEdgeInvokeRateLimit = rateLimit({
   message: 'Too many anonymous invocations of this function.',
 });
 
-// Public invocation endpoint — mounted at /api/fn
-// Supports session auth OR an API key (X-API-Key or Authorization: Bearer)
+// Invocation endpoint — mounted at /api/fn. A session or an API key (X-API-Key or
+// Authorization: Bearer) holding `execute` on `$edge`; anyone for a public function.
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
@@ -65,33 +67,27 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
     const parsedEnv = typeof probeEnv === 'string' ? JSON.parse(probeEnv) : (probeEnv ?? {});
     const isPublic = parsedEnv?.ZVELTIO_PUBLIC === 'true';
 
-    // Auth: accept session or API key
-    const session = await requestSession(c, auth).catch(() => null);
-    let authed = !!session;
-    if (!authed) {
-      const { requestApiKey, validateApiKey } = await import('../lib/data/index.js');
-      // `X-API-Key` or `Authorization: Bearer` — the reader the prefetch used,
-      // so `prefetchedApiKey` is the row for this same raw key.
-      const rawKey = requestApiKey(c);
-      if (rawKey) {
-        // Shared with the data API rather than re-implemented. The local copy
-        // checked the hash, `is_active` and expiry but not `tenant_id`, and
-        // `zv_api_keys` was route-scoped rather than RLS-protected (the guard
-        // has to run before a tenant is known; 065 polices it now), so `reqDb`
-        // filtered nothing:
-        // tenant A's key authenticated here and the lookup below then served
-        // tenant B's function.
-        // The prefetch looked this key up already.
-        const apiKey = await validateApiKey(
-          db,
-          rawKey,
-          tenantId(c),
-          c.get('prefetchedApiKey'),
-        ).catch(() => null);
-        authed = !!apiKey;
-      }
+    // Who may run it. A private function needs `execute` on `$edge`: a session
+    // from Casbin (tenant_member holds it by default, migration 094; god and
+    // tenant admins through their total grants), a key from a `$edge` scope
+    // naming `execute` or this function AND its issuer's Casbin grant. Signing in
+    // used to be enough, so any member or any key of the tenant ran any function.
+    //
+    // A public function asks nobody for `$edge`, signed in or not: refusing a
+    // member it serves anonymously would only make them drop the cookie.
+    let authed: boolean;
+    if (isPublic) {
+      // fabricated-ok: an unreadable credential is treated as none, so the caller is rate-limited and audited as anonymous.
+      authed = !!(await authenticate(c, auth, db).catch(() => null));
+    } else {
+      const user = await guardSessionOrKey(c, auth, db, EDGE_SCOPE, name);
+      if (user instanceof Response) return user;
+      const allowed = isApiKeyPrincipal(user)
+        ? await keyIssuerAllows(user, EDGE_SCOPE, 'execute')
+        : await checkPermission(user.id, EDGE_SCOPE, 'execute');
+      if (!allowed) return c.json({ error: `Permission required: execute on ${EDGE_SCOPE}` }, 403);
+      authed = true;
     }
-    if (!authed && !isPublic) return c.json({ error: 'Unauthorized' }, 401);
 
     if (!authed) {
       // Anonymous, and therefore public. Applied here rather than as route

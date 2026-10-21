@@ -14,7 +14,7 @@ import {
 import { invalidateColumnPermCache, listDeclaredResources } from '../../lib/tenancy/index.js';
 import { resolveExtensionsBase } from '../../lib/extensions/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, EDGE_SCOPE } from '../../lib/data/index.js';
 import { withoutAuthValue } from '../../lib/virtual-collection-adapter.js';
 import { tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
@@ -98,6 +98,14 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
           type: 'extension' as const,
           actions: ['read', 'create', 'update', 'delete', 'execute'],
         })),
+      // `/api/fn/:name` asks `execute` on it (routes/edge-functions.ts); listed
+      // with the extension resources, since the functions are the extension's.
+      {
+        name: EDGE_SCOPE,
+        display_name: 'Edge functions',
+        type: 'extension' as const,
+        actions: ['execute'],
+      },
       ...zones.map((z) => ({
         name: z.slug,
         display_name: z.name,
