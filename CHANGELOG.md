@@ -4,6 +4,46 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.88] - 2026-10-21
+
+**Validation rules: instance-wide by default, tighten-only per tenant.** A
+tenant admin could write rules through `developer/validation` that refused
+every other tenant's writes. Rules and rule groups are now written only through
+the host API: `ctx.internals.writeValidationRule` and the new
+`writeValidationRuleGroup`. The request role and extension roles can only read
+them (#1240). Each write is audited, and the host compiles the CEL expression
+of `custom`, `nlp` and `transition` rules before storing it (#1241). Rule
+groups are instance-wide (migration 091). Where two tenants had a group with
+the same name on the same collection, the default tenant's group is kept
+(#1242). Tenants may add their own rules (migration 092,
+`zv_validation_rules.tenant_id`). A tenant rule is always added on top of the
+instance rules and never joins a group, so it can never relax or disable an
+instance rule. Schema export carries instance rules only (#1243). Extensions
+using these APIs require this engine version.
+
+**The request role no longer writes instance metadata tables** (#1232). The
+worker SQL bridge never falls back to `zveltio_rls` (#1230), and
+`POST /api/admin/migrate` runs on the pool (#1233). If a migration cannot be
+recorded, it now fails instead of reporting itself applied (#1234). An
+extension migration's tenant policy rewrite fails closed (#1228), and its
+policy swap runs in one transaction (#1236).
+
+**Fixed:** `user_email` row rules compare without case, and migration 089
+lowercases stored emails (#1229). `listRoles` no longer names `god`, and the
+role hierarchy refuses it (#1223). Rolling back 087 refuses instead of turning
+a concatenation into `or` (#1231). Deleting an m2m relation built over an
+extension's junction table is refused (#1227). A unique or foreign-key
+violation under RLS names its field (#1226). Electric status passes through,
+API-key mode refuses god, and `CONCURRENTLY` indexes have DOWNs (#1220).
+`toJsonb` serialises bigint (#1224). The column guard, seal and row-rule
+rebuilds now wait a bounded time for their locks (#1239). Creating a collection
+over a ghost registry row dates it from the create (#1225).
+
+If the engine cannot create or use `zveltio_ext`, it now logs a warning at
+boot; `docs/platform/operations.md` explains what that means. vite is now 8.3.4
+(launch-editor advisory) (#1238). Quality gates read more SQL shapes (#1221,
+#1222, #1235, #1237).
+
 ## [3.0.0-beta.87] - 2026-10-20
 
 **Fixed: an extension write could skip the field pipeline.** `ctx.db` writes
