@@ -125,6 +125,8 @@ function bodyAt(src: string, open: number): string | null {
 }
 const ALTER_ADD =
   /ALTER\s+TABLE\s+(?:ONLY\s+)?(["\w.]+)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\w]+)/gi;
+const ALTER_DROP =
+  /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(["\w.]+)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?(["\w]+)/gi;
 const REFERENCES = /REFERENCES\s+(["\w.]+)/gi;
 const HAS_TENANT_COL = /(^|,|\()\s*"?tenant_id"?\s/im;
 
@@ -200,8 +202,16 @@ for (const f of files) {
   // A later migration can add the column — 258 tables get it that way, so a
   // reader that only looks at CREATE gets the classification wrong for most of
   // the corpus.
-  for (const m of src.matchAll(ALTER_ADD)) {
-    if (norm(m[2]!) === 'tenant_id') tenantScoped.add(norm(m[1]!));
+  // ...and a later one can take it away (091 makes the rule groups
+  // instance-wide). Read in statement order, so the last word wins.
+  const columnChanges = [
+    ...[...src.matchAll(ALTER_ADD)].map((m) => ({ m, add: true })),
+    ...[...src.matchAll(ALTER_DROP)].map((m) => ({ m, add: false })),
+  ].sort((a, b) => a.m.index! - b.m.index!);
+  for (const { m, add } of columnChanges) {
+    if (norm(m[2]!) !== 'tenant_id') continue;
+    if (add) tenantScoped.add(norm(m[1]!));
+    else tenantScoped.delete(norm(m[1]!));
   }
   for (const m of src.matchAll(ENABLE_RLS)) policed.add(norm(m[1]!));
   for (const t of droppedTables(src)) {

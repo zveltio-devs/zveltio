@@ -15,7 +15,7 @@ import {
   dynamicRenameColumn,
   dynamicSetColumnRequired,
 } from '../../db/dynamic.js';
-import { DDLManager, FIELD_RULE_TABLES, SYSTEM_COLUMNS } from './ddl-manager.js';
+import { DDLManager, fieldRuleTables, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
 import { dropMaskView, sealColumns } from './sealed-columns.js';
@@ -248,7 +248,7 @@ export async function alterField(
       // stopped applying. Rules already naming `newName` belong to a field
       // dropped earlier — no field has that name — and would otherwise collide
       // with, or attach to, this one.
-      for (const [table, col, field] of FIELD_RULE_TABLES) {
+      for (const [table, col, field] of await fieldRuleTables(trx)) {
         await sql`DELETE FROM ${sql.id(table)} WHERE ${sql.id(col)} = ${name} AND ${sql.id(field)} = ${newName}`.execute(
           trx,
         );
