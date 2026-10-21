@@ -64,7 +64,6 @@
   },
   "_unpoliced": "Tabele care POARTĂ `tenant_id` și nu au politică RLS, declarat deliberat. Coloana marchează rândul; doar politica îl apără. O intrare nouă înseamnă o decizie, nu o omisiune — două omisiuni au trecut drept decizii până când poarta a început să întrebe (workflow/checklists 006, ai 008).",
   "unpoliced": {
-    "zv_extension_registry": "Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per INSTANȚĂ, nu per firmă.",
-    "zv_validation_rules": "Migrația 092: `tenant_id` NULL = regulă de instanță, altfel regula unei firme (doar strânge). Evaluatorul (`lib/validation-engine.ts` getValidationRules) citește pe pool și filtrează explicit `tenant_id IS NULL OR = firma tranzacției`; scrierile doar prin `ctx.internals.writeValidationRule`, ca engine. Rolurile de cerere doar citesc (fără politică, decizie owner 2026-10-21)."
+    "zv_extension_registry": "Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per INSTANȚĂ, nu per firmă."
   }
 }
