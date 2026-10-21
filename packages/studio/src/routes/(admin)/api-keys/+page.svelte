@@ -63,11 +63,12 @@ let copied = $state(false);
 // The action names `checkAccess` asks for. `write` was offered here and the
 // engine never checks it: a key made with it could not create or update.
 const ALL_ACTIONS = ['read', 'create', 'update', 'delete'];
-// `$rpc` takes `execute` (every whitelisted function) or function names; the
+// `$rpc` and `$edge` take `execute` (every function) or function names; the
 // four above would mint a key that calls nothing. `$ext:<name>` adds `execute`,
 // what the extension's manifest actions ask.
+const callScope = (collection: string) => collection === '$rpc' || collection === '$edge';
 const actionsFor = (collection: string) =>
-  collection === '$rpc'
+  callScope(collection)
     ? ['execute']
     : collection.startsWith('$ext:')
       ? [...ALL_ACTIONS, 'execute']
@@ -164,17 +165,17 @@ function removeScope(i: number) {
   form.scopes = form.scopes.filter((_, idx) => idx !== i);
 }
 
-/** A row just turned `$rpc` still holds data actions, which would read as function names. */
+/** A row just turned `$rpc`/`$edge` still holds data actions, which would read as function names. */
 function switchedToRpc(scopeIdx: number) {
   const scope = form.scopes[scopeIdx];
-  if (scope.collection !== '$rpc') return;
+  if (!callScope(scope.collection)) return;
   const names = scope.actions.filter((a) => !ALL_ACTIONS.includes(a));
   form.scopes = form.scopes.map((s, i) =>
     i === scopeIdx ? { ...s, actions: names.length ? names : ['execute'] } : s,
   );
 }
 
-/** A `$rpc` entry's function names, typed as a list; `execute` stays as ticked. */
+/** A `$rpc`/`$edge` entry's function names, typed as a list; `execute` stays as ticked. */
 function setFunctions(scopeIdx: number, text: string) {
   const names = text.split(/[\s,]+/).filter(Boolean);
   const scope = form.scopes[scopeIdx];
@@ -313,6 +314,7 @@ function formatRelative(dateStr: string): string {
             <option value="$storage"></option>
             <option value="$schema"></option>
             <option value="$rpc"></option>
+            <option value="$edge"></option>
             <!-- `$ext:<name>` reaches the routes that extension declares in `apiKeyRoutes`, and its actions. -->
             {#each extensions.active as name}
               <option value={`$ext:${name}`}></option>
@@ -341,7 +343,7 @@ function formatRelative(dateStr: string): string {
                       <span class="text-xs">{action}</span>
                     </label>
                   {/each}
-                  {#if scope.collection === '$rpc'}
+                  {#if callScope(scope.collection)}
                     <input
                       class="input input-xs w-40"
                       type="text"

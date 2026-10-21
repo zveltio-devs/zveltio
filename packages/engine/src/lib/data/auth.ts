@@ -486,6 +486,15 @@ export const STORAGE_SCOPE = '$storage';
 export const RPC_SCOPE = '$rpc';
 
 /**
+ * `/api/fn/:name`: the API-key scope and the Casbin object a session needs
+ * `execute` on — one for every edge function, as `$rpc` is for every RPC one. A
+ * key narrows it like `$rpc` (`execute`/`*`, or the functions it names). Not one
+ * object per function: names are per tenant and a default grant is in domain `*`,
+ * so `$edge:webhook` would open every tenant's `webhook` at once.
+ */
+export const EDGE_SCOPE = '$edge';
+
+/**
  * The scope that lets an API key use extension `name`'s routes declared in its
  * manifest `apiKeyRoutes`: `$ext:<name>`, e.g. `$ext:finance/invoicing`. Its
  * actions are what the `/ext/*` gate asks per route (method-derived) and what
@@ -539,13 +548,15 @@ export function apiKeyHoldsScope(scopes: unknown, scope: string, action: string)
       (s: { collection?: unknown; actions?: unknown } | null) =>
         s?.collection === scope &&
         Array.isArray(s.actions) &&
-        (scope === RPC_SCOPE ? grantsCall(s.actions, action) : grantsAction(s.actions, action)),
+        (scope === RPC_SCOPE || scope === EDGE_SCOPE
+          ? grantsCall(s.actions, action)
+          : grantsAction(s.actions, action)),
     )
   );
 }
 
 /**
- * Whether a `$rpc` entry lets a key call function `fn`: `execute` or `*` for
+ * Whether a `$rpc` or `$edge` entry lets a key call function `fn`: `execute` or `*` for
  * every one, otherwise only a function the entry names exactly. No `write`
  * alias here — a function called `create` is granted by naming it, not by
  * `write`. `execute` and `*` are reserved: they always mean every function.

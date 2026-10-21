@@ -103,6 +103,7 @@ import m084 from './sql/090_validation_rules_cel_down_guard.sql' with { type: 't
 import m085 from './sql/091_validation_rule_groups_instance_wide.sql' with { type: 'text' };
 import m086 from './sql/092_validation_rules_per_tenant.sql' with { type: 'text' };
 import m087 from './sql/093_validation_rules_select_policy.sql' with { type: 'text' };
+import m088 from './sql/094_edge_execute_grant.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -194,4 +195,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '091_validation_rule_groups_instance_wide.sql': m085,
   '092_validation_rules_per_tenant.sql': m086,
   '093_validation_rules_select_policy.sql': m087,
+  '094_edge_execute_grant.sql': m088,
 };

@@ -74,6 +74,7 @@ export {
   apiKeyMayWatchSchema,
   extScope,
   apiKeyRowId,
+  EDGE_SCOPE,
   isApiKeyPrincipal,
   RPC_SCOPE,
   STORAGE_SCOPE,
