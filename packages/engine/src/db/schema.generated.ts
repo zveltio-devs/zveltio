@@ -2412,6 +2412,7 @@ export interface ZvValidationRulesTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+  tenant_id: string | null;
 }
 
 export interface ZvdAccountsTable {

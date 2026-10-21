@@ -45,7 +45,6 @@
     "zv_slow_queries": "VERIFICAT 2026-09-02. Aceeași formă ca `zv_request_logs` și cu un risc în plus: coloana `query_params` poate conține valori de filtru, identificatori, termeni de căutare. Fără `tenant_id`, deci fără plasă în bază. Scris de `middleware/slow-query.ts` — al cărui comentariu spune deja „`zv_slow_queries` carries no `tenant_id`\" — și citit doar de `/api/admin/*`, în spatele aceleiași gărzi `requireInstanceAdmin`. Aceeași concluzie și aceeași fragilitate: corect azi, apărat de o gardă de rută, nu de o politică.",
     "zv_tenant_transfers": "VERIFICAT 2026-09-02: fără `tenant_id`. O mutare ÎNTRE firme are două firme, deci nu se poate lega de una singură.",
     "zv_tenants": "VERIFICAT 2026-09-02: fără `tenant_id`, și nu poate avea — e registrul firmelor, s-ar referi la sine. Ierarhia se face prin `parent_id`, iar vizibilitatea prin `zveltio_visible_tenants()`.",
-    "zv_validation_rules": "VERIFICAT: `lib/validation-engine.ts:174` filtreaza pe `collection`, iar colectiile sunt ele insele partajate intre firme. O regula de validare pe o colectie partajata e coerent de instanta.",
     "zvd_branch_review_requests": "VERIFICAT: **zero interogari de rulare** in ambele repo-uri. Ramurile de schema sunt oricum de instanta, dar tabela pare nefolosita — de confirmat inainte sa i se atribuie o parte. Ruda cu `zv_rag_documents` si `zv_doc_templates`.",
     "zvd_collections": "VERIFICAT 2026-09-02: fără `tenant_id`, `rls=false`, zero politici — deci definițiile de colecții sunt PARTAJATE, nu o scăpare. Modelul e schemă comună + rânduri per firmă: tabelele de DATE (`zvd_<nume>`) primesc `applyTenantRLS` cu FORCE RLS, verificat azi. O instalare cu 100 de firme are un singur set de definiții și 100 de seturi de rânduri.",
     "zvd_column_permissions": "VERIFICAT 2026-09-02: fără `tenant_id`. Permisiuni pe coloanele unor definiții partajate. Vezi `zvd_collections`.",
@@ -64,6 +63,7 @@
   },
   "_unpoliced": "Tabele care POARTĂ `tenant_id` și nu au politică RLS, declarat deliberat. Coloana marchează rândul; doar politica îl apără. O intrare nouă înseamnă o decizie, nu o omisiune — două omisiuni au trecut drept decizii până când poarta a început să întrebe (workflow/checklists 006, ai 008).",
   "unpoliced": {
-    "zv_extension_registry": "Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per INSTANȚĂ, nu per firmă."
+    "zv_extension_registry": "Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per INSTANȚĂ, nu per firmă.",
+    "zv_validation_rules": "Migrația 092: `tenant_id` NULL = regulă de instanță, altfel regula unei firme (doar strânge). Evaluatorul (`lib/validation-engine.ts` getValidationRules) citește pe pool și filtrează explicit `tenant_id IS NULL OR = firma tranzacției`; scrierile doar prin `ctx.internals.writeValidationRule`, ca engine. Rolurile de cerere doar citesc (fără politică, decizie owner 2026-10-21)."
   }
 }

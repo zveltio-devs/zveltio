@@ -334,6 +334,8 @@ const findValidation = (db: Database, collection: string, e: Entry) =>
     .where('collection', '=', collection)
     .where('field_name', '=', String(e.field))
     .where('rule_type', '=', String(e.rule))
+    // The file holds instance rules; a tenant's own rule with the same key is not one.
+    .where('tenant_id', 'is', null)
     .where(sql<boolean>`COALESCE(rule_config, 'null'::jsonb) = ${toJsonb(e.config ?? null)}`)
     .executeTakeFirst()
     .then((r) => r?.id);

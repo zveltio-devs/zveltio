@@ -3228,9 +3228,11 @@ table zv_validation_rules
   col nl_description                 text
   col rule_config                    jsonb NOT NULL DEFAULT '{}'::jsonb
   col rule_type                      text NOT NULL
+  col tenant_id                      uuid
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   fk  zv_validation_rules_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_validation_rules_pkey PRIMARY KEY (id)
+  fk  zv_validation_rules_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES zv_tenants(id) ON DELETE CASCADE NOT VALID
 
 table zvd_accounts
   col code                           text NOT NULL

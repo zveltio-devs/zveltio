@@ -12,6 +12,7 @@ import { celEnv, isCelError, parse, plan } from '@bufbuild/cel';
 import { RE2JS } from '@bufbuild/re2';
 import { sql } from 'kysely';
 import { withSavepoint } from './savepoint.js';
+import { getCurrentTrxTenant } from './tenancy/index.js';
 import type { Database } from '../db/index.js';
 
 type CelExpr = ReturnType<typeof parse>['expr'];
@@ -402,6 +403,8 @@ export interface ValidationRule {
    * which is the correct reading.
    */
   id?: string;
+  /** Set on a tenant's own rule (migration 092): never a group member. */
+  tenant_id?: string | null;
   field_name: string;
   rule_type: string;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -430,35 +433,51 @@ export function getValidationDb(): Database | null {
   return _db;
 }
 
-// In-memory rules cache (TTL 60s)
+// In-memory rules cache (TTL 60s), keyed `<collection>:<field>@<tenant>`.
 const rulesCache = new Map<string, { rules: ValidationRule[]; ts: number }>();
 
+/**
+ * The active rules for a write: the instance rules and those of the tenant the
+ * open tenant transaction writes as (`getCurrentTrxTenant`), where every write
+ * path runs — data API, bulk, sync, `dynamicInsert`, a worker's call, a job
+ * inside `withTenantIsolation`. No tenant transaction: instance rules only.
+ * Filtered here, not by RLS: the read runs on the pool, as the engine.
+ */
 export async function getValidationRules(
   db: Database,
   collection: string,
   fieldName?: string,
 ): Promise<ValidationRule[]> {
-  const cacheKey = `${collection}:${fieldName || '*'}`;
+  const tenant = getCurrentTrxTenant();
+  const cacheKey = `${collection}:${fieldName || '*'}@${tenant ?? ''}`;
   const cached = rulesCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < 60_000) return cached.rules;
 
   let query = db
     .selectFrom('zv_validation_rules')
-    .select(['id', 'field_name', 'rule_type', 'rule_config', 'error_message'])
+    .select(['id', 'tenant_id', 'field_name', 'rule_type', 'rule_config', 'error_message'])
     .where('collection', '=', collection)
-    .where('is_active', '=', true);
+    .where('is_active', '=', true)
+    .where((eb) =>
+      tenant
+        ? eb.or([eb('tenant_id', 'is', null), eb('tenant_id', '=', tenant)])
+        : eb('tenant_id', 'is', null),
+    );
 
   if (fieldName) query = query.where('field_name', '=', fieldName);
 
   // rule_config is JSONB → typed as unknown; coerce to the runtime contract.
   const rules: ValidationRule[] = (await query.execute()).map((row) => ({
     id: String(row.id),
+    tenant_id: row.tenant_id,
     field_name: row.field_name,
     rule_type: row.rule_type,
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     rule_config: (row.rule_config ?? {}) as Record<string, any>,
     error_message: row.error_message,
   }));
+  // ponytail: per-tenant keys never expire on their own; a crude bound until an LRU is needed.
+  if (rulesCache.size > 10_000) rulesCache.clear();
   rulesCache.set(cacheKey, { rules, ts: Date.now() });
   return rules;
 }
@@ -602,6 +621,7 @@ async function getRuleGroups(db: Database, collection: string): Promise<RuleGrou
   return groups;
 }
 
+/** Every tenant's entries for `collection`: a rule write is rare, a reload cheap. */
 export function invalidateRulesCache(collection: string): void {
   groupsCache.delete(collection);
   // L7 FIX: Use exact match + prefix with ':' separator to avoid "user" matching "users".
@@ -842,18 +862,19 @@ export async function validateRecord(
 
     const fieldGroups = groups.filter((g) => g.field_name === fieldName);
     const grouped = new Set(fieldGroups.flatMap((g) => g.rule_ids));
+    // Groups are instance-wide and combine instance rules only. A tenant's rule
+    // is ANDed on top even when a group names its id: as a member of an OR
+    // group it would satisfy the group for that tenant, and relax an instance rule.
+    const groupable = (r: ValidationRule) =>
+      r.id !== undefined && !r.tenant_id && r.rule_type !== 'transition';
 
     // Rules nobody grouped keep the old behaviour: all of them must hold.
-    const ungrouped = fieldRules.filter(
-      (r) => r.id === undefined || !grouped.has(r.id) || r.rule_type === 'transition',
-    );
+    const ungrouped = fieldRules.filter((r) => !groupable(r) || !grouped.has(r.id ?? ''));
     const fieldErrors =
       ungrouped.length > 0 ? await validateFieldValue(value, ungrouped, fieldType, previous) : [];
 
     for (const group of fieldGroups) {
-      const members = fieldRules.filter(
-        (r) => r.id !== undefined && group.rule_ids.includes(r.id) && r.rule_type !== 'transition',
-      );
+      const members = fieldRules.filter((r) => groupable(r) && group.rule_ids.includes(r.id ?? ''));
       if (members.length === 0) continue;
       if (group.logic === 'OR') {
         // Satisfying ONE member satisfies the group — "either a VAT number or a

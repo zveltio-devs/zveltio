@@ -59,6 +59,13 @@ export type ValidationRuleWrite =
         error_message: string;
         nl_description?: string | null;
       };
+      /**
+       * Whom the rule binds. Left out: an instance admin writes an instance rule
+       * (every tenant), a tenant admin a rule of the request's tenant. `'tenant'`
+       * lets an instance admin write one for the request's tenant; a tenant admin
+       * asking `'instance'` throws.
+       */
+      scope?: 'instance' | 'tenant';
     }
   | { op: 'setActive'; id: string; is_active: boolean; collection?: string }
   | { op: 'delete'; id: string; collection?: string };
@@ -509,15 +516,17 @@ export interface ExtensionInternals<DB = unknown> {
     ruleType?: string,
   ) => { ok: true } | { ok: false; reason: string };
   /**
-   * Create, toggle or delete a validation rule. Rules are instance-wide schema
-   * metadata — every tenant's writes to the collection answer to them — so
-   * `ctx.db` only reads `zv_validation_rules`, and this writes it as the engine
-   * for an instance admin only: the caller is the one the `/ext/*` gate
-   * admitted for `c`, and anyone else (a tenant admin, an API key) throws.
-   * Answers the stored row (the removed one for `delete`), or `null` when no
-   * rule has that id. A `custom`, `nlp` or `transition` rule whose expression
-   * does not compile throws, and every write is audited as an instance event.
-   * Engine 3.0.0-beta.88 and later.
+   * Create, toggle or delete a validation rule. `ctx.db` only reads
+   * `zv_validation_rules`; this writes it as the engine for the caller the
+   * `/ext/*` gate admitted for `c`. An instance rule (`tenant_id` null) binds
+   * every tenant's writes and only an instance admin writes one; a tenant admin
+   * writes rules of the request's tenant only (the engine sets `tenant_id`),
+   * which add to the instance rules and never relax one, and toggles or deletes
+   * only those. Anyone else (an API key, a member) throws. Answers the stored
+   * row (the removed one for `delete`), or `null` when no rule the caller may
+   * write has that id. A `custom`, `nlp` or `transition` rule whose expression
+   * does not compile throws. Audited: an instance rule as an instance event, a
+   * tenant rule in its tenant. Engine 3.0.0-beta.88 and later.
    */
   writeValidationRule: (
     c: Context,
