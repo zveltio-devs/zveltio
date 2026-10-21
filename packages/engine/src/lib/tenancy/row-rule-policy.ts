@@ -39,6 +39,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { withLockWaitBound } from '../../db/dynamic.js';
 import { startReconcile } from './reconcile-failures.js';
 import {
   foldsCase,
@@ -461,9 +462,9 @@ export async function applyRowRulePolicy(
   // CREATE. ACCESS EXCLUSIVE is what DROP POLICY takes anyway; taken first, no
   // lock is upgraded mid-way, which a weaker lock would deadlock on against a
   // reader that then writes.
-  const rebuild = (h: Database) => rebuildRowRulePolicy(h, collection, table, safe);
-  if ((db as unknown as { isTransaction?: boolean }).isTransaction) return rebuild(db);
-  return db.transaction().execute(rebuild);
+  // The lock wait is bounded: behind one long reader, an unbounded ACCESS
+  // EXCLUSIVE request queued every read of the collection behind it.
+  return withLockWaitBound(db, (h) => rebuildRowRulePolicy(h, collection, table, safe));
 }
 
 async function rebuildRowRulePolicy(
