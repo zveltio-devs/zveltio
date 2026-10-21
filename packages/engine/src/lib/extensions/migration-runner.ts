@@ -140,9 +140,15 @@ export async function runExtensionMigrations(
   if (migrations.length === 0) return;
 
   // A retry finds nothing to migrate, so nothing touched: without this the
-  // extension refused for a permissive policy loaded on the second try.
-  const owed = unreconciled.get(extension.name);
-  if (owed) await reconcileOrRefuse(extension.name, db, owed);
+  // extension refused for a permissive policy loaded on the second try. And a
+  // restart forgets `unreconciled` — boot loads extensions before its own
+  // reconcile, which only reports — so the policies on the extension's own
+  // tables are read as well: one not on the host's predicate is owed too.
+  const owed = new Set([
+    ...(unreconciled.get(extension.name) ?? []),
+    ...(await offPredicateTables(extension.name, migrations, db)),
+  ]);
+  if (owed.size > 0) await reconcileOrRefuse(extension.name, db, [...owed]);
 
   // Phase 1 — read all migrations + skip the ones already applied. Done
   // outside the outer transaction so an early-skipped chain (everything
@@ -306,6 +312,29 @@ async function reconcileOrRefuse(extName: string, db: Database, tables: string[]
       `parent tenant write into a child's rows, so the extension is not loaded; the next load ` +
       `retries it.`,
   );
+}
+
+/**
+ * The extension's tables — the ones `buildAllowedTables` gives it, so third-party
+ * extensions too — whose `tenant_isolation_*` policy is not the one
+ * `reconcileExtensionTenantRLS` writes. On a settled install: none, no DDL.
+ */
+async function offPredicateTables(
+  extName: string,
+  migrations: string[],
+  db: Database,
+): Promise<string[]> {
+  const { buildAllowedTables } = await import('./register.js');
+  const own = [...(await buildAllowedTables(migrations, extName))].map((t) => t.toLowerCase());
+  const rows = await _sql<{ t: string }>`
+    SELECT DISTINCT tablename AS t
+      FROM pg_policies
+     WHERE schemaname = 'public'
+       AND policyname LIKE 'tenant\\_isolation\\_%'
+       AND lower(tablename) = ANY(${own}::text[])
+       AND coalesce(with_check, '') <> 'zveltio_tenant_write_ok(tenant_id)'
+  `.execute(db);
+  return rows.rows.map((r) => r.t);
 }
 
 /** `tenant_isolation_*` policies per table, as text, to tell which a run changed. */

@@ -27,6 +27,8 @@ const BAD = `rclbad${STAMP}`;
 const BAD_TABLE = `zv_${BAD}_rows`;
 const MID = `rclmid${STAMP}`;
 const MID_TABLE = `zv_${MID}_rows`;
+const RST = `rclrst${STAMP}`;
+const RST_TABLE = `zv_${RST}_rows`;
 const DIR = `${process.env.TMPDIR ?? '/tmp'}/zv-ext-rcl-${STAMP}`;
 
 const ext = (name: string, file: string) =>
@@ -47,9 +49,9 @@ d('extension migrations: a tenant policy left permissive fails the load', () => 
     ).rows[0]?.c;
 
   async function cleanup(): Promise<void> {
-    for (const t of [BAD_TABLE, MID_TABLE])
+    for (const t of [BAD_TABLE, MID_TABLE, RST_TABLE])
       await sql`DROP TABLE IF EXISTS ${sql.id(t)}`.execute(db);
-    for (const e of [BAD, MID]) {
+    for (const e of [BAD, MID, RST]) {
       await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${e}:%`}`.execute(db);
     }
   }
@@ -75,6 +77,11 @@ CREATE TABLE IF NOT EXISTS ${MID_TABLE} (id serial PRIMARY KEY, tenant_id uuid);
 CREATE POLICY tenant_isolation_${MID_TABLE} ON ${MID_TABLE}
   USING (zveltio_tenant_scope_ok(tenant_id)) WITH CHECK (zveltio_tenant_scope_ok(tenant_id));
 SELECT 1 / 0;`,
+    );
+    await Bun.write(
+      `${DIR}/001_rst.sql`,
+      `CREATE TABLE ${RST_TABLE} (id serial PRIMARY KEY, tenant_id integer);
+       CREATE POLICY tenant_isolation_${RST_TABLE} ON ${RST_TABLE} USING (true) WITH CHECK (true);`,
     );
   }, 60_000);
 
@@ -115,5 +122,25 @@ SELECT 1 / 0;`,
     expect(err?.errno).toBe('22012'); // the migration's own error, not masked
     // `zveltio_tenant_scope_ok` is the defect: the reconcile never ran.
     expect(await withCheck(MID_TABLE)).toContain('zveltio_tenant_write_ok');
+  }, 60_000);
+
+  it('stays refused after a restart, when nothing is left to migrate and memory is gone', async () => {
+    await expect(runExtensionMigrations(ext(RST, '001_rst.sql'), db)).rejects.toThrow(RST_TABLE);
+    // A restart: the migration row and the permissive policy are on disk, the
+    // runner's memory of the refusal is not. A second module instance is that.
+    const spec = '../../lib/extensions/migration-runner.js?restart';
+    const fresh = (await import(spec)) as typeof import('../../lib/extensions/migration-runner.js');
+    expect(fresh.runExtensionMigrations).not.toBe(runExtensionMigrations);
+    // Resolving is the defect: the extension loads on a WITH CHECK of `true`.
+    await expect(fresh.runExtensionMigrations(ext(RST, '001_rst.sql'), db)).rejects.toThrow(
+      RST_TABLE,
+    );
+    expect(await withCheck(RST_TABLE)).toBe('true');
+
+    await sql`ALTER TABLE ${sql.id(RST_TABLE)} ALTER COLUMN tenant_id TYPE uuid USING NULL`.execute(
+      db,
+    );
+    await fresh.runExtensionMigrations(ext(RST, '001_rst.sql'), db);
+    expect(await withCheck(RST_TABLE)).toContain('zveltio_tenant_write_ok');
   }, 60_000);
 });
