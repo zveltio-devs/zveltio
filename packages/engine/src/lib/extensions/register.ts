@@ -98,6 +98,7 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     // Owned by this extension, but still present in the engine's 001_initial
     // from before the feature moved out. See the note below.
   ],
+  // Read only (READ_ONLY_TABLE_GRANTS): writes go through writeValidationRule.
   'developer/validation': ['zv_validation_rules'],
   // ── Tables an extension owns that the engine also declares ──────────────
   //
@@ -194,6 +195,13 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     'zv_media_favorites',
   ],
 };
+
+/**
+ * Granted tables an extension's database role may SELECT and never write: the
+ * engine writes them, after its own check. `zv_validation_rules` is every
+ * tenant's schema metadata, and a tenant admin wrote it through `ctx.db`.
+ */
+export const READ_ONLY_TABLE_GRANTS: readonly string[] = ['zv_validation_rules'];
 
 /**
  * Every table the ENGINE creates, read once from its own migration SQL.

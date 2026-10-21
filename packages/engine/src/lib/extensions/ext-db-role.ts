@@ -464,7 +464,7 @@ async function grantOwnTables(
   own: string | null,
 ): Promise<string[]> {
   try {
-    const { engineOwnedTables } = await import('./register.js');
+    const { engineOwnedTables, READ_ONLY_TABLE_GRANTS } = await import('./register.js');
     const { coveringExtensionNames, longerOwnedPrefixes, noteExtensionNames, ownedPrefixFor } =
       await import('./worker-sql-policy.js');
     // Installed, not only loaded: `a/b`'s tables stay `a/b`'s while it is
@@ -488,6 +488,7 @@ async function grantOwnTables(
       rel: string;
       kind: 'table' | 'sequence';
       shared: boolean;
+      read_only: boolean;
       missing: boolean;
       covered_by: string[];
     }>`
@@ -498,6 +499,7 @@ async function grantOwnTables(
                  AND NOT EXISTS (SELECT 1 FROM unnest(${longer}::text[]) p
                                   WHERE left(lower(c.relname), length(p)) = p) AS by_prefix,
                lower(c.relname) = ANY(${allowed}::text[]) AS listed,
+               lower(c.relname) = ANY(${READ_ONLY_TABLE_GRANTS}::text[]) AS read_only,
                left(c.relname, 4) = 'zvd_'
                  AND NOT (lower(c.relname) = ANY(${engine}::text[])) AS data
           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -507,7 +509,7 @@ async function grantOwnTables(
       picked AS (
         -- Inline, every non-engine zvd_* table goes to the shared role: the
         -- analyzer admits all of them to every extension as user data.
-        SELECT oid, relname, relacl, by_prefix, ${inline}::boolean AND data AS shared
+        SELECT oid, relname, relacl, by_prefix, read_only, ${inline}::boolean AND data AS shared
           FROM rels
          WHERE by_prefix OR (listed AND (${inline}::boolean OR data))
             OR (${inline}::boolean AND data)
@@ -515,10 +517,11 @@ async function grantOwnTables(
       out AS (
         -- INSERT, not SELECT: a sealed table (migration 073) holds SELECT column
         -- by column, and asking for a table-level SELECT re-granted it every load.
-        SELECT relname AS rel, 'table' AS kind, shared, by_prefix, relacl AS acl, 'INSERT' AS priv
+        SELECT relname AS rel, 'table' AS kind, shared, by_prefix, read_only, relacl AS acl,
+               CASE WHEN read_only THEN 'SELECT' ELSE 'INSERT' END AS priv
           FROM picked
         UNION ALL
-        SELECT s.relname, 'sequence', p.shared, p.by_prefix, s.relacl, 'USAGE'
+        SELECT s.relname, 'sequence', p.shared, p.by_prefix, false, s.relacl, 'USAGE'
           FROM picked p
           JOIN pg_depend d ON d.refobjid = p.oid AND d.classid = 'pg_class'::regclass
                           AND d.deptype IN ('a', 'i')
@@ -527,7 +530,7 @@ async function grantOwnTables(
       )
       -- Held DIRECTLY, read off the ACL: has_table_privilege would count what an
       -- extension role inherits from the shared one.
-      SELECT rel, kind, shared,
+      SELECT rel, kind, shared, read_only,
              NOT EXISTS (
                SELECT 1 FROM aclexplode(acl) a JOIN pg_roles r ON r.oid = a.grantee
                 WHERE r.rolname = CASE WHEN shared THEN ${shared}::text ELSE ${own ?? shared}::text END
@@ -543,9 +546,13 @@ async function grantOwnTables(
       if (!r.shared && !own) continue;
       const on = r.kind === 'table' ? sql`TABLE` : sql`SEQUENCE`;
       const rel = sql.table(`public.${r.rel}`);
+      const to = r.shared ? shared : own!;
       if (r.missing) {
-        const privs = r.kind === 'table' ? 'SELECT, INSERT, UPDATE, DELETE' : 'USAGE, SELECT';
-        const to = r.shared ? shared : own!;
+        const privs = r.read_only
+          ? 'SELECT'
+          : r.kind === 'table'
+            ? 'SELECT, INSERT, UPDATE, DELETE'
+            : 'USAGE, SELECT';
         await retryConcurrentUpdate(() =>
           db.transaction().execute(async (trx) => {
             await sql`GRANT ${sql.raw(privs)} ON ${on} ${rel} TO ${sql.id(to)}`.execute(trx);
@@ -557,6 +564,14 @@ async function grantOwnTables(
               );
             }
           }),
+        );
+      }
+      // Every load: a role made before the table turned read-only holds the writes.
+      if (r.read_only) {
+        await retryConcurrentUpdate(() =>
+          sql`REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE ${rel} FROM ${sql.id(to)}`.execute(
+            db,
+          ),
         );
       }
       for (const from of r.covered_by) {
