@@ -105,6 +105,20 @@ export const FIELD_RULE_TABLES = [
   ['zv_validation_rules', 'collection', 'field_name'],
 ] as const;
 
+/**
+ * FIELD_RULE_TABLES plus `developer/validation`'s rule groups, which name the
+ * field the same way, when that extension's table exists.
+ */
+export async function fieldRuleTables(
+  db: Database,
+): Promise<ReadonlyArray<readonly [string, string, string]>> {
+  const r = await sql<{ t: string | null }>`
+    SELECT to_regclass('zvd_validation_rule_groups')::text AS t`.execute(db);
+  return r.rows[0]?.t
+    ? [...FIELD_RULE_TABLES, ['zvd_validation_rule_groups', 'collection', 'field_name']]
+    : FIELD_RULE_TABLES;
+}
+
 /** Field types whose values feed a collection's full-text search. */
 export const SEARCH_FIELD_TYPES = new Set(['text', 'richtext', 'email']);
 
@@ -1065,6 +1079,9 @@ export class DDLManager {
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${name}`.execute(db);
     await db.deleteFrom('zvd_column_permissions').where('collection_name', '=', name).execute();
     await db.deleteFrom('zv_validation_rules').where('collection', '=', name).execute();
+    if ((await fieldRuleTables(db)).length > FIELD_RULE_TABLES.length) {
+      await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${name}`.execute(db);
+    }
 
     DDLManager.invalidateCache(name);
     return deleted.map((r) =>
@@ -1511,7 +1528,7 @@ export class DDLManager {
       );
     }
     let rowRules = 0;
-    for (const [table, col, fieldCol] of FIELD_RULE_TABLES) {
+    for (const [table, col, fieldCol] of await fieldRuleTables(db)) {
       const gone = await sql`DELETE FROM ${sql.id(table)}
                               WHERE ${sql.id(col)} = ${collection} AND ${sql.id(fieldCol)} = ${field}
                               RETURNING 1`.execute(db);

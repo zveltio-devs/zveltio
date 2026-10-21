@@ -43,6 +43,7 @@ import {
 } from '../../testing/app-harness.js';
 import { _settleAuditWrites } from '../../lib/audit.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
+import { DDLManager, fieldRuleTables } from '../../lib/data/ddl-manager.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -311,6 +312,51 @@ d('validation rule groups are instance-wide', () => {
       { event_type: 'validation_rule_group.created', tenant_id: null },
       { event_type: 'validation_rule_group.deleted', tenant_id: null },
     ]);
+  });
+
+  it('a group holds instance rules on its own field only, and goes with the field', async () => {
+    const rule = async (field: string, tenant: string | null) =>
+      (
+        await sql<{ id: string }>`
+          INSERT INTO zv_validation_rules (collection, field_name, rule_type, error_message, tenant_id)
+          VALUES (${C2}, ${field}, 'required', 'x', ${tenant}::uuid) RETURNING id`.execute(db)
+      ).rows[0]!.id;
+    const own = await rule('sku', null);
+    const tenants = await rule('sku', FIRM.id);
+    const other = await rule('label', null);
+    const god = { cookie: godCookie };
+    const group = (rule_ids: string[]) => ({
+      name: 'members',
+      collection: C2,
+      field_name: 'sku',
+      logic: 'OR',
+      rule_ids,
+    });
+    for (const ids of [
+      [own, tenants],
+      [own, other],
+    ]) {
+      const refused = await call('POST', '/groups', god, group(ids));
+      expect(((await refused.json()) as { refused: string }).refused).toContain('instance rule');
+    }
+    expect((await call('POST', '/groups', god, group([own]))).status).toBe(200);
+
+    // The field's rules and its groups go together: rename, then drop.
+    await db.transaction().execute(async (trx) => {
+      for (const [t, col, f] of await fieldRuleTables(trx)) {
+        await sql`UPDATE ${sql.id(t)} SET ${sql.id(f)} = 'kod'
+                   WHERE ${sql.id(col)} = ${C2} AND ${sql.id(f)} = 'sku'`.execute(trx);
+      }
+    });
+    const onField = async (field: string) =>
+      (
+        await sql<{ name: string }>`SELECT name FROM ${sql.id(T)}
+           WHERE collection = ${C2} AND field_name = ${field}`.execute(db)
+      ).rows.map((g) => g.name);
+    expect(await onField('kod')).toEqual(['members']);
+    await db.transaction().execute((trx) => DDLManager.dropFieldRules(trx, C2, 'kod'));
+    expect(await onField('kod')).toEqual([]);
+    await sql`DELETE FROM zv_validation_rules WHERE collection = ${C2}`.execute(db);
   });
 
   it('no request role holds a write on it', async () => {

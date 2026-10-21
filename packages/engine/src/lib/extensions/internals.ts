@@ -816,11 +816,29 @@ async function writeValidationRuleGroup(
       return r.rows[0];
     }
     const g = write.group;
+    // Members are instance rules on the group's own field. The evaluator never
+    // groups a tenant's rule (it only tightens), so a tenant rule id, or one
+    // from another field, would be stored and silently do nothing.
+    // FOR SHARE: a rule deleted or renamed between this check and the INSERT
+    // would otherwise land as a dangling member.
+    const ruleIds = [...new Set(g.rule_ids)];
+    const members = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM (
+        SELECT 1 FROM zv_validation_rules
+         WHERE id = ANY(${ruleIds}::uuid[]) AND tenant_id IS NULL
+           AND collection = ${g.collection} AND field_name = ${g.field_name}
+           FOR SHARE) m`.execute(db);
+    if ((members.rows[0]?.n ?? 0) !== ruleIds.length) {
+      throw new Error(
+        'ctx.internals.writeValidationRuleGroup: every rule_ids entry must be an instance ' +
+          "rule on the group's collection and field.",
+      );
+    }
     const r = await sql<Record<string, unknown>>`
       INSERT INTO zvd_validation_rule_groups
         (name, collection, field_name, description, logic, rule_ids, is_active, created_by)
       VALUES (${g.name}, ${g.collection}, ${g.field_name}, ${g.description ?? null},
-              ${g.logic ?? 'AND'}, ${g.rule_ids}::uuid[], ${g.is_active ?? true}, ${p.user.id})
+              ${g.logic ?? 'AND'}, ${ruleIds}::uuid[], ${g.is_active ?? true}, ${p.user.id})
       RETURNING *`.execute(db);
     return r.rows[0];
   };
