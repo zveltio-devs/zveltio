@@ -30,6 +30,11 @@ interface TenantStore {
   domain: string;
   trx?: Database;
   /**
+   * The tenant `trx` was opened for: its `zveltio.current_tenant`. Not `domain`,
+   * which a nested `withTenantIsolation` into another tenant leaves as it was.
+   */
+  trxTenant?: string;
+  /**
    * True when this request's reach is exactly its own tenant — no hierarchy set
    * was published into `zveltio.visible_tenants`.
    *
@@ -166,6 +171,7 @@ export function runWithTenantTrx<T>(trx: Database, tenantId: string, fn: () => T
     {
       domain: existing?.domain ?? tenantId,
       trx,
+      trxTenant: tenantId,
       afterCommit: { jobs: [], state: 'open', outer: existing },
     },
     fn,
@@ -237,7 +243,7 @@ export function setCurrentTenantTrx(trx: Database): void {
 export function runWithoutTenantTrx<T>(fn: () => T): T {
   const s = store.getStore();
   if (!s?.trx) return fn();
-  return store.run({ ...s, trx: undefined }, fn);
+  return store.run({ ...s, trx: undefined, trxTenant: undefined }, fn);
 }
 
 /**
@@ -360,6 +366,12 @@ export function runAfterCommitJob(job: () => void | Promise<void>): Promise<void
 
 export function getCurrentTenantTrx(): Database | undefined {
   return store.getStore()?.trx;
+}
+
+/** The tenant the open tenant transaction writes as, or `null` outside one. */
+export function getCurrentTrxTenant(): string | null {
+  const s = store.getStore();
+  return (s?.trx && s.trxTenant) || null;
 }
 
 /** Mark this request's reach as its own tenant alone. See `TenantStore`. */

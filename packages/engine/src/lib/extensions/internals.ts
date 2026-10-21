@@ -663,12 +663,45 @@ async function readAsCaller(
  * `ctx.internals.writeValidationRule`. A tenant admin passed the extension's old
  * gate (`checkPermission(admin, '*')`) and stored rules that refused every
  * tenant's writes; the identity here is the gate's, never an argument.
+ *
+ * An instance admin writes instance rules (`tenant_id` NULL), or with
+ * `scope: 'tenant'` one for the request's tenant, and toggles or deletes any.
+ * A tenant admin writes only rules of the request's tenant — the engine sets
+ * `tenant_id` — and toggles or deletes only those: another tenant's rule or an
+ * instance rule answers `null`, as one that does not exist.
  */
 async function writeValidationRule(
   c: unknown,
   write: ValidationRuleWrite,
 ): Promise<Record<string, unknown> | null> {
-  const p = await instanceAdminCaller(c, 'writeValidationRule');
+  const p = gatePrincipal(c);
+  if (!p) {
+    throw new Error(
+      'ctx.internals.writeValidationRule: pass the request context `c` of the /ext/* request ' +
+        'being handled; outside one there is no caller, so there is no write.',
+    );
+  }
+  const instance = await requireInstanceAdmin(p.user.id);
+  // The tenant is the gate's (the request's), never the extension's argument.
+  const ownTenant = !instance && p.tenantId && (await isTenantAdmin(p.user.id)) ? p.tenantId : null;
+  if (!instance && !ownTenant) {
+    throw new Error(
+      'ctx.internals.writeValidationRule: only an instance admin, or a tenant admin for ' +
+        "their own tenant's rules, may write a validation rule.",
+    );
+  }
+  let tenantId: string | null = null;
+  if (write.op === 'create' && (ownTenant || write.scope === 'tenant')) {
+    if (instance ? !p.tenantId : write.scope === 'instance') {
+      throw new Error(
+        instance
+          ? "ctx.internals.writeValidationRule: `scope: 'tenant'` needs a request with a tenant."
+          : 'ctx.internals.writeValidationRule: an instance rule binds every tenant, so only ' +
+              'an instance admin may write one.',
+      );
+    }
+    tenantId = ownTenant ?? p.tenantId;
+  }
   if (write.op === 'create' && EXPRESSION_RULE_TYPES.has(write.rule.rule_type)) {
     // The extension checks too, but the host is the boundary: a rule that
     // cannot compile is stored as one that refuses every write to its field.
@@ -698,6 +731,7 @@ async function writeValidationRule(
           rule_config: toJsonb(r.rule_config ?? {}),
           error_message: r.error_message,
           is_active: true,
+          tenant_id: tenantId,
           created_by: p.user.id,
         })
         .returningAll()
@@ -709,10 +743,12 @@ async function writeValidationRule(
         .set({ is_active: write.is_active, updated_at: new Date() })
         .where('id', '=', write.id);
       if (write.collection) q = q.where('collection', '=', write.collection);
+      if (ownTenant) q = q.where('tenant_id', '=', ownTenant);
       return q.returningAll().executeTakeFirst();
     }
     let q = db.deleteFrom('zv_validation_rules').where('id', '=', write.id);
     if (write.collection) q = q.where('collection', '=', write.collection);
+    if (ownTenant) q = q.where('tenant_id', '=', ownTenant);
     return q.returningAll().executeTakeFirst();
   };
   // A savepoint, so a refused row (bulk import goes on to the next) leaves the
@@ -724,10 +760,10 @@ async function writeValidationRule(
   );
   if (row) {
     invalidateRulesCache(String(row.collection));
-    // Instance-level: a rule binds every tenant, so the trail is not one tenant's.
+    // An instance rule binds every tenant, so its trail is not one tenant's.
     await auditLog(db, {
       type: VALIDATION_RULE_AUDIT[write.op],
-      tenantId: null,
+      tenantId: (row.tenant_id as string | null) ?? null,
       userId: p.user.id,
       resourceId: String(row.id),
       resourceType: 'validation_rule',
@@ -754,7 +790,7 @@ async function instanceAdminCaller(
   }
   if (!(await requireInstanceAdmin(p.user.id))) {
     throw new Error(
-      `ctx.internals.${name}: validation rules apply to every tenant, so only an ` +
+      `ctx.internals.${name}: rule groups apply to every tenant, so only an ` +
         'instance admin may write one.',
     );
   }

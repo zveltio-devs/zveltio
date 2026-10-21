@@ -1059,6 +1059,8 @@ export interface ZvValidationRulesTable {
   rule_config: unknown; // JSONB
   error_message: string | null;
   is_active: boolean;
+  /** NULL: an instance rule. A tenant id: that tenant's own rule (migration 092). */
+  tenant_id: string | null;
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;

@@ -13,6 +13,8 @@
  * Now the request role and the extension's role only read the table, and the
  * one way to write it is `ctx.internals.writeValidationRule`, which asks the
  * `/ext/*` gate who is calling and writes as the engine for an instance admin.
+ * A tenant admin's write is a rule of their own tenant (migration 092,
+ * validation-rules-per-tenant.test.ts), never an instance rule.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
@@ -169,16 +171,30 @@ d('validation rules are written by an instance admin only', () => {
     await sql`DELETE FROM zv_tenants WHERE id = ${FIRM.id}::uuid`.execute(db);
   });
 
-  it('refuses the admin of a firm, and writes nothing', async () => {
+  it("stores the admin of a firm's rule as the firm's, never an instance rule", async () => {
     const res = await call(
       'POST',
       '/rules',
       { cookie: firmAdmin.cookie, 'x-tenant-slug': FIRM.slug },
       rule,
     );
-    expect(res.status).toBe(403);
-    expect(((await res.json()) as { refused: string }).refused).toContain('instance admin');
-    expect(await rulesOn()).toEqual([]);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { row: { tenant_id: string } }).row.tenant_id).toBe(FIRM.id);
+    await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);
+    await sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`.execute(
+      db,
+    );
+  });
+
+  it('refuses a member who administers nothing, and writes nothing', async () => {
+    const m = await createMemberSession(engine, db);
+    try {
+      const res = await call('POST', '/rules', { cookie: m.cookie }, rule);
+      expect(res.status).toBe(403);
+      expect(await rulesOn()).toEqual([]);
+    } finally {
+      await sql`DELETE FROM "user" WHERE id = ${m.userId}`.execute(db);
+    }
   });
 
   it('lets an instance admin create, toggle and delete a rule', async () => {
@@ -189,10 +205,13 @@ d('validation rules are written by an instance admin only', () => {
     expect((await rulesOn()).map((r) => [r.id, r.is_active])).toEqual([[id, true]]);
     expect((await rulesOn())[0]!.created_by).not.toBeNull();
 
-    // The firm admin cannot touch the instance admin's rule either.
+    // The firm admin cannot touch the instance admin's rule: none for them.
     const asFirm = { cookie: firmAdmin.cookie, 'x-tenant-slug': FIRM.slug };
-    expect((await call('PATCH', `/rules/${id}`, asFirm, { is_active: false })).status).toBe(403);
-    expect((await call('DELETE', `/rules/${id}`, asFirm)).status).toBe(403);
+    const noRow = async (res: Response) => ((await res.json()) as { row: unknown }).row;
+    expect(
+      await noRow(await call('PATCH', `/rules/${id}`, asFirm, { is_active: false })),
+    ).toBeNull();
+    expect(await noRow(await call('DELETE', `/rules/${id}`, asFirm))).toBeNull();
     expect((await rulesOn()).map((r) => r.is_active)).toEqual([true]);
 
     expect((await call('PATCH', `/rules/${id}`, god, { is_active: false })).status).toBe(200);

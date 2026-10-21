@@ -104,7 +104,8 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
         .execute(db)
         .then((r) => r.rows),
       db.selectFrom('zvd_column_permissions').selectAll().execute(),
-      db.selectFrom('zv_validation_rules').selectAll().execute(),
+      // Instance rules only: a tenant's own rules (092) are tenant state.
+      db.selectFrom('zv_validation_rules').selectAll().where('tenant_id', 'is', null).execute(),
       db.selectFrom('zv_roles').select(['name', 'description']).orderBy('name').execute(),
       // Global grants only: a rule scoped to one tenant id is tenant state.
       db
