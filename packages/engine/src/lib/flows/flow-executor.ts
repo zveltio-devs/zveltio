@@ -475,6 +475,8 @@ async function executeStep(
           messages: unknown[],
           opts?: unknown,
         ) => Promise<{ content?: string; usage?: unknown }>;
+        /** `ai` hands out a per-firm stand-in, never null; this says whether the firm has one. */
+        configured?: () => Promise<boolean>;
       };
       const aiProviders = serviceRegistry.get<{ getDefault(): ChatProvider | null }>(
         'ai.providers',
@@ -486,7 +488,7 @@ async function executeStep(
         };
       }
       const provider = aiProviders.getDefault();
-      if (!provider?.chat) {
+      if (!provider?.chat || (await provider.configured?.()) === false) {
         console.warn('[Flow] ai_decision: no AI provider configured, using fallback');
         return { output: { decision: fallback, usedFallback: true, error: 'No AI provider' } };
       }

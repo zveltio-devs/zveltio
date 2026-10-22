@@ -42,4 +42,35 @@ describe('executeStep — ai_decision no chat provider', () => {
       warn.mockRestore();
     }
   });
+
+  // `ai` registers a per-firm stand-in that always has chat(); a firm with no
+  // provider is told by configured(), not by a null.
+  it('falls back when the stand-in says the firm has no provider', async () => {
+    let chatted = false;
+    serviceRegistry.registerAs('test', 'ai.providers', {
+      getDefault: () => ({
+        configured: async () => false,
+        chat: async () => {
+          chatted = true;
+          throw new Error('No AI provider is configured.');
+        },
+      }),
+    });
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { output } = await executeStep(
+        new CannedDb().kysely as unknown as Database,
+        {
+          type: 'ai_decision',
+          config: { prompt: 'Pick one', options: ['yes', 'no'], fallback: 'no' },
+        },
+        {},
+        {},
+      );
+      expect(output).toMatchObject({ decision: 'no', usedFallback: true, error: 'No AI provider' });
+      expect(chatted).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
