@@ -8,6 +8,7 @@ import { type RawBuilder, sql } from 'kysely';
 import { indexName } from '../pg-identifier.js';
 import type { Database } from '../../db/index.js';
 import { withAdvisoryLock } from '../../db/advisory-lock.js';
+import { withLockWaitBound } from '../../db/dynamic.js';
 import { getCache } from '../runtime/index.js';
 import {
   currentAfterCommitQueue,
@@ -455,8 +456,8 @@ export async function applyTenantRLS(
     await sql`SELECT zveltio_seal_columns(to_regclass(${`public.${table}`}))`.execute(h);
   };
   if (roles.length === 0) return;
-  if ((db as unknown as { isTransaction?: boolean }).isTransaction) await grant(db);
-  else await db.transaction().execute(grant);
+  // The seal locks the masking view (ACCESS EXCLUSIVE): bounded, like every rebuild.
+  await withLockWaitBound(db, grant);
 }
 
 /** The roles that may hold collection tables only, and what each holds on one. */

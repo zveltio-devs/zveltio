@@ -29,7 +29,7 @@
     },
     "packages/cli": {
       "name": "@zveltio/cli",
-      "version": "3.0.0-beta.87",
+      "version": "3.0.0-beta.90",
       "bin": {
         "zveltio": "./dist/index.js",
       },
@@ -44,12 +44,12 @@
     },
     "packages/client": {
       "name": "@zveltio/client",
-      "version": "3.0.0-beta.87",
+      "version": "3.0.0-beta.90",
       "dependencies": {
         "@lucide/svelte": "^0.577.0",
         "@zveltio/sdk": "workspace:*",
         "better-auth": "^1.7.2",
-        "dompurify": "3.4.16",
+        "dompurify": "3.4.17",
         "leaflet": "^1.9.4",
         "qrcode": "^1.5.4",
       },
@@ -77,7 +77,7 @@
     },
     "packages/engine": {
       "name": "@zveltio/engine",
-      "version": "3.0.0-beta.87",
+      "version": "3.0.0-beta.90",
       "dependencies": {
         "@better-auth/kysely-adapter": "1.7.5",
         "@better-auth/passkey": "^1.7.5",
@@ -113,7 +113,7 @@
     },
     "packages/sdk": {
       "name": "@zveltio/sdk",
-      "version": "3.0.0-beta.87",
+      "version": "3.0.0-beta.90",
       "dependencies": {
         "idb": "^8.0.3",
       },
@@ -137,7 +137,7 @@
     },
     "packages/sdk-react": {
       "name": "@zveltio/react",
-      "version": "3.0.0-beta.87",
+      "version": "3.0.0-beta.90",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -153,7 +153,7 @@
     },
     "packages/sdk-vue": {
       "name": "@zveltio/vue",
-      "version": "3.0.0-beta.87",
+      "version": "3.0.0-beta.90",
       "dependencies": {
         "@zveltio/sdk": "workspace:*",
       },
@@ -167,7 +167,7 @@
     },
     "packages/studio": {
       "name": "@zveltio/studio",
-      "version": "3.0.0-beta.87",
+      "version": "3.0.0-beta.90",
       "dependencies": {
         "@inlang/paraglide-js": "^2.25.0",
         "@lucide/svelte": "^0.577.0",
@@ -178,7 +178,7 @@
         "@zveltio/sdk": "workspace:*",
         "d3-scale": "^4.0.2",
         "daisyui": "^5.7.42",
-        "dompurify": "3.4.16",
+        "dompurify": "3.4.17",
         "layerchart": "^1.0.13",
         "leaflet": "^1.9.4",
         "svelte": "^5.57.0",
@@ -1065,7 +1065,7 @@
 
     "dom-accessibility-api": ["dom-accessibility-api@0.6.3", "", {}, "sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w=="],
 
-    "dompurify": ["dompurify@3.4.16", "", { "optionalDependencies": { "@types/trusted-types": "^2.0.7" } }, "sha512-sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ=="],
+    "dompurify": ["dompurify@3.4.17", "", { "optionalDependencies": { "@types/trusted-types": "^2.0.7" } }, "sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w=="],
 
     "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
 

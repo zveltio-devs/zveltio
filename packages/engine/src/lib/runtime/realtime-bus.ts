@@ -477,6 +477,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private stopping = false;
   private publisher: PgNotifyPublisher | null = null;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly databaseUrl: string) {}
 
@@ -488,6 +489,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
   private lost(client: pg.Client, reason: string): void {
     if (client !== this.client) return;
     this.client = null;
+    this.stopHeartbeat();
     client.end().catch(() => {});
     this.scheduleListenReconnect(reason);
   }
@@ -518,6 +520,8 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       // TCP probes find it within the OS's probe interval × count.
       keepAlive: true,
       keepAliveInitialDelayMillis: 30_000,
+      // Bounds the heartbeat below: a query on a half-open socket never answers.
+      query_timeout: 10_000,
     });
     this.client = client;
     client.on('notification', (n) => {
@@ -542,6 +546,15 @@ class PgNotifyRealtimeBus implements RealtimeBus {
     }
     if (client !== this.client) return; // stopped meanwhile
     this._running = true;
+    // TCP keepalive alone finds a half-open socket only after the OS's probes
+    // (minutes); every NOTIFY in that window is lost. A SELECT 1 that does not
+    // answer within query_timeout ends the connection, and the reconnect resyncs.
+    this.heartbeat = setInterval(() => {
+      client
+        .query('SELECT 1')
+        .catch((err: Error) => this.lost(client, `heartbeat: ${err.message}`));
+    }, 30_000);
+    this.heartbeat.unref?.();
     if (this.retryAttempt > 0) onBusReconnected();
     this.retryAttempt = 0;
     sendOwedRecycle();
@@ -556,6 +569,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
     }
     const client = this.client;
     this.client = null;
+    this.stopHeartbeat();
     if (client) await client.end().catch(() => {});
     this._running = false;
     this.retryAttempt = 0;
@@ -582,6 +596,11 @@ class PgNotifyRealtimeBus implements RealtimeBus {
     await this.publisher.notify(PG_NOTIFY_CHANNEL, encoded).catch((err: Error) => {
       console.error('[realtime-bus] pg_notify failed:', err.message);
     });
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = null;
   }
 
   get isRunning(): boolean {

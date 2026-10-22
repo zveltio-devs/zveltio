@@ -454,6 +454,7 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/tenant-facts.ts`,
       `${E}lib/extensions/actions.ts`,
       `${E}lib/extensions/jobs.ts`,
+      `${E}lib/extensions/broadcast.ts`,
       `${E}lib/engine-handle.ts`,
     ],
   },

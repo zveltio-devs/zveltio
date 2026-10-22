@@ -61,6 +61,7 @@
 import { syncCollectionExemption, warnCollectionRlsExemptions } from './collection-rls-exempt.js';
 import { createHash } from 'node:crypto';
 import { sqlState } from '../../db/bun-sql-quirks.js';
+import { withLockWaitBound } from '../../db/dynamic.js';
 import { CompiledQuery, type ConnectionProvider, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { keepWorkerExtensionTables, temporaryObjectsRestricted } from '../tenancy/index.js';
@@ -565,7 +566,8 @@ async function grantOwnTables(
             ? 'SELECT, INSERT, UPDATE, DELETE'
             : 'USAGE, SELECT';
         await retryConcurrentUpdate(() =>
-          db.transaction().execute(async (trx) => {
+          // Bounded: the seal locks the masking view (ACCESS EXCLUSIVE).
+          withLockWaitBound(db, async (trx) => {
             await sql`GRANT ${sql.raw(privs)} ON ${on} ${rel} TO ${sql.id(to)}`.execute(trx);
             // A sealed collection keeps its sealed columns from this role too,
             // in the grant's own transaction.

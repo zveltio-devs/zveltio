@@ -128,4 +128,49 @@ d('pg_notify realtime bus across replicas', () => {
       error.mockRestore();
     }
   }, 15_000);
+
+  // A half-open socket answers nothing and raises nothing; TCP keepalive finds
+  // it only after minutes. The heartbeat's SELECT 1 times out (query_timeout)
+  // and that is treated as a lost connection. Simulated: the captured heartbeat
+  // runs against a client whose query rejects the way the timeout does.
+  it('a heartbeat that gets no answer reconnects the listener', async () => {
+    const reconcile = spyOn(tenancy, 'reconcilePolicies').mockResolvedValue(false);
+    const sync = spyOn(extensions.extensionLoader, 'syncAllWithRegistry').mockResolvedValue();
+    const forward = spyOn(extensions, 'refreshForwardApproval').mockResolvedValue();
+    const recycle = spyOn(dbModule, 'recycleActivePool').mockResolvedValue();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    const beats: Array<() => void> = [];
+    const realSetInterval = globalThis.setInterval;
+    const every = spyOn(globalThis, 'setInterval').mockImplementation(((
+      fn: () => void,
+      ms: number,
+    ) => {
+      if (ms === 30_000) beats.push(fn);
+      return realSetInterval(() => {}, 1 << 30);
+    }) as never);
+    try {
+      await bus.stop();
+      await bus.start();
+      expect(beats.length).toBe(1);
+      const old = (bus as any).client as pg.Client;
+      old.query = (() => Promise.reject(new Error('Query read timeout'))) as never;
+      beats[0]!();
+      await until(() => !bus.isRunning, 2_000);
+      await until(() => bus.isRunning && (bus as any).client !== old, 5_000);
+      expect(bus.isRunning).toBe(true);
+      expect(
+        warn.mock.calls.some((c) => String(c[0]).includes('heartbeat: Query read timeout')),
+      ).toBe(true);
+      await raw.query('SELECT pg_notify($1, $2)', ['zveltio_changes', record('replica-a', 'beat')]);
+      await until(() => seen.length > 0);
+      expect(seen).toEqual(['beat']);
+    } finally {
+      every.mockRestore();
+      reconcile.mockRestore();
+      sync.mockRestore();
+      forward.mockRestore();
+      recycle.mockRestore();
+      warn.mockRestore();
+    }
+  }, 15_000);
 });
