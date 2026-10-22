@@ -12,7 +12,7 @@
 
 import type { Context } from 'hono';
 import { sql } from 'kysely';
-import type { ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
+import type { ExtensionBroadcast, ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { getDb } from '../../db/index.js';
 import type {
@@ -194,6 +194,8 @@ export interface ExtensionContext {
     path: string;
     handler: (c: Context) => Response | Promise<Response>;
   }) => void;
+  /** Cross-replica messages under this extension's name — see `broadcast.ts`. */
+  broadcast?: ExtensionBroadcast;
   internals: ExtensionInternals;
 }
 

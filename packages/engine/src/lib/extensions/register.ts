@@ -51,6 +51,7 @@ import {
 } from './activation.js';
 import { type ServiceDeps, serviceRegistry } from '../service-registry.js';
 import { clearExtensionHealthChecks, registerHealthCheck } from '../health-registry.js';
+import { clearExtensionBroadcasts, extensionBroadcast } from './broadcast.js';
 import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
@@ -405,6 +406,7 @@ export function buildRestrictedContext(
   // Every listener this extension registers is remembered, so unloading it can
   // take them away again — see `extensionListeners`.
   unregisterExtensionListeners(extName);
+  clearExtensionBroadcasts(extName);
   //
   // `Object.create`, NOT a spread. Spreading copies own enumerable properties
   // only, and the bus is a class instance whose methods live on the prototype —
@@ -502,6 +504,8 @@ export function buildRestrictedContext(
     // Subsystem health checks (H-1.4). Namespaced + cleared here so a hot-reload
     // drops the previous registration before the extension re-adds it.
     onHealthCheck: (name, run, opts) => registerHealthCheck(`ext:${extName}:${name}`, run, opts),
+    // Its own cross-replica messages, under its name; cleared above on a reload.
+    broadcast: extensionBroadcast(extName),
     // Escape hatch: extensions on `mountStrategy: 'subapp'` may need a few
     // routes outside the `/ext/<name>/` namespace (public CDN links, dynamic
     // user-deployed endpoints). registerPublicRoute mounts them on the

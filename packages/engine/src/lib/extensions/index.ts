@@ -3,6 +3,12 @@
 // (discovery, lifecycle, register, manifest-schema, migration-runner, …). Public
 // API; outside (non-test) code imports from `lib/extensions`, never deep files.
 export * from './activation.js';
+export {
+  clearExtensionBroadcasts,
+  extensionBroadcast,
+  extensionBroadcastsMissed,
+  receiveExtensionBroadcast,
+} from './broadcast.js';
 export { collectionRlsExemptionStatus } from './collection-rls-exempt.js';
 export * from './extension-catalog.js';
 export * from './extension-context.js';

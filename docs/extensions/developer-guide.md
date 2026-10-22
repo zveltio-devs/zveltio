@@ -1053,6 +1053,34 @@ if (!contact) return c.json({ error: 'Not found' }, 404);
 - **Versioning**: when you change a service signature, bump your extension's
   `version` (major) and update consumers.
 
+### Caches across replicas: `ctx.broadcast`
+
+An engine can run as several replicas. A cache your extension keeps in memory
+and drops after a write is dropped on the replica that served the write and
+nowhere else. `ctx.broadcast` (engine 3.0.0-beta.90 and later, inline only)
+carries the drop to every replica:
+
+```ts
+ctx.broadcast.on('providers.changed', () => forgetProviders(ctx.db));
+ctx.broadcast.onMissed(() => providersCache.clear());
+
+// in the route, after the write:
+await ctx.broadcast.publish('providers.changed');
+```
+
+- **Your messages only.** The engine sends under your extension's name and
+  delivers only to your handlers; no name you pick reaches another extension
+  or the engine.
+- **Every replica, this one included, after the commit.** `publish` inside a
+  request waits for its transaction to commit and sends nothing on a rollback,
+  so drop the cache in the handler, not beside the `publish`.
+- **In the publisher's tenant.** Each handler runs in a transaction of the
+  tenant that published, so `ctx.db` there is that tenant's.
+- **Small.** `data` crosses as JSON and the whole message must fit the bus
+  (about 7.9 KB); a larger one is refused at `publish`. Send an id.
+- **At most once.** A replica whose bus connection drops misses what is sent
+  meanwhile; `onMissed` runs when it comes back, so drop everything there.
+
 ---
 
 ## 9. Cron jobs
@@ -2039,7 +2067,7 @@ proxies SQL queries through its own pool.
   its own `<name>.*` (and, for `on`, its declared dependencies'). Members
   that act inside the engine — `internals`, `fieldTypeRegistry`,
   `queryAlter`, `entityAccess`, `adminDb`, `DDLManager`,
-  `registerPublicRoute`, `onHealthCheck`, `events.onBefore` — fail the load
+  `registerPublicRoute`, `onHealthCheck`, `broadcast`, `events.onBefore` — fail the load
   by name
 - **Transactions:** a route request is one database transaction, as
   inline: committed when the handler answers, rolled back when it throws,

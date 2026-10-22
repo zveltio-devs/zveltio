@@ -216,10 +216,12 @@ These exports of `@zveltio/sdk/extension` are `extension-api v1`, frozen on
 `ZveltioExtension.actions`/`jobs`, `ActionRefusal`, `ACTION_REFUSAL`,
 `RefusalStatus`, `todayIn`, and the manifest's `actions` and `jobs` blocks.
 
-An extension written against v1 keeps compiling and running on every later
-3.x engine. From now on these only grow: a new optional member, a new host
-method, a wider union, a new manifest key with a default. Removing or renaming
-something, making an argument required or narrowing a type is a v2 change.
+v1 is stable until v2, which ships before GA. Until then these only grow: a
+new optional member, a new host method, a wider union, a new manifest key with
+a default. Removing or renaming something, making an argument required or
+narrowing a type is a v2 change. When v2 ships, extensions migrate to it and v1
+is removed. What v2 should change, and the additive stopgaps v1 grew meanwhile,
+are listed in [v2-candidates.md](v2-candidates.md).
 
 The frozen copy is `packages/sdk/extension-api/v1.d.ts`. CI runs
 `bun run check:extension-api`, which fails when the live types stop accepting

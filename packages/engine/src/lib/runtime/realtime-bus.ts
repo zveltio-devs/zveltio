@@ -96,6 +96,13 @@ export function announceExtensionLifecycle(name: string): void {
 }
 
 /**
+ * An extension's own message (`ctx.broadcast`, `lib/extensions/broadcast.ts`).
+ * `collection` is the extension that sent it, `data` is `{ name, data }`; the
+ * receiver runs that extension's handlers for `name` and nobody else's.
+ */
+export const EXTENSION_BROADCAST_EVENT = 'extension.broadcast';
+
+/**
  * An extension migration or purge reshaped tables on another instance. Every
  * pooled connection here that prepared a `SELECT *` over one of them answers it
  * with `0A000` — a 500 inside a request transaction — until it is replaced, so
@@ -306,6 +313,13 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
         );
       });
   }
+  if (msg.event === EXTENSION_BROADCAST_EVENT) {
+    return import('../extensions/index.js')
+      .then((m) => m.receiveExtensionBroadcast(msg))
+      .catch((err: Error) => {
+        console.error(`[realtime-bus] ${msg.collection}: broadcast not delivered:`, err.message);
+      });
+  }
   if (msg.event === POOL_RECYCLE_EVENT) return recyclePoolSoon();
   if (msg.event === SCHEMA_CHANGED_EVENT) {
     const action = (msg.data as { action?: unknown } | undefined)?.action;
@@ -342,9 +356,12 @@ function onBusReconnected(): void {
     .catch((err: Error) => {
       console.error('[realtime-bus] forward approval resync after reconnect failed:', err.message);
     });
-  // An extension enabled or disabled elsewhere meanwhile.
+  // An extension enabled or disabled elsewhere meanwhile, and its own messages
+  // sent meanwhile: each extension drops what they would have refreshed.
   import('../extensions/index.js')
-    .then((m) => m.extensionLoader.syncAllWithRegistry())
+    .then((m) =>
+      Promise.all([m.extensionLoader.syncAllWithRegistry(), m.extensionBroadcastsMissed()]),
+    )
     .catch((err: Error) => {
       console.error('[realtime-bus] extension resync after reconnect failed:', err.message);
     });
