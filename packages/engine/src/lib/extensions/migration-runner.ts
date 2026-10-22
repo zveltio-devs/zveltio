@@ -22,6 +22,7 @@ import {
   reconcileExtensionTenantRLS,
   reconcileFailures,
 } from '../tenancy/index.js';
+import { announcePoolRecycle } from '../runtime/index.js';
 import { DownMissingError } from './extension-errors.js';
 import { parseMigrationSql } from './extension-utils.js';
 
@@ -236,7 +237,7 @@ export async function runExtensionMigrations(
     // it with 0A000 — a 500 inside a request transaction — until it is replaced.
     // Here, not at the boot call site alone: an enable or upgrade on a running
     // engine reaches this too.
-    await recycleActivePool();
+    await dropStalePlans();
   }
   await reconcileTouched(extension.name, db, policiesBefore);
   // A table just created holds the request role's default DML grant (001) until
@@ -406,5 +407,14 @@ export async function purgeExtensionData(extensionName: string, db: Database): P
     }
   });
   // A DOWN reshapes what its UP did: see `runExtensionMigrations`.
+  await dropStalePlans();
+}
+
+/**
+ * Here and on every other instance sharing the database: theirs hold the same
+ * stale plans, and nothing else tells them a migration ran.
+ */
+async function dropStalePlans(): Promise<void> {
   await recycleActivePool();
+  announcePoolRecycle();
 }
