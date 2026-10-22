@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto';
-import { Helper, newEnforcer, newModelFromString, type Enforcer } from 'casbin';
+import { Enforcer, Helper, newEnforcerWithClass, newModelFromString } from 'casbin';
 import { type RawBuilder, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { problem } from '../problem.js';
@@ -482,7 +482,8 @@ class KyselyCasbinAdapter {
     return true;
   }
 
-  async addPolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
+  /** Resolves whether the table changed. */
+  async addPolicy(_sec: string, ptype: string, rule: string[]): Promise<boolean> {
     // Every policy write reaches the database through this adapter, whichever
     // route or boot task called it — so this is the one place where dropping the
     // memo and the object index catches all of them.
@@ -490,8 +491,8 @@ class KyselyCasbinAdapter {
     invalidatePolicyObjectIndex();
     // A row the table already holds is held, not an error: the `member` row a
     // trigger wrote with the account (migration 059), or one another replica
-    // wrote before this model heard of it. Casbin asks this only when its model
-    // lacks the row, so a duplicate here means the model was behind the table.
+    // wrote before this model heard of it. `TableEnforcer` asks this also when
+    // its model already holds the rule, since the table may not.
     // Granting a revoked default again takes back the revocation, in the same
     // statement (see `deleteRecordingRevokes`).
     const restore =
@@ -500,17 +501,20 @@ class KyselyCasbinAdapter {
                 WHERE role = ${rule[0] ?? null} AND resource = ${rule[2] ?? null}
                   AND action = ${rule[3] ?? null}) `
         : sql``;
-    await trackPolicyWrite(() =>
+    const { rows } = await trackPolicyWrite(() =>
       sql`
         ${restore}INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3, v4, v5)
         VALUES (${ptype}, ${rule[0] ?? null}, ${rule[1] ?? null}, ${rule[2] ?? null},
                 ${rule[3] ?? null}, ${rule[4] ?? null}, ${rule[5] ?? null})
         ON CONFLICT DO NOTHING
+        RETURNING 1
       `.execute(_db),
     );
+    return rows.length > 0;
   }
 
-  async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<void> {
+  /** Resolves whether the table changed. */
+  async removePolicy(_sec: string, ptype: string, rule: string[]): Promise<boolean> {
     clearLocalPermissionCache();
     invalidatePolicyObjectIndex();
     // An absent column is matched with IS NULL, not `= NULL`.
@@ -540,7 +544,7 @@ class KyselyCasbinAdapter {
       const value = rule[i];
       conditions.push(value === undefined ? sql`${column} IS NULL` : sql`${column} = ${value}`);
     }
-    await trackPolicyWrite(() => deleteRecordingRevokes(conditions));
+    return (await trackPolicyWrite(() => deleteRecordingRevokes(conditions))) > 0;
   }
 
   async removeFilteredPolicy(
@@ -587,30 +591,88 @@ class KyselyCasbinAdapter {
  * Delete the rules matching `conditions`, recording each default grant among
  * them in `zv_default_grant_revocations` so `materializeDefaultGrants` does not
  * write it back on the next boot or extension load. One statement, so the
- * revocation commits exactly when the delete does.
+ * revocation commits exactly when the delete does. Resolves how many rules went.
  *
  * Every adapter delete is an operator's: the routes, the Studio matrix's bulk
  * save, a schema apply. Engine cleanup (collection drop, tenant teardown) deletes
  * with its own SQL and tells the models through `forgetDeletedPolicies`, which
  * never reaches the adapter — and a tenant's rules are in its domain, never `*`.
  */
-function deleteRecordingRevokes(conditions: RawBuilder<unknown>[]) {
+async function deleteRecordingRevokes(conditions: RawBuilder<unknown>[]): Promise<number> {
   const defaults = [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].flatMap(
     ({ role, actions }) => actions.map((action) => sql`(${role}, ${action})`),
   );
   const sensitive = [...SENSITIVE_RESOURCES];
-  return sql`
+  const { rows } = await sql<{ n: number }>`
     WITH gone AS (
       DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}
       RETURNING ptype, v0, v1, v2, v3
+    ), recorded AS (
+      INSERT INTO zv_default_grant_revocations (role, resource, action)
+      SELECT v0, v2, v3 FROM gone
+       WHERE ptype = 'p' AND v1 = '*' AND v2 IS NOT NULL
+         AND (v0, v3) IN (${sql.join(defaults)})
+         ${sensitive.length > 0 ? sql`AND v2 NOT IN (${sql.join(sensitive)})` : sql``}
+      ON CONFLICT DO NOTHING
     )
-    INSERT INTO zv_default_grant_revocations (role, resource, action)
-    SELECT v0, v2, v3 FROM gone
-     WHERE ptype = 'p' AND v1 = '*' AND v2 IS NOT NULL
-       AND (v0, v3) IN (${sql.join(defaults)})
-       ${sensitive.length > 0 ? sql`AND v2 NOT IN (${sql.join(sensitive)})` : sql``}
-    ON CONFLICT DO NOTHING
+    SELECT count(*)::int AS n FROM gone
   `.execute(_db);
+  return Number(rows[0]?.n ?? 0);
+}
+
+/**
+ * An enforcer whose single-rule writes reach the table even when its model
+ * already agrees with them.
+ *
+ * Casbin's `addPolicyInternal`/`removePolicyInternal` — under `addPolicy`,
+ * `removePolicy`, `addRoleForUser`, `deleteRoleForUser` and every other
+ * single-rule write — return false WITHOUT calling the adapter when the model
+ * already holds (or already lacks) the rule. A model behind the table (another
+ * replica's change not yet heard over the bus) then dropped the operator's write:
+ * a re-grant left the other replica's revoke standing, a revoke left the row
+ * granted and recorded no revocation, and the next reconcile loaded the table
+ * back over both (`casbin-stale-model-write.test.ts`).
+ *
+ * The model is unchanged here, so there is nothing to apply in memory; when the
+ * table did change, the other replicas hear of it like any other write.
+ */
+class TableEnforcer extends Enforcer {
+  /** Always `buildEnforcer`'s adapter, whose writes report whether the table changed. */
+  private get table(): KyselyCasbinAdapter {
+    return this.adapter as unknown as KyselyCasbinAdapter;
+  }
+
+  protected override async addPolicyInternal(
+    sec: string,
+    ptype: string,
+    rule: string[],
+    useWatcher: boolean,
+  ): Promise<boolean> {
+    if (!this.model.hasPolicy(sec, ptype, rule)) {
+      return super.addPolicyInternal(sec, ptype, rule, useWatcher);
+    }
+    const changed = await this.table.addPolicy(sec, ptype, rule);
+    if (changed && useWatcher && this.autoNotifyWatcher) {
+      await this.watcherEx?.updateForAddPolicy(sec, ptype, ...rule);
+    }
+    return changed;
+  }
+
+  protected override async removePolicyInternal(
+    sec: string,
+    ptype: string,
+    rule: string[],
+    useWatcher: boolean,
+  ): Promise<boolean> {
+    if (this.model.hasPolicy(sec, ptype, rule)) {
+      return super.removePolicyInternal(sec, ptype, rule, useWatcher);
+    }
+    const changed = await this.table.removePolicy(sec, ptype, rule);
+    if (changed && useWatcher && this.autoNotifyWatcher) {
+      await this.watcherEx?.updateForRemovePolicy(sec, ptype, ...rule);
+    }
+    return changed;
+  }
 }
 
 /**
@@ -618,7 +680,11 @@ function deleteRecordingRevokes(conditions: RawBuilder<unknown>[]) {
  * reloading the live one (see `casbin-reload-window.test.ts`).
  */
 async function buildEnforcer(): Promise<Enforcer> {
-  const e = await newEnforcer(newModelFromString(CASBIN_MODEL), new KyselyCasbinAdapter());
+  const e = await newEnforcerWithClass(
+    TableEnforcer,
+    newModelFromString(CASBIN_MODEL),
+    new KyselyCasbinAdapter(),
+  );
   // Make '*' a wildcard domain in role grants (g): a grant `(user, role, '*')`
   // then applies in every tenant. Validated against casbin 5.x.
   await e.addNamedDomainMatchingFunc('g', (r: string, p: string) => p === '*' || r === p);
