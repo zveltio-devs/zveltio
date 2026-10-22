@@ -158,6 +158,11 @@ export function problemOnError(err: Error, c: Context): Response {
   }
 
   if (err instanceof HTTPException) {
+    // A thrown HTTPException that carries its own response is answered with it,
+    // as Hono's default handler does. It is how a handler that already wrote
+    // refuses with a specific status and body AND rolls the request back (the
+    // tenant middleware commits a request whose handler returned, any status).
+    if (err.res) return err.getResponse();
     return toResponse({
       type: 'about:blank',
       title: statusTitle(err.status),

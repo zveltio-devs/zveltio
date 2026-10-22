@@ -10,12 +10,16 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { DDLManager, reconcileSealedColumns } from '../../lib/data/index.js';
 import { alterField } from '../../lib/data/field-changes.js';
+import { runExtensionMigrations } from '../../lib/extensions/migration-runner.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import {
   applyTenantRLS,
@@ -346,6 +350,27 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
     expect((await canRead(LATER_TABLE, 'pin')).some((r) => r.ok)).toBe(true);
     await reconcileSealedColumns(db);
     expect((await canRead(LATER_TABLE, 'pin')).some((r) => r.ok)).toBe(false);
+  });
+
+  // A sealed table re-created by an extension's UP gets table-level SELECT back
+  // from migration 001's default privilege; the run-time grant pass only
+  // narrows a table already held column by column, so it stayed readable until
+  // the next boot's reseal. Stood in for by the whole-table grant itself.
+  it('an extension migration reseals a table its UP left whole-table granted', async () => {
+    const LATER_TABLE = `zvd_${LATER}`;
+    const dir = mkdtempSync(join(tmpdir(), 'zv-seal-mig-'));
+    const file = join(dir, '001_noop.sql');
+    writeFileSync(file, '-- UP\nSELECT 1;\n-- DOWN\nSELECT 1;\n');
+    const ext = { name: `hsealmig${STAMP}`, getMigrations: () => [file] } as never;
+    try {
+      await sql.raw(`GRANT SELECT ON "${LATER_TABLE}" TO zveltio_rls`).execute(db);
+      expect((await canRead(LATER_TABLE, 'pin')).some((r) => r.ok)).toBe(true);
+      await runExtensionMigrations(ext, db, new Set());
+      expect((await canRead(LATER_TABLE, 'pin')).some((r) => r.ok)).toBe(false);
+    } finally {
+      await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:hsealmig${STAMP}:%`}`.execute(db);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('074 takes the hash out of revisions written before 073, and only the hash', async () => {
