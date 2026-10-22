@@ -72,6 +72,60 @@ export const SCHEMA_CHANGED_EVENT = 'schema.changed';
  */
 export const EXTENSION_FORWARD_CHANGED_EVENT = 'extension.forward';
 
+/**
+ * An extension migration or purge reshaped tables on another instance. Every
+ * pooled connection here that prepared a `SELECT *` over one of them answers it
+ * with `0A000` — a 500 inside a request transaction — until it is replaced, so
+ * the receiver recycles its pool (`recycleActivePool`). Carries nothing.
+ */
+export const POOL_RECYCLE_EVENT = 'db.pool.recycle';
+
+/** A burst (enable-all migrates several extensions) costs one recycle, not one each. */
+const POOL_RECYCLE_COALESCE_MS = 500;
+let pendingRecycle: Promise<void> | null = null;
+
+function recyclePoolSoon(): Promise<void> {
+  pendingRecycle ??= Bun.sleep(POOL_RECYCLE_COALESCE_MS)
+    .then(() => {
+      // Cleared before the recycle: a reshape announced while it runs is newer
+      // than what this one drops, and gets its own.
+      pendingRecycle = null;
+      return import('../../db/index.js');
+    })
+    .then((m) => m.recycleActivePool())
+    .catch((err: Error) => {
+      console.error('[realtime-bus] pool recycle not applied:', err.message);
+    });
+  return pendingRecycle;
+}
+
+/** An announcement made before the bus could carry it (boot runs extension migrations alongside its start). */
+let recycleOwed = false;
+
+/**
+ * Tell the other instances to recycle their pools, after this one ran DDL that
+ * stales prepared plans. Boot loads extensions in parallel with starting the
+ * bus, so one made too early is kept and sent once the bus is up.
+ */
+export function announcePoolRecycle(): void {
+  const bus = realtimeBus();
+  if (!bus.isHealthy()) {
+    recycleOwed = true;
+    return;
+  }
+  bus
+    .publish({ event: POOL_RECYCLE_EVENT, collection: '', timestamp: new Date().toISOString() })
+    .catch((err: Error) => {
+      console.error('[realtime-bus] pool recycle not announced:', err.message);
+    });
+}
+
+function sendOwedRecycle(): void {
+  if (!recycleOwed) return;
+  recycleOwed = false;
+  announcePoolRecycle();
+}
+
 // Per-process origin id so we can filter our own echoed messages.
 export const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -213,6 +267,7 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
         console.error('[realtime-bus] forward approval change not applied:', err.message);
       });
   }
+  if (msg.event === POOL_RECYCLE_EVENT) return recyclePoolSoon();
   if (msg.event === SCHEMA_CHANGED_EVENT) {
     const action = (msg.data as { action?: unknown } | undefined)?.action;
     if (msg.collection && (action === 'create' || action === 'alter' || action === 'drop'))
@@ -233,6 +288,8 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
  * open subscriptions, for a row or column rule change missed meanwhile.
  */
 function onBusReconnected(): void {
+  // A migration announced meanwhile left this pool's plans stale.
+  void recyclePoolSoon();
   // Rate-limit config changes missed meanwhile: drop every cached limit, so the
   // next request reads the table instead of waiting out the TTL.
   import('../../middleware/rate-limit.js')
@@ -303,6 +360,7 @@ class ValkeyRealtimeBus implements RealtimeBus {
     // `ready` fires again on every reconnect (ioredis resubscribes by itself).
     this.subscriber.on('ready', onBusReconnected);
     this._running = true;
+    sendOwedRecycle();
     console.log(`✅ Realtime bus: Valkey PUB/SUB on ${CHANNEL_NAME} (origin=${ORIGIN_ID})`);
   }
 
@@ -421,6 +479,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       this._running = true;
       if (this.retryAttempt > 0) onBusReconnected();
       this.retryAttempt = 0;
+      sendOwedRecycle();
       console.log(
         `✅ Realtime bus: pg_notify LISTEN on ${PG_NOTIFY_CHANNEL} (origin=${ORIGIN_ID})`,
       );
