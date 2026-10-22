@@ -11,9 +11,10 @@
  *     queries. Recommended for >2 engine replicas.
  *
  *   - **PgNotifyRealtimeBus** (default when no Valkey is configured): uses
- *     Postgres LISTEN/NOTIFY via `Bun.SQL.subscribe()`. Zero new
- *     infrastructure. Fine for ≤2 replicas and the self-hosted single-box
- *     case.
+ *     Postgres LISTEN/NOTIFY on a dedicated node-postgres connection (`Bun.SQL`
+ *     has no LISTEN). Zero new infrastructure. Fine for ≤2 replicas and the
+ *     self-hosted single-box case. LISTEN needs a session, so it connects to
+ *     `NATIVE_DATABASE_URL` when set, past a transaction pooler.
  *
  * Both backends translate received payloads into `broadcastEvent(...)`
  * calls into `routes/ws.ts`, which fans out to the local WS subscribers.
@@ -31,6 +32,7 @@
  */
 
 import Redis from 'ioredis';
+import pg from 'pg';
 import { broadcastDataEvent } from '../../routes/realtime.js';
 import { broadcastEvent, broadcastSchemaChange } from '../../routes/ws.js';
 
@@ -210,7 +212,8 @@ function encodedBytes(msg: RealtimeBusMessage): number {
 
 /**
  * Shrink a bus message to fit pg_notify's 8KB cap. Receivers fall back to
- * `{ id: record_id }` when `data` is absent (`dispatchToWs`).
+ * `{ id: record_id }` when `data` is absent (`dispatchToWs`), and a policy
+ * change without its rules re-reads the policy table.
  *
  * One step, not two: dropping `data` leaves only ids, a collection name and a
  * timestamp, which is bounded at a few hundred bytes and always fits. The
@@ -250,7 +253,11 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   if (msg.event === POLICY_CHANGED_EVENT) {
     // Imported lazily: tenancy imports this module, and the change is rare.
     return import('../tenancy/index.js')
-      .then((m) => m.receivePolicyChange(msg.data))
+      .then(async (m) => {
+        // No rules: `trimForPgNotify` dropped them over the 8 KB cap — re-read the table.
+        if (msg.data === undefined) await m.reconcilePolicies();
+        else await m.receivePolicyChange(msg.data);
+      })
       .catch((err: Error) => {
         console.error('[realtime-bus] policy change not applied:', err.message);
       });
@@ -446,9 +453,8 @@ class ValkeyRealtimeBus implements RealtimeBus {
 
 class PgNotifyRealtimeBus implements RealtimeBus {
   readonly backend = 'pg-notify' as const;
-  // @ts-ignore — BunSubscription typed by bun-types
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  private subscription: any | null = null;
+  /** LISTEN's own connection, outside the pool: a pool recycle must not drop it. */
+  private client: pg.Client | null = null;
   private _running = false;
   private retryAttempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -461,74 +467,68 @@ class PgNotifyRealtimeBus implements RealtimeBus {
     this.publisher = executor;
   }
 
-  private attachSubscriptionHandlers(): void {
-    const sub = this.subscription;
-    if (!sub || typeof sub !== 'object') return;
-    if (typeof sub.on === 'function') {
-      sub.on('error', (err: Error) => this.scheduleListenReconnect(err?.message ?? 'error'));
-      sub.on('close', () => this.scheduleListenReconnect('close'));
-      sub.on('end', () => this.scheduleListenReconnect('end'));
-    }
+  /** Only the current connection's loss counts; a replaced one's late `end` does not. */
+  private lost(client: pg.Client, reason: string): void {
+    if (client !== this.client) return;
+    this.client = null;
+    client.end().catch(() => {});
+    this.scheduleListenReconnect(reason);
   }
 
   private scheduleListenReconnect(reason: string): void {
     if (this.stopping || this.retryTimer) return;
     this._running = false;
-    const delay = Math.min(1_000 * 2 ** this.retryAttempt, 300_000);
+    // Capped at 30 s: every NOTIFY sent while down is lost, and the resync on
+    // return covers them only once it runs.
+    const delay = Math.min(1_000 * 2 ** this.retryAttempt, 30_000);
     this.retryAttempt++;
     console.warn(
       `[realtime-bus] LISTEN lost (${reason}), reconnecting in ${delay}ms (attempt ${this.retryAttempt})`,
     );
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      void this.reconnectListen();
+      void this.start();
     }, delay);
   }
 
-  private async reconnectListen(): Promise<void> {
-    if (this.stopping) return;
-    if (this.subscription) {
-      try {
-        await this.subscription.unsubscribe();
-      } catch {
-        /* */
-      }
-      this.subscription = null;
-    }
-    await this.start();
-  }
-
   async start(): Promise<void> {
-    if (this._running) return;
-    try {
-      // @ts-ignore — Bun.SQL global typed by bun-types
-      const sql = new Bun.SQL(this.databaseUrl);
-      // @ts-ignore — Bun.SQL.subscribe runtime-only
-      this.subscription = await sql.subscribe(PG_NOTIFY_CHANNEL, (raw: string) => {
-        let msg: RealtimeBusMessage;
-        try {
-          msg = JSON.parse(raw);
-        } catch {
-          return;
-        }
-        dispatchToWs(msg);
-      });
-      this.attachSubscriptionHandlers();
-      this._running = true;
-      if (this.retryAttempt > 0) onBusReconnected();
-      this.retryAttempt = 0;
-      sendOwedRecycle();
-      console.log(
-        `✅ Realtime bus: pg_notify LISTEN on ${PG_NOTIFY_CHANNEL} (origin=${ORIGIN_ID})`,
-      );
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    } catch (err: any) {
-      if (err.message?.includes('is not a function')) {
-        console.warn('[realtime-bus] LISTEN/NOTIFY not available — single-instance only.');
+    if (this.client || this.stopping) return; // connected, or connecting
+    const client = new pg.Client({
+      connectionString: this.databaseUrl,
+      application_name: 'zveltio-realtime-bus',
+      connectionTimeoutMillis: 10_000,
+      // A half-open socket (a partition, a dead host) emits nothing otherwise;
+      // TCP probes find it within the OS's probe interval × count.
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 30_000,
+    });
+    this.client = client;
+    client.on('notification', (n) => {
+      if (n.channel !== PG_NOTIFY_CHANNEL || !n.payload) return;
+      let msg: RealtimeBusMessage;
+      try {
+        msg = JSON.parse(n.payload);
+      } catch {
         return;
       }
-      this.scheduleListenReconnect(err.message ?? 'start failed');
+      void dispatchToWs(msg);
+    });
+    // Without an `error` listener, a dropped connection throws out of the process.
+    client.on('error', (err: Error) => this.lost(client, err.message));
+    client.on('end', () => this.lost(client, 'end'));
+    try {
+      await client.connect();
+      await client.query(`LISTEN ${PG_NOTIFY_CHANNEL}`);
+    } catch (err) {
+      this.lost(client, (err as Error).message);
+      return;
     }
+    if (client !== this.client) return; // stopped meanwhile
+    this._running = true;
+    if (this.retryAttempt > 0) onBusReconnected();
+    this.retryAttempt = 0;
+    sendOwedRecycle();
+    console.log(`✅ Realtime bus: pg_notify LISTEN on ${PG_NOTIFY_CHANNEL} (origin=${ORIGIN_ID})`);
   }
 
   async stop(): Promise<void> {
@@ -537,14 +537,9 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
     }
-    if (this.subscription) {
-      try {
-        await this.subscription.unsubscribe();
-      } catch {
-        /* */
-      }
-      this.subscription = null;
-    }
+    const client = this.client;
+    this.client = null;
+    if (client) await client.end().catch(() => {});
     this._running = false;
     this.retryAttempt = 0;
     this.stopping = false;
@@ -562,12 +557,11 @@ class PgNotifyRealtimeBus implements RealtimeBus {
       return;
     }
     // Log only. This does NOT reconnect the subscriber: publishing goes through
-    // the injected executor's pool while LISTEN holds its own `Bun.SQL`
-    // connection, so a failure here says nothing about the subscription's
-    // health. Tearing it down on a publish error let one oversized payload —
+    // the injected executor's pool while LISTEN holds its own connection, so a
+    // failure here says nothing about the subscription's health. Tearing it down on a publish error let one oversized payload —
     // a data condition, and a repeating one — knock out a working LISTEN and
     // blank realtime for the length of the backoff. Connection loss on the
-    // subscriber is what `attachSubscriptionHandlers` is for.
+    // subscriber is what the client's `error`/`end` handlers are for.
     await this.publisher.notify(PG_NOTIFY_CHANNEL, encoded).catch((err: Error) => {
       console.error('[realtime-bus] pg_notify failed:', err.message);
     });
@@ -604,7 +598,7 @@ class NoopRealtimeBus implements RealtimeBus {
 // ── Public singleton ───────────────────────────────────────────────────────
 
 function pickBus(): RealtimeBus {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
   if (process.env.VALKEY_URL) return new ValkeyRealtimeBus(process.env.VALKEY_URL);
   if (databaseUrl) return new PgNotifyRealtimeBus(databaseUrl);
   return new NoopRealtimeBus();

@@ -1321,14 +1321,11 @@ async function bootstrap() {
       }),
 
     // Cross-instance realtime bus. Picks Valkey if VALKEY_URL is
-    // set, otherwise pg_notify. The pg_notify backend must connect
-    // directly to Postgres (not through PgDog/PgBouncer) because LISTEN
-    // requires a persistent dedicated connection.
+    // set, otherwise pg_notify, whose LISTEN connects to NATIVE_DATABASE_URL
+    // when set: a transaction pooler (PgDog/PgBouncer) cannot hold a LISTEN.
     (async () => {
       const bus = realtimeBus();
       if (bus.backend === 'pg-notify') {
-        const realtimeUrl = process.env.NATIVE_DATABASE_URL || process.env.DATABASE_URL;
-        if (!realtimeUrl) return;
         // Plug the Kysely instance so publish() can pg_notify on our pool.
         (bus as PgNotifyRealtimeBus).setPublisher({
           notify: async (_channel, payload) => {
