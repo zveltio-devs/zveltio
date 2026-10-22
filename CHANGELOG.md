@@ -4,6 +4,44 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.90] - 2026-10-22
+
+**Several replicas now behave like one engine.** Before this release, a change
+made on one replica stayed on that replica:
+- **Extension migrations:** a migration that altered an engine table left the
+  other replicas' pooled connections with stale cached plans (0A000). Every
+  replica now recycles its pool after the migration (#1253, #1254).
+- **Enable, disable, uninstall:** an extension enabled at run time loaded only on
+  the replica that served the request. A disabled or uninstalled one stayed
+  loaded on the others until restart. Every replica now follows the registry,
+  and migrations run only once (#1255).
+- An extension's table set is built once per load (#1252).
+
+**The Postgres realtime bus works without Valkey.** It called
+`Bun.SQL.subscribe()`, which Bun 1.3.14 does not have, so without Valkey no
+message crossed replicas. LISTEN now runs on its own `pg` connection to
+`NATIVE_DATABASE_URL` (falling back to `DATABASE_URL`), outside the pool and
+outside a transaction pooler such as PgDog. After a reconnect, it resyncs the
+same way the Valkey bus does. A policy change too large for NOTIFY now makes
+the receiving replicas re-read the policy table, instead of being dropped
+(#1256).
+
+**`ctx.broadcast` for extensions.** A new optional member of the extension
+context, added to extension-api v1:
+- **Scope:** an extension publishes named messages to its own handlers on every
+  replica, the origin included. It cannot send engine events or another
+  extension's messages.
+- **Delivery:** after the publisher's transaction commits. Each handler runs in
+  the publisher's tenant.
+- **Limits:** messages over 7900 bytes are refused. Not available to
+  worker-isolated extensions yet.
+- **Plan for v2:** `docs/extensions/v2-candidates.md` lists what v2 should change.
+  v1 stays stable until v2, which ships before GA; then extensions migrate and v1
+  is removed (#1257).
+
+`ai` 1.0.25 uses `ctx.broadcast`, so a provider change reaches every replica.
+It requires this engine version.
+
 ## [3.0.0-beta.89] - 2026-10-21
 
 **Edge functions: invoking a private function needs a grant.**
