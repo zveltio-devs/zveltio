@@ -177,6 +177,9 @@ d('credential forwarding needs an operator approval of the exact set', () => {
       else process.env[k] = v;
     }
     _resetCatalogForTests();
+    // The merged registry catalog is cached for minutes and holds this file's
+    // catalog.json, which leaves out every other fixture.
+    _resetCatalogCacheForTests();
     extensionLoader.ctx = saved.ctx;
     _resetWorkerHostForTests();
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);

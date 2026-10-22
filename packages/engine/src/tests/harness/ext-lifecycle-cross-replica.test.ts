@@ -31,6 +31,7 @@ import {
   _resetExtensionDbRoleForTests,
   revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
+import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
 import {
   _internalForTests as loaderInternals,
   extensionLoader,
@@ -84,6 +85,8 @@ d('extension lifecycle on another replica: this one follows', () => {
     ({ app: engine, cookie: god } = await createSteppedUpGod(t.app, db));
     base = mkdtempSync(join(tmpdir(), 'zv-xrepl-life-'));
     process.env.EXTENSIONS_DIR = base;
+    // The enable-time tier check reads a cached catalog an earlier file may have filled.
+    _resetCatalogCacheForTests();
     cpSync(FIXTURE, join(base, NAME), { recursive: true });
     extensionLoader.ctx = {
       ...(extensionLoader.ctx ?? {}),
