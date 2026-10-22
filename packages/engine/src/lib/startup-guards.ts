@@ -59,7 +59,7 @@ export function productionGuardViolations(
   //
   // NOT all of those are silent degradation, and the difference matters. The
   // realtime bus has a real second backend — `PgNotifyRealtimeBus` uses
-  // LISTEN/NOTIFY through `Bun.SQL.subscribe()`, crosses instances, and applies
+  // LISTEN/NOTIFY on its own node-postgres connection, crosses instances, and applies
   // the same self-echo filter. It is documented, with its limits stated (8 KB
   // payloads, suited to ≤2 replicas). That one is a choice, not a loss.
   //

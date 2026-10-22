@@ -9,6 +9,7 @@ import {
   dispatchToWs,
   trimForPgNotify,
   PG_NOTIFY_PAYLOAD_MAX,
+  POLICY_CHANGED_EVENT,
   type RealtimeBusMessage,
 } from '../../lib/runtime/realtime-bus.js';
 import * as wsModule from '../../routes/ws.js';
@@ -226,6 +227,35 @@ describe('trimForPgNotify', () => {
     expect(trimmed.data).toBeUndefined();
     expect(JSON.stringify(trimmed).length).toBeLessThanOrEqual(PG_NOTIFY_PAYLOAD_MAX);
     expect(trimmed.record_id).toBe('doc-1');
+  });
+
+  // 50 rules of long names clear the cap; with `data` dropped the receiver used
+  // to parse nothing and keep the stale rules until the next reconcile tick.
+  it('a policy change over the cap makes the receiver re-read the policy table', async () => {
+    const rules = Array.from({ length: 50 }, (_, i) => [
+      `user:${'u'.repeat(40)}${i}`,
+      'd'.repeat(36),
+      'o'.repeat(63),
+      'read',
+    ]);
+    const trimmed = trimForPgNotify({
+      event: POLICY_CHANGED_EVENT,
+      collection: '',
+      data: { sec: 'p', ptype: 'p', rules },
+      timestamp: '2026-10-22T00:00:00Z',
+    });
+    expect(trimmed.data).toBeUndefined();
+    const tenancy = await import('../../lib/tenancy/index.js');
+    const reconcile = spyOn(tenancy, 'reconcilePolicies').mockResolvedValue(false);
+    const receive = spyOn(tenancy, 'receivePolicyChange').mockResolvedValue();
+    try {
+      await dispatchToWs({ ...trimmed, originId: 'other-engine' });
+      expect(reconcile).toHaveBeenCalledTimes(1);
+      expect(receive).not.toHaveBeenCalled();
+    } finally {
+      reconcile.mockRestore();
+      receive.mockRestore();
+    }
   });
 });
 
