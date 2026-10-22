@@ -14,6 +14,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { gateInternals } from '../../lib/extensions/capabilities.js';
+import { _resetExtensionDbRoleForTests } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import type { ExtensionInternals } from '../../lib/extensions/internals.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
@@ -40,6 +41,9 @@ d('ctx.internals.dynamicInsert runs the field pipeline', () => {
     );
 
   beforeAll(async () => {
+    // An earlier file in the same process can leave the extension DB role
+    // marked usable; this file expects the pipeline to run as the engine.
+    _resetExtensionDbRoleForTests();
     ({ db } = await getTestApp());
     await DDLManager.createCollection(db, {
       name: COLLECTION,
