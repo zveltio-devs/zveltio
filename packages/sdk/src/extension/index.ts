@@ -424,6 +424,13 @@ export interface ExtensionContext<DB = any, C extends string = Capability> {
    */
   registerPublicRoute(spec: PublicRouteSpec): void;
 
+  /**
+   * Tell every engine replica, this one included, that something this
+   * extension caches changed. Engine 3.0.0-beta.90 and later; refused to a
+   * worker-isolated extension. See `ExtensionBroadcast`.
+   */
+  broadcast?: ExtensionBroadcast;
+
   // ─── Engine-internal helpers (for official extensions) ───────────────────────
   // These expose deep engine functionality to first-party extensions.
   // Third-party extensions should rely on the stable API above instead.
@@ -1211,6 +1218,34 @@ export interface QueryAlterScope {
 export interface ManifestDependency {
   name: string;
   minVersion?: string;
+}
+
+/**
+ * Cross-replica messages, scoped to the extension that holds them: `publish`
+ * sends under its name and `on` hears only its own, so no extension can speak
+ * for another or for the engine.
+ *
+ * Meant for invalidation — "firm X's providers changed, read them again" — not
+ * for data: send an id, let each replica read the rest from the database.
+ */
+export interface ExtensionBroadcast {
+  /**
+   * Deliver `data` to this extension's `on(name)` handlers on every replica,
+   * this one included, once the current transaction commits (at once outside
+   * one; never after a rollback). Each handler runs in the publisher's tenant
+   * transaction, so `ctx.db` there is that tenant's. Rejects a `name` outside
+   * `[A-Za-z0-9._:-]{1,64}` and a message over the bus limit (~7.9 KB of JSON).
+   * Delivery is at most once: see `onMissed`.
+   */
+  publish(name: string, data?: unknown): Promise<void>;
+  /** Run `handler` for each `name` message; it receives `data` as JSON gave it back. */
+  on(name: string, handler: (data: unknown) => void | Promise<void>): () => void;
+  /**
+   * Run `handler` when this replica may have missed messages (its bus
+   * connection came back), outside any tenant: drop every cache the messages
+   * keep fresh.
+   */
+  onMissed(handler: () => void | Promise<void>): () => void;
 }
 
 export interface ServiceRegistry {

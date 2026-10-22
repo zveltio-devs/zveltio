@@ -18,6 +18,7 @@
  */
 
 import { unregisterExtensionListeners } from './register.js';
+import { clearExtensionBroadcasts } from './broadcast.js';
 import { auditLog } from '../audit.js';
 import { serviceRegistry } from '../service-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
@@ -116,6 +117,7 @@ export async function unloadExtension(
   if (droppedListeners > 0) {
     console.log(`🔌 Extension "${name}": removed ${droppedListeners} event listener(s).`);
   }
+  clearExtensionBroadcasts(name);
   // Drop the extension's entity-access checks too, for the same reason.
   entityAccessRegistry.unregisterAll(name);
   // Drop the extension's scheduled tasks so the runner stops invoking them.

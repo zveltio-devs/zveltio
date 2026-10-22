@@ -9,6 +9,7 @@ and scheduled jobs, and they can be disabled again.
 | [developer-guide.md](developer-guide.md) | **The reference.** Mental model, manifest, engine code, migrations, hooks, services, cron, Studio pages, testing, publishing, isolation tiers |
 | [cookbook.md](cookbook.md) | Worked recipes for common tasks |
 | [authoring.md](authoring.md) | Authoring conventions and review expectations |
+| [v2-candidates.md](v2-candidates.md) | Lessons for extension-api v2: breaking changes, and the v1 stopgaps v2 should own |
 | [signatures.md](signatures.md) | Ed25519 signing and verification |
 | [marketplace-policy.md](marketplace-policy.md) | What is accepted into the registry, and the tier rules |
 | [catalog.md](catalog.md) | The 55 official extensions |

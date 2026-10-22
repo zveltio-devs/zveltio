@@ -235,7 +235,14 @@ describe('worker ctx: events', () => {
 });
 
 describe('worker ctx: what cannot cross', () => {
-  for (const member of ['internals', 'fieldTypeRegistry', 'queryAlter', 'DDLManager', 'adminDb']) {
+  for (const member of [
+    'internals',
+    'fieldTypeRegistry',
+    'queryAlter',
+    'DDLManager',
+    'adminDb',
+    'broadcast',
+  ]) {
     it(`refuses ctx.${member} by name`, () => {
       const { ctx } = bridge();
       expect(() => ctx[member]).toThrow(

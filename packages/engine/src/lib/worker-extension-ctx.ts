@@ -59,6 +59,8 @@ const OUT_OF_PROCESS = [
   'DDLManager',
   'registerPublicRoute',
   'onHealthCheck',
+  // Its handlers would have to cross the runner protocol; not built yet.
+  'broadcast',
 ] as const;
 
 export function refused(member: string, why = 'it runs inside the engine process'): Error {
