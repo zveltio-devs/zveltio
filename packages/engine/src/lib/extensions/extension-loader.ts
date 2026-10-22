@@ -59,7 +59,13 @@ import {
   type ExtensionInternals,
 } from './internals.js';
 import { reRegisterExtension } from './register.js';
-import { loadDynamic, reloadExtensionFromDisk, unloadExtension } from './lifecycle.js';
+import {
+  loadDynamic,
+  reloadExtensionFromDisk,
+  syncAllWithRegistry,
+  syncWithRegistry,
+  unloadExtension,
+} from './lifecycle.js';
 import { loadExtensionFromDir } from './load.js';
 import { discoverExternal, getActiveExtensionNames, topoSortExtensions } from './discovery.js';
 import { noteExtensionNames } from './worker-sql-policy.js';
@@ -112,6 +118,27 @@ let _reloadCallback: ReloadCallback | null = null;
 
 export function setReloadCallback(fn: ReloadCallback): void {
   _reloadCallback = fn;
+  syncOwed();
+}
+
+/**
+ * Lifecycle changes announced by another replica before this one finished
+ * booting: its own load set may have been read before them, and loading
+ * alongside the boot would load twice. Applied once the server is up.
+ */
+const _owedSyncs = new Set<string>();
+
+/**
+ * One at a time, in the order announced: enable-all announces in dependency
+ * order, and a dependent loaded before its dependency fails its load.
+ */
+let _syncChain: Promise<unknown> = Promise.resolve();
+
+function syncOwed(): void {
+  for (const name of _owedSyncs) {
+    _owedSyncs.delete(name);
+    void extensionLoader.syncWithRegistry(name);
+  }
 }
 
 async function doReload(reason: string): Promise<void> {
@@ -507,7 +534,26 @@ export class ExtensionLoader {
 
   /** Register the hot-reload callback. Called from index.ts after Bun.serve() starts. */
   setReloadCallback(fn: ReloadCallback): void {
-    _reloadCallback = fn;
+    setReloadCallback(fn);
+  }
+
+  /** Another replica changed `name`'s lifecycle: match the registry here (lifecycle.ts). */
+  async syncWithRegistry(name: string): Promise<void> {
+    if (!_reloadCallback) {
+      _owedSyncs.add(name);
+      return;
+    }
+    const run = _syncChain.then(() => syncWithRegistry(this, name, triggerReload));
+    _syncChain = run.catch(() => undefined);
+    return run;
+  }
+
+  /** The same for every extension, after the bus missed announcements. */
+  async syncAllWithRegistry(): Promise<void> {
+    if (!_reloadCallback) return; // the boot reads the registry itself
+    const run = _syncChain.then(() => syncAllWithRegistry(this, triggerReload));
+    _syncChain = run.catch(() => undefined);
+    return run;
   }
 
   /**
@@ -594,6 +640,10 @@ export const _internalForTests = {
   resetReloadState(): void {
     _reloadInFlight = null;
     _reloadQueued = null;
+  },
+  /** Back to "still booting": no server to rebuild yet. */
+  clearReloadCallback(): void {
+    _reloadCallback = null;
   },
 };
 

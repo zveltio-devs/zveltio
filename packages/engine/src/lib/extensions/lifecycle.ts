@@ -27,8 +27,10 @@ import { unregisterExtensionPublicRoutes } from '../../middleware/extension-auth
 import { join } from 'node:path';
 import { checkExtensionDependencies } from '../version-checker.js';
 import { getWorkerHostIfInitialized } from '../worker-extension-host.js';
-import { resolveExtensionsBase } from './extension-paths.js';
-import type { Hono } from 'hono';
+import { invalidateFilesPresent, resolveExtensionsBase } from './extension-paths.js';
+import { invalidateActivationCache } from './activation.js';
+import { withExtensionLock } from './extension-utils.js';
+import { Hono } from 'hono';
 import type { ExtensionLoader } from './extension-loader.js';
 import { unregisterJobs } from './jobs.js';
 
@@ -197,6 +199,75 @@ async function refreshTooOldDependents(loader: ExtensionLoader, name: string): P
       );
     }
   }
+}
+
+/**
+ * Another replica enabled, disabled or uninstalled `name`: bring this one's copy
+ * in line with the registry's instance-wide row, which is what that replica's
+ * route acted on. Loads the way its enable did (the migrations are on record
+ * there, so none runs again) or unloads the way its disable did, then rebuilds
+ * the served app. A no-op when this replica is already there, its own
+ * announcement included.
+ *
+ * Under the extension lock, so it waits for the other replica's operation to
+ * finish and reads what that one committed.
+ */
+export async function syncWithRegistry(
+  loader: ExtensionLoader,
+  name: string,
+  triggerReload: (reason: string) => Promise<void>,
+): Promise<void> {
+  const db = loader.ctx?.db;
+  if (!db) return;
+  await withExtensionLock(db, name, async () => {
+    const row = await db
+      .selectFrom('zv_extension_registry')
+      .select(['is_enabled'])
+      .where('name', '=', name)
+      .where('tenant_id', 'is', null)
+      .executeTakeFirst();
+    const wanted = row?.is_enabled === true;
+    invalidateActivationCache(name);
+    invalidateFilesPresent(join(resolveExtensionsBase(), name));
+    if (wanted === loader.isActive(name)) return;
+    if (wanted) {
+      try {
+        // Routes land on a throwaway app, as at boot: the rebuild below mounts them.
+        await loadDynamic(loader, name, new Hono());
+      } catch (err) {
+        // The originating replica recorded its own outcome; this one only says why here.
+        console.warn(
+          `[extensions] "${name}" enabled elsewhere, not loaded here:`,
+          (err as Error).message,
+        );
+        return;
+      }
+    } else {
+      await unloadExtension(loader, name);
+    }
+    await triggerReload(`${wanted ? 'enable' : 'disable'}-elsewhere:${name}`);
+  });
+}
+
+/**
+ * After a bus outage: every extension with an instance-wide row, for a change
+ * announced meanwhile.
+ */
+export async function syncAllWithRegistry(
+  loader: ExtensionLoader,
+  triggerReload: (reason: string) => Promise<void>,
+): Promise<void> {
+  const db = loader.ctx?.db;
+  if (!db) return;
+  // ponytail: an extension purged meanwhile has no row left to find, so this
+  // replica keeps it loaded until it restarts; telling it apart from one loaded
+  // from ZVELTIO_EXTENSIONS (no row either) needs the boot's load set.
+  const rows = await db
+    .selectFrom('zv_extension_registry')
+    .select(['name'])
+    .where('tenant_id', 'is', null)
+    .execute();
+  for (const { name } of rows) await syncWithRegistry(loader, name, triggerReload);
 }
 
 /**

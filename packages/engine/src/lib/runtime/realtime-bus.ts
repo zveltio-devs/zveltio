@@ -73,6 +73,27 @@ export const SCHEMA_CHANGED_EVENT = 'schema.changed';
 export const EXTENSION_FORWARD_CHANGED_EVENT = 'extension.forward';
 
 /**
+ * An extension was enabled, disabled or uninstalled on another instance.
+ * `collection` is the extension name. Carries no state: the receiver re-reads
+ * the registry and loads or unloads its own copy to match (its migrations
+ * already ran there), so a forged message can only cause a re-read.
+ */
+export const EXTENSION_LIFECYCLE_EVENT = 'extension.lifecycle';
+
+/** Tell the other instances `name`'s registry row changed. After the write, never before. */
+export function announceExtensionLifecycle(name: string): void {
+  realtimeBus()
+    .publish({
+      event: EXTENSION_LIFECYCLE_EVENT,
+      collection: name,
+      timestamp: new Date().toISOString(),
+    })
+    .catch((err: Error) => {
+      console.error(`[realtime-bus] ${name}: lifecycle change not announced:`, err.message);
+    });
+}
+
+/**
  * An extension migration or purge reshaped tables on another instance. Every
  * pooled connection here that prepared a `SELECT *` over one of them answers it
  * with `0A000` — a 500 inside a request transaction — until it is replaced, so
@@ -267,6 +288,17 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
         console.error('[realtime-bus] forward approval change not applied:', err.message);
       });
   }
+  if (msg.event === EXTENSION_LIFECYCLE_EVENT) {
+    if (!msg.collection) return;
+    return import('../extensions/index.js')
+      .then((m) => m.extensionLoader.syncWithRegistry(msg.collection))
+      .catch((err: Error) => {
+        console.error(
+          `[realtime-bus] ${msg.collection}: lifecycle change not applied:`,
+          err.message,
+        );
+      });
+  }
   if (msg.event === POOL_RECYCLE_EVENT) return recyclePoolSoon();
   if (msg.event === SCHEMA_CHANGED_EVENT) {
     const action = (msg.data as { action?: unknown } | undefined)?.action;
@@ -302,6 +334,12 @@ function onBusReconnected(): void {
     .then(([ext, d]) => ext.refreshForwardApproval(d.getDb()))
     .catch((err: Error) => {
       console.error('[realtime-bus] forward approval resync after reconnect failed:', err.message);
+    });
+  // An extension enabled or disabled elsewhere meanwhile.
+  import('../extensions/index.js')
+    .then((m) => m.extensionLoader.syncAllWithRegistry())
+    .catch((err: Error) => {
+      console.error('[realtime-bus] extension resync after reconnect failed:', err.message);
     });
   import('../tenancy/index.js')
     .then((m) => {

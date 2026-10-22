@@ -52,6 +52,7 @@ import {
   resolveForwarded,
 } from './consent.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
+import { announceExtensionLifecycle } from '../runtime/index.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
 export function registerMarketplaceRoutes(
@@ -823,6 +824,7 @@ export function registerMarketplaceRoutes(
     }
 
     await triggerReloadFn('enable-all');
+    for (const name of ordered) announceExtensionLifecycle(name);
     const failed = results.filter((r) => !r.ok);
     return c.json({
       success: failed.length === 0,
@@ -1236,6 +1238,11 @@ export function registerMarketplaceRoutes(
       return s;
     }
   };
+  // Here and on every other replica: theirs load or unload to match (lifecycle.ts).
+  const lifecycleChanged = (name: string) => {
+    invalidateActivationCache(name);
+    announceExtensionLifecycle(name);
+  };
   app.post('/api/marketplace/*', (c) => {
     const rest = c.req.path.slice('/api/marketplace/'.length);
     if (rest === 'enable-all') return enableAllExtensions(c);
@@ -1252,15 +1259,15 @@ export function registerMarketplaceRoutes(
       case 'enable':
         // After the write, never before: a concurrent read between a clear and
         // the write would cache the old answer for the rest of the TTL.
-        return enableExtension(c, name).finally(() => invalidateActivationCache(name));
+        return enableExtension(c, name).finally(() => lifecycleChanged(name));
       case 'disable':
         // After the write, never before: a concurrent read between a clear and
         // the write would cache the old answer for the rest of the TTL.
-        return disableExtension(c, name).finally(() => invalidateActivationCache(name));
+        return disableExtension(c, name).finally(() => lifecycleChanged(name));
       case 'uninstall':
         // After the write, never before: a concurrent read between a clear and
         // the write would cache the old answer for the rest of the TTL.
-        return uninstallExtension(c, name).finally(() => invalidateActivationCache(name));
+        return uninstallExtension(c, name).finally(() => lifecycleChanged(name));
       case 'approve-capabilities':
         return approveCapabilities(c, name);
       case 'approve-forward-credentials':
