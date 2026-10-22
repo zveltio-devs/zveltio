@@ -411,6 +411,7 @@ export function myRoutes(ctx: ExtensionContext): Hono<{ Variables: { user: any }
 - Generic `Hono<{ Variables: { user: any } }>` is needed when you use `c.set('user', …)` / `c.get('user')`.
 - Define helpers (e.g. `requireAdmin`) **inside** the route factory so they capture the destructured engine internals. Top-level helpers cannot reach them.
 - Imports allowed: `hono`, `zod`, `kysely`, `@hono/zod-validator`, plus anything in your `manifest.peerDependencies`. Engine internals come from `ctx`.
+- A request commits when the handler **returns**, whatever the status, and rolls back when it **throws**. To refuse after a write, throw: `throw new HTTPException(409, { res: c.json(body, 409) })` (from `hono/http-exception`) rolls back and answers with that response as it is; without `res` the caller gets the problem envelope with the exception's status and message.
 
 ## What to avoid
 

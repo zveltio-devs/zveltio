@@ -243,6 +243,12 @@ export async function runExtensionMigrations(
   // A table just created holds the request role's default DML grant (001) until
   // the next boot; take back what boot takes back (zvd_validation_rule_groups).
   await ensureRlsEnforcementRole(db);
+  // ...and a sealed collection table the UP re-created holds table-level SELECT
+  // from the same default grant, sealed columns included, which the call above
+  // keeps (it only narrows a table already held column by column). Boot reseals
+  // after it; so does this. Dynamic import: lib/data reaches back into here.
+  const { reconcileSealedColumns } = await import('../data/index.js');
+  await reconcileSealedColumns(db);
 }
 
 type Pending = { name: string; up: string; down: string | null };
