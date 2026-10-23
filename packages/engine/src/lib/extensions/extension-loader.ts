@@ -441,6 +441,7 @@ export class ExtensionLoader {
     let rows: Array<{
       name: string;
       tenant_id: string | null;
+      is_enabled: boolean;
       version: string | null;
       installed_version: string | null;
       installed_sha256: string | null;
@@ -448,13 +449,21 @@ export class ExtensionLoader {
     try {
       rows = await db
         .selectFrom('zv_extension_registry')
-        .select(['name', 'tenant_id', 'version', 'installed_version', 'installed_sha256'])
-        .where('is_enabled', '=', true)
+        .select([
+          'name',
+          'tenant_id',
+          'is_enabled',
+          'version',
+          'installed_version',
+          'installed_sha256',
+        ])
         .execute();
     } catch {
       // Table may not exist on first run — the env list still loads.
     }
-    const enabled = rows.map((r) => r.name);
+    // Loaded while ANY row is on: a firm's row overrides god's, on or off
+    // (activation.ts). The lifecycle sync asks the same (lifecycle.ts).
+    const enabled = [...new Set(rows.filter((r) => r.is_enabled).map((r) => r.name))];
 
     const main = new Set([...envNames, ...enabled]);
     const fromExternal = new Set((external?.names ?? []).filter((n) => !main.has(n)));
@@ -477,8 +486,10 @@ export class ExtensionLoader {
     // renames every entry in whole (extension-download.ts), so neither reads a
     // half-written file; a load that lands while the other replaces an entry
     // fails and skips it until it next syncs or restarts.
+    // God's row holds the version and digest on record, whoever turned it on.
     for (const row of rows) {
-      if (row.tenant_id !== null || !pending.includes(row.name)) continue;
+      if (row.tenant_id !== null || !enabled.includes(row.name) || !pending.includes(row.name))
+        continue;
       if (extensionFilesPresent(join(extBase, row.name))) continue;
       try {
         await fetchEnabledBundle(db, row.name, extBase, row);

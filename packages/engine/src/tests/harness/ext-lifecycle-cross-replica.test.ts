@@ -66,6 +66,7 @@ import {
   realtimeBus,
   ValkeyRealtimeBus,
 } from '../../lib/runtime/index.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -174,6 +175,24 @@ d('extension lifecycle on another replica: this one follows', () => {
       expect(reloads).toBe(1);
     }, 30_000);
 
+    // A firm's row overrides the instance row, on or off (activation.ts), so a
+    // firm can have it on while god's default is off: its code must stay loaded.
+    it('keeps, and loads, one a firm has on while the instance row is off', async () => {
+      await setRow(false);
+      await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+                VALUES (${NAME}, ${NAME}, ${DEFAULT_TENANT_ID}, true, true)`.execute(db);
+      await extensionLoader.loadDynamic(NAME, new Hono());
+      await dispatchToWs(msg('replica-a'));
+      expect(extensionLoader.isActive(NAME)).toBe(true);
+      await unloadHere();
+      await dispatchToWs(msg('replica-a'));
+      expect(extensionLoader.isActive(NAME)).toBe(true);
+      // The bus-outage resync asks the same question.
+      await unloadHere();
+      await extensionLoader.syncAllWithRegistry();
+      expect(extensionLoader.isActive(NAME)).toBe(true);
+    }, 30_000);
+
     it('unloads one purged elsewhere (no row left)', async () => {
       await setRow(true);
       await dispatchToWs(msg('replica-a'));
@@ -207,6 +226,49 @@ d('extension lifecycle on another replica: this one follows', () => {
         bus.publish = publish;
       }
       expect(sent).toEqual([NAME, NAME, NAME]);
+    }, 30_000);
+
+    // The firm's switch decides whether the code runs anywhere when god's row is
+    // off: it loads or unloads here, and the other replicas are told to follow.
+    it("a firm's activate and deactivate load, unload and announce", async () => {
+      await unloadHere();
+      await setRow(false);
+      const bus = realtimeBus();
+      const publish = bus.publish;
+      const sent: string[] = [];
+      bus.publish = async (p) => {
+        if (p.event === EXTENSION_LIFECYCLE_EVENT) sent.push(`${p.collection}`);
+      };
+      const post = (action: string) =>
+        engine.request(`/api/marketplace/${NAME}/${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', cookie: god },
+          body: '{}',
+        });
+      try {
+        expect((await post('activate')).status).toBe(200);
+        expect(extensionLoader.isActive(NAME)).toBe(true);
+        expect((await post('deactivate')).status).toBe(200);
+        expect(extensionLoader.isActive(NAME)).toBe(false);
+      } finally {
+        bus.publish = publish;
+      }
+      expect(sent).toEqual([NAME, NAME]);
+    }, 30_000);
+
+    it('god disabling the default keeps it loaded while a firm has it on', async () => {
+      await unloadHere();
+      await setRow(true);
+      await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+                VALUES (${NAME}, ${NAME}, ${DEFAULT_TENANT_ID}, true, true)`.execute(db);
+      await extensionLoader.loadDynamic(NAME, new Hono());
+      const r = await engine.request(`/api/marketplace/${NAME}/disable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: god },
+        body: '{}',
+      });
+      expect(r.status).toBe(200);
+      expect(extensionLoader.isActive(NAME)).toBe(true);
     }, 30_000);
   });
 
@@ -393,6 +455,23 @@ d('extension lifecycle on another replica: this one follows', () => {
       expect(downloads).toHaveLength(1);
       expect(extensionLoader.isActive(NAME)).toBe(true);
       expect(await lastLoadError()).toBeNull();
+    }, 30_000);
+
+    // The version on record lives on god's row, which is off; a firm's row is on.
+    it('a replica booting without one only a firm has on fetches and loads it', async () => {
+      await unloadHere();
+      rmSync(join(base, NAME), { recursive: true, force: true });
+      await setInstalledRow();
+      await sql`UPDATE zv_extension_registry SET is_enabled = false WHERE name = ${NAME}`.execute(
+        db,
+      );
+      await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+                VALUES (${NAME}, ${NAME}, ${DEFAULT_TENANT_ID}, true, true)`.execute(db);
+      serveRegistry(sha);
+      downloads.length = 0;
+      await extensionLoader.loadFromDB(db, new Hono(), []);
+      expect(downloads).toHaveLength(1);
+      expect(extensionLoader.isActive(NAME)).toBe(true);
     }, 30_000);
 
     it('a boot does not fetch a revoked bundle, and says why', async () => {

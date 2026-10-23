@@ -19,7 +19,7 @@ import {
   isTenantAdmin,
   requireInstanceAdmin,
 } from '../tenancy/index.js';
-import { invalidateActivationCache } from './activation.js';
+import { invalidateActivationCache, isExtensionActiveAnywhere } from './activation.js';
 import {
   resolveExtensionsBase,
   extensionFilesPresent,
@@ -868,14 +868,16 @@ export function registerMarketplaceRoutes(
         .onConflict((oc) => oc.columns(['tenant_id', 'name']).doUpdateSet({ is_enabled: false }))
         .execute();
 
-      // Remove from in-memory registry so buildHonoApp() won't re-register routes
-      const wasRunning = self.isActive(name);
-      if (wasRunning) {
-        await self.unload(name);
+      // God's row is only the default: a firm that turned the extension on keeps
+      // it (activation.ts), so its code stays loaded while any row is on — what
+      // boot and the lifecycle sync load too.
+      if (!(await isExtensionActiveAnywhere(db, name))) {
+        // Remove from in-memory registry so buildHonoApp() won't re-register routes
+        if (self.isActive(name)) await self.unload(name);
+        // Its database roles keep nothing: the grants given at load were never
+        // taken back, so a disabled extension's role still reached its tables.
+        await revokeExtensionDbRoles(db, name);
       }
-      // Its database roles keep nothing: the grants given at load were never
-      // taken back, so a disabled extension's role still reached its tables.
-      await revokeExtensionDbRoles(db, name);
 
       // Rebuild Hono app without this extension's routes (zero-downtime)
       await triggerReloadFn(`disable:${name}`);
@@ -1231,6 +1233,16 @@ export function registerMarketplaceRoutes(
       .execute();
 
     invalidateActivationCache(name);
+    // This row can decide whether the code runs at all: on while god's default is
+    // off, or the last one on going off. Load or unload here as every replica
+    // does on the announcement the dispatcher sends; with no row on any more,
+    // take its database roles back, as a disable does.
+    await self.syncWithRegistry(name);
+    if (!enabled) {
+      await withExtensionLock(db, name, async () => {
+        if (!(await isExtensionActiveAnywhere(db, name))) await revokeExtensionDbRoles(db, name);
+      });
+    }
     return c.json({ success: true, name, tenant_id: tenantId, is_enabled: enabled });
   };
 
@@ -1252,7 +1264,8 @@ export function registerMarketplaceRoutes(
       return s;
     }
   };
-  // Here and on every other replica: theirs load or unload to match (lifecycle.ts).
+  // Here and on every other replica: theirs load or unload to match (lifecycle.ts),
+  // and drop the activation decisions they cached.
   const lifecycleChanged = (name: string) => {
     invalidateActivationCache(name);
     announceExtensionLifecycle(name);
@@ -1287,9 +1300,9 @@ export function registerMarketplaceRoutes(
       case 'approve-forward-credentials':
         return approveForwardCredentials(c, name);
       case 'activate':
-        return setActivation(c, name, true);
+        return setActivation(c, name, true).finally(() => lifecycleChanged(name));
       case 'deactivate':
-        return setActivation(c, name, false);
+        return setActivation(c, name, false).finally(() => lifecycleChanged(name));
       default:
         return c.json({ error: 'Unknown marketplace action' }, 404);
     }

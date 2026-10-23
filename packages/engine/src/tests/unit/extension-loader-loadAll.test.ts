@@ -111,7 +111,10 @@ describe('ExtensionLoader boot order — ZVELTIO_EXTENSIONS and the registry tog
     const depsSpy = spyOn(deps, 'ensureExtensionCoreDeps').mockResolvedValue(undefined as never);
     try {
       const db = new CannedDb();
-      db.when(/from "zv_extension_registry"/i, [{ name: 'db-ext' }, { name: 'env-ext' }]);
+      db.when(/from "zv_extension_registry"/i, [
+        { name: 'db-ext', is_enabled: true },
+        { name: 'env-ext', is_enabled: true },
+      ]);
       const loader = new ExtensionLoader();
       const order: string[] = [];
       loader.loadExtension = async (name) => {
