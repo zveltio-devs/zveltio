@@ -41,11 +41,14 @@ d('extension migrations: a tenant policy left permissive fails the load', () => 
     detail?: { failed: { table: string; error: string }[] };
   }>;
 
+  // By name: once rewritten, the table also carries the `tenant_own_node_*`
+  // policies, which have no WITH CHECK, and pg_policies has no order.
   const withCheck = async (table: string) =>
     (
       await sql<{ c: string }>`
         SELECT coalesce(with_check, '') AS c FROM pg_policies
-         WHERE schemaname = 'public' AND tablename = ${table}`.execute(db)
+         WHERE schemaname = 'public' AND tablename = ${table}
+           AND policyname = ${`tenant_isolation_${table}`}`.execute(db)
     ).rows[0]?.c;
 
   async function cleanup(): Promise<void> {
