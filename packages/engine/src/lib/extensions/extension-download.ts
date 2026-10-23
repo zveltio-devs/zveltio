@@ -271,9 +271,6 @@ export async function downloadExtension(
     );
   }
 
-  const destDir = join(destBase, entry.name);
-  mkdirSync(destDir, { recursive: true });
-
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.length < 4) {
     throw new Error(`Empty package received for "${entry.name}"`);
@@ -318,6 +315,10 @@ export async function downloadExtension(
   // the archive. The registry publishes the sig file as a sibling of the
   // tarball. Missing-signature behaviour is gated by REQUIRE_EXTENSION_SIGNATURES.
   await verifyArchiveSignature(entry.name, downloadUrl, headers, new Uint8Array(buf));
+
+  // Only now: bytes that failed a check above leave nothing on disk.
+  const destDir = join(destBase, entry.name);
+  mkdirSync(destDir, { recursive: true });
 
   // Magic-number sniffing — content-type from R2/Cloudflare can be unreliable.
   const isZip = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;

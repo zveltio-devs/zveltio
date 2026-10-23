@@ -28,7 +28,14 @@ import { unregisterExtensionPublicRoutes } from '../../middleware/extension-auth
 import { join } from 'node:path';
 import { checkExtensionDependencies } from '../version-checker.js';
 import { getWorkerHostIfInitialized } from '../worker-extension-host.js';
-import { invalidateFilesPresent, resolveExtensionsBase } from './extension-paths.js';
+import {
+  extensionFilesPresent,
+  invalidateFilesPresent,
+  resolveExtensionsBase,
+} from './extension-paths.js';
+import { downloadExtension, fetchRegistryCatalog } from './extension-download.js';
+import { getLicenseKey } from './extension-license.js';
+import type { Database } from '../../db/index.js';
 import { invalidateActivationCache } from './activation.js';
 import { withExtensionLock } from './extension-utils.js';
 import { Hono } from 'hono';
@@ -224,16 +231,19 @@ export async function syncWithRegistry(
   await withExtensionLock(db, name, async () => {
     const row = await db
       .selectFrom('zv_extension_registry')
-      .select(['is_enabled'])
+      .select(['is_enabled', 'version', 'installed_version', 'installed_sha256'])
       .where('name', '=', name)
       .where('tenant_id', 'is', null)
       .executeTakeFirst();
     const wanted = row?.is_enabled === true;
+    const extBase = resolveExtensionsBase();
     invalidateActivationCache(name);
-    invalidateFilesPresent(join(resolveExtensionsBase(), name));
+    invalidateFilesPresent(join(extBase, name));
     if (wanted === loader.isActive(name)) return;
     if (wanted) {
       try {
+        if (row && !extensionFilesPresent(join(extBase, name)))
+          await fetchEnabledBundle(db, name, extBase, row);
         // Routes land on a throwaway app, as at boot: the rebuild below mounts them.
         await loadDynamic(loader, name, new Hono());
       } catch (err) {
@@ -249,6 +259,42 @@ export async function syncWithRegistry(
     }
     await triggerReload(`${wanted ? 'enable' : 'disable'}-elsewhere:${name}`);
   });
+}
+
+/**
+ * `name` is enabled instance-wide but its bundle is not on this replica's disk:
+ * the replica that installed it downloaded it onto its own, and the extensions
+ * directory is not a shared volume. Fetch the version on record from the
+ * registry through the install path's `downloadExtension`, which refuses before
+ * extracting anything when the bytes miss the digest pinned at install, the
+ * registry's declared SHA-256 or the Ed25519 signature.
+ *
+ * The registry serves only an extension's current version, so one that has
+ * moved on is refused rather than loaded in place of what the others run.
+ */
+async function fetchEnabledBundle(
+  db: Database,
+  name: string,
+  extBase: string,
+  row: {
+    version: string | null;
+    installed_version: string | null;
+    installed_sha256: string | null;
+  },
+): Promise<void> {
+  const version = row.installed_version ?? row.version;
+  if (!version) throw new Error('bundle not on disk and no installed version on record to fetch');
+  // The registry must answer: with it down, the catalog baked into this binary would vouch for the version.
+  const entry = (await fetchRegistryCatalog({ requireRemote: true })).find((e) => e.name === name);
+  if (!entry) throw new Error('bundle not on disk and not in the registry catalog');
+  if (entry.version !== version) {
+    throw new Error(
+      `bundle not on disk; the registry serves ${entry.version}, the version enabled is ${version}`,
+    );
+  }
+  const pin = row.installed_version === version ? row.installed_sha256 : null;
+  await downloadExtension(entry, extBase, await getLicenseKey(db, name), pin);
+  invalidateFilesPresent(join(extBase, name));
 }
 
 /**

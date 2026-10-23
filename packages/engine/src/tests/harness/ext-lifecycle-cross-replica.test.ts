@@ -17,10 +17,20 @@
  * process is B, a second `bun` process A writes the row and announces it. The
  * last runs only when HARNESS_VALKEY_URL names a reachable Valkey (CI's "Auth on
  * Valkey" step, which fails on a skip).
+ *
+ * A marketplace extension's bundle lives on the disk of the replica that
+ * installed it. The receiver loaded from its own disk and nothing else, so
+ * unless the extensions directory was a shared volume, every other replica
+ * answered "engine/index.ts not found" and never served it. It now fetches the
+ * version on record from the registry through the install path's own
+ * `downloadExtension` (pinned digest, declared SHA-256, Ed25519 signature)
+ * before loading, and refuses — nothing on disk, nothing loaded — when that
+ * fails. "a replica without the bundle" below drives it against a fake registry.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { cpSync, mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Hono } from 'hono';
@@ -31,7 +41,11 @@ import {
   _resetExtensionDbRoleForTests,
   revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
-import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
+import { exportTrustedKeyEntry, generateKeypair, signBundle } from '@zveltio/sdk/publish';
+import {
+  _resetCatalogCacheForTests,
+  REGISTRY_URL,
+} from '../../lib/extensions/extension-download.js';
 import {
   _internalForTests as loaderInternals,
   extensionLoader,
@@ -238,5 +252,91 @@ d('extension lifecycle on another replica: this one follows', () => {
       await until(false);
       expect(extensionLoader.isActive(NAME)).toBe(false);
     }, 60_000);
+  });
+
+  describe('a replica without the bundle', () => {
+    let archive: Uint8Array<ArrayBuffer>;
+    let sha = '';
+    let sigJson = '';
+    const realFetch = globalThis.fetch;
+    const savedKeys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
+    const downloads: string[] = [];
+
+    /** The registry: catalog, archive (declaring `declared` as its SHA-256) and signature. */
+    const serveRegistry = (declared: string) => {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (!url.startsWith(REGISTRY_URL)) return realFetch(input, init);
+        if (url.endsWith('/api/extensions/list'))
+          return Response.json({
+            extensions: [{ name: NAME, version: '1.0.0', publisher_tier: 'first-party' }],
+          });
+        if (url.endsWith('/download.sig')) return new Response(sigJson);
+        if (url.endsWith('/download')) {
+          downloads.push(url);
+          return new Response(archive, { headers: { 'X-Archive-Sha256': declared } });
+        }
+        return new Response('not found', { status: 404 });
+      }) as typeof fetch;
+    };
+
+    /** What replica A's install left in the registry: the version and the digest it pinned. */
+    const setInstalledRow = async () => {
+      await setRow(true);
+      await sql`UPDATE zv_extension_registry
+                SET version = '1.0.0', installed_version = '1.0.0', installed_sha256 = ${sha}
+                WHERE name = ${NAME}`.execute(db);
+    };
+
+    beforeAll(async () => {
+      const tgz = join(base, 'bundle.tar.gz');
+      const tar = Bun.spawn(['tar', '-czf', tgz, '-C', FIXTURE, '.']);
+      expect(await tar.exited).toBe(0);
+      archive = new Uint8Array(readFileSync(tgz));
+      rmSync(tgz);
+      sha = createHash('sha256').update(archive).digest('hex');
+      const kp = await generateKeypair('xrepl-fetch');
+      process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([
+        await exportTrustedKeyEntry(kp.keyId, kp.publicJwk),
+      ]);
+      sigJson = JSON.stringify(await signBundle(archive, kp));
+    });
+
+    afterAll(() => {
+      globalThis.fetch = realFetch;
+      if (savedKeys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
+      else process.env.REGISTRY_PUBLIC_KEYS_JSON = savedKeys;
+      // The fake registry's catalog must not answer for the files after this one.
+      _resetCatalogCacheForTests();
+    });
+
+    it('fetches the version on record, verifies it, then loads it', async () => {
+      await unloadHere();
+      rmSync(join(base, NAME), { recursive: true, force: true });
+      await setInstalledRow();
+      serveRegistry(sha);
+      reloads = 0;
+      downloads.length = 0;
+      await dispatchToWs(msg('replica-a'));
+      expect(downloads).toHaveLength(1);
+      expect(extensionLoader.getLastLoadError(NAME)).toBeUndefined();
+      expect(extensionLoader.isActive(NAME)).toBe(true);
+      expect(existsSync(join(base, NAME, 'engine/index.js'))).toBe(true);
+      expect(reloads).toBe(1);
+    }, 30_000);
+
+    it('refuses a bundle that fails its checksum: nothing on disk, nothing loaded', async () => {
+      await unloadHere();
+      rmSync(join(base, NAME), { recursive: true, force: true });
+      await setInstalledRow();
+      serveRegistry('0'.repeat(64));
+      reloads = 0;
+      downloads.length = 0;
+      await dispatchToWs(msg('replica-a'));
+      expect(downloads).toHaveLength(1);
+      expect(extensionLoader.isActive(NAME)).toBe(false);
+      expect(existsSync(join(base, NAME))).toBe(false);
+      expect(reloads).toBe(0);
+    }, 30_000);
   });
 });
