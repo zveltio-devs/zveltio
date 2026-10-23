@@ -1575,6 +1575,7 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
                 set_config('zveltio.user_email', $3, true),
                 set_config('zveltio.user_role', $4, true),
                 set_config('zveltio.user_roles', $5, true),
+                set_config('zveltio.issuer_role', $10, true),
                 set_config('zveltio.actor', $6, true),
                 set_config('zveltio.rls_bypass', 'off', true),
                 set_config('zveltio.columns_all', 'off', true),
@@ -1595,6 +1596,8 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
           id?.collectionGrants ?? '',
           id?.collectionAll ? 'on' : 'off',
           scope?.noUnits ? NO_UNITS : '',
+          // A key's issuer's column rules (095): only narrows, so it is carried.
+          id?.issuerRole ?? '',
         ],
       );
     }

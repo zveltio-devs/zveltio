@@ -433,19 +433,25 @@ export async function validateApiKey(
   // issuer; one that got here anyway is published with nothing.
   if (getCurrentTenantTrx()) {
     const issuer = apiKey.created_by;
-    const [issuerGrants, issuerBypasses] = issuer
+    // And their column rules, which `keyColumnAccess` applies to the key: the
+    // issuer's role unless they hold the exemption that waives their half.
+    const [issuerGrants, issuerBypasses, issuerRole] = issuer
       ? await Promise.all([
           collectionGrantsFor(issuer),
           apiKey.rls_bypass === true
             ? checkPermission(issuer, 'data', 'view_all').catch(() => false)
             : false,
+          checkPermission(issuer, 'data', 'view_all_columns')
+            .catch(() => false)
+            .then((exempt) => (exempt ? '' : principalRole(issuer))),
         ])
-      : [{ all: false, grants: '' }, false];
+      : [{ all: false, grants: '' }, false, ''];
     await publishApiKeyActor(
       `apikey:${apiKey.id}`,
       apiKey.rls_bypass === true && issuerBypasses,
       apiKey.scopes,
       issuerGrants,
+      issuerRole,
     );
   }
 
