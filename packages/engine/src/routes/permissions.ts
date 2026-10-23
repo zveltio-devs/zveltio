@@ -18,6 +18,7 @@ import {
   grantMemberRole,
   invalidateAllPermissionCaches,
   invalidateUserPermCache,
+  isApiKeySubject,
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -27,6 +28,11 @@ import { storedEmail } from '../lib/auth-email.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 import { clientIpForAudit } from '../lib/security/index.js';
 import { guardAdmin } from '../lib/admin-guard.js';
+
+/** Casbin holds nothing for a key (`checkPermission`); its grant is its scopes. */
+const KEY_SUBJECT = {
+  error: 'An API key is not a Casbin subject: its access is its scopes AND its issuer’s',
+};
 
 /**
  * The settings key recording that a recovery token has been spent.
@@ -348,6 +354,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       if (role === 'god') {
         return c.json({ error: `"${role}" is set by PATCH /api/users/:id, not as a role` }, 422);
       }
+      if (isApiKeySubject(userId)) return c.json(KEY_SUBJECT, 422);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
@@ -423,6 +430,7 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     ),
     async (c) => {
       const { subject, resource, action } = c.req.valid('json');
+      if (isApiKeySubject(subject)) return c.json(KEY_SUBJECT, 422);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();

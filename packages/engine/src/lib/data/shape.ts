@@ -15,12 +15,8 @@ import { readScope } from './read-scope.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { unservedFields } from './sealed-columns.js';
 import { maybeDecrypt } from './field-crypto.js';
-import {
-  getColumnAccess,
-  applyColumnAccess,
-  checkPermission,
-  type ColumnAccess,
-} from '../tenancy/index.js';
+import { getColumnAccess, applyColumnAccess, type ColumnAccess } from '../tenancy/index.js';
+import { checkAccess } from './auth.js';
 import type {
   CollectionDef,
   CollectionField,
@@ -246,10 +242,10 @@ export async function applyExpand(
     // they asked for it directly. Silently skipping (rather than failing the
     // whole request) keeps `?expand=` usable across a mixed set of relations:
     // the caller gets what they may see and no hint of what they may not.
-    if (
-      user &&
-      !(await checkPermission(user.id, exp.targetCollection, 'read').catch(() => false))
-    ) {
+    // `checkAccess`, not `checkPermission`: a key's read is its scopes AND its
+    // issuer's (`apikey:<uuid>` is no Casbin subject), so asking Casbin refused
+    // every key's expansion, scoped or not.
+    if (user && !(await checkAccess(db, user, exp.targetCollection, 'read').catch(() => false))) {
       continue;
     }
 
