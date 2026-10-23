@@ -213,23 +213,29 @@ d('schema artifact: validation rule groups', () => {
     });
     expect((await call('apply', otherField)).status).toBe(400);
     expect(await group()).toEqual(before);
+  });
 
-    // Two instance rules with one key: the file cannot say which is the member.
-    await sql`INSERT INTO zv_validation_rules
-                (collection, field_name, rule_type, rule_config, error_message)
-              SELECT collection, field_name, rule_type, rule_config, error_message
-                FROM zv_validation_rules WHERE collection = ${C} AND rule_type = 'pattern'`.execute(
-      db,
-    );
+  it('holds one instance rule per key, so a member always names exactly one rule', async () => {
+    // Migration 098. Before it a second row with the pattern rule's key went in,
+    // the export wrote two entries under one plan id, and apply refused the
+    // group with "more than one instance rule".
+    let errno: string | undefined;
+    try {
+      await sql`INSERT INTO zv_validation_rules
+                  (collection, field_name, rule_type, rule_config, error_message)
+                SELECT collection, field_name, rule_type, rule_config, 'again'
+                  FROM zv_validation_rules
+                 WHERE collection = ${C} AND rule_type = 'pattern'`.execute(db);
+    } catch (err) {
+      errno = (err as { errno?: string }).errno;
+    }
+    expect(errno).toBe('23505');
     const and = edit(pulled, (col) => {
       (col.validationGroups as Record<string, unknown>[])[0]!.logic = 'AND';
     });
-    const ambiguous = await call('apply', and);
-    expect(ambiguous.status).toBe(400);
-    expect(((await ambiguous.json()) as { detail: string }).detail).toContain('more than one');
-    expect(await group()).toEqual(before);
-    await sql`DELETE FROM zv_validation_rules WHERE collection = ${C} AND rule_type = 'pattern'
-                AND id <> ALL(${before!.rule_ids}::uuid[])`.execute(db);
+    expect((await call('apply', and)).status).toBe(200);
+    expect((await group())?.logic).toBe('AND');
+    expect((await call('apply', pulled)).status).toBe(200);
   });
 
   it('refuses a group name twice in one collection', async () => {

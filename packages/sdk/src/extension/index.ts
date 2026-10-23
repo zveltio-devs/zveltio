@@ -532,8 +532,10 @@ export interface ExtensionInternals<DB = unknown> {
    * only those. Anyone else (an API key, a member) throws. Answers the stored
    * row (the removed one for `delete`), or `null` when no rule the caller may
    * write has that id. A `custom`, `nlp` or `transition` rule whose expression
-   * does not compile throws. Audited: an instance rule as an instance event, a
-   * tenant rule in its tenant. Engine 3.0.0-beta.88 and later.
+   * does not compile throws, as does a second instance rule with the same
+   * field, rule type and config (SQLSTATE 23505 on `errno`). Audited: an
+   * instance rule as an instance event, a tenant rule in its tenant. Engine
+   * 3.0.0-beta.88 and later.
    */
   writeValidationRule: (
     c: Context,

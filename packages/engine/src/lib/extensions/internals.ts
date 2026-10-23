@@ -15,6 +15,7 @@ import { sql } from 'kysely';
 import type { ExtensionBroadcast, ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { getDb } from '../../db/index.js';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import type {
   DataApiAnswer,
   RlsFilter,
@@ -757,6 +758,17 @@ async function writeValidationRule(
   // request's transaction usable.
   const row = await asEngineRole(db, () =>
     withSavepoint(db, 'zv_validation_rule_write', run, (err) => {
+      // Only a create meets 098's key: one instance rule per field, type and config.
+      if (write.op === 'create' && sqlState(err) === '23505') {
+        const r = write.rule;
+        throw Object.assign(
+          new Error(
+            `ctx.internals.writeValidationRule: ${r.collection}.${r.field_name} already has an ` +
+              `instance rule ${r.rule_type} with this config.`,
+          ),
+          { errno: '23505' },
+        );
+      }
       throw err;
     }),
   );

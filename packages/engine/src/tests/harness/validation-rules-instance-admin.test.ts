@@ -111,7 +111,8 @@ d('validation rules are written by an instance admin only', () => {
           try {
             return Response.json({ row: await run() });
           } catch (err) {
-            return Response.json({ refused: (err as Error).message }, { status: 403 });
+            const { message, errno } = err as Error & { errno?: string };
+            return Response.json({ refused: message, errno }, { status: 403 });
           }
         };
         sub.post('/rules', async (c) =>
@@ -231,6 +232,27 @@ d('validation rules are written by an instance admin only', () => {
       { event_type: 'validation_rule.updated', tenant_id: null },
       { event_type: 'validation_rule.deleted', tenant_id: null },
     ]);
+  });
+
+  // Migration 098: an instance rule's key (field, rule, config) is its identity
+  // in the schema file; a second one collapsed into one plan entry there.
+  it('refuses a second instance rule with the same key, as a 23505 conflict', async () => {
+    const god = { cookie: godCookie };
+    const keyed = { ...rule, rule_config: { min: 1 } };
+    try {
+      expect((await call('POST', '/rules', god, keyed)).status).toBe(200);
+      const again = await call('POST', '/rules', god, { ...keyed, error_message: 'other' });
+      expect(again.status).toBe(403);
+      const body = (await again.json()) as { refused: string; errno: string };
+      expect(body.errno).toBe('23505');
+      expect(body.refused).toContain('already has an instance rule');
+      // A firm's own rule only adds to the instance rule: not the same key.
+      const asFirm = { cookie: firmAdmin.cookie, 'x-tenant-slug': FIRM.slug };
+      expect((await call('POST', '/rules', asFirm, keyed)).status).toBe(200);
+      expect((await rulesOn()).length).toBe(2);
+    } finally {
+      await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);
+    }
   });
 
   it('refuses an expression rule that does not compile, whatever the extension checked', async () => {
