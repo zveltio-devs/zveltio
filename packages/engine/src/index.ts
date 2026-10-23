@@ -1528,6 +1528,16 @@ async function bootstrap() {
     } catch (err) {
       console.warn('⚠️ Sealed columns not reconciled (non-fatal):', (err as Error).message);
     }
+    // Then the branch previews: each copied `public`'s protections when its
+    // preview was enabled and keeps them until a rule changes, so a predicate
+    // the generator now builds differently (an upgrade) reached `public` above
+    // and not the previews. It records its own failures (`branch_protections`).
+    try {
+      const { refreshBranchProtections } = await import('./lib/data/index.js');
+      await refreshBranchProtections(db);
+    } catch (err) {
+      console.warn('⚠️ Branch previews not re-mirrored (non-fatal):', (err as Error).message);
+    }
     if (n > 0) console.log(`🔑 Default access granted on ${n} new resource permission(s)`);
   } catch (err) {
     console.warn('⚠️ Default grant reconcile failed (non-fatal):', (err as Error).message);
