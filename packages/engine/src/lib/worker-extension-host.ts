@@ -85,6 +85,7 @@ import {
   getRequestActor,
   getResolvedMembership,
   getUserRoles,
+  issuerSettings,
   type RequestActor,
   runWithDomain,
   temporaryObjectsRestricted,
@@ -1569,6 +1570,7 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
       //
       // Parameterised: `set_config` takes bind parameters where `SET` does not.
       const id = scope?.actor?.identity;
+      const issuer = issuerSettings(id?.issuer);
       await reserved.unsafe(
         `SELECT set_config('zveltio.current_tenant', $1, true),
                 set_config('zveltio.user_id', $2, true),
@@ -1576,6 +1578,11 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
                 set_config('zveltio.user_role', $4, true),
                 set_config('zveltio.user_roles', $5, true),
                 set_config('zveltio.issuer_role', $10, true),
+                set_config('zveltio.issuer_rows', $11, true),
+                set_config('zveltio.issuer_user_id', $12, true),
+                set_config('zveltio.issuer_user_email', $13, true),
+                set_config('zveltio.issuer_user_role', $14, true),
+                set_config('zveltio.issuer_user_roles', $15, true),
                 set_config('zveltio.actor', $6, true),
                 set_config('zveltio.rls_bypass', 'off', true),
                 set_config('zveltio.columns_all', 'off', true),
@@ -1598,6 +1605,12 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
           scope?.noUnits ? NO_UNITS : '',
           // A key's issuer's column rules (095): only narrows, so it is carried.
           id?.issuerRole ?? '',
+          // And its row rules (`getRlsFilters`): they only narrow too.
+          issuer.mode,
+          issuer.userId,
+          issuer.email,
+          issuer.role,
+          issuer.roles,
         ],
       );
     }

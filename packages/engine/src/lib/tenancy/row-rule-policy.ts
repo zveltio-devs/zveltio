@@ -25,7 +25,10 @@
  *     the row, so the policy must drop it too;
  *   - `in`/`not_in` split on commas ONLY for a `static:` source, because that is
  *     the only source that can express a list;
- *   - a rule whose role does not match the caller does not apply at all.
+ *   - a rule whose role does not match the caller does not apply at all;
+ *   - an API key meets its own rules AND its issuer's, the second set matched
+ *     on the issuer's roles and resolved against the issuer (`issuer_user_*`).
+ *     It met only its own, so a rule binding the issuer never bound their key.
  *
  * ── What it refuses to do ─────────────────────────────────────
  *
@@ -91,12 +94,26 @@ function ident(name: string): string | null {
 }
 
 /**
+ * Whose settings a term reads: the caller's (`zveltio.user_id`, …), or an API
+ * key's issuer's (`zveltio.issuer_user_id`, …) — a key's row rules are its own
+ * AND its issuer's, as `getRlsFilters` applies them. The issuer's half binds
+ * while `zveltio.issuer_rows` is `on`; it is `''` for every other caller, and
+ * anything else (`deny`: a key whose issuer is unknown) keeps no row.
+ */
+const CALLER = 'zveltio.';
+const ISSUER = 'zveltio.issuer_';
+
+/**
  * The caller's value for a rule's source, cast to the column's type.
  *
  * `null` for a source this cannot express. The engine resolves `user_role` from
  * the session's single role; the same value is published, so the two agree.
  */
-function valueExpr(source: string, pgType: string): { sql: string; guc?: string } | null {
+function valueExpr(
+  source: string,
+  pgType: string,
+  prefix: string = CALLER,
+): { sql: string; guc?: string } | null {
   // `(SELECT …)` is not decoration — it is worth three times the query.
   //
   // A bare `current_setting()` in a policy is evaluated PER ROW. Wrapped in a
@@ -111,7 +128,7 @@ function valueExpr(source: string, pgType: string): { sql: string; guc?: string 
   const guc = (name: string) => `(SELECT current_setting('${name}', true))`;
   const cast = (inner: string) => (pgType === 'text' ? inner : `CAST(${inner} AS ${pgType})`);
   if (source === 'user_id' || source === 'user_email' || source === 'user_role')
-    return { sql: cast(guc(`zveltio.${source}`)), guc: `zveltio.${source}` };
+    return { sql: cast(guc(`${prefix}${source}`)), guc: `${prefix}${source}` };
   if (source.startsWith('static:')) return { sql: cast(lit(source.slice('static:'.length))) };
   return null;
 }
@@ -123,12 +140,22 @@ function valueExpr(source: string, pgType: string): { sql: string; guc?: string 
  * caller's roles are published as one comma-separated setting — the same list
  * `getRlsFilters` builds from Casbin plus the direct role.
  */
-function roleGuard(role: string): string | null {
+function roleGuard(role: string, prefix: string = CALLER): string | null {
   if (role === '*') return null;
   return (
     `(SELECT ${lit(role)} = ANY ` +
-    `(string_to_array(coalesce(current_setting('zveltio.user_roles', true), ''), ',')))`
+    `(string_to_array(coalesce(current_setting('${prefix}user_roles', true), ''), ',')))`
   );
+}
+
+/**
+ * One rule's term in the issuer's half: its condition, unless the issuer does
+ * not hold the rule's role. No actor guard — the half binds only while
+ * `zveltio.issuer_rows` is `on`, which a key's actor publishes.
+ */
+function issuerApplicable(rule: RowRule, condition: string): string {
+  const role = roleGuard(rule.role, ISSUER);
+  return role ? `(NOT (${role}) OR ${condition})` : `(${condition})`;
 }
 
 /**
@@ -189,6 +216,7 @@ export function buildRowRulePredicate(
 ): GeneratedPolicy {
   const skipped: Array<{ rule: RowRule; reason: string }> = [];
   const terms: string[] = [];
+  const issuerTerms: string[] = [];
   const columns = new Set<string>();
   // Nothing stops two identical rows in `zvd_rls_policies`, and emitting the
   // same term twice is work the database does per row for no answer it did not
@@ -206,6 +234,7 @@ export function buildRowRulePredicate(
     // listed as enabled hid nothing on either side.
     if (!valueExpr(rule.filter_value_source, 'text')) {
       terms.push(applicable(rule, 'false', true));
+      issuerTerms.push(issuerApplicable(rule, 'false'));
       continue;
     }
     // A rule this cannot express hides every row it applies to — `false`, not
@@ -219,6 +248,7 @@ export function buildRowRulePredicate(
     const deny = (reason: string) => {
       skipped.push({ rule, reason });
       terms.push(applicable(rule, 'false', perActor));
+      issuerTerms.push(issuerApplicable(rule, 'false'));
     };
     const col = ident(rule.filter_field);
     if (!col) {
@@ -240,39 +270,21 @@ export function buildRowRulePredicate(
       deny(`operator ${JSON.stringify(rule.filter_op)} is not one of eq/neq/in/not_in`);
       continue;
     }
-    const value = valueExpr(rule.filter_value_source, pgType);
-    if (!value) continue; // unreachable: unknown sources returned above
-
     const opSem = RULE_OPERATORS[rule.filter_op];
     // An email compares without case (rule-operators.ts): both sides folded.
     const fold = foldsCase(rule.filter_value_source);
     const lhs = fold ? `lower(${col})` : col;
-    const rhs = fold ? `lower(${value.sql})` : value.sql;
-    let condition: string;
-    if (opSem.list) {
-      // Only a `static:` source can be a list; the user_* ones are scalars, and
-      // a one-element list means the same as `eq`. Exactly what the engine does.
-      const items = rule.filter_value_source.startsWith('static:')
-        ? rule.filter_value_source
-            .slice('static:'.length)
-            .split(',')
-            .map((v) => v.trim())
-            .filter(Boolean)
-        : null;
-      const list = items
-        ? items.map((v) => (pgType === 'text' ? lit(v) : `CAST(${lit(v)} AS ${pgType})`)).join(', ')
-        : rhs;
-      // An empty list means what it means in the engine (rule-operators.ts):
-      // `in []` keeps nothing, `not_in []` keeps every row whose field is present.
-      if (items && keepsNothing(rule.filter_op, items)) condition = 'false';
-      else if (items && keepsEveryPresent(rule.filter_op, items)) condition = `${col} IS NOT NULL`;
-      else condition = `${lhs} ${opSem.sql} (${list})`;
-    } else {
-      condition = `${lhs} ${opSem.sql} ${rhs}`;
-    }
-
+    // The same condition, read against the caller's settings or the issuer's.
+    const conditionFor = (prefix: string): string => {
+      // Non-null: unknown sources returned above.
+      const value = valueExpr(rule.filter_value_source, pgType, prefix)!;
+      const rhs = fold ? `lower(${value.sql})` : value.sql;
+      return conditionOf(rule, opSem, col, pgType, lhs, rhs);
+    };
+    const condition = conditionFor(CALLER);
     if (condition !== 'false') columns.add(rule.filter_field);
-    terms.push(applicable(rule, condition, value.guc !== undefined));
+    terms.push(applicable(rule, condition, !rule.filter_value_source.startsWith('static:')));
+    issuerTerms.push(issuerApplicable(rule, conditionFor(ISSUER)));
   }
 
   if (terms.length === 0) return { predicate: null, skipped, columns: [] };
@@ -285,7 +297,47 @@ export function buildRowRulePredicate(
   const exempt =
     `(SELECT lower(coalesce(nullif(current_setting('zveltio.rls_bypass', true), ''), 'off')) ` +
     `IN ('on', 'true', '1'))`;
-  return { predicate: `${exempt} OR (${terms.join(' AND ')})`, skipped, columns: [...columns] };
+  // A key's issuer's half: off (`''`) for every other caller, applied while
+  // `on`, and keeping nothing in any other state (`deny`).
+  const issuer =
+    `((SELECT coalesce(current_setting('zveltio.issuer_rows', true), '') = '') OR ` +
+    `((SELECT current_setting('zveltio.issuer_rows', true) = 'on') AND ${issuerTerms.join(' AND ')}))`;
+  return {
+    predicate: `${exempt} OR (${[...terms, issuer].join(' AND ')})`,
+    skipped,
+    columns: [...columns],
+  };
+}
+
+/** A validated rule's condition, `lhs` against `rhs` (the caller's or the issuer's value). */
+function conditionOf(
+  rule: RowRule,
+  opSem: (typeof RULE_OPERATORS)[keyof typeof RULE_OPERATORS],
+  col: string,
+  pgType: string,
+  lhs: string,
+  rhs: string,
+): string {
+  if (opSem.list) {
+    // Only a `static:` source can be a list; the user_* ones are scalars, and
+    // a one-element list means the same as `eq`. Exactly what the engine does.
+    const items = rule.filter_value_source.startsWith('static:')
+      ? rule.filter_value_source
+          .slice('static:'.length)
+          .split(',')
+          .map((v) => v.trim())
+          .filter(Boolean)
+      : null;
+    const list = items
+      ? items.map((v) => (pgType === 'text' ? lit(v) : `CAST(${lit(v)} AS ${pgType})`)).join(', ')
+      : rhs;
+    // An empty list means what it means in the engine (rule-operators.ts):
+    // `in []` keeps nothing, `not_in []` keeps every row whose field is present.
+    if (items && keepsNothing(rule.filter_op, items)) return 'false';
+    if (items && keepsEveryPresent(rule.filter_op, items)) return `${col} IS NOT NULL`;
+    return `${lhs} ${opSem.sql} (${list})`;
+  }
+  return `${lhs} ${opSem.sql} ${rhs}`;
 }
 
 /**

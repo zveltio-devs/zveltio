@@ -124,6 +124,18 @@ describe('row rules as a Postgres predicate', () => {
     expect(predicate).toContain("'editor'");
   });
 
+  it("binds an API key with its issuer's rules too, read against the issuer", () => {
+    // `getRlsFilters` ANDs the issuer's half onto a key's: the issuer's roles,
+    // the issuer's id. Off unless `issuer_rows` is `on`; `deny` keeps nothing.
+    const { predicate } = buildRowRulePredicate([rule({ role: 'editor' })], TYPES);
+    expect(predicate).toContain(
+      `(NOT ((SELECT 'editor' = ANY (string_to_array(coalesce(current_setting('zveltio.issuer_user_roles', true), ''), ',')))) OR "created_by" = (SELECT current_setting('zveltio.issuer_user_id', true)))`,
+    );
+    expect(predicate).toContain(
+      "((SELECT coalesce(current_setting('zveltio.issuer_rows', true), '') = '') OR ((SELECT current_setting('zveltio.issuer_rows', true) = 'on') AND",
+    );
+  });
+
   it('applies a `*` rule to everyone, with no role guard', () => {
     const { predicate } = buildRowRulePredicate([rule({ role: '*' })], TYPES);
     expect(predicate).not.toContain('user_roles');
@@ -163,7 +175,7 @@ describe('row rules as a Postgres predicate', () => {
         [rule({ filter_op: 'in', filter_value_source: 'static: , ' })],
         TYPES,
       );
-      expect(inEmpty.predicate).toContain('((false))');
+      expect(inEmpty.predicate).toContain('OR ((false) AND');
       const notInEmpty = buildRowRulePredicate(
         [
           rule({

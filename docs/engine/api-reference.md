@@ -394,7 +394,10 @@ role, so tenant isolation and row policies apply to what it reads. It sees the
 caller in `current_setting('zveltio.user_id')` — the user's id, or
 `apikey:<uuid>` for a key, with `zveltio.user_role` = `api_key` and
 `zveltio.issuer_role` = its issuer's role (empty when the issuer is exempt from
-column rules). A function declared `SECURITY DEFINER` runs with its owner's
+column rules), and the issuer whose row rules bind it in `zveltio.issuer_user_id`,
+`zveltio.issuer_user_email`, `zveltio.issuer_user_role` and
+`zveltio.issuer_user_roles` (with `zveltio.issuer_rows` = `on`; empty when the
+issuer is exempt from row rules). A function declared `SECURITY DEFINER` runs with its owner's
 rights instead, for a session and a key alike.
 
 ### POST /api/rpc/:function
@@ -860,7 +863,9 @@ also asked of the issuer, as they are now, in the request's tenant: a
 collection action is the issuer's own `checkPermission`, `rls_bypass` holds
 only while the issuer holds `data:view_all` (and, on storage, is a tenant
 admin), column rules are the key's own (`api_key`, `*`) and its issuer's
-together, the stricter winning, and each surface below asks the issuer what it
+together, the stricter winning, row rules likewise — the key's own and the
+issuer's, each resolved against its own identity, a row shown only when both
+keep it — and each surface below asks the issuer what it
 asks a session. Keys are
 minted by an instance administrator, so this changes nothing until the issuer
 is demoted — then their keys lose, at once, what they lost, and get it back if

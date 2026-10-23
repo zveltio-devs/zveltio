@@ -15,7 +15,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { joinedTransactionBuilder, withSavepoint } from '../savepoint.js';
-import { DEFAULT_TENANT_ID, type RlsIdentity } from './tenant-manager.js';
+import { DEFAULT_TENANT_ID, issuerSettings, type RlsIdentity } from './tenant-manager.js';
 
 /** Savepoint names for read-only joined scopes; unique so nesting is plain. */
 let savepointSeq = 0;
@@ -609,6 +609,8 @@ export function createRequestScopedDb(pool: Database): Database {
  *
  * `issuerRole` is the issuer's role whose column rules bind the key as well
  * (`keyColumnAccess`); `''` when none do — no issuer, or one exempt from them.
+ * `issuer` is the issuer whose row rules bind it (`getRlsFilters`), as
+ * `RlsIdentity.issuer` describes; absent when none do.
  */
 export async function publishApiKeyActor(
   userId: string,
@@ -616,6 +618,7 @@ export async function publishApiKeyActor(
   scopes?: unknown,
   issuerGrants?: { all: boolean; grants: string },
   issuerRole = '',
+  issuer?: RlsIdentity['issuer'],
 ): Promise<void> {
   const trx = getCurrentTenantTrx();
   if (!trx) return;
@@ -623,12 +626,18 @@ export async function publishApiKeyActor(
   // its issuer's grants when it has one (`validateApiKey`); a job has none.
   const own = encodeApiKeyScopes(scopes);
   const { all, grants } = issuerGrants ? intersectGrants(own, issuerGrants) : own;
+  const rows = issuerSettings(issuer);
   await sql`
     SELECT set_config('zveltio.user_id', ${userId}, true),
            set_config('zveltio.user_email', '', true),
            set_config('zveltio.user_role', 'api_key', true),
            set_config('zveltio.user_roles', 'api_key', true),
            set_config('zveltio.issuer_role', ${issuerRole}, true),
+           set_config('zveltio.issuer_rows', ${rows.mode}, true),
+           set_config('zveltio.issuer_user_id', ${rows.userId}, true),
+           set_config('zveltio.issuer_user_email', ${rows.email}, true),
+           set_config('zveltio.issuer_user_role', ${rows.role}, true),
+           set_config('zveltio.issuer_user_roles', ${rows.roles}, true),
            set_config('zveltio.actor', 'on', true),
            set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true),
            set_config('zveltio.collection_grants', ${grants}, true),
@@ -650,6 +659,7 @@ export async function publishApiKeyActor(
         collectionGrants: grants,
         collectionAll: all,
         issuerRole,
+        issuer,
       },
     };
   }

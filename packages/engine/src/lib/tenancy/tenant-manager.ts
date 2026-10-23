@@ -22,6 +22,26 @@ import {
 import { isGodUser } from './permissions.js';
 
 /**
+ * `RlsIdentity.issuer` as the five `zveltio.issuer_*` row settings carry it —
+ * all `''` when no issuer rules apply.
+ */
+export function issuerSettings(issuer: RlsIdentity['issuer']): {
+  mode: string;
+  userId: string;
+  email: string;
+  role: string;
+  roles: string;
+} {
+  return {
+    mode: issuer?.mode ?? '',
+    userId: issuer?.id ?? '',
+    email: issuer?.email ?? '',
+    role: issuer?.role ?? '',
+    roles: (issuer?.roles ?? []).join(','),
+  };
+}
+
+/**
  * Who the request is, for the row-rule policies to read.
  *
  * `bypass` is a DECISION the engine has already taken — an API key carrying
@@ -55,6 +75,15 @@ export interface RlsIdentity {
    * views and the revision view (migration 095). Empty when no issuer rules apply.
    */
   issuerRole?: string;
+  /**
+   * An API key's issuer, whose ROW rules bind the key too (`getRlsFilters`),
+   * matched on their roles and resolved against their id, email and role —
+   * published as `zveltio.issuer_rows` = `on` and `zveltio.issuer_user_*` for
+   * the row-rule policy. `deny` for a key whose issuer is unknown: every row a
+   * rule covers is hidden. Absent when no issuer rules apply — a session, a job
+   * key, an issuer holding `data:view_all`.
+   */
+  issuer?: { mode: 'on' | 'deny'; id: string; email: string; role: string; roles: string[] };
   /**
    * An anonymous request: no user, but an actor all the same — the tenant's
    * `public` role — so the policies hold it to that role's grants rather than
@@ -1352,6 +1381,7 @@ export async function withTenantIsolation<T>(
       all: opts?.identity?.collectionAll ?? false,
       columnsAll: opts?.identity?.columnsAll ?? false,
       issuerRole: opts?.identity?.issuerRole ?? '',
+      issuer: issuerSettings(opts?.identity?.issuer),
     };
 
     // Whether there is an ACTOR at all — written as its own setting, because
@@ -1410,6 +1440,11 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.user_role', ${identity.role}, true),
              set_config('zveltio.user_roles', ${identity.roles}, true),
              set_config('zveltio.issuer_role', ${identity.issuerRole}, true),
+             set_config('zveltio.issuer_rows', ${identity.issuer.mode}, true),
+             set_config('zveltio.issuer_user_id', ${identity.issuer.userId}, true),
+             set_config('zveltio.issuer_user_email', ${identity.issuer.email}, true),
+             set_config('zveltio.issuer_user_role', ${identity.issuer.role}, true),
+             set_config('zveltio.issuer_user_roles', ${identity.issuer.roles}, true),
              set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
              set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true),
              set_config('zveltio.collection_grants', ${identity.grants}, true),
