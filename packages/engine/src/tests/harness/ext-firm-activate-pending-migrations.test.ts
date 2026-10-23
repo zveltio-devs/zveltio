@@ -11,7 +11,8 @@
  * Now a load that only a firm's row asks for refuses while migrations are
  * pending (recorded in `last_load_error`), and a firm's activate answers 409
  * and leaves no row behind. God's enable runs them as before; after it a firm's
- * activate loads the extension with nothing left to run.
+ * activate loads the extension with nothing left to run. An activate whose load
+ * fails for another reason answers 422 with the reason on record, as an enable does.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -104,7 +105,9 @@ d("an extension's migrations run on god's decision only", () => {
          name: ${JSON.stringify(NAME)},
          category: 'fixture',
          getMigrations: () => [join(import.meta.dir, 'migrations/001_probe.sql')],
-         async register() {},
+         async register() {
+           if (globalThis.__zvProbeRegisterFails) throw new Error('probe register failed');
+         },
        };`,
     );
     await Bun.write(
@@ -187,5 +190,25 @@ d("an extension's migrations run on god's decision only", () => {
     expect(extensionLoader.isActive(NAME)).toBe(true);
     expect((await firmRow())?.is_enabled).toBe(true);
     expect(await migrationRows()).toBe(1);
+  }, 30_000);
+
+  it("a firm's activate whose load fails answers 422 and records why", async () => {
+    await installedOnly();
+    expect((await post('enable')).status).toBe(200);
+    expect((await post('disable')).status).toBe(200);
+    const flags = globalThis as Record<string, unknown>;
+    flags.__zvProbeRegisterFails = true;
+    let r: Response;
+    try {
+      r = await post('activate');
+    } finally {
+      delete flags.__zvProbeRegisterFails;
+    }
+    expect(r.status).toBe(422);
+    expect(((await r.json()) as { detail: string }).detail).toMatch(/probe register failed/);
+    expect(extensionLoader.isActive(NAME)).toBe(false);
+    // Kept on, as an enable that fails to load: the next boot or sync retries.
+    expect((await firmRow())?.is_enabled).toBe(true);
+    expect(await lastLoadError()).toMatch(/probe register failed/);
   }, 30_000);
 });

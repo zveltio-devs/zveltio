@@ -534,6 +534,10 @@ code loaded while god's default is off, but a load that only a firm's row asks
 for (boot, another replica's sync, the outage resync) refuses while any
 migration is pending and records why in `last_load_error`; a firm's
 `POST /api/marketplace/<name>/activate` answers `409` and leaves no row behind.
+When that activate's load fails for any other reason it answers `422`, keeps the
+row on (the next boot or sync retries, as after a failed enable) and records the
+reason in `last_load_error`; before boot finishes it answers `202` with
+`queued: true`, and the queued sync loads or refuses once the engine is up.
 
 `/ext/*` traffic goes through the **same** `tenantMiddleware`. Without it, an
 extension handler using `ctx.reqDb(c)` would fall through to the global pool with

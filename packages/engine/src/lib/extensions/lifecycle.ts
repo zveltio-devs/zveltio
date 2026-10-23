@@ -230,16 +230,17 @@ async function refreshTooOldDependents(loader: ExtensionLoader, name: string): P
  * own announcement included.
  *
  * Under the extension lock, so it waits for the other replica's operation to
- * finish and reads what that one committed.
+ * finish and reads what that one committed. Answers why a load it attempted
+ * was refused, if it was.
  */
 export async function syncWithRegistry(
   loader: ExtensionLoader,
   name: string,
   triggerReload: (reason: string) => Promise<void>,
-): Promise<void> {
+): Promise<string | undefined> {
   const db = loader.ctx?.db;
   if (!db) return;
-  await withExtensionLock(db, name, async () => {
+  return withExtensionLock(db, name, async (): Promise<string | undefined> => {
     const rows = await db
       .selectFrom('zv_extension_registry')
       .select(['tenant_id', 'is_enabled', 'version', 'installed_version', 'installed_sha256'])
@@ -273,7 +274,7 @@ export async function syncWithRegistry(
             .execute()
             .catch(() => {});
         }
-        return;
+        return why;
       }
     } else {
       await unloadExtension(loader, name);
