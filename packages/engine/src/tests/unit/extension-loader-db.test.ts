@@ -21,7 +21,10 @@ describe('ExtensionLoader.loadFromDB', () => {
     loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
 
     const db = new CannedDb();
-    db.when(REGISTRY_SELECT, [{ name: 'ext-a' }, { name: 'ext-b' }]);
+    db.when(REGISTRY_SELECT, [
+      { name: 'ext-a', is_enabled: true },
+      { name: 'ext-b', is_enabled: true },
+    ]);
     db.whenAffected(REGISTRY_UPDATE, 1);
 
     const loaded: string[] = [];
@@ -39,12 +42,46 @@ describe('ExtensionLoader.loadFromDB', () => {
     expect(updates.every((q) => q.parameters.includes(null))).toBe(true);
   });
 
+  // Any enabled row loads it, a firm's included (activation.ts); none, it stays off.
+  it('loads a name some row has on, firm rows included, and not one every row has off', async () => {
+    const loader = new ExtensionLoader();
+    loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
+    const db = new CannedDb();
+    db.when(REGISTRY_SELECT, [
+      { name: 'firm-on', tenant_id: null, is_enabled: false },
+      { name: 'firm-on', tenant_id: 'firm-a', is_enabled: true },
+      { name: 'all-off', tenant_id: null, is_enabled: false },
+      { name: 'all-off', tenant_id: 'firm-a', is_enabled: false },
+    ]);
+    const loaded: string[] = [];
+    loader.loadExtension = async (name) => {
+      loaded.push(name);
+    };
+    loader.topoSortExtensions = async (names) => names;
+    // Both on disk: only the rows decide which loads.
+    const base = mkdtempSync(join(tmpdir(), 'zv-firm-on-'));
+    for (const name of ['firm-on', 'all-off']) {
+      mkdirSync(join(base, name, 'engine'), { recursive: true });
+      writeFileSync(join(base, name, 'engine', 'index.js'), '');
+    }
+    const saved = process.env.EXTENSIONS_DIR;
+    process.env.EXTENSIONS_DIR = base;
+    try {
+      await loader.loadFromDB(db.kysely as unknown as Database, noApp);
+    } finally {
+      if (saved === undefined) delete process.env.EXTENSIONS_DIR;
+      else process.env.EXTENSIONS_DIR = saved;
+      rmSync(base, { recursive: true, force: true });
+    }
+    expect(loaded).toEqual(['firm-on']);
+  });
+
   it('persists last_load_error when an extension fails to activate', async () => {
     const loader = new ExtensionLoader();
     loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
 
     const db = new CannedDb();
-    db.when(REGISTRY_SELECT, [{ name: 'broken' }]);
+    db.when(REGISTRY_SELECT, [{ name: 'broken', is_enabled: true }]);
     db.whenAffected(REGISTRY_UPDATE, 1);
 
     loader.loadExtension = async (name) => {
@@ -76,7 +113,7 @@ describe('ExtensionLoader.loadFromDB', () => {
     loader.loaded.set('ext-a', { registeredRoutes: false } as never);
 
     const db = new CannedDb();
-    db.when(REGISTRY_SELECT, [{ name: 'ext-a' }]);
+    db.when(REGISTRY_SELECT, [{ name: 'ext-a', is_enabled: true }]);
 
     const loadSpy = async () => {
       throw new Error('should not load');
@@ -90,7 +127,7 @@ describe('ExtensionLoader.loadFromDB', () => {
   it('returns early when loader context was never initialized', async () => {
     const loader = new ExtensionLoader();
     const db = new CannedDb();
-    db.when(REGISTRY_SELECT, [{ name: 'ext-a' }]);
+    db.when(REGISTRY_SELECT, [{ name: 'ext-a', is_enabled: true }]);
 
     loader.loadExtension = async () => {
       throw new Error('should not load');
@@ -106,7 +143,7 @@ describe('ExtensionLoader.loadFromDB', () => {
     loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
 
     const db = new CannedDb();
-    db.when(REGISTRY_SELECT, [{ name: 'silent-fail' }]);
+    db.when(REGISTRY_SELECT, [{ name: 'silent-fail', is_enabled: true }]);
     db.whenAffected(REGISTRY_UPDATE, 1);
 
     loader.loadExtension = async () => {
@@ -126,7 +163,10 @@ describe('ExtensionLoader.loadFromDB', () => {
     loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
 
     const db = new CannedDb();
-    db.when(REGISTRY_SELECT, [{ name: 'ext-a' }, { name: 'ext-b' }]);
+    db.when(REGISTRY_SELECT, [
+      { name: 'ext-a', is_enabled: true },
+      { name: 'ext-b', is_enabled: true },
+    ]);
     db.fail(REGISTRY_UPDATE, new Error('update denied'));
 
     const loaded: string[] = [];
@@ -157,7 +197,11 @@ describe('ExtensionLoader.loadFromDB', () => {
       const loader = new ExtensionLoader();
       loader.ctx = { db: new CannedDb().kysely } as ExtensionLoader['ctx'];
       const db = new CannedDb();
-      db.when(REGISTRY_SELECT, [{ name: 'a' }, { name: 'b' }, { name: 'c' }]);
+      db.when(REGISTRY_SELECT, [
+        { name: 'a', is_enabled: true },
+        { name: 'b', is_enabled: true },
+        { name: 'c', is_enabled: true },
+      ]);
       db.whenAffected(REGISTRY_UPDATE, 1);
       const loaded: string[] = [];
       loader.loadExtension = async (name) => {

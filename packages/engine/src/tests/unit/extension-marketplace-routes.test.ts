@@ -386,6 +386,8 @@ describe('registerMarketplaceRoutes (unit)', () => {
 
   it('POST disable unloads an active extension and triggers reload', async () => {
     isActiveMock.mockImplementation(() => true);
+    // No firm has it on either: nothing keeps the code loaded.
+    db.when(/select\s+true as ok\b/i, []);
     const app = mountRoutes(db, extBase);
     const res = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/disable`, {
       method: 'POST',

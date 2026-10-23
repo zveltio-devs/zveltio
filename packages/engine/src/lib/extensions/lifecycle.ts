@@ -212,12 +212,14 @@ async function refreshTooOldDependents(loader: ExtensionLoader, name: string): P
 }
 
 /**
- * Another replica enabled, disabled or uninstalled `name`: bring this one's copy
- * in line with the registry's instance-wide row, which is what that replica's
- * route acted on. Loads the way its enable did (the migrations are on record
- * there, so none runs again) or unloads the way its disable did, then rebuilds
- * the served app. A no-op when this replica is already there, its own
- * announcement included.
+ * `name`'s registry rows changed (enable, disable, uninstall, a firm's activate
+ * or deactivate, here or on another replica): bring this replica's copy in line.
+ * The code is loaded while ANY row is enabled — a firm's row overrides god's on
+ * or off (activation.ts), so god's default being off does not stop the firm that
+ * turned it on; boot (`loadFromDB`) asks the same. Loads the way an enable does
+ * (migrations already on record are skipped) or unloads the way a disable does,
+ * then rebuilds the served app. A no-op when this replica is already there, its
+ * own announcement included.
  *
  * Under the extension lock, so it waits for the other replica's operation to
  * finish and reads what that one committed.
@@ -230,13 +232,14 @@ export async function syncWithRegistry(
   const db = loader.ctx?.db;
   if (!db) return;
   await withExtensionLock(db, name, async () => {
-    const row = await db
+    const rows = await db
       .selectFrom('zv_extension_registry')
-      .select(['is_enabled', 'version', 'installed_version', 'installed_sha256'])
+      .select(['tenant_id', 'is_enabled', 'version', 'installed_version', 'installed_sha256'])
       .where('name', '=', name)
-      .where('tenant_id', 'is', null)
-      .executeTakeFirst();
-    const wanted = row?.is_enabled === true;
+      .execute();
+    const wanted = rows.some((r) => r.is_enabled);
+    // God's row holds the version and digest on record, whoever turned it on.
+    const row = rows.find((r) => r.tenant_id === null);
     const extBase = resolveExtensionsBase();
     invalidateActivationCache(name);
     invalidateFilesPresent(join(extBase, name));
@@ -263,7 +266,7 @@ export async function syncWithRegistry(
 }
 
 /**
- * `name` is enabled instance-wide but its bundle is not on this replica's disk:
+ * `name` is enabled (for the instance or a firm) but its bundle is not on this replica's disk:
  * the replica that installed it downloaded it onto its own, and the extensions
  * directory is not a shared volume. Fetch the version on record from the
  * registry through the install path's `downloadExtension`, which refuses before
@@ -313,7 +316,7 @@ export async function fetchEnabledBundle(
 }
 
 /**
- * After a bus outage: every extension with an instance-wide row, for a change
+ * After a bus outage: every extension the registry knows, for a change
  * announced meanwhile.
  */
 export async function syncAllWithRegistry(
@@ -325,11 +328,7 @@ export async function syncAllWithRegistry(
   // ponytail: an extension purged meanwhile has no row left to find, so this
   // replica keeps it loaded until it restarts; telling it apart from one loaded
   // from ZVELTIO_EXTENSIONS (no row either) needs the boot's load set.
-  const rows = await db
-    .selectFrom('zv_extension_registry')
-    .select(['name'])
-    .where('tenant_id', 'is', null)
-    .execute();
+  const rows = await db.selectFrom('zv_extension_registry').select(['name']).distinct().execute();
   for (const { name } of rows) await syncWithRegistry(loader, name, triggerReload);
 }
 
