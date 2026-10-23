@@ -161,25 +161,7 @@ export async function runExtensionMigrations(
   // Phase 1 — read all migrations + skip the ones already applied. Done
   // outside the outer transaction so an early-skipped chain (everything
   // already applied) doesn't open a useless transaction.
-  const pending: Pending[] = [];
-  for (const migrationPath of migrations) {
-    const name = `ext:${extension.name}:${migrationPath.split('/').pop()?.replace('.sql', '')}`;
-    // "Already applied?" — and `null` means "no, run it". A `.catch(() => null)`
-    // here therefore re-ran an extension's migration whenever the question could not
-    // be answered, which is only safe while every extension's SQL happens to be
-    // idempotent. A seed INSERT or a backfill is not.
-    const existing = await db
-      .selectFrom('zv_migrations')
-      .select('id')
-      .where('name', '=', name)
-      .executeTakeFirst();
-    if (existing) continue;
-
-    const rawSql = await Bun.file(migrationPath).text();
-    const { up, down } = parseMigrationSql(rawSql);
-    pending.push({ name, up, down });
-  }
-
+  const pending = await pendingExtensionMigrations(extension, db);
   if (pending.length === 0) return;
 
   // Checked before anything runs: a refusal should not leave a half-applied
@@ -252,6 +234,55 @@ export async function runExtensionMigrations(
 }
 
 type Pending = { name: string; up: string; down: string | null };
+
+/**
+ * This extension's migrations not yet on record in `zv_migrations`, in the order
+ * they would run — read, never run. `runExtensionMigrations` runs these; a load
+ * that only a firm's row asks for refuses while there are any (`load.ts`).
+ */
+export async function pendingExtensionMigrations(
+  extension: ZveltioExtension,
+  db: Database,
+): Promise<Pending[]> {
+  const pending: Pending[] = [];
+  for (const migrationPath of extension.getMigrations?.() ?? []) {
+    const name = `ext:${extension.name}:${migrationPath.split('/').pop()?.replace('.sql', '')}`;
+    // "Already applied?" — and `null` means "no, run it". A `.catch(() => null)`
+    // here therefore re-ran an extension's migration whenever the question could not
+    // be answered, which is only safe while every extension's SQL happens to be
+    // idempotent. A seed INSERT or a backfill is not.
+    const existing = await db
+      .selectFrom('zv_migrations')
+      .select('id')
+      .where('name', '=', name)
+      .executeTakeFirst();
+    if (existing) continue;
+
+    const rawSql = await Bun.file(migrationPath).text();
+    const { up, down } = parseMigrationSql(rawSql);
+    pending.push({ name, up, down });
+  }
+  return pending;
+}
+
+const PENDING_REFUSAL = 'migration(s) not applied yet';
+
+/**
+ * Why a load that only a firm's row asked for was refused. A migration is DDL
+ * for the whole instance, run as the database owner, so god decides it (owner,
+ * 2026-10-23) by enabling or updating the extension.
+ */
+export function pendingMigrationsRefusal(extName: string, names: string[]): string {
+  return (
+    `Extension "${extName}" has ${PENDING_REFUSAL} (${names.join(', ')}). Migrations change ` +
+    `the whole instance, so they run only when the instance administrator enables or ` +
+    `updates the extension; until then a firm cannot activate it.`
+  );
+}
+
+export function isPendingMigrationsRefusal(message: string | undefined): boolean {
+  return message?.includes(PENDING_REFUSAL) === true;
+}
 type Segment = { transactional: boolean; items: Pending[] };
 
 async function runSegments(segments: Segment[], db: Database): Promise<void> {

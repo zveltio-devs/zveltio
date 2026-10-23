@@ -528,6 +528,13 @@ Extensions load **at instance level**, in a single process. "Load the extension
 only for tenant B" does not exist and is not a finding — per-tenant activation
 is a gate at execution time, not a separate load.
 
+An extension's migrations are DDL for the whole instance, so they run only on
+god's decision: enabling or updating the extension. A firm's row can keep the
+code loaded while god's default is off, but a load that only a firm's row asks
+for (boot, another replica's sync, the outage resync) refuses while any
+migration is pending and records why in `last_load_error`; a firm's
+`POST /api/marketplace/<name>/activate` answers `409` and leaves no row behind.
+
 `/ext/*` traffic goes through the **same** `tenantMiddleware`. Without it, an
 extension handler using `ctx.reqDb(c)` would fall through to the global pool with
 no GUC.

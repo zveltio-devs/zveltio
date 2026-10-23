@@ -408,12 +408,13 @@ export class ExtensionLoader {
     app: Hono,
     ctx: ExtensionContext,
     basePath?: string,
+    migrate = true,
   ): Promise<void> {
     // Body extracted to lib/extensions/load.ts (H-04 split) — the full
     // per-extension load pipeline (dir resolution, Studio-only short-circuit,
     // manifest/tier/entry phases, WASM-or-import, migrations, field types,
     // then finalizeExtensionLoad). Thin delegator so callers stay unchanged.
-    return loadExtensionFromDir(this, extName, app, ctx, basePath);
+    return loadExtensionFromDir(this, extName, app, ctx, basePath, migrate);
   }
 
   /**
@@ -464,6 +465,11 @@ export class ExtensionLoader {
     // Loaded while ANY row is on: a firm's row overrides god's, on or off
     // (activation.ts). The lifecycle sync asks the same (lifecycle.ts).
     const enabled = [...new Set(rows.filter((r) => r.is_enabled).map((r) => r.name))];
+    // Who may run migrations: god's row, or the operator's env lists. A firm's
+    // row alone loads the code only with none pending (load.ts).
+    const godOn = new Set(
+      rows.filter((r) => r.is_enabled && r.tenant_id === null).map((r) => r.name),
+    );
 
     const main = new Set([...envNames, ...enabled]);
     const fromExternal = new Set((external?.names ?? []).filter((n) => !main.has(n)));
@@ -509,6 +515,7 @@ export class ExtensionLoader {
           app,
           this.ctx,
           fromExternal.has(name) ? external?.base : undefined,
+          godOn.has(name) || envNames.includes(name) || fromExternal.has(name),
         );
       }
       if (!inRegistry.has(name)) continue;

@@ -20,6 +20,7 @@ import {
   requireInstanceAdmin,
 } from '../tenancy/index.js';
 import { invalidateActivationCache, isExtensionActiveAnywhere } from './activation.js';
+import { isPendingMigrationsRefusal } from './migration-runner.js';
 import {
   resolveExtensionsBase,
   extensionFilesPresent,
@@ -1200,7 +1201,7 @@ export function registerMarketplaceRoutes(
     // extension is on for a firm while no code exists to run.
     const global = await db
       .selectFrom('zv_extension_registry')
-      .select(['is_installed'])
+      .select(['is_installed', 'is_enabled'])
       .where('name', '=', name)
       .where('tenant_id', 'is', null)
       .executeTakeFirst();
@@ -1213,6 +1214,20 @@ export function registerMarketplaceRoutes(
         404,
       );
     }
+
+    // With god's row off, this row alone would load the code, and the load would
+    // run its pending migrations — DDL for the whole instance, god's decision
+    // (owner, 2026-10-23). That load refuses instead (load.ts); the row it was
+    // refused for is put back as it was, below.
+    const firmOnly = enabled && !global.is_enabled;
+    const prior = firmOnly
+      ? await db
+          .selectFrom('zv_extension_registry')
+          .select(['is_enabled', 'enabled_at'])
+          .where('name', '=', name)
+          .where('tenant_id', '=', tenantId)
+          .executeTakeFirst()
+      : undefined;
 
     await db
       .insertInto('zv_extension_registry')
@@ -1238,6 +1253,25 @@ export function registerMarketplaceRoutes(
     // does on the announcement the dispatcher sends; with no row on any more,
     // take its database roles back, as a disable does.
     await self.syncWithRegistry(name);
+    const refusal = self.getLastLoadError(name);
+    if (firmOnly && !self.isActive(name) && isPendingMigrationsRefusal(refusal)) {
+      if (prior) {
+        await db
+          .updateTable('zv_extension_registry')
+          .set({ is_enabled: prior.is_enabled, enabled_at: prior.enabled_at })
+          .where('name', '=', name)
+          .where('tenant_id', '=', tenantId)
+          .execute();
+      } else {
+        await db
+          .deleteFrom('zv_extension_registry')
+          .where('name', '=', name)
+          .where('tenant_id', '=', tenantId)
+          .execute();
+      }
+      invalidateActivationCache(name);
+      return c.json({ error: refusal }, 409);
+    }
     if (!enabled) {
       await withExtensionLock(db, name, async () => {
         if (!(await isExtensionActiveAnywhere(db, name))) await revokeExtensionDbRoles(db, name);

@@ -39,6 +39,7 @@ import { checkRevoked, revocationCheckRequired, revocationMessage } from './revo
 import type { Database } from '../../db/index.js';
 import { invalidateActivationCache } from './activation.js';
 import { withExtensionLock } from './extension-utils.js';
+import { isPendingMigrationsRefusal } from './migration-runner.js';
 import { Hono } from 'hono';
 import type { ExtensionLoader } from './extension-loader.js';
 import { unregisterJobs } from './jobs.js';
@@ -161,10 +162,16 @@ export async function unloadExtension(
   };
 }
 
-export async function loadDynamic(loader: ExtensionLoader, name: string, app: Hono): Promise<void> {
+export async function loadDynamic(
+  loader: ExtensionLoader,
+  name: string,
+  app: Hono,
+  /** False when only a firm's row asks for the load: pending migrations refuse it. */
+  migrate = true,
+): Promise<void> {
   if (!loader.ctx) throw new Error('ExtensionLoader not initialized — call loadAll() first');
   loader.lastLoadError.delete(name);
-  await loader.loadExtension(name, app, loader.ctx);
+  await loader.loadExtension(name, app, loader.ctx, undefined, migrate);
   // loadExtension returns void on silent failure (files not found, bad manifest, etc.)
   // Verify the extension actually landed in this.loaded before declaring success.
   if (!loader.isActive(name)) {
@@ -217,7 +224,8 @@ async function refreshTooOldDependents(loader: ExtensionLoader, name: string): P
  * The code is loaded while ANY row is enabled — a firm's row overrides god's on
  * or off (activation.ts), so god's default being off does not stop the firm that
  * turned it on; boot (`loadFromDB`) asks the same. Loads the way an enable does
- * (migrations already on record are skipped) or unloads the way a disable does,
+ * (migrations already on record are skipped; with god's row off, any pending one
+ * refuses the load, since migrations are god's decision) or unloads the way a disable does,
  * then rebuilds the served app. A no-op when this replica is already there, its
  * own announcement included.
  *
@@ -240,6 +248,7 @@ export async function syncWithRegistry(
     const wanted = rows.some((r) => r.is_enabled);
     // God's row holds the version and digest on record, whoever turned it on.
     const row = rows.find((r) => r.tenant_id === null);
+    const godOn = row?.is_enabled === true;
     const extBase = resolveExtensionsBase();
     invalidateActivationCache(name);
     invalidateFilesPresent(join(extBase, name));
@@ -249,13 +258,21 @@ export async function syncWithRegistry(
         if (row && !extensionFilesPresent(join(extBase, name)))
           await fetchEnabledBundle(db, name, extBase, row);
         // Routes land on a throwaway app, as at boot: the rebuild below mounts them.
-        await loadDynamic(loader, name, new Hono());
+        // Only god's row may run migrations; a firm's alone loads with none pending.
+        await loadDynamic(loader, name, new Hono(), godOn);
       } catch (err) {
-        // The originating replica recorded its own outcome; this one only says why here.
-        console.warn(
-          `[extensions] "${name}" enabled elsewhere, not loaded here:`,
-          (err as Error).message,
-        );
+        const why = (err as Error).message;
+        // The originating replica recorded its own outcome; this one only says why
+        // here. A refusal for a firm's row has no god route behind it to record it.
+        console.warn(`[extensions] "${name}" enabled elsewhere, not loaded here:`, why);
+        if (isPendingMigrationsRefusal(why)) {
+          await db
+            .updateTable('zv_extension_registry')
+            .set({ last_load_error: why, last_load_at: new Date() })
+            .where('name', '=', name)
+            .execute()
+            .catch(() => {});
+        }
         return;
       }
     } else {
