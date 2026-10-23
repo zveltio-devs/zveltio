@@ -8,8 +8,10 @@
  * and returns a scripted Response. That exercises the full path: SSRF guard →
  * auth headers → URL build → response extraction → field remapping → errors.
  *
- * No DB and no network: validatePublicUrl is a pure string blocklist (no DNS),
- * so public-looking hosts like api.example.com pass without a lookup.
+ * No DB, no network and no DNS: the base is a public IP literal, which safeFetch
+ * neither resolves nor pins. A hostname here was resolved for real (or through
+ * whatever `node:dns/promises` mock an earlier file left behind) and, when it
+ * answered, the request went to the pinned address instead of the URL asserted.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -24,7 +26,7 @@ import {
   virtualUpdate,
 } from '../../lib/virtual-collection-adapter.js';
 
-const BASE = 'https://api.example.com';
+const BASE = 'https://93.184.216.34';
 
 function baseConfig(overrides: Partial<VirtualConfig> = {}): VirtualConfig {
   return {

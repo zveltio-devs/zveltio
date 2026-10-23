@@ -15,7 +15,7 @@
  * mock.module cross-file leak. A single stable implementation cannot leak.
  */
 
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mock } from 'bun:test';
 
 type Answer = { address: string; family: number }[];
@@ -39,11 +39,15 @@ mock.module('node:dns/promises', () => ({
 
 const { assertPublicUrl } = await import('../../lib/security/url-validator.js');
 
-beforeEach(() => {
+function reset() {
   nextAnswer = PUBLIC_ANSWER;
   shouldThrow = false;
   lookupCalls = 0;
-});
+}
+beforeEach(reset);
+// The mock outlives this file. Whatever the last test here set (a private
+// answer, a throw) every later file's lookups got, whichever test ran last.
+afterAll(reset);
 
 describe('assertPublicUrl — resolved-address blocking', () => {
   it('rejects a public hostname that resolves to cloud metadata', async () => {

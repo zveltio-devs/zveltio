@@ -67,15 +67,16 @@ function seedCollection(db: CannedDb): void {
   db.when(/from "zvd_collections"/i, [COLLECTION_DEF]);
 }
 
+// File level: both blocks below need the policies, whichever runs first.
+beforeAll(async () => {
+  process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
+  const seed = new CannedDb();
+  seed.when(/FROM zvd_permissions/i, POLICY_ROWS);
+  await initPermissions(asDb(seed));
+});
+
 describe('getRecord (unit)', () => {
   let db: CannedDb;
-
-  beforeAll(async () => {
-    process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
-    const seed = new CannedDb();
-    seed.when(/FROM zvd_permissions/i, POLICY_ROWS);
-    await initPermissions(asDb(seed));
-  });
 
   beforeEach(() => {
     db = new CannedDb();

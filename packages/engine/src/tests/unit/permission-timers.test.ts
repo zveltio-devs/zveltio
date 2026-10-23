@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import {
+  __resetSweepRetry,
   __sweepIdle,
   initPermissions,
   revalidateSockets,
@@ -35,6 +36,7 @@ describe('realtime re-check sweep retry', () => {
   beforeEach(async () => {
     // A sweep left running by an earlier file must finish before counting.
     await __sweepIdle();
+    __resetSweepRetry();
     runs = 0;
     const sub = {
       stream: { abort() {} },
