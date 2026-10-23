@@ -635,7 +635,16 @@ export interface ExtensionInternals<DB = unknown> {
    */
   getRlsFilters: (
     collection: string,
-    user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
+    // `authorUserId`: an API key's issuer, as the host's request user carries
+    // it. Pass the user through whole — a key's row rules are its own AND its
+    // issuer's, and a user rebuilt without it is denied the issuer half.
+    user: {
+      id: string;
+      email?: string;
+      role?: string;
+      rlsBypass?: boolean;
+      authorUserId?: string | null;
+    },
     authType: 'session' | 'api_key',
   ) => Promise<RlsFilter[]>;
   /** Apply what `getRlsFilters` returned to a query builder. */
