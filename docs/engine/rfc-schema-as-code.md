@@ -156,13 +156,29 @@ The file holds everything that belongs to one collection:
 - Rows scoped to one tenant id, and every `g` (user→role) row, are tenant
   state and stay out.
 - The engine's default grants (`DEFAULT_ROLE_GRANTS`: `tenant_member` and
-  `tenant_viewer` on every non-sensitive resource) are implied, like the
-  engine columns. They are neither written nor planned, so a file neither
-  grants nor revokes one. Revoking a default is a decision about the instance,
-  made through the permissions API (or the Studio matrix) and kept in
-  `zv_default_grant_revocations` (migration 086) so that boots and extension
-  loads do not write it back; an apply leaves it standing, and an export does
-  not carry it to another instance.
+  `tenant_viewer` on every non-sensitive resource, plus `tenant_member`
+  `execute` on extension resources) are implied, like the engine columns:
+  `permissions` never lists one.
+- A default an operator revoked (through the permissions API or the Studio
+  matrix, kept in `zv_default_grant_revocations`, migration 086) is listed in
+  the role's `revokedDefaults`, in the same shape as `permissions` and only
+  for default grants:
+
+  ```json
+  { "name": "tenant_member",
+    "revokedDefaults": [{ "resource": "posts", "actions": ["update"] }] }
+  ```
+
+  The plan shows `revoke default posts update` for an entry the instance does
+  not have, and apply revokes it through the enforcer and records it, even
+  where the resource does not exist yet (an extension installed later does not
+  get it back). An entry the instance has and the file does not is
+  `restore default`: apply grants it again, which clears the revocation. Since
+  format 3; a format-2 file, which cannot say it, is refused rather than read
+  as "restore every revoked default".
+- The roles the defaults go to (`tenant_member`, `tenant_viewer`) are implied
+  too: a plan never creates or removes them. Absent from the file, such a role
+  has no grants and no revoked defaults.
 
 ### 4.3 `settings.json`
 

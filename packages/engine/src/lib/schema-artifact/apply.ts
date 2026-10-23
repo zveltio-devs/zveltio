@@ -45,6 +45,7 @@ import {
   invalidateAllPermissionCaches,
   putColumnPermission,
   reconcilePolicies,
+  revokeDefaultGrant,
   UnenforceableRuleError,
   updateRlsPolicy,
 } from '../tenancy/index.js';
@@ -163,6 +164,7 @@ async function prepare(
       return op;
     case 'setRole':
     case 'revoke':
+    case 'revokeDefault':
     case 'setCollection':
     case 'reorderFields':
       return op;
@@ -528,6 +530,8 @@ async function run(db: Database, op: Prepared, userId: string | undefined): Prom
     case 'revoke':
       await (await getEnforcer()).removePolicy(op.role, '*', op.resource, op.action);
       return;
+    case 'revokeDefault':
+      return revokeDefaultGrant(op.role, op.resource, op.action);
     case 'reorderFields': {
       const fields = await fieldsOf(db, op.collection);
       const at = (n: string) => {
@@ -629,7 +633,9 @@ export async function applySchema(
     // Not one transaction: CREATE INDEX CONCURRENTLY refuses a transaction
     // block. A step that fails leaves the ones before it applied; the next
     // apply plans from what is there and carries on from that step.
-    const policies = ops.some((op) => op.kind === 'grant' || op.kind === 'revoke');
+    const policies = ops.some(
+      (op) => op.kind === 'grant' || op.kind === 'revoke' || op.kind === 'revokeDefault',
+    );
     // The plan is read from the table, and casbin skips — without touching
     // the table — a revoke its model lacks or a grant it already holds. Bring
     // the model to the table first, as the orphan prune route does.

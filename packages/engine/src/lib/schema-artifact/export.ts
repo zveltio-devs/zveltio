@@ -16,12 +16,15 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { isDefaultGrant } from '../tenancy/index.js';
+import { isDefaultGrant, isDefaultGrantRole } from '../tenancy/index.js';
 import { toIdArray } from '../validation-engine.js';
 import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
-/** 2: collection files carry `validationGroups`; a format-1 file would plan every group away. */
-export const SCHEMA_FORMAT = 2;
+/**
+ * 3: roles carry `revokedDefaults`; a format-2 file would plan every revoked
+ * default back. (2: collection files carry `validationGroups`.)
+ */
+export const SCHEMA_FORMAT = 3;
 const SCHEMA_URL = 'https://zveltio.com/schema/v1';
 
 /** Keys written first, in this order; every other key is sorted. */
@@ -65,12 +68,30 @@ const byKey =
 
 /**
  * A default grant (`isDefaultGrant`) is implied by the format like the engine
- * columns, so it is neither written nor planned: a file neither grants nor
- * revokes one. Revoking a default is a decision about this instance, made
- * through the permissions API and kept in `zv_default_grant_revocations`; an
- * apply leaves it standing, and an export does not carry it elsewhere.
+ * columns, so `permissions` never lists one. What the file does carry is the
+ * defaults an operator revoked (`zv_default_grant_revocations`), as the role's
+ * `revokedDefaults`: without them a revoke made on one instance was lost on the
+ * way to the next, which kept the access the operator took away.
  */
-export { isDefaultGrant };
+export { isDefaultGrant, isDefaultGrantRole };
+
+/** role → resource → actions, as `roles.json` lists them. */
+function byRole(rows: { role: string; resource: string; action: string }[]) {
+  const out = new Map<string, Map<string, Set<string>>>();
+  for (const { role, resource, action } of rows) {
+    const byResource = out.get(role) ?? new Map<string, Set<string>>();
+    out.set(role, byResource);
+    const actions = byResource.get(resource) ?? new Set<string>();
+    byResource.set(resource, actions);
+    actions.add(action);
+  }
+  return out;
+}
+
+const listed = (m: Map<string, Set<string>> | undefined) =>
+  [...(m ?? new Map<string, Set<string>>()).entries()]
+    .sort(byKey(([resource]) => resource))
+    .map(([resource, actions]) => ({ resource, actions: [...actions].sort() }));
 
 const sortedOrNull = (a: string[] | null | undefined) => (a?.length ? [...a].sort() : null);
 
@@ -113,7 +134,7 @@ async function ruleGroups(db: Database): Promise<RuleGroupRow[]> {
 }
 
 export async function exportSchema(db: Database): Promise<Record<string, string>> {
-  const [collections, relations, rowRules, columnPerms, validation, roles, grants] =
+  const [collections, relations, rowRules, columnPerms, validation, roles, grants, revoked] =
     await Promise.all([
       db
         .selectFrom('zvd_collections')
@@ -146,6 +167,10 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
         .select(['v0', 'v2', 'v3'])
         .where('ptype', '=', 'p')
         .where('v1', '=', '*')
+        .execute(),
+      db
+        .selectFrom('zv_default_grant_revocations')
+        .select(['role', 'resource', 'action'])
         .execute(),
     ]);
   const groups = await ruleGroups(db);
@@ -269,26 +294,26 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
     });
   }
 
-  const actionsOf = new Map<string, Map<string, Set<string>>>();
-  for (const g of grants) {
-    if (!g.v0 || !g.v2 || !g.v3 || isDefaultGrant(g.v0, g.v2, g.v3)) continue;
-    const byResource = actionsOf.get(g.v0) ?? new Map<string, Set<string>>();
-    actionsOf.set(g.v0, byResource);
-    const actions = byResource.get(g.v2) ?? new Set<string>();
-    byResource.set(g.v2, actions);
-    actions.add(g.v3);
-  }
+  const actionsOf = byRole(
+    grants.flatMap((g) =>
+      g.v0 && g.v2 && g.v3 && !isDefaultGrant(g.v0, g.v2, g.v3)
+        ? [{ role: g.v0, resource: g.v2, action: g.v3 }]
+        : [],
+    ),
+  );
+  const revokedOf = byRole(revoked.filter((r) => isDefaultGrant(r.role, r.resource, r.action)));
   // A role with grants but no zv_roles row (a seeded built-in) is still listed.
-  const roleNames = [...new Set([...roles.map((r) => r.name), ...actionsOf.keys()])].sort();
+  const roleNames = [
+    ...new Set([...roles.map((r) => r.name), ...actionsOf.keys(), ...revokedOf.keys()]),
+  ].sort();
   const description = new Map(roles.map((r) => [r.name, r.description]));
   files['roles.json'] = serialize({
     $schema: `${SCHEMA_URL}/roles.json`,
     roles: roleNames.map((name) => ({
       name,
       description: description.get(name),
-      permissions: [...(actionsOf.get(name) ?? new Map()).entries()]
-        .sort(byKey(([resource]) => resource))
-        .map(([resource, actions]) => ({ resource, actions: [...actions].sort() })),
+      permissions: listed(actionsOf.get(name)),
+      revokedDefaults: revokedOf.has(name) ? listed(revokedOf.get(name)) : null,
     })),
   });
 
