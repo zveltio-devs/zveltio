@@ -56,6 +56,7 @@ import {
   extensionLoader,
 } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
+import { clearRevocationCache } from '../../lib/extensions/revocations.js';
 import {
   dispatchToWs,
   EXTENSION_LIFECYCLE_EVENT,
@@ -268,13 +269,29 @@ d('extension lifecycle on another replica: this one follows', () => {
     const downloads: string[] = [];
 
     /** The registry: catalog, archive (declaring `declared` as its SHA-256) and signature. */
-    const serveRegistry = (declared: string) => {
+    const serveRegistry = (declared: string, revoked = false) => {
+      clearRevocationCache();
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (!url.startsWith(REGISTRY_URL)) return realFetch(input, init);
         if (url.endsWith('/api/extensions/list'))
           return Response.json({
             extensions: [{ name: NAME, version: '1.0.0', publisher_tier: 'first-party' }],
+          });
+        if (url.endsWith('/api/revocations'))
+          return Response.json({
+            revocations: revoked
+              ? [
+                  {
+                    name: NAME,
+                    version: '1.0.0',
+                    reason: 'backdoored',
+                    severity: 'critical',
+                    advisory_url: null,
+                    revoked_at: '2026-10-23T00:00:00Z',
+                  },
+                ]
+              : [],
           });
         if (url.endsWith('/download.sig')) return new Response(sigJson);
         if (url.endsWith('/download')) {
@@ -311,8 +328,9 @@ d('extension lifecycle on another replica: this one follows', () => {
       globalThis.fetch = realFetch;
       if (savedKeys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
       else process.env.REGISTRY_PUBLIC_KEYS_JSON = savedKeys;
-      // The fake registry's catalog must not answer for the files after this one.
+      // The fake registry's catalog and revocations must not answer for the files after this one.
       _resetCatalogCacheForTests();
+      clearRevocationCache();
     });
 
     it('fetches the version on record, verifies it, then loads it', async () => {
@@ -344,6 +362,21 @@ d('extension lifecycle on another replica: this one follows', () => {
       expect(reloads).toBe(0);
     }, 30_000);
 
+    // Revoked after the enable: the bytes the registry disowns are not fetched, as install refuses them.
+    it('refuses a bundle revoked since its enable: nothing fetched, nothing on disk', async () => {
+      await unloadHere();
+      rmSync(join(base, NAME), { recursive: true, force: true });
+      await setInstalledRow();
+      serveRegistry(sha, true);
+      reloads = 0;
+      downloads.length = 0;
+      await dispatchToWs(msg('replica-a'));
+      expect(downloads).toHaveLength(0);
+      expect(existsSync(join(base, NAME))).toBe(false);
+      expect(extensionLoader.isActive(NAME)).toBe(false);
+      expect(reloads).toBe(0);
+    }, 30_000);
+
     const lastLoadError = async () =>
       (
         await sql<{ e: string | null }>`SELECT last_load_error AS e FROM zv_extension_registry
@@ -360,6 +393,19 @@ d('extension lifecycle on another replica: this one follows', () => {
       expect(downloads).toHaveLength(1);
       expect(extensionLoader.isActive(NAME)).toBe(true);
       expect(await lastLoadError()).toBeNull();
+    }, 30_000);
+
+    it('a boot does not fetch a revoked bundle, and says why', async () => {
+      await unloadHere();
+      rmSync(join(base, NAME), { recursive: true, force: true });
+      await setInstalledRow();
+      serveRegistry(sha, true);
+      downloads.length = 0;
+      await extensionLoader.loadFromDB(db, new Hono(), []);
+      expect(downloads).toHaveLength(0);
+      expect(existsSync(join(base, NAME))).toBe(false);
+      expect(extensionLoader.isActive(NAME)).toBe(false);
+      expect(await lastLoadError()).toContain('REVOKED');
     }, 30_000);
 
     it('a boot whose fetch fails its checksum skips it, says why, and completes', async () => {

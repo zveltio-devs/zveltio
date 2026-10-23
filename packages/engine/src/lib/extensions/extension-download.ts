@@ -335,17 +335,13 @@ export async function downloadExtension(
   const path = await import('path');
 
   // Stage into a temp dir so we can detect & flatten a single top-level folder
-  // before moving files into the final destination.
-  const stageDir = join(destDir, '_stage');
-  // Clean any leftover stage from a previous failed run
-  try {
-    fs.rmSync(stageDir, { recursive: true, force: true });
-  } catch {
-    /* ignore */
-  }
-  fs.mkdirSync(stageDir, { recursive: true });
-
-  const pkgPath = join(destDir, isZip ? '_pkg.zip' : '_pkg.tar.gz');
+  // before moving files into the final destination. One of its own per call:
+  // replicas booting onto one shared directory download at once, unlocked
+  // (extension-loader.ts), and a fixed `_stage` / `_pkg` let each delete and
+  // truncate the other's half-extracted files (measured: tar "Cannot mkdir").
+  // Each entry below then appears whole, by rename.
+  const stageDir = fs.mkdtempSync(join(destDir, '_stage-'));
+  const pkgPath = `${stageDir}${isZip ? '.zip' : '.tar.gz'}`;
   fs.writeFileSync(pkgPath, buf);
 
   let proc: ReturnType<typeof Bun.spawn>;

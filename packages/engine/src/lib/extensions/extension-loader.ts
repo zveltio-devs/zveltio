@@ -473,8 +473,10 @@ export class ExtensionLoader {
     // failure skips only that extension — refused, so its row says why — and
     // the boot goes on. Each fetch is bounded by the download's own timeouts.
     // ponytail: no extension lock here, so two replicas booting together onto
-    // one shared, empty directory may race; the loser skips it until it next
-    // syncs or restarts.
+    // one shared, empty directory download at once. Each stages on its own and
+    // renames every entry in whole (extension-download.ts), so neither reads a
+    // half-written file; a load that lands while the other replaces an entry
+    // fails and skips it until it next syncs or restarts.
     for (const row of rows) {
       if (row.tenant_id !== null || !pending.includes(row.name)) continue;
       if (extensionFilesPresent(join(extBase, row.name))) continue;
