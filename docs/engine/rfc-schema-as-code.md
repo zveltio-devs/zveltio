@@ -52,7 +52,8 @@ workflow.
 - Tenant-specific state is not exported: memberships, per-tenant roles and
   per-tenant permission rows.
 - Extension-owned schema is not exported. Extensions already ship their own
-  migrations.
+  migrations. One exception: `developer/validation`'s rule groups (§4.1), which
+  decide how the engine's own validation rules combine.
 - BYOD (`is_managed = false`) tables are not exported in v1.
 
 ## 3. Layout
@@ -103,8 +104,15 @@ The file holds everything that belongs to one collection:
     { "role": "viewer", "column": "internal_note", "read": false, "write": false }
   ],
   "validation": [
-    { "field": "title", "rule": "length", "config": { "max": 120 },
-      "message": "Title is too long" }
+    { "field": "title", "rule": "maxLength", "config": { "value": 120 },
+      "message": "Title is too long" },
+    { "field": "title", "rule": "pattern", "config": { "pattern": "^[A-Z]" },
+      "message": "Title starts with a capital" }
+  ],
+  "validationGroups": [
+    { "name": "title_either", "field": "title", "logic": "OR",
+      "rules": [{ "rule": "maxLength", "config": { "value": 120 } },
+                { "rule": "pattern", "config": { "pattern": "^[A-Z]" } }] }
   ]
 }
 ```
@@ -116,6 +124,20 @@ The file holds everything that belongs to one collection:
   `created_at` and the rest. They are implied by the format version.
 - **Relations live in the source collection's file.** For an m2m, the
   junction table is derived and not listed.
+- **Validation rules are the instance's.** A tenant's own rule (migration 092)
+  is tenant state and stays out, as do tenant-scoped grants.
+- **Validation groups** (`zvd_validation_rule_groups`, the `developer/validation`
+  extension's table, instance-wide since migration 091) are keyed by `name`,
+  unique per collection. A group stores its members as rule ids, which no other
+  instance shares, so the file names each member by its rule's key instead:
+  `rule` and `config`, on the group's `field`. Apply resolves each key to that
+  instance's rule id, after the `validation` entries are written. Refused before
+  anything changes: a member no `validation` entry of the file answers, a group
+  name twice, and groups on an instance without the extension's table. A key two
+  instance rules share is refused when its group is written. Format 1 carried no
+  groups (an export silently lost them, so a pull applied elsewhere left every
+  rule of the field required); format 2 is the first with them, and a format-1
+  file is refused, since planning it would remove every group.
 
 ### 4.2 `roles.json`
 

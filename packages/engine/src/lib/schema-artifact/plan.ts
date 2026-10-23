@@ -13,7 +13,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { exportField, isDefaultGrant, SCHEMA_FORMAT, serialize } from './export.js';
+import { exportField, isDefaultGrant, memberKey, SCHEMA_FORMAT, serialize } from './export.js';
 import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
 export interface PlanStep {
@@ -99,7 +99,7 @@ const MIGRATION_ID = /^\d{8}T\d{6}(-[a-z0-9-]+)?$/;
 const NAME = /^[a-z][a-z0-9_]*$/;
 
 /** The collection lists `apply` writes entry by entry. */
-export type EntryList = 'rowRules' | 'columnPermissions' | 'validation';
+export type EntryList = 'rowRules' | 'columnPermissions' | 'validation' | 'validationGroups';
 
 export class SchemaFileError extends Error {}
 
@@ -151,6 +151,7 @@ const COLLECTION_KEYS = new Set([
   'rowRules',
   'columnPermissions',
   'validation',
+  'validationGroups',
 ]);
 
 /** Collection keys that are lists of entries, each diffed by its natural key. */
@@ -183,7 +184,51 @@ const LISTS: {
     id: (e) => `${e.field} ${e.rule} ${serialize(e.config ?? null).trim()}`,
     canon: (e) => ({ ...e, active: e.active === true ? null : e.active }),
   },
+  {
+    // After `validation`: a group's members are resolved to the rules it puts.
+    key: 'validationGroups',
+    entries: 'validationGroups',
+    noun: 'validation group',
+    id: (e) => String(e.name),
+    canon: (e) => ({
+      ...e,
+      logic: e.logic ?? 'AND',
+      active: e.active === true ? null : e.active,
+      // Members are a set: their order in the file is not a change.
+      rules: ((e.rules as Obj[] | undefined) ?? []).map(memberKey).sort(),
+    }),
+  },
 ];
+
+/**
+ * A group names each member by the key of a rule in the same file, on the
+ * group's field: an id would not exist on the instance the file is applied to.
+ * A name twice, or a member no rule answers, is refused here — before apply.
+ */
+function checkGroups(path: string, file: Obj) {
+  const rules = new Set(
+    list(path, file.validation, 'validation').map((v) => `${v.field} ${memberKey(v)}`),
+  );
+  const names = new Set<string>();
+  for (const g of list(path, file.validationGroups, 'validationGroups')) {
+    const where = `${path}: validation group ${show(g.name)}`;
+    if (typeof g.name !== 'string' || !g.name || typeof g.field !== 'string' || !g.field) {
+      throw new SchemaFileError(`${path}: every validation group needs a name and a field`);
+    }
+    if (names.has(g.name)) throw new SchemaFileError(`${path}: validation group ${g.name} twice`);
+    names.add(g.name);
+    if (g.logic !== undefined && g.logic !== null && g.logic !== 'AND' && g.logic !== 'OR') {
+      throw new SchemaFileError(`${where}: logic must be AND or OR`);
+    }
+    for (const m of list(path, g.rules, `${g.name}.rules`)) {
+      if (!rules.has(`${g.field} ${memberKey(m)}`)) {
+        throw new SchemaFileError(
+          `${where} names rule ${memberKey(m)} on ${g.field}, which no validation entry in this file is`,
+        );
+      }
+    }
+  }
+}
 
 const same = (a: unknown, b: unknown) => serialize(a ?? null) === serialize(b ?? null);
 const show = (v: unknown) => (v === undefined || v === null ? '(unset)' : JSON.stringify(v));
@@ -295,6 +340,7 @@ function read(files: Record<string, unknown>): Parsed {
         seen.add(f.name);
       }
       for (const { key } of LISTS) list(path, file[key], key);
+      checkGroups(path, file);
       out.collections.set(name, file);
     }
   }

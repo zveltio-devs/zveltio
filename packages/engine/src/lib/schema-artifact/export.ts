@@ -9,15 +9,19 @@
  *
  * Out of the artifact (RFC §2): engine and extension collections (`is_system`),
  * BYOD tables (`is_managed = false`), rows, secrets, and tenant state — grants
- * scoped to one tenant and user→role assignments.
+ * scoped to one tenant and user→role assignments. Validation rules are the
+ * instance's (a tenant's own rule, migration 092, is tenant state), and so are
+ * `developer/validation`'s rule groups, which combine instance rules only.
  */
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { isDefaultGrant } from '../tenancy/index.js';
+import { toIdArray } from '../validation-engine.js';
 import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
-export const SCHEMA_FORMAT = 1;
+/** 2: collection files carry `validationGroups`; a format-1 file would plan every group away. */
+export const SCHEMA_FORMAT = 2;
 const SCHEMA_URL = 'https://zveltio.com/schema/v1';
 
 /** Keys written first, in this order; every other key is sorted. */
@@ -79,6 +83,35 @@ export function exportField(f: Record<string, unknown>): Record<string, unknown>
   return out;
 }
 
+/** A group member's key: its rule's `validation` key, the group giving the field. */
+export const memberKey = (m: { rule?: unknown; config?: unknown }) =>
+  `${m.rule} ${serialize(m.config ?? null).trim()}`;
+
+interface RuleGroupRow {
+  name: string;
+  collection: string;
+  field_name: string;
+  description: string | null;
+  logic: string;
+  rule_ids: string[];
+  is_active: boolean;
+}
+
+/**
+ * `developer/validation`'s groups (instance-wide since migration 091), or none
+ * when the extension, and so its table, is not installed.
+ */
+async function ruleGroups(db: Database): Promise<RuleGroupRow[]> {
+  const present = await sql<{ ok: boolean }>`
+    SELECT to_regclass('zvd_validation_rule_groups') IS NOT NULL AS ok`.execute(db);
+  if (!present.rows[0]?.ok) return [];
+  // rule_ids may arrive as the text form `{a,b}` (see toIdArray).
+  const rows = await sql<Omit<RuleGroupRow, 'rule_ids'> & { rule_ids: unknown }>`
+    SELECT name, collection, field_name, description, logic, rule_ids, is_active
+      FROM zvd_validation_rule_groups`.execute(db);
+  return rows.rows.map((r) => ({ ...r, rule_ids: toIdArray(r.rule_ids) }));
+}
+
 export async function exportSchema(db: Database): Promise<Record<string, string>> {
   const [collections, relations, rowRules, columnPerms, validation, roles, grants] =
     await Promise.all([
@@ -115,6 +148,11 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
         .where('v1', '=', '*')
         .execute(),
     ]);
+  const groups = await ruleGroups(db);
+  // A member is named by its rule's key in the file, never by id. Only an
+  // instance rule on the group's own field can be one (writeValidationRuleGroup);
+  // any other id in rule_ids is one the evaluator ignores, so it is left out.
+  const ruleById = new Map(validation.map((v) => [v.id, v]));
 
   const files: Record<string, string> = {
     'zveltio-schema.json': serialize({
@@ -210,6 +248,24 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
             (v) => JSON.stringify(normalize(v.config)),
           ),
         ),
+      validationGroups: groups
+        .filter((g) => g.collection === name)
+        .map((g) => ({
+          name: g.name,
+          field: g.field_name,
+          logic: g.logic,
+          description: g.description,
+          active: g.is_active ? null : false,
+          rules: g.rule_ids
+            .flatMap((id) => {
+              const v = ruleById.get(id);
+              return v?.field_name === g.field_name
+                ? [{ rule: v.rule_type, config: v.rule_config }]
+                : [];
+            })
+            .sort(byKey(memberKey)),
+        }))
+        .sort(byKey((g) => g.name)),
     });
   }
 

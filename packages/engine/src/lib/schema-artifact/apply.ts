@@ -3,9 +3,9 @@
  *
  * `applySchema` makes the instance match the files, for the steps the plan
  * gives an `op`: creating collections, adding fields, collection settings,
- * field order, row rules, column permissions, validation rules, roles and
- * global grants. Anything else in the plan — a drop, a field alteration, a
- * relation — refuses the whole apply before a single change, so a
+ * field order, row rules, column permissions, validation rules and their
+ * groups, roles and global grants. Anything else in the plan — a drop, a field
+ * alteration, a relation — refuses the whole apply before a single change, so a
  * half-applied file set is never the result of an unsupported step.
  *
  * Each op runs through the functions the collection and permission routes
@@ -49,7 +49,7 @@ import {
   updateRlsPolicy,
 } from '../tenancy/index.js';
 import { checkValidationExpression, invalidateRulesCache } from '../validation-engine.js';
-import { exportSchema } from './export.js';
+import { exportSchema, memberKey } from './export.js';
 import { sql } from 'kysely';
 import {
   type ApplyOp,
@@ -169,6 +169,11 @@ async function prepare(
     case 'putEntry':
     case 'removeEntry':
       checkEntry(target, op.list, op.entry);
+      if (op.list === 'validationGroups' && !(await ruleGroupsTable(db))) {
+        throw new SchemaFileError(
+          `${target}: validation groups are the developer/validation extension's, which this instance does not have`,
+        );
+      }
       return op;
     case 'alterField':
       return { ...op, field: parsed(target, FieldSchema.safeParse(op.field)) };
@@ -274,6 +279,8 @@ const optional = (v: unknown, type: string) => v === undefined || v === null || 
 
 /** The keys each list entry needs, as `exportSchema` writes them. */
 function checkEntry(target: string, list: string, e: Record<string, unknown>) {
+  // The plan checked a group's keys, and that each member is a rule in the files.
+  if (list === 'validationGroups') return;
   const ok =
     list === 'rowRules'
       ? str(e.role) &&
@@ -327,7 +334,7 @@ const findColumnPermission = (db: Database, collection: string, e: Entry) =>
     .executeTakeFirst()
     .then((r) => r?.id);
 
-const findValidation = (db: Database, collection: string, e: Entry) =>
+const findValidation = (db: Database, collection: string, e: Entry, limit = 1) =>
   db
     .selectFrom('zv_validation_rules')
     .select('id')
@@ -337,12 +344,58 @@ const findValidation = (db: Database, collection: string, e: Entry) =>
     // The file holds instance rules; a tenant's own rule with the same key is not one.
     .where('tenant_id', 'is', null)
     .where(sql<boolean>`COALESCE(rule_config, 'null'::jsonb) = ${toJsonb(e.config ?? null)}`)
-    .executeTakeFirst()
-    .then((r) => r?.id);
+    .limit(limit)
+    .execute()
+    .then((r) => r.map((x) => x.id));
+
+const ruleGroupsTable = async (db: Database) =>
+  (
+    await sql<{ ok: boolean }>`
+    SELECT to_regclass('zvd_validation_rule_groups') IS NOT NULL AS ok`.execute(db)
+  ).rows[0]?.ok;
+
+/**
+ * A group as `ctx.internals.writeValidationRuleGroup` writes it, keyed by its
+ * name. Each member is resolved here to this instance's rule id: the instance
+ * rule on the group's field with that rule and config, which the steps before
+ * this one put.
+ */
+async function putRuleGroup(db: Database, collection: string, e: Entry, userId?: string) {
+  const ids: string[] = [];
+  for (const m of (e.rules as Entry[] | undefined) ?? []) {
+    const found = await findValidation(db, collection, { ...m, field: e.field }, 2);
+    if (found.length !== 1) {
+      throw new SchemaFileError(
+        `${collection} validation group ${e.name}: ${found.length ? 'more than one' : 'no'} ` +
+          `instance rule ${memberKey(m)} on ${e.field}`,
+      );
+    }
+    ids.push(found[0]!);
+  }
+  await sql`
+    INSERT INTO zvd_validation_rule_groups
+      (name, collection, field_name, description, logic, rule_ids, is_active, created_by)
+    VALUES (${e.name}, ${collection}, ${e.field}, ${e.description ?? null}, ${e.logic ?? 'AND'},
+            ${[...new Set(ids)]}::uuid[], ${e.active !== false}, ${userId ?? 'schema-apply'})
+    ON CONFLICT (collection, name) DO UPDATE
+      SET field_name = EXCLUDED.field_name, description = EXCLUDED.description,
+          logic = EXCLUDED.logic, rule_ids = EXCLUDED.rule_ids, is_active = EXCLUDED.is_active`.execute(
+    db,
+  );
+}
 
 /** Adds an entry, or changes the one with its natural key (the plan's `id`). */
-async function putEntry(db: Database, collection: string, list: string, e: Entry) {
-  if (list === 'rowRules') {
+async function putEntry(
+  db: Database,
+  collection: string,
+  list: string,
+  e: Entry,
+  userId: string | undefined,
+) {
+  if (list === 'validationGroups') {
+    await putRuleGroup(db, collection, e, userId);
+    invalidateRulesCache(collection);
+  } else if (list === 'rowRules') {
     const id = await findRowRule(db, collection, e);
     const is_enabled = e.enabled !== false;
     // ponytail: updateRlsPolicy COALESCEs, so a description removed from the file stays; clear it in Studio.
@@ -373,7 +426,7 @@ async function putEntry(db: Database, collection: string, list: string, e: Entry
       nl_description: (e.description as string | undefined) ?? null,
       is_active: e.active !== false,
     };
-    const id = await findValidation(db, collection, e);
+    const [id] = await findValidation(db, collection, e);
     if (id) {
       await db
         .updateTable('zv_validation_rules')
@@ -430,14 +483,18 @@ async function putRelation(
 }
 
 async function removeEntry(db: Database, collection: string, list: string, e: Entry) {
-  if (list === 'rowRules') {
+  if (list === 'validationGroups') {
+    await sql`DELETE FROM zvd_validation_rule_groups
+               WHERE collection = ${collection} AND name = ${e.name}`.execute(db);
+    invalidateRulesCache(collection);
+  } else if (list === 'rowRules') {
     const id = await findRowRule(db, collection, e);
     if (id) await deleteRlsPolicy(id);
   } else if (list === 'columnPermissions') {
     const id = await findColumnPermission(db, collection, e);
     if (id) await deleteColumnPermission(db, id);
   } else {
-    const id = await findValidation(db, collection, e);
+    const [id] = await findValidation(db, collection, e);
     if (id) await db.deleteFrom('zv_validation_rules').where('id', '=', id).execute();
     invalidateRulesCache(collection);
   }
@@ -531,7 +588,7 @@ async function run(db: Database, op: Prepared, userId: string | undefined): Prom
     case 'putEntry':
       // A row rule is checked against the columns it names, which an earlier
       // step may have added, so only now; the steps before it stay applied.
-      return putEntry(db, op.collection, op.list, op.entry).catch((err) => {
+      return putEntry(db, op.collection, op.list, op.entry, userId).catch((err) => {
         if (err instanceof UnenforceableRuleError) {
           throw new SchemaFileError(`${op.collection} row rule: ${err.message}`);
         }
