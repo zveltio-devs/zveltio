@@ -42,3 +42,26 @@ reconnects. A worker-isolated extension is refused it by name.
   instead of a message an extension has to remember to send.
 - A publisher whose own send fails (the bus down at `publish`) only logs; no
   receiver learns of it. v2 should say what delivery it guarantees.
+
+## 2. API-key `execute` is per extension — breaking
+
+**What happened.** A key's scopes name resources. For an extension the
+resource is `$ext:<name>`, so `execute` on it admits every manifest action of
+the extension whose permission action is `execute`. A key meant for one action
+(send an invoice) can run all of them (cancel, storno, …).
+
+**What v1 does.** Keeps the per-extension scope, documented in
+[developer-guide.md](developer-guide.md). An extension that needs a narrower
+key gives the action its own permission action (`approve`, `storno`) and the
+key names that action. Studio's API-key page offers only `execute`; a custom
+permission action is typed into the scope by hand.
+
+**What v2 should do.**
+
+- Address an action as a resource of its own (`$ext:<name>/<action>`, or the
+  manifest action id), so a key, the permission matrix and an audit row all
+  name the same thing.
+- List extension actions in `GET /api/admin/resources`, so the matrix and the
+  API-key page can offer them instead of free text.
+- Decide whether `$ext:<name>` with `execute` keeps meaning "every action"
+  (a wildcard) or is refused once per-action resources exist.
