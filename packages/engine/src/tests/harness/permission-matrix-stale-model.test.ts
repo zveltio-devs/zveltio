@@ -47,7 +47,11 @@ d('the matrix save through a stale model', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: god },
       body: JSON.stringify({
-        permissions: rules.map((r) => ({ role_id: roleId, resource: r[2], action: r[3] })),
+        permissions: rules.map((r) => ({
+          role_id: roleId,
+          resource: r[2],
+          action: r[3],
+        })),
       }),
     });
 
@@ -103,5 +107,23 @@ d('the matrix save through a stale model', () => {
     expect(await inTable(kept)).toBe(true);
     expect(await inModel(dropped)).toBe(false);
     expect(await inTable(dropped)).toBe(false);
+  });
+
+  it('two concurrent saves leave exactly one of the posted sets', async () => {
+    // Each save reads the role's rows, then writes the difference: unlocked,
+    // the second read could see neither save's writes, and the result was a
+    // mix of both sets — rules neither operator posted together.
+    const a = ['ca1', 'ca2', 'ca3', 'ca4'].map(rule);
+    const b = ['cb1', 'cb2', 'cb3', 'cb4'].map(rule);
+    expect((await save([a[0], b[0]])).status).toBe(200);
+
+    const [ra, rb] = await Promise.all([save(a), save(b)]);
+    expect(ra.status).toBe(200);
+    expect(rb.status).toBe(200);
+
+    const held = async (rs: string[][]) =>
+      (await Promise.all(rs.map(inTable))).filter(Boolean).length;
+    const counts = [await held(a), await held(b)].sort();
+    expect(counts).toEqual([0, 4]);
   });
 });
