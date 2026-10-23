@@ -1488,6 +1488,13 @@ export function __sweepIdle(): Promise<void> {
   return _sweep ?? Promise.resolve();
 }
 
+/** Test seam: drops a retry an earlier file's failed sweep left pending, and its backoff. */
+export function __resetSweepRetry(): void {
+  if (_sweepRetry) clearTimeout(_sweepRetry);
+  _sweepRetry = null;
+  _sweepRetryMs = SWEEP_RETRY_MS;
+}
+
 /**
  * Moves on every sweep request. A connection authenticated before a revocation
  * and registered after the sweep it triggered compares this across the two and

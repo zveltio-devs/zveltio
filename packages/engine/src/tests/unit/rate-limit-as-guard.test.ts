@@ -31,12 +31,14 @@ describe('rate limit used as an in-handler guard', () => {
     else process.env.NODE_ENV = savedEnv;
   });
 
-  const guard = rateLimit({
-    keyPrefix: `guard-probe-${Date.now()}`,
-    max: 3,
-    windowMs: 60_000,
-    message: 'nope',
-  });
+  // One window per test, so no test depends on another having run first.
+  const newGuard = () =>
+    rateLimit({
+      keyPrefix: `guard-probe-${crypto.randomUUID()}`,
+      max: 3,
+      windowMs: 60_000,
+      message: 'nope',
+    });
 
   /** Drives the middleware the way the handler does, through a real context. */
   async function attempt(app: Hono, path = '/probe') {
@@ -51,6 +53,7 @@ describe('rate limit used as an in-handler guard', () => {
 
   it('returns nothing while under the limit, so the handler proceeds', async () => {
     const app = new Hono();
+    const guard = newGuard();
     let reached = 0;
     app.post('/probe', async (c) => {
       const limited = await guard(c, async () => undefined);
@@ -68,6 +71,7 @@ describe('rate limit used as an in-handler guard', () => {
 
   it('returns a 429 Response once the limit is passed, and the handler body never runs', async () => {
     const app = new Hono();
+    const guard = newGuard();
     let reached = 0;
     app.post('/probe', async (c) => {
       const limited = await guard(c, async () => undefined);
@@ -76,9 +80,9 @@ describe('rate limit used as an in-handler guard', () => {
       return c.json({ ok: true });
     });
 
-    // The three from the previous test already spent the window for this key.
+    for (let i = 0; i < 3; i++) await attempt(app);
     const res = await attempt(app);
     expect(res.status).toBe(429);
-    expect(reached).toBe(0);
+    expect(reached).toBe(3);
   });
 });

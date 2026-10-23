@@ -15,7 +15,7 @@
  * ReDoS timeout.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { registerCoreFieldTypes } from '../../field-types/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
@@ -33,6 +33,10 @@ const COLLECTION = {
 };
 
 describe('processInput — validation rules that cannot be evaluated', () => {
+  // The module keeps the handle: a failing one left here refused every later
+  // file's writes when the run order put this file first.
+  afterAll(() => initValidationEngine(null as unknown as Database));
+
   it('refuses the write and says why, rather than letting it through', async () => {
     const db = new CannedDb();
     // Not "no rules" — unreadable rules. The two must not look the same.

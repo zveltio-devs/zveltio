@@ -14,7 +14,6 @@ import type { Database } from '../../db/index.js';
 import { nextCronRun } from './cron.js';
 import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from '../runtime/index.js';
-import { extensionRegistry } from '../extensions/index.js';
 import { serviceRegistry } from '../service-registry.js';
 import {
   runAsTenantWithoutTransaction,
@@ -469,6 +468,9 @@ async function runPerTenant(
  * job reporting success could be wrong for years.
  */
 async function runTrashPurge(db: Database): Promise<void> {
+  // Lazy: a static import closed data → flows → extensions → data, and a file
+  // importing lib/data first met `DDLManager` uninitialized in register.ts.
+  const { extensionRegistry } = await import('../extensions/index.js');
   const handler = extensionRegistry.getTrashPurgeHandler();
   if (!handler) return;
   await runPerTenant(db, 'Trash', (tenantDb) => handler(tenantDb));

@@ -60,11 +60,6 @@ beforeAll(async () => {
   process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
   _setCacheForTests(null);
   await initAuth(asDb(seedDb()));
-  db = seedDb();
-  db.fail(/SELECT role FROM "user"/i, new Error('timeout exceeded when trying to connect'));
-  await initPermissions(asDb(db));
-  initRls(asDb(db));
-  clearLocalPermissionCache();
 });
 
 afterAll(async () => {
@@ -75,6 +70,16 @@ afterAll(async () => {
 });
 
 describe('a failed role lookup fails closed', () => {
+  // Here, not at file level: the healthy block below swaps the db too, and the
+  // blocks must not depend on which runs first.
+  beforeAll(async () => {
+    db = seedDb();
+    db.fail(/SELECT role FROM "user"/i, new Error('timeout exceeded when trying to connect'));
+    await initPermissions(asDb(db));
+    initRls(asDb(db));
+    clearLocalPermissionCache();
+  });
+
   it('resolveUserRole rejects instead of inventing a role', async () => {
     await expect(resolveUserRole({ id: USER.id })).rejects.toThrow(/timeout/);
   });
