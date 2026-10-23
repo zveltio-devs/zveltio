@@ -269,17 +269,40 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       // recorded as revoked by the adapter, which would outlive the next boot.
       // A default the save omits is removed (and stays revoked); one it adds back
       // is re-added (and its revocation cleared).
+      //
+      // The diff is against the table AND this replica's model, not the model
+      // alone: a model behind the table (another replica's change not yet heard)
+      // made a rule only the table held look absent, so unticking it left it
+      // granted, and a rule only the model held look present, so keeping it never
+      // wrote it (permission-matrix-stale-model.test.ts). The enforcer's writes
+      // reach the table and the model whichever of them disagrees.
+      //
+      // Domain '*' only, as GET /permissions lists: a tenant's rule for the role
+      // is not on the screen, so a save neither drops nor globalizes it.
       for (const [roleName, keep] of wanted) {
-        // Domain '*' only, as GET /permissions lists: a tenant's rule for the
-        // role is not on the screen, so a save neither drops nor globalizes it.
-        const have = new Set(
+        const tableRows = await db
+          .selectFrom('zvd_permissions')
+          .select(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
+          .where('ptype', '=', 'p')
+          .where('v0', '=', roleName)
+          .where('v1', '=', '*')
+          .execute();
+        // Shaped as the adapter loads a row into the model: absent columns dropped.
+        const inTable = new Set(
+          tableRows.map((r) =>
+            JSON.stringify([r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v) => v !== null)),
+          ),
+        );
+        const inModel = new Set(
           (await e.getFilteredPolicy(0, roleName, '*')).map((r) => JSON.stringify(r)),
         );
-        for (const rule of have) {
+        for (const rule of new Set([...inTable, ...inModel])) {
           if (!keep.has(rule)) await e.removePolicy(...(JSON.parse(rule) as string[]));
         }
         for (const rule of keep) {
-          if (!have.has(rule)) await e.addPolicy(...(JSON.parse(rule) as string[]));
+          if (!(inTable.has(rule) && inModel.has(rule))) {
+            await e.addPolicy(...(JSON.parse(rule) as string[]));
+          }
         }
       }
 
