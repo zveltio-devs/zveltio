@@ -23,10 +23,11 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const C = `vrgm_${Date.now()}`;
-const MIGRATION = new URL(
-  '../../db/migrations/sql/096_validation_rule_group_members.sql',
-  import.meta.url,
-).pathname;
+const migration = (file: string) =>
+  new URL(`../../db/migrations/sql/${file}.sql`, import.meta.url).pathname;
+const M096 = migration('096_validation_rule_group_members');
+// 097 renames 096's trigger, so 096 is rolled back and re-applied under it.
+const M097 = migration('097_validation_test_case_orphans');
 
 d('validation rule group members', () => {
   let db: Database;
@@ -60,8 +61,8 @@ d('validation rule group members', () => {
     const ids = r.rows[0]?.ids;
     return ids === undefined ? undefined : ids === '' ? [] : ids.split(',');
   };
-  const runMigration = async (half: 'up' | 'down') => {
-    const parsed = parseMigrationFile(await Bun.file(MIGRATION).text());
+  const runMigration = async (file: string, half: 'up' | 'down') => {
+    const parsed = parseMigrationFile(await Bun.file(file).text());
     await db.transaction().execute(async (trx) => {
       for (const stmt of splitSqlStatements(parsed[half] ?? '')) await sql.raw(stmt).execute(trx);
     });
@@ -119,15 +120,17 @@ d('validation rule group members', () => {
     const a = await rule();
     const dead = crypto.randomUUID();
     await group('planted', [dead, a]);
-    await runMigration('up');
+    await runMigration(M097, 'down');
+    await runMigration(M096, 'up');
     expect(await members('planted')).toEqual([a]);
 
-    await runMigration('down');
+    await runMigration(M096, 'down');
     const b = await rule();
     await group('after_down', [b]);
     await db.deleteFrom('zv_validation_rules').where('id', '=', b).execute();
     expect(await members('after_down')).toEqual([b]);
-    await runMigration('up');
+    await runMigration(M096, 'up');
+    await runMigration(M097, 'up');
     expect(await members('after_down')).toEqual([]);
   });
 
