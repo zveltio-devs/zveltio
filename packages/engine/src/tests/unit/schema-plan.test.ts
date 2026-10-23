@@ -150,6 +150,18 @@ describe('planSchema', () => {
     ).toEqual(['grant posts delete']);
   });
 
+  it('never creates or removes a role the engine seeds', () => {
+    const roles = [
+      { name: 'editor', permissions: [] },
+      { name: 'tenant_owner', permissions: [{ resource: 'posts', actions: ['delete'] }] },
+    ];
+    // On one side only: the grant moves, the role stays the engine's.
+    expect(plan(files([posts()], roles))).toEqual(['+ role tenant_owner grant posts delete']);
+    expect(planSchema(files([posts()], roles), files([posts()])).map((s) => s.action)).toEqual([
+      'revoke posts delete',
+    ]);
+  });
+
   it('plans a revoked default both ways, and never creates or removes its role', () => {
     const editor = { name: 'editor', permissions: [] };
     const revoking = (actions: string[]) =>
