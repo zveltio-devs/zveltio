@@ -25,7 +25,11 @@ import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import { auditLog } from '../audit.js';
 import { QuotaExceededError } from './extension-errors.js';
 import { resolveExtensionsBase } from './extension-paths.js';
-import { runExtensionMigrations } from './migration-runner.js';
+import {
+  pendingExtensionMigrations,
+  pendingMigrationsRefusal,
+  runExtensionMigrations,
+} from './migration-runner.js';
 import { grantExtensionDbRole, grantWorkerDbRole } from './ext-db-role.js';
 import { embedPageSchemas, type ManifestMeta } from './manifest-schema.js';
 import {
@@ -58,6 +62,8 @@ export async function loadExtensionFromDir(
   app: Hono,
   ctx: ExtensionContext,
   basePath?: string,
+  /** False when only a firm's row asks for this load: pending migrations refuse it. */
+  migrate = true,
 ): Promise<void> {
   // `engine` is the owner tag of the engine's own registrations: an extension
   // under that name got the unrestricted `ctx.services` scope, registered
@@ -447,6 +453,21 @@ export async function loadExtensionFromDir(
     // printed its engine-table warning twice per load.
     const allowedTables = await buildAllowedTables(migrationPaths, extName);
     if (migrationPaths.length > 0) {
+      // Migrations are DDL for the whole instance: god's decision, never a
+      // firm's (owner, 2026-10-23). With none pending the runner below only
+      // reconciles the extension's own policies.
+      if (!migrate) {
+        const pending = await pendingExtensionMigrations(extension, ctx.db);
+        if (pending.length > 0) {
+          const msg = pendingMigrationsRefusal(
+            extName,
+            pending.map((m) => m.name),
+          );
+          console.error(`❌ ${msg}`);
+          loader.lastLoadError.set(extName, msg);
+          return;
+        }
+      }
       await runExtensionMigrations(extension, ctx.db, allowedTables);
     }
 
