@@ -305,7 +305,9 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   if (msg.event === EXTENSION_LIFECYCLE_EVENT) {
     if (!msg.collection) return;
     return import('../extensions/index.js')
-      .then((m) => m.extensionLoader.syncWithRegistry(msg.collection))
+      .then(async (m) => {
+        await m.extensionLoader.syncWithRegistry(msg.collection);
+      })
       .catch((err: Error) => {
         console.error(
           `[realtime-bus] ${msg.collection}: lifecycle change not applied:`,

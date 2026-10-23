@@ -1252,8 +1252,7 @@ export function registerMarketplaceRoutes(
     // off, or the last one on going off. Load or unload here as every replica
     // does on the announcement the dispatcher sends; with no row on any more,
     // take its database roles back, as a disable does.
-    await self.syncWithRegistry(name);
-    const refusal = self.getLastLoadError(name);
+    const refusal = await self.syncWithRegistry(name);
     if (firmOnly && !self.isActive(name) && isPendingMigrationsRefusal(refusal)) {
       if (prior) {
         await db
@@ -1271,6 +1270,27 @@ export function registerMarketplaceRoutes(
       }
       invalidateActivationCache(name);
       return c.json({ error: refusal }, 409);
+    }
+    // Only when this row is what loads the code: with god's row on, whether it
+    // loaded is god's enable's outcome, already on record.
+    if (firmOnly && !self.isActive(name)) {
+      // Before boot finishes the sync is queued: it loads, or refuses and records
+      // why, once the engine is up.
+      if (refusal === undefined) {
+        return c.json(
+          { success: true, name, tenant_id: tenantId, is_enabled: true, queued: true },
+          202,
+        );
+      }
+      // As an enable that fails to load: the row stays on (the next boot or sync
+      // retries) and the reason is on record for the marketplace to show.
+      await db
+        .updateTable('zv_extension_registry')
+        .set({ last_load_error: refusal, last_load_at: new Date() })
+        .where('name', '=', name)
+        .execute()
+        .catch(() => {});
+      return c.json({ error: refusal }, 422);
     }
     if (!enabled) {
       await withExtensionLock(db, name, async () => {

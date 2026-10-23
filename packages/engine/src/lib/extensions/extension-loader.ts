@@ -585,8 +585,12 @@ export class ExtensionLoader {
     setReloadCallback(fn);
   }
 
-  /** Another replica changed `name`'s lifecycle: match the registry here (lifecycle.ts). */
-  async syncWithRegistry(name: string): Promise<void> {
+  /**
+   * Another replica changed `name`'s lifecycle: match the registry here (lifecycle.ts).
+   * Answers why a load was refused; before boot finishes the sync is queued and
+   * answers nothing.
+   */
+  async syncWithRegistry(name: string): Promise<string | undefined> {
     if (!_reloadCallback) {
       _owedSyncs.add(name);
       return;
