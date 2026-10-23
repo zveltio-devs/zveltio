@@ -128,6 +128,7 @@ d('schema export', () => {
       'singularName',
       'sort',
       'validation',
+      'validationGroups',
     ]);
   });
 

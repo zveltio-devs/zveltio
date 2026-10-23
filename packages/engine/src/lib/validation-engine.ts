@@ -494,7 +494,7 @@ export async function getValidationRules(
  * Same shape as the NUMERIC problem in `lib/numeric.ts`: the wire format is text,
  * the code assumed a native type, and nothing said otherwise.
  */
-function toIdArray(value: unknown): string[] {
+export function toIdArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String);
   if (typeof value !== 'string') return [];
   const inner = value.trim().replace(/^\{/, '').replace(/\}$/, '');

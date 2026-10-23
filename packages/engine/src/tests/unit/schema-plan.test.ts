@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { serialize } from '../../lib/schema-artifact/export.js';
+import { SCHEMA_FORMAT, serialize } from '../../lib/schema-artifact/export.js';
 import { planSchema, SchemaFileError } from '../../lib/schema-artifact/plan.js';
 
 type Obj = Record<string, unknown>;
@@ -24,7 +24,7 @@ const posts = (): Obj => ({
 });
 
 const files = (cols: Obj[], roles: Obj[] = [{ name: 'editor', permissions: [] }]) => ({
-  'zveltio-schema.json': serialize({ format: 1 }),
+  'zveltio-schema.json': serialize({ format: SCHEMA_FORMAT }),
   'roles.json': serialize({ roles }),
   ...Object.fromEntries(cols.map((c) => [`collections/${c.name}.json`, serialize(c)])),
 });
@@ -161,9 +161,40 @@ describe('planSchema', () => {
       bad({ ...base, 'collections/posts.json': serialize({ ...posts(), tenantId: 'x' }) }),
     ).toThrow(/unknown key tenantId/);
     expect(bad({ ...base, 'settings.json': '{}' })).toThrow(/not a schema file/);
-    expect(bad({ ...base, 'zveltio-schema.json': serialize({ format: 2 }) })).toThrow(/format 2/);
+    // Format 1 knows no validation groups: planned, it would remove every one.
+    expect(bad({ ...base, 'zveltio-schema.json': serialize({ format: 1 }) })).toThrow(/format 1/);
     const { 'roles.json': _, ...noRoles } = base;
     expect(bad(noRoles)).toThrow(/roles.json is missing/);
+  });
+
+  it('plans validation groups by name, their members by rule key', () => {
+    const grouped = (rules: Obj[], extra: Obj = {}): Obj => ({
+      ...posts(),
+      validation: [
+        { field: 'title', rule: 'minLength', config: { value: 3 } },
+        { field: 'title', rule: 'pattern', config: { pattern: '^A' } },
+      ],
+      validationGroups: [{ name: 'either', field: 'title', logic: 'OR', rules, ...extra }],
+    });
+    const both = [
+      { rule: 'minLength', config: { value: 3 } },
+      { rule: 'pattern', config: { pattern: '^A' } },
+    ];
+    const current = files([grouped(both)]);
+    const steps = (d: Obj) => planSchema(current, files([d])).map((s) => s.action);
+    // Member order is not a change.
+    expect(steps(grouped([...both].reverse()))).toEqual([]);
+    expect(steps(grouped([both[0]!]))).toEqual(['alter validation group either']);
+    expect(() => steps(grouped([{ rule: 'maxLength', config: { value: 9 } }]))).toThrow(
+      /validation group "either" names rule maxLength/,
+    );
+    expect(() => steps(grouped(both, { logic: 'XOR' }))).toThrow(/AND or OR/);
+    const twice = grouped(both);
+    twice.validationGroups = [
+      ...(twice.validationGroups as Obj[]),
+      { name: 'either', field: 'title' },
+    ];
+    expect(() => steps(twice)).toThrow(/either twice/);
   });
 
   describe('migrations', () => {
