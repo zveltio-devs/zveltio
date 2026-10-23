@@ -627,11 +627,18 @@ export async function publishApiKeyActor(
   const own = encodeApiKeyScopes(scopes);
   const { all, grants } = issuerGrants ? intersectGrants(own, issuerGrants) : own;
   const rows = issuerSettings(issuer);
+  // The roles `getRlsFilters` matches the key's own rules on: `api_key` plus any
+  // Casbin role the key principal holds (POST /api/permissions/roles takes any
+  // subject). Publishing `api_key` alone stood those rules down for a raw
+  // statement while the data API applied them. Not caught, as for a session.
+  // Imported here: permissions.ts imports this module.
+  const { getUserRoles } = await import('./permissions.js');
+  const roles = [...new Set(['api_key', ...(await getUserRoles(userId))])];
   await sql`
     SELECT set_config('zveltio.user_id', ${userId}, true),
            set_config('zveltio.user_email', '', true),
            set_config('zveltio.user_role', 'api_key', true),
-           set_config('zveltio.user_roles', 'api_key', true),
+           set_config('zveltio.user_roles', ${roles.join(',')}, true),
            set_config('zveltio.issuer_role', ${issuerRole}, true),
            set_config('zveltio.issuer_rows', ${rows.mode}, true),
            set_config('zveltio.issuer_user_id', ${rows.userId}, true),
@@ -654,7 +661,7 @@ export async function publishApiKeyActor(
         userId,
         email: '',
         role: 'api_key',
-        roles: ['api_key'],
+        roles,
         bypass,
         collectionGrants: grants,
         collectionAll: all,

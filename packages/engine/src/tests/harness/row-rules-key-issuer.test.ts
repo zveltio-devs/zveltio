@@ -38,13 +38,19 @@ import {
 } from '../../lib/tenancy/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
 const COLLECTION = `hrowissuer_${STAMP}`;
 const TABLE = `zvd_${COLLECTION}`;
 const ROLE = `rowissuer_${STAMP}`;
+const KEY_ROLE = `rowkey_${STAMP}`;
 
 const field = (name: string) => ({
   name,
@@ -170,6 +176,7 @@ d("a key's row rules are its own AND its issuer's", () => {
     const e = await getEnforcer();
     await e.removeFilteredPolicy(0, ROLE).catch(() => {});
     await e.deleteRolesForUser(issuer).catch(() => {});
+    await e.deleteRolesForUser(`apikey:${keyId}`).catch(() => {});
     await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`.execute(db).catch(() => {});
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLLECTION}`
       .execute(db)
@@ -202,6 +209,36 @@ d("a key's row rules are its own AND its issuer's", () => {
     } finally {
       await e.removePolicy(ROLE, '*', 'data', 'view_all');
       await invalidateUserPermCache(issuer);
+    }
+  });
+
+  // Broken: the database published `zveltio.user_roles = 'api_key'` for every
+  // key while `getRlsFilters` also applies the key principal's Casbin roles, so
+  // a rule on a role the key holds bound the data API and realtime but not a raw
+  // statement under the key's identity. Reachable: POST /api/permissions/roles
+  // takes any subject string, `apikey:<uuid>` included.
+  it('a role the key principal holds binds it in the database as in the engine', async () => {
+    const cookie = await createGodSession(app, db);
+    const res = await app.request('/api/permissions/roles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ userId: `apikey:${keyId}`, role: KEY_ROLE }),
+    });
+    expect(res.status).toBe(200);
+    await rule(KEY_ROLE, 'bucket', 'eq', 'static:b');
+    await invalidateRlsCache(COLLECTION);
+    try {
+      // The issuer half keeps only r1 (bucket a); the key's role keeps bucket b.
+      expect(await viaRealtime()).toEqual([]);
+      expect(await viaDatabase()).toEqual([]);
+      expect(await viaApi()).toEqual([]);
+    } finally {
+      await (await getEnforcer()).deleteRolesForUser(`apikey:${keyId}`);
+      await invalidateUserPermCache(`apikey:${keyId}`);
+      await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLLECTION} AND role = ${KEY_ROLE}`.execute(
+        db,
+      );
+      await invalidateRlsCache(COLLECTION);
     }
   });
 
