@@ -197,9 +197,17 @@ set_config('zveltio.user_id',           <id>,          true)
 set_config('zveltio.user_email',        <email>,       true)
 set_config('zveltio.user_role',         <role>,        true)
 set_config('zveltio.user_roles',        <role,role…>,  true)
+set_config('zveltio.issuer_role',       <role> | '',   true)
 set_config('zveltio.actor',             'on' | 'off',  true)
 set_config('zveltio.rls_bypass',        'on' | 'off',  true)
 ```
+
+`issuer_role` is set for an API key only: its issuer's role, whose column rules
+bind the key as well as `api_key`'s. The column write guard, the masking views
+and the revision view (migrations 072, 075, 077, as replaced by 095) apply the
+rules of `user_role`, `issuer_role` and `*`, as the engine's `keyColumnAccess`
+does. It is `''` for a session, a job key, and an issuer exempt from column
+rules (`data:view_all_columns`).
 
 `role` travels as a variable rather than as a separate `SET LOCAL ROLE` — it is
 a GUC like any other, and merging it saves a round trip: **0.230 ms → 0.175 ms**

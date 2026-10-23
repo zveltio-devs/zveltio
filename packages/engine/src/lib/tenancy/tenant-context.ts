@@ -606,12 +606,16 @@ export function createRequestScopedDb(pool: Database): Database {
  * written against `user_role` means the same thing on both sides. `user_email`
  * stays empty: a key has none, and a rule using it compares against `''`, so it
  * matches no owner — which is what the engine does too.
+ *
+ * `issuerRole` is the issuer's role whose column rules bind the key as well
+ * (`keyColumnAccess`); `''` when none do — no issuer, or one exempt from them.
  */
 export async function publishApiKeyActor(
   userId: string,
   bypass: boolean,
   scopes?: unknown,
   issuerGrants?: { all: boolean; grants: string },
+  issuerRole = '',
 ): Promise<void> {
   const trx = getCurrentTenantTrx();
   if (!trx) return;
@@ -624,6 +628,7 @@ export async function publishApiKeyActor(
            set_config('zveltio.user_email', '', true),
            set_config('zveltio.user_role', 'api_key', true),
            set_config('zveltio.user_roles', 'api_key', true),
+           set_config('zveltio.issuer_role', ${issuerRole}, true),
            set_config('zveltio.actor', 'on', true),
            set_config('zveltio.rls_bypass', ${bypass ? 'on' : 'off'}, true),
            set_config('zveltio.collection_grants', ${grants}, true),
@@ -644,6 +649,7 @@ export async function publishApiKeyActor(
         bypass,
         collectionGrants: grants,
         collectionAll: all,
+        issuerRole,
       },
     };
   }

@@ -392,9 +392,10 @@ below take an instance administrator's session only.
 The function runs inside the request's tenant transaction as the `zveltio_rls`
 role, so tenant isolation and row policies apply to what it reads. It sees the
 caller in `current_setting('zveltio.user_id')` — the user's id, or
-`apikey:<uuid>` for a key, with `zveltio.user_role` = `api_key`. A function
-declared `SECURITY DEFINER` runs with its owner's rights instead, for a
-session and a key alike.
+`apikey:<uuid>` for a key, with `zveltio.user_role` = `api_key` and
+`zveltio.issuer_role` = its issuer's role (empty when the issuer is exempt from
+column rules). A function declared `SECURITY DEFINER` runs with its owner's
+rights instead, for a session and a key alike.
 
 ### POST /api/rpc/:function
 

@@ -50,6 +50,12 @@ export interface RlsIdentity {
    */
   columnsAll?: boolean;
   /**
+   * An API key's issuer's role, whose column rules bind the key too, as
+   * `keyColumnAccess` applies them — published for the column guard, the masking
+   * views and the revision view (migration 095). Empty when no issuer rules apply.
+   */
+  issuerRole?: string;
+  /**
    * An anonymous request: no user, but an actor all the same — the tenant's
    * `public` role — so the policies hold it to that role's grants rather than
    * standing down as they do for the engine's own work.
@@ -1345,6 +1351,7 @@ export async function withTenantIsolation<T>(
       grants: opts?.identity?.collectionGrants ?? '',
       all: opts?.identity?.collectionAll ?? false,
       columnsAll: opts?.identity?.columnsAll ?? false,
+      issuerRole: opts?.identity?.issuerRole ?? '',
     };
 
     // Whether there is an ACTOR at all — written as its own setting, because
@@ -1402,6 +1409,7 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.user_email', ${identity.email}, true),
              set_config('zveltio.user_role', ${identity.role}, true),
              set_config('zveltio.user_roles', ${identity.roles}, true),
+             set_config('zveltio.issuer_role', ${identity.issuerRole}, true),
              set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
              set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true),
              set_config('zveltio.collection_grants', ${identity.grants}, true),
