@@ -476,7 +476,16 @@ class PgNotifyRealtimeBus implements RealtimeBus {
   private retryAttempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private stopping = false;
-  private publisher: PgNotifyPublisher | null = null;
+  /** The engine pool by default: LISTEN's own connection is not for publishing. */
+  private publisher: PgNotifyPublisher = {
+    notify: async (channel, payload) => {
+      const [{ sql }, { getDb }] = await Promise.all([
+        import('kysely'),
+        import('../../db/index.js'),
+      ]);
+      return sql`SELECT pg_notify(${channel}, ${payload})`.execute(getDb());
+    },
+  };
   private heartbeat: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly databaseUrl: string) {}
@@ -577,7 +586,6 @@ class PgNotifyRealtimeBus implements RealtimeBus {
   }
 
   async publish(payload: Omit<RealtimeBusMessage, 'originId'>): Promise<void> {
-    if (!this.publisher) return;
     const msg = trimForPgNotify(payload);
     const encoded = JSON.stringify(msg);
     const bytes = Buffer.byteLength(encoded, 'utf8');

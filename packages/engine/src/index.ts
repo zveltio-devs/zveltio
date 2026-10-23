@@ -49,7 +49,7 @@ import { cronRunner } from './lib/runtime/index.js';
 import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
-import { realtimeBus, PgNotifyRealtimeBus } from './lib/runtime/index.js';
+import { realtimeBus } from './lib/runtime/index.js';
 import { WebhookManager } from './lib/webhooks.js';
 import { webhookWorker } from './lib/webhook-worker.js';
 import { getWorkerHostIfInitialized } from './lib/worker-extension-host.js';
@@ -1324,19 +1324,7 @@ async function bootstrap() {
     // set, otherwise pg_notify, whose LISTEN connects to NATIVE_DATABASE_URL
     // when set: a transaction pooler (PgDog/PgBouncer) cannot hold a LISTEN.
     (async () => {
-      const bus = realtimeBus();
-      if (bus.backend === 'pg-notify') {
-        // Plug the Kysely instance so publish() can pg_notify on our pool.
-        (bus as PgNotifyRealtimeBus).setPublisher({
-          notify: async (_channel, payload) => {
-            const { sql } = await import('kysely');
-            return sql`SELECT pg_notify('zveltio_changes', ${payload})`.execute(db);
-          },
-        });
-        await bus.start();
-      } else if (bus.backend === 'valkey') {
-        await bus.start();
-      }
+      await realtimeBus().start();
     })().catch((err: Error) => {
       console.warn('⚠️ Realtime bus init failed (non-fatal):', err.message);
     }),
