@@ -564,6 +564,13 @@ admits a key holding `$ext:<name>` with the action's declared permission action
 through the data API as the key, so each collection the action writes must be
 in the key's scopes as well: `execute` opens the action, not its collections.
 
+The scope is per extension, not per action: a key holding `execute` on
+`$ext:<name>` runs every action of that extension whose permission action is
+`execute`. To keep a key to one action, give that action its own permission
+action in the manifest (e.g. `approve`) and scope the key to that. A
+per-action key scope is a v2 candidate
+([v2-candidates.md](v2-candidates.md#2-api-key-execute-is-per-extension--breaking)).
+
 A declaration changes the published package, so raise the manifest version;
 a handler change also needs a repack.
 
