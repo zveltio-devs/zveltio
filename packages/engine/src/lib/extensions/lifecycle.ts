@@ -25,6 +25,7 @@ import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
 import { unregisterExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkExtensionDependencies } from '../version-checker.js';
 import { getWorkerHostIfInitialized } from '../worker-extension-host.js';
@@ -253,8 +254,11 @@ export async function syncWithRegistry(
     const extBase = resolveExtensionsBase();
     invalidateActivationCache(name);
     invalidateFilesPresent(join(extBase, name));
-    if (wanted === loader.isActive(name)) return;
+    // Loaded, but another version is on disk now: reload it, as boot would.
+    const stale = wanted && loadedVersionStale(loader, name);
+    if (wanted === loader.isActive(name) && !stale) return;
     if (wanted) {
+      if (stale) await unloadExtension(loader, name);
       try {
         if (row && !extensionFilesPresent(join(extBase, name)))
           await fetchEnabledBundle(db, name, extBase, row);
@@ -274,6 +278,8 @@ export async function syncWithRegistry(
             .execute()
             .catch(() => {});
         }
+        // Unloaded above for the version it now refuses: the rebuild drops the old routes.
+        if (stale) await triggerReload(`disable-elsewhere:${name}`);
         return why;
       }
     } else {
@@ -281,6 +287,24 @@ export async function syncWithRegistry(
     }
     await triggerReload(`${wanted ? 'enable' : 'disable'}-elsewhere:${name}`);
   });
+}
+
+/**
+ * `name` is loaded, but the manifest on disk names another version: someone put
+ * a newer bundle there while it ran. An enable or a sync that sees it active must
+ * still load that one, or the old code keeps running and the new migrations
+ * wait for the next boot.
+ */
+export function loadedVersionStale(loader: ExtensionLoader, name: string): boolean {
+  const loaded = loader.loaded.get(name);
+  if (!loaded) return false;
+  const dir = loader.extDirs.get(name) ?? join(resolveExtensionsBase(), name);
+  try {
+    const { version } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    return typeof version === 'string' && version !== loaded.version;
+  } catch {
+    return false; // no manifest to compare: nothing says it moved
+  }
 }
 
 /**

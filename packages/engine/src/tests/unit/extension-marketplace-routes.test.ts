@@ -89,6 +89,8 @@ function makeLoader(): ExtensionLoader {
     purgeExtensionData: purgeMock,
     lastLoadError: new Map(),
     extDirs: new Map(),
+    loaded: new Map(),
+    syncWithRegistry: async () => {},
     forgetExtensionMessages: () => {},
   } as unknown as ExtensionLoader;
 }
