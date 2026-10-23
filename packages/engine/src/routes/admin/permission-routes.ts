@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { withAdvisoryLock } from '../../db/advisory-lock.js';
 import {
   checkPermission,
   getEnforcer,
@@ -279,32 +280,37 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       //
       // Domain '*' only, as GET /permissions lists: a tenant's rule for the role
       // is not on the screen, so a save neither drops nor globalizes it.
-      for (const [roleName, keep] of wanted) {
-        const tableRows = await db
-          .selectFrom('zvd_permissions')
-          .select(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
-          .where('ptype', '=', 'p')
-          .where('v0', '=', roleName)
-          .where('v1', '=', '*')
-          .execute();
-        // Shaped as the adapter loads a row into the model: absent columns dropped.
-        const inTable = new Set(
-          tableRows.map((r) =>
-            JSON.stringify([r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v) => v !== null)),
-          ),
-        );
-        const inModel = new Set(
-          (await e.getFilteredPolicy(0, roleName, '*')).map((r) => JSON.stringify(r)),
-        );
-        for (const rule of new Set([...inTable, ...inModel])) {
-          if (!keep.has(rule)) await e.removePolicy(...(JSON.parse(rule) as string[]));
-        }
-        for (const rule of keep) {
-          if (!(inTable.has(rule) && inModel.has(rule))) {
-            await e.addPolicy(...(JSON.parse(rule) as string[]));
+      //
+      // One save at a time across replicas: each reads, then writes the
+      // difference, and two interleaved saves left a mix of both posted sets.
+      await withAdvisoryLock(db, 'zveltio:permission-matrix-save', async () => {
+        for (const [roleName, keep] of wanted) {
+          const tableRows = await db
+            .selectFrom('zvd_permissions')
+            .select(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
+            .where('ptype', '=', 'p')
+            .where('v0', '=', roleName)
+            .where('v1', '=', '*')
+            .execute();
+          // Shaped as the adapter loads a row into the model: absent columns dropped.
+          const inTable = new Set(
+            tableRows.map((r) =>
+              JSON.stringify([r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v) => v !== null)),
+            ),
+          );
+          const inModel = new Set(
+            (await e.getFilteredPolicy(0, roleName, '*')).map((r) => JSON.stringify(r)),
+          );
+          for (const rule of new Set([...inTable, ...inModel])) {
+            if (!keep.has(rule)) await e.removePolicy(...(JSON.parse(rule) as string[]));
+          }
+          for (const rule of keep) {
+            if (!(inTable.has(rule) && inModel.has(rule))) {
+              await e.addPolicy(...(JSON.parse(rule) as string[]));
+            }
           }
         }
-      }
+      });
 
       await invalidateAllPermissionCaches();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -410,7 +416,9 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const parentRoles = await e.getImplicitRolesForUser(parent, '*');
       if (parentRoles.includes(child)) {
         return c.json(
-          { error: `Circular inheritance: "${parent}" already inherits from "${child}"` },
+          {
+            error: `Circular inheritance: "${parent}" already inherits from "${child}"`,
+          },
           409,
         );
       }
@@ -556,7 +564,11 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         const ok =
           ptype === 'g' ? await e.removeGroupingPolicy(...rule) : await e.removePolicy(...rule);
         if (!ok) {
-          skipped.push({ ptype, rule, reason: 'not held by the live enforcer' });
+          skipped.push({
+            ptype,
+            rule,
+            reason: 'not held by the live enforcer',
+          });
           continue;
         }
         still.delete(orphanKey(ptype, rule));
