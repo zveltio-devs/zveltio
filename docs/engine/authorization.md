@@ -369,7 +369,15 @@ Request
 
 Multiple matching policies are **ANDed** together (most restrictive wins).
 
-**Bypasses:** god users and API keys are never filtered by RLS.
+**Bypasses:** a caller holding `data:view_all` (a god holds it) is never
+filtered, and neither is an API key with `rls_bypass` whose issuer holds
+`data:view_all`. Any other API key is filtered by its own rules (role
+`api_key`, and `*`, resolved against the key: `user_id` is `apikey:<uuid>`,
+`user_email` is empty) AND by its issuer's — the rules of the issuer's roles and
+`*`, resolved against the issuer as their own session would be. A key never
+sees a row its issuer could not. The issuer's half is waived while the issuer
+holds `data:view_all`; a key whose issuer is unknown sees no row a rule covers.
+The database policy (`zv_row_rules`) applies the same two halves.
 
 ### Policy structure
 

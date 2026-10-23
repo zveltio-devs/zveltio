@@ -147,10 +147,15 @@ d('a member-keyed row rule applies to a self-registered member over REST', () =>
       const expected: Awaited<ReturnType<typeof getRlsFilters>> = [
         { field: 'title', condition: { op: 'eq', value: 'k' } },
       ];
-      expect(await getRlsFilters(COLLECTION, { id: key, role: 'api_key' }, 'api_key')).toEqual(
+      // Issued by an account holding none of these roles, so the issuer's half
+      // of the key's rules adds nothing and what is left is the key's own.
+      const authorUserId = `no-roles-${crypto.randomUUID()}`;
+      expect(
+        await getRlsFilters(COLLECTION, { id: key, role: 'api_key', authorUserId }, 'api_key'),
+      ).toEqual(expected);
+      expect(await getRlsFilters(COLLECTION, { id: key, authorUserId }, 'api_key')).toEqual(
         expected,
       );
-      expect(await getRlsFilters(COLLECTION, { id: key }, 'api_key')).toEqual(expected);
     } finally {
       await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLLECTION} AND role IN ('api_key', 'public')`.execute(
         db,

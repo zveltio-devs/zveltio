@@ -59,10 +59,13 @@ import {
   buildShapeDefinition,
   describeRuleProblem,
   getRlsFilters,
+  issuerSettings,
+  keyIssuerRowActor,
   matchesRlsFilters,
   rlsJsonConditions,
   type RowRule,
 } from '../../lib/tenancy/index.js';
+import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -90,6 +93,15 @@ const TYPES = { bucket: 'text', code: 'integer' };
  * exist.
  */
 const SESSION = { id: 'user-1', email: 'user-1@test.local', role: '' };
+
+/** A role only the session's user holds — so a rule keyed on it binds a key's issuer half alone. */
+const ISSUER_ROLE = `issuer_${STAMP}`;
+/** An API key the session's user issued, as `authenticate` shapes one. */
+const KEY = {
+  id: `apikey:${crypto.randomUUID()}`,
+  authorUserId: SESSION.id,
+  rlsBypass: false,
+};
 
 const OPERATORS = ['eq', 'neq', 'in', 'not_in'] as const;
 const SOURCES = [
@@ -151,8 +163,20 @@ function engineFilter(
 d('one rule, four interpreters (in-process)', () => {
   let db: Database;
 
+  let insertedUser = false;
+
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    // The session's user as a real account, so a key it issued resolves it.
+    insertedUser =
+      (
+        await sql`INSERT INTO "user" (id, name, email)
+                  VALUES (${SESSION.id}, 'Four interpreters', ${SESSION.email})
+                  ON CONFLICT DO NOTHING`.execute(db)
+      ).numAffectedRows === 1n;
+    const e = await getEnforcer();
+    await e.addRoleForUser(SESSION.id, ISSUER_ROLE, '*');
+    await invalidateUserPermCache(SESSION.id);
     await sql
       .raw(`CREATE TABLE ${TABLE} (id integer PRIMARY KEY, bucket text, code integer, data jsonb)`)
       .execute(db);
@@ -171,6 +195,10 @@ d('one rule, four interpreters (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await (await getEnforcer()).deleteRoleForUser(SESSION.id, ISSUER_ROLE, '*').catch(() => {});
+    await invalidateUserPermCache(SESSION.id).catch(() => {});
+    if (insertedUser)
+      await sql`DELETE FROM "user" WHERE id = ${SESSION.id}`.execute(db).catch(() => {});
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLL}`.execute(db).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS ${TABLE} CASCADE`)
@@ -209,15 +237,28 @@ d('one rule, four interpreters (in-process)', () => {
    * reads empty strings and keeps everything. The first version of this suite
    * did exactly that and reported every case as a divergence.
    */
-  async function viaPolicy(rule: RowRule, types: Record<string, string> = TYPES): Promise<Outcome> {
+  async function viaPolicy(
+    rule: RowRule,
+    types: Record<string, string> = TYPES,
+    // The settings an API key publishes instead of the session's: its own
+    // identity, and its issuer's for the issuer half (`publishApiKeyActor`).
+    key?: { id: string; issuer: ReturnType<typeof issuerSettings> },
+  ): Promise<Outcome> {
     const { predicate } = buildRowRulePredicate([rule], types);
     const where = predicate ?? 'true';
+    const off = issuerSettings(undefined);
+    const issuer = key?.issuer ?? off;
     return db.transaction().execute(async (trx) => {
       await sql`
-        SELECT set_config('zveltio.user_id', ${SESSION.id}, true),
-               set_config('zveltio.user_email', ${SESSION.email}, true),
-               set_config('zveltio.user_role', ${SESSION.role}, true),
-               set_config('zveltio.user_roles', '', true),
+        SELECT set_config('zveltio.user_id', ${key ? key.id : SESSION.id}, true),
+               set_config('zveltio.user_email', ${key ? '' : SESSION.email}, true),
+               set_config('zveltio.user_role', ${key ? 'api_key' : SESSION.role}, true),
+               set_config('zveltio.user_roles', ${key ? 'api_key' : ''}, true),
+               set_config('zveltio.issuer_rows', ${issuer.mode}, true),
+               set_config('zveltio.issuer_user_id', ${issuer.userId}, true),
+               set_config('zveltio.issuer_user_email', ${issuer.email}, true),
+               set_config('zveltio.issuer_user_role', ${issuer.role}, true),
+               set_config('zveltio.issuer_user_roles', ${issuer.roles}, true),
                set_config('zveltio.actor', 'on', true),
                set_config('zveltio.rls_bypass', 'off', true)
       `.execute(trx);
@@ -236,7 +277,7 @@ d('one rule, four interpreters (in-process)', () => {
    * The resolver itself, asked about a policy stored the way the product stores
    * one — so what the four appliers are handed is the real thing, not a model.
    */
-  async function resolveFor(rule: RowRule): Promise<unknown[]> {
+  async function resolveFor(rule: RowRule, asKey = false): Promise<unknown[]> {
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLL}`.execute(db);
     await sql`
       INSERT INTO zvd_rls_policies
@@ -244,11 +285,13 @@ d('one rule, four interpreters (in-process)', () => {
       VALUES (${COLL}, ${rule.role}, ${rule.filter_field}, ${rule.filter_op},
               ${rule.filter_value_source}, true)
     `.execute(db);
-    return (await getRlsFilters(
-      COLL,
-      { id: SESSION.id, email: SESSION.email, role: SESSION.role },
-      'session',
-    )) as unknown[];
+    return (await (asKey
+      ? getRlsFilters(COLL, KEY, 'api_key')
+      : getRlsFilters(
+          COLL,
+          { id: SESSION.id, email: SESSION.email, role: SESSION.role },
+          'session',
+        ))) as unknown[];
   }
 
   /**
@@ -307,6 +350,42 @@ d('one rule, four interpreters (in-process)', () => {
     } catch {
       return 'error';
     }
+  }
+
+  // An API key issued by the session's user. A rule keyed on a role only the
+  // issuer holds does not bind the key's own half, so what every interpreter
+  // shows is the issuer's half alone: the rule applied AS THE ISSUER — their
+  // roles, their id, their email. Before the issuer half existed the resolver
+  // and the policy both left the rule out and served every row.
+  for (const field of FIELDS) {
+    for (const op of OPERATORS) {
+      for (const source of SOURCES) {
+        it(`a key meets its issuer's rule: ${field} ${op} ${source}`, async () => {
+          const rule = { ...ruleOf(field, op, source), role: ISSUER_ROLE };
+          if (describeRuleProblem(rule, TYPES)) return;
+          const actor = await keyIssuerRowActor(KEY);
+          if (actor === null || actor === 'exempt') throw new Error(`issuer is ${actor}`);
+          const filters = await resolveFor(rule, true);
+          const engine = await viaEngineSql(filters);
+          expect({
+            policy: await viaPolicy(rule, TYPES, {
+              id: KEY.id,
+              issuer: issuerSettings({ mode: 'on', ...actor }),
+            }),
+            matcher: viaMatcher(filters),
+            snapshot: await viaSnapshot(filters),
+            electric: await viaElectric(filters),
+          }).toEqual({ policy: engine, matcher: engine, snapshot: engine, electric: engine });
+          // And it is the issuer's view, not the unfiltered table.
+          expect(engine).toEqual(await viaSessionHolding(rule));
+        });
+      }
+    }
+  }
+
+  /** What the issuer's own session sees under `rule` — the issuer half's target. */
+  async function viaSessionHolding(rule: RowRule): Promise<Outcome> {
+    return viaEngineSql(await resolveFor(rule));
   }
 
   it('stands down for work that has no actor at all', async () => {

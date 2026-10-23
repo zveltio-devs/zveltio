@@ -5,9 +5,9 @@
  * Injects additional WHERE conditions so users only see records they're
  * entitled to — without touching PostgreSQL's native RLS.
  *
- * Skipped for:
- *   - god users (bypass all policy layers)
- *   - api_key auth (scope-based; no user context for user_id/email filters)
+ * Skipped for a caller holding `data:view_all` (a god holds it), and for an API
+ * key with `rlsBypass` whose issuer holds it. Any other key meets its own rules
+ * AND its issuer's (`getRlsFilters`).
  */
 
 import { type RawBuilder, sql } from 'kysely';
@@ -299,8 +299,70 @@ export async function getRlsFilters(
   const direct = await principalRole(user.id);
   const userRoles = new Set(await getUserRoles(user.id));
   if (direct === 'api_key') userRoles.add(direct);
-  const actor = { id: user.id, email: user.email, role: direct };
+  const result = rulesFor(policies, {
+    id: user.id,
+    email: user.email,
+    role: direct,
+    roles: userRoles,
+  });
+  if (authType !== 'api_key') return result;
 
+  // A key never exceeds its issuer, and a rule binding the issuer binds what
+  // they hand out. The key's own rules above are `api_key`'s and `*`, against
+  // the key's identity; the issuer's are ANDed on, as the issuer: their roles,
+  // their id, their email. Without this half a member whose rule shows them one
+  // bucket minted a key that read every bucket. The database policy applies the
+  // same half (`buildRowRulePredicate`, published by `publishApiKeyActor`).
+  const issuer = await keyIssuerRowActor(user);
+  if (issuer === null) result.push({ field: 'id', condition: { op: 'in', value: [] } });
+  else if (issuer !== 'exempt')
+    result.push(...rulesFor(policies, { ...issuer, roles: new Set(issuer.roles) }));
+  return result;
+}
+
+/** Who a row rule's value sources resolve against, and the roles it is matched on. */
+export interface RowActor {
+  id: string;
+  email: string;
+  role: string;
+  roles: string[];
+}
+
+/**
+ * The issuer's half of a key's row rules: the issuer as their own session would
+ * be resolved. `'exempt'` where that half stands down — the issuer holds
+ * `data:view_all`, the permission that exempts their session; or the key is a
+ * job (`apikey:job:`), which has no issuer and is bounded by its manifest, as
+ * `keyIssuerAllows` treats it. `null` when the issuer is unknown: the caller
+ * hides every row a rule covers.
+ *
+ * No catch on the roles, as for a session: a failed lookup refuses the request
+ * rather than standing every role-keyed rule down.
+ */
+export async function keyIssuerRowActor(key: {
+  id: string;
+  authorUserId?: string | null;
+}): Promise<RowActor | 'exempt' | null> {
+  if (key.id.startsWith('apikey:job:')) return 'exempt';
+  const issuer = key.authorUserId;
+  if (!issuer) return null;
+  if (await checkPermission(issuer, 'data', 'view_all').catch(() => false)) return 'exempt';
+  const [role, roles, email] = await Promise.all([
+    principalRole(issuer),
+    getUserRoles(issuer),
+    sql<{ email: string | null }>`SELECT email FROM "user" WHERE id = ${issuer}`
+      .execute(_db)
+      .then((r) => r.rows[0]?.email ?? ''),
+  ]);
+  return { id: issuer, email, role, roles };
+}
+
+/** The filters `policies` impose on `actor`: every rule whose role it holds. */
+function rulesFor(
+  policies: RlsPolicy[],
+  actor: { id: string; email?: string; role: string; roles: Set<string> },
+): RuleFilter[] {
+  const userRoles = actor.roles;
   const result: RuleFilter[] = [];
 
   for (const policy of policies) {

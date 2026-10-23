@@ -8,7 +8,7 @@
  * `checkPermission` (god bypass + Casbin).
  */
 
-import { principalRole, publishApiKeyActor } from '../tenancy/index.js';
+import { keyIssuerRowActor, principalRole, publishApiKeyActor } from '../tenancy/index.js';
 import type { Context } from 'hono';
 import type { ExpressionBuilder } from 'kysely';
 import { type Database, getDb } from '../../db/index.js';
@@ -435,7 +435,9 @@ export async function validateApiKey(
     const issuer = apiKey.created_by;
     // And their column rules, which `keyColumnAccess` applies to the key: the
     // issuer's role unless they hold the exemption that waives their half.
-    const [issuerGrants, issuerBypasses, issuerRole] = issuer
+    // And their row rules, which `getRlsFilters` ANDs onto the key's: the issuer
+    // as their own session resolves, unless they hold `data:view_all`.
+    const [issuerGrants, issuerBypasses, issuerRole, issuerRows] = issuer
       ? await Promise.all([
           collectionGrantsFor(issuer),
           apiKey.rls_bypass === true
@@ -444,14 +446,20 @@ export async function validateApiKey(
           checkPermission(issuer, 'data', 'view_all_columns')
             .catch(() => false)
             .then((exempt) => (exempt ? '' : principalRole(issuer))),
+          keyIssuerRowActor({ id: `apikey:${apiKey.id}`, authorUserId: issuer }),
         ])
-      : [{ all: false, grants: '' }, false, ''];
+      : [{ all: false, grants: '' }, false, '', null];
     await publishApiKeyActor(
       `apikey:${apiKey.id}`,
       apiKey.rls_bypass === true && issuerBypasses,
       apiKey.scopes,
       issuerGrants,
       issuerRole,
+      issuerRows === 'exempt'
+        ? undefined
+        : issuerRows
+          ? { mode: 'on', ...issuerRows }
+          : { mode: 'deny', id: '', email: '', role: '', roles: [] },
     );
   }
 

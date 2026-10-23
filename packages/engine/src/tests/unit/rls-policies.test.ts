@@ -20,6 +20,7 @@ import {
   initRls,
   invalidateRlsCache,
   listRlsPolicies,
+  type RuleFilter,
   updateRlsPolicy,
 } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
@@ -166,13 +167,24 @@ describe('getRlsFilters — overrides', () => {
     expect(db.log).toHaveLength(0);
   });
 
+  /** The key's own `owner_id eq user_id` rule, resolved against the key. */
+  const OWN: RuleFilter = { field: 'owner_id', condition: { op: 'eq', value: USER.id } };
+  /** The issuer half of a key whose issuer is unknown: no row a rule covers. */
+  const DENY: RuleFilter = { field: 'id', condition: { op: 'in', value: [] } };
+
   it('a key with the flag ON is filtered while its issuer lacks data:view_all', async () => {
     // A key never exceeds its issuer: the exemption is the issuer's to hold.
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy()]);
-    for (const authorUserId of ['u-1', null]) {
+    // Filtered by its own rule and its issuer's — or, with no issuer known, by
+    // its own and a rule that keeps nothing.
+    const issuers: Array<[string | null, RuleFilter]> = [
+      ['u-1', { field: 'owner_id', condition: { op: 'eq', value: 'u-1' } }],
+      [null, DENY],
+    ];
+    for (const [authorUserId, issuerHalf] of issuers) {
       const key = { ...USER, rlsBypass: true, authorUserId };
-      expect(await getRlsFilters('contacts', key, 'api_key')).toHaveLength(1);
+      expect(await getRlsFilters('contacts', key, 'api_key')).toEqual([OWN, issuerHalf]);
     }
   });
 
@@ -180,7 +192,7 @@ describe('getRlsFilters — overrides', () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy()]);
     const filters = await getRlsFilters('contacts', { ...USER, rlsBypass: false }, 'api_key');
-    expect(filters).toHaveLength(1);
+    expect(filters).toEqual([OWN, DENY]);
   });
 
   it('a key with NO flag at all is filtered, not exempted', async () => {
@@ -193,7 +205,7 @@ describe('getRlsFilters — overrides', () => {
     db.when(/FROM zvd_rls_policies/i, [policy()]);
     const { rlsBypass: _omitted, ...noFlag } = { ...USER, rlsBypass: undefined };
     const filters = await getRlsFilters('contacts', noFlag, 'api_key');
-    expect(filters).toHaveLength(1);
+    expect(filters).toEqual([OWN, DENY]);
   });
 
   it('no matching policies → no restriction', async () => {
@@ -366,9 +378,11 @@ describe('the role on the caller object', () => {
     const expected: Awaited<ReturnType<typeof getRlsFilters>> = [
       { field: 'k', condition: { op: 'eq', value: 'api_key' } },
     ];
-    expect(await getRlsFilters('contacts', { id: 'apikey:k1' }, 'api_key')).toEqual(expected);
-    expect(
-      await getRlsFilters('contacts', { id: 'apikey:k1', role: 'api_key' }, 'api_key'),
-    ).toEqual(expected);
+    // Issued by `u-2`, who holds neither role: the issuer half adds nothing.
+    const key = { id: 'apikey:k1', authorUserId: 'u-2' };
+    expect(await getRlsFilters('contacts', key, 'api_key')).toEqual(expected);
+    expect(await getRlsFilters('contacts', { ...key, role: 'api_key' }, 'api_key')).toEqual(
+      expected,
+    );
   });
 });
