@@ -21,6 +21,7 @@ import {
 } from '../tenancy/index.js';
 import { invalidateActivationCache, isExtensionActiveAnywhere } from './activation.js';
 import { isPendingMigrationsRefusal } from './migration-runner.js';
+import { loadedVersionStale } from './lifecycle.js';
 import {
   resolveExtensionsBase,
   extensionFilesPresent,
@@ -710,6 +711,9 @@ export function registerMarketplaceRoutes(
 
       let hotLoaded = false;
       let loadError = '';
+      // Active for a firm's row at an older version than the one on disk: load
+      // this one, or its migrations wait for the next boot behind a success.
+      if (loadedVersionStale(self, name)) await self.unload(name);
       if (!self.isActive(name)) {
         try {
           await self.loadDynamic(name, app);
@@ -815,6 +819,7 @@ export function registerMarketplaceRoutes(
         .execute()
         .catch(() => {});
 
+      if (loadedVersionStale(self, name)) await self.unload(name);
       if (self.isActive(name)) {
         results.push({ name, ok: true });
         continue;
@@ -1336,7 +1341,12 @@ export function registerMarketplaceRoutes(
       case 'install':
         // After the write, never before: a concurrent read between a clear and
         // the write would cache the old answer for the rest of the TTL.
-        return installExtension(c, name).finally(() => invalidateActivationCache(name));
+        // And a newer version now on disk replaces a copy a firm's row keeps
+        // loaded, here and on the other replicas (lifecycle.ts).
+        return installExtension(c, name).finally(async () => {
+          lifecycleChanged(name);
+          await self.syncWithRegistry(name);
+        });
       case 'enable':
         // After the write, never before: a concurrent read between a clear and
         // the write would cache the old answer for the rest of the TTL.

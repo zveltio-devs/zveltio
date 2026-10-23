@@ -56,6 +56,15 @@ import type { ExtensionLoader } from './extension-loader.js';
  */
 let devReloadSeq = 0;
 
+/**
+ * The module this process imported from each entry path, with a hash of the
+ * bytes it came from. Bun's import() caches by path: a newer version unpacked
+ * where the old one was imported got the OLD module back, so the reload ran the
+ * old code and the old migration list. New bytes are imported from a fresh path
+ * (the dev-reload copy below); the same bytes get the module they gave before.
+ */
+const importedEntries = new Map<string, { hash: number | bigint; module: unknown }>();
+
 export async function loadExtensionFromDir(
   loader: ExtensionLoader,
   extName: string,
@@ -373,7 +382,11 @@ export async function loadExtensionFromDir(
       }
       const resolvedPath = entryPhase.value;
 
-      const useCacheBuster = !isBundled && process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
+      const devReload = !isBundled && process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
+      const hash = Bun.hash(await Bun.file(resolvedPath).arrayBuffer());
+      const seen = importedEntries.get(resolvedPath);
+      const reuse = !devReload && seen?.hash === hash;
+      const useCacheBuster = !reuse && (devReload || seen !== undefined);
       // A `?v=<timestamp>` query (the pre-2026-09-13 approach, comment above)
       // does not actually bust anything: Bun's dynamic import() caches by
       // resolved pathname and ignores query/hash on that path, verified live
@@ -414,8 +427,9 @@ export async function loadExtensionFromDir(
       }
       const importHref = pathToFileURL(importPath).href;
       try {
-        const module = await import(importHref);
-        extension = module.default;
+        const module = reuse ? seen.module : await import(importHref);
+        importedEntries.set(resolvedPath, { hash, module });
+        extension = (module as { default: typeof extension }).default;
       } finally {
         if (devReloadCopy) {
           try {
