@@ -1125,6 +1125,11 @@ export async function checkPermission(
   resource: string,
   action: string,
 ): Promise<boolean> {
+  // An API key is no Casbin subject: its grant is its scopes AND its issuer's
+  // (`checkAccess`, `keyIssuerAllows`). A row naming `apikey:<uuid>` — the role
+  // routes used to take any string — must not answer for it, here or through
+  // `isTenantAdmin`/`requireInstanceAdmin`, which ask this.
+  if (isApiKeySubject(userId)) return false;
   // ═══ HARDCODED GOD BYPASS ═══
   // Independent of Casbin — even if ALL policies are deleted,
   // a user with role='god' will ALWAYS have full access.
@@ -1360,7 +1365,11 @@ export async function listAllRoles(): Promise<string[]> {
   return [...set];
 }
 
+/** `apikey:<uuid>` and `apikey:job:…`: principals Casbin holds nothing for. */
+export const isApiKeySubject = (subject: string): boolean => subject.startsWith('apikey:');
+
 export async function getUserRoles(userId: string): Promise<string[]> {
+  if (isApiKeySubject(userId)) return []; // see `checkPermission`
   const domain = getCurrentDomain();
   const cache = getCache();
   const gen = _policyGen;

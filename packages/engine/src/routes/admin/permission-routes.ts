@@ -8,6 +8,7 @@ import {
   checkPermission,
   getEnforcer,
   invalidateAllPermissionCaches,
+  isApiKeySubject,
   reconcilePolicies,
   deleteRole,
   ENGINE_SEEDED_ROLES,
@@ -389,6 +390,11 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       const { child, parent } = c.req.valid('json');
       if (child === parent) return c.json({ error: 'A role cannot inherit from itself' }, 400);
       if (await isUserId(child)) return c.json(notARole, 400);
+      if (isApiKeySubject(child))
+        return c.json(
+          { error: 'An API key is not a Casbin subject: its access is its scopes' },
+          422,
+        );
       // `god` is the `"user".role` instance attribute, not a Casbin role, as
       // POST /api/permissions/roles refuses it: a `g` edge naming it grants
       // nothing and would surface `god` as a tenant role in listRoles().
