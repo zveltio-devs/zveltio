@@ -271,8 +271,11 @@ export async function syncWithRegistry(
  *
  * The registry serves only an extension's current version, so one that has
  * moved on is refused rather than loaded in place of what the others run.
+ *
+ * Also called at boot (`loadFromDB`): a replica that restarts or scales out
+ * after the enable has the same empty disk.
  */
-async function fetchEnabledBundle(
+export async function fetchEnabledBundle(
   db: Database,
   name: string,
   extBase: string,

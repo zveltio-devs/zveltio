@@ -26,6 +26,11 @@
  * `downloadExtension` (pinned digest, declared SHA-256, Ed25519 signature)
  * before loading, and refuses — nothing on disk, nothing loaded — when that
  * fails. "a replica without the bundle" below drives it against a fake registry.
+ *
+ * A replica that BOOTS (restart, scale-out) after the enable had the same gap:
+ * `loadFromDB` read the bundle from disk or skipped it. It fetches the same way
+ * now; a fetch that fails skips that extension, records why on its row, and the
+ * boot carries on.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -33,7 +38,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Hono } from 'hono';
+import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getAuth } from '../../lib/auth.js';
@@ -337,6 +342,37 @@ d('extension lifecycle on another replica: this one follows', () => {
       expect(extensionLoader.isActive(NAME)).toBe(false);
       expect(existsSync(join(base, NAME))).toBe(false);
       expect(reloads).toBe(0);
+    }, 30_000);
+
+    const lastLoadError = async () =>
+      (
+        await sql<{ e: string | null }>`SELECT last_load_error AS e FROM zv_extension_registry
+                                        WHERE name = ${NAME}`.execute(db)
+      ).rows[0]?.e ?? null;
+
+    it('a replica booting without it fetches, verifies and loads it', async () => {
+      await unloadHere();
+      rmSync(join(base, NAME), { recursive: true, force: true });
+      await setInstalledRow();
+      serveRegistry(sha);
+      downloads.length = 0;
+      await extensionLoader.loadFromDB(db, new Hono(), []);
+      expect(downloads).toHaveLength(1);
+      expect(extensionLoader.isActive(NAME)).toBe(true);
+      expect(await lastLoadError()).toBeNull();
+    }, 30_000);
+
+    it('a boot whose fetch fails its checksum skips it, says why, and completes', async () => {
+      await unloadHere();
+      rmSync(join(base, NAME), { recursive: true, force: true });
+      await setInstalledRow();
+      serveRegistry('0'.repeat(64));
+      downloads.length = 0;
+      await extensionLoader.loadFromDB(db, new Hono(), []);
+      expect(downloads).toHaveLength(1);
+      expect(extensionLoader.isActive(NAME)).toBe(false);
+      expect(existsSync(join(base, NAME))).toBe(false);
+      expect(await lastLoadError()).toContain('SHA-256 mismatch');
     }, 30_000);
   });
 });

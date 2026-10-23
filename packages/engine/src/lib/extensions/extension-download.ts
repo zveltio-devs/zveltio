@@ -124,6 +124,9 @@ export async function fetchRegistryCatalog(
 
 // ── Extension package download ────────────────────────────────────────────────
 
+/** Per request: the archive and its signature each. */
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+
 /**
  * Whether a missing signature blocks install. Exported so the default can be
  * pinned directly by a test, rather than a test reimplementing this
@@ -168,7 +171,11 @@ async function verifyArchiveSignature(
 
   let sigBody: unknown = null;
   try {
-    const sigRes = await fetchWithRetry(sigUrl, { headers });
+    // Bounded like the archive's: a boot fetches missing bundles before it serves.
+    const sigRes = await fetchWithRetry(sigUrl, {
+      headers,
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    });
     if (sigRes.ok) {
       sigBody = await sigRes.json();
     } else if (sigRes.status === 404) {
@@ -248,7 +255,7 @@ export async function downloadExtension(
 
   const res = await fetchWithRetry(downloadUrl, {
     headers,
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
   });
 
   if (!res.ok) {
