@@ -124,6 +124,9 @@ export async function fetchRegistryCatalog(
 
 // ── Extension package download ────────────────────────────────────────────────
 
+/** Per request: the archive and its signature each. */
+const DOWNLOAD_TIMEOUT_MS = 60_000;
+
 /**
  * Whether a missing signature blocks install. Exported so the default can be
  * pinned directly by a test, rather than a test reimplementing this
@@ -168,7 +171,11 @@ async function verifyArchiveSignature(
 
   let sigBody: unknown = null;
   try {
-    const sigRes = await fetchWithRetry(sigUrl, { headers });
+    // Bounded like the archive's: a boot fetches missing bundles before it serves.
+    const sigRes = await fetchWithRetry(sigUrl, {
+      headers,
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    });
     if (sigRes.ok) {
       sigBody = await sigRes.json();
     } else if (sigRes.status === 404) {
@@ -248,7 +255,7 @@ export async function downloadExtension(
 
   const res = await fetchWithRetry(downloadUrl, {
     headers,
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -270,9 +277,6 @@ export async function downloadExtension(
       `Registry returned ${res.status} for extension "${entry.name}" download${body ? `: ${body.slice(0, 200)}` : ''}`,
     );
   }
-
-  const destDir = join(destBase, entry.name);
-  mkdirSync(destDir, { recursive: true });
 
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.length < 4) {
@@ -318,6 +322,10 @@ export async function downloadExtension(
   // the archive. The registry publishes the sig file as a sibling of the
   // tarball. Missing-signature behaviour is gated by REQUIRE_EXTENSION_SIGNATURES.
   await verifyArchiveSignature(entry.name, downloadUrl, headers, new Uint8Array(buf));
+
+  // Only now: bytes that failed a check above leave nothing on disk.
+  const destDir = join(destBase, entry.name);
+  mkdirSync(destDir, { recursive: true });
 
   // Magic-number sniffing — content-type from R2/Cloudflare can be unreliable.
   const isZip = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;

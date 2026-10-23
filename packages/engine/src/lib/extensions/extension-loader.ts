@@ -8,6 +8,7 @@ import type { FieldTypeRegistry } from '../data/index.js';
 // is no synchronous Bun.file equivalent for mkdir/symlink/writeFile. The
 // explicit `node:` prefix makes that intent visible.
 import { existsSync, mkdirSync, symlinkSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import type { EventBus } from '../runtime/index.js';
 import { auth } from '../auth.js';
 import { fieldTypeRegistry as _fieldTypeRegistry } from '../data/index.js';
@@ -60,6 +61,7 @@ import {
 } from './internals.js';
 import { reRegisterExtension } from './register.js';
 import {
+  fetchEnabledBundle,
   loadDynamic,
   reloadExtensionFromDisk,
   syncAllWithRegistry,
@@ -436,17 +438,23 @@ export class ExtensionLoader {
     /** ZVELTIO_EXTENSIONS_PATH's extensions, loaded from `base` unless the main set names them too. */
     external?: { base: string; names: string[] },
   ): Promise<void> {
-    let enabled: string[] = [];
+    let rows: Array<{
+      name: string;
+      tenant_id: string | null;
+      version: string | null;
+      installed_version: string | null;
+      installed_sha256: string | null;
+    }> = [];
     try {
-      const rows = await db
+      rows = await db
         .selectFrom('zv_extension_registry')
-        .select(['name'])
+        .select(['name', 'tenant_id', 'version', 'installed_version', 'installed_sha256'])
         .where('is_enabled', '=', true)
         .execute();
-      enabled = rows.map((r) => r.name);
     } catch {
       // Table may not exist on first run — the env list still loads.
     }
+    const enabled = rows.map((r) => r.name);
 
     const main = new Set([...envNames, ...enabled]);
     const fromExternal = new Set((external?.names ?? []).filter((n) => !main.has(n)));
@@ -458,6 +466,26 @@ export class ExtensionLoader {
     const extBase = resolveExtensionsBase();
     const baseOf = (name: string) => (external && fromExternal.has(name) ? external.base : extBase);
     const refused = new Map<string, string>();
+
+    // A marketplace extension enabled while this replica's disk did not hold
+    // it (installed on another replica, or this one restarted onto an empty
+    // EXTENSIONS_DIR): fetch it as a running replica would (lifecycle.ts). A
+    // failure skips only that extension — refused, so its row says why — and
+    // the boot goes on. Each fetch is bounded by the download's own timeouts.
+    // ponytail: no extension lock here, so two replicas booting together onto
+    // one shared, empty directory may race; the loser skips it until it next
+    // syncs or restarts.
+    for (const row of rows) {
+      if (row.tenant_id !== null || !pending.includes(row.name)) continue;
+      if (extensionFilesPresent(join(extBase, row.name))) continue;
+      try {
+        await fetchEnabledBundle(db, row.name, extBase, row);
+      } catch (err) {
+        // Left in the sort's set: a refused name there refuses its dependents too.
+        refused.set(row.name, `bundle not fetched: ${(err as Error).message}`);
+      }
+    }
+
     const sorted = await topoSortExtensions(pending, baseOf, refused);
     this.noteRefused(refused);
     const inRegistry = new Set(enabled);

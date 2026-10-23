@@ -652,10 +652,18 @@ export function registerMarketplaceRoutes(
       // via registry but files were not present, or the user clicked Enable directly.
       const extBase = resolveExtensionsBase();
       const extDir = join(extBase, name);
+      // Pinned as install pins it: the other replicas fetch these same bytes (lifecycle.ts).
+      let downloadedSha: string | null = null;
       if (!extensionFilesPresent(extDir)) {
         try {
           const authToken = await getLicenseKey(db, name);
-          await doDownload(entry, extBase, authToken, await pinFor(name, entry.version));
+          const result = await doDownload(
+            entry,
+            extBase,
+            authToken,
+            await pinFor(name, entry.version),
+          );
+          downloadedSha = result?.archiveSha256 ?? null;
           invalidateFilesPresent(extDir); // disk changed — refresh listing cache
         } catch (downloadErr) {
           const msg =
@@ -682,6 +690,9 @@ export function registerMarketplaceRoutes(
           installed_at: new Date(),
           enabled_at: new Date(),
           tenant_id: null,
+          ...(downloadedSha
+            ? { installed_sha256: downloadedSha, installed_version: entry.version }
+            : {}),
         })
         .onConflict((oc) =>
           oc.columns(['tenant_id', 'name']).doUpdateSet({
@@ -689,6 +700,9 @@ export function registerMarketplaceRoutes(
             is_enabled: true,
             enabled_at: new Date(),
             tenant_id: null,
+            ...(downloadedSha
+              ? { installed_sha256: downloadedSha, installed_version: entry.version }
+              : {}),
           }),
         )
         .execute();
