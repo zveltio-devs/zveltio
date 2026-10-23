@@ -7,10 +7,13 @@
  * counts them — unlike the integration suite, which spawns a separate engine
  * (`bun src/index.ts`) and hits it over HTTP, invisible to coverage.
  *
- * Needs a real, migrated Postgres. Point it at one via TEST_DATABASE_URL
- * (falls back to DATABASE_URL). When neither is set, `harnessAvailable()` is
- * false and harness tests skip — so a plain `bun test` over the whole tree still
- * passes locally; CI runs these under a Postgres service.
+ * Needs a real, migrated Postgres. Point it at one via TEST_DATABASE_URL,
+ * never DATABASE_URL alone: the harness migrates the database it is given,
+ * makes god users in it and drops tables, and a developer's DATABASE_URL names
+ * their own database (a unit run with it set migrated that). Unset,
+ * `harnessAvailable()` is false and harness tests skip — so a plain `bun test`
+ * over the whole tree still passes locally; CI runs these under a Postgres
+ * service.
  *
  * The per-file skip is honest; the LANE's summary was not. `bun test
  * src/tests/harness` exited 0 having run nothing at all, which is the shape this
@@ -38,7 +41,7 @@ import {
   publishEveryTenant,
 } from '../lib/tenancy/index.js';
 
-const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 
 /** True when a test database is configured; harness tests should skip otherwise. */
 export function harnessAvailable(): boolean {
@@ -55,7 +58,7 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
   if (_cached) return _cached;
   if (!TEST_DB_URL) {
     throw new Error(
-      'app-harness: no TEST_DATABASE_URL (or DATABASE_URL) set. Guard the test with harnessAvailable().',
+      'app-harness: no TEST_DATABASE_URL set. Guard the test with harnessAvailable().',
     );
   }
 
