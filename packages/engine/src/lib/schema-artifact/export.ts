@@ -16,7 +16,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { isDefaultGrant, isDefaultGrantRole } from '../tenancy/index.js';
+import { ENGINE_SEEDED_ROLES, isDefaultGrant, isDefaultGrantRole } from '../tenancy/index.js';
 import { toIdArray } from '../validation-engine.js';
 import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
@@ -73,7 +73,7 @@ const byKey =
  * `revokedDefaults`: without them a revoke made on one instance was lost on the
  * way to the next, which kept the access the operator took away.
  */
-export { isDefaultGrant, isDefaultGrantRole };
+export { ENGINE_SEEDED_ROLES, isDefaultGrant, isDefaultGrantRole };
 
 /** role → resource → actions, as `roles.json` lists them. */
 function byRole(rows: { role: string; resource: string; action: string }[]) {

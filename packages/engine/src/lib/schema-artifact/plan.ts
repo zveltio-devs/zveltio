@@ -14,6 +14,7 @@
 
 import { createHash } from 'node:crypto';
 import {
+  ENGINE_SEEDED_ROLES,
   exportField,
   isDefaultGrant,
   isDefaultGrantRole,
@@ -699,10 +700,10 @@ export function planSchema(
   const roles = [...new Set([...cur.roles.keys(), ...des.roles.keys()])].sort();
   for (const name of roles) {
     const c = cur.roles.get(name);
-    // A role the defaults go to is implied, like its defaults: absent from a
-    // file it has no grants and no revokes, and a plan never creates or removes
-    // it — only a description needs its zv_roles row.
-    const implied = isDefaultGrantRole(name);
+    // A role the defaults go to, or one the engine seeds, is implied: absent
+    // from a file it has no grants and no revokes, and a plan never creates or
+    // removes it — only a description needs its zv_roles row.
+    const implied = isDefaultGrantRole(name) || ENGINE_SEEDED_ROLES.includes(name);
     const d = des.roles.get(name) ?? (implied ? { name, description: c?.description } : undefined);
     const target = `role ${name}`;
     if (!d) {
