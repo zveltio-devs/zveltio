@@ -13,6 +13,7 @@ import {
   type RealtimeBusMessage,
 } from '../../lib/runtime/realtime-bus.js';
 import * as wsModule from '../../routes/ws.js';
+import { _internalForTests } from '../../db/index.js';
 
 /**
  * S5-03 unit tests — the cross-instance realtime bus picks the right
@@ -260,16 +261,24 @@ describe('trimForPgNotify', () => {
 });
 
 describe('PgNotifyRealtimeBus.publish', () => {
-  it('is a no-op until a publisher is plugged in', async () => {
+  it('without an engine pool, logs and resolves', async () => {
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const swapped = _internalForTests.swapDbForTests(null);
     const bus = new PgNotifyRealtimeBus('postgres://localhost/x');
-    await expect(
-      bus.publish({
-        event: 'record.created',
-        collection: 'contacts',
-        record_id: 'r1',
-        timestamp: '2026-08-22T00:00:00Z',
-      }),
-    ).resolves.toBeUndefined();
+    try {
+      await expect(
+        bus.publish({
+          event: 'record.created',
+          collection: 'contacts',
+          record_id: 'r1',
+          timestamp: '2026-08-22T00:00:00Z',
+        }),
+      ).resolves.toBeUndefined();
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      _internalForTests.swapDbForTests(swapped);
+      errSpy.mockRestore();
+    }
   });
 
   it('calls notify with JSON payload and stamps origin id', async () => {

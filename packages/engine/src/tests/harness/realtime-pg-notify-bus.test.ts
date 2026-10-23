@@ -70,14 +70,12 @@ d('pg_notify realtime bus across replicas', () => {
     expect(bus.isRunning).toBe(true);
     const script = `
       const { PgNotifyRealtimeBus } = await import(${JSON.stringify(src('../../lib/runtime/realtime-bus.js'))});
-      const pg = (await import('pg')).default;
-      const c = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
-      await c.connect();
+      const { createDb, _internalForTests } = await import(${JSON.stringify(src('../../db/index.js'))});
+      // No setPublisher: a replica publishes on its engine pool by default.
+      _internalForTests.swapDbForTests(createDb(process.env.TEST_DATABASE_URL));
       const a = new PgNotifyRealtimeBus(process.env.TEST_DATABASE_URL);
-      a.setPublisher({ notify: (ch, p) => c.query('SELECT pg_notify($1, $2)', [ch, p]) });
       await a.publish({ event: 'record.created', collection: 'pgbus_contacts', record_id: 'from-a',
         data: { id: 'from-a' }, timestamp: new Date().toISOString(), tenantId: 't1' });
-      await c.end();
       process.exit(0);
     `;
     const proc = Bun.spawn([process.execPath, '-e', script], { stdout: 'ignore', stderr: 'pipe' });
