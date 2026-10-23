@@ -30,6 +30,7 @@ const tag = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 const COLL = `dgr_${tag}`;
 const DROPPED = `dgr_drop_${tag}`;
 const EXT_RES = `dgr-ext-${tag}`;
+const LATER_RES = `dgr-later-${tag}`;
 const ROLE = `dgr_role_${tag}`;
 
 d('a revoked default grant stays revoked', () => {
@@ -80,10 +81,10 @@ d('a revoked default grant stays revoked', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zvd_permissions WHERE v0 = ${ROLE} OR v2 IN (${COLL}, ${DROPPED}, ${EXT_RES})`.execute(
+    await sql`DELETE FROM zvd_permissions WHERE v0 = ${ROLE} OR v2 IN (${COLL}, ${DROPPED}, ${EXT_RES}, ${LATER_RES})`.execute(
       db,
     );
-    await sql`DELETE FROM zv_default_grant_revocations WHERE resource IN (${COLL}, ${DROPPED}, ${EXT_RES})`.execute(
+    await sql`DELETE FROM zv_default_grant_revocations WHERE resource IN (${COLL}, ${DROPPED}, ${EXT_RES}, ${LATER_RES})`.execute(
       db,
     );
     if (tenantMemberRoleId) {
@@ -113,6 +114,17 @@ d('a revoked default grant stays revoked', () => {
     expect(await revoked('tenant_member', EXT_RES, 'execute')).toBe(true);
     await bootAndLoad();
     expect(await held('tenant_member', EXT_RES, 'execute')).toBe(false);
+  });
+
+  it('revoking a default whose resource is not here yet keeps it revoked once it arrives', async () => {
+    // An extension installed later: the delete removes no rule, as a schema apply's
+    // would not, and the revocation is recorded all the same.
+    expect(await held('tenant_member', LATER_RES, 'execute')).toBe(false);
+    expect((await policy('DELETE', 'tenant_member', LATER_RES, 'execute')).status).toBe(200);
+    expect(await revoked('tenant_member', LATER_RES, 'execute')).toBe(true);
+    await materializeDefaultGrants(db, [LATER_RES], { extension: true });
+    expect(await held('tenant_member', LATER_RES, 'execute')).toBe(false);
+    expect(await inModel('tenant_member', LATER_RES, 'execute')).toBe(false);
   });
 
   it('granting the triple again explicitly clears the revocation, and the grant stays', async () => {
