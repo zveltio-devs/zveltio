@@ -334,7 +334,8 @@ const findColumnPermission = (db: Database, collection: string, e: Entry) =>
     .executeTakeFirst()
     .then((r) => r?.id);
 
-const findValidation = (db: Database, collection: string, e: Entry, limit = 1) =>
+// Migration 098 keeps one instance rule per key, so this answers one id or none.
+const findValidation = (db: Database, collection: string, e: Entry) =>
   db
     .selectFrom('zv_validation_rules')
     .select('id')
@@ -344,9 +345,8 @@ const findValidation = (db: Database, collection: string, e: Entry, limit = 1) =
     // The file holds instance rules; a tenant's own rule with the same key is not one.
     .where('tenant_id', 'is', null)
     .where(sql<boolean>`COALESCE(rule_config, 'null'::jsonb) = ${toJsonb(e.config ?? null)}`)
-    .limit(limit)
-    .execute()
-    .then((r) => r.map((x) => x.id));
+    .executeTakeFirst()
+    .then((r) => r?.id);
 
 const ruleGroupsTable = async (db: Database) =>
   (
@@ -363,14 +363,13 @@ const ruleGroupsTable = async (db: Database) =>
 async function putRuleGroup(db: Database, collection: string, e: Entry, userId?: string) {
   const ids: string[] = [];
   for (const m of (e.rules as Entry[] | undefined) ?? []) {
-    const found = await findValidation(db, collection, { ...m, field: e.field }, 2);
-    if (found.length !== 1) {
+    const found = await findValidation(db, collection, { ...m, field: e.field });
+    if (!found) {
       throw new SchemaFileError(
-        `${collection} validation group ${e.name}: ${found.length ? 'more than one' : 'no'} ` +
-          `instance rule ${memberKey(m)} on ${e.field}`,
+        `${collection} validation group ${e.name}: no instance rule ${memberKey(m)} on ${e.field}`,
       );
     }
-    ids.push(found[0]!);
+    ids.push(found);
   }
   await sql`
     INSERT INTO zvd_validation_rule_groups
@@ -426,7 +425,7 @@ async function putEntry(
       nl_description: (e.description as string | undefined) ?? null,
       is_active: e.active !== false,
     };
-    const [id] = await findValidation(db, collection, e);
+    const id = await findValidation(db, collection, e);
     if (id) {
       await db
         .updateTable('zv_validation_rules')
@@ -494,7 +493,7 @@ async function removeEntry(db: Database, collection: string, list: string, e: En
     const id = await findColumnPermission(db, collection, e);
     if (id) await deleteColumnPermission(db, id);
   } else {
-    const [id] = await findValidation(db, collection, e);
+    const id = await findValidation(db, collection, e);
     if (id) await db.deleteFrom('zv_validation_rules').where('id', '=', id).execute();
     invalidateRulesCache(collection);
   }

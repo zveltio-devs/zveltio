@@ -3233,6 +3233,7 @@ table zv_validation_rules
   fk  zv_validation_rules_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_validation_rules_pkey PRIMARY KEY (id)
   fk  zv_validation_rules_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES zv_tenants(id) ON DELETE CASCADE NOT VALID
+  idx zv_validation_rules_instance_key UNIQUE (collection, field_name, rule_type, jsonb_hash_extended(rule_config, (0)::bigint)) WHERE (tenant_id IS NULL)
   rls enabled
   pol validation_rules_instance_or_tenant FOR r USING ((tenant_id IS NULL) OR zveltio_tenant_scope_ok(tenant_id)) CHECK -
 

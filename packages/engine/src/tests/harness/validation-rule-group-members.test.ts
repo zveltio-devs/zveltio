@@ -33,6 +33,8 @@ d('validation rule group members', () => {
   let db: Database;
   let createdTable = false;
 
+  // A config each: an instance rule's key is unique (migration 098).
+  let n = 0;
   const rule = async () =>
     (
       await db
@@ -41,7 +43,7 @@ d('validation rule group members', () => {
           collection: C,
           field_name: 'tax_id',
           rule_type: 'required',
-          rule_config: toJsonb({}),
+          rule_config: toJsonb({ n: ++n }),
           error_message: 'x',
           is_active: true,
         })
