@@ -4,7 +4,15 @@
  * archive extraction via a Bun.spawn stub (no real unzip binary required).
  */
 
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -221,7 +229,9 @@ describe('downloadExtension', () => {
     await downloadExtension(ENTRY, destBase);
     expect(existsSync(join(destBase, ENTRY.name, 'manifest.json'))).toBe(true);
     expect(existsSync(join(destBase, ENTRY.name, 'engine', 'index.ts'))).toBe(true);
-    expect(existsSync(join(destBase, ENTRY.name, '_stage'))).toBe(false);
+    expect(readdirSync(join(destBase, ENTRY.name)).filter((e) => e.startsWith('_stage'))).toEqual(
+      [],
+    );
   });
 
   it('throws when archive extraction exits non-zero', async () => {

@@ -35,6 +35,7 @@ import {
 } from './extension-paths.js';
 import { downloadExtension, fetchRegistryCatalog } from './extension-download.js';
 import { getLicenseKey } from './extension-license.js';
+import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { Database } from '../../db/index.js';
 import { invalidateActivationCache } from './activation.js';
 import { withExtensionLock } from './extension-utils.js';
@@ -293,6 +294,17 @@ export async function fetchEnabledBundle(
   if (entry.version !== version) {
     throw new Error(
       `bundle not on disk; the registry serves ${entry.version}, the version enabled is ${version}`,
+    );
+  }
+  // As install does, before any bytes are fetched: revoked since its enable, the
+  // load would refuse it, but the extracted files would stay for a later boot
+  // whose revocation list is unreachable (fail-open) to load.
+  const verdict = await checkRevoked(name, version);
+  if (verdict.revoked && verdict.entry)
+    throw new Error(revocationMessage(name, version, verdict.entry));
+  if (verdict.unknown && revocationCheckRequired()) {
+    throw new Error(
+      'bundle not on disk; cannot verify it is not revoked (registry unreachable, ZVELTIO_REQUIRE_REVOCATION_CHECK set)',
     );
   }
   const pin = row.installed_version === version ? row.installed_sha256 : null;

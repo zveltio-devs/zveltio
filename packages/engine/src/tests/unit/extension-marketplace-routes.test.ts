@@ -622,6 +622,35 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(body.hot_loaded).toBe(true);
   });
 
+  // The digest a download returns is the pin every later fetch of this version
+  // is held to (the other replicas' included, lifecycle.ts): both routes record it.
+  for (const route of ['install', 'enable'] as const) {
+    it(`POST ${route} records the downloaded digest and its version`, async () => {
+      const sha = 'ab'.repeat(32);
+      downloadMock.mockImplementation((async () => {
+        writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+        return { archiveSha256: sha };
+      }) as never);
+      let active = false;
+      isActiveMock.mockImplementation(() => active);
+      loadDynamicMock.mockImplementation(async () => {
+        active = true;
+      });
+      const app = mountRoutes(db, extBase);
+      const res = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/${route}`, {
+        method: 'POST',
+        headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(200);
+      const [insert] = db.executed(/insert into "zv_extension_registry"/i);
+      expect(insert?.sql).toMatch(/"installed_sha256".*"installed_version"/);
+      expect(insert?.parameters).toContain(sha);
+      // Both the insert and the conflict update carry it.
+      expect(insert?.parameters.filter((p) => p === sha)).toHaveLength(2);
+    });
+  }
+
   it('POST license store persists a verified key', async () => {
     const app = mountRoutes(db, extBase);
     const res = await app.request(`/api/marketplace/license/${CATALOG_ENTRY.name}`, {
