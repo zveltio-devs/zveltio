@@ -19,7 +19,9 @@ import {
   invalidateAllPermissionCaches,
   invalidateUserPermCache,
   isApiKeySubject,
+  isDefaultGrant,
   requireInstanceAdmin,
+  revokeDefaultGrant,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { asEngineRole } from '../lib/role-window.js';
@@ -467,8 +469,13 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       const { subject, resource, action } = c.req.valid('json');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const admin = c.get('adminUser') as any;
-      const e = await getEnforcer();
-      await e.removePolicy(subject, '*', resource, action);
+      // A default grant absent here (its resource not there yet) is still revoked,
+      // as a schema apply revokes it: removing no rule records nothing.
+      if (isDefaultGrant(subject, resource, action)) {
+        await revokeDefaultGrant(subject, resource, action);
+      } else {
+        await (await getEnforcer()).removePolicy(subject, '*', resource, action);
+      }
       await invalidateAllPermissionCaches();
       // F2 FIX: Audit trail for policy removal.
       auditLog(db, {
