@@ -21,7 +21,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { toJsonb } from '../../lib/jsonb.js';
-import { serialize } from '../../lib/schema-artifact/export.js';
+import { SCHEMA_FORMAT, serialize } from '../../lib/schema-artifact/export.js';
 import {
   createGodSession,
   dropTestCollection,
@@ -133,7 +133,7 @@ d('schema artifact: validation rule groups', () => {
 
   it('a pull writes the group with its members by key, not by id', async () => {
     pulled = await pull();
-    expect(JSON.parse(pulled['zveltio-schema.json']!).format).toBe(2);
+    expect(JSON.parse(pulled['zveltio-schema.json']!).format).toBe(SCHEMA_FORMAT);
     const col = JSON.parse(pulled[PATH]!) as Record<string, unknown>;
     expect(col.validationGroups).toEqual([
       {

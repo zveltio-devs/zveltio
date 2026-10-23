@@ -150,6 +150,30 @@ describe('planSchema', () => {
     ).toEqual(['grant posts delete']);
   });
 
+  it('plans a revoked default both ways, and never creates or removes its role', () => {
+    const editor = { name: 'editor', permissions: [] };
+    const revoking = (actions: string[]) =>
+      files(
+        [posts()],
+        [editor, { name: 'tenant_member', revokedDefaults: [{ resource: 'posts', actions }] }],
+      );
+    // The role exists implicitly: no `create role`, and a file without it
+    // restores what the instance had revoked instead of removing the role.
+    expect(plan(revoking(['read']))).toEqual(['- role tenant_member revoke default posts read']);
+    expect(
+      planSchema(revoking(['create', 'read']), files([posts()])).map(
+        (s) => `${s.change} ${s.action} ${s.op?.kind}`,
+      ),
+    ).toEqual(['+ restore default posts create grant', '+ restore default posts read grant']);
+    expect(planSchema(revoking(['read']), revoking(['read']))).toEqual([]);
+    // Only a default can be listed as revoked.
+    expect(() => plan(revoking(['delete']))).toThrow(/not a default grant/);
+    // A format-2 file has no revokedDefaults, so it would restore every one.
+    expect(() =>
+      plan({ ...files([posts()]), 'zveltio-schema.json': serialize({ format: 2 }) }),
+    ).toThrow(/format 2 is not supported/);
+  });
+
   it('refuses malformed files instead of planning around them', () => {
     const bad = (f: Record<string, string>) => () => planSchema(files([posts()]), f);
     const base = files([posts()]);

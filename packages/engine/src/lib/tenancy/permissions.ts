@@ -621,6 +621,28 @@ async function deleteRecordingRevokes(conditions: RawBuilder<unknown>[]): Promis
 }
 
 /**
+ * Revoke the default grant (role, '*', resource, action) as DELETE
+ * /api/permissions/policies does, and keep the revocation even where this
+ * instance holds no such rule: a schema apply carries a revocation to an
+ * instance whose resource is not there yet (an extension installed later),
+ * where the adapter's delete removes nothing and so records nothing. Recorded
+ * first, so a `materializeDefaultGrants` running in between skips the triple
+ * instead of writing it back after the delete.
+ */
+export async function revokeDefaultGrant(
+  role: string,
+  resource: string,
+  action: string,
+): Promise<void> {
+  if (!isDefaultGrant(role, resource, action)) {
+    throw new Error(`${role} ${resource} ${action} is not a default grant`);
+  }
+  await sql`INSERT INTO zv_default_grant_revocations (role, resource, action)
+            VALUES (${role}, ${resource}, ${action}) ON CONFLICT DO NOTHING`.execute(_db);
+  await (await getEnforcer()).removePolicy(role, '*', resource, action);
+}
+
+/**
  * An enforcer whose single-rule writes reach the table even when its model
  * already agrees with them.
  *
@@ -821,6 +843,11 @@ export function isDefaultGrant(role: string, resource: string, action: string): 
       (d) => d.role === role && d.actions.includes(action),
     )
   );
+}
+
+/** A role some default grant goes to; a schema plan never creates or removes one. */
+export function isDefaultGrantRole(role: string): boolean {
+  return [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].some((d) => d.role === role);
 }
 
 export async function getEnforcer(): Promise<Enforcer> {

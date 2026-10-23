@@ -13,7 +13,14 @@
  */
 
 import { createHash } from 'node:crypto';
-import { exportField, isDefaultGrant, memberKey, SCHEMA_FORMAT, serialize } from './export.js';
+import {
+  exportField,
+  isDefaultGrant,
+  isDefaultGrantRole,
+  memberKey,
+  SCHEMA_FORMAT,
+  serialize,
+} from './export.js';
 import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
 export interface PlanStep {
@@ -53,6 +60,8 @@ export type ApplyOp =
   | { kind: 'setRole'; name: string; description: string | null }
   | { kind: 'grant'; role: string; resource: string; action: string }
   | { kind: 'revoke'; role: string; resource: string; action: string }
+  /** Revokes a default grant and records it, even before this instance holds it. */
+  | { kind: 'revokeDefault'; role: string; resource: string; action: string }
   /** One op of `migrations/<id>.json`; the last one records the migration as applied. */
   | { kind: 'migration'; id: string; checksum: string; last: boolean; change: MigrationOp };
 
@@ -316,6 +325,21 @@ function read(files: Record<string, unknown>): Parsed {
         }
         if (out.roles.has(role.name)) throw new SchemaFileError(`${path}: role ${role.name} twice`);
         list(path, role.permissions, `${role.name}.permissions`);
+        for (const p of list(path, role.revokedDefaults, `${role.name}.revokedDefaults`)) {
+          const actions = Array.isArray(p.actions) ? p.actions : [];
+          if (typeof p.resource !== 'string' || !p.resource || !actions.length) {
+            throw new SchemaFileError(
+              `${path}: ${role.name}.revokedDefaults needs a resource and its actions`,
+            );
+          }
+          for (const a of actions) {
+            if (typeof a !== 'string' || !isDefaultGrant(role.name, p.resource, a)) {
+              throw new SchemaFileError(
+                `${path}: ${role.name} ${p.resource} ${show(a)} is not a default grant`,
+              );
+            }
+          }
+        }
         out.roles.set(role.name, role);
       }
     } else if (path.startsWith('migrations/')) {
@@ -492,17 +516,27 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
   }
 }
 
-/** `"<resource> <action>"` → `[resource, action]`, for every grant of a role. */
-function grants(role: Obj | undefined): Map<string, [string, string]> {
+/**
+ * `"<resource> <action>"` → `[resource, action]`, for every grant of a role
+ * (`permissions`, the defaults left out) or every default it lost (`revokedDefaults`).
+ */
+function grants(
+  role: Obj | undefined,
+  key: 'permissions' | 'revokedDefaults' = 'permissions',
+): Map<string, [string, string]> {
   const out = new Map<string, [string, string]>();
-  for (const p of (role?.permissions as Obj[] | undefined) ?? []) {
+  for (const p of (role?.[key] as Obj[] | undefined) ?? []) {
     for (const a of (p.actions as unknown[] | undefined) ?? []) {
-      if (isDefaultGrant(String(role?.name), String(p.resource), String(a))) continue;
+      const isDefault = isDefaultGrant(String(role?.name), String(p.resource), String(a));
+      if (isDefault === (key === 'permissions')) continue;
       out.set(`${p.resource} ${a}`, [String(p.resource), String(a)]);
     }
   }
   return out;
 }
+
+/** Sorted by key, so the plan's order is stable. */
+const sorted = (m: Map<string, [string, string]>) => [...m].sort(([a], [b]) => (a < b ? -1 : 1));
 
 /**
  * One migration op as a plan step, after making `state` what it will be once
@@ -665,13 +699,17 @@ export function planSchema(
   const roles = [...new Set([...cur.roles.keys(), ...des.roles.keys()])].sort();
   for (const name of roles) {
     const c = cur.roles.get(name);
-    const d = des.roles.get(name);
+    // A role the defaults go to is implied, like its defaults: absent from a
+    // file it has no grants and no revokes, and a plan never creates or removes
+    // it — only a description needs its zv_roles row.
+    const implied = isDefaultGrantRole(name);
+    const d = des.roles.get(name) ?? (implied ? { name, description: c?.description } : undefined);
     const target = `role ${name}`;
     if (!d) {
       steps.push({ change: '-', target, action: 'remove role', destructive: true });
       continue;
     }
-    if (!c) {
+    if (!c && (!implied || typeof d.description === 'string')) {
       const description = typeof d.description === 'string' ? d.description : undefined;
       steps.push({
         change: '+',
@@ -679,7 +717,7 @@ export function planSchema(
         action: 'create role',
         op: { kind: 'createRole', name, description },
       });
-    } else if (!same(c.description, d.description)) {
+    } else if (c && !same(c.description, d.description)) {
       steps.push({
         change: '~',
         target,
@@ -693,7 +731,7 @@ export function planSchema(
     }
     const had = grants(c);
     const has = grants(d);
-    for (const [g, [resource, action]] of [...had].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    for (const [g, [resource, action]] of sorted(had)) {
       if (has.has(g)) continue;
       steps.push({
         change: '-',
@@ -702,12 +740,34 @@ export function planSchema(
         op: { kind: 'revoke', role: name, resource, action },
       });
     }
-    for (const [g, [resource, action]] of [...has].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    for (const [g, [resource, action]] of sorted(has)) {
       if (had.has(g)) continue;
       steps.push({
         change: '+',
         target,
         action: `grant ${g}`,
+        op: { kind: 'grant', role: name, resource, action },
+      });
+    }
+    // A revoked default: revoking it records it, and restoring it is granting
+    // it again, which takes back the revocation in the same statement.
+    const lost = grants(c, 'revokedDefaults');
+    const loses = grants(d, 'revokedDefaults');
+    for (const [g, [resource, action]] of sorted(loses)) {
+      if (lost.has(g)) continue;
+      steps.push({
+        change: '-',
+        target,
+        action: `revoke default ${g}`,
+        op: { kind: 'revokeDefault', role: name, resource, action },
+      });
+    }
+    for (const [g, [resource, action]] of sorted(lost)) {
+      if (loses.has(g)) continue;
+      steps.push({
+        change: '+',
+        target,
+        action: `restore default ${g}`,
         op: { kind: 'grant', role: name, resource, action },
       });
     }
