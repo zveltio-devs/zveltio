@@ -21,6 +21,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import { watchSchema } from '@zveltio/sdk';
 import type { Database } from '../../db/index.js';
+import { DDLManager } from '../../lib/data/index.js';
 import {
   dispatchToWs,
   realtimeBus,
@@ -417,6 +418,22 @@ d('schema events on the realtime socket', () => {
     });
     expect(godWs.events()).toMatchObject([{ collection: 'from_elsewhere', action: 'drop' }]);
     expect(otherGodWs.events()).toMatchObject([{ collection: 'from_elsewhere', action: 'drop' }]);
+
+    // And it drops what this replica cached of the collection: a definition
+    // changed elsewhere (here, behind the cache's back) reads fresh at once.
+    await DDLManager.getCollection(db, THIRD);
+    await sql`UPDATE zvd_collections SET display_name = 'Elsewhere' WHERE name = ${THIRD}`.execute(
+      db,
+    );
+    expect((await DDLManager.getCollection(db, THIRD))?.display_name).not.toBe('Elsewhere');
+    await dispatchToWs({
+      originId: 'eng-elsewhere',
+      event: SCHEMA_CHANGED_EVENT,
+      collection: THIRD,
+      data: { action: 'alter' },
+      timestamp: new Date().toISOString(),
+    });
+    expect((await DDLManager.getCollection(db, THIRD))?.display_name).toBe('Elsewhere');
   }, 60_000);
 
   /** True for the probe sockets this file opened — the SDK's is the other one. */

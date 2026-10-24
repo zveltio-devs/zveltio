@@ -325,9 +325,16 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   if (msg.event === POOL_RECYCLE_EVENT) return recyclePoolSoon();
   if (msg.event === SCHEMA_CHANGED_EVENT) {
     const action = (msg.data as { action?: unknown } | undefined)?.action;
-    if (msg.collection && (action === 'create' || action === 'alter' || action === 'drop'))
-      broadcastSchemaChange(msg.collection, action);
-    return;
+    if (!msg.collection || (action !== 'create' && action !== 'alter' && action !== 'drop')) return;
+    broadcastSchemaChange(msg.collection, action);
+    // Published after the change committed, seal and view included: forget the
+    // definition and readable columns this replica kept, or for up to 30 s its
+    // reads miss a new column or fail on a dropped one. Lazily: lib/data imports this module.
+    return import('../data/index.js')
+      .then((m) => m.DDLManager.invalidateCache(msg.collection))
+      .catch((err: Error) => {
+        console.error(`[realtime-bus] ${msg.collection}: schema change not applied:`, err.message);
+      });
   }
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
