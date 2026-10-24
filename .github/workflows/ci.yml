@@ -550,7 +550,7 @@ jobs:
         # its advisory clears upstream):
         # (The three undici highs — GHSA-vmh5-mc38-953g / -vxpw-j846-p89q /
         # -hm92-r4w5-c3mj — are now actually fixed: the root `undici` override pins
-        # 7.29.0, which patches all three, so their ignores were dropped. expr-eval
+        # 7.30.1 (also GHSA-xjj6-f33q-929c), which patches all of them, so their ignores were dropped. expr-eval
         # migrated to expr-eval-fork@3; isSafeExpression() stays as defense-in-depth.)
         #
         # Dropped 2026-07-30, both now genuinely fixed rather than ignored:
@@ -593,7 +593,16 @@ jobs:
         #     files, never from a request, so no runtime path reaches it. Drop the
         #     ignore when braces ships a fix (override it then) or those tools move
         #     to picomatch-only matching.
-        run: bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm
+        #
+        #   GHSA-mrhx-c7xc-m3w5  zod <=4.6.5 collects one issue per failing array
+        #     element with no cap (published 2026-10-24). This one IS reachable:
+        #     a 9.5 MB body (under the 10 MB /api limit) against
+        #     z.array(z.string()) costs ~1.7 GB RSS. It stays ignored only because
+        #     zod is a lockstep dep inlined into the worker and ~50 extension
+        #     bundles, so the bump (4.6.6+) ships with the extension migration
+        #     wave (owner decision 2026-10-24, engine first). Tracked as an open
+        #     high in the review ledger; drop the ignore with that bump.
+        run: bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm --ignore=GHSA-mrhx-c7xc-m3w5
 
   ext-runner-isolation:
     name: Extension runner isolation
