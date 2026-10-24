@@ -144,7 +144,8 @@ export function getActiveExtensionNames(): string[] {
 export async function discoverExternal(basePath: string): Promise<string[]> {
   try {
     const entries = await readdir(basePath, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    // Dot-named: an update's staging directory (extension-download.ts), never an extension.
+    return entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name);
   } catch {
     return [];
   }

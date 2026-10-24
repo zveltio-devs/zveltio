@@ -61,6 +61,7 @@ import {
 } from './internals.js';
 import { reRegisterExtension } from './register.js';
 import {
+  bundleBehindRecord,
   fetchEnabledBundle,
   loadDynamic,
   reloadExtensionFromDisk,
@@ -496,9 +497,20 @@ export class ExtensionLoader {
     for (const row of rows) {
       if (row.tenant_id !== null || !enabled.includes(row.name) || !pending.includes(row.name))
         continue;
-      if (extensionFilesPresent(join(extBase, row.name))) continue;
+      const dir = join(extBase, row.name);
+      // Present and not behind an update another replica made while this one was down.
+      if (extensionFilesPresent(dir) && !bundleBehindRecord(dir, row)) continue;
       try {
-        await fetchEnabledBundle(db, row.name, extBase, row);
+        // Nothing is loaded yet, so a staged newer version swaps in at once; one
+        // that then fails to load leaves this replica without the extension, its
+        // row saying why, until it next syncs or restarts.
+        // ponytail: unlocked like the fetch above it — boot assumes it is the only
+        // writer of this directory for `row.name`; a god update on another replica
+        // sharing the volume at that instant is the case it does not cover.
+        const staged = await fetchEnabledBundle(db, row.name, extBase, row);
+        staged?.swap();
+        staged?.commit();
+        invalidateFilesPresent(join(extBase, row.name));
       } catch (err) {
         // Left in the sort's set: a refused name there refuses its dependents too.
         refused.set(row.name, `bundle not fetched: ${(err as Error).message}`);

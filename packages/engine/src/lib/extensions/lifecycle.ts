@@ -34,7 +34,12 @@ import {
   invalidateFilesPresent,
   resolveExtensionsBase,
 } from './extension-paths.js';
-import { downloadExtension, fetchRegistryCatalog } from './extension-download.js';
+import {
+  downloadExtension,
+  fetchRegistryCatalog,
+  stageExtensionDir,
+  type StagedExtension,
+} from './extension-download.js';
 import { getLicenseKey } from './extension-license.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { Database } from '../../db/index.js';
@@ -252,21 +257,44 @@ export async function syncWithRegistry(
     const row = rows.find((r) => r.tenant_id === null);
     const godOn = row?.is_enabled === true;
     const extBase = resolveExtensionsBase();
+    const extDir = join(extBase, name);
     invalidateActivationCache(name);
-    invalidateFilesPresent(join(extBase, name));
+    invalidateFilesPresent(extDir);
+    // Another replica updated it (POST /update): this disk still holds the version before.
+    const behind = wanted && row !== undefined && bundleBehindRecord(extDir, row);
     // Loaded, but another version is on disk now: reload it, as boot would.
-    const stale = wanted && loadedVersionStale(loader, name);
+    const stale = wanted && (behind || loadedVersionStale(loader, name));
     if (wanted === loader.isActive(name) && !stale) return;
     if (wanted) {
-      if (stale) await unloadExtension(loader, name);
+      let unloaded = false;
+      let staged: StagedExtension | null = null;
       try {
-        if (row && !extensionFilesPresent(join(extBase, name)))
-          await fetchEnabledBundle(db, name, extBase, row);
+        // Fetched before the unload: a bundle that fails a check leaves the old one running.
+        if (row && (behind || !extensionFilesPresent(extDir)))
+          staged = await fetchEnabledBundle(db, name, extBase, row);
+        // Unloaded before the swap: the old code never runs over the new files.
+        if (staged ? loader.isActive(name) : loadedVersionStale(loader, name)) {
+          await unloadExtension(loader, name);
+          unloaded = true;
+        }
+        staged?.swap();
+        invalidateFilesPresent(extDir);
         // Routes land on a throwaway app, as at boot: the rebuild below mounts them.
         // Only god's row may run migrations; a firm's alone loads with none pending.
         await loadDynamic(loader, name, new Hono(), godOn);
       } catch (err) {
         const why = (err as Error).message;
+        // The new version does not load here: the old one comes back, as on the
+        // replica that ran the update. Its migrations are on record already.
+        if (staged) {
+          try {
+            staged.rollback();
+            invalidateFilesPresent(extDir);
+            if (unloaded) await loadDynamic(loader, name, new Hono(), godOn);
+          } catch (e) {
+            console.error(`[extensions] "${name}": the previous version did not come back:`, e);
+          }
+        }
         // The originating replica recorded its own outcome; this one only says why
         // here. A refusal for a firm's row has no god route behind it to record it.
         console.warn(`[extensions] "${name}" enabled elsewhere, not loaded here:`, why);
@@ -278,9 +306,15 @@ export async function syncWithRegistry(
             .execute()
             .catch(() => {});
         }
-        // Unloaded above for the version it now refuses: the rebuild drops the old routes.
-        if (stale) await triggerReload(`disable-elsewhere:${name}`);
+        // Unloaded above for the version it now refuses: the rebuild drops the old
+        // routes, or mounts the old version put back.
+        if (unloaded) await triggerReload(`disable-elsewhere:${name}`);
         return why;
+      }
+      try {
+        staged?.commit();
+      } catch (e) {
+        console.warn(`[extensions] "${name}": the previous version's files were not removed:`, e);
       }
     } else {
       await unloadExtension(loader, name);
@@ -308,7 +342,27 @@ export function loadedVersionStale(loader: ExtensionLoader, name: string): boole
 }
 
 /**
- * `name` is enabled (for the instance or a firm) but its bundle is not on this replica's disk:
+ * The registry row records a NEWER version than the manifest in `dir`: another
+ * replica updated the extension (POST /api/marketplace/<name>/update) onto its
+ * own disk. Only newer: a version on disk ahead of the record was put there by
+ * hand (EXTENSIONS_DIR, a dev checkout) and is not overwritten from the registry.
+ */
+export function bundleBehindRecord(
+  dir: string,
+  row: { installed_version: string | null },
+): boolean {
+  if (!row.installed_version) return false; // never downloaded: nothing on record to fetch
+  try {
+    const { version } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    return typeof version === 'string' && Bun.semver.order(row.installed_version, version) > 0;
+  } catch {
+    return false; // no manifest (fetched when the files are missing) or not semver
+  }
+}
+
+/**
+ * `name` is enabled (for the instance or a firm) but its bundle is not on this
+ * replica's disk, or is behind the version on record (`bundleBehindRecord`):
  * the replica that installed it downloaded it onto its own, and the extensions
  * directory is not a shared volume. Fetch the version on record from the
  * registry through the install path's `downloadExtension`, which refuses before
@@ -320,6 +374,10 @@ export function loadedVersionStale(loader: ExtensionLoader, name: string): boole
  *
  * Also called at boot (`loadFromDB`): a replica that restarts or scales out
  * after the enable has the same empty disk.
+ *
+ * Answers the staged bundle when an older one is on disk (the caller swaps it in
+ * once the old code is unloaded, and commits or rolls back), null when it
+ * downloaded straight into the empty directory.
  */
 export async function fetchEnabledBundle(
   db: Database,
@@ -330,7 +388,7 @@ export async function fetchEnabledBundle(
     installed_version: string | null;
     installed_sha256: string | null;
   },
-): Promise<void> {
+): Promise<StagedExtension | null> {
   const version = row.installed_version ?? row.version;
   if (!version) throw new Error('bundle not on disk and no installed version on record to fetch');
   // The registry must answer: with it down, the catalog baked into this binary would vouch for the version.
@@ -352,9 +410,16 @@ export async function fetchEnabledBundle(
       'bundle not on disk; cannot verify it is not revoked (registry unreachable, ZVELTIO_REQUIRE_REVOCATION_CHECK set)',
     );
   }
+  // The digest the update (or install) recorded for this version: other bytes are refused.
   const pin = row.installed_version === version ? row.installed_sha256 : null;
-  await downloadExtension(entry, extBase, await getLicenseKey(db, name), pin);
-  invalidateFilesPresent(join(extBase, name));
+  const key = await getLicenseKey(db, name);
+  const dir = join(extBase, name);
+  // An older version is here, perhaps loaded: staged beside it for the caller to swap.
+  if (extensionFilesPresent(dir))
+    return stageExtensionDir(entry, extBase, (b) => downloadExtension(entry, b, key, pin));
+  await downloadExtension(entry, extBase, key, pin);
+  invalidateFilesPresent(dir);
+  return null;
 }
 
 /**
@@ -406,6 +471,18 @@ export async function syncAllWithRegistry(
  * follows.
  */
 export async function reloadExtensionFromDisk(
+  loader: ExtensionLoader,
+  name: string,
+  app: Hono,
+  triggerReload: (reason: string) => Promise<void>,
+): Promise<{ ok: boolean; error?: string }> {
+  // Under the extension lock, as every other load: never halfway through an update's swap.
+  const db = loader.ctx?.db;
+  const run = () => reloadUnlocked(loader, name, app, triggerReload);
+  return db ? withExtensionLock(db, name, run) : run();
+}
+
+async function reloadUnlocked(
   loader: ExtensionLoader,
   name: string,
   app: Hono,
