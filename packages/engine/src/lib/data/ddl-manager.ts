@@ -8,6 +8,7 @@ import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-t
 import { buildTenantUniqueIndex, findTenantUniqueIndex } from './unique-key-reconcile.js';
 import { toJsonb } from '../jsonb.js';
 import { invalidateRulesCache } from '../validation-engine.js';
+import { withSavepoint } from '../savepoint.js';
 
 // ─── Relation type sets ───────────────────────────────────────────────────────
 /** FK column lives in the SOURCE table (the collection being modified). */
@@ -401,8 +402,9 @@ export class DDLManager {
    * Adds a UUID FK column to `tableName` referencing `targetTable(id)` with
    * lock_timeout, then creates a CONCURRENTLY index on it.
    *
-   * Must be called OUTSIDE an open transaction — and that is now checked rather
-   * than only written down. `CREATE INDEX CONCURRENTLY` inside a transaction
+   * Must be called OUTSIDE an open transaction unless `concurrently` is false
+   * (`createCollection`, inside its own) — and that is checked rather than only
+   * written down. `CREATE INDEX CONCURRENTLY` inside a transaction
    * block raises SQLSTATE 25001 several statements after the mistake, which
    * reads as a database problem rather than a call in the wrong place. The
    * comment has been here since the method was written and did not stop the DDL
@@ -418,7 +420,7 @@ export class DDLManager {
     /** False from `createCollection`, for the table it just made; see the note there. */
     concurrently = true,
   ): Promise<void> {
-    if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
+    if (concurrently && (db as unknown as { isTransaction?: boolean }).isTransaction) {
       throw new Error(
         'DDLManager.applyRelationFK must run on the pool, not inside a transaction: ' +
           'it issues CREATE INDEX CONCURRENTLY, which PostgreSQL refuses in a ' +
@@ -473,14 +475,20 @@ export class DDLManager {
       junction_table?: string;
     },
   ): Promise<void> {
-    await db
-      .insertInto('zvd_relations')
-      .values(rel)
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      .onConflict((oc: any) => oc.doNothing())
-      .execute()
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      .catch((err: any) => console.warn('[registerRelation]', err?.message ?? err));
+    const insert = async () => {
+      await db
+        .insertInto('zvd_relations')
+        .values(rel)
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+        .onConflict((oc: any) => oc.doNothing())
+        .execute();
+    };
+    const warn = (err: unknown) =>
+      console.warn('[registerRelation]', (err as Error)?.message ?? err);
+    // In a transaction (createCollection's) a caught failure would still abort it (25P02).
+    if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
+      await withSavepoint(db, 'zv_register_relation', insert, warn);
+    } else await insert().catch(warn);
   }
 
   /** A junction the engine made (`zvd_jnc_*`); an extension's own m2m table is its to drop. */
@@ -554,6 +562,15 @@ export class DDLManager {
   // ── createCollection ─────────────────────────────────────────────────────────
 
   static async createCollection(db: Database, definition: CollectionInput): Promise<void> {
+    // It owns its transaction: the cache drop and the default grants (which
+    // refuse a transaction) must follow the commit, and a caller's commit is
+    // out of sight here.
+    if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
+      throw new Error(
+        'DDLManager.createCollection must run on the pool: it commits the create itself, ' +
+          'then drops caches and writes default grants.',
+      );
+    }
     const validated = CollectionSchema.parse(definition);
     const reserved = await this.reservedName(db, validated.name);
     if (reserved) throw new Error(reserved);
@@ -646,37 +663,44 @@ export class DDLManager {
 
     // Table constraints after every column, as CREATE TABLE has them.
     columns.push(...uniqueKeys);
-    await createIsolatedTable(
-      db,
-      tableName,
-      `CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`,
-      validated.fields,
-    );
 
-    for (const indexSQL of indexes) {
-      await sql.raw(indexSQL).execute(db);
-    }
+    // Everything from CREATE TABLE to the junctions is one transaction. Run as
+    // separate statements, a failure past CREATE TABLE (a refused relation, a
+    // trigger) left a committed table with partial or no metadata, and the
+    // create_collection job's retry then failed on "already exists" for good.
+    // Nothing in it needs CONCURRENTLY: every index is on a table it creates.
+    const build = async (h: Database) => {
+      await createIsolatedTable(
+        h,
+        tableName,
+        `CREATE TABLE ${tableName} (\n  ${columns.join(',\n  ')}\n)`,
+        validated.fields,
+      );
 
-    // FTS support; the text half and the trigger follow the metadata below.
-    const { dropMaskView, sealColumns } = await import('./sealed-columns.js');
-    await withLockTimeout(db, async (trx) => {
-      await dropMaskView(trx, tableName);
+      for (const indexSQL of indexes) {
+        await sql.raw(indexSQL).execute(h);
+      }
+
+      // FTS support; the text half and the trigger follow the metadata below.
+      const { dropMaskView, sealColumns } = await import('./sealed-columns.js');
+      await withLockTimeout(h, async (trx) => {
+        await dropMaskView(trx, tableName);
+        await sql
+          .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector`)
+          .execute(trx);
+        // The fields as created: none is recorded yet, and a password missing
+        // from them would be unsealed.
+        await sealColumns(trx, validated.name, validated.fields);
+      });
       await sql
-        .raw(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS search_vector tsvector`)
-        .execute(trx);
-      // The fields as created: none is recorded yet, and a password missing
-      // from them would be unsealed.
-      await sealColumns(trx, validated.name, validated.fields);
-    });
-    await sql
-      .raw(
-        `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'search')} ON ${tableName} USING GIN(search_vector)`,
-      )
-      .execute(db);
+        .raw(
+          `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'search')} ON ${tableName} USING GIN(search_vector)`,
+        )
+        .execute(h);
 
-    await withLockTimeout(db, async (trx) => {
-      await sql
-        .raw(`
+      await withLockTimeout(h, async (trx) => {
+        await sql
+          .raw(`
         CREATE OR REPLACE FUNCTION ${tableName}_touch_updated_at()
         RETURNS TRIGGER AS $$
         BEGIN
@@ -685,89 +709,101 @@ export class DDLManager {
         END;
         $$ LANGUAGE plpgsql
       `)
-        .execute(trx);
-      await sql
-        .raw(`
+          .execute(trx);
+        await sql
+          .raw(`
         CREATE TRIGGER update_${tableName}_updated_at
           BEFORE UPDATE ON ${tableName}
           FOR EACH ROW
           EXECUTE FUNCTION ${tableName}_touch_updated_at()
       `)
-        .execute(trx);
-      // Sync pull's record of deleted rows (migration 032).
-      await sql.raw(syncTombstoneTrigger(tableName)).execute(trx);
-    });
-
-    // A registry row already under this name has no table (CREATE TABLE above
-    // just made it): a ghost. Its old created_at survived the upsert, and the
-    // drop's rule cutoff then took rules written before this create.
-    await sql`UPDATE zvd_collections SET created_at = now() WHERE name = ${validated.name}`.execute(
-      db,
-    );
-    // Register metadata first so relation inserts can reference valid collection names
-    await this.registerMetadata(db, validated);
-
-    await this.refreshSearchTrigger(db, validated.name, undefined, false);
-
-    // Add FK columns and register m2o/reference relations after table + metadata exist
-    for (const field of relationFields) {
-      const target = String(field.options!.related_collection);
-      if (!SAFE_NAME_RE.test(target)) {
-        console.warn(
-          `[createCollection] Invalid target name '${target}' for field '${field.name}' — skipping`,
-        );
-        continue;
-      }
-      if (!(await this.tableExists(db, target))) {
-        console.warn(
-          `[createCollection] Target '${target}' for field '${field.name}' not found — skipping FK`,
-        );
-        continue;
-      }
-      const targetTable = this.getTableName(target);
-      const onDelete = String(field.options?.on_delete ?? 'SET NULL').toUpperCase();
-      const onUpdate = String(field.options?.on_update ?? 'CASCADE').toUpperCase();
-
-      await this.applyRelationFK(db, tableName, field.name, targetTable, onDelete, onUpdate, false);
-      await this.registerRelation(db, {
-        name: `${validated.name}_${field.name}`,
-        type: 'm2o',
-        source_collection: validated.name,
-        source_field: field.name,
-        target_collection: target,
-        target_field: 'id',
-        on_delete: onDelete,
-        on_update: onUpdate,
+          .execute(trx);
+        // Sync pull's record of deleted rows (migration 032).
+        await sql.raw(syncTombstoneTrigger(tableName)).execute(trx);
       });
-    }
 
-    // Create junction tables for m2m fields
-    const m2mFields = validated.fields.filter(
-      (f) => f.type === 'm2m' && f.options?.related_collection,
-    );
-    for (const field of m2mFields) {
-      const target = String(field.options!.related_collection);
-      if (!SAFE_NAME_RE.test(target)) {
-        console.warn(`[createCollection] Invalid m2m target '${target}' — skipping`);
-        continue;
-      }
-      if (!(await this.tableExists(db, target))) {
-        console.warn(
-          `[createCollection] m2m target '${target}' not found — skipping junction table`,
+      // A registry row already under this name has no table (CREATE TABLE above
+      // just made it): a ghost. Its old created_at survived the upsert, and the
+      // drop's rule cutoff then took rules written before this create.
+      await sql`UPDATE zvd_collections SET created_at = now() WHERE name = ${validated.name}`.execute(
+        h,
+      );
+      // Register metadata first so relation inserts can reference valid collection names
+      await this.registerMetadata(h, validated);
+
+      await this.refreshSearchTrigger(h, validated.name, undefined, false);
+
+      // Add FK columns and register m2o/reference relations after table + metadata exist
+      for (const field of relationFields) {
+        const target = String(field.options!.related_collection);
+        if (!SAFE_NAME_RE.test(target)) {
+          console.warn(
+            `[createCollection] Invalid target name '${target}' for field '${field.name}' — skipping`,
+          );
+          continue;
+        }
+        if (!(await this.tableExists(h, target))) {
+          console.warn(
+            `[createCollection] Target '${target}' for field '${field.name}' not found — skipping FK`,
+          );
+          continue;
+        }
+        const targetTable = this.getTableName(target);
+        const onDelete = String(field.options?.on_delete ?? 'SET NULL').toUpperCase();
+        const onUpdate = String(field.options?.on_update ?? 'CASCADE').toUpperCase();
+
+        await this.applyRelationFK(
+          h,
+          tableName,
+          field.name,
+          targetTable,
+          onDelete,
+          onUpdate,
+          false,
         );
-        continue;
+        await this.registerRelation(h, {
+          name: `${validated.name}_${field.name}`,
+          type: 'm2o',
+          source_collection: validated.name,
+          source_field: field.name,
+          target_collection: target,
+          target_field: 'id',
+          on_delete: onDelete,
+          on_update: onUpdate,
+        });
       }
-      const junctionTable = await this.createJunctionTable(db, validated.name, target);
-      await this.registerRelation(db, {
-        name: `${validated.name}_${field.name}`,
-        type: 'm2m',
-        source_collection: validated.name,
-        source_field: field.name,
-        target_collection: target,
-        target_field: 'id',
-        junction_table: junctionTable,
-      });
-    }
+
+      // Create junction tables for m2m fields
+      const m2mFields = validated.fields.filter(
+        (f) => f.type === 'm2m' && f.options?.related_collection,
+      );
+      for (const field of m2mFields) {
+        const target = String(field.options!.related_collection);
+        if (!SAFE_NAME_RE.test(target)) {
+          console.warn(`[createCollection] Invalid m2m target '${target}' — skipping`);
+          continue;
+        }
+        if (!(await this.tableExists(h, target))) {
+          console.warn(
+            `[createCollection] m2m target '${target}' not found — skipping junction table`,
+          );
+          continue;
+        }
+        const junctionTable = await this.createJunctionTable(h, validated.name, target);
+        await this.registerRelation(h, {
+          name: `${validated.name}_${field.name}`,
+          type: 'm2m',
+          source_collection: validated.name,
+          source_field: field.name,
+          target_collection: target,
+          target_field: 'id',
+          junction_table: junctionTable,
+        });
+      }
+    };
+    await db.transaction().execute(build);
+    // registerMetadata invalidated inside the transaction; a read before commit re-cached the absence.
+    this.invalidateCache(validated.name);
 
     // A collection nobody may touch is not a collection.
     //
@@ -1205,8 +1241,9 @@ export class DDLManager {
    *
    * Adds `search_text` and its trigram index for a collection that gains its
    * first text field — but only on the pool, since the index is built
-   * CONCURRENTLY. Inside a transaction fields are only ever being removed or
-   * renamed, which needs neither.
+   * CONCURRENTLY, or for the table `createCollection` is creating in its
+   * transaction. Inside any other transaction fields are only ever being
+   * removed or renamed, which needs neither.
    */
   static async refreshSearchTrigger(
     db: Database,
@@ -1239,7 +1276,7 @@ export class DDLManager {
     const has = new Set(cols.rows.map((c) => c.attname));
     const inTransaction = (db as unknown as { isTransaction?: boolean }).isTransaction === true;
 
-    if (names.length > 0 && !has.has('search_text') && !inTransaction) {
+    if (names.length > 0 && !has.has('search_text') && (!inTransaction || !concurrently)) {
       const { dropMaskView, sealColumns } = await import('./sealed-columns.js');
       await withLockTimeout(db, async (trx) => {
         await dropMaskView(trx, tableName);
