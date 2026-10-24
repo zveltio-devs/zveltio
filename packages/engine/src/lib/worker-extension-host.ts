@@ -206,6 +206,19 @@ export function workerRequestHeaders(
   return headers;
 }
 
+/**
+ * The request's session as a worker may hold it: Better Auth's, minus
+ * `session.token`. The token is the session's credential, which the worker is
+ * never handed (`workerRequestHeaders`); approved forwarding passes the
+ * header itself, on its route, and nothing more.
+ */
+function withoutSessionToken(found: unknown): unknown {
+  const s = found as { session?: unknown } | null;
+  if (!s?.session || typeof s.session !== 'object') return found;
+  const { token: _token, ...session } = s.session as Record<string, unknown>;
+  return { ...s, session };
+}
+
 interface ManagedWorker {
   name: string;
   extDir: string;
@@ -926,7 +939,7 @@ export class WorkerExtensionHost {
       let result: unknown;
       switch (op) {
         case 'getSession':
-          result = await session();
+          result = withoutSessionToken(await session());
           break;
         case 'checkPermission': {
           const check = managed.source?.checkPermission;

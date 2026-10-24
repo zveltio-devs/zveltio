@@ -158,6 +158,18 @@ describe('worker host call: session', () => {
     });
     expect((await call({ op: 'getSession', args: [] })).result).toBe(null);
   });
+
+  it('never carries the session token, the credential itself', async () => {
+    const { call, managed } = setup();
+    managed.invokeTenants.set('inv-2', {
+      tenantId: null,
+      session: async () => ({ user: { id: U1 }, session: { id: 's1', userId: U1, token: 'tok' } }),
+    });
+    expect((await call({ op: 'getSession', args: [], requestId: 'inv-2' })).result).toEqual({
+      user: { id: U1 },
+      session: { id: 's1', userId: U1 },
+    });
+  });
 });
 
 describe('worker host call: events', () => {
