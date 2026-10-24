@@ -352,6 +352,13 @@ export async function downloadExtension(
   // (extension-loader.ts), and a fixed `_stage` / `_pkg` let each delete and
   // truncate the other's half-extracted files (measured: tar "Cannot mkdir").
   // Each entry below then appears whole, by rename.
+  // A crash mid-extraction leaves its `_stage-*` (and archive) behind; one an
+  // hour old is no download still running.
+  for (const e of fs.readdirSync(destDir)) {
+    const p = join(destDir, e);
+    if (e.startsWith('_stage-') && Date.now() - fs.lstatSync(p).mtimeMs > 3_600_000)
+      fs.rmSync(p, { recursive: true, force: true });
+  }
   const stageDir = fs.mkdtempSync(join(destDir, '_stage-'));
   const pkgPath = `${stageDir}${isZip ? '.zip' : '.tar.gz'}`;
   fs.writeFileSync(pkgPath, buf);
