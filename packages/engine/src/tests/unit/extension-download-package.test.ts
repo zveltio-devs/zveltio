@@ -11,6 +11,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -194,6 +195,19 @@ describe('downloadExtension', () => {
     expect(existsSync(manifest)).toBe(true);
     expect(existsSync(engine)).toBe(true);
     expect(readFileSync(engine, 'utf8')).toContain('export default');
+  });
+
+  it("sweeps a crashed download's stale _stage-* leftovers, not a fresh one", async () => {
+    const dir = join(destBase, ENTRY.name);
+    mkdirSync(join(dir, '_stage-old'), { recursive: true });
+    writeFileSync(join(dir, '_stage-old.zip'), 'x');
+    mkdirSync(join(dir, '_stage-new'));
+    const hourAgo = new Date(Date.now() - 2 * 3_600_000);
+    utimesSync(join(dir, '_stage-old'), hourAgo, hourAgo);
+    utimesSync(join(dir, '_stage-old.zip'), hourAgo, hourAgo);
+    stubDownloadResponse(ZIP_MAGIC);
+    await downloadExtension(ENTRY, destBase);
+    expect(readdirSync(dir).filter((e) => e.startsWith('_stage-'))).toEqual(['_stage-new']);
   });
 
   it('passes the license key as Authorization Bearer on download', async () => {
