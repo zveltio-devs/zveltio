@@ -644,6 +644,44 @@ export function registerMarketplaceRoutes(
     });
   };
 
+  /**
+   * Load `name` unless it already runs, and record the outcome on its rows: the
+   * error the marketplace shows, or none. A failure never flips `is_enabled`:
+   * a transient one (npm-install timing, dependency load order, a missing PG
+   * extension the operator then installs) self-heals on the next boot or retry,
+   * and boot-load (loadFromDB) skips a failing extension while keeping it
+   * enabled. Persisting the error shows the operator WHY instead of the
+   * extension silently vanishing.
+   */
+  const loadRecorded = async (name: string): Promise<{ hotLoaded: boolean; loadError: string }> => {
+    // Active for a firm's row at an older version than the one on disk: load
+    // this one, or its migrations wait for the next boot behind a success.
+    if (loadedVersionStale(self, name)) await self.unload(name);
+    if (!self.isActive(name)) {
+      try {
+        await self.loadDynamic(name, app);
+      } catch (e) {
+        const loadError = (e as Error).message;
+        console.warn(`Hot-load failed for ${name}:`, loadError);
+        await db
+          .updateTable('zv_extension_registry')
+          .set({ last_load_error: loadError, last_load_at: new Date() })
+          .where('name', '=', name)
+          .execute()
+          .catch(() => {});
+        return { hotLoaded: false, loadError };
+      }
+    }
+    // Cleared on success so a previously-failing extension loses its badge.
+    await db
+      .updateTable('zv_extension_registry')
+      .set({ last_load_error: null, last_load_at: new Date() })
+      .where('name', '=', name)
+      .execute()
+      .catch(() => {});
+    return { hotLoaded: true, loadError: '' };
+  };
+
   // POST /api/marketplace/:name/update (registered via the dispatcher below)
   /**
    * Replace an installed extension with the version the registry serves now, in
@@ -687,7 +725,7 @@ export function registerMarketplaceRoutes(
         return c.json({ error: 'Invalid extension name' }, 400);
       const rows = await db
         .selectFrom('zv_extension_registry')
-        .select(['tenant_id', 'is_installed', 'is_enabled', 'installed_sha256'])
+        .select(['tenant_id', 'is_installed', 'is_enabled', 'installed_sha256', 'last_load_error'])
         .where('name', '=', name)
         .execute();
       const godRow = rows.find((r) => r.tenant_id === null);
@@ -696,6 +734,20 @@ export function registerMarketplaceRoutes(
       }
       const from = diskVersion(extDir);
       if (from === entry.version) {
+        // A failed update whose migrations could not be undone left this version
+        // installed and not loaded: asking again retries the load, as enable does,
+        // instead of a success that leaves it down.
+        const stuck =
+          !self.isActive(name) && godRow.last_load_error && rows.some((r) => r.is_enabled);
+        if (stuck) {
+          const { hotLoaded, loadError } = await loadRecorded(name);
+          if (!hotLoaded) {
+            const msg = `"${name}" ${from} is installed and still does not start: ${loadError}`;
+            return c.json({ success: false, updated: false, error: msg, message: msg }, 422);
+          }
+          await triggerReloadFn(`update:${name}`);
+          return c.json({ success: true, updated: false, version: from, hot_loaded: true });
+        }
         return c.json({ success: true, updated: false, version: from });
       }
       // Never downloaded: the files were put there by hand (EXTENSIONS_DIR, a dev
@@ -943,43 +995,7 @@ export function registerMarketplaceRoutes(
         )
         .execute();
 
-      let hotLoaded = false;
-      let loadError = '';
-      // Active for a firm's row at an older version than the one on disk: load
-      // this one, or its migrations wait for the next boot behind a success.
-      if (loadedVersionStale(self, name)) await self.unload(name);
-      if (!self.isActive(name)) {
-        try {
-          await self.loadDynamic(name, app);
-          hotLoaded = true;
-        } catch (e) {
-          loadError = (e as Error).message;
-          console.warn(`Hot-load failed for ${name}:`, loadError);
-          // Do NOT flip is_enabled=false. A transient failure (npm-install
-          // timing, dependency load order, a missing PG extension the operator
-          // then installs) self-heals on the next boot/retry — boot-load
-          // (loadFromDB) tolerates per-extension failures by skipping while
-          // keeping is_enabled=true. Persist the error so the operator sees
-          // WHY in the marketplace instead of the extension silently vanishing.
-          await db
-            .updateTable('zv_extension_registry')
-            .set({ last_load_error: loadError, last_load_at: new Date() })
-            .where('name', '=', name)
-            .execute()
-            .catch(() => {});
-        }
-      } else {
-        hotLoaded = true;
-      }
-      // Cleared on success so a previously-failing extension loses its badge.
-      if (hotLoaded) {
-        await db
-          .updateTable('zv_extension_registry')
-          .set({ last_load_error: null, last_load_at: new Date() })
-          .where('name', '=', name)
-          .execute()
-          .catch(() => {});
-      }
+      const { hotLoaded, loadError } = await loadRecorded(name);
 
       // Rebuild and swap the Hono app so the new extension's engine routes
       // are live without restarting the process.
