@@ -68,7 +68,7 @@ Extension mutations (every non-GET god route under `/api/marketplace/*` and
 The client names the action, confirms it, and sends the token it gets back as
 `X-Zveltio-Step-Up` on that one request.
 
-- Actions: `extension.<verb>:<name>` (`install`, `enable`, `disable`, `uninstall`,
+- Actions: `extension.<verb>:<name>` (`install`, `update`, `enable`, `disable`, `uninstall`,
   `config`, `license`, `license-delete`, `approve-capabilities`,
   `approve-forward-credentials`), `extension.enable-all`, `extension.license-rotate`;
   for factor changes `factor.passkey.add`, `factor.passkey.remove`, `factor.totp.add`,

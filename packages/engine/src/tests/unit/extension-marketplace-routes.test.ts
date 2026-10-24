@@ -853,4 +853,224 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(row?.is_enabled).toBe(true);
     expect(row?.config).toEqual({ scope: 'tenant' });
   });
+
+  // ── POST /api/marketplace/:name/update ──────────────────────────────────────
+  describe('update', () => {
+    const NAME = CATALOG_ENTRY.name;
+    const OLD_SHA = 'aa'.repeat(32);
+    const NEW_SHA = 'bb'.repeat(32);
+    const NEXT = { ...CATALOG_ENTRY, version: '1.1.0' };
+    const manifestVersion = () =>
+      JSON.parse(nodeFs.readFileSync(join(extBase, NAME, 'manifest.json'), 'utf8')).version;
+    const leftovers = () => nodeFs.readdirSync(extBase).filter((e) => e.startsWith('.update-'));
+    /** God's row: installed from the registry at 1.0.0, enabled. */
+    const installedRow = (over: Record<string, unknown> = {}) =>
+      db.when(/from "zv_extension_registry"/i, [
+        {
+          tenant_id: null,
+          is_installed: true,
+          is_enabled: true,
+          installed_version: '1.0.0',
+          installed_sha256: OLD_SHA,
+          ...over,
+        },
+      ]);
+    /** The registry serves 1.1.0; the download writes it where it is told to. */
+    const serve = (write = true) => {
+      fetchCatalogMock.mockImplementation(async () => [NEXT]);
+      downloadMock.mockImplementation((async (_e: unknown, destBase: string) => {
+        if (write) {
+          const dir = join(destBase, NAME);
+          mkdirSync(join(dir, 'engine'), { recursive: true });
+          writeFileSync(join(dir, 'engine', 'index.ts'), 'export default {}');
+          writeFileSync(
+            join(dir, 'manifest.json'),
+            JSON.stringify({ name: NAME, version: '1.1.0' }),
+          );
+        }
+        return { archiveSha256: NEW_SHA };
+      }) as never);
+    };
+    const post = (app: Hono, action = 'update') =>
+      app.request(`/api/marketplace/${NAME}/${action}`, {
+        method: 'POST',
+        headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+
+    beforeEach(() => {
+      writeExtOnDisk(extBase, NAME);
+      downloadMock.mockClear();
+      let active = true;
+      isActiveMock.mockImplementation(() => active);
+      unloadMock.mockImplementation((async () => {
+        active = false;
+      }) as never);
+      loadDynamicMock.mockImplementation(async () => {
+        active = true;
+      });
+    });
+
+    it('is god-only', async () => {
+      getSessionSpy.mockResolvedValue({ user: { id: 'u-nobody' } } as never);
+      expect((await post(mountRoutes(db, extBase))).status).toBe(403);
+    });
+
+    it('refuses 409 when the extension is not installed', async () => {
+      serve();
+      expect((await post(mountRoutes(db, extBase))).status).toBe(409);
+      expect(downloadMock).not.toHaveBeenCalled();
+    });
+
+    it('is a 200 no-op when the catalog serves the version on disk', async () => {
+      installedRow();
+      const res = await post(mountRoutes(db, extBase));
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { updated: boolean }).updated).toBe(false);
+      expect(downloadMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses 409 for files put there by hand (no download on record)', async () => {
+      installedRow({ installed_sha256: null, installed_version: null });
+      serve();
+      downloadMock.mockClear();
+      expect((await post(mountRoutes(db, extBase))).status).toBe(409);
+      expect(downloadMock).not.toHaveBeenCalled();
+      expect(manifestVersion()).toBe('1.0.0');
+    });
+
+    it('a download that fails a check leaves the old files and the old code running', async () => {
+      installedRow();
+      serve();
+      downloadMock.mockImplementation((async () => {
+        throw new Error('archive SHA-256 mismatch');
+      }) as never);
+      unloadMock.mockClear();
+      const res = await post(mountRoutes(db, extBase));
+      expect(res.status).toBe(422);
+      expect(manifestVersion()).toBe('1.0.0');
+      expect(unloadMock).not.toHaveBeenCalled();
+      expect(leftovers()).toEqual([]);
+      expect(db.executed(/update "zv_extension_registry"/i)).toHaveLength(0);
+    });
+
+    it('a swap that fails keeps the old directory in place and reloads it', async () => {
+      installedRow();
+      serve(false); // "downloads" nothing: the rename of the new directory fails
+      loadDynamicMock.mockClear();
+      const res = await post(mountRoutes(db, extBase));
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { restored: boolean }).restored).toBe(true);
+      expect(manifestVersion()).toBe('1.0.0');
+      expect(loadDynamicMock).toHaveBeenCalledTimes(1); // the old version, back
+      expect(leftovers()).toEqual([]);
+    });
+
+    it('unloads the old code before its files are swapped', async () => {
+      installedRow();
+      serve();
+      const seenAtUnload: string[] = [];
+      unloadMock.mockImplementation((async () => {
+        seenAtUnload.push(manifestVersion());
+      }) as never);
+      expect((await post(mountRoutes(db, extBase))).status).toBe(200);
+      expect(seenAtUnload).toEqual(['1.0.0']);
+    });
+
+    it('asks the registry itself, never the catalog baked into the binary', async () => {
+      installedRow();
+      fetchCatalogMock.mockImplementation((async (opts?: { requireRemote?: boolean }) => {
+        if (opts?.requireRemote) throw new Error('registry unreachable');
+        return [NEXT];
+      }) as never);
+      expect((await post(mountRoutes(db, extBase))).status).toBe(503);
+      expect(downloadMock).not.toHaveBeenCalled();
+      expect(manifestVersion()).toBe('1.0.0');
+    });
+
+    it('refuses 409 to go back to an older version', async () => {
+      installedRow();
+      serve();
+      fetchCatalogMock.mockImplementation(async () => [{ ...CATALOG_ENTRY, version: '0.9.0' }]);
+      expect((await post(mountRoutes(db, extBase))).status).toBe(409);
+      expect(downloadMock).not.toHaveBeenCalled();
+    });
+
+    it('old files that cannot be removed after the update do not undo it', async () => {
+      installedRow();
+      serve();
+      const rmSpy = spyOn(nodeFs, 'rmSync').mockImplementation(() => {
+        throw new Error('EBUSY');
+      });
+      const warn = spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const res = await post(mountRoutes(db, extBase));
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({ updated: true, version: '1.1.0' });
+        expect(manifestVersion()).toBe('1.1.0');
+      } finally {
+        rmSpy.mockRestore();
+        warn.mockRestore();
+      }
+    });
+
+    it('a new version that does not load is swapped back out and the old one reloaded', async () => {
+      installedRow();
+      serve();
+      let calls = 0;
+      loadDynamicMock.mockImplementation(async () => {
+        calls++;
+        if (calls === 1) throw new Error('migration 002 failed');
+        // The second load is the old version, from the old files.
+        expect(manifestVersion()).toBe('1.0.0');
+      });
+      const res = await post(mountRoutes(db, extBase));
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { restored: boolean }).restored).toBe(true);
+      expect(calls).toBe(2);
+      expect(manifestVersion()).toBe('1.0.0');
+      expect(leftovers()).toEqual([]);
+      expect(db.executed(/update "zv_extension_registry"/i)).toHaveLength(0);
+    });
+
+    it('swaps the new version in, reloads it and records its digest', async () => {
+      installedRow();
+      serve();
+      // A nested extension lives inside this one's directory: it is not part of the bundle.
+      writeExtOnDisk(extBase, `${NAME}/nested`);
+      // These are: a manifest that names something else does not make an extension.
+      for (const dir of ['public', 'node_modules/dep', 'node_modules']) {
+        mkdirSync(join(extBase, NAME, dir), { recursive: true });
+        writeFileSync(join(extBase, NAME, dir, 'manifest.json'), '{"name":"My PWA"}');
+      }
+      writeFileSync(
+        join(extBase, NAME, 'node_modules', 'manifest.json'),
+        JSON.stringify({ name: `${NAME}/node_modules` }),
+      );
+      const res = await post(mountRoutes(db, extBase));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ updated: true, from: '1.0.0', version: '1.1.0' });
+      expect(manifestVersion()).toBe('1.1.0');
+      expect(nodeFs.existsSync(join(extBase, NAME, 'nested', 'manifest.json'))).toBe(true);
+      expect(nodeFs.existsSync(join(extBase, NAME, 'public'))).toBe(false);
+      expect(nodeFs.existsSync(join(extBase, NAME, 'node_modules'))).toBe(false);
+      expect(leftovers()).toEqual([]);
+      expect(unloadMock).toHaveBeenCalled();
+      expect(loadDynamicMock).toHaveBeenCalled();
+      const [write] = db.executed(/update "zv_extension_registry"/i);
+      expect(write?.parameters).toContain(NEW_SHA);
+      expect(write?.parameters).toContain('1.1.0');
+      expect(triggerReloadMock).toHaveBeenCalled();
+    });
+
+    it('install refuses a registry download that the catalog has moved past, pointing at update', async () => {
+      installedRow();
+      serve();
+      downloadMock.mockClear();
+      const res = await post(mountRoutes(db, extBase), 'install');
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toContain('/update');
+      expect(downloadMock).not.toHaveBeenCalled();
+    });
+  });
 });

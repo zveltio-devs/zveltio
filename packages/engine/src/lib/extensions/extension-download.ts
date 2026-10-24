@@ -5,8 +5,16 @@
 // extension's files from the registry onto disk" concern. Its only shared state
 // is the in-module catalog cache.
 
-import { mkdirSync } from 'node:fs';
-import { join } from 'path';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+} from 'node:fs';
+import { dirname, join } from 'path';
 import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
 import { fetchWithRetry } from './extension-utils.js';
 import { parseSignature, verifySignature, SignatureMissingError } from '../security/index.js';
@@ -439,4 +447,118 @@ export async function downloadExtension(
 
   console.log(`✅ Extension "${entry.name}" extracted to ${destDir}`);
   return { archiveSha256: actualArchiveSha };
+}
+
+/** A new version downloaded beside the old one, to be swapped in when the caller is ready. */
+export interface StagedExtension extends DownloadResult {
+  /** The new directory takes the old one's place. Throws with the old one back and the download gone. */
+  swap(): void;
+  /** The new version stays: the old files go. */
+  commit(): void;
+  /** The old files come back where they were (or, before `swap`, the download goes). */
+  rollback(): void;
+}
+
+/**
+ * Download `entry` into a SIBLING of its directory under `extBase` (same
+ * filesystem, so the swap is renames), with every check `downloadExtension`
+ * makes: bytes that fail one leave nothing behind and the old directory
+ * untouched. `swap()` moves the old directory aside, not away, until
+ * `commit()`; `rollback()` puts it back.
+ *
+ * There is no way back to an older version once committed: the registry serves
+ * only an extension's current one.
+ */
+export async function stageExtensionDir(
+  entry: ExtensionCatalogEntry,
+  extBase: string,
+  download: (destBase: string) => Promise<DownloadResult>,
+): Promise<StagedExtension> {
+  const target = join(extBase, entry.name);
+  mkdirSync(extBase, { recursive: true });
+  // Dot-named, so no directory listing takes it for an extension (discovery.ts).
+  // ponytail: a crash between swap and commit leaves it behind holding the old
+  // bundle (`.previous`); a sweep needs every name's lock, so none is done.
+  const side = mkdtempSync(join(extBase, '.update-'));
+  const fresh = join(side, entry.name);
+  const previous = join(side, '.previous');
+  let result: DownloadResult;
+  try {
+    result = await download(side);
+  } catch (err) {
+    rmSync(side, { recursive: true, force: true });
+    throw err;
+  }
+  const had = existsSync(target);
+  // A nested extension (`a/b` lives inside `a/`) is not part of `a`'s bundle: it stays.
+  const carried: string[] = [];
+  const carry = (from: string, to: string) => {
+    for (const rel of carried) renameSync(join(from, rel), join(to, rel));
+  };
+  let swapped = false;
+  let settled = false;
+  return {
+    ...result,
+    swap() {
+      try {
+        if (had) {
+          for (const rel of nestedExtensions(target, entry.name)) {
+            if (existsSync(join(fresh, rel))) continue; // the new bundle ships that path itself
+            mkdirSync(dirname(join(fresh, rel)), { recursive: true });
+            renameSync(join(target, rel), join(fresh, rel));
+            carried.push(rel);
+          }
+          renameSync(target, previous);
+        }
+        renameSync(fresh, target);
+        swapped = true;
+      } catch (err) {
+        // Not swapped: whatever moved goes back where it was.
+        if (had && !existsSync(target) && existsSync(previous)) renameSync(previous, target);
+        if (existsSync(fresh)) carry(fresh, target);
+        // Nothing changed: the staged download goes, and a later rollback has nothing to do.
+        settled = true;
+        rmSync(side, { recursive: true, force: true });
+        throw err;
+      }
+    },
+    commit() {
+      if (settled) return;
+      settled = true;
+      rmSync(side, { recursive: true, force: true });
+    },
+    rollback() {
+      if (settled) return;
+      if (swapped) {
+        carry(target, previous);
+        rmSync(target, { recursive: true, force: true });
+        if (had) renameSync(previous, target);
+      }
+      settled = true;
+      rmSync(side, { recursive: true, force: true });
+    },
+  };
+}
+
+/**
+ * The paths under `dir` (extension `name`'s directory) of the extensions nested
+ * in it: a directory whose manifest names it `<name>/<path>`, as every
+ * extension's manifest names its own directory. A `manifest.json` that names
+ * anything else (a PWA manifest, a dependency's) is part of the bundle.
+ */
+function nestedExtensions(dir: string, name: string, rel = ''): string[] {
+  const found: string[] = [];
+  for (const d of readdirSync(join(dir, rel), { withFileTypes: true })) {
+    if (!d.isDirectory() || d.name === 'node_modules') continue;
+    const sub = rel ? `${rel}/${d.name}` : d.name;
+    let own: unknown;
+    try {
+      own = JSON.parse(readFileSync(join(dir, sub, 'manifest.json'), 'utf8')).name;
+    } catch {
+      /* no manifest of its own */
+    }
+    if (own === `${name}/${sub}`) found.push(sub);
+    else found.push(...nestedExtensions(dir, name, sub));
+  }
+  return found;
 }

@@ -28,7 +28,12 @@ import {
   extensionFilesPresentCached,
   invalidateFilesPresent,
 } from './extension-paths.js';
-import { REGISTRY_URL, fetchRegistryCatalog, downloadExtension } from './extension-download.js';
+import {
+  REGISTRY_URL,
+  fetchRegistryCatalog,
+  downloadExtension,
+  stageExtensionDir,
+} from './extension-download.js';
 import {
   getLicenseKey,
   writeLicenseAudit,
@@ -462,6 +467,16 @@ export function registerMarketplaceRoutes(
     return row.installed_version === version ? row.installed_sha256 : null;
   };
 
+  /** The version of the bundle in `dir`, per its manifest. */
+  const diskVersion = (dir: string): string | null => {
+    try {
+      const { version } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+      return typeof version === 'string' ? version : null;
+    } catch {
+      return null;
+    }
+  };
+
   const installExtension = async (c: Context, name: string) => {
     const gate = await requireGodStepUp(c, `extension.install:${name}`);
     if (gate instanceof Response) return gate;
@@ -501,6 +516,16 @@ export function registerMarketplaceRoutes(
       let downloaded = false;
       let downloadError = '';
       let downloadedSha: string | null = null;
+      // Downloaded from the registry before, and the catalog has moved on: installing
+      // again would answer success over the old version. That is an update. Files put
+      // there by hand (nothing on record) still win, as above.
+      const onDisk = diskVersion(extDir);
+      if (onDisk && onDisk !== entry.version && (await pinFor(name, onDisk))) {
+        const msg =
+          `"${name}" ${onDisk} is installed; the registry serves ${entry.version}. ` +
+          `POST /api/marketplace/${name}/update to replace it.`;
+        return c.json({ success: false, error: msg, message: msg, installed_version: onDisk }, 409);
+      }
       if (!extensionFilesPresent(extDir)) {
         try {
           const result = await doDownload(
@@ -615,6 +640,169 @@ export function registerMarketplaceRoutes(
         approved_forward_credentials: forwardApproval,
         pending_forward_credentials: resolveForwarded(declaredForward, forwardApproval).pending,
         message: `Extension "${name}" installed successfully. Enable it to activate.`,
+      });
+    });
+  };
+
+  // POST /api/marketplace/:name/update (registered via the dispatcher below)
+  /**
+   * Replace an installed extension with the version the registry serves now, in
+   * place: no uninstall, so its data, config and grants stay.
+   *
+   * The bundle is fetched with every check install makes (revocation, declared
+   * SHA-256, Ed25519 signature) into a sibling directory and swapped in whole.
+   * The new version then loads with its migrations (god's decision, so a firm's
+   * activation still never runs one) and only then is it recorded and the old
+   * files dropped. Any failure before that puts the old files back and reloads
+   * them: the old version keeps running. A migration that committed before a
+   * later one failed stays (each runs in its own transaction).
+   *
+   * Capabilities the new version adds are NOT consented here: they wait for
+   * approve-capabilities, as for any version that asks for more.
+   *
+   * No rollback route: the registry serves only an extension's current version.
+   */
+  const updateExtension = async (c: Context, name: string) => {
+    const gate = await requireGodStepUp(c, `extension.update:${name}`);
+    if (gate instanceof Response) return gate;
+
+    return withExtensionLock(db, name, async () => {
+      // The registry must answer: with it down, the catalog baked into this binary
+      // would pick the version to install.
+      let catalog: Awaited<ReturnType<typeof fetchCatalog>>;
+      try {
+        catalog = await fetchCatalog({ requireRemote: true });
+      } catch (err) {
+        const msg = `Cannot update "${name}": the registry is unreachable (${(err as Error).message}).`;
+        return c.json({ success: false, error: msg, message: msg }, 503);
+      }
+      const entry = catalog.find((e) => e.name === name);
+      if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+
+      const extBase = resolveExtensionsBase();
+      const extDir = join(extBase, name);
+      if (!isPathInsideBase(extBase, extDir))
+        return c.json({ error: 'Invalid extension name' }, 400);
+      const rows = await db
+        .selectFrom('zv_extension_registry')
+        .select(['tenant_id', 'is_installed', 'is_enabled', 'installed_sha256'])
+        .where('name', '=', name)
+        .execute();
+      const godRow = rows.find((r) => r.tenant_id === null);
+      if (!godRow?.is_installed) {
+        return c.json({ error: `"${name}" is not installed. Install it first.` }, 409);
+      }
+      const from = diskVersion(extDir);
+      if (from === entry.version) {
+        return c.json({ success: true, updated: false, version: from });
+      }
+      // Never downloaded: the files were put there by hand (EXTENSIONS_DIR, a dev
+      // checkout). Swapping them for the registry's would delete the operator's copy.
+      if (!godRow.installed_sha256) {
+        const msg =
+          `"${name}" was not installed from the registry (no download on record): ` +
+          `replace its files under ${extBase} instead.`;
+        return c.json({ success: false, error: msg, message: msg }, 409);
+      }
+      // Forward only: the registry serving an older version is not a request to go back.
+      let older = false;
+      try {
+        older = from !== null && Bun.semver.order(entry.version, from) < 0;
+      } catch {
+        older = true; // not comparable: not provably forward
+      }
+      if (older) {
+        const msg = `"${name}" ${from} is installed; the registry serves ${entry.version}, which is not newer.`;
+        return c.json({ success: false, error: msg, message: msg }, 409);
+      }
+
+      const verdict = await checkRevoked(name, entry.version);
+      if (verdict.revoked && verdict.entry) {
+        const msg = revocationMessage(name, entry.version, verdict.entry);
+        return c.json({ success: false, error: msg, message: msg, revoked: true }, 451);
+      }
+      if (verdict.unknown && revocationCheckRequired()) {
+        const msg =
+          `Cannot verify whether "${name}" ${entry.version} has been revoked — the registry ` +
+          `is unreachable and ZVELTIO_REQUIRE_REVOCATION_CHECK is set.`;
+        return c.json({ success: false, error: msg, message: msg }, 503);
+      }
+
+      const authToken = await getLicenseKey(db, name);
+      // A version not installed before has no digest on record (null): the registry's
+      // declared SHA-256 and Ed25519 signature are the check, as at a first install.
+      const pin = await pinFor(name, entry.version);
+      let staged: Awaited<ReturnType<typeof stageExtensionDir>>;
+      try {
+        staged = await stageExtensionDir(entry, extBase, (b) =>
+          doDownload(entry, b, authToken, pin),
+        );
+      } catch (err) {
+        const msg = `"${name}" was not updated: ${(err as Error).message}`;
+        return c.json({ success: false, updated: false, error: msg, message: msg }, 422);
+      }
+
+      const wasActive = self.isActive(name);
+      const wanted = wasActive || rows.some((r) => r.is_enabled);
+      try {
+        // Unloaded first: the old code never runs over the new files.
+        if (wasActive) await self.unload(name);
+        staged.swap();
+        invalidateFilesPresent(extDir);
+        // Migrations run: god asked for this version.
+        if (wanted) await self.loadDynamic(name, app);
+        await db
+          .updateTable('zv_extension_registry')
+          .set({
+            version: entry.version,
+            installed_version: entry.version,
+            installed_sha256: staged.archiveSha256,
+            installed_at: new Date(),
+            ...(wanted ? { last_load_error: null, last_load_at: new Date() } : {}),
+          })
+          .where('name', '=', name)
+          .where('tenant_id', 'is', null)
+          .execute();
+      } catch (err) {
+        const why = (err as Error).message;
+        let restored = true;
+        try {
+          staged.rollback();
+        } catch (e) {
+          restored = false;
+          console.error(`[marketplace] "${name}": the old files could not be put back:`, e);
+        }
+        invalidateFilesPresent(extDir);
+        if (self.isActive(name)) await self.unload(name);
+        if (wasActive && restored) {
+          try {
+            await self.loadDynamic(name, app);
+          } catch (e) {
+            restored = false;
+            console.error(`[marketplace] "${name}": the old version did not reload:`, e);
+          }
+        }
+        await triggerReloadFn(`update-failed:${name}`);
+        const msg =
+          `"${name}" ${entry.version} was not installed: ${why}. ` +
+          (restored
+            ? `${from ?? 'The previous version'} is back in place.`
+            : 'The previous version could not be restored; check the server logs.');
+        return c.json({ success: false, updated: false, restored, error: msg, message: msg }, 422);
+      }
+      // The new version is live and recorded: failing to delete the old files changes neither.
+      try {
+        staged.commit();
+      } catch (e) {
+        console.warn(`[marketplace] "${name}": the previous version's files were not removed:`, e);
+      }
+      if (wanted) await triggerReloadFn(`update:${name}`);
+      return c.json({
+        success: true,
+        updated: true,
+        from,
+        version: entry.version,
+        hot_loaded: wanted && self.isActive(name),
       });
     });
   };
@@ -1347,6 +1535,9 @@ export function registerMarketplaceRoutes(
           lifecycleChanged(name);
           await self.syncWithRegistry(name);
         });
+      case 'update':
+        // Every other replica fetches the recorded version and reloads it (lifecycle.ts).
+        return updateExtension(c, name).finally(() => lifecycleChanged(name));
       case 'enable':
         // After the write, never before: a concurrent read between a clear and
         // the write would cache the old answer for the rest of the TTL.

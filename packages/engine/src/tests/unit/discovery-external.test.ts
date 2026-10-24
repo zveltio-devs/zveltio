@@ -36,6 +36,8 @@ describe('discoverExternal', () => {
     const base = mkdtempSync(join(tmpdir(), 'zv-disc-'));
     mkdirSync(join(base, 'alpha'));
     mkdirSync(join(base, 'beta'));
+    // An update's staging directory, holding the previous bundle: not an extension.
+    mkdirSync(join(base, '.update-abc123'));
     try {
       const names = await discoverExternal(base);
       expect(names.sort()).toEqual(['alpha', 'beta']);
