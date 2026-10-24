@@ -40,6 +40,7 @@ import {
   stageExtensionDir,
   type StagedExtension,
 } from './extension-download.js';
+import { discoverExternal, getActiveExtensionNames } from './discovery.js';
 import { getLicenseKey } from './extension-license.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { Database } from '../../db/index.js';
@@ -432,11 +433,17 @@ export async function syncAllWithRegistry(
 ): Promise<void> {
   const db = loader.ctx?.db;
   if (!db) return;
-  // ponytail: an extension purged meanwhile has no row left to find, so this
-  // replica keeps it loaded until it restarts; telling it apart from one loaded
-  // from ZVELTIO_EXTENSIONS (no row either) needs the boot's load set.
   const rows = await db.selectFrom('zv_extension_registry').select(['name']).distinct().execute();
-  for (const { name } of rows) await syncWithRegistry(loader, name, triggerReload);
+  const names = new Set(rows.map((r) => r.name));
+  // Purged meanwhile: loaded here, no row left. One the operator's env lists
+  // load has no row either and stays, as boot would load it again.
+  const externalPath = process.env.ZVELTIO_EXTENSIONS_PATH;
+  const operator = new Set([
+    ...getActiveExtensionNames(),
+    ...(externalPath ? await discoverExternal(externalPath) : []),
+  ]);
+  for (const name of loader.getActive()) if (!operator.has(name)) names.add(name);
+  for (const name of names) await syncWithRegistry(loader, name, triggerReload);
 }
 
 /**

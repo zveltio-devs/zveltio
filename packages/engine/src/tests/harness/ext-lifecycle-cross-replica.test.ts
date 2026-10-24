@@ -201,6 +201,26 @@ d('extension lifecycle on another replica: this one follows', () => {
       await dispatchToWs(msg('replica-a'));
       expect(extensionLoader.isActive(NAME)).toBe(false);
     }, 30_000);
+
+    it('the bus-outage resync unloads one purged meanwhile, but not one ZVELTIO_EXTENSIONS lists', async () => {
+      await setRow(true);
+      await dispatchToWs(msg('replica-a'));
+      expect(extensionLoader.isActive(NAME)).toBe(true);
+      // Purged while the bus was down: no announcement, no row left.
+      await setRow(null);
+      const env = process.env.ZVELTIO_EXTENSIONS;
+      try {
+        process.env.ZVELTIO_EXTENSIONS = NAME;
+        await extensionLoader.syncAllWithRegistry();
+        expect(extensionLoader.isActive(NAME)).toBe(true);
+        process.env.ZVELTIO_EXTENSIONS = '';
+        await extensionLoader.syncAllWithRegistry();
+        expect(extensionLoader.isActive(NAME)).toBe(false);
+      } finally {
+        if (env === undefined) delete process.env.ZVELTIO_EXTENSIONS;
+        else process.env.ZVELTIO_EXTENSIONS = env;
+      }
+    }, 30_000);
   });
 
   describe('the sending side', () => {
