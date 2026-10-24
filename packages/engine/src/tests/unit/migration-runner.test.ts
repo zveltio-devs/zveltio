@@ -88,6 +88,28 @@ describe('purgeExtensionData', () => {
     expect(db.executed(MIG_DELETE).length).toBe(0); // nothing dropped
   });
 
+  it("reads only this extension's rows: `_` in its name is no wildcard", async () => {
+    const db = new CannedDb();
+    db.when(MIG_SELECT, []);
+    await purgeExtensionData('crm_pilot', db.kysely as unknown as Database);
+    expect(db.executed(MIG_SELECT)[0]?.parameters).toContain('ext:crm\\_pilot:%');
+  });
+
+  it('with ids, reads only those', async () => {
+    const db = new CannedDb();
+    db.when(MIG_SELECT, []);
+    await purgeExtensionData('demo', db.kysely as unknown as Database, [8, 9]);
+    const q = db.executed(MIG_SELECT)[0];
+    expect(q?.sql).toMatch(/"id" in \(\$\d+, \$\d+\)/i);
+    expect(q?.parameters).toEqual(expect.arrayContaining([8, 9]));
+  });
+
+  it('with no ids, reads nothing', async () => {
+    const db = new CannedDb();
+    await purgeExtensionData('demo', db.kysely as unknown as Database, []);
+    expect(db.log).toHaveLength(0);
+  });
+
   it('rolls back each DOWN and deletes the rows', async () => {
     const db = new CannedDb();
     db.when(MIG_SELECT, [

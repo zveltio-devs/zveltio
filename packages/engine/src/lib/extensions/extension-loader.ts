@@ -43,7 +43,7 @@ import {
   invalidateFilesPresent,
 } from './extension-paths.js';
 import { ensureExtensionCoreDeps } from './extension-deps.js';
-import { REGISTRY_URL, downloadExtension } from './extension-download.js';
+import { REGISTRY_URL, downloadExtension, sweepUpdateLeftovers } from './extension-download.js';
 import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
 import { purgeExtensionData } from './migration-runner.js';
@@ -367,6 +367,7 @@ export class ExtensionLoader {
     this.ctx = ctx;
 
     const extBase = resolveExtensionsBase();
+    await sweepUpdateLeftovers(ctx.db, extBase);
     await ensureExtensionCoreDeps(extBase).catch((err: Error) => {
       console.warn('[extensions] Core dep install failed (non-fatal):', err.message);
     });
@@ -424,8 +425,8 @@ export class ExtensionLoader {
    * Kept as a public method because registerMarketplaceRoutes calls it via
    * the loader instance.
    */
-  async purgeExtensionData(extensionName: string, db: Database): Promise<void> {
-    return purgeExtensionData(extensionName, db);
+  async purgeExtensionData(extensionName: string, db: Database, only?: number[]): Promise<void> {
+    return purgeExtensionData(extensionName, db, only);
   }
 
   /**
@@ -488,29 +489,37 @@ export class ExtensionLoader {
     // EXTENSIONS_DIR): fetch it as a running replica would (lifecycle.ts). A
     // failure skips only that extension — refused, so its row says why — and
     // the boot goes on. Each fetch is bounded by the download's own timeouts.
-    // ponytail: no extension lock here, so two replicas booting together onto
-    // one shared, empty directory download at once. Each stages on its own and
-    // renames every entry in whole (extension-download.ts), so neither reads a
-    // half-written file; a load that lands while the other replaces an entry
-    // fails and skips it until it next syncs or restarts.
     // God's row holds the version and digest on record, whoever turned it on.
     for (const row of rows) {
       if (row.tenant_id !== null || !enabled.includes(row.name) || !pending.includes(row.name))
         continue;
       const dir = join(extBase, row.name);
-      // Present and not behind an update another replica made while this one was down.
-      if (extensionFilesPresent(dir) && !bundleBehindRecord(dir, row)) continue;
+      // Missing, or behind an update another replica made while this one was down.
+      const due = () => !extensionFilesPresent(dir) || bundleBehindRecord(dir, row);
+      if (!due()) continue;
       try {
-        // Nothing is loaded yet, so a staged newer version swaps in at once; one
-        // that then fails to load leaves this replica without the extension, its
-        // row saying why, until it next syncs or restarts.
-        // ponytail: unlocked like the fetch above it — boot assumes it is the only
-        // writer of this directory for `row.name`; a god update on another replica
-        // sharing the volume at that instant is the case it does not cover.
-        const staged = await fetchEnabledBundle(db, row.name, extBase, row);
-        staged?.swap();
-        staged?.commit();
-        invalidateFilesPresent(join(extBase, row.name));
+        // Locked: a replica sharing this directory may be fetching it too, or
+        // updating it. The load below is not; an update that swaps beside it
+        // announces itself, and the sync that follows reloads this replica.
+        await withExtensionLock(db, row.name, async () => {
+          // Read again: what the boot read may have changed while this one waited.
+          const now = await db
+            .selectFrom('zv_extension_registry')
+            .select(['version', 'installed_version', 'installed_sha256'])
+            .where('name', '=', row.name)
+            .where('tenant_id', 'is', null)
+            .executeTakeFirst();
+          if (!now) return; // uninstalled meanwhile: nothing to fetch
+          Object.assign(row, now);
+          if (!due()) return; // that replica did, while this one waited
+          // Nothing is loaded yet, so a staged newer version swaps in at once; one
+          // that then fails to load leaves this replica without the extension, its
+          // row saying why, until it next syncs or restarts.
+          const staged = await fetchEnabledBundle(db, row.name, extBase, row);
+          staged?.swap();
+          staged?.commit();
+          invalidateFilesPresent(dir);
+        });
       } catch (err) {
         // Left in the sort's set: a refused name there refuses its dependents too.
         refused.set(row.name, `bundle not fetched: ${(err as Error).message}`);

@@ -22,6 +22,7 @@ import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { ExtensionCatalogEntry } from '../../lib/extensions/extension-catalog.js';
 import { DownMissingError } from '../../lib/extensions/extension-errors.js';
+import * as migrationRunner from '../../lib/extensions/migration-runner.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import { auth, initAuth } from '../../lib/auth.js';
 import { initPermissions } from '../../lib/tenancy/index.js';
@@ -1031,6 +1032,64 @@ describe('registerMarketplaceRoutes (unit)', () => {
       expect(manifestVersion()).toBe('1.0.0');
       expect(leftovers()).toEqual([]);
       expect(db.executed(/update "zv_extension_registry"/i)).toHaveLength(0);
+    });
+
+    /** The new version's load records migration 8, then throws. */
+    const failsAfterMigrating = () => {
+      let heard: ((ids: number[]) => void) | undefined;
+      const spy = spyOn(migrationRunner, 'observeExtensionMigrations').mockImplementation(
+        (_name, fn) => {
+          heard = fn;
+          return () => {};
+        },
+      );
+      let calls = 0;
+      loadDynamicMock.mockImplementation(async () => {
+        if (++calls > 1) return;
+        heard?.([8]);
+        throw new Error('register failed');
+      });
+      return { spy, calls: () => calls };
+    };
+
+    it('a failed new version undoes the migrations it ran, then the old one reloads', async () => {
+      installedRow();
+      serve();
+      const run = failsAfterMigrating();
+      try {
+        const res = await post(mountRoutes(db, extBase));
+        expect(res.status).toBe(422);
+        expect(purgeMock).toHaveBeenCalledWith(NAME, expect.anything(), [8]);
+        expect(run.calls()).toBe(2);
+        expect(manifestVersion()).toBe('1.0.0');
+      } finally {
+        run.spy.mockRestore();
+      }
+    });
+
+    it('migrations that cannot be undone keep the new version, recorded and not loaded', async () => {
+      installedRow();
+      serve();
+      purgeMock.mockImplementationOnce(async () => {
+        throw new Error('no DOWN for ext:unit-ext:002');
+      });
+      const run = failsAfterMigrating();
+      try {
+        const res = await post(mountRoutes(db, extBase));
+        expect(res.status).toBe(422);
+        const body = (await res.json()) as { message: string; restored: boolean };
+        expect(body.restored).toBe(false);
+        expect(body.message).toContain('stays installed and is not loaded');
+        expect(run.calls()).toBe(1); // 1.0.0 never goes back onto 1.1.0's schema
+        expect(manifestVersion()).toBe('1.1.0');
+        expect(leftovers()).toEqual([]);
+        const rec = db.executed(/update "zv_extension_registry"/i);
+        expect(rec).toHaveLength(1);
+        expect(rec[0]?.parameters).toContain('1.1.0');
+        expect(rec[0]?.parameters).toContain('register failed');
+      } finally {
+        run.spy.mockRestore();
+      }
     });
 
     it('swaps the new version in, reloads it and records its digest', async () => {

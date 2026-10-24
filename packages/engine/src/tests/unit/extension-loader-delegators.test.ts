@@ -57,7 +57,7 @@ describe('ExtensionLoader delegators', () => {
       const loader = new ExtensionLoader();
       const db = new CannedDb().kysely as unknown as Database;
       await loader.purgeExtensionData('gone', db);
-      expect(purgeSpy).toHaveBeenCalledWith('gone', db);
+      expect(purgeSpy).toHaveBeenCalledWith('gone', db, undefined);
     } finally {
       purgeSpy.mockRestore();
     }

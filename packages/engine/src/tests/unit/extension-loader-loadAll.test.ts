@@ -3,7 +3,7 @@
  */
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Hono } from 'hono';
@@ -40,6 +40,31 @@ describe('ExtensionLoader.loadAll', () => {
 
     expect(loader.ctx).toBe(ctx);
     expect(order.sort()).toEqual(['ext-a', 'ext-b']);
+  });
+
+  it('settles an interrupted update before any extension loads', async () => {
+    savedExtensions = process.env.ZVELTIO_EXTENSIONS;
+    const savedDir = process.env.EXTENSIONS_DIR;
+    const base = mkdtempSync(join(tmpdir(), 'zv-loadall-sweep-'));
+    try {
+      process.env.EXTENSIONS_DIR = base;
+      process.env.ZVELTIO_EXTENSIONS = 'ext-a';
+      mkdirSync(join(base, 'node_modules', 'hono'), { recursive: true }); // no core-deps install
+      mkdirSync(join(base, '.update-ext-a.Ab12Cd', 'ext-a'), { recursive: true });
+      const db = new CannedDb();
+      db.when(/pg_try_advisory_xact_lock/i, [{ ok: true }]);
+      const loader = new ExtensionLoader();
+      const seen: boolean[] = [];
+      loader.loadExtension = async () => {
+        seen.push(existsSync(join(base, '.update-ext-a.Ab12Cd')));
+      };
+      await loader.loadAll(noApp, { db: db.kysely } as ExtensionContext);
+      expect(seen).toEqual([false]);
+    } finally {
+      if (savedDir === undefined) delete process.env.EXTENSIONS_DIR;
+      else process.env.EXTENSIONS_DIR = savedDir;
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it('skips external discovery when ZVELTIO_EXTENSIONS_PATH is unset', async () => {
