@@ -20,7 +20,7 @@ import {
   requireInstanceAdmin,
 } from '../tenancy/index.js';
 import { invalidateActivationCache, isExtensionActiveAnywhere } from './activation.js';
-import { isPendingMigrationsRefusal } from './migration-runner.js';
+import { isPendingMigrationsRefusal, observeExtensionMigrations } from './migration-runner.js';
 import { loadedVersionStale } from './lifecycle.js';
 import {
   resolveExtensionsBase,
@@ -654,8 +654,10 @@ export function registerMarketplaceRoutes(
    * The new version then loads with its migrations (god's decision, so a firm's
    * activation still never runs one) and only then is it recorded and the old
    * files dropped. Any failure before that puts the old files back and reloads
-   * them: the old version keeps running. A migration that committed before a
-   * later one failed stays (each runs in its own transaction).
+   * them: the old version keeps running. The new version's migrations commit
+   * before its code starts, so a failure after them runs their DOWNs, all or
+   * none. When they cannot run (one has no DOWN), the old code is not put back
+   * onto the new schema: the new version stays installed, not loaded, and says so.
    *
    * Capabilities the new version adds are NOT consented here: they wait for
    * approve-capabilities, as for any version that asks for more.
@@ -744,6 +746,13 @@ export function registerMarketplaceRoutes(
 
       const wasActive = self.isActive(name);
       const wanted = wasActive || rows.some((r) => r.is_enabled);
+      // The migrations this update runs, and only those: a failure undoes them. Noted
+      // beside the staged files as well, for the boot that follows a crash.
+      const applied: number[] = [];
+      const stopObserving = observeExtensionMigrations(name, (ids) => {
+        applied.push(...ids);
+        staged.noteMigrations(applied);
+      });
       try {
         // Unloaded first: the old code never runs over the new files.
         if (wasActive) await self.unload(name);
@@ -764,7 +773,44 @@ export function registerMarketplaceRoutes(
           .where('tenant_id', 'is', null)
           .execute();
       } catch (err) {
+        stopObserving();
         const why = (err as Error).message;
+        if (self.isActive(name)) await self.unload(name);
+        // The old code must not run on the new version's schema: its migrations go first.
+        try {
+          await self.purgeExtensionData(name, db, applied);
+        } catch (e) {
+          // They cannot: the new version stays, files and schema, recorded and not loaded.
+          console.error(`[marketplace] "${name}": ${entry.version}'s migrations not undone:`, e);
+          try {
+            await db
+              .updateTable('zv_extension_registry')
+              .set({
+                version: entry.version,
+                installed_version: entry.version,
+                installed_sha256: staged.archiveSha256,
+                installed_at: new Date(),
+                last_load_error: why,
+                last_load_at: new Date(),
+              })
+              .where('name', '=', name)
+              .where('tenant_id', 'is', null)
+              .execute();
+            // Recorded: the old files go. Unrecorded, they stay for the boot sweep to settle.
+            staged.commit();
+          } catch (e2) {
+            console.error(`[marketplace] "${name}": ${entry.version} not recorded or settled:`, e2);
+          }
+          await triggerReloadFn(`update-failed:${name}`);
+          const msg =
+            `"${name}" ${entry.version} does not start: ${why}. Its migrations could not be ` +
+            `undone (${(e as Error).message}), so ${from ?? 'the previous version'} was not put ` +
+            `back onto their schema: ${entry.version} stays installed and is not loaded.`;
+          return c.json(
+            { success: false, updated: false, restored: false, error: msg, message: msg },
+            422,
+          );
+        }
         let restored = true;
         try {
           staged.rollback();
@@ -773,7 +819,6 @@ export function registerMarketplaceRoutes(
           console.error(`[marketplace] "${name}": the old files could not be put back:`, e);
         }
         invalidateFilesPresent(extDir);
-        if (self.isActive(name)) await self.unload(name);
         if (wasActive && restored) {
           try {
             await self.loadDynamic(name, app);
@@ -790,6 +835,7 @@ export function registerMarketplaceRoutes(
             : 'The previous version could not be restored; check the server logs.');
         return c.json({ success: false, updated: false, restored, error: msg, message: msg }, 422);
       }
+      stopObserving();
       // The new version is live and recorded: failing to delete the old files changes neither.
       try {
         staged.commit();

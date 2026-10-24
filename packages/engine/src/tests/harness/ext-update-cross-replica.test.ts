@@ -42,6 +42,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 const NAME = 'hello-ext';
 const T1 = 'zv_hello_ext_update_one';
 const T2 = 'zv_hello_ext_update_two';
+const T3 = 'zv_hello_ext_update_other';
 const FIXTURE = join(import.meta.dir, '../fixtures/hello-ext');
 
 d('updating an extension in place', () => {
@@ -72,6 +73,11 @@ d('updating an extension in place', () => {
         SELECT installed_version AS v, installed_sha256 AS s FROM zv_extension_registry
         WHERE name = ${NAME} AND tenant_id IS NULL`.execute(db)
     ).rows[0];
+  const appliedMigrations = async () =>
+    (
+      await sql<{ name: string }>`
+        SELECT name FROM zv_migrations WHERE name LIKE ${`ext:${NAME}:%`} ORDER BY id`.execute(db)
+    ).rows.map((r) => r.name);
   const onDisk = () =>
     JSON.parse(readFileSync(join(base, NAME, 'manifest.json'), 'utf8')).version as string;
   const loadedVersion = () => extensionLoader.loaded.get(NAME)?.version;
@@ -97,7 +103,7 @@ d('updating an extension in place', () => {
          name: ${JSON.stringify(NAME)},
          category: 'fixture',
          getMigrations: () => ${JSON.stringify(files)}.map((f) => join(import.meta.dir, f)),
-         async register() { ${broken ? "throw new Error('1.1.0 cannot start');" : ''} },
+         async register() { ${broken ? "await globalThis.__zvUpdateWindow?.(); throw new Error('1.1.0 cannot start');" : ''} },
        };`,
     );
   };
@@ -127,7 +133,7 @@ d('updating an extension in place', () => {
    */
   const runningV1 = async (record?: { pinned: string }) => {
     await extensionLoader.unload(NAME).catch(() => undefined);
-    for (const t of [T1, T2]) await sql.raw(`DROP TABLE IF EXISTS ${t}`).execute(db);
+    for (const t of [T1, T2, T3]) await sql.raw(`DROP TABLE IF EXISTS ${t}`).execute(db);
     await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${NAME}:%`}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
     await writeVersion(join(base, NAME), '1.0.0', [T1]);
@@ -211,7 +217,7 @@ d('updating an extension in place', () => {
       else process.env[k] = v;
     }
     if (db) {
-      for (const t of [T1, T2]) await sql.raw(`DROP TABLE IF EXISTS ${t}`).execute(db);
+      for (const t of [T1, T2, T3]) await sql.raw(`DROP TABLE IF EXISTS ${t}`).execute(db);
       await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${NAME}:%`}`.execute(db);
       await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
       await revokeExtensionDbRoles(db, NAME, true).catch(() => undefined);
@@ -294,11 +300,37 @@ d('updating an extension in place', () => {
 
   it('the route where the new version fails to start puts 1.0.0 back and runs it', async () => {
     await runningV1();
+    await sql.raw(`INSERT INTO ${T1} VALUES (42)`).execute(db);
     serveRegistry(broken.sha, broken);
     const res = await update();
     expect(res.status).toBe(422);
     expect(loadedVersion()).toBe('1.0.0');
     expect(onDisk()).toBe('1.0.0');
     expect((await godRow())?.v).toBe('1.0.0');
+    // 1.1.0's migration committed before its register() threw: undone with the files.
+    expect(await tableExists(T2)).toBe(false);
+    expect(await appliedMigrations()).toEqual([`ext:${NAME}:001_${T1}`]);
+    // Only 1.1.0's: 1.0.0's table keeps its rows.
+    expect((await sql.raw(`SELECT id FROM ${T1}`).execute(db)).rows).toEqual([{ id: 42 }]);
+  }, 60_000);
+
+  it('a failed update undoes only what it ran, not a migration another replica recorded meanwhile', async () => {
+    await runningV1();
+    serveRegistry(broken.sha, broken);
+    const other = `ext:${NAME}:900_other_replica`;
+    // Another replica's run commits between this update's migrations and its failure.
+    (globalThis as { __zvUpdateWindow?: () => Promise<void> }).__zvUpdateWindow = async () => {
+      await sql.raw(`CREATE TABLE ${T3} (id int)`).execute(db);
+      await sql`INSERT INTO zv_migrations (name, down_sql)
+                VALUES (${other}, ${`DROP TABLE ${T3}`})`.execute(db);
+    };
+    try {
+      expect((await update()).status).toBe(422);
+    } finally {
+      delete (globalThis as { __zvUpdateWindow?: unknown }).__zvUpdateWindow;
+    }
+    expect(await tableExists(T2)).toBe(false);
+    expect(await tableExists(T3)).toBe(true);
+    expect(await appliedMigrations()).toEqual([`ext:${NAME}:001_${T1}`, other]);
   }, 60_000);
 });

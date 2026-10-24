@@ -10,6 +10,7 @@
 
 import { sql as _sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import { escapeLike } from '../../db/dynamic.js';
 import { type Database, recycleActivePool } from '../../db/index.js';
 import {
   isNonTransactional,
@@ -204,7 +205,7 @@ export async function runExtensionMigrations(
   // segment committed leaves that segment's policies in force, and only this
   // rewrites them before the next boot.
   try {
-    await runSegments(segments, db);
+    await runSegments(extension.name, segments, db);
   } catch (err) {
     await reconcileTouched(extension.name, db, policiesBefore).catch((e: Error) =>
       console.warn(
@@ -285,22 +286,41 @@ export function isPendingMigrationsRefusal(message: string | undefined): boolean
 }
 type Segment = { transactional: boolean; items: Pending[] };
 
-async function runSegments(segments: Segment[], db: Database): Promise<void> {
+const observers = new Map<string, (ids: number[]) => void>();
+
+/**
+ * Until the returned stop, `fn` hears the `zv_migrations` ids each of `name`'s
+ * migration runs records, inside the transaction before it commits: a crash
+ * between the two leaves ids that name nothing, never a commit unheard. A
+ * migration marked `-- NO TRANSACTION` is heard just after its row is written.
+ */
+export function observeExtensionMigrations(name: string, fn: (ids: number[]) => void): () => void {
+  observers.set(name, fn);
+  return () => {
+    if (observers.get(name) === fn) observers.delete(name);
+  };
+}
+
+async function runSegments(extName: string, segments: Segment[], db: Database): Promise<void> {
   for (const segment of segments) {
     if (segment.transactional) {
       await db.transaction().execute(async (trx) => {
         // Same lock_timeout / statement_timeout as the engine's own migrations.
         for (const stmt of migrationTimeoutPreamble()) await _sql.raw(stmt).execute(trx);
+        const ids: number[] = [];
         for (const m of segment.items) {
           await _sql.raw(m.up).execute(trx);
           // Persist DOWN alongside the migration row so a future uninstall with
           // purgeData=true can replay rollbacks without the original files.
-          await trx
+          const row = await trx
             .insertInto('zv_migrations')
             .values({ name: m.name, down_sql: m.down })
-            .execute();
+            .returning('id')
+            .executeTakeFirst();
+          if (row) ids.push(row.id);
           console.log(`  ✓ Extension migration: ${m.name}`);
         }
+        observers.get(extName)?.(ids);
       });
       continue;
     }
@@ -313,7 +333,12 @@ async function runSegments(segments: Segment[], db: Database): Promise<void> {
       for (const stmt of splitSqlStatements(m.up)) {
         await _sql.raw(stmt).execute(db);
       }
-      await db.insertInto('zv_migrations').values({ name: m.name, down_sql: m.down }).execute();
+      const row = await db
+        .insertInto('zv_migrations')
+        .values({ name: m.name, down_sql: m.down })
+        .returning('id')
+        .executeTakeFirst();
+      if (row) observers.get(extName)?.([row.id]);
       console.log(`  ✓ Extension migration (no transaction): ${m.name}`);
     }
   }
@@ -403,11 +428,20 @@ async function tenantIsolationPolicies(db: Database): Promise<Map<string, string
  * order, then delete the zv_migrations rows. The whole operation runs in a
  * single transaction — if any DOWN fails the chain is rolled back.
  *
+ * With `only`, just those rows (ids `observeExtensionMigrations` reported): an
+ * update that failed after its migrations committed undoes its own, never one
+ * another replica recorded meanwhile.
+ *
  * Throws DownMissingError listing the migrations that have no DOWN section.
  * In that case nothing is dropped — the operator can either run those DOWNs
  * manually or accept that purge cannot proceed.
  */
-export async function purgeExtensionData(extensionName: string, db: Database): Promise<void> {
+export async function purgeExtensionData(
+  extensionName: string,
+  db: Database,
+  only?: number[],
+): Promise<void> {
+  if (only?.length === 0) return;
   const prefix = `ext:${extensionName}:`;
   // No `.catch(() => [])` here.
   //
@@ -415,12 +449,13 @@ export async function purgeExtensionData(extensionName: string, db: Database): P
   // migrations to undo", and two lines down that returns immediately — so a read
   // failure used to make an uninstall drop nothing and report success, leaving
   // every table the extension created behind while the registry says it is gone.
-  const rows = await db
+  let query = db
     .selectFrom('zv_migrations')
     .select(['id', 'name', 'down_sql'])
-    .where('name', 'like', `${prefix}%`)
-    .orderBy('id', 'desc')
-    .execute();
+    // Escaped: `_` in `crm_pilot` would match `crmXpilot`'s rows too.
+    .where('name', 'like', `${escapeLike(prefix)}%`);
+  if (only) query = query.where('id', 'in', only);
+  const rows = await query.orderBy('id', 'desc').execute();
 
   if (rows.length === 0) return;
 

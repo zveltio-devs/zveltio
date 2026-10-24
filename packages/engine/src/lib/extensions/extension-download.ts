@@ -13,10 +13,14 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'path';
 import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
-import { fetchWithRetry } from './extension-utils.js';
+import { fetchWithRetry, isPathInsideBase } from './extension-utils.js';
+import { tryAdvisoryLock } from '../../db/advisory-lock.js';
+import type { Database } from '../../db/index.js';
+import { purgeExtensionData } from './migration-runner.js';
 import { parseSignature, verifySignature, SignatureMissingError } from '../security/index.js';
 
 // ── Registry catalog cache ────────────────────────────────────────────────────
@@ -457,6 +461,8 @@ export interface StagedExtension extends DownloadResult {
   commit(): void;
   /** The old files come back where they were (or, before `swap`, the download goes). */
   rollback(): void;
+  /** The `zv_migrations` ids the new version recorded: a crash's boot sweep undoes them. */
+  noteMigrations(ids: number[]): void;
 }
 
 /**
@@ -476,10 +482,9 @@ export async function stageExtensionDir(
 ): Promise<StagedExtension> {
   const target = join(extBase, entry.name);
   mkdirSync(extBase, { recursive: true });
-  // Dot-named, so no directory listing takes it for an extension (discovery.ts).
-  // ponytail: a crash between swap and commit leaves it behind holding the old
-  // bundle (`.previous`); a sweep needs every name's lock, so none is done.
-  const side = mkdtempSync(join(extBase, '.update-'));
+  // Dot-named, so no directory listing takes it for an extension (discovery.ts);
+  // named after the extension, so a crash's leftover is swept under its lock.
+  const side = mkdtempSync(join(extBase, `${STAGING}${encodeURIComponent(entry.name)}.`));
   const fresh = join(side, entry.name);
   const previous = join(side, '.previous');
   let result: DownloadResult;
@@ -527,6 +532,9 @@ export async function stageExtensionDir(
       settled = true;
       rmSync(side, { recursive: true, force: true });
     },
+    noteMigrations(ids) {
+      writeFileSync(join(side, MIGRATED), JSON.stringify(ids));
+    },
     rollback() {
       if (settled) return;
       if (swapped) {
@@ -538,6 +546,114 @@ export async function stageExtensionDir(
       rmSync(side, { recursive: true, force: true });
     },
   };
+}
+
+const STAGING = '.update-';
+const MIGRATED = '.migrations.json';
+// Every extension name in the catalog: lowercase words, `/` between nested ones. No dots, so no `..`.
+const EXTENSION_NAME = /^[a-z0-9][a-z0-9_-]*(\/[a-z0-9][a-z0-9_-]*)*$/;
+
+/** The extension a staging directory (`stageExtensionDir`) was made for, by its name. */
+function stagedFor(dirName: string): string | null {
+  const dot = dirName.lastIndexOf('.'); // mkdtemp's suffix holds none
+  if (!dirName.startsWith(STAGING) || dot <= STAGING.length) return null;
+  const encoded = dirName.slice(STAGING.length, dot);
+  let name: string;
+  try {
+    name = decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+  // Exactly as stageExtensionDir spells it, and a name an extension can have.
+  return encodeURIComponent(name) === encoded && EXTENSION_NAME.test(name) ? name : null;
+}
+
+/** What `noteMigrations` left in a staging directory. */
+function notedMigrations(side: string): number[] {
+  try {
+    const ids: unknown = JSON.parse(readFileSync(join(side, MIGRATED), 'utf8'));
+    return Array.isArray(ids) ? ids.filter((i): i is number => Number.isInteger(i)) : [];
+  } catch {
+    return []; // none ran
+  }
+}
+
+function manifestVersion(dir: string): string | null {
+  try {
+    const { version } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    return typeof version === 'string' ? version : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Boot, before any extension loads: settle what a crash left of an update under
+ * `extBase`, touching nothing but its staging directories. Each is settled under
+ * its extension's lock, skipped while another replica's update holds that.
+ *
+ * A `.previous` (the old bundle, moved aside by `swap`) comes back unless the
+ * directory now holds the version on record, which is what an update records
+ * before `commit` drops the old files; the migrations the update noted are
+ * undone first, and when they cannot be, nothing is restored or removed.
+ * Everything else of it goes.
+ */
+export async function sweepUpdateLeftovers(db: Database, extBase: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = readdirSync(extBase).filter((e) => e.startsWith(STAGING));
+  } catch {
+    return; // no directory yet
+  }
+  for (const e of entries) {
+    const name = stagedFor(e);
+    // Not one stageExtensionDir made: not ours to remove.
+    if (!name || !isPathInsideBase(extBase, join(extBase, name))) continue;
+    const side = join(extBase, e);
+    try {
+      await tryAdvisoryLock(db, `ext:${name}`, async () => {
+        if (!existsSync(side)) return; // its update settled it meanwhile
+        const target = join(extBase, name);
+        const previous = join(side, '.previous');
+        const row = await db
+          .selectFrom('zv_extension_registry')
+          .select(['is_installed', 'installed_version'])
+          .where('name', '=', name)
+          .where('tenant_id', 'is', null)
+          .executeTakeFirst();
+        const current =
+          row?.installed_version != null && manifestVersion(target) === row.installed_version;
+        if (row?.is_installed && existsSync(previous) && !current) {
+          // The old code never goes back onto the new version's schema.
+          try {
+            await purgeExtensionData(name, db, notedMigrations(side));
+          } catch (err) {
+            console.error(
+              `[extensions] "${name}": an interrupted update's migrations were not undone ` +
+                `(${(err as Error).message}); its new version stays and the previous one waits in ${side}`,
+            );
+            return;
+          }
+          if (existsSync(target)) {
+            for (const rel of nestedExtensions(target, name)) {
+              if (existsSync(join(previous, rel))) continue;
+              mkdirSync(dirname(join(previous, rel)), { recursive: true });
+              renameSync(join(target, rel), join(previous, rel));
+            }
+            rmSync(target, { recursive: true, force: true });
+          }
+          renameSync(previous, target);
+          console.warn(`[extensions] "${name}": an interrupted update's previous version restored`);
+        }
+        rmSync(side, { recursive: true, force: true });
+      });
+    } catch (err) {
+      console.warn(
+        `[extensions] "${name}": update leftover ${e} not settled:`,
+        (err as Error).message,
+      );
+    }
+  }
 }
 
 /**
