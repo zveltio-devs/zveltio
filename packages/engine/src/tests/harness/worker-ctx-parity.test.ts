@@ -57,6 +57,10 @@ export default {
       const s = await ctx.auth.api.getSession({ headers: c.req.raw.headers });
       return c.json({ user: c.get('user')?.id ?? null, session: s?.user?.id ?? null });
     });
+    app.get('/sess', async (c) => {
+      const s = await ctx.auth.api.getSession({ headers: c.req.raw.headers });
+      return c.json({ keys: Object.keys(s?.session ?? {}).sort(), token: typeof s?.session?.token });
+    });
     app.get('/perm', async (c) => c.json({
       read: await ctx.checkPermission(c.get('user').id, '${RES}', 'read'),
       del: await ctx.checkPermission(c.get('user').id, '${RES}', 'delete'),
@@ -241,6 +245,7 @@ d('a worker extension gets the inline ctx contract', () => {
       out[mode] = {
         whoSession: await get('/who', asMember),
         whoKey: await get('/who', asKey),
+        sess: await get('/sess', asMember),
         permSession: await get('/perm', asMember),
         permKey: await get('/perm', asKey),
         asGod: await get(`/as?id=${encodeURIComponent(godId)}`, asMember),
@@ -347,6 +352,15 @@ d('a worker extension gets the inline ctx contract', () => {
         // Inline the extension is trusted with any id: it reads the god's roles.
         expect(out.inline?.roles).toMatchObject({ body: { other: [expect.any(String)] } });
         expect(out[m]?.roles).toEqual({ status: 200, body: { own: true, other: [] } });
+      });
+
+      it('getSession hands the session without its token, the credential inline holds', () => {
+        const inline = out.inline?.sess as { body: { keys: string[]; token: string } };
+        expect(inline.body.token).toBe('string');
+        expect(out[m]?.sess).toEqual({
+          status: 200,
+          body: { keys: inline.body.keys.filter((k) => k !== 'token'), token: 'undefined' },
+        });
       });
 
       it('may not emit an engine event', () => {
