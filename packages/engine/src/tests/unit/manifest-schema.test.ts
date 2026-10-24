@@ -163,4 +163,22 @@ describe('ManifestSchema — extension-api v1 actions and jobs', () => {
   it('refuses an action that enqueues an undeclared job', () => {
     expect(ManifestSchema.safeParse({ ...v1, jobs: [] }).success).toBe(false);
   });
+
+  // Extension model v3, additive: an action may be gated on a collection the
+  // manifest's actions or jobs read or write, without `resources`.
+  it('accepts an action gated on a collection it declares, not an invented name', () => {
+    const { resources: _legacy, ...bare } = v1;
+    expect(ManifestSchema.safeParse(bare).success).toBe(true);
+    const viaJob = {
+      ...bare,
+      actions: [{ ...bare.actions[0], reads: [], writes: [] }],
+      jobs: [{ ...bare.jobs[0], writes: ['transactions'] }],
+    };
+    expect(ManifestSchema.safeParse(viaJob).success).toBe(true);
+    const invented = {
+      ...bare,
+      actions: [{ ...bare.actions[0], permission: { resource: 'approvals' } }],
+    };
+    expect(ManifestSchema.safeParse(invented).success).toBe(false);
+  });
 });

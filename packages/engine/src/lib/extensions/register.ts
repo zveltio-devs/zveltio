@@ -32,6 +32,8 @@ import {
   materializeDefaultGrants,
   registerSensitiveResources,
   describeDenial,
+  actionCollections,
+  existingCollections,
 } from '../tenancy/index.js';
 import {
   announceSchemaChange,
@@ -871,10 +873,17 @@ export async function finalizeExtensionLoad(
   // the extension asked to keep closed.
   const sensitive = manifest?.sensitiveResources ?? [];
   if (sensitive.length > 0) registerSensitiveResources(sensitive);
+  // And the collections its actions are gated on (extension model v3), once they exist:
+  // one created later gets `execute` from `DDLManager.createCollection`.
+  const gatedCollections = manifest ? actionCollections(manifest) : [];
   const declaredResources = manifest?.resources ?? [];
-  if (declaredResources.length > 0) {
+  if (declaredResources.length > 0 || gatedCollections.length > 0) {
     try {
-      const written = await materializeDefaultGrants(ctx.db, declaredResources, {
+      const targets = [
+        ...declaredResources,
+        ...(await existingCollections(ctx.db, gatedCollections)),
+      ];
+      const written = await materializeDefaultGrants(ctx.db, targets, {
         extension: true,
       });
       if (written > 0) {

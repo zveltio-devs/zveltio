@@ -43,4 +43,11 @@ describe('manifest actions and jobs', () => {
     expect(errors({ jobs: [{ ...job, retry: { limit: 11 } }] })).toHaveLength(1);
     expect(errors({ jobs: [{ ...job, retry: { backoff: 'yes' } }] })).toHaveLength(1);
   });
+
+  it('accepts an action gated on a collection the actions or jobs read or write', () => {
+    const gated = { ...action, permission: { resource: 'leads' } };
+    expect(errors({ actions: [{ ...gated, writes: ['leads'] }], jobs: [job] })).toEqual([]);
+    expect(errors({ actions: [gated], jobs: [{ ...job, reads: ['leads'] }] })).toEqual([]);
+    expect(errors({ actions: [gated], jobs: [job] })).toHaveLength(1);
+  });
 });

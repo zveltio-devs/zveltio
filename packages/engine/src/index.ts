@@ -1474,8 +1474,9 @@ async function bootstrap() {
     const { resolveExtensionsBase } = await import('./lib/extensions/index.js');
     // The extensions directory is resolved here and handed over: `tenancy`
     // reaching into `extensions` for it closes an import cycle (see the note on
-    // `resourcesDeclaredOnDisk`). Collections and extension resources apart:
-    // only the second get `execute`, which extension actions ask for.
+    // `declaredOnDisk`). Collections and extension resources apart:
+    // only the second, and the collections an extension action is gated on,
+    // get `execute`, which extension actions ask for.
     const n =
       (await materializeDefaultGrants(db, await listKnownResources(db))) +
       (await materializeDefaultGrants(

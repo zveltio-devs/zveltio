@@ -204,15 +204,56 @@ async function installedExtensions(db: Database): Promise<string[]> {
 }
 
 /**
- * `manifest.resources` of `installed`, which of them declare none, and which of
- * those have no readable manifest (`unreadable`, a subset of `silent`: what
- * they declare is unknown, not empty).
+ * The collections `manifest`'s actions are gated on outside its `resources`
+ * (extension model v3): the manifest schema admits those only when its actions or jobs
+ * read or write them. Untyped, for a manifest read from disk.
+ */
+export function actionCollections(manifest: { resources?: unknown; actions?: unknown }): string[] {
+  const resources = Array.isArray(manifest.resources) ? manifest.resources : [];
+  const actions = Array.isArray(manifest.actions) ? manifest.actions : [];
+  return actions
+    .map((a) => (a as { permission?: { resource?: unknown } } | null)?.permission?.resource)
+    .filter((r): r is string => typeof r === 'string' && r !== '' && !resources.includes(r));
+}
+
+/**
+ * Which of `names` are collections now. A rule is written on a collection only
+ * once it exists (extension model v3), so it is younger than the collection and
+ * the drop takes it (rule 2).
+ */
+export async function existingCollections(
+  db: Database,
+  names: readonly string[],
+): Promise<string[]> {
+  if (names.length === 0) return [];
+  const { rows } = await sql<{ name: string }>`
+    SELECT name FROM zvd_collections WHERE name IN (${sql.join([...new Set(names)])})
+  `.execute(db);
+  return rows.map((r) => r.name);
+}
+
+/**
+ * The existing collections an installed extension's action is gated on: they
+ * get `execute` like a declared resource, but stay collections — never in
+ * `nonCollectionObjects`, so their rules live and die with them.
+ */
+export async function listActionCollections(db: Database, base: string): Promise<string[]> {
+  const { gated } = await declaredBy(base, await installedExtensions(db));
+  return existingCollections(db, gated);
+}
+
+/**
+ * `manifest.resources` of `installed`, the collections their actions are gated
+ * on (`gated`, see `actionCollections`), which of them declare neither, and
+ * which of those have no readable manifest (`unreadable`, a subset of `silent`:
+ * what they declare is unknown, not empty).
  */
 async function declaredBy(
   base: string,
   installed: string[],
-): Promise<{ out: string[]; silent: string[]; unreadable: string[] }> {
+): Promise<{ out: string[]; gated: string[]; silent: string[]; unreadable: string[] }> {
   const out: string[] = [];
+  const gated: string[] = [];
   const silent: string[] = [];
   const unreadable: string[] = [];
   for (const name of installed) {
@@ -223,12 +264,17 @@ async function declaredBy(
       continue;
     }
     try {
-      const manifest = JSON.parse(await Bun.file(manifestPath).text()) as { resources?: unknown };
+      const manifest = JSON.parse(await Bun.file(manifestPath).text()) as {
+        resources?: unknown;
+        actions?: unknown;
+      };
       const declared = Array.isArray(manifest.resources)
         ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
         : [];
-      if (declared.length === 0) silent.push(name);
+      const onCollections = actionCollections(manifest);
+      if (declared.length === 0 && onCollections.length === 0) silent.push(name);
       out.push(...declared);
+      gated.push(...onCollections);
     } catch (err) {
       silent.push(name);
       unreadable.push(`${name} (${(err as Error).message})`);
@@ -239,7 +285,7 @@ async function declaredBy(
       );
     }
   }
-  return { out, silent, unreadable };
+  return { out, gated, silent, unreadable };
 }
 
 /**
@@ -287,15 +333,17 @@ async function retiredZoneSlugs(db: Database): Promise<string[]> {
 }
 
 /**
- * `manifest.resources` of every installed extension, read from disk: the boot
- * reconcile materializes these with `{ extension: true }` on top of
- * `listKnownResources`.
+ * `manifest.resources` of every installed extension, read from disk, and the
+ * existing collections their actions are gated on: the boot reconcile
+ * materializes these with `{ extension: true }` on top of `listKnownResources`,
+ * and the role editor offers `execute` on them.
  */
 export async function listDeclaredResources(
   db: Database,
   extensionsBase: string,
 ): Promise<string[]> {
-  return [...new Set(await resourcesDeclaredOnDisk(db, extensionsBase))];
+  const { out, gated } = await declaredOnDisk(db, extensionsBase);
+  return [...new Set([...out, ...(await existingCollections(db, gated))])];
 }
 
 /**
@@ -309,12 +357,13 @@ export async function listKnownResources(db: Database, extensionsBase?: string):
   const collections = await sql<{ name: string }>`
     SELECT name FROM zvd_collections
   `.execute(db);
-  const declared = extensionsBase ? await resourcesDeclaredOnDisk(db, extensionsBase) : [];
+  const declared = extensionsBase ? (await declaredOnDisk(db, extensionsBase)).out : [];
   return [...new Set([...collections.rows.map((r) => r.name), ...declared])];
 }
 
 /**
- * `manifest.resources` for everything installed, read from disk.
+ * `manifest.resources` for everything installed, and the collections its actions
+ * are gated on (`gated`), read from disk.
  *
  * A frozen array in engine source was once the only extension-side input this
  * reconcile had, which made it go stale by construction: an extension installed but not loaded
@@ -322,14 +371,18 @@ export async function listKnownResources(db: Database, extensionsBase?: string):
  * declarations are already on disk and already authoritative — `register.ts`
  * materializes from the same field — so read them instead of remembering them.
  */
-async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<string[]> {
+async function declaredOnDisk(
+  db: Database,
+  base: string,
+): Promise<{ out: string[]; gated: string[] }> {
+  const none = { out: [], gated: [] };
   // Bun.file(path).exists() returns false for directories, so stat + isDirectory
   // is the correct existence check for the extensions base path.
   try {
     const st = await Bun.file(base).stat();
-    if (!st.isDirectory()) return [];
+    if (!st.isDirectory()) return none;
   } catch {
-    return [];
+    return none;
   }
 
   let installed: string[];
@@ -345,10 +398,10 @@ async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<stri
         'are not in this reconcile:',
       (err as Error).message,
     );
-    return [];
+    return none;
   }
 
-  const { out, silent } = await declaredBy(base, installed);
+  const { out, gated, silent } = await declaredBy(base, installed);
 
   // Named, not counted. Deny-by-default refuses access to a resource nobody
   // granted, and the refusal carries no hint about why — so an operator whose
@@ -356,9 +409,10 @@ async function resourcesDeclaredOnDisk(db: Database, base: string): Promise<stri
   if (silent.length > 0) {
     console.warn(
       `[resource-grants] ${silent.length} installed extension(s) declare no ` +
-        `manifest.resources, so nothing was granted on them: ${silent.sort().join(', ')}. ` +
+        `manifest.resources and gate no action on a collection, so nothing was granted ` +
+        `on them: ${silent.sort().join(', ')}. ` +
         'Update them to a build that declares resources (required since 3.0.0-beta.63).',
     );
   }
-  return out;
+  return { out, gated };
 }

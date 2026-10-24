@@ -827,8 +827,15 @@ export class DDLManager {
     // Best-effort: a permissions row that fails to write must not roll back a
     // table that already exists. The boot reconcile picks it up.
     try {
-      const { materializeDefaultGrants } = await import('../tenancy/index.js');
+      const { materializeDefaultGrants, listActionCollections } = await import(
+        '../tenancy/index.js'
+      );
       await materializeDefaultGrants(db, [validated.name]);
+      // An installed extension's action gated on it asks `execute` (extension model v3).
+      const { resolveExtensionsBase } = await import('../extensions/index.js');
+      if ((await listActionCollections(db, resolveExtensionsBase())).includes(validated.name)) {
+        await materializeDefaultGrants(db, [validated.name], { extension: true });
+      }
     } catch (err) {
       console.warn(
         `   ⚠  default grants for collection '${validated.name}' failed:`,

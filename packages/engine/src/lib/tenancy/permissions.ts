@@ -820,8 +820,8 @@ export const DEFAULT_ROLE_GRANTS: ReadonlyArray<{ role: string; actions: readonl
  * What a resource an extension declares gets on top of `DEFAULT_ROLE_GRANTS`:
  * `execute`, the action an extension action's `permission` asks for unless its
  * manifest names another. Without it every action was administrator-only out of
- * the box. Collections do not get it — no data handler asks `execute`, and an
- * action may only be gated on a declared resource — nor do viewers.
+ * the box. A collection gets it only when an installed extension's action is
+ * gated on it (extension model v3) — no data handler asks `execute` — and viewers never do.
  */
 export const EXTENSION_RESOURCE_GRANTS: ReadonlyArray<{
   role: string;
@@ -835,8 +835,8 @@ export const EXTENSION_RESOURCE_GRANTS: ReadonlyArray<{
  */
 export function isDefaultGrant(role: string, resource: string, action: string): boolean {
   // ponytail: `execute` counts as default on any resource, collections included —
-  // only extension resources get it, but this cannot tell them apart; on a
-  // collection the grant does nothing (no data handler asks `execute`).
+  // only extension resources and action-gated collections get it, but this cannot
+  // tell them apart; on any other collection it does nothing (no data handler asks it).
   return (
     !isSensitiveResource(resource) &&
     [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].some(
