@@ -488,9 +488,8 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
     );
   }) as PgBossInst['work'];
 
-  // CREATE COLLECTION runs OUTSIDE a transaction (CREATE INDEX
-  // CONCURRENTLY is not allowed inside a tx block). DDLManager.createCollection
-  // owns its own DDL sequencing.
+  // CREATE COLLECTION is handed the pool: DDLManager.createCollection opens its
+  // own transaction, then writes the default grants, which refuse one.
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await work(QUEUE_NAMES.create_collection, async ([job]: any[]) => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
