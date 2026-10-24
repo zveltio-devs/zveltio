@@ -931,6 +931,32 @@ describe('registerMarketplaceRoutes (unit)', () => {
       expect(downloadMock).not.toHaveBeenCalled();
     });
 
+    // A failed update whose migrations had no DOWN left this version recorded and down.
+    it('on the version on disk, retries the load of one that does not run', async () => {
+      installedRow({ last_load_error: 'boom' });
+      isActiveMock.mockImplementation(() => false);
+      loadDynamicMock.mockClear();
+      triggerReloadMock.mockClear();
+      const res = await post(mountRoutes(db, extBase));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ updated: false, hot_loaded: true });
+      expect(loadDynamicMock).toHaveBeenCalledTimes(1);
+      expect(triggerReloadMock).toHaveBeenCalledTimes(1);
+      expect(downloadMock).not.toHaveBeenCalled();
+    });
+
+    it('on the version on disk, a retried load that fails again answers 422', async () => {
+      installedRow({ last_load_error: 'boom' });
+      isActiveMock.mockImplementation(() => false);
+      loadDynamicMock.mockImplementation(async () => {
+        throw new Error('still broken');
+      });
+      const res = await post(mountRoutes(db, extBase));
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { error: string }).error).toContain('still broken');
+      expect(db.executed(/update "zv_extension_registry"/i).length).toBeGreaterThan(0);
+    });
+
     it('refuses 409 for files put there by hand (no download on record)', async () => {
       installedRow({ installed_sha256: null, installed_version: null });
       serve();
