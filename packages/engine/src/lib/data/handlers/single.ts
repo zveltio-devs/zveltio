@@ -606,28 +606,34 @@ export async function patchRecord(
       403,
     );
   }
+  let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
+  beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, w.authType));
+  beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
+  const readBefore = async (): Promise<DynamicRecord | Response> => {
+    const row = await engineRead<DynamicRecord | undefined>(canRead, effectiveDb, collection, () =>
+      beforeQuery.executeTakeFirst(),
+    );
+    if (!row) return c.json({ error: 'Record not found' }, 404);
+    if (!(await entityAccessRegistry.isAllowed(tableName, row, user, 'update'))) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+    return row;
+  };
+  let beforeRow = await readBefore();
+  if (beforeRow instanceof Response) return beforeRow;
+
   if (w.expect) {
-    // Locked before the before-row read, so the precondition is tested on the row
-    // this UPDATE writes: a concurrent precondition write waits here, then reads
-    // the committed result (READ COMMITTED takes a new snapshot per statement).
+    // Locked after the row proved visible, so a row the caller cannot see
+    // answers its 404/403 without waiting on another writer's lock (the wait
+    // would tell a guessed id exists). Then read again: the precondition is
+    // tested on the row this UPDATE writes, since a concurrent precondition
+    // write waits here and READ COMMITTED takes a new snapshot per statement.
     // The caller can read, so this runs as the caller, under its RLS.
     await sql`SELECT 1 FROM ${sql.table(tableName)} WHERE id = ${id} FOR UPDATE`.execute(
       effectiveDb,
     );
-  }
-  let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
-  beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, w.authType));
-  beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
-  const beforeRow = await engineRead<DynamicRecord | undefined>(
-    canRead,
-    effectiveDb,
-    collection,
-    () => beforeQuery.executeTakeFirst(),
-  );
-  if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
-
-  if (!(await entityAccessRegistry.isAllowed(tableName, beforeRow, user, 'update'))) {
-    return c.json({ error: 'Forbidden' }, 403);
+    beforeRow = await readBefore();
+    if (beforeRow instanceof Response) return beforeRow;
   }
 
   if (w.expect) {
