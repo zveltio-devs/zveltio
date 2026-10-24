@@ -271,8 +271,13 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   }
   if (msg.event === ACCESS_RULES_CHANGED_EVENT) {
     const { userId, scope } = (msg.data ?? {}) as { userId?: unknown; scope?: unknown };
-    return import('../tenancy/index.js')
-      .then((m) => {
+    // A column rule reseals its collection before this is published (both run
+    // after the commit, in order): forget which columns this replica read as
+    // sealed, or for up to 30 s its reads name the columns of the old seal.
+    // The message names no collection, so every table's entry goes.
+    return Promise.all([import('../tenancy/index.js'), import('../../db/dynamic.js')])
+      .then(([m, d]) => {
+        d.forgetReadableColumns();
         // A user's own row changed: drop what this instance remembers of them.
         if (typeof userId === 'string' && userId) m.clearLocalPermissionCache(userId);
         // A revoked session or key: re-ask only who each connection is.
