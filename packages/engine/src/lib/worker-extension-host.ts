@@ -156,7 +156,10 @@ interface InvokeScope {
   user?: { id?: string };
   /** The request's async context — domain, tenant, the API key the gate admitted. */
   run?: <R>(fn: () => R) => R;
-  /** The request's own session, looked up with its own headers. */
+  /**
+   * The request's own session, looked up with its own headers. A service call's
+   * holds only the caller's user id (`invokeWorkerService`).
+   */
   session?: () => Promise<unknown>;
   /**
    * The route request's database transaction (RFC step 8). Shared with a
@@ -1049,6 +1052,13 @@ export class WorkerExtensionHost {
    * caller's tenant and user — the same record, and the same lifetime, as a
    * route invocation's. Without it the service queried as no request at all, which
    * the isolation predicate answers with the default tenant.
+   *
+   * The service's `getSession` is the caller's user id and nothing more —
+   * `{ user: { id } }` for the id its `checkPermission` answers for, or null
+   * (owner decision 2026-10-24). Never the caller's session: called from a
+   * worker route, the scope carried that route's whole Better Auth session
+   * into the callee; called inline, it carried none, and getSession was null
+   * for a user checkPermission answered for.
    */
   private async invokeWorkerService(
     target: ManagedWorker,
@@ -1058,7 +1068,26 @@ export class WorkerExtensionHost {
     type: 'service:invoke' | 'event:deliver' = 'service:invoke',
   ): Promise<unknown> {
     const invokeId = rpcId('inv-svc');
-    target.invokeTenants.set(invokeId, scope);
+    // The caller's id as `handleHostCall`'s `who` resolves it: on a public route
+    // the gate sets no user, and the route's own session names it.
+    const callerId = async () => {
+      if (scope.user?.id) return scope.user.id;
+      const run = scope.run ?? (<R>(fn: () => R) => fn());
+      const found = scope.session ? await run(scope.session) : null;
+      return (found as { user?: { id?: string } } | null)?.user?.id;
+    };
+    target.invokeTenants.set(
+      invokeId,
+      type === 'service:invoke'
+        ? {
+            ...scope,
+            session: async () => {
+              const id = await callerId();
+              return id ? { user: { id } } : null;
+            },
+          }
+        : scope,
+    );
     try {
       const reply = await new Promise<
         Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
