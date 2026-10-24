@@ -238,13 +238,18 @@ d('a worker service answers checkPermission as the calling request', () => {
     expect(await can?.(memberId, 'read')).toBe(false);
   });
 
-  it('a public worker route: the service sees the signed-in caller, or no one', async () => {
-    expect(await get(WORKER, '/pub', asMember)).toEqual({
-      status: 200,
-      body: { s: { user: { id: memberId } } },
+  for (const [caller, kind] of [
+    [WORKER, 'worker'],
+    [CHAIN, 'worker → inline'],
+  ] as const) {
+    it(`a public ${kind} route: the service sees the signed-in caller, or no one`, async () => {
+      expect(await get(caller, '/pub', asMember)).toEqual({
+        status: 200,
+        body: { s: { user: { id: memberId } } },
+      });
+      expect(await get(caller, '/pub', {})).toEqual({ status: 200, body: { s: null } });
     });
-    expect(await get(WORKER, '/pub', {})).toEqual({ status: 200, body: { s: null } });
-  });
+  }
 
   it('outside any request the service has no session: null', async () => {
     const session = serviceRegistry.get<() => Promise<unknown>>(`${OWNER}.session`);
