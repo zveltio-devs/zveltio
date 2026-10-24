@@ -14,6 +14,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { enqueueDDLJob, getDDLJob } from '../../lib/data/ddl-queue.js';
 import { schemaWriteSettled } from '../../lib/schema-artifact/dev-writer.js';
 import {
   createGodSession,
@@ -25,6 +26,7 @@ import {
 const d = harnessAvailable() ? describe : describe.skip;
 const COL = 'schema_devw_probe';
 const ROLE = 'schema_devw_role';
+const QUEUED = 'schema_devw_queued';
 
 d('schema dev writer', () => {
   let app: Hono;
@@ -90,6 +92,7 @@ d('schema dev writer', () => {
     await sql`DELETE FROM zvd_permissions WHERE v0 = ${ROLE} OR v2 = ${COL}`.execute(db);
     await sql`DELETE FROM zv_roles WHERE name = ${ROLE}`.execute(db);
     await dropTestCollection(db, COL);
+    await dropTestCollection(db, QUEUED);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -153,6 +156,35 @@ d('schema dev writer', () => {
     expect(
       (await req('PATCH', `/api/collections/${COL}/fields/title`, { indexed: true })).status,
     ).toBe(200);
+    expect(await planSteps()).toEqual([]);
+  });
+
+  it('a collection created by a queued DDL job writes its file once the job commits', async () => {
+    // What POST /api/collections does, without the request: its own write (the
+    // middleware) would race the job. Outside test mode enqueue does not wait,
+    // so only the job's commit can schedule this write (announceSchemaChange).
+    const def = {
+      name: QUEUED,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    };
+    await DDLManager.registerMetadata(db, def as never);
+    process.env.NODE_ENV = 'development';
+    let jobId: string;
+    try {
+      jobId = await enqueueDDLJob(db, 'create_collection', { ...def, adoptRules: true });
+    } finally {
+      process.env.NODE_ENV = before.env;
+    }
+    // Settled before afterAll drops the table: a job still active at exit is
+    // retried by the next run's worker, which recreates the collection.
+    let status = '';
+    for (let i = 0; i < 100 && status !== 'completed'; i++) {
+      status = (await getDDLJob(db, jobId))?.status ?? '';
+      if (status !== 'completed') await Bun.sleep(100);
+    }
+    expect(status).toBe('completed');
+    await schemaWriteSettled();
+    expect(JSON.parse(files()[`collections/${QUEUED}.json`]).name).toBe(QUEUED);
     expect(await planSteps()).toEqual([]);
   });
 
