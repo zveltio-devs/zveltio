@@ -252,7 +252,7 @@ computes the SHA-256, and patches these blocks in place.
 | `permissions` | string[] | no | **Enforced capabilities.** See §Capabilities below. Validated at load — an unknown value fails the manifest. |
 | `publicRoutes` | string[] | no | Routes reachable WITHOUT a session, relative to the `/ext/<name>` mount (e.g. `["/webhook/twilio", "/public/*"]`). Everything else is fail-closed (401 for anonymous). `*` matches across `/`. See §5 "Authentication". |
 | `apiKeyRoutes` | string[] | no | Routes an API key may call as well as a session: `"<GET\|POST\|PUT\|PATCH\|DELETE> <pattern>"`, patterns as in `publicRoutes` (e.g. `["GET /invoices", "POST /invoices"]`). The key needs the scope `$ext:<name>` with the method's action. Undeclared routes stay session-only. See §5 "Authentication". |
-| `forwardCredentials` | object | no | Worker-isolated extensions only. The engine strips the caller's `Cookie`, `Authorization`, `Proxy-Authorization` and `X-API-Key` from every request it hands a worker (signature headers such as `Stripe-Signature` pass); `ctx.auth.api.getSession()` still answers with the caller's session, minus `session.token`, approved or not. A public route that authenticates on its own names the ones it needs back, keyed by its `publicRoutes` entry: `{ "/scim/*": ["authorization"] }`. Any other key or header name fails the manifest. A request, not a grant: nothing is forwarded until an operator approves the whole map — `POST /api/marketplace/<name>/install` or `/approve-forward-credentials` with `{ "forward_credentials": { … } }` — and a version that asks for one header more forwards nothing until approved again. |
+| `forwardCredentials` | object | no | Worker-isolated extensions only. The engine strips the caller's `Cookie`, `Authorization`, `Proxy-Authorization` and `X-API-Key` from every request it hands a worker (signature headers such as `Stripe-Signature` pass); `ctx.auth.api.getSession()` still answers with the caller's session, minus `session.token`, approved or not (in a service another extension calls: `{ user: { id } }` only). A public route that authenticates on its own names the ones it needs back, keyed by its `publicRoutes` entry: `{ "/scim/*": ["authorization"] }`. Any other key or header name fails the manifest. A request, not a grant: nothing is forwarded until an operator approves the whole map — `POST /api/marketplace/<name>/install` or `/approve-forward-credentials` with `{ "forward_credentials": { … } }` — and a version that asks for one header more forwards nothing until approved again. |
 | `peerDependencies` | object | no | Bundled INTO `engine/index.js` when `engine.bundlePeers: true`. The "install at enable time" model was retired in alpha.113 — bundling is the only path that works on the compiled binary. |
 | `dependencies` | object[] | no | `[{ name: "other/extension", minVersion: "1.0.0" }]`. Must be enabled for this one to load; loads first. |
 | `optionalDependencies` | object[] | no | Same shape. Integrations used when present: not installed is not a load error (its services read as `null`); installed, it loads first. |
@@ -2069,7 +2069,9 @@ proxies SQL queries through its own pool.
   `services`, each answered by the host with the inline rules. A worker's
   `checkPermission` and `getUserRoles` answer for the request's user only (in
   a service, the user of the request it was called in; none outside one:
-  `false` and `[]`), `services.unregister` drops only a name the worker
+  `false` and `[]`). In a service, `auth.api.getSession()` is that user's id
+  only — `{ user: { id } }`, an API key's `apikey:<uuid>` too — or `null`:
+  never the calling route's session. `services.unregister` drops only a name the worker
   registered, and its events are
   its own `<name>.*` (and, for `on`, its declared dependencies'). Members
   that act inside the engine — `internals`, `fieldTypeRegistry`,

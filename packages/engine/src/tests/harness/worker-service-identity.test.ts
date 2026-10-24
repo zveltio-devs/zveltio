@@ -6,6 +6,8 @@
 // worker calling an inline service that calls the worker service, each with a
 // session and an API key, and a call made outside any request (no user). Asked
 // for a user other than the request's — the god — the worker still says no.
+// Its `ctx.auth.api.getSession()` answers that same caller as `{ user: { id } }`
+// and nothing more (owner decision 2026-10-24): never the calling route's session.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -47,6 +49,7 @@ export default {
   name: '${OWNER}',
   async register(app, ctx) {
     ctx.services.register('${OWNER}.can', (uid, act) => ctx.checkPermission(uid, '${RES}', act));
+    ctx.services.register('${OWNER}.session', () => ctx.auth.api.getSession({ headers: new Headers() }));
   },
 };
 `;
@@ -56,16 +59,20 @@ export default {
   name: '${RELAY}',
   async register(app, ctx) {
     ctx.services.register('${RELAY}.can', (uid, act) => ctx.services.get('${OWNER}.can')(uid, act));
+    ctx.services.register('${RELAY}.session', () => ctx.services.get('${OWNER}.session')());
   },
 };
 `;
 
-const callerEntry = (name: string, svc = `${OWNER}.can`) => `
+const callerEntry = (name: string, svc = OWNER) => `
 export default {
   name: '${name}',
   mountStrategy: 'subapp',
   async register(app, ctx) {
-    const can = (uid, act) => ctx.services.get('${svc}')(uid, act);
+    const can = (uid, act) => ctx.services.get('${svc}.can')(uid, act);
+    const session = async (c) => c.json({ s: await ctx.services.get('${svc}.session')() });
+    app.get('/session', session);
+    app.get('/pub', session);
     app.get('/perm', async (c) => c.json({
       read: await can(c.get('user').id, 'read'),
       del: await can(c.get('user').id, 'delete'),
@@ -84,7 +91,8 @@ function writeExt(base: string, name: string, entry: string, worker: boolean, de
       name,
       version: '1.0.0',
       dependencies: deps.map((n) => ({ name: n })),
-      apiKeyRoutes: ['GET /perm'],
+      apiKeyRoutes: ['GET /perm', 'GET /session'],
+      publicRoutes: ['/pub'],
       engine: {
         entry: 'engine/index.js',
         bundled: true,
@@ -153,7 +161,7 @@ d('a worker service answers checkPermission as the calling request', () => {
     writeExt(base, INLINE, callerEntry(INLINE), false, [OWNER]);
     writeExt(base, WORKER, callerEntry(WORKER), true, [OWNER]);
     writeExt(base, RELAY, relayEntry, false, [OWNER]);
-    writeExt(base, CHAIN, callerEntry(CHAIN, `${RELAY}.can`), true, [RELAY]);
+    writeExt(base, CHAIN, callerEntry(CHAIN, RELAY), true, [RELAY]);
     for (const name of ALL) {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${name}`.execute(db);
       await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
@@ -203,6 +211,20 @@ d('a worker service answers checkPermission as the calling request', () => {
       });
     });
 
+    it(`${kind} caller: the service's getSession is the caller's user id, nothing more`, async () => {
+      expect(await get(caller, '/session', asMember)).toEqual({
+        status: 200,
+        body: { s: { user: { id: memberId } } },
+      });
+    });
+
+    it(`${kind} caller with an API key: getSession is the id checkPermission answers for`, async () => {
+      expect(await get(caller, '/session', asKey)).toEqual({
+        status: 200,
+        body: { s: { user: { id: `apikey:${keyId}` } } },
+      });
+    });
+
     it(`${kind} caller: a user other than the request's is refused, even the god`, async () => {
       expect(await get(caller, `/as?id=${encodeURIComponent(godId)}`, asMember)).toEqual({
         status: 200,
@@ -214,5 +236,18 @@ d('a worker service answers checkPermission as the calling request', () => {
   it('outside any request there is no user: false', async () => {
     const can = serviceRegistry.get<(u: string, a: string) => Promise<boolean>>(`${OWNER}.can`);
     expect(await can?.(memberId, 'read')).toBe(false);
+  });
+
+  it('a public worker route: the service sees the signed-in caller, or no one', async () => {
+    expect(await get(WORKER, '/pub', asMember)).toEqual({
+      status: 200,
+      body: { s: { user: { id: memberId } } },
+    });
+    expect(await get(WORKER, '/pub', {})).toEqual({ status: 200, body: { s: null } });
+  });
+
+  it('outside any request the service has no session: null', async () => {
+    const session = serviceRegistry.get<() => Promise<unknown>>(`${OWNER}.session`);
+    expect(await session?.()).toBeNull();
   });
 });
