@@ -247,7 +247,8 @@ export const ManifestSchema = z
     sensitiveResources: z.array(z.string()).default([]),
     /**
      * Synchronous business logic the engine serves at `POST /ext/<name>/actions/<action>`
-     * (RFC v3 "Actions"): the caller must hold `permission` on one of `resources`,
+     * (RFC v3 "Actions"): the caller must hold `permission` on one of `resources`
+     * or on a collection the actions or jobs read or write,
      * the body must match `input` (JSON Schema), and the implementation reaches
      * only the collections in `reads` and `writes`, inside the request transaction.
      */
@@ -363,6 +364,9 @@ export const ManifestSchema = z
   .passthrough()
   .superRefine((m, ctx) => {
     const names = new Set<string>();
+    const collections = new Set(
+      [...m.actions, ...m.jobs].flatMap((e) => [...e.reads, ...e.writes]),
+    );
     m.actions.forEach((a, i) => {
       if (names.has(a.name)) {
         ctx.addIssue({
@@ -373,12 +377,14 @@ export const ManifestSchema = z
       }
       names.add(a.name);
       // Granted and refused per resource: one this manifest does not declare
-      // gets no default grants and no place in the role editor.
-      if (!m.resources.includes(a.permission.resource)) {
+      // gets no default grants and no place in the role editor. A collection
+      // its actions or jobs read or write is declared (extension model v3): the engine
+      // grants `execute` on it once it exists.
+      if (!m.resources.includes(a.permission.resource) && !collections.has(a.permission.resource)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['actions', i, 'permission', 'resource'],
-          message: `action "${a.name}" is gated on "${a.permission.resource}", which is not in resources`,
+          message: `action "${a.name}" is gated on "${a.permission.resource}", which is neither in resources nor a collection the actions or jobs read or write`,
         });
       }
       inputSchemaIssue(ctx, ['actions', i, 'input'], `action "${a.name}"`, a.input);

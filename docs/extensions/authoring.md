@@ -163,7 +163,6 @@ Declare both in `manifest.json` and export their implementations from the
 extension; the engine refuses an extension whose two lists differ.
 
 ```json
-"resources": ["transactions"],
 "actions": [{
   "name": "markPaid",
   "permission": { "resource": "transactions" },
@@ -199,6 +198,11 @@ export default defineExtension(['data:write', 'data:system'], {
 
 - `POST /ext/<name>/actions/<action>` runs the action: the caller must hold
   `permission`, and the body must match `input`.
+- `permission.resource` names a collection the extension's actions or jobs
+  read or write. Once that collection exists, the engine grants
+  `tenant_member` `execute` on it (revocable in the role editor), and dropping
+  the collection removes the grant. A `resources` entry is still accepted, but
+  it is v1 legacy ([v2 candidate 3](v2-candidates.md)).
 - `host.collections` is the only data path. It is the data API as the caller
   (a job: as the extension, scoped to its `reads`/`writes`), with permissions,
   RLS, column rules, hooks and audit. No SQL. A refused write throws with the

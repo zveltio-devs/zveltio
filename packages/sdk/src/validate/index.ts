@@ -249,13 +249,22 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
   };
   const jobs = entries('jobs', 'MANIFEST_BAD_JOB');
   const resources = Array.isArray(obj.resources) ? obj.resources : [];
-  for (const a of entries('actions', 'MANIFEST_BAD_ACTION')) {
+  const actions = entries('actions', 'MANIFEST_BAD_ACTION');
+  // A collection the actions or jobs read or write may gate an action too (extension model v3).
+  const collections = [...actions, ...jobs].flatMap((e) =>
+    ['reads', 'writes'].flatMap((k) => (Array.isArray(e[k]) ? (e[k] as unknown[]) : [])),
+  );
+  for (const a of actions) {
     const p = a.permission;
-    if (!isObject(p) || typeof p.resource !== 'string' || !resources.includes(p.resource)) {
+    if (
+      !isObject(p) ||
+      typeof p.resource !== 'string' ||
+      !(resources.includes(p.resource) || collections.includes(p.resource))
+    ) {
       out.push(
         err(
           'MANIFEST_BAD_ACTION',
-          `action "${a.name}": "permission.resource" must be in resources`,
+          `action "${a.name}": "permission.resource" must be in resources or a collection the actions or jobs read or write`,
         ),
       );
     } else if (p.action !== undefined && (typeof p.action !== 'string' || !p.action)) {

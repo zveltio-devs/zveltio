@@ -65,3 +65,32 @@ permission action is typed into the scope by hand.
   API-key page can offer them instead of free text.
 - Decide whether `$ext:<name>` with `execute` keeps meaning "every action"
   (a wildcard) or is refused once per-action resources exist.
+
+## 3. Free-string extension objects — breaking
+
+**What happened.** Collections and extension objects share one bare Casbin
+namespace. Manifest `resources` let an extension invent object names, so a
+collection created under one of those names inherited the extension's grants,
+and its drop had to guess which rules were the collection's (`since`,
+`keepGrants`, `nonCollectionObjects`, `adopt_rules`). Under
+[RFC v3](../engine/rfc-extension-model-v3.md) extensions only declare
+collections and actions, and a bare object is a collection, apart from the
+engine objects `admin`, `data`, `$edge` and `*`.
+
+**What v1 does.** Keeps `resources`, `sensitiveResources` and
+`ctx.checkPermission` on any string. Additively, an action's
+`permission.resource` may also name a collection the manifest's actions or
+jobs read or write. The engine grants `execute` on it once the collection
+exists, and the grant goes with the collection. So an extension can leave
+`resources` behind before v2.
+
+**What v2 should do.**
+
+- Remove manifest `resources` and `sensitiveResources`, and decide how an
+  extension withholds one of its collections from the default grants.
+- Remove `ctx.checkPermission` on a free string. A check names a collection
+  the extension declares, or an engine object through `host.*`.
+- Then refuse a rule on anything that is not `*`, an engine object or an
+  existing collection, let a drop delete all of the collection's rules, and
+  delete the machinery that guesses (`since`, `keepGrants`,
+  `nonCollectionObjects`, `adopt_rules`).
