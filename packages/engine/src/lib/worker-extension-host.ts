@@ -87,7 +87,9 @@ import {
   getUserRoles,
   issuerSettings,
   type RequestActor,
+  runOutsideTenantContext,
   runWithDomain,
+  runWithoutTenantTrx,
   temporaryObjectsRestricted,
   withTenantIsolation,
 } from './tenancy/index.js';
@@ -552,7 +554,13 @@ export class WorkerExtensionHost {
     // A channel that ends before `init` answers fails the load at once, with its
     // reason (an unreachable runner's socket error), not after the 15 s timeout.
     let failInit: ((err: Error) => void) | null = null;
-    worker.onmessage = (e) => this.handleWorkerMessage(managed, e.data);
+    // Outside every tenant context: a message is answered as the request it
+    // names (`requestScope`) or as no one. The handler otherwise ran in the
+    // context the worker was spawned or respawned in — an enable request's — and
+    // a timer's emit in the worker delivered listeners as that request's tenant
+    // and user.
+    worker.onmessage = (e) =>
+      runOutsideTenantContext(() => this.handleWorkerMessage(managed, e.data));
     worker.onerror = (e) => {
       console.error(`[worker:${extName}] error:`, e.message);
       if (failInit) failInit(transport === 'runner' ? runnerUnreachable(e) : new Error(e.message));
@@ -982,11 +990,17 @@ export class WorkerExtensionHost {
    * was emitted for, and only where the extension is active for that tenant
    * (`guardEventHandler`, as an inline listener). The listener's second
    * argument names that tenant: the engine's record, not whatever the
-   * emitter's payload claims.
+   * emitter's payload claims. The caller is `callerScope`'s: the emitting
+   * request's user, so the listener's `checkPermission` answers for that user as
+   * an inline listener's (run in the emitter's async context) does — and for no
+   * one when the event was emitted outside a request. No session: a user id,
+   * never the request's credentials. Nor the emitter's transaction: delivery
+   * runs after the emitter's `await`, often past its COMMIT, and a host call
+   * answered in it met "Transaction is already committed".
    */
   private subscribe(managed: ManagedWorker, event: string, key: string): void {
     const deliver = (payload: unknown) => {
-      const scope = currentScope(getCurrentDomainOrNull());
+      const scope = runWithoutTenantTrx(callerScope);
       return this.invokeWorkerService(
         managed,
         key,
@@ -1300,7 +1314,8 @@ function currentScope(tenantId: string | null): InvokeScope {
 
 /**
  * `currentScope` plus the request's user and async context, for a call into a
- * worker service from the caller's own context: what an inline service called
+ * worker service (or an event delivered to a worker listener) from the caller's
+ * own context: what an inline service called
  * there would see, so the service's `checkPermission` answers for that user (an
  * API key's id too) and no other. Read from the engine's record of the request
  * transaction, never from the caller; no request, no user. Without it a worker
