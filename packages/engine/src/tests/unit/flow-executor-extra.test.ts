@@ -105,14 +105,10 @@ d('executeStep — flow-executor branches', () => {
     expect(output.matched).toBe(true);
   });
 
-  it('export_collection rejects an invalid collection name', async () => {
-    const { output } = await executeStep(
-      db,
-      step('export_collection', { collection: '../evil' }),
-      {},
-      {},
-    );
-    expect(String(output.error)).toContain('Invalid collection');
+  it('export_collection fails the step on an invalid collection name', async () => {
+    await expect(
+      executeStep(db, step('export_collection', { collection: '../evil' }), {}, {}),
+    ).rejects.toThrow(/invalid collection name/);
   });
 
   it('query_db blocks dangerous SQL patterns', async () => {

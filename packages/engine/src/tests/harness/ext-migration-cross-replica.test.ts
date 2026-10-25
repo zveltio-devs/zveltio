@@ -14,10 +14,11 @@
  * pool and bus that runs the migration the way the enable route does. A's local
  * recycle cannot reach B's pool, so only the announcement can.
  *
- * On Valkey, the bus every multi-replica deployment runs (production refuses to
- * boot without it unless ZVELTIO_SINGLE_INSTANCE=1). Runs only when
- * HARNESS_VALKEY_URL names a reachable Valkey (the CI step "Auth on Valkey",
- * which fails on a skip, provides one); skipped otherwise.
+ * On pg_notify, the bus a replica runs without Valkey, always; and on Valkey,
+ * the bus every multi-replica deployment runs (production refuses to boot
+ * without it unless ZVELTIO_SINGLE_INSTANCE=1), when HARNESS_VALKEY_URL names a
+ * reachable one (the CI step "Auth on Valkey", which fails on a skip, provides
+ * one).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -28,7 +29,9 @@ import { databaseDriver } from '../../db/pg-dialect.js';
 import {
   dispatchToWs,
   ORIGIN_ID,
+  PgNotifyRealtimeBus,
   POOL_RECYCLE_EVENT,
+  type RealtimeBus,
   ValkeyRealtimeBus,
 } from '../../lib/runtime/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
@@ -36,7 +39,7 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 const VALKEY = process.env.HARNESS_VALKEY_URL;
 // `pg` sends unnamed statements: no plan to go stale (see stale-plan-recycle).
 const onBun = harnessAvailable() && databaseDriver() === 'bun';
-const d = onBun && VALKEY ? describe : describe.skip;
+const d = onBun ? describe : describe.skip;
 
 const EXT = 'extxreplica';
 const COL = 'zz_xreplica_probe';
@@ -45,7 +48,7 @@ const POOL = Number(process.env.DB_POOL_MAX ?? 10);
 const src = (p: string) => new URL(p, import.meta.url).pathname;
 
 /** Replica A: its own pool and bus, wired as `index.ts` boots them, then `op`. */
-async function onReplicaA(op: 'migrate' | 'purge'): Promise<void> {
+async function onReplicaA(op: 'migrate' | 'purge', valkeyUrl: string): Promise<void> {
   const script = `
     const { initDatabase } = await import(${JSON.stringify(src('../../db/index.js'))});
     const { realtimeBus } = await import(${JSON.stringify(src('../../lib/runtime/index.js'))});
@@ -60,7 +63,7 @@ async function onReplicaA(op: 'migrate' | 'purge'): Promise<void> {
     process.exit(0);
   `;
   const proc = Bun.spawn([process.execPath, '-e', script], {
-    env: { ...process.env, VALKEY_URL: VALKEY },
+    env: { ...process.env, VALKEY_URL: valkeyUrl },
     stdout: 'ignore',
     stderr: 'pipe',
   });
@@ -68,85 +71,94 @@ async function onReplicaA(op: 'migrate' | 'purge'): Promise<void> {
   if (code !== 0) throw new Error(`replica A failed: ${await new Response(proc.stderr).text()}`);
 }
 
-d('extension migrations on another replica: no pooled plan outlives them here', () => {
-  let db: Database;
-  let DDLManager: typeof import('../../lib/data/ddl-manager.js').DDLManager;
-  let round = 0;
-  // Not the singleton: the harness deleted VALKEY_URL before it was picked.
-  const bus = new ValkeyRealtimeBus(VALKEY as string);
+// pg_notify always (one database is all it needs); Valkey when CI provides one.
+const backends: Array<[string, () => RealtimeBus, string]> = [
+  ['pg_notify', () => new PgNotifyRealtimeBus(process.env.TEST_DATABASE_URL as string), ''],
+];
+if (VALKEY) backends.push(['Valkey', () => new ValkeyRealtimeBus(VALKEY), VALKEY]);
 
-  /** `getCollection` on every pooled backend at once (see ext-migration-stale-plan). */
-  async function readOnEveryConnection(): Promise<string[]> {
-    round++;
-    let arrived = 0;
-    let open!: () => void;
-    const allIn = new Promise<void>((r) => {
-      open = r;
+d.each(backends)(
+  'extension migrations on another replica (%s): no pooled plan outlives them here',
+  (_label, makeBus, valkeyUrl) => {
+    let db: Database;
+    let DDLManager: typeof import('../../lib/data/ddl-manager.js').DDLManager;
+    let round = 0;
+    // Not the singleton: the harness deleted VALKEY_URL before it was picked.
+    const bus = makeBus();
+
+    /** `getCollection` on every pooled backend at once (see ext-migration-stale-plan). */
+    async function readOnEveryConnection(): Promise<string[]> {
+      round++;
+      let arrived = 0;
+      let open!: () => void;
+      const allIn = new Promise<void>((r) => {
+        open = r;
+      });
+      const failures: string[] = [];
+      await Promise.all(
+        Array.from({ length: POOL }, (_, i) =>
+          db
+            .transaction()
+            .execute(async (trx) => {
+              try {
+                await DDLManager.getCollection(trx, `zz_xr_${round}_${i}`);
+              } catch (err) {
+                failures.push((err as { errno?: string }).errno ?? String(err));
+              }
+              if (++arrived === POOL) open();
+              await allIn;
+            })
+            .catch(() => undefined),
+        ),
+      );
+      return failures;
+    }
+
+    /** Until this replica's pool was replaced, or long enough that it never will be. */
+    async function recycledSince(before: unknown): Promise<void> {
+      for (let i = 0; i < 60 && getActiveBunPool() === before; i++) await Bun.sleep(50);
+    }
+
+    async function cleanup(): Promise<void> {
+      await sql.raw(`ALTER TABLE zvd_collections DROP COLUMN IF EXISTS ${COL}`).execute(db);
+      await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${EXT}:%`}`.execute(db);
+    }
+
+    beforeAll(async () => {
+      ({ db } = await getTestApp());
+      ({ DDLManager } = await import('../../lib/data/ddl-manager.js'));
+      await cleanup();
+      await Bun.write(
+        `${DIR}/001_probe.sql`,
+        `ALTER TABLE zvd_collections ADD COLUMN ${COL} text;\n-- DOWN\n` +
+          `ALTER TABLE zvd_collections DROP COLUMN IF EXISTS ${COL};\n`,
+      );
+      await bus.start();
+    }, 60_000);
+
+    afterAll(async () => {
+      await bus.stop();
+      if (db) await cleanup().catch(() => undefined);
+      await Bun.$`rm -rf ${DIR}`.quiet().nothrow();
     });
-    const failures: string[] = [];
-    await Promise.all(
-      Array.from({ length: POOL }, (_, i) =>
-        db
-          .transaction()
-          .execute(async (trx) => {
-            try {
-              await DDLManager.getCollection(trx, `zz_xr_${round}_${i}`);
-            } catch (err) {
-              failures.push((err as { errno?: string }).errno ?? String(err));
-            }
-            if (++arrived === POOL) open();
-            await allIn;
-          })
-          .catch(() => undefined),
-      ),
-    );
-    return failures;
-  }
 
-  /** Until this replica's pool was replaced, or long enough that it never will be. */
-  async function recycledSince(before: unknown): Promise<void> {
-    for (let i = 0; i < 60 && getActiveBunPool() === before; i++) await Bun.sleep(50);
-  }
+    it('a column added to an engine table on replica A', async () => {
+      expect(await readOnEveryConnection()).toEqual([]);
+      const before = getActiveBunPool();
+      await onReplicaA('migrate', valkeyUrl);
+      await recycledSince(before);
+      expect(await readOnEveryConnection()).toEqual([]);
+    }, 60_000);
 
-  async function cleanup(): Promise<void> {
-    await sql.raw(`ALTER TABLE zvd_collections DROP COLUMN IF EXISTS ${COL}`).execute(db);
-    await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${EXT}:%`}`.execute(db);
-  }
-
-  beforeAll(async () => {
-    ({ db } = await getTestApp());
-    ({ DDLManager } = await import('../../lib/data/ddl-manager.js'));
-    await cleanup();
-    await Bun.write(
-      `${DIR}/001_probe.sql`,
-      `ALTER TABLE zvd_collections ADD COLUMN ${COL} text;\n-- DOWN\n` +
-        `ALTER TABLE zvd_collections DROP COLUMN IF EXISTS ${COL};\n`,
-    );
-    await bus.start();
-  }, 60_000);
-
-  afterAll(async () => {
-    await bus.stop();
-    if (db) await cleanup().catch(() => undefined);
-    await Bun.$`rm -rf ${DIR}`.quiet().nothrow();
-  });
-
-  it('a column added to an engine table on replica A', async () => {
-    expect(await readOnEveryConnection()).toEqual([]);
-    const before = getActiveBunPool();
-    await onReplicaA('migrate');
-    await recycledSince(before);
-    expect(await readOnEveryConnection()).toEqual([]);
-  }, 60_000);
-
-  it('that column dropped again by a purge on replica A', async () => {
-    expect(await readOnEveryConnection()).toEqual([]);
-    const before = getActiveBunPool();
-    await onReplicaA('purge');
-    await recycledSince(before);
-    expect(await readOnEveryConnection()).toEqual([]);
-  }, 60_000);
-});
+    it('that column dropped again by a purge on replica A', async () => {
+      expect(await readOnEveryConnection()).toEqual([]);
+      const before = getActiveBunPool();
+      await onReplicaA('purge', valkeyUrl);
+      await recycledSince(before);
+      expect(await readOnEveryConnection()).toEqual([]);
+    }, 60_000);
+  },
+);
 
 (onBun ? describe : describe.skip)('the recycle announcement on the receiving side', () => {
   const msg = (originId: string) => ({

@@ -13,10 +13,12 @@
  * match (the migrations are on record already, so none runs twice).
  *
  * Three parts: the receiving side through the bus's dispatcher (any backend),
- * the sending side at the routes, and two real replicas on Valkey — this
- * process is B, a second `bun` process A writes the row and announces it. The
- * last runs only when HARNESS_VALKEY_URL names a reachable Valkey (CI's "Auth on
- * Valkey" step, which fails on a skip).
+ * the sending side at the routes, and two real replicas — this process is B, a
+ * second `bun` process A writes the row and announces it — on pg_notify, and
+ * on Valkey when HARNESS_VALKEY_URL names a reachable one (CI's "Auth on
+ * Valkey" step, which fails on a skip). A boots its bus the way index.ts does,
+ * `realtimeBus().start()` and nothing else, so the pg_notify run also proves
+ * that alone is a working publisher.
  *
  * A marketplace extension's bundle lives on the disk of the replica that
  * installed it. The receiver loaded from its own disk and nothing else, so
@@ -63,6 +65,8 @@ import {
   engineEvents,
   ORIGIN_ID,
   type RealtimeBusMessage,
+  PgNotifyRealtimeBus,
+  type RealtimeBus,
   realtimeBus,
   ValkeyRealtimeBus,
 } from '../../lib/runtime/index.js';
@@ -292,9 +296,15 @@ d('extension lifecycle on another replica: this one follows', () => {
     }, 30_000);
   });
 
-  (VALKEY ? describe : describe.skip)('two replicas on Valkey', () => {
+  // pg_notify always (one database is all it needs); Valkey when CI provides one.
+  const backends: Array<[string, () => RealtimeBus, string]> = [
+    ['pg_notify', () => new PgNotifyRealtimeBus(process.env.TEST_DATABASE_URL as string), ''],
+  ];
+  if (VALKEY) backends.push(['Valkey', () => new ValkeyRealtimeBus(VALKEY), VALKEY]);
+
+  describe.each(backends)('two replicas on %s', (_label, makeBus, valkeyUrl) => {
     // Not the singleton: the harness deleted VALKEY_URL before it was picked.
-    const bus = new ValkeyRealtimeBus(VALKEY as string);
+    const bus = makeBus();
 
     /** Replica A: its own pool and bus; writes the row its route would, then announces. */
     async function onReplicaA(enabled: boolean): Promise<void> {
@@ -310,7 +320,7 @@ d('extension lifecycle on another replica: this one follows', () => {
         process.exit(0);
       `;
       const proc = Bun.spawn([process.execPath, '-e', script], {
-        env: { ...process.env, VALKEY_URL: VALKEY },
+        env: { ...process.env, VALKEY_URL: valkeyUrl },
         stdout: 'ignore',
         stderr: 'pipe',
       });
