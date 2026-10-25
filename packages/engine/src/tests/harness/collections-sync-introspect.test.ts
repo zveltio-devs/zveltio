@@ -60,5 +60,12 @@ d('collections sync-schema introspect (in-process)', () => {
     const row = await DDLManager.getCollection(db, COLLECTION);
     const fields = typeof row?.fields === 'string' ? JSON.parse(row.fields) : (row?.fields ?? []);
     expect(fields.some((f: { name: string }) => f.name === 'legacy_col')).toBe(true);
+
+    // The fields just recorded reach what is derived from them now, not at the
+    // next boot: the search trigger indexes the synced text column.
+    const fn = await sql<{ src: string }>`
+      SELECT prosrc AS src FROM pg_proc WHERE proname = ${`zvd_${COLLECTION}_search_trigger`}
+    `.execute(db);
+    expect(fn.rows[0]?.src ?? '').toContain('legacy_col');
   });
 });
