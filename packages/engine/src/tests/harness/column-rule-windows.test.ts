@@ -234,5 +234,16 @@ d('column rules reach the database with their commit (L37)', () => {
       db,
     );
     expect(grants.rows.filter((r) => r.ok)).toEqual([]);
+
+    // Swapped in, before `addField` records the field: the new column is sealed
+    // as a password would be, and the rest of the table is served as before.
+    await GhostDDL.applyChangelog(db, migration);
+    await GhostDDL.atomicSwap(db, migration);
+    const after = await sql<{ pin: boolean; title: boolean }>`
+      SELECT has_column_privilege('zveltio_rls', ${table}::regclass, 'pin', 'SELECT') AS pin,
+             has_column_privilege('zveltio_rls', ${table}::regclass, 'title', 'SELECT') AS title`.execute(
+      db,
+    );
+    expect(after.rows[0]).toEqual({ pin: false, title: true });
   });
 });
