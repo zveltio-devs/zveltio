@@ -34,6 +34,8 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { exclusive } from '../db/trx-sequencer.js';
+import { engineHandle } from './engine-handle.js';
 
 /**
  * `SAVEPOINT` is only legal inside a transaction block. Outside one every
@@ -42,7 +44,18 @@ import type { Database } from '../db/index.js';
  * than ask Postgres whether we are in a transaction (no portable, race-free way
  * from here), try it and read the refusal as "not needed".
  */
-export async function withSavepoint<T>(
+export function withSavepoint<T>(
+  db: Database,
+  name: string,
+  run: () => Promise<T>,
+  onFailure: (err: unknown) => T,
+): Promise<T> {
+  // Alone on the transaction: a sibling's statement inside the block was undone
+  // by its rollback, and a sibling block's RELEASE released this one too.
+  return exclusive(engineHandle(db), () => savepointBlock(db, name, run, onFailure));
+}
+
+async function savepointBlock<T>(
   db: Database,
   name: string,
   run: () => Promise<T>,

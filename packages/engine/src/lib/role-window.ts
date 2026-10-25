@@ -2,30 +2,24 @@
  * Role windows on one transaction: a statement or two that run under a role
  * other than the transaction's, with the previous role put back after.
  *
- * Windows on one transaction run one at a time. Two interleaved windows read
- * each other's role as "previous": an extension's (`asExtensionDbRole`) could
- * hand the engine back `zveltio_ext`, and the engine's (`asEngineRole`) could
- * hand an extension statement the engine's own login.
+ * A window runs alone on its transaction (`exclusive`): two interleaved windows
+ * read each other's role as "previous" — an extension's (`asExtensionDbRole`)
+ * could hand the engine back `zveltio_ext`, the engine's (`asEngineRole`) an
+ * extension statement the engine's own login — and a plain statement sent
+ * during one ran under its role.
  */
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-
-const windows = new WeakMap<object, Promise<unknown>>();
+import { exclusive } from '../db/trx-sequencer.js';
+import { engineHandle } from './engine-handle.js';
 
 /**
- * Run `run` after every window already queued on `trx`, and before the next.
- * Keyed by the transaction's executor, not the handle: the engine's view of an
- * extension handle (`engineHandle`) and the request-scoped proxy are other
- * objects on the same transaction, and Kysely gives a transaction one executor.
+ * Run `run` alone on `trx`'s transaction, after every window and statement
+ * already queued there. `trx` may be an extension's handle: its engine view
+ * reaches the transaction's connection.
  */
 export function queueRoleWindow<T>(trx: object, run: () => Promise<T>): Promise<T> {
-  const key = (trx as { getExecutor?: () => object }).getExecutor?.() ?? trx;
-  const mine = (windows.get(key) ?? Promise.resolve()).then(run);
-  windows.set(
-    key,
-    mine.catch(() => undefined),
-  );
-  return mine;
+  return exclusive(engineHandle(trx as Database), run);
 }
 
 /**
@@ -42,8 +36,7 @@ export function queueRoleWindow<T>(trx: object, run: () => Promise<T>): Promise<
  * `RESET ROLE`; what holds is that the analyzer refuses both, as it does for
  * extension windows. On the pool there is nothing to step out of.
  *
- * `run` must not open another window on the same transaction: it would wait
- * for this one.
+ * A window `run` opens on the same transaction runs inside this one.
  */
 export function asEngineRole<T>(db: Database, run: () => Promise<T>): Promise<T> {
   const window = async (): Promise<T> => {

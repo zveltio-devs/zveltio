@@ -4,6 +4,7 @@ import { autosizePool } from './pool-autosize.js';
 import { BunSqlDialect } from './bun-sql-dialect.js';
 import { createPgDialect, databaseDriver } from './pg-dialect.js';
 import { assertSupportedPostgres } from './postgres-version.js';
+import { sequenceTransactions } from './trx-sequencer.js';
 
 // Re-exported so boot code reaches it through this module rather than the
 // dialect file: `db/index.ts` is what the rest of the engine imports.
@@ -81,12 +82,14 @@ export function activePoolMax(): number {
  * Used primarily in integration tests to get an isolated db connection.
  */
 export function createDb(connectionString: string): Database {
-  return new Kysely({
-    dialect:
-      databaseDriver() === 'pg'
-        ? createPgDialect({ connectionString })
-        : new BunSqlDialect({ connectionString }),
-  });
+  return sequenceTransactions(
+    new Kysely({
+      dialect:
+        databaseDriver() === 'pg'
+          ? createPgDialect({ connectionString })
+          : new BunSqlDialect({ connectionString }),
+    }),
+  );
 }
 
 /**
@@ -279,9 +282,11 @@ export async function initDatabase(): Promise<Database> {
     },
   };
 
-  _db = new Kysely({
-    dialect: dialect as never,
-  });
+  _db = sequenceTransactions(
+    new Kysely<DbSchema>({
+      dialect: dialect as never,
+    }),
+  );
 
   // Test connection with retry — PgDog/pooler may need up to ~60s to initialize its backend pool
   const maxAttempts = 20;

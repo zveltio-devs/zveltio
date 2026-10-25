@@ -41,6 +41,8 @@ function handle(tag: string, isTransaction: boolean) {
   return {
     tag,
     isTransaction,
+    // A connection provider no sequencer wraps: the savepoint scope just runs.
+    getExecutor: () => ({ provideConnection: (use: (c: object) => unknown) => use({}) }),
     transaction() {
       return {
         setIsolationLevel() {
