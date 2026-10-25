@@ -702,28 +702,35 @@ export function asExtensionDbRole<T>(
   run: () => Promise<T>,
   mirror = false,
 ): Promise<T> {
-  // No usable role: the statement runs as the request's own role, no window —
-  // and a temp table it makes shadows the engine's tables all the same. Still
-  // queued, so it cannot land inside the engine's window and run as its login.
-  if (!_ready)
-    return queueRoleWindow(trx, () =>
-      run().then(async (out) => {
-        await discardExtensionTemp(executor);
-        return out;
-      }),
-    );
+  // No usable role: the statement keeps the request's own role and is MARKED as
+  // an extension's instead (MARK_SQL), so collection permissions do not read it
+  // as the engine's work when there is no actor. Queued all the same, so it
+  // cannot land inside the engine's window and run as its login.
+  if (!_ready) return queueRoleWindow(trx, () => roleWindow(executor, run, MARK_SQL, MARK));
   return queueRoleWindow(trx, () => roleWindow(executor, run, setRoleSql(extName, mirror)));
 }
+
+/**
+ * Where no extension role is usable, the setting that tells collection
+ * permissions a statement is an extension's (migration 099). Only the engine
+ * writes it: `ctx.db` refuses `set_config` to an extension, as it refuses
+ * `RESET ROLE` — the guarantee the role window rests on.
+ */
+const MARK = 'zveltio.ext_statement';
+const MARK_SQL = `SELECT coalesce(current_setting('${MARK}', true), '') AS prev, set_config('${MARK}', 'on', true) AS now`;
 
 async function roleWindow<T>(
   executor: RoleExecutor,
   run: () => Promise<T>,
   setRole: string,
+  setting = 'role',
 ): Promise<T> {
   const set = await executor.executeQuery(CompiledQuery.raw(setRole));
-  const prev = String((set.rows[0] as { prev?: string } | undefined)?.prev ?? 'none');
+  const prev = String(
+    (set.rows[0] as { prev?: string } | undefined)?.prev ?? (setting === 'role' ? 'none' : ''),
+  );
   const restore = () =>
-    executor.executeQuery(CompiledQuery.raw(`SELECT set_config('role', $1, true)`, [prev]));
+    executor.executeQuery(CompiledQuery.raw(`SELECT set_config('${setting}', $1, true)`, [prev]));
   let out: T;
   try {
     out = await run();
@@ -743,7 +750,9 @@ async function roleWindow<T>(
  * Run one extension statement that would have gone to the pool in a
  * transaction of its own that sets the role first: BEGIN, set, statement,
  * COMMIT. `run` gets the connection to send it on, or null where the pool keeps
- * the engine role (no usable role, or a bypassing engine with no twin).
+ * a bypassing engine role (no usable role, or no twin). Where no role is usable
+ * and the engine role is bound by RLS, the transaction marks the statement as
+ * an extension's instead (`MARK_SQL`).
  *
  * No restore: the COMMIT ends `set_config(…, true)`, so a statement that resets
  * the role resets it for itself only. A single statement commits exactly as it
@@ -756,10 +765,12 @@ export function asExtensionDbRoleOnPool<T>(
   db: Database,
   run: (on: ConnectionProvider | null) => Promise<T>,
 ): Promise<T> {
-  if (!_ready || (_loginBypasses && !windowRoles(extName).bypass)) return run(null);
+  // A bypassing login with nothing to narrow it to: no policy reads the statement.
+  if (_loginBypasses && (!_ready || !windowRoles(extName).bypass)) return run(null);
   return db.transaction().execute(async (trx) => {
     const on = trx.getExecutor();
-    await on.executeQuery(CompiledQuery.raw(setRoleSql(extName, true)));
+    // No usable role: the login role RLS binds, marked as an extension's.
+    await on.executeQuery(CompiledQuery.raw(_ready ? setRoleSql(extName, true) : MARK_SQL));
     const out = await run(on);
     await discardExtensionTemp(on);
     return out;

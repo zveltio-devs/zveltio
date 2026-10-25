@@ -108,6 +108,7 @@ import m089 from './sql/095_column_rules_key_issuer.sql' with { type: 'text' };
 import m090 from './sql/096_validation_rule_group_members.sql' with { type: 'text' };
 import m091 from './sql/097_validation_test_case_orphans.sql' with { type: 'text' };
 import m092 from './sql/098_validation_rule_instance_key.sql' with { type: 'text' };
+import m093 from './sql/099_extension_statement_mark.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -204,4 +205,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '096_validation_rule_group_members.sql': m090,
   '097_validation_test_case_orphans.sql': m091,
   '098_validation_rule_instance_key.sql': m092,
+  '099_extension_statement_mark.sql': m093,
 };
