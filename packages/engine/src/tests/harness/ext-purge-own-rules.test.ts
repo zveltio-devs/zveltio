@@ -1,9 +1,9 @@
 /**
  * Purging an extension removes the rules on its own objects (extension model
  * v3): `$ext:<name>` and its v1 `resources`/`sensitiveResources` that no
- * collection carries and no other installed extension declares. A collection's
- * rules stay, an action-gated collection's `execute` included: the collection's
- * drop takes them.
+ * collection carries and no other extension with data left declares (installed
+ * or soft uninstalled). A collection's rules stay, an action-gated collection's
+ * `execute` included: the collection's drop takes them.
  *
  * Before: those rules outlived the purge. And an installed extension with no
  * manifest on disk could not be purged once its DOWN dropped a collection: the
@@ -30,6 +30,8 @@ const Y = `${S}y`;
 const Z = `${S}z`;
 /** Installed without a manifest while X is purged. */
 const W = `${S}w`;
+/** Soft uninstalled (data and files kept), declares names X declares too. */
+const V = `${S}v`;
 
 const X_DROPPED = `${S}_xitems`;
 const Z_DROPPED = `${S}_zitems`;
@@ -42,6 +44,9 @@ const SENS = `${S}_sens`;
 const SHARED_RES = `${S}_shres`;
 const SHARED_SENS = `${S}_shsens`;
 const SHARED_ACT = `${S}_shact`;
+const SOFT_RES = `${S}_sfres`;
+const SOFT_SENS = `${S}_sfsens`;
+const SOFT_ACT = `${S}_sfact`;
 const COLLECTIONS = [X_DROPPED, Z_DROPPED, GATED, AS_COLLECTION];
 const OBJECTS = [
   `$ext:${X}`,
@@ -52,6 +57,9 @@ const OBJECTS = [
   SHARED_RES,
   SHARED_SENS,
   SHARED_ACT,
+  SOFT_RES,
+  SOFT_SENS,
+  SOFT_ACT,
 ];
 
 d('purging an extension removes the rules on its own objects', () => {
@@ -78,9 +86,9 @@ d('purging an extension removes the rules on its own objects', () => {
     ) > 0;
   const inModel = async (obj: string, act = 'read') =>
     (await getEnforcer()).getModel().hasPolicy('p', 'p', rule(obj, act));
-  const install = (name: string) =>
+  const install = (name: string, installed = true) =>
     sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
-        VALUES (${name}, ${name}, NULL, true, true)`.execute(db);
+        VALUES (${name}, ${name}, NULL, ${installed}, ${installed})`.execute(db);
   const down = (ext: string, table: string) =>
     sql`INSERT INTO zv_migrations (name, down_sql)
         VALUES (${`ext:${ext}:001_init`}, ${`DROP TABLE "zvd_${table}" CASCADE`})`.execute(db);
@@ -102,8 +110,8 @@ d('purging an extension removes the rules on its own objects', () => {
       } as never);
     }
     writeManifest(X, {
-      resources: [ONLY, AS_COLLECTION, SHARED_RES, SHARED_SENS, SHARED_ACT],
-      sensitiveResources: [SENS],
+      resources: [ONLY, AS_COLLECTION, SHARED_RES, SHARED_SENS, SHARED_ACT, SOFT_RES, SOFT_ACT],
+      sensitiveResources: [SENS, SOFT_SENS],
       actions: [{ name: 'go', permission: { resource: GATED }, input: { type: 'object' } }],
     });
     writeManifest(Y, {
@@ -111,12 +119,29 @@ d('purging an extension removes the rules on its own objects', () => {
       sensitiveResources: [SHARED_SENS],
       actions: [{ name: 'act', permission: { resource: SHARED_ACT }, input: { type: 'object' } }],
     });
+    writeManifest(V, {
+      resources: [SOFT_RES],
+      sensitiveResources: [SOFT_SENS],
+      actions: [{ name: 'act', permission: { resource: SOFT_ACT }, input: { type: 'object' } }],
+    });
     for (const name of [X, Y]) await install(name);
+    await install(V, false);
     await down(X, X_DROPPED);
     await down(Z, Z_DROPPED);
 
     const e = await getEnforcer();
-    for (const obj of [`$ext:${X}`, `$ext:${Z}`, ONLY, SENS, SHARED_RES, SHARED_SENS, SHARED_ACT]) {
+    for (const obj of [
+      `$ext:${X}`,
+      `$ext:${Z}`,
+      ONLY,
+      SENS,
+      SHARED_RES,
+      SHARED_SENS,
+      SHARED_ACT,
+      SOFT_RES,
+      SOFT_SENS,
+      SOFT_ACT,
+    ]) {
       await e.addPolicy(...rule(obj));
     }
     await e.addPolicy(...rule(AS_COLLECTION));
@@ -132,7 +157,9 @@ d('purging an extension removes the rules on its own objects', () => {
     else process.env.EXTENSIONS_DIR = savedDir;
     if (extRoot) rmSync(extRoot, { recursive: true, force: true });
     if (!db) return;
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${X}, ${Y}, ${Z}, ${W})`.execute(db);
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${X}, ${Y}, ${Z}, ${W}, ${V})`.execute(
+      db,
+    );
     await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${S}%`}`.execute(db);
     for (const name of COLLECTIONS) await dropTestCollection(db, name).catch(() => {});
     const e = await getEnforcer();
@@ -171,6 +198,17 @@ d('purging an extension removes the rules on its own objects', () => {
     ).toHaveLength(1);
   });
 
+  it("a soft-uninstalled extension's unreadable manifest fails the purge closed too", async () => {
+    await install(W, false);
+    try {
+      await expect(purgeExtensionData(X, db)).rejects.toThrow(/without a readable manifest/);
+    } finally {
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${W}`.execute(db);
+    }
+    expect(await held(`$ext:${X}`)).toBe(true);
+    expect(await held(SOFT_RES)).toBe(true);
+  });
+
   it("removes $ext:X and X-only resource rules; keeps shared names and collections' rules", async () => {
     await purgeExtensionData(X, db);
     for (const obj of [`$ext:${X}`, ONLY, SENS]) {
@@ -179,7 +217,16 @@ d('purging an extension removes the rules on its own objects', () => {
     }
     expect(await revoked(`$ext:${X}`)).toBe(false);
     expect(await revoked(ONLY)).toBe(false);
-    for (const obj of [SHARED_RES, SHARED_SENS, SHARED_ACT, AS_COLLECTION]) {
+    // A soft-uninstalled extension's data, and so its claim on its names, stay.
+    for (const obj of [
+      SHARED_RES,
+      SHARED_SENS,
+      SHARED_ACT,
+      AS_COLLECTION,
+      SOFT_RES,
+      SOFT_SENS,
+      SOFT_ACT,
+    ]) {
       expect([obj, await held(obj)]).toEqual([obj, true]);
       expect([obj, await inModel(obj)]).toEqual([obj, true]);
     }

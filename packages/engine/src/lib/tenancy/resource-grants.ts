@@ -211,13 +211,18 @@ export async function registerRegisteredSensitiveResources(
   db: Database,
   extensionsBase: string,
 ): Promise<string[]> {
+  const { unreadable } = await declaredBy(extensionsBase, await registeredExtensions(db));
+  return unreadable;
+}
+
+/**
+ * Names of the extensions whose data is still there: every one with a registry
+ * row, installed or soft uninstalled. A purge deletes the row with the data.
+ */
+async function registeredExtensions(db: Database): Promise<string[]> {
   const { rows } = await sql<{ name: string }>`
     SELECT DISTINCT name FROM zv_extension_registry`.execute(db);
-  const { unreadable } = await declaredBy(
-    extensionsBase,
-    rows.map((r) => r.name),
-  );
-  return unreadable;
+  return rows.map((r) => r.name);
 }
 
 /** `zv_settings` key: `repairSensitiveDefaultGrants` has run on this database. */
@@ -447,13 +452,14 @@ export async function nonCollectionObjects(
  *
  * Its objects: `$ext:<name>`, and the v1 `resources` and `sensitiveResources`
  * of its manifest that no collection carries and nothing else claims — another
- * installed extension (resources, sensitiveResources, an action's
- * `permission.resource`), an engine object, a retired zone. A collection's
+ * extension whose data is still there, installed or soft uninstalled
+ * (resources, sensitiveResources, an action's `permission.resource`), an engine
+ * object, a retired zone. A collection's
  * rules are the collection's, an action-gated `execute` included: its drop
  * takes them. Role links (`g`) name no object and stay.
  *
  * Without a readable manifest only `$ext:<name>` is known, and that is said.
- * Throws as `nonCollectionObjects` when another installed extension's manifest
+ * Throws as `nonCollectionObjects` when another such extension's manifest
  * cannot be read: what it claims is unknown, so nothing may be taken from it.
  */
 export async function deleteExtensionObjectRules(
@@ -464,9 +470,16 @@ export async function deleteExtensionObjectRules(
   const taken = await nonCollectionObjects(db, extensionsBase, name);
   const others = await declaredBy(
     extensionsBase,
-    (await installedExtensions(db)).filter((n) => n !== name),
+    (await registeredExtensions(db)).filter((n) => n !== name),
   );
-  for (const r of [...others.gated, ...others.sensitive]) taken.add(r);
+  if (others.unreadable.length > 0) {
+    throw new Error(
+      `Extension(s) without a readable manifest under ${extensionsBase}: ` +
+        `${others.unreadable.join('; ')}. What they claim is unknown, so the purge of ` +
+        `${name} takes nothing: restore their files or purge them.`,
+    );
+  }
+  for (const r of [...others.out, ...others.gated, ...others.sensitive]) taken.add(r);
   const own = await declaredBy(extensionsBase, [name]);
   if (own.unreadable.length > 0) {
     console.warn(

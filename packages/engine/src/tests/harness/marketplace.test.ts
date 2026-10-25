@@ -99,7 +99,9 @@ d('extension marketplace routes (in-process)', () => {
     // The registry list fetched through the mocked fetch is cached for minutes;
     // a later file's install would look its extension up in this file's mock.
     _resetCatalogCacheForTests();
-    await sql`DELETE FROM zv_extension_registry WHERE name = ${HELLO_EXT}`.execute(db);
+    // The ghost's too: config upserts a row for it, and an uninstall keeps it. A
+    // row with no manifest fails every later purge closed (`deleteExtensionObjectRules`).
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${HELLO_EXT}, ${GHOST})`.execute(db);
     if (TEMP_EXT_BASE) {
       rmSync(TEMP_EXT_BASE, { recursive: true, force: true });
       TEMP_EXT_BASE = null;
