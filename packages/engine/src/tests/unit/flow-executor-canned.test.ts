@@ -617,17 +617,18 @@ describe('executeStep — CannedDb branches', () => {
     ).rejects.toThrow(/internal\/private address blocked/i);
   });
 
-  it('export_collection rejects unsafe collection names', async () => {
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      {
-        type: 'export_collection',
-        config: { collection: 'DROP-table' },
-      },
-      {},
-      {},
-    );
-    expect(output.error).toMatch(/Invalid collection name/i);
+  it('export_collection fails the step on an unsafe collection name or a bad limit', async () => {
+    const run = (config: Record<string, unknown>) =>
+      executeStep(
+        new CannedDb().kysely as unknown as Database,
+        { type: 'export_collection', config },
+        {},
+        {},
+      );
+    await expect(run({ collection: 'DROP-table' })).rejects.toThrow(/invalid collection name/i);
+    for (const limit of [0, -1, 1.5, '10', 100_001]) {
+      await expect(run({ collection: 'items', limit })).rejects.toThrow(/limit must be an integer/);
+    }
   });
 
   it('run_script surfaces script errors as step failures', async () => {
