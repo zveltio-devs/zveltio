@@ -1,0 +1,3 @@
+[test]
+# Clears the default grants a fixture dropped by hand left behind (see the file).
+preload = ["./src/testing/harness-teardown.ts"]

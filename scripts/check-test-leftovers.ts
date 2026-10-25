@@ -57,11 +57,25 @@ try {
     WHERE resource ~ ${FIXTURE} ORDER BY resource
   `;
 
+  // A fixture's default grants, its collection gone: dropped by hand instead of
+  // through `dropTestCollection`. The bunfig preload clears them after a run.
+  const grants = await sql<{ resource: string }[]>`
+    SELECT DISTINCT v2 AS resource FROM zvd_permissions p
+    WHERE p.ptype = 'p' AND p.v2 ~ ${FIXTURE}
+      AND NOT EXISTS (SELECT 1 FROM zvd_collections c WHERE c.name = p.v2)
+    ORDER BY v2
+  `;
+
   await sql.end();
 
-  if (collections.length === 0 && orphans.length === 0 && revocations.length === 0) {
+  if (
+    collections.length === 0 &&
+    orphans.length === 0 &&
+    revocations.length === 0 &&
+    grants.length === 0
+  ) {
     console.log(
-      '[test-leftovers] OK — the suite left no collections, ghost tables or revocations.',
+      '[test-leftovers] OK — the suite left no collections, ghost tables, revocations or grants.',
     );
     process.exit(0);
   }
@@ -70,6 +84,7 @@ try {
   for (const c of collections) console.error(`  collection  ${c.name}`);
   for (const o of orphans) console.error(`  ghost table ${o.tablename}`);
   for (const r of revocations) console.error(`  revocation  ${r.resource}`);
+  for (const g of grants) console.error(`  grant       ${g.resource}`);
   console.error('\nUse `dropTestCollection(db, name)` from `testing/app-harness.ts` in afterAll —');
   console.error('dropping the table alone leaves the row in `zvd_collections`, which is what');
   console.error('made a database accumulate 163 of these and a measurement taken there lie.');
