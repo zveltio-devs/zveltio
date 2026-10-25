@@ -16,7 +16,7 @@
  *
  * Applied on collection create (in the CREATE's transaction), on every field
  * change (`updateCollectionMetadata`), on every column rule change
- * (`invalidateColumnPermCache`) and at boot. A transaction that alters a
+ * (`writeColumnRules`, in the rule's transaction) and at boot. A transaction that alters a
  * collection's columns starts with `dropMaskView` and ends here.
  */
 

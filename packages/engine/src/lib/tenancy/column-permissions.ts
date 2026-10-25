@@ -167,12 +167,39 @@ async function keyColumnAccess(
   return { hidden, readOnly };
 }
 
+/**
+ * Change column rules with `write`, and rebuild the database's copy of them for
+ * every collection it names — the write guard (`applyColumnGuard`), the masking
+ * view and the seal (`sealColumns`) — in the same transaction: the rule and its
+ * enforcement commit together or not at all. The copy used to follow the
+ * COMMIT, and a table busy past the lock bound kept enforcing the old rules
+ * until the next boot; now that table fails the change (55P03) instead.
+ *
+ * On the pool, as the owner: every writer of the rules is (the request role may
+ * not write them), and the trigger and the view are the owner's DDL.
+ */
+export async function writeColumnRules<T>(
+  db: Database,
+  write: (trx: Database) => Promise<{ result: T; collections: string[] }>,
+): Promise<T> {
+  const { applyColumnGuard, sealColumns } = await import('../data/index.js');
+  const out = await db.transaction().execute(async (trx) => {
+    const done = await write(trx);
+    for (const c of new Set(done.collections)) {
+      await applyColumnGuard(trx, c);
+      await sealColumns(trx, c);
+    }
+    return done;
+  });
+  for (const c of new Set(out.collections)) await invalidateColumnPermCache(c);
+  return out.result;
+}
+
 export async function invalidateColumnPermCache(collection?: string): Promise<void> {
-  // The database's copy first (`lib/data/column-guard.ts`): every change passes
-  // through here — the routes, schema apply, a field renamed or dropped. On the
-  // pool after the COMMIT, as `invalidateRlsCache` rebuilds the row-rule policy:
-  // CREATE TRIGGER is DDL the request's role may not run. Loud, not fatal: the
-  // engine's filter still applies the rule in between.
+  // The database's copy again, on the pool after the COMMIT. A writer of the
+  // rules rebuilds it in its own transaction (`writeColumnRules`); this is the
+  // net for one that did not, the previews' refresh, and the readable-column
+  // cache `sealColumns` drops. Loud, not fatal.
   // The masking view and the seal with it (layer 3, `sealColumns`): a rule that
   // hides a column now masks it in the view and takes it from the request roles.
   const refresh = async () => {
@@ -321,29 +348,31 @@ export interface ColumnPermissionInput {
  * route and `POST /api/admin/schema/apply` both write through here.
  */
 export async function putColumnPermission(db: Database, data: ColumnPermissionInput) {
-  const row = await db
-    .insertInto('zvd_column_permissions')
-    .values(data)
-    .onConflict((oc) =>
-      oc.columns(['collection_name', 'column_name', 'role']).doUpdateSet({
-        can_read: data.can_read,
-        can_write: data.can_write,
-        updated_at: new Date(),
-      }),
-    )
-    .returningAll()
-    .executeTakeFirst();
-  await invalidateColumnPermCache(data.collection_name);
-  return row;
+  return writeColumnRules(db, async (trx) => ({
+    result: await trx
+      .insertInto('zvd_column_permissions')
+      .values(data)
+      .onConflict((oc) =>
+        oc.columns(['collection_name', 'column_name', 'role']).doUpdateSet({
+          can_read: data.can_read,
+          can_write: data.can_write,
+          updated_at: new Date(),
+        }),
+      )
+      .returningAll()
+      .executeTakeFirst(),
+    collections: [data.collection_name],
+  }));
 }
 
 /** Removes one column permission by id; false when there was none. */
 export async function deleteColumnPermission(db: Database, id: string): Promise<boolean> {
-  const deleted = await db
-    .deleteFrom('zvd_column_permissions')
-    .where('id', '=', id)
-    .returning('collection_name')
-    .executeTakeFirst();
-  if (deleted) await invalidateColumnPermCache(deleted.collection_name);
-  return !!deleted;
+  return writeColumnRules(db, async (trx) => {
+    const deleted = await trx
+      .deleteFrom('zvd_column_permissions')
+      .where('id', '=', id)
+      .returning('collection_name')
+      .executeTakeFirst();
+    return { result: !!deleted, collections: deleted ? [deleted.collection_name] : [] };
+  });
 }

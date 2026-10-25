@@ -6,8 +6,8 @@ import type { Database } from '../../db/index.js';
 import { checkPermission, getEnforcer, isGodUser } from '../../lib/tenancy/index.js';
 import {
   deleteColumnPermission,
-  invalidateColumnPermCache,
   putColumnPermission,
+  writeColumnRules,
 } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager } from '../../lib/data/index.js';
@@ -260,21 +260,28 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
   // PUT /column-permissions/:id
   app.put('/column-permissions/:id', zValidator('json', ColumnPermSchema.partial()), async (c) => {
     const data = c.req.valid('json');
-    // A rule moved to another collection leaves the old one masking and
-    // sealing the column until that one is refreshed too.
-    const before = await db
-      .selectFrom('zvd_column_permissions')
-      .select('collection_name')
-      .where('id', '=', c.req.param('id'))
-      .executeTakeFirst();
     let row: Awaited<ReturnType<typeof putColumnPermission>>;
     try {
-      row = await db
-        .updateTable('zvd_column_permissions')
-        .set({ ...data, updated_at: new Date() })
-        .where('id', '=', c.req.param('id'))
-        .returningAll()
-        .executeTakeFirst();
+      row = await writeColumnRules(db, async (trx) => {
+        // A rule moved to another collection leaves the old one masking and
+        // sealing the column until that one is rebuilt too.
+        const before = await trx
+          .selectFrom('zvd_column_permissions')
+          .select('collection_name')
+          .where('id', '=', c.req.param('id'))
+          .forUpdate()
+          .executeTakeFirst();
+        const after = await trx
+          .updateTable('zvd_column_permissions')
+          .set({ ...data, updated_at: new Date() })
+          .where('id', '=', c.req.param('id'))
+          .returningAll()
+          .executeTakeFirst();
+        return {
+          result: after,
+          collections: after && before ? [before.collection_name, after.collection_name] : [],
+        };
+      });
     } catch (e) {
       // Moved onto a (collection, column, role) another rule already holds.
       if (sqlState(e) === '23505') {
@@ -283,11 +290,6 @@ export function registerConfigRoutes(app: Hono, db: Database): void {
       throw e;
     }
     if (!row) return c.json({ error: 'Not found' }, 404);
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    await invalidateColumnPermCache((row as any).collection_name);
-    if (before && before.collection_name !== row.collection_name) {
-      await invalidateColumnPermCache(before.collection_name);
-    }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user' as never) as any;
     await auditLog(db, {
