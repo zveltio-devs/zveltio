@@ -150,10 +150,23 @@ export function sessionPrefetch(
       // run before any route authenticates, and without this they saw no
       // caller at all and bucketed every key per IP. `authenticate` reuses the
       // row, so a key costs one lookup per request, as before.
+      let issuer: string | null | undefined;
       if (!session) {
         const { findApiKey, requestApiKey } = await import('../lib/data/index.js');
         const rawKey = requestApiKey(c);
-        if (rawKey) c.set('prefetchedApiKey', await findApiKey(db, rawKey));
+        if (rawKey) {
+          const key = await findApiKey(db, rawKey);
+          c.set('prefetchedApiKey', key);
+          issuer = key?.created_by;
+          // What a key request asks of its issuer inside the transaction
+          // (`validateApiKey`, `getRlsFilters`): their row rules, email included.
+          if (key && issuer) {
+            const { keyIssuerRowActor } = await import('../lib/tenancy/index.js');
+            await keyIssuerRowActor({ id: `apikey:${key.id}`, authorUserId: issuer }).catch(
+              () => null,
+            );
+          }
+        }
       }
 
       // Resolve the god flag HERE, where there is no transaction open yet.
@@ -168,7 +181,12 @@ export function sessionPrefetch(
       //
       // Nothing is threaded through: the call fills the in-process cache in
       // `permissions.ts`, and the in-transaction call reads it from there.
-      const userId = (session as { user?: { id?: unknown } } | null)?.user?.id;
+      //
+      // For a key, its ISSUER: every check of a key is also asked of the person
+      // it acts for (`keyIssuerAllows`, `validateApiKey`), inside the
+      // transaction, and a key idle past the 5 s memo took a second connection
+      // per request for it (api-key-one-connection.test.ts).
+      const userId = (session as { user?: { id?: unknown } } | null)?.user?.id ?? issuer;
       if (typeof userId === 'string' && userId !== '') {
         const { isGodUser, resolveUserRole } = await import('../lib/tenancy/index.js');
         await Promise.all([

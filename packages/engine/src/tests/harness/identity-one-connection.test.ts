@@ -26,6 +26,7 @@ import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import {
   getCurrentTenantTrx,
+  getEnforcer,
   grantMemberRole,
   invalidateGodCache,
   withTenantIsolation,
@@ -121,6 +122,39 @@ d('work that holds a transaction needs one connection', () => {
     expect(extra ? `${extra} — ${tracedAcquisitionSite()}` : '0').toBe('0');
     // Refused for want of a step-up, after the target check this counts.
     expect(res.status).toBe(403);
+  }, 60_000);
+
+  it('so do both when the target is a user this replica has not loaded', async () => {
+    // Created on another replica before the bus delivered: the table holds the
+    // target's `member` row, this model does not (`unloadedRoles`).
+    const admin = await createMemberSession(app, db, {
+      grants: [{ collection: 'admin', actions: ['*'] }],
+    });
+    const [target, joiner] = await plainUsers(db, 2, 'un');
+    const model = (await getEnforcer()).getModel();
+    const seen: Record<string, string> = {};
+    try {
+      for (const u of [target!, joiner!]) {
+        model.removePolicy('g', 'g', [u, 'member', '*']);
+        await invalidateGodCache(u);
+      }
+      _setConnectionTracing(true);
+      const res = await app.request(`/api/users/${target}/factors/reset`, {
+        method: 'POST',
+        headers: { cookie: admin.cookie },
+      });
+      _setConnectionTracing(false);
+      const extra = res.headers.get('x-zveltio-extra-connections');
+      seen.reset = `${res.status} ${extra ? `${extra} — ${tracedAcquisitionSite()}` : '0'}`;
+      seen.add = await traced(T, () => idp.addTenantMember(ext, joiner!));
+    } finally {
+      _setConnectionTracing(false);
+      for (const u of [target!, joiner!]) {
+        model.addPolicy('g', 'g', [u, 'member', '*']);
+        await invalidateGodCache(u);
+      }
+    }
+    expect(seen).toEqual({ reset: '403 0', add: '0' });
   }, 60_000);
 
   it('identity provisioning inside a transaction takes nothing beyond it', async () => {

@@ -14,6 +14,7 @@ import type { ExpressionBuilder } from 'kysely';
 import { type Database, getDb } from '../../db/index.js';
 import type { DbSchema, ZvApiKeyRow } from '../../db/schema.js';
 import { requestSession } from '../../middleware/session-prefetch.js';
+import { afterRequestSettles } from '../../middleware/tenant.js';
 import {
   activeMembership,
   apiKeyActsIn,
@@ -68,7 +69,9 @@ export async function authenticate(
       ? ((c.get('tenant') as { id?: string } | null)?.id ?? null)
       : null;
     const prefetchedKey = hasGet ? c.get('prefetchedApiKey') : undefined;
-    const apiKey = await validateApiKey(db, rawKey, requestTenantId, prefetchedKey);
+    const apiKey = await validateApiKey(db, rawKey, requestTenantId, prefetchedKey, (job) =>
+      hasGet ? afterRequestSettles(c, job) : void job(),
+    );
     if (apiKey) {
       // `validateApiKey` has already published this actor to the database.
       const bypass = (apiKey as { rls_bypass?: boolean }).rls_bypass === true;
@@ -367,6 +370,7 @@ export async function validateApiKey(
   rawKey: string,
   requestTenantId: string | null,
   found?: ZvApiKeyRow | null,
+  settle: (job: () => Promise<void>) => void = (job) => void job(),
 ): Promise<ZvApiKeyRow | null> {
   const apiKey = found !== undefined ? found : await findApiKey(db, rawKey);
   if (!apiKey) return null;
@@ -466,16 +470,20 @@ export async function validateApiKey(
   // Update last_used_at — fire-and-forget; non-blocking on hot path. Through
   // the pool, outside any tenant (065's owner carve-out): `db` is the request
   // transaction, which sees only the acting tenant's keys, so a root key used in
-  // another tenant matched no row and was never stamped.
-  Promise.resolve()
-    .then(() =>
-      getDb()
+  // another tenant matched no row and was never stamped. Once the request has
+  // settled (`settle`): issued now, the pool write took a second connection
+  // while the request held one (api-key-one-connection.test.ts).
+  settle(async () => {
+    try {
+      await getDb()
         .updateTable('zv_api_keys')
         .set({ last_used_at: new Date() })
         .where('id', '=', apiKey.id)
-        .execute(),
-    )
-    .catch((err) => console.error('[validateApiKey] last_used_at update failed:', err));
+        .execute();
+    } catch (err) {
+      console.error('[validateApiKey] last_used_at update failed:', err);
+    }
+  });
 
   return apiKey;
 }
