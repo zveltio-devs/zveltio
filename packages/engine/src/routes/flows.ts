@@ -9,6 +9,7 @@ import { isTenantAdmin, requireInstanceAdmin, withTenantIsolation } from '../lib
 import { tenantId } from '../lib/route-db.js';
 import { toJsonb } from '../lib/jsonb.js';
 import { guardAdmin } from '../lib/admin-guard.js';
+import { paging } from '../lib/utils.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -171,8 +172,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
   // pager asked for page 2 and got the same full list back.
   app.get('/', async (c) => {
     const { page = '1', limit = '50' } = c.req.query();
-    const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
-    const offset = (Math.max(parseInt(page) || 1, 1) - 1) * parsedLimit;
+    const { limit: parsedLimit, offset } = paging(page, limit, 50, 200);
     const [flows, counted] = await inTenant(c, (t) =>
       Promise.all([
         t

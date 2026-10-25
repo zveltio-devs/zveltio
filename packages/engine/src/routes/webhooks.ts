@@ -26,6 +26,7 @@ import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { WEBHOOK_DLQ_KEY } from '../lib/webhook-worker.js';
 import { guardAdmin } from '../lib/admin-guard.js';
+import { paging } from '../lib/utils.js';
 
 const WebhookSchema = z.object({
   name: z.string().min(1),
@@ -312,7 +313,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       .where('webhook_id', '=', c.req.param('id'))
       .where('tenant_id', '=', tenantId(c))
       .orderBy('created_at', 'desc')
-      .limit(Math.min(parseInt(limit) || 50, 500))
+      .limit(paging(undefined, limit, 50, 500).limit)
       .execute();
     return c.json({ deliveries });
   });

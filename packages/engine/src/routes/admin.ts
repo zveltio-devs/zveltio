@@ -26,6 +26,7 @@ import { registerConfigRoutes } from './admin/config-routes.js';
 import { registerStorageAdminRoutes } from './admin/storage-routes.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { asEngineRole } from '../lib/role-window.js';
+import { paging } from '../lib/utils.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function adminRoutes(db: Database, auth: any): Hono {
@@ -98,8 +99,7 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
   // GET / — List API keys
   app.get('/', async (c) => {
     const { page = '1', limit = '50' } = c.req.query();
-    const parsedLimit = Math.min(parseInt(limit) || 50, 200);
-    const offset = (parseInt(page) - 1) * parsedLimit;
+    const { limit: parsedLimit, offset } = paging(page, limit, 50, 200);
     const keys = await db
       .selectFrom('zv_api_keys')
       .select([
