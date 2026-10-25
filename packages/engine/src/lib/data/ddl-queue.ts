@@ -30,7 +30,7 @@
 import { sql } from 'kysely';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { PgBoss } from 'pg-boss';
-import type { Database } from '../../db/index.js';
+import { type Database, recycleActivePool } from '../../db/index.js';
 import { refreshBranchProtections } from './branch-protections.js';
 import { DDLManager } from './ddl-manager.js';
 import { type FieldConfig, fieldTypeRegistry } from './field-type-registry.js';
@@ -184,6 +184,16 @@ async function reindexInvalid(db: Database): Promise<void> {
  */
 export function announceSchemaChange(collection: string, action: SchemaChangeAction): void {
   onAfterCommit(() => {
+    // A pooled backend that prepared a `SELECT *` or `RETURNING *` over the
+    // table's old shape — a flow's export, an extension's `ctx.db` — answers it
+    // with 0A000 until it goes, inside a transaction as a failure: a new pool.
+    // A drop leaves nothing to re-read; a create can reuse a dropped name.
+    // The other replicas recycle on the message below (realtime-bus.ts).
+    if (action !== 'drop') {
+      recycleActivePool().catch((err: Error) => {
+        console.error(`[ddl] ${collection}: pool recycle not applied:`, err.message);
+      });
+    }
     // A queued DDL job commits after its request answered.
     scheduleSchemaWrite();
     broadcastSchemaChange(collection, action);
