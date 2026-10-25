@@ -1210,7 +1210,6 @@ type AfterDb<F> = F extends (db: Database, ...rest: infer R) => unknown ? R : ne
 
 /** The mutations that need nothing beyond `onEnginePool`. */
 const POOL_ONLY = [
-  'registerMetadata',
   'syncFieldsFromDB',
   'registerRelation',
   'applyRelationFK',
@@ -1250,6 +1249,12 @@ export const announcingDDLManager: typeof DDLManager = Object.assign(
       // the extension fills it; a table that cannot be isolated is not created.
       await onEnginePool((pool) => DDLManager.createCollection(pool, def));
       announceSchemaChange(def.name, 'create');
+    },
+    async registerMetadata(_db: Database, ...[def]: AfterDb<typeof DDLManager.registerMetadata>) {
+      await onEnginePool((pool) => DDLManager.registerMetadata(pool, def));
+      // A table the extension adopts gets what `createCollection` gives one it
+      // creates, not nothing until the next boot's reconcile.
+      await DDLManager.grantDefaults(getDb(), def.name);
     },
     async dropCollection(_db: Database, ...rest: AfterDb<typeof DDLManager.dropCollection>) {
       await onEnginePool((pool) => DDLManager.dropCollection(pool, ...rest), collection(rest[0]));
