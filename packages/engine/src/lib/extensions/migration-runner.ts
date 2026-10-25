@@ -336,8 +336,9 @@ async function runSegments(extName: string, segments: Segment[], db: Database): 
     if (segment.transactional) {
       await db.transaction().execute(async (trx) => {
         // Replicas booting together each read this chain as pending, and boot
-        // holds no extension lock: the second ran it beside the first and failed
-        // its load on a 23505. The lock lives in this transaction, so it costs no
+        // held no extension lock then: the second ran it beside the first and failed
+        // its load on a 23505. Boot holds it now; this stays for any caller that
+        // does not. The lock lives in this transaction, so it costs no
         // connection and cannot deadlock a pool of two under the runtime paths'
         // `ext:<name>` holder, hence a key of its own. Waited for as the engine's
         // own migration lock is, then the chain is read again under it.
