@@ -220,10 +220,10 @@ describe('createRestrictedDb — table access policy', () => {
     await db.selectFrom('zvd_a').selectAll().execute();
     await db.selectFrom('zv_ext_b').selectAll().execute();
     expect(resolves).toBe(2);
-    expect(canned.log.map((q) => q.sql)).toEqual([
-      'select * from "zvd_a"',
-      'select * from "zv_ext_b"',
-    ]);
+    // Without a usable extension role each one runs marked as an extension's
+    // (ext-db-role.ts MARK_SQL), with its temp tables discarded after.
+    const own = canned.log.map((q) => q.sql).filter((s) => !/set_config|DISCARD TEMP/.test(s));
+    expect(own).toEqual(['select * from "zvd_a"', 'select * from "zv_ext_b"']);
   });
 });
 

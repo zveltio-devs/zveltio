@@ -31,12 +31,15 @@ d('ctx.internals.dynamicInsert runs the field pipeline', () => {
   let internals: ExtensionInternals;
 
   // The handle the loader gives an extension's `withTenantIsolation` callback.
+  // A job has no actor, so the extension writes the collection as the system.
   const insert = (row: Record<string, unknown>) =>
     withTenantIsolation(DEFAULT_TENANT_ID, (trx) =>
-      internals.dynamicInsert(
-        createRestrictedDb(trx, 'pipe-ext', new Set([TABLE])) as never,
-        TABLE,
-        row,
+      internals.asSystem([COLLECTION], () =>
+        internals.dynamicInsert(
+          createRestrictedDb(trx, 'pipe-ext', new Set([TABLE])) as never,
+          TABLE,
+          row,
+        ),
       ),
     );
 
@@ -67,7 +70,7 @@ d('ctx.internals.dynamicInsert runs the field pipeline', () => {
               ${JSON.stringify({ expression: "previous == null ? value == 'draft' : true" })}::jsonb,
               'A record starts as draft', TRUE)`.execute(db);
     invalidateRulesCache(COLLECTION);
-    internals = gateInternals('pipe-ext', buildExtensionInternals(), []);
+    internals = gateInternals('pipe-ext', buildExtensionInternals(), ['data:system']);
   });
 
   afterAll(async () => {

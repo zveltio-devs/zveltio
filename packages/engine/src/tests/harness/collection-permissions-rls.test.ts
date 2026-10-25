@@ -341,6 +341,49 @@ d('collection permissions in the database (R1)', () => {
     ).toBe(0);
   });
 
+  it('gives an extension nothing without an actor where it cannot take its own role', async () => {
+    // The engine could not set up `zveltio_ext` (a hand-made engine role
+    // without CREATEROLE): `ctx.db` runs as the request role. Without an actor
+    // the policy read `zveltio_rls` as the engine's own work and opened every
+    // collection in the tenant to the extension's job, row rules standing down.
+    const ext = createRestrictedDb(() => getCurrentTenantTrx() ?? db, EXT, new Set());
+    _resetExtensionDbRoleForTests();
+    try {
+      expect(await attempt(undefined, () => count(ext as unknown as Database))).toBe(0);
+      expect(await attempt(undefined, () => inserts(ext as unknown as Database))).toBe(false);
+      // The actor's rights, as with the role.
+      expect(
+        await attempt(await identityOf(U.reader), () => count(ext as unknown as Database)),
+      ).toBe(2);
+      // asSystem still opens what it names.
+      const internals = gateInternals(EXT, buildExtensionInternals(), ['data:system']);
+      expect(
+        await attempt(undefined, () =>
+          internals.asSystem([COLL], () => count(ext as unknown as Database)),
+        ),
+      ).toBe(2);
+      // The engine's own statement after the extension's is engine work again.
+      expect(
+        await attempt(undefined, async (t) => [
+          await count(ext as unknown as Database),
+          await count(t),
+        ]),
+      ).toEqual([0, 2]);
+      // On the pool too, where a login RLS binds would answer for the default
+      // tenant: the policy's question, asked of an extension statement there.
+      const allows = (h: Database) =>
+        sql<{ ok: boolean }>`SELECT zveltio_collection_allows(${COLL}, 'read') AS ok`
+          .execute(h)
+          .then((r) => r.rows[0]!.ok);
+      expect(await allows(db)).toBe(true);
+      expect(await allows(createRestrictedDb(db, EXT, new Set()) as unknown as Database)).toBe(
+        false,
+      );
+    } finally {
+      await grantExtensionDbRole(db, EXT, new Set());
+    }
+  });
+
   it('exempts a listed extension, and never an engine route', async () => {
     const ext = createRestrictedDb(() => getCurrentTenantTrx() ?? db, EXT, new Set());
     process.env.ZVELTIO_COLLECTION_RLS_EXEMPT = `other-ext, ${EXT}`;
