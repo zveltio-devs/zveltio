@@ -686,6 +686,10 @@ export class DDLManager {
     // create_collection job's retry then failed on "already exists" for good.
     // Nothing in it needs CONCURRENTLY: every index is on a table it creates.
     const build = async (h: Database) => {
+      // First, before any table lock: a rule writer must not list the
+      // collections, nor this create read the rules, while the other is open.
+      const { lockRowRules } = await import('../tenancy/index.js');
+      await lockRowRules(h, 'shared');
       await createIsolatedTable(
         h,
         tableName,
