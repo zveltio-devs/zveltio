@@ -402,7 +402,8 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(triggerReloadMock).toHaveBeenCalled();
   });
 
-  it('PUT config upserts registry config JSON', async () => {
+  it("PUT config updates an installed extension's registry config JSON", async () => {
+    db.when(/update "zv_extension_registry" set "config"/i, [{ name: CATALOG_ENTRY.name }]);
     const app = mountRoutes(db, extBase);
     const res = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/config`, {
       method: 'PUT',
@@ -410,7 +411,18 @@ describe('registerMarketplaceRoutes (unit)', () => {
       body: JSON.stringify({ api_key: 'secret' }),
     });
     expect(res.status).toBe(200);
-    expect(db.executed(/insert into "zv_extension_registry"/i).length).toBeGreaterThan(0);
+    expect(db.executed(/insert into "zv_extension_registry"/i)).toHaveLength(0);
+  });
+
+  it('PUT config on an extension with no registry row is 404 and inserts none', async () => {
+    const app = mountRoutes(db, extBase);
+    const res = await app.request(`/api/marketplace/${CATALOG_ENTRY.name}/config`, {
+      method: 'PUT',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: 'secret' }),
+    });
+    expect(res.status).toBe(404);
+    expect(db.executed(/insert into "zv_extension_registry"/i)).toHaveLength(0);
   });
 
   it('POST uninstall soft marks the extension uninstalled', async () => {

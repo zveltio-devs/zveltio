@@ -74,6 +74,11 @@ d('god step-up for extension mutations', () => {
     const me = await app.request('/api/me', { headers: { cookie } });
     email = ((await me.json()) as { user: { email: string } }).user.email;
     pk = await newSoftPasskey();
+    // Installed: config on a name never installed is 404, before or after the gate.
+    for (const name of [PROBE, `${PROBE}-a`]) {
+      await sql`INSERT INTO zv_extension_registry (name, display_name, is_installed)
+                VALUES (${name}, ${name}, true)`.execute(db);
+    }
   });
 
   afterAll(async () => {
