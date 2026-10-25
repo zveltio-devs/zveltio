@@ -628,17 +628,23 @@ export async function afterWrite(
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
   // doesn't fan out to subscribers in tenant B (collection names
   // collide across tenants on both channel namespaces).
-  broadcastEvent(
-    collection,
-    eventName as 'insert' | 'update' | 'delete',
-    outbound,
-    tenantId ?? null,
+  //
+  // After the commit, like the bus below. Run here, inside the request
+  // transaction, they told every local subscriber of a record that a failed
+  // COMMIT then undid. Two jobs, so one door's failure does not close the other.
+  onAfterCommit(() =>
+    broadcastEvent(
+      collection,
+      eventName as 'insert' | 'update' | 'delete',
+      outbound,
+      tenantId ?? null,
+    ),
   );
-  broadcastDataEvent(collection, eventName, outbound, tenantId ?? null);
+  onAfterCommit(() => broadcastDataEvent(collection, eventName, outbound, tenantId ?? null));
 
   // Publish to the cross-instance realtime bus (Valkey if
   // configured, else pg_notify). The bus filters its own echo so the
-  // already-fired local `broadcastEvent` above doesn't double-deliver.
+  // local `broadcastEvent` above doesn't double-deliver.
   //
   // After the commit: pg_notify runs on the pool, and from inside the request
   // transaction that was a second connection on every write (and a remote
@@ -666,9 +672,13 @@ export async function afterWrite(
   // the cache key already includes the tenant id.
   // If this fails the read path serves stale data until TTL expires —
   // log so a chronic failure (Valkey down, eviction storm) is visible.
-  invalidateQueryCache(collection, tenantId ?? null).catch((err) => {
-    console.warn(`[data] invalidateQueryCache failed for ${collection}:`, (err as Error).message);
-  });
+  // After the commit: a read between an earlier invalidation and the COMMIT
+  // cached the old rows again, for the whole TTL.
+  onAfterCommit(() =>
+    invalidateQueryCache(collection, tenantId ?? null).catch((err) => {
+      console.warn(`[data] invalidateQueryCache failed for ${collection}:`, (err as Error).message);
+    }),
+  );
 
   // Trigger data_event flows (fire-and-forget — must not block the request).
   // Scoped to the writing tenant so a write in tenant A doesn't fire tenant B's flows.
