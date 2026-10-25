@@ -17,7 +17,13 @@
 import { sql } from 'kysely';
 import { toJsonb } from '../jsonb.js';
 import type { Database } from '../../db/index.js';
-import { DEFAULT_TENANT_ID, grantHoldsIn, withEveryTenant } from '../tenancy/index.js';
+import {
+  DEFAULT_TENANT_ID,
+  grantHoldsIn,
+  withEveryTenant,
+  withTenantIsolation,
+} from '../tenancy/index.js';
+import { DDLManager, selectReadable, withheldColumns } from '../data/index.js';
 import { runScript } from '../script-runner.js';
 import { sendEmail } from '../email.js';
 import { recordsToCsv } from '../security/index.js';
@@ -419,27 +425,35 @@ async function executeStep(
         throw new Error(`export_collection: format "${cfg.format}" is not supported, use "csv"`);
       }
 
-      const tableName = `zvd_${rawCollection}`;
+      // A collection, read the way REST reads it. The step ran `SELECT *` on the
+      // engine's own connection with only `zveltio.current_tenant` set: a stock
+      // install connects as a superuser, which FORCE RLS does not bind, so the
+      // CSV carried every firm's rows, the `password` hash served to no one and
+      // the search columns — and `collection: 'permissions'` exported the
+      // instance's Casbin table. A tenant admin may author this step.
+      //
+      // Now: only a collection; `withTenantIsolation` drops to the request role
+      // in the flow's firm, with no actor, as every background reader does; the
+      // rows come through `selectReadable` (the masking view, named columns,
+      // never a stale `SELECT *` plan); and what leaves is what any outbound
+      // payload carries (`afterWrite`): no unserved column, no ciphertext.
+      const def = await DDLManager.getCollection(db, rawCollection);
+      if (!def) throw new Error(`export_collection: "${cfg.collection}" is not a collection`);
+      const tableName = DDLManager.getTableName(rawCollection);
+      const { unserved, sealed } = withheldColumns(def);
+      const withheld = new Set([...unserved, ...sealed]);
+      const rows = await withTenantIsolation(flowTenantId, async (trx) =>
+        (await selectReadable(trx, tableName)).limit(Number(cfg.limit ?? 1000)).execute(),
+      );
 
-      // sql.id() quotes the identifier — safe against injection even if validation
-      // were somehow bypassed; sql.raw() was previously used here (vulnerability).
-      // Run inside a tenant transaction so FORCE-RLS'd collection rows are
-      // visible (and scoped to this flow's tenant).
-      const rows = await db.transaction().execute(async (trx: Database) => {
-        await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(trx);
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        return sql<any>`
-          SELECT * FROM ${sql.id(tableName)}
-          LIMIT ${cfg.limit ?? 1000}
-        `.execute(trx);
-      });
-
-      const columns: string[] | undefined = cfg.columns?.length ? cfg.columns : undefined;
-      const records = columns
-        ? rows.rows.map((r: Record<string, unknown>) =>
-            Object.fromEntries(columns.map((col) => [col, r[col]])),
-          )
-        : rows.rows;
+      const columns: string[] | undefined = cfg.columns?.length
+        ? (cfg.columns as string[]).filter((col) => !withheld.has(col))
+        : undefined;
+      const records = rows.map((r: Record<string, unknown>) =>
+        columns
+          ? Object.fromEntries(columns.map((col) => [col, r[col]]))
+          : Object.fromEntries(Object.entries(r).filter(([col]) => !withheld.has(col))),
+      );
       const csv = recordsToCsv(records);
       const filename = `${cfg.filename ?? cfg.collection}.csv`;
 
