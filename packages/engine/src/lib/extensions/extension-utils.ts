@@ -108,9 +108,11 @@ export async function withExtensionLock<T>(
   db: Database,
   name: string,
   fn: () => Promise<T>,
+  /** Bounds the wait for another replica's holder (`withAdvisoryLock`). */
+  opts: { maxWait?: string } = {},
 ): Promise<T> {
   const key = `ext:${name}`;
-  return inMemoryMutex(key, () => withAdvisoryLock(db, key, fn));
+  return inMemoryMutex(key, () => withAdvisoryLock(db, key, fn, opts));
 }
 
 // ── Network ──────────────────────────────────────────────────────────────────

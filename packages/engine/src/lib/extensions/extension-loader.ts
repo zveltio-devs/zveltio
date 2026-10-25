@@ -46,6 +46,7 @@ import { ensureExtensionCoreDeps } from './extension-deps.js';
 import { REGISTRY_URL, downloadExtension, sweepUpdateLeftovers } from './extension-download.js';
 import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
+import { timeoutSetting } from '../../db/migrations/index.js';
 import { purgeExtensionData } from './migration-runner.js';
 import { registerRegisteredSensitiveResources } from '../tenancy/index.js';
 import type { ManifestMeta } from './manifest-schema.js';
@@ -537,13 +538,46 @@ export class ExtensionLoader {
     const inRegistry = new Set(enabled);
     for (const name of [...sorted, ...refused.keys()]) {
       if (!refused.has(name)) {
-        await this.loadExtension(
-          name,
-          app,
-          this.ctx,
-          fromExternal.has(name) ? external?.base : undefined,
-          godOn.has(name) || envNames.includes(name) || fromExternal.has(name),
-        );
+        const ctx = this.ctx;
+        const operator = envNames.includes(name) || fromExternal.has(name);
+        let wanted = true;
+        try {
+          // Under its lock, as every runtime load: a purge or disable another
+          // replica committed since the read above is read again here. Loading on
+          // what boot read ran a purged extension's migrations again and put its
+          // dropped tables back, with no registry row left to remove them.
+          await withExtensionLock(
+            db,
+            name,
+            async () => {
+              let migrate = godOn.has(name) || operator;
+              if (!operator) {
+                const now = await db
+                  .selectFrom('zv_extension_registry')
+                  .select(['tenant_id', 'is_enabled'])
+                  .where('name', '=', name)
+                  .execute();
+                wanted = now.some((r) => r.is_enabled);
+                if (!wanted) return;
+                migrate = now.some((r) => r.is_enabled && r.tenant_id === null);
+              }
+              await this.loadExtension(
+                name,
+                app,
+                ctx,
+                fromExternal.has(name) ? external?.base : undefined,
+                migrate,
+              );
+            },
+            // As long as the migrations it may wait for: an enable running them holds this lock.
+            { maxWait: timeoutSetting('ZVELTIO_MIGRATION_LOCK_WAIT', '10min') },
+          );
+        } catch (err) {
+          // The lock (its wait, its holder): this extension only, the boot goes on.
+          this.lastLoadError.set(name, `not loaded: ${(err as Error).message}`);
+        }
+        // Off or purged meanwhile: nothing to load, nor to record on its row.
+        if (!wanted) continue;
       }
       if (!inRegistry.has(name)) continue;
       // Persist the per-extension outcome so a boot-time failure is visible in
