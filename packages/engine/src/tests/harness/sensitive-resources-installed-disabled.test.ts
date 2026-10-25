@@ -7,7 +7,7 @@
  * installed extension's manifest from disk and granted on what it declares — so
  * the names it asked to keep closed got `tenant_member` and `tenant_viewer`
  * access on every boot. Each extension and name below is used once: the
- * registration is per process and only grows.
+ * registration is per process and outlives these tests.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';

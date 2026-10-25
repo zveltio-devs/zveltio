@@ -22,7 +22,7 @@ import { clearExtensionBroadcasts } from './broadcast.js';
 import { auditLog } from '../audit.js';
 import { serviceRegistry } from '../service-registry.js';
 import { queryAlterRegistry } from '../data/index.js';
-import { entityAccessRegistry } from '../tenancy/index.js';
+import { entityAccessRegistry, forgetSensitiveResources } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
 import { unregisterExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
 import { readFileSync } from 'node:fs';
@@ -253,6 +253,8 @@ export async function syncWithRegistry(
       .select(['tenant_id', 'is_enabled', 'version', 'installed_version', 'installed_sha256'])
       .where('name', '=', name)
       .execute();
+    // No row: purged (here or elsewhere), its data went with it. A soft uninstall keeps one.
+    if (rows.length === 0) forgetSensitiveResources(name);
     const wanted = rows.some((r) => r.is_enabled);
     // God's row holds the version and digest on record, whoever turned it on.
     const row = rows.find((r) => r.tenant_id === null);

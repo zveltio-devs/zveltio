@@ -882,8 +882,8 @@ export async function finalizeExtensionLoad(
   // `materializeDefaultGrants` skips what `isSensitiveResource` withholds, and
   // doing it the other way round would hand out read access to exactly the data
   // the extension asked to keep closed.
-  const sensitive = manifest?.sensitiveResources ?? [];
-  if (sensitive.length > 0) registerSensitiveResources(sensitive);
+  // Replaced, empty or not: the version loading now decides, one that drops a name drops it.
+  registerSensitiveResources(extName, manifest?.sensitiveResources ?? []);
   // And the collections its actions are gated on (extension model v3), once they exist:
   // one created later gets `execute` from `DDLManager.createCollection`.
   const gatedCollections = manifest ? actionCollections(manifest) : [];

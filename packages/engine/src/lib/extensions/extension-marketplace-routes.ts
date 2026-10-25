@@ -15,6 +15,7 @@ import type { Database } from '../../db/index.js';
 import { auth } from '../auth.js';
 import {
   checkPermission,
+  forgetSensitiveResources,
   isGodUser,
   isTenantAdmin,
   requireInstanceAdmin,
@@ -1257,6 +1258,8 @@ export function registerMarketplaceRoutes(
       }
 
       await db.deleteFrom('zv_extension_registry').where('name', '=', name).execute();
+      // Its data is gone: its names are ordinary again (other replicas: syncWithRegistry).
+      forgetSensitiveResources(name);
       await recordForwardApproval(db, name, null);
 
       if (wasActive) {
