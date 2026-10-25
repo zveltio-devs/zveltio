@@ -135,6 +135,7 @@ d('a worker event listener answers checkPermission as the emitting request', () 
   let godId = '';
   let memberId = '';
   let keyId = '';
+  let godLinkAdded = false;
   const asMember: Record<string, string> = {};
   const asKey: Record<string, string> = {};
   const saved = { transport: process.env.ZVELTIO_EXT_TRANSPORT, ctx: extensionLoader.ctx };
@@ -152,7 +153,12 @@ d('a worker event listener answers checkPermission as the emitting request', () 
       grants: [{ collection: RES, actions: ['read'] }],
     });
     memberId = member.userId;
-    await (await getEnforcer()).addRoleForUser(godId, 'tenant_admin', DEFAULT_TENANT_ID);
+    // Taken back in afterAll only if this file is what granted it.
+    godLinkAdded = await (await getEnforcer()).addRoleForUser(
+      godId,
+      'tenant_admin',
+      DEFAULT_TENANT_ID,
+    );
     asMember.cookie = member.cookie;
     // The listener's check answers a key by its own scope, as inline: `$ext:<worker>`.
     const keyRes = await engine.request('/api/admin/api-keys', {
@@ -231,6 +237,8 @@ d('a worker event listener answers checkPermission as the emitting request', () 
       await revokeExtensionDbRoles(db, name, true).catch(() => undefined);
     }
     if (keyId) await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}`.execute(db);
+    if (godLinkAdded)
+      await (await getEnforcer()).deleteRoleForUser(godId, 'tenant_admin', DEFAULT_TENANT_ID);
     if (base) rmSync(base, { recursive: true, force: true });
   });
 
