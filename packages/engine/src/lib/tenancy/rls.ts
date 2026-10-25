@@ -20,6 +20,7 @@ import {
   checkPermission,
   getUserRoles,
   keyIssuerAllows,
+  LOCAL_PERM_MAX,
   principalRole,
   revalidateSocketsEverywhere,
 } from './permissions.js';
@@ -112,7 +113,7 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
     WHERE is_enabled = TRUE
       AND (collection = ${collection} OR collection = '*')
     ORDER BY collection DESC, role
-  `.execute(_db);
+  `.execute(rlsDb()); // the request's own transaction when it holds one — see `rlsDb`
 
   const policies = rows.rows;
 
@@ -353,11 +354,37 @@ export async function keyIssuerRowActor(key: {
   const [role, roles, email] = await Promise.all([
     principalRole(issuer),
     getUserRoles(issuer),
-    sql<{ email: string | null }>`SELECT email FROM "user" WHERE id = ${issuer}`
-      .execute(_db)
-      .then((r) => r.rows[0]?.email ?? ''),
+    issuerEmail(issuer),
   ]);
   return { id: issuer, email, role, roles };
+}
+
+/**
+ * An issuer's email, memoized for five seconds like their god flag.
+ *
+ * Asked inside the request transaction on every key request, it read the pool:
+ * a second connection while one is held. `sessionPrefetch` asks
+ * `keyIssuerRowActor` before the transaction opens, so the request finds it
+ * here. Not read on the transaction: a worker's (`zveltio_worker`) may not read
+ * `"user"`, and the refusal would abort it. Five seconds bounds how long a
+ * changed email resolves as the old one in this replica's key rules.
+ */
+const _issuerEmail = new Map<string, { email: string; at: number }>();
+const ISSUER_EMAIL_TTL_MS = 5_000;
+
+async function issuerEmail(issuer: string): Promise<string> {
+  const hit = _issuerEmail.get(issuer);
+  if (hit && Date.now() - hit.at < ISSUER_EMAIL_TTL_MS) return hit.email;
+  const r = await sql<{ email: string | null }>`
+    SELECT email FROM "user" WHERE id = ${issuer}`.execute(_db);
+  const email = r.rows[0]?.email ?? '';
+  _issuerEmail.delete(issuer);
+  if (_issuerEmail.size >= LOCAL_PERM_MAX) {
+    const oldest = _issuerEmail.keys().next().value;
+    if (oldest !== undefined) _issuerEmail.delete(oldest);
+  }
+  _issuerEmail.set(issuer, { email, at: Date.now() });
+  return email;
 }
 
 /** The filters `policies` impose on `actor`: every rule whose role it holds. */

@@ -17,6 +17,7 @@ import {
   runWithoutTenantTrx,
 } from './tenant-context.js';
 import { DEFAULT_TENANT_ID } from './tenant-manager.js';
+import { withSavepoint } from '../savepoint.js';
 
 // Cache TTLs
 const PERMISSION_CACHE_TTL = 60; // seconds
@@ -1033,8 +1034,15 @@ export function isMemberBaseline(rule: string[]): boolean {
 /**
  * The roles `userId` holds in `domain` per `zvd_permissions`, when the live
  * model does not hold their `member` row (see `_unloaded`); `[]` otherwise —
- * the model answers then. Gods hold none, so theirs is read too, memoized. Throws when the table cannot be read. Not savepoint-guarded:
- * `_db` is the pool, see `lookupGod`.
+ * the model answers then. Gods hold none, so theirs is read too, memoized.
+ * Throws when the table cannot be read.
+ *
+ * Inside a request transaction the miss is read ON it: a pool read there was a
+ * second connection, and the target of an admin or identity call is nobody the
+ * prefetch could warm. Under a savepoint, so a failed read throws without
+ * aborting the caller's transaction; and not memoized, since it can see that
+ * transaction's uncommitted rows. `zvd_permissions` has no RLS and the request,
+ * worker and flow roles all read it, so the answer is the pool's.
  */
 async function unloadedRoles(e: Enforcer, userId: string, domain: string): Promise<string[]> {
   if (userId === 'public' || userId.startsWith('apikey:')) return [];
@@ -1042,15 +1050,27 @@ async function unloadedRoles(e: Enforcer, userId: string, domain: string): Promi
   let hit = _unloaded.get(userId);
   if (!hit || Date.now() - hit.at >= LOCAL_GOD_TTL_MS) {
     const gen = _policyGen;
-    const r = await sql<{ ptype: string; v0: string; v1: string; v2: string | null }>`
-      SELECT ptype, v0, v1, v2 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${userId}
-    `.execute(_db);
+    const trx = getCurrentTenantTrx();
+    const read = (db: Database) =>
+      sql<{ ptype: string; v0: string; v1: string; v2: string | null }>`
+        SELECT ptype, v0, v1, v2 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${userId}
+      `.execute(db);
+    const r = trx
+      ? await withSavepoint(
+          trx,
+          'zv_unloaded_roles',
+          () => read(trx),
+          (err) => {
+            throw err;
+          },
+        )
+      : await read(_db);
     // Re-checked here so a stub answering every `zvd_permissions` read with the
     // whole table cannot hand a user everyone's roles.
     const own = r.rows.filter((row) => row.ptype === 'g' && row.v0 === userId);
     hit = { rows: own.map((row) => [row.v1, row.v2]), at: Date.now() };
     // Not filed across a clear: the clear may be the write this read missed.
-    if (gen === _policyGen) {
+    if (!trx && gen === _policyGen) {
       if (_unloaded.size >= LOCAL_PERM_MAX) {
         const oldest = _unloaded.keys().next().value;
         if (oldest !== undefined) _unloaded.delete(oldest);
@@ -1084,6 +1104,9 @@ export async function isGodUser(userId: string): Promise<boolean> {
 
 /** `isGodUser` without the fallback: a failed database read throws. */
 async function lookupGod(userId: string): Promise<boolean> {
+  // A key is no row in "user" and never god. Asked anyway (god-audit asks it of
+  // every request's principal), it read the pool inside the transaction.
+  if (isApiKeySubject(userId)) return false;
   // Checked before the remote cache: the point is to touch neither the pool nor
   // the network while a request holds its tenant transaction.
   const local = _localGod.get(userId);
