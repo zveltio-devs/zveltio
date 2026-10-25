@@ -196,6 +196,26 @@ async function writeDefaultGrants(
   return written;
 }
 
+/**
+ * Register the `sensitiveResources` of every extension the registry still has a
+ * row for, read from disk: installed, or soft uninstalled — whose tables, data
+ * and files stay, so what it asked to keep closed stays closed. `declaredBy`
+ * reads only installed ones, and a restart forgets everything else. Only a
+ * purge, which deletes the row with the data, takes them away
+ * (`forgetSensitiveResources`).
+ */
+export async function registerRegisteredSensitiveResources(
+  db: Database,
+  extensionsBase: string,
+): Promise<void> {
+  const { rows } = await sql<{ name: string }>`
+    SELECT DISTINCT name FROM zv_extension_registry`.execute(db);
+  await declaredBy(
+    extensionsBase,
+    rows.map((r) => r.name),
+  );
+}
+
 /** Names of the extensions the registry marks installed, in any tenant. */
 async function installedExtensions(db: Database): Promise<string[]> {
   const rows = await sql<{ name: string }>`
@@ -288,7 +308,8 @@ async function declaredBy(
         const names = manifest.sensitiveResources.filter(
           (r): r is string => typeof r === 'string' && r !== '',
         );
-        registerSensitiveResources(names);
+        // Merged: this read may race a load of another version, which decides.
+        registerSensitiveResources(name, names, { merge: true });
         sensitive.push(...names);
       }
       const declared = Array.isArray(manifest.resources)
@@ -433,14 +454,16 @@ export async function listDeclaredResources(
  * extension resources apart: only the second get `execute`, which extension
  * actions ask for. Resolves how many rows it wrote.
  *
- * The manifests are read before anything is granted: that read registers every
- * installed extension's `sensitiveResources` (see `declaredBy`), and a
- * collection one of them names must not get its defaults in the first pass.
+ * The manifests are read before anything is granted: that read registers the
+ * `sensitiveResources` of every extension with a registry row, soft uninstalled
+ * ones included (`registerRegisteredSensitiveResources`), and a collection one
+ * of them names must not get its defaults in the first pass.
  */
 export async function reconcileDefaultGrants(
   db: Database,
   extensionsBase: string,
 ): Promise<number> {
+  await registerRegisteredSensitiveResources(db, extensionsBase);
   const declared = await listDeclaredResources(db, extensionsBase);
   return (
     (await materializeDefaultGrants(db, await listKnownResources(db))) +

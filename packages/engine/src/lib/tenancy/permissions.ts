@@ -602,7 +602,7 @@ async function deleteRecordingRevokes(conditions: RawBuilder<unknown>[]): Promis
   const defaults = [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].flatMap(
     ({ role, actions }) => actions.map((action) => sql`(${role}, ${action})`),
   );
-  const sensitive = [...SENSITIVE_RESOURCES];
+  const sensitive = listSensitiveResources();
   const { rows } = await sql<{ n: number }>`
     WITH gone AS (
       DELETE FROM zvd_permissions WHERE ${sql.join(conditions, sql` AND `)}
@@ -785,22 +785,50 @@ const SENSITIVE_RESOURCES = new Set<string>([
   'invoices',
 ]);
 
-/** Extensions may add their own; see `registerSensitiveResources`. */
-export function registerSensitiveResources(resources: readonly string[]): void {
+/**
+ * Each extension's `manifest.sensitiveResources`, by extension. They follow its
+ * data: registered for every extension with a registry row, installed or soft
+ * uninstalled (its tables stay), and forgotten when the row goes with a purge
+ * (`forgetSensitiveResources`).
+ */
+const EXTENSION_SENSITIVE = new Map<string, ReadonlySet<string>>();
+
+/**
+ * `extension`'s sensitive resources. Replaces what it registered before, so a
+ * version that drops a name drops it — for the loaded version, under its lock.
+ * `merge` only adds: for a read of its manifest that may race a load of another
+ * version, which must never take a name away.
+ */
+export function registerSensitiveResources(
+  extension: string,
+  resources: readonly string[],
+  opts: { merge?: boolean } = {},
+): void {
+  const names = new Set(opts.merge ? EXTENSION_SENSITIVE.get(extension) : []);
   for (const r of resources) {
     const name = r.trim();
-    if (name) SENSITIVE_RESOURCES.add(name);
+    if (name) names.add(name);
   }
+  EXTENSION_SENSITIVE.set(extension, names);
+}
+
+/** `extension` and its data are gone (purged): its names are ordinary again, unless another declares them. */
+export function forgetSensitiveResources(extension: string): void {
+  EXTENSION_SENSITIVE.delete(extension);
 }
 
 /** Test seam + introspection for the settings UI. */
 export function listSensitiveResources(): string[] {
-  return [...SENSITIVE_RESOURCES].sort();
+  const all = new Set(SENSITIVE_RESOURCES);
+  for (const names of EXTENSION_SENSITIVE.values()) for (const n of names) all.add(n);
+  return [...all].sort();
 }
 
 /** Whether a resource is withheld from default grants. */
 export function isSensitiveResource(name: string): boolean {
-  return SENSITIVE_RESOURCES.has(name);
+  if (SENSITIVE_RESOURCES.has(name)) return true;
+  for (const names of EXTENSION_SENSITIVE.values()) if (names.has(name)) return true;
+  return false;
 }
 
 /**

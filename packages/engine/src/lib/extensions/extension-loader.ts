@@ -47,6 +47,7 @@ import { REGISTRY_URL, downloadExtension, sweepUpdateLeftovers } from './extensi
 import { registerMarketplaceRoutes } from './extension-marketplace-routes.js';
 import { DEFAULT_QUOTAS, QuotaExceededError, DownMissingError } from './extension-errors.js';
 import { purgeExtensionData } from './migration-runner.js';
+import { registerRegisteredSensitiveResources } from '../tenancy/index.js';
 import type { ManifestMeta } from './manifest-schema.js';
 import type { ServiceDeps } from '../service-registry.js';
 import { isSupportedLocaleName, loadExtensionMessages } from './manifest-schema.js';
@@ -368,6 +369,11 @@ export class ExtensionLoader {
 
     const extBase = resolveExtensionsBase();
     await sweepUpdateLeftovers(ctx.db, extBase);
+    // Before any load grants defaults on its resources: a name another extension
+    // with a registry row (disabled, soft uninstalled) keeps closed stays closed.
+    await registerRegisteredSensitiveResources(ctx.db, extBase).catch((err: Error) => {
+      console.warn('[extensions] sensitive resources not read before load:', err.message);
+    });
     await ensureExtensionCoreDeps(extBase).catch((err: Error) => {
       console.warn('[extensions] Core dep install failed (non-fatal):', err.message);
     });

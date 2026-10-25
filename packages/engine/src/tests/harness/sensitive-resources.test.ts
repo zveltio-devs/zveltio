@@ -196,7 +196,7 @@ d('sensitive resources', () => {
     // Padded the way a hand-written manifest gets padded: the name is trimmed
     // before it is withheld, or the withholding matches nothing and the grant
     // below goes out to every member.
-    registerSensitiveResources([' medical_records ', '  ']);
+    registerSensitiveResources('sensitive-resources-test', [' medical_records ', '  ']);
     expect(listSensitiveResources()).toContain('medical_records');
     expect(listSensitiveResources()).not.toContain('');
 
