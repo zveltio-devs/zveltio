@@ -292,9 +292,12 @@ d('advisory locks on the pool', () => {
           });
           return waiting;
         };
-        // The wait is short tries, so the server setting cancels none of it: with a
-        // bound of its own or without, it waits the 600 ms out and takes the lock.
-        expect(await wait()).toBe('got');
+        // Without a bound of its own the server setting cancels the wait, as it
+        // cancelled the blocking lock call: same message, same SQLSTATE…
+        const err = await wait();
+        expect(String(err)).toContain('statement timeout');
+        expect((err as { errno?: string }).errno).toBe('57014');
+        // …with one, it waits the 600 ms out and takes the lock.
         expect(await wait({ maxWait: '5s' })).toBe('got');
       } finally {
         await strict.destroy();

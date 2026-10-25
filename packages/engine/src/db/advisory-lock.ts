@@ -76,9 +76,10 @@ export class AdvisoryLockTimeout extends Error {
  * Waits for the lock, then runs `fn` while holding it.
  *
  * `maxWait` (e.g. "10min") bounds the wait on the engine's terms, ending it as
- * `AdvisoryLockTimeout`; without it the wait lasts until the lock is free. A
- * server or role `statement_timeout` set for queries does not decide it: the
- * wait is short tries, not one long statement.
+ * `AdvisoryLockTimeout`, so a server or role `statement_timeout` an operator set
+ * for queries no longer decides how long a replica waits for a migration.
+ * Without it the session's `statement_timeout` / `lock_timeout` bound the wait,
+ * ending it with their SQLSTATE, as they did a blocking lock call.
  */
 export async function withAdvisoryLock<T>(
   db: Database,
@@ -172,16 +173,57 @@ function keySql(key: AdvisoryKey): RawBuilder<unknown> {
 
 const POLL_MS = 100;
 
-/** A `maxWait` in milliseconds: digits and `ms`, `s` or `min` — bare digits are ms, as in Postgres. */
+const UNIT_MS: Record<string, number> = {
+  ms: 1,
+  s: 1000,
+  min: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+};
+
+/** An interval in milliseconds, as Postgres prints a timeout: digits and a unit, bare digits ms. */
 function intervalMs(interval: string): number {
-  const m = /^(\d+)(ms|s|min)?$/.exec(interval);
+  const m = /^(\d+)(ms|s|min|h|d)?$/.exec(interval);
   if (!m) throw new Error(`maxWait "${interval}" is not an interval like "250ms", "5s" or "2min"`);
-  return Number(m[1]) * ({ ms: 1, s: 1000, min: 60_000 } as Record<string, number>)[m[2] ?? 'ms']!;
+  return Number(m[1]) * UNIT_MS[m[2] ?? 'ms']!;
+}
+
+/** The error Postgres raised when the blocking lock call ran out of one of its timeouts. */
+function cancelled(sqlstate: '57014' | '55P03', message: string): Error {
+  return Object.assign(new Error(message), { errno: sqlstate, code: sqlstate });
+}
+
+/**
+ * Without `maxWait`, the bound the session put on a blocking lock call: its
+ * `statement_timeout` (57014) or `lock_timeout` (55P03), whichever is shorter;
+ * 0 is none. A wait that is a run of short tries escapes both otherwise, and a
+ * stuck holder then hangs every request behind it.
+ */
+async function sessionBound(on: Database): Promise<{ at: number; err: () => Error }> {
+  const { rows } = await sql<{ st: string; lt: string }>`
+    SELECT current_setting('statement_timeout') AS st, current_setting('lock_timeout') AS lt
+  `.execute(on);
+  const st = intervalMs(rows[0]?.st ?? '0');
+  const lt = intervalMs(rows[0]?.lt ?? '0');
+  const now = Date.now();
+  if (st > 0 && (lt === 0 || st <= lt)) {
+    return {
+      at: now + st,
+      err: () => cancelled('57014', 'canceling statement due to statement timeout'),
+    };
+  }
+  if (lt > 0) {
+    return {
+      at: now + lt,
+      err: () => cancelled('55P03', 'canceling statement due to lock timeout'),
+    };
+  }
+  return { at: Infinity, err: () => new Error('unreachable') };
 }
 
 /**
  * Takes the lock `tryLock` asks for on `on`, trying again until `maxWait`
- * (without one, until it is free).
+ * (without one, until the session's own timeouts — `sessionBound`).
  *
  * Tries, never a blocking `pg_advisory_lock`: a blocked statement keeps its
  * snapshot for the whole wait, and the holder's `CREATE INDEX CONCURRENTLY`
@@ -196,13 +238,16 @@ async function waitFor(
   key: AdvisoryKey,
   maxWait?: string,
 ): Promise<void> {
-  const deadline = maxWait === undefined ? Infinity : Date.now() + intervalMs(maxWait);
+  const bound =
+    maxWait === undefined
+      ? await sessionBound(on)
+      : { at: Date.now() + intervalMs(maxWait), err: () => new AdvisoryLockTimeout(key, maxWait) };
   for (;;) {
     const { rows } = await sql<{ ok: boolean }>`SELECT ${tryLock} AS ok`.execute(on);
     if (rows[0] === undefined)
       throw new Error(`advisory lock ${String(key)}: the try returned no row`);
     if (rows[0].ok) return;
-    if (Date.now() >= deadline) throw new AdvisoryLockTimeout(key, maxWait!);
+    if (Date.now() >= bound.at) throw bound.err();
     await Bun.sleep(POLL_MS);
   }
 }
