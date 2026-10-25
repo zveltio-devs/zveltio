@@ -475,6 +475,9 @@ export async function dropTestCollection(db: Database, name: string): Promise<vo
   // Its grants too (the boot reconcile writes defaults): left behind, a rerun's
   // create of the same name is refused for adopting them (A13).
   await sql`DELETE FROM zvd_permissions WHERE ptype = 'p' AND v2 = ${bare}`.execute(db);
+  // And the default grants revoked on it: removing its rules through the
+  // enforcer records each default as revoked, and those rows outlive the name.
+  await sql`DELETE FROM zv_default_grant_revocations WHERE resource = ${bare}`.execute(db);
 }
 
 /**
