@@ -287,6 +287,7 @@ const SECTIONS: Section[] = [
       `${E}db/pool-autosize.ts`,
       `${E}db/connection-trace.ts`,
       `${E}db/advisory-lock.ts`,
+      `${E}db/trx-sequencer.ts`,
       `${E}db/auto-migrate.ts`,
       `${E}db/installed-schema.ts`,
       `${E}db/postgres-version.ts`,
