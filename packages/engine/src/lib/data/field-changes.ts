@@ -18,6 +18,7 @@ import {
 import { DDLManager, fieldRuleTables, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
+import { applyColumnGuard } from './column-guard.js';
 import { dropMaskView, sealColumns } from './sealed-columns.js';
 import { fieldTypeRegistry, renderSqlDefault } from './field-type-registry.js';
 
@@ -262,6 +263,10 @@ export async function alterField(
     // ── Persist metadata ──────────────────────────────────────────
     const updatedFields = fields.map((f) => (f.name === fieldName ? updatedFieldShape : f));
     await DDLManager.updateCollectionMetadata(trx, name, { fields: updatedFields as never });
+    // The write guard names columns too (L37 layer 1). Rebuilt here, not after
+    // the COMMIT: in between, the column was written under its new name past a
+    // guard that named the old one.
+    if (newName && newName !== fieldName) await applyColumnGuard(trx, name);
   });
 
   if (newName && newName !== fieldName) await DDLManager.forgetFieldRules(name);

@@ -345,14 +345,17 @@ export class GhostDDL {
         captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `.execute(db);
-    // Every tenant's rows land here with no RLS, and default privileges (001)
-    // hand `zveltio_rls` DML on it at CREATE. Only the owner needs it: the
-    // trigger below writes as owner, and the engine replays it as owner.
+    // Every tenant's rows land here and in the ghost with no RLS, and default
+    // privileges (001) hand `zveltio_rls` DML on both at CREATE: the ghost
+    // served every tenant's rows, password hashes included, to the request role
+    // for as long as the copy ran. Only the owner needs them: the trigger below
+    // writes as owner, the engine copies and replays as owner, and the swap
+    // gives the ghost the original's grants (`carriedOverDdl`).
     const grants = await sql<{ ddl: string }>`
       SELECT format('REVOKE ALL ON %s FROM %s', c.oid::regclass,
                CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END) AS ddl
         FROM pg_class c, aclexplode(c.relacl) a
-       WHERE c.oid IN (to_regclass(quote_ident(${changelog})),
+       WHERE c.oid IN (to_regclass(quote_ident(${ghost})), to_regclass(quote_ident(${changelog})),
                        pg_get_serial_sequence(quote_ident(${changelog}), 'id')::regclass)
          AND a.grantee <> c.relowner
        GROUP BY c.oid, a.grantee
