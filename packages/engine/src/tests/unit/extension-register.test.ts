@@ -158,6 +158,7 @@ describe('finalizeExtensionLoad', () => {
     // extension's routes unmounted entirely.
     const stopMock = mock(async () => {});
     const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      isRunning: () => false,
       start: startMock,
       stop: stopMock,
     } as never);
@@ -268,6 +269,7 @@ describe('reRegisterExtension — worker isolation across a hot-reload', () => {
     // — when no worker runs; a running one is kept (next test).
     const calls: string[] = [];
     const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      isRunning: () => false,
       remount: () => false,
       start: mock(async () => {
         calls.push('start');
@@ -309,6 +311,7 @@ describe('reRegisterExtension — worker isolation across a hot-reload', () => {
     // the app that serves: a restart there spawned each worker twice.
     const calls: string[] = [];
     const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      isRunning: () => false,
       remount: (name: string) => calls.push(`remount ${name}`) > 0,
       start: mock(async () => calls.push('start')),
       stop: mock(async () => calls.push('stop')),
@@ -333,6 +336,7 @@ describe('reRegisterExtension — worker isolation across a hot-reload', () => {
   it('registers inline when the extension was never worker-isolated', async () => {
     const calls: string[] = [];
     const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+      isRunning: () => false,
       start: mock(async () => calls.push('start')),
       stop: mock(async () => calls.push('stop')),
     } as never);

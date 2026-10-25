@@ -473,22 +473,29 @@ export class WorkerExtensionHost {
     return [...this.workers.keys()];
   }
 
-  /** The running worker's manifest `forwardCredentials`; undefined when none runs here. */
-  declaredForwardCredentials(extName: string): Record<string, string[]> | undefined {
-    const managed = this.workers.get(extName);
-    return managed ? (managed.source?.declaredForwardCredentials ?? {}) : undefined;
-  }
-
   /** Per extension: the restart in progress, so two changes do not interleave stop and start. */
   private forwardRestarts = new Map<string, Promise<void>>();
 
   /**
-   * Hand the running worker `forward` from now on. When that differs from what
-   * it was handed, the worker is restarted, not patched: a withdrawal must also
-   * drop whatever the worker kept of the credentials it already received.
+   * Hand the running worker what `resolve` makes of its manifest's
+   * `forwardCredentials` from now on. When that differs from what it was
+   * handed, the worker is restarted, not patched: a withdrawal must also drop
+   * whatever the worker kept of the credentials it already received.
+   *
+   * `resolve` reads the approval inside this extension's queue, so the change
+   * asked for last reads last and lands last. Read before queueing, an older
+   * read that came back late was applied after a withdrawal.
    */
-  setForwardCredentials(extName: string, forward: Record<string, readonly string[]>) {
+  setForwardCredentials(
+    extName: string,
+    resolve: (declared: Record<string, string[]>) => Promise<Record<string, readonly string[]>>,
+  ) {
     const run = async () => {
+      if (!this.workers.has(extName)) return;
+      const forward = await resolve(
+        this.workers.get(extName)?.source?.declaredForwardCredentials ?? {},
+      );
+      // After the read: a crash respawn may have swapped it, a stop removed it.
       const managed = this.workers.get(extName);
       if (!managed) return;
       const source = managed.source ?? {};
@@ -506,6 +513,10 @@ export class WorkerExtensionHost {
         throw err;
       }
     };
+    return this.enqueueForward(extName, run);
+  }
+
+  private enqueueForward(extName: string, run: () => Promise<void>): Promise<void> {
     const next = (this.forwardRestarts.get(extName) ?? Promise.resolve()).then(run, run);
     this.forwardRestarts.set(extName, next);
     return next;
@@ -655,7 +666,10 @@ export class WorkerExtensionHost {
     const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
     this.respawnBackoff.set(managed.name, backoff);
     console.warn(`🔄 Respawning worker "${managed.name}" in ${backoff}ms — reason: ${reason}`);
-    setTimeout(async () => {
+    // In the forward queue: a respawn already replacing the worker with the old
+    // source would otherwise reject a forward change's replace and keep its map.
+    setTimeout(() => this.enqueueForward(managed.name, respawn), backoff);
+    const respawn = async () => {
       if (managed.stopped) return;
       if (this.workers.get(managed.name) !== managed) return;
       try {
@@ -668,7 +682,7 @@ export class WorkerExtensionHost {
         // Schedule another attempt with further backoff
         this.scheduleRespawn(managed, `respawn-failed: ${(err as Error).message}`);
       }
-    }, backoff);
+    };
   }
 
   /** End a worker that is to be replaced: in the map, answering nothing, until it is. */

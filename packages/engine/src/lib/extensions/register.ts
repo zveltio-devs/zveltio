@@ -73,6 +73,7 @@ import { buildExtensionConfig } from './config.js';
 import {
   readApprovedForward,
   readGranted,
+  refreshForwardApproval,
   resolveCapabilities,
   resolveForwarded,
 } from './consent.js';
@@ -723,21 +724,29 @@ async function registerExtensionRoutes(
           `(POST /api/marketplace/${extName}/approve-forward-credentials).`,
       );
     }
-    await host.start(
-      extName,
-      isolation.extDir,
-      isolation.entry,
-      isolation.dependencies,
-      serviceDeps,
-      // The worker's ctx members the host answers, from this same inline context.
-      {
-        config: restrictedCtx.config,
-        checkPermission: restrictedCtx.checkPermission,
-        auth: restrictedCtx.auth,
-        forwardCredentials,
-        declaredForwardCredentials: isolation.forwardCredentials ?? {},
-      },
-    );
+    try {
+      await host.start(
+        extName,
+        isolation.extDir,
+        isolation.entry,
+        isolation.dependencies,
+        serviceDeps,
+        // The worker's ctx members the host answers, from this same inline context.
+        {
+          config: restrictedCtx.config,
+          checkPermission: restrictedCtx.checkPermission,
+          auth: restrictedCtx.auth,
+          forwardCredentials,
+          declaredForwardCredentials: isolation.forwardCredentials ?? {},
+        },
+      );
+    } finally {
+      // A change made while the worker spawned found none running and was
+      // skipped: read again now that one runs, in its queue, so a withdrawal
+      // wins. Also when `start` threw after registering it (a hot load onto an
+      // app whose matcher is built keeps the worker and defers the routes).
+      if (host.isRunning(extName)) await refreshForwardApproval(db, [extName]);
+    }
   } else if (mountStrategy === 'subapp') {
     const subApp = new Hono();
     subApp.onError(problemOnError);

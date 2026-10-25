@@ -10,6 +10,8 @@
 //     again; one that asks for less keeps its approval;
 //   - an approval or its withdrawal restarts the running worker at once, here
 //     and, through the realtime bus, on every other replica (no reload by hand);
+//   - a withdrawal wins over a worker (re)starting with the approval it read
+//     just before, and over an older refresh whose read came back late;
 //   - an extension the registry has no row for (ZVELTIO_EXTENSIONS,
 //     ZVELTIO_EXTENSIONS_PATH) can be approved too (migration 071).
 //
@@ -23,6 +25,7 @@ import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getAuth } from '../../lib/auth.js';
+import { refreshForwardApproval } from '../../lib/extensions/consent.js';
 import { _resetCatalogForTests } from '../../lib/extensions/extension-catalog.js';
 import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
@@ -290,23 +293,95 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     expect(generation()).toBe(before + 1);
   });
 
+  const fromReplica = () =>
+    dispatchToWs({
+      originId: `${ORIGIN_ID}-other`,
+      event: EXTENSION_FORWARD_CHANGED_EVENT,
+      collection: NAME,
+      timestamp: new Date().toISOString(),
+    });
+  const setApproval = (map: Record<string, string[]>) =>
+    sql`INSERT INTO zv_extension_forward_approvals (name, approved)
+        VALUES (${NAME}, ${JSON.stringify(map)}::jsonb)
+        ON CONFLICT (name) DO UPDATE SET approved = EXCLUDED.approved`.execute(db);
+
   it("another replica's change arrives over the realtime bus and applies at once", async () => {
-    const fromReplica = () =>
-      dispatchToWs({
-        originId: `${ORIGIN_ID}-other`,
-        event: EXTENSION_FORWARD_CHANGED_EVENT,
-        collection: NAME,
-        timestamp: new Date().toISOString(),
-      });
     // The other replica wrote the row; only its message reaches this one.
-    await sql`INSERT INTO zv_extension_forward_approvals (name, approved)
-              VALUES (${NAME}, ${JSON.stringify({ '/fwd': ['authorization'] })}::jsonb)
-              ON CONFLICT (name) DO UPDATE SET approved = EXCLUDED.approved`.execute(db);
+    await setApproval({ '/fwd': ['authorization'] });
     expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
     await fromReplica();
     expect(await seen('/fwd')).toEqual({ status: 200, body: AUTH_ONLY });
     await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${NAME}`.execute(db);
     await fromReplica();
+    expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
+  });
+
+  it('a withdrawal landing while the worker (re)starts still wins', async () => {
+    await setApproval({ '/fwd': ['authorization'] });
+    await reload();
+    expect(await seen('/fwd')).toEqual({ status: 200, body: AUTH_ONLY });
+    // The reload read the approval; before its worker is registered, the
+    // approval is withdrawn on another replica and its message arrives here.
+    const host = getWorkerHost(app);
+    const start = host.start.bind(host);
+    let applied: Promise<unknown> = Promise.resolve();
+    host.start = async (...args: Parameters<typeof host.start>) => {
+      host.start = start;
+      await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${NAME}`.execute(db);
+      applied = fromReplica() ?? Promise.resolve();
+      await Bun.sleep(50);
+      return start(...args);
+    };
+    try {
+      await reload();
+    } finally {
+      host.start = start;
+    }
+    await applied;
+    expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
+  });
+
+  it('two approval changes apply in the order their reads were made', async () => {
+    await setApproval({ '/fwd': ['authorization'] });
+    await fromReplica();
+    expect(await seen('/fwd')).toEqual({ status: 200, body: AUTH_ONLY });
+    // A refresh that read the approval, then is slow to hear back, and the
+    // withdrawal's refresh after it: the older read must not land last.
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const slowDb = new Proxy(db, {
+      get(target, prop, recv) {
+        if (prop !== 'selectFrom') return Reflect.get(target, prop, recv);
+        return (...a: unknown[]) => {
+          const q = (target.selectFrom as (...x: unknown[]) => unknown)(...a) as {
+            select: (c: string) => { where: (...w: unknown[]) => { executeTakeFirst(): unknown } };
+          };
+          return {
+            select: (c: string) => ({
+              where: (...w: unknown[]) => ({
+                async executeTakeFirst() {
+                  const row = await q
+                    .select(c)
+                    .where(...w)
+                    .executeTakeFirst();
+                  await gate;
+                  return row;
+                },
+              }),
+            }),
+          };
+        };
+      },
+    }) as Database;
+    const older = refreshForwardApproval(slowDb, [NAME]);
+    await Bun.sleep(50);
+    await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${NAME}`.execute(db);
+    const newer = refreshForwardApproval(db, [NAME]);
+    await Bun.sleep(50);
+    release();
+    await Promise.all([older, newer]);
     expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
   });
 
