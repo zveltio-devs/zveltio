@@ -1885,6 +1885,11 @@ export class DDLManager {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       .where('name' as any, '=', collectionName)
       .execute();
+    // As in `updateCollection`: the fields just recorded decide what is sealed
+    // and what the masking view carries, which until now waited for the next boot.
+    await this.refreshSearchTrigger(db, collectionName, fields);
+    const { sealColumns } = await import('./sealed-columns.js');
+    await sealColumns(db, collectionName, fields);
     this.invalidateCache(collectionName);
     return fields.length;
   }
