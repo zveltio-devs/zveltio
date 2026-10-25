@@ -8,6 +8,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { purgeExtensionData } from '../../lib/extensions/migration-runner.js';
+import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../../lib/runtime/index.js';
 import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -42,7 +43,21 @@ d("purge clears what the engine keeps for the extension's dropped tables", () =>
       await count(sql`SELECT count(*)::text AS n FROM zvd_permissions WHERE v2 = ${NAME}`),
     ).toBeGreaterThan(0);
 
-    await purgeExtensionData(EXT, db);
+    // Announced as every drop is: another replica keeps the definition it cached.
+    const announced: unknown[] = [];
+    const bus = realtimeBus();
+    const publish = bus.publish;
+    bus.publish = (m) => {
+      if (m.event === SCHEMA_CHANGED_EVENT) announced.push([m.collection, m.data]);
+      return publish.call(bus, m);
+    };
+    try {
+      await purgeExtensionData(EXT, db);
+      for (let i = 0; i < 50 && announced.length === 0; i++) await Bun.sleep(10);
+    } finally {
+      bus.publish = publish;
+    }
+    expect(announced).toEqual([[NAME, { action: 'drop' }]]);
 
     expect(
       await count(sql`SELECT count(*)::text AS n FROM zvd_collections WHERE name = ${NAME}`),

@@ -467,7 +467,7 @@ export async function purgeExtensionData(
     );
   }
 
-  const { DDLManager } = await import('../data/index.js');
+  const { DDLManager, announceSchemaChange } = await import('../data/index.js');
   const dropped = await db.transaction().execute(async (trx) => {
     // The UP path's lock_timeout: a DROP behind one long reader otherwise waits
     // at the head of the lock queue with the table's traffic stalled behind it.
@@ -491,6 +491,8 @@ export async function purgeExtensionData(
   for (const [name, rules] of dropped) {
     DDLManager.invalidateCache(name);
     await DDLManager.forgetDroppedCollection(name, rules);
+    // As every drop: other replicas forget the definition they cached, Studio hears it.
+    announceSchemaChange(name, 'drop');
   }
   // A DOWN reshapes what its UP did: see `runExtensionMigrations`.
   await dropStalePlans();
