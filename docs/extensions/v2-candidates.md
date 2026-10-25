@@ -95,6 +95,13 @@ exists, and the grant goes with the collection. So an extension can leave
   delete the machinery that guesses (`since`, `keepGrants`,
   `nonCollectionObjects`, `adopt_rules`).
 
+**Decided 2026-10-25.** Pre-GA there are no installs and no external
+extension authors, so this entry does not wait for a separate v2: it ships
+with the official extension migration wave, which moves every first-party
+manifest to collections and actions. Ownership then becomes a column the
+engine writes when it creates a declared collection, so nothing has to infer
+it from a manifest. Entry 4 ships with it.
+
 ## 4. An action gated on a collection the extension does not own — breaking
 
 **What happened.** Entry 3's additive rule lets an action's
