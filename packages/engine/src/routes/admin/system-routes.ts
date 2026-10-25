@@ -31,6 +31,7 @@ import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
 import { SAMPLE_RATE as REQUEST_LOG_SAMPLE_RATE } from '../../middleware/request-log.js';
 import { paging } from '../../lib/utils.js';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 
 /**
  * Admin system + monitoring routes (status, migrate, schema, onboarding,
@@ -255,6 +256,10 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       // literal and was stored as the string `{"[object Object]"}`, which the
       // auth path reads as unparseable — every patched key became deny-all.
       const { scopes, ...rest } = data;
+      // Nothing to set is the caller's mistake: an empty SET reached SQL and answered 500.
+      if (Object.keys(data).length === 0) {
+        return c.json({ error: 'No fields to update' }, 400);
+      }
       await db
         .updateTable('zv_api_keys')
         .set(scopes === undefined ? rest : { ...rest, scopes: toJsonb(scopes) })
@@ -570,6 +575,10 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       return c.json({ plan: result.rows[0] });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     } catch (err: any) {
+      // A collection or sort column that does not exist is the caller's input, not a fault.
+      const state = sqlState(err);
+      if (state === '42P01') return c.json({ error: `Unknown collection: ${collection}` }, 400);
+      if (state === '42703') return c.json({ error: `Unknown sort field: ${sort}` }, 400);
       return c.json({ error: err.message }, 500);
     }
   });
