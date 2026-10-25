@@ -674,8 +674,10 @@ async function assertEnforceable(
 async function writeRowRules<T>(
   write: (trx: Database) => Promise<{ result: T; collections: string[] }>,
 ): Promise<T> {
-  const { applyRowRulePolicies } = await import('./row-rule-policy.js');
+  const { applyRowRulePolicies, lockRowRules } = await import('./row-rule-policy.js');
   const out = await _db.transaction().execute(async (trx) => {
+    // Against a create or adoption in flight: neither would see the other.
+    await lockRowRules(trx, 'write');
     const done = await write(trx);
     await applyRowRulePolicies(trx, done.collections);
     return done;

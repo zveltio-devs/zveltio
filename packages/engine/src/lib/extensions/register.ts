@@ -35,6 +35,7 @@ import {
   actionCollections,
   existingCollections,
   applyRowRulePolicy,
+  lockRowRules,
 } from '../tenancy/index.js';
 import {
   announceSchemaChange,
@@ -1269,6 +1270,8 @@ export const announcingDDLManager: typeof DDLManager = Object.assign(
       await onEnginePool(
         (pool) =>
           pool.transaction().execute(async (trx) => {
+            // First: a rule writer listing the collections now would miss this one.
+            await lockRowRules(trx, 'shared');
             await DDLManager.registerMetadata(trx, def);
             if (await DDLManager.tableExists(trx, def.name)) {
               await isolateTable(trx, DDLManager.getTableName(def.name), def.fields);

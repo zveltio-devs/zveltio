@@ -481,6 +481,25 @@ export async function starRulesNamingColumn(
     .map((r) => String(r.id));
 }
 
+/**
+ * Serialise, in `trx`, a writer of the row rules (exclusive) against the
+ * creation or adoption of a collection (`shared`: creates do not wait on each
+ * other). The writer rebuilds the tables it can see, the create builds its
+ * table from the rules it can see; under READ COMMITTED, a writer that listed
+ * the tables before the create committed, and committed after the create read
+ * the rules, was seen by neither — a `*` rule, or one for a collection still
+ * being created, never reached the new table, whose policy is RESTRICTIVE and
+ * so restricted nothing until the next boot.
+ *
+ * The FIRST statement of either transaction, before any table lock: each side
+ * then waits here holding nothing, so no lock order can cycle through it.
+ */
+export async function lockRowRules(trx: Database, mode: 'write' | 'shared'): Promise<void> {
+  if (mode === 'write')
+    await sql`SELECT pg_advisory_xact_lock(hashtext('zveltio:row-rules'))`.execute(trx);
+  else await sql`SELECT pg_advisory_xact_lock_shared(hashtext('zveltio:row-rules'))`.execute(trx);
+}
+
 /** Policy name for a collection's row rules. One per table, replaced wholesale. */
 export const ROW_RULE_POLICY = 'zv_row_rules';
 
