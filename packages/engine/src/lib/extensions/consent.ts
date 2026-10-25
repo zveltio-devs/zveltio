@@ -209,14 +209,17 @@ export async function refreshForwardApproval(db: Database, names?: string[]): Pr
   const host = getWorkerHostIfInitialized();
   if (!host) return;
   for (const name of names ?? host.runningNames()) {
-    const declared = host.declaredForwardCredentials(name);
-    if (!declared) continue;
-    // Unreadable approval is no approval, as at start (register.ts).
-    const approved = await readApprovedForward(db, name).catch(() => null);
-    // A worker that fails to come back is down, which forwards nothing; the
-    // approval stays recorded and the next enable or boot starts it.
+    // Read in the worker's queue, not here (setForwardCredentials). Unreadable
+    // approval is no approval, as at start (register.ts). A worker that fails
+    // to come back is down, which forwards nothing; the approval stays
+    // recorded and the next enable or boot starts it.
     await host
-      .setForwardCredentials(name, resolveForwarded(declared, approved).effective)
+      .setForwardCredentials(
+        name,
+        async (declared) =>
+          resolveForwarded(declared, await readApprovedForward(db, name).catch(() => null))
+            .effective,
+      )
       .catch((err: Error) => {
         console.error(
           `[extensions] ${name}: worker restart for forward approval failed:`,
