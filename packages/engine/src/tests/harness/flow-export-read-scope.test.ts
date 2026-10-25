@@ -70,8 +70,11 @@ d('flow export_collection reads as REST serves', () => {
       [DEFAULT_TENANT, 'mine'],
       [OTHER_TENANT, 'foreign'],
     ]) {
-      await sql`INSERT INTO ${sql.table(`zvd_${COLL}`)} (tenant_id, title, pw)
-                VALUES (${tenant}::uuid, ${title}, ${`hash-of-${title}`})`.execute(db);
+      // In its own firm: a non-superuser owner is bound by FORCE RLS.
+      await asTenant(db, tenant!, (trx) =>
+        sql`INSERT INTO ${sql.table(`zvd_${COLL}`)} (tenant_id, title, pw)
+            VALUES (${tenant}::uuid, ${title}, ${`hash-of-${title}`})`.execute(trx),
+      );
     }
   });
 
