@@ -88,36 +88,39 @@ d('a pooled plan does not survive a migration', () => {
   it('survives a column appearing underneath a prepared read', async () => {
     // A parameterised read, so the driver prepares a plan whose result type is
     // the table as it stands now.
-    const probe = () => sql<{ id: number }>`SELECT * FROM ${sql.id(T)} WHERE id = ${1}`.execute(db);
+    const probe = (q: Database = db) =>
+      sql<{ id: number }>`SELECT * FROM ${sql.id(T)} WHERE id = ${1}`.execute(q);
+    // Which backends the pool serves from. Drawn concurrently, so every
+    // connection the pool holds answers at least once and is in the set.
+    const backends = async () => {
+      const pids = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          sql<{ pid: number }>`SELECT pg_backend_pid() AS pid, pg_sleep(0.05)`.execute(db),
+        ),
+      );
+      return new Set(pids.map((r) => r.rows[0]?.pid));
+    };
 
-    const before = await probe();
-    expect(before.rows.length).toBe(1);
+    expect((await probe()).rows.length).toBe(1);
+    const before = await backends();
 
     // What an extension migration does at boot.
     await sql.raw(`ALTER TABLE "${T}" ADD COLUMN b text`).execute(db);
 
-    // The hazard itself. Not asserted as "must throw": the plan lives on ONE
-    // pooled backend, and this read may land on another, in which case there is
-    // nothing stale to trip over. What must never happen is a different error.
-    let staleSeen = false;
-    try {
-      await probe();
-    } catch (err) {
-      const e = err as { errno?: string; code?: string; message?: string };
-      const cachedPlan =
-        e.errno === '0A000' || /cached plan must not change result type/i.test(e.message ?? '');
-      expect(cachedPlan).toBe(true);
-      staleSeen = true;
-    }
-
-    // The fix. After it, the same read must work whether or not the stale plan
-    // surfaced above — a fresh pool has no plan from before the ALTER.
+    // The fix. A stale plan lives on a backend, so what clears it is that no
+    // backend from before the ALTER serves again. Reading the result alone
+    // could not tell: outside a transaction the dialect retries `0A000` and
+    // falls back to an unprepared query, so the read passes after a recycle
+    // that did nothing.
     await recycleActivePool();
 
-    const after = await probe();
-    expect(after.rows.length).toBe(1);
-    expect(Object.keys(after.rows[0] as object)).toContain('b');
+    const after = await backends();
+    expect([...after].filter((pid) => before.has(pid))).toEqual([]);
 
-    console.log(`[stale-plan] stale plan surfaced before the recycle: ${staleSeen}`);
+    // And inside a transaction, where the dialect does not retry, the read
+    // sees the new column.
+    const inTxn = await db.transaction().execute((trx) => probe(trx as unknown as Database));
+    expect(inTxn.rows.length).toBe(1);
+    expect(Object.keys(inTxn.rows[0] as object)).toContain('b');
   }, 30_000);
 });
