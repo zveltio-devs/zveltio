@@ -64,19 +64,35 @@ async function createIsolatedTable(
   /** A collection's fields: its unserved columns are sealed before anything can write them. */
   fields?: ReadonlyArray<{ name: string; type: string }>,
 ): Promise<void> {
-  const { applyTenantRLS } = await import('../tenancy/index.js');
-  const { applyColumnGuard } = await import('./column-guard.js');
-  const { sealColumns } = await import('./sealed-columns.js');
   const run = async (h: Database) => {
     await sql.raw(createSql).execute(h);
-    await applyTenantRLS(h, table);
-    // Column rules can outlive a table (a same-name create after a drop, rules
-    // applied before the collection): the new table starts under them.
-    await applyColumnGuard(h, table.slice('zvd_'.length));
-    if (fields) await sealColumns(h, table.slice('zvd_'.length), fields);
+    await isolateTable(h, table, fields);
   };
   if ((db as unknown as { isTransaction?: boolean }).isTransaction) await run(db);
   else await db.transaction().execute(run);
+}
+
+/**
+ * What a collection's table is put under besides its row rules: tenant RLS
+ * (`applyTenantRLS`: the policies, collection permissions, the narrow roles'
+ * grants), the column write guard and the sealed columns. Run in the caller's
+ * transaction by `createIsolatedTable` and by an extension adopting a table it
+ * created (`registerMetadata`), which got none of it until the next boot.
+ */
+export async function isolateTable(
+  h: Database,
+  table: string,
+  /** A collection's fields: its unserved columns are sealed. */
+  fields?: ReadonlyArray<{ name: string; type: string }>,
+): Promise<void> {
+  const { applyTenantRLS } = await import('../tenancy/index.js');
+  const { applyColumnGuard } = await import('./column-guard.js');
+  const { sealColumns } = await import('./sealed-columns.js');
+  await applyTenantRLS(h, table);
+  // Column rules can outlive a table (a same-name create after a drop, rules
+  // applied before the collection): the new table starts under them.
+  await applyColumnGuard(h, table.slice('zvd_'.length));
+  if (fields) await sealColumns(h, table.slice('zvd_'.length), fields);
 }
 
 /** The trigger that records a collection's deletes for sync pull (migration 032). */

@@ -41,6 +41,7 @@ import {
   DDLManager,
   deferIndexBuilds,
   enqueueIndexBuilds,
+  isolateTable,
 } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
 import { engineHandle } from '../engine-handle.js';
@@ -1261,12 +1262,17 @@ export const announcingDDLManager: typeof DDLManager = Object.assign(
       announceSchemaChange(def.name, 'create');
     },
     async registerMetadata(_db: Database, ...[def]: AfterDb<typeof DDLManager.registerMetadata>) {
-      // The registry row and the row rules that now reach the table commit
-      // together: a `*` rule reaches a registered collection only.
+      // The registry row and what a created collection's table is under commit
+      // together: a `*` rule reaches a registered collection only, and a table
+      // the extension made has no tenant policy, grant check or seal of the
+      // engine's. Refused, the adoption is too.
       await onEnginePool(
         (pool) =>
           pool.transaction().execute(async (trx) => {
             await DDLManager.registerMetadata(trx, def);
+            if (await DDLManager.tableExists(trx, def.name)) {
+              await isolateTable(trx, DDLManager.getTableName(def.name), def.fields);
+            }
             await applyRowRulePolicy(trx, def.name);
           }),
         collection(def.name),
