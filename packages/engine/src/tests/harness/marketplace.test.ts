@@ -99,8 +99,8 @@ d('extension marketplace routes (in-process)', () => {
     // The registry list fetched through the mocked fetch is cached for minutes;
     // a later file's install would look its extension up in this file's mock.
     _resetCatalogCacheForTests();
-    // The ghost's too: config upserts a row for it, and an uninstall keeps it. A
-    // row with no manifest fails every later purge closed (`deleteExtensionObjectRules`).
+    // The ghost's too, should a route ever write one again: a row with no manifest
+    // fails every later collection create and drop closed (`nonCollectionObjects`).
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${HELLO_EXT}, ${GHOST})`.execute(db);
     if (TEMP_EXT_BASE) {
       rmSync(TEMP_EXT_BASE, { recursive: true, force: true });
@@ -502,15 +502,13 @@ d('extension marketplace routes (in-process)', () => {
     expect(typeof body.failed).toBe('number');
   }, 40_000);
 
-  it('PUT config on a ghost extension upserts registry config', async () => {
+  it('PUT config on a ghost extension is 404 (ext-registry-phantom.test.ts)', async () => {
     const res = await app.request(`/api/marketplace/${GHOST}/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ greeting: 'harness-config' }),
     });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { success: boolean };
-    expect(body.success).toBe(true);
+    expect(res.status).toBe(404);
   }, 20_000);
 
   it('enable hello-ext returns structured enable payload', async () => {

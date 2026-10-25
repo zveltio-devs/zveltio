@@ -459,27 +459,15 @@ export async function nonCollectionObjects(
  * takes them. Role links (`g`) name no object and stay.
  *
  * Without a readable manifest only `$ext:<name>` is known, and that is said.
- * Throws as `nonCollectionObjects` when another such extension's manifest
- * cannot be read: what it claims is unknown, so nothing may be taken from it.
+ * With one, throws as `nonCollectionObjects` when another such extension's
+ * manifest cannot be read: what it claims is unknown, so nothing may be taken
+ * from it.
  */
 export async function deleteExtensionObjectRules(
   db: Database,
   extensionsBase: string,
   name: string,
 ): Promise<string[][]> {
-  const taken = await nonCollectionObjects(db, extensionsBase, name);
-  const others = await declaredBy(
-    extensionsBase,
-    (await registeredExtensions(db)).filter((n) => n !== name),
-  );
-  if (others.unreadable.length > 0) {
-    throw new Error(
-      `Extension(s) without a readable manifest under ${extensionsBase}: ` +
-        `${others.unreadable.join('; ')}. What they claim is unknown, so the purge of ` +
-        `${name} takes nothing: restore their files or purge them.`,
-    );
-  }
-  for (const r of [...others.out, ...others.gated, ...others.sensitive]) taken.add(r);
   const own = await declaredBy(extensionsBase, [name]);
   if (own.unreadable.length > 0) {
     console.warn(
@@ -488,6 +476,11 @@ export async function deleteExtensionObjectRules(
         `${name} is removed.`,
     );
   }
+  // Without its manifest there is nothing to take but `$ext:<name>`, which no
+  // other extension can claim: another unreadable manifest does not refuse it.
+  // It did, and two extensions without files each refused the other's purge.
+  const taken =
+    own.unreadable.length > 0 ? new Set<string>() : await claimedByOthers(db, extensionsBase, name);
   // A manifest is free strings: never `*` or an engine `$` object (`$edge`, `$rpc`).
   const candidates = [...new Set([...own.out, ...own.sensitive])].filter(
     (r) => r !== '*' && !r.startsWith('$') && !taken.has(r),
@@ -502,6 +495,32 @@ export async function deleteExtensionObjectRules(
   return rows.map((r) =>
     [r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v): v is string => v !== null),
   );
+}
+
+/**
+ * What `deleteExtensionObjectRules` may not take from `name`: the engine's
+ * objects, a retired zone, and what every other extension with data left
+ * claims. Throws when one of their manifests cannot be read.
+ */
+async function claimedByOthers(
+  db: Database,
+  extensionsBase: string,
+  name: string,
+): Promise<Set<string>> {
+  const taken = await nonCollectionObjects(db, extensionsBase, name);
+  const others = await declaredBy(
+    extensionsBase,
+    (await registeredExtensions(db)).filter((n) => n !== name),
+  );
+  if (others.unreadable.length > 0) {
+    throw new Error(
+      `Extension(s) without a readable manifest under ${extensionsBase}: ` +
+        `${others.unreadable.join('; ')}. What they claim is unknown, so the purge of ` +
+        `${name} takes nothing: restore their files or purge them.`,
+    );
+  }
+  for (const r of [...others.out, ...others.gated, ...others.sensitive]) taken.add(r);
+  return taken;
 }
 
 /**

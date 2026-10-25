@@ -1111,18 +1111,14 @@ export function registerMarketplaceRoutes(
     if (gate instanceof Response) return gate;
 
     return withExtensionLock(db, name, async () => {
+      // An update, never an upsert: only an install makes a row. A row for a name
+      // never installed has no manifest, and that stops every collection create
+      // and drop, and every other extension's purge (`nonCollectionObjects`).
       await db
-        .insertInto('zv_extension_registry')
-        .values({
-          name,
-          display_name: name,
-          category: 'custom',
-          version: '1.0.0',
-          author: '',
-          is_installed: true,
-          is_enabled: false,
-        })
-        .onConflict((oc) => oc.columns(['tenant_id', 'name']).doUpdateSet({ is_enabled: false }))
+        .updateTable('zv_extension_registry')
+        .set({ is_enabled: false })
+        .where('name', '=', name)
+        .where('tenant_id', 'is', null)
         .execute();
 
       // God's row is only the default: a firm that turned the extension on keeps
@@ -1159,20 +1155,18 @@ export function registerMarketplaceRoutes(
 
     const config = await c.req.json();
 
-    await db
-      .insertInto('zv_extension_registry')
-      .values({
-        name,
-        display_name: name,
-        category: 'custom',
-        version: '1.0.0',
-        author: '',
-        is_installed: true,
-        is_enabled: false,
-        config,
-      })
-      .onConflict((oc) => oc.columns(['tenant_id', 'name']).doUpdateSet({ config }))
-      .execute();
+    // An update, never an upsert: see `disableExtension`.
+    // RETURNING, not a count: the Bun SQL dialect reports no affected rows.
+    const updated = await db
+      .updateTable('zv_extension_registry')
+      .set({ config })
+      .where('name', '=', name)
+      .where('tenant_id', 'is', null)
+      .returning('name')
+      .executeTakeFirst();
+    if (!updated) {
+      return c.json({ error: 'Not found', detail: `"${name}" is not installed.` }, 404);
+    }
 
     return c.json({ success: true });
   };
