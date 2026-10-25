@@ -996,11 +996,12 @@ export class DDLManager {
   static async dropInTransaction(
     db: Database,
     name: string,
-    opts: { force?: boolean },
+    /** `gone`: the table was already dropped (an extension's DOWN SQL); clear the rest. */
+    opts: { force?: boolean; gone?: boolean },
   ): Promise<string[][]> {
     const tableName = this.getTableName(name);
 
-    if (!(await this.tableExists(db, name))) {
+    if (!opts.gone && !(await this.tableExists(db, name))) {
       throw new Error(`Collection '${name}' not found`);
     }
 
