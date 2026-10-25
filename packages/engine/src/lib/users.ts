@@ -73,7 +73,7 @@ export interface UserDeletion {
 /**
  * Delete `userId` the way the admin route does, in its order. `db` carries the
  * row delete and the audit row — the caller's transaction, so they commit with
- * it; `poolDb` is the privileged pool that alone may touch `session`. Resolves
+ * it; `poolDb` is the privileged pool for `session` (see `revokeThroughCommit`). Resolves
  * `false`, having touched nothing, when there is no such user.
  */
 export async function deleteUser(
@@ -93,13 +93,19 @@ export async function deleteUser(
   await refuseGod(db, userId, 'deleted');
 
   // Sessions, then grants, then the row: a failure part-way leaves a user who
-  // cannot sign in or has no grants — never a deleted user who still can.
-  await revokeThroughCommit(poolDb, userId);
+  // cannot sign in or has no grants — never a deleted user who still can. Inside
+  // a request transaction a failure rolls all three back together.
+  await revokeThroughCommit(db, poolDb, userId);
   // Through the enforcer, so this instance's model and the watcher's peers drop
-  // the grants now; migration 017's trigger only catches the table.
-  const e = await getEnforcer();
-  await e.deleteUser(userId);
-  await invalidateUserPermCache(userId);
+  // the grants; migration 017's trigger only catches the table. Inside a request
+  // transaction that trigger drops the rows with the user, and the enforcer —
+  // whose adapter writes on the pool, a second connection — follows the commit.
+  const dropGrants = async () => {
+    await (await getEnforcer()).deleteUser(userId);
+    await invalidateUserPermCache(userId);
+  };
+  if (getCurrentTenantTrx()) onAfterCommit(dropGrants);
+  else await dropGrants();
 
   // Their API keys stop too. The FK only sets `created_by` NULL, which left a
   // deleted user's keys working while a deactivated user's were refused.
@@ -334,7 +340,7 @@ export async function setUserActive(
        WHERE id = ${userId} AND COALESCE(banned, false) <> ${!active}
     `.execute(db),
   );
-  if (!active) await revokeThroughCommit(poolDb, userId);
+  if (!active) await revokeThroughCommit(db, poolDb, userId);
 }
 
 /**
@@ -362,10 +368,15 @@ export async function liftOwnBan(
  * Revoke now, and again once the request's transaction commits. A sign-in that
  * lands before the commit does not see the ban or the deletion yet, and would
  * otherwise keep its session — with Valkey, past even the row's cascade.
+ *
+ * "Now" is on `db`, the caller's transaction, as the engine role (`zveltio_rls`
+ * is refused `session`): on `poolDb` it was a second connection while the
+ * request held one, and 2 x DB_POOL_MAX concurrent deletions hung.
  */
-async function revokeThroughCommit(poolDb: Database, userId: string): Promise<void> {
-  await revokeAllUserSessions(poolDb, userId);
-  if (getCurrentTenantTrx()) onAfterCommit(() => revokeAllUserSessions(poolDb, userId));
+async function revokeThroughCommit(db: Database, poolDb: Database, userId: string): Promise<void> {
+  if (!getCurrentTenantTrx()) return revokeAllUserSessions(poolDb, userId);
+  await asEngineRole(db, () => revokeAllUserSessions(db, userId));
+  onAfterCommit(() => revokeAllUserSessions(poolDb, userId));
 }
 
 /** Delete `userId`'s passkeys and TOTP on `db`'s transaction; how many of each went. */
@@ -394,7 +405,7 @@ export async function resetUserFactors(
   userId: string,
 ): Promise<{ passkeys: number; totp: number }> {
   const cleared = await clearUserFactors(db, userId);
-  await revokeThroughCommit(poolDb, userId);
+  await revokeThroughCommit(db, poolDb, userId);
   return cleared;
 }
 

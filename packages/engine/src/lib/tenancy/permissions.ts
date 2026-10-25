@@ -1642,15 +1642,16 @@ export function revalidateSocketsEverywhere(userId?: string, scope: SweepScope =
 /**
  * A session or API key was revoked, a user barred or deleted, or a tenant
  * archived, suspended or purged: close what it opened, on every instance. Now,
- * for a revocation already visible (sessions are deleted on the pool), and
- * again after the caller's commit, for one still inside its transaction (a ban,
- * a key's `is_active`).
+ * outside a transaction or for a revocation already visible (`visibleNow`:
+ * sessions deleted on the pool), and after the caller's commit for one still
+ * inside its transaction (a ban, a key's `is_active`). Not now for that one:
+ * receivers would re-read the old state, and the publish took a second
+ * connection while the request held one.
  */
-export function revalidatePrincipalsEverywhere(): void {
-  revalidateSocketsEverywhere(undefined, 'principals');
-  if (getCurrentTenantTrx()) {
-    onAfterCommit(() => revalidateSocketsEverywhere(undefined, 'principals'));
-  }
+export function revalidatePrincipalsEverywhere(visibleNow = false): void {
+  const inTrx = Boolean(getCurrentTenantTrx());
+  if (!inTrx || visibleNow) revalidateSocketsEverywhere(undefined, 'principals');
+  if (inTrx) onAfterCommit(() => revalidateSocketsEverywhere(undefined, 'principals'));
 }
 
 /**

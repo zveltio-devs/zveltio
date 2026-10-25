@@ -180,7 +180,12 @@ const TXN_SKIP_PREFIXES = [
   '/api/settings',
   '/api/admin/storage',
   '/api/admin/rate-limits',
-  '/api/permissions/bootstrap',
+  // `zvd_permissions`: every Casbin write goes through the adapter on the pool,
+  // so inside a request transaction each grant took a second connection and
+  // 2 x DB_POOL_MAX concurrent grants hung (admin-write-one-connection.test.ts).
+  // Includes recovery (`/api/permissions/bootstrap`).
+  '/api/permissions',
+  '/api/admin/permissions',
 
   // The instance audit trail (migration 040). Instance-level rows are visible
   // only where no tenant is the transaction's subject, and a request

@@ -9,6 +9,7 @@ import {
   invalidateUserPermCache,
   getCurrentDomain,
   isGodUser,
+  onAfterCommit,
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -35,8 +36,8 @@ export function usersRoutes(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   auth: any,
   /**
-   * The raw pool, for the one statement here that must not run inside the
-   * request's tenant transaction: revoking a user's sessions. Requests run as
+   * The raw pool, for revoking a user's sessions once the request's tenant
+   * transaction has committed (`revokeThroughCommit`). Requests run as
    * `zveltio_rls`, which has had no grants on `session` since migration 044 —
    * reading a bearer token from a tenant-scoped request is what C-14 and C-10
    * did, and that stays closed. Session revocation is a platform operation.
@@ -150,7 +151,13 @@ export function usersRoutes(
       // God status moves only through recovery (/api/permissions/bootstrap).
       // Promoting anyone collides with the one god seat (migration 008), and a
       // god demoting itself by mistake left the instance with no god at all.
-      if (role !== undefined && (role === 'god') !== (await isGodUser(userId))) {
+      // Read on the request transaction: `isGodUser` misses its cache for any
+      // target but the caller, and its pool read was a second connection.
+      const target =
+        role === undefined
+          ? undefined
+          : await db.selectFrom('user').select('role').where('id', '=', userId).executeTakeFirst();
+      if (role !== undefined && (role === 'god') !== (target?.role === 'god')) {
         return c.json(
           { error: 'God status changes only through recovery (/api/permissions/bootstrap)' },
           409,
@@ -177,7 +184,8 @@ export function usersRoutes(
         // `god` is the column alone (no Casbin role); a `member` holds the
         // Casbin baseline row, so a demoted god gets it back. Nothing else is
         // touched — business roles (`employee`, …) stay.
-        if (role === 'member') await grantMemberRole(userId);
+        // After the commit: the enforcer's adapter writes on the pool.
+        if (role === 'member') onAfterCommit(() => grantMemberRole(userId));
         await invalidateUserPermCache(userId);
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         const admin = c.get('user') as any;
