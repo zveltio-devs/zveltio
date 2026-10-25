@@ -13,6 +13,7 @@ import {
   shapeRevisionData,
 } from '../lib/data/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
+import { paging } from '../lib/utils.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function revisionsRoutes(db: Database, auth: any): Hono {
@@ -64,8 +65,7 @@ export function revisionsRoutes(db: Database, auth: any): Hono {
     }
 
     const { collection, record_id, user_id, action, limit = '50', page = '1' } = c.req.query();
-    const lim = Math.min(parseInt(limit) || 50, 200);
-    const pageNo = Math.max(parseInt(page) || 1, 1);
+    const { limit: lim, page: pageNo } = paging(page, limit, 50, 200);
     const { rows, total } = await readableRevisions(db, reqDb(c, db), tenantId(c), user, {
       collection,
       record_id,

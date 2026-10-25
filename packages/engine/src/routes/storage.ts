@@ -14,6 +14,7 @@ import { writeRateLimit } from '../middleware/rate-limit.js';
 import { getStorage } from '../lib/storage/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { checkStorageQuota } from '../lib/storage-quota.js';
+import { paging } from '../lib/utils.js';
 
 // Object storage goes through the pluggable driver (lib/storage): `local`
 // filesystem by default, `s3` (aws4fetch) when S3_ENDPOINT is set.
@@ -284,8 +285,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
   app.get('/', async (c) => {
     const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
     const { folder_id, limit = '50', page = '1' } = c.req.query();
-    const parsedLimit = Math.min(parseInt(limit) || 50, 200);
-    const offset = (parseInt(page) - 1) * parsedLimit;
+    const { limit: parsedLimit, offset } = paging(page, limit, 50, 200);
 
     // Only what this user may read in this tenant — see lib/media-visibility.ts.
     const listUser = c.get('user') as RequestUser;

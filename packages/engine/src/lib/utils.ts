@@ -18,3 +18,21 @@ export function generateId(size: number = 21): string {
   }
   return id;
 }
+
+/**
+ * A list route's `?page=&limit=` as a LIMIT and an OFFSET Postgres accepts.
+ * Malformed input (`page=0`, `limit=-1`, `abc`) falls back to the first page
+ * and the route's default size: it used to reach SQL as NaN or a negative,
+ * which Postgres refuses, so a typo in a query string answered 500.
+ */
+export function paging(
+  page: string | undefined,
+  limit: string | undefined,
+  size: number,
+  max: number,
+): { page: number; limit: number; offset: number } {
+  const lim = Math.min(Math.max(parseInt(limit ?? '', 10) || size, 1), max);
+  // Capped so the offset stays a safe integer rather than `1e+22` in the SQL.
+  const p = Math.min(Math.max(parseInt(page ?? '', 10) || 1, 1), Math.floor(2 ** 31 / lim));
+  return { page: p, limit: lim, offset: (p - 1) * lim };
+}

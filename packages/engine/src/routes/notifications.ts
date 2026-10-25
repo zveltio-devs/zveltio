@@ -23,6 +23,7 @@ import {
   isSafeActionUrl,
   sendNotification,
 } from '../lib/notifications.js';
+import { paging } from '../lib/utils.js';
 export { _settleNotificationPushes, sendNotification };
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -43,8 +44,7 @@ export function notificationsRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const { unread_only, limit = '50', page = '1' } = c.req.query();
-    const lim = Math.min(parseInt(limit), 200);
-    const offset = (parseInt(page) - 1) * lim;
+    const { limit: lim, offset } = paging(page, limit, 50, 200);
 
     let query = tdb
       .selectFrom('zv_notifications')

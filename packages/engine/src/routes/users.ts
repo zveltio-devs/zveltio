@@ -19,6 +19,7 @@ import { guardAdmin } from '../lib/admin-guard.js';
 import { isEmailConfigured, sendEmail } from '../lib/email.js';
 import { clientIpForAudit, hashInvitationToken } from '../lib/security/index.js';
 import { mailFactorChange, requireStepUp } from '../lib/step-up.js';
+import { paging } from '../lib/utils.js';
 
 function escapeHtml(str: string): string {
   return str
@@ -61,8 +62,7 @@ export function usersRoutes(
   // GET / — List all users
   app.get('/', async (c) => {
     const { page = '1', limit = '20', search } = c.req.query();
-    const parsedLimit = Math.min(parseInt(limit) || 20, 200);
-    const offset = (parseInt(page) - 1) * parsedLimit;
+    const { limit: parsedLimit, offset } = paging(page, limit, 20, 200);
 
     // One filtered base for the page and its total: the count used to read the
     // whole table, so a search reported every user as a match and the pager

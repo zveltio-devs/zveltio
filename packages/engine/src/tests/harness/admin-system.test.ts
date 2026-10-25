@@ -94,6 +94,35 @@ d('admin system routes (in-process)', () => {
     expect(Array.isArray(body.audit)).toBe(true);
   });
 
+  // A malformed `page` or `limit` used to reach SQL as NaN or a negative
+  // OFFSET/LIMIT, which Postgres refuses: a 500 for a typo in a query string.
+  for (const path of [
+    '/api/admin/audit',
+    '/api/admin/logs',
+    '/api/admin/api-keys',
+    '/api/admin/revisions',
+    '/api/api-keys',
+    '/api/users',
+    '/api/storage',
+    '/api/notifications',
+    '/api/revisions',
+  ]) {
+    it(`GET ${path} answers a malformed page or limit with the default page`, async () => {
+      for (const q of [
+        'page=0',
+        'page=-3',
+        'page=abc',
+        'page=99999999999999999999',
+        'limit=-1',
+        'limit=abc',
+        'limit=0',
+      ]) {
+        const res = await app.request(`${path}?${q}`, { headers: { cookie } });
+        expect(`${q} ${res.status}`).toBe(`${q} 200`);
+      }
+    });
+  }
+
   it('rejects unauthenticated admin status', async () => {
     const res = await app.request('/api/admin/status');
     expect([401, 403]).toContain(res.status);

@@ -30,6 +30,7 @@ import {
 import type { RequestUser } from '../data.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
 import { SAMPLE_RATE as REQUEST_LOG_SAMPLE_RATE } from '../../middleware/request-log.js';
+import { paging } from '../../lib/utils.js';
 
 /**
  * Admin system + monitoring routes (status, migrate, schema, onboarding,
@@ -102,8 +103,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   // GET /api-keys — List API keys
   app.get('/api-keys', async (c) => {
     const { page = '1', limit = '50' } = c.req.query();
-    const parsedLimit = Math.min(parseInt(limit) || 50, 200);
-    const offset = (parseInt(page) - 1) * parsedLimit;
+    const { limit: parsedLimit, offset } = paging(page, limit, 50, 200);
     const keys = await db
       .selectFrom('zv_api_keys')
       .select([
@@ -340,8 +340,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   app.get('/revisions', async (c) => {
     const { collection, record_id, user_id, limit = '50', page = '1' } = c.req.query();
     // I3: cap limit to prevent DoS / OOM
-    const parsedLimit = Math.min(parseInt(limit) || 50, 500);
-    const offset = (Math.max(parseInt(page) || 1, 1) - 1) * parsedLimit;
+    const { limit: parsedLimit, offset } = paging(page, limit, 50, 500);
 
     // The record's read gate, as on `/api/revisions`: an instance admin reads
     // the history of the records they may read — collection `read`, row rules,
@@ -597,8 +596,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   // Filters: user_id, event_type, from, to (ISO date or datetime).
   app.get('/audit', async (c) => {
     const { limit = '50', page = '1', user_id, event_type, from, to } = c.req.query();
-    const parsedLimit = Math.min(parseInt(limit) || 50, 500);
-    const offset = (parseInt(page) - 1) * parsedLimit;
+    const { limit: parsedLimit, offset } = paging(page, limit, 50, 500);
 
     // The email is joined here rather than left to the caller. Every consumer was
     // rendering `user_id.slice(0, 8) + '…'`, which tells a reader nothing about
@@ -787,8 +785,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   // GET /logs — recent request log (filterable by path, status, method)
   app.get('/logs', async (c) => {
     const { limit = '100', page = '1', path, status, method, user_id } = c.req.query();
-    const parsedLimit = Math.min(parseInt(limit) || 100, 1000);
-    const offset = (parseInt(page) - 1) * parsedLimit;
+    const { limit: parsedLimit, offset } = paging(page, limit, 100, 1000);
 
     // One place that decides what "matching" means, applied to the rows and to
     // the count.
@@ -848,7 +845,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       .selectAll()
       .where('duration_ms', '>=', Number.isNaN(parseInt(min_ms, 10)) ? 200 : parseInt(min_ms, 10))
       .orderBy('created_at', 'desc')
-      .limit(Math.min(parseInt(limit) || 50, 500))
+      .limit(paging(undefined, limit, 50, 500).limit)
       .execute();
     return c.json({ slow_queries: rows });
   });
