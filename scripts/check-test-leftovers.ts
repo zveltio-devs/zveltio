@@ -50,16 +50,26 @@ try {
     ORDER BY tablename
   `;
 
+  // A default grant revoked on a fixture: a rerun's collection of that name is
+  // created without its defaults, and schema-default-revocations reads them.
+  const revocations = await sql<{ resource: string }[]>`
+    SELECT DISTINCT resource FROM zv_default_grant_revocations
+    WHERE resource ~ ${FIXTURE} ORDER BY resource
+  `;
+
   await sql.end();
 
-  if (collections.length === 0 && orphans.length === 0) {
-    console.log('[test-leftovers] OK — the suite left no collections and no ghost tables.');
+  if (collections.length === 0 && orphans.length === 0 && revocations.length === 0) {
+    console.log(
+      '[test-leftovers] OK — the suite left no collections, ghost tables or revocations.',
+    );
     process.exit(0);
   }
 
   console.error('[test-leftovers] FAIL — the suite left state behind:\n');
   for (const c of collections) console.error(`  collection  ${c.name}`);
   for (const o of orphans) console.error(`  ghost table ${o.tablename}`);
+  for (const r of revocations) console.error(`  revocation  ${r.resource}`);
   console.error('\nUse `dropTestCollection(db, name)` from `testing/app-harness.ts` in afterAll —');
   console.error('dropping the table alone leaves the row in `zvd_collections`, which is what');
   console.error('made a database accumulate 163 of these and a measurement taken there lie.');
