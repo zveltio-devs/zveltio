@@ -299,7 +299,7 @@ export async function revokeAllUserSessions(
   await del.execute();
   // A socket or stream authenticates once, at open: close the ones these
   // sessions opened, on every instance.
-  revalidatePrincipalsEverywhere();
+  revalidatePrincipalsEverywhere(!db.isTransaction);
 }
 
 export async function countLegacyScryptHashes(db: Database): Promise<number> {
