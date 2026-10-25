@@ -332,6 +332,8 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
     const action = (msg.data as { action?: unknown } | undefined)?.action;
     if (!msg.collection || (action !== 'create' && action !== 'alter' && action !== 'drop')) return;
     broadcastSchemaChange(msg.collection, action);
+    // Plans this replica's pool prepared over the old shape: see announceSchemaChange.
+    if (action !== 'drop') void recyclePoolSoon();
     // Published after the change committed, seal and view included: forget the
     // definition and readable columns this replica kept, or for up to 30 s its
     // reads miss a new column or fail on a dropped one. Lazily: lib/data imports this module.
