@@ -182,6 +182,10 @@ d("ctx.DDLManager's mutations inside a request", () => {
       });
       expect(synced).toBeGreaterThan(0);
       expect((await meta(name))!.fields.map((f) => f.name)).toContain('label');
+      // Adopted, it gets the defaults a created one gets, not none until the next boot.
+      const grants = await sql<{ v0: string; v3: string }>`
+        SELECT v0, v3 FROM zvd_permissions WHERE ptype = 'p' AND v2 = ${name}`.execute(db);
+      expect(grants.rows).toContainEqual({ v0: 'tenant_member', v3: 'read' });
     }, 60_000);
 
     it(`dropCollection (${mode})`, async () => {

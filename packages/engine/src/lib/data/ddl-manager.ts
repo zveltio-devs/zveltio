@@ -805,42 +805,49 @@ export class DDLManager {
     // registerMetadata invalidated inside the transaction; a read before commit re-cached the absence.
     this.invalidateCache(validated.name);
 
-    // A collection nobody may touch is not a collection.
-    //
-    // Authorization denies by default, so a table that has just come into
-    // existence is reachable by owners and tenant admins and by nobody else.
-    // That is the correct starting point but a useless ending one: an admin
-    // creates a collection in the Studio, hands it to their team, and every one
-    // of them gets a 403 with nothing on screen explaining why.
-    //
-    // So the default access the seeded roles used to get from a wildcard is
-    // written out here as actual rows — visible in the permissions UI, revocable
-    // for this collection alone, and reportable to an auditor, none of which
-    // `('tenant_member', '*', '*', 'read')` ever was.
-    //
-    // This sits next to creation rather than in the boot sequence because the
-    // same reasoning applied to RLS and the boot placement was wrong there: a
-    // fresh install runs migration 034 while `zvd_collections` is still empty,
-    // so if this only ran at startup the core collections would spend their
-    // first run of the engine unreachable.
-    //
-    // Best-effort: a permissions row that fails to write must not roll back a
-    // table that already exists. The boot reconcile picks it up.
+    await this.grantDefaults(db, validated.name);
+  }
+
+  // Default grants for the collection `name`, on the pool after its commit:
+  // `createCollection` calls it, and so does an extension adopting a table
+  // through `registerMetadata`.
+  //
+  // A collection nobody may touch is not a collection.
+  //
+  // Authorization denies by default, so a table that has just come into
+  // existence is reachable by owners and tenant admins and by nobody else.
+  // That is the correct starting point but a useless ending one: an admin
+  // creates a collection in the Studio, hands it to their team, and every one
+  // of them gets a 403 with nothing on screen explaining why.
+  //
+  // So the default access the seeded roles used to get from a wildcard is
+  // written out here as actual rows — visible in the permissions UI, revocable
+  // for this collection alone, and reportable to an auditor, none of which
+  // `('tenant_member', '*', '*', 'read')` ever was.
+  //
+  // This sits next to creation rather than in the boot sequence because the
+  // same reasoning applied to RLS and the boot placement was wrong there: a
+  // fresh install runs migration 034 while `zvd_collections` is still empty,
+  // so if this only ran at startup the core collections would spend their
+  // first run of the engine unreachable.
+  //
+  // Best-effort: a permissions row that fails to write must not roll back a
+  // table that already exists. The boot reconcile picks it up.
+  static async grantDefaults(db: Database, name: string): Promise<void> {
     try {
+      // Under an engine or extension object's name, the defaults would grant on that.
+      if (await this.reservedName(db, name)) return;
       const { materializeDefaultGrants, listActionCollections } = await import(
         '../tenancy/index.js'
       );
-      await materializeDefaultGrants(db, [validated.name]);
+      await materializeDefaultGrants(db, [name]);
       // An installed extension's action gated on it asks `execute` (extension model v3).
       const { resolveExtensionsBase } = await import('../extensions/index.js');
-      if ((await listActionCollections(db, resolveExtensionsBase())).includes(validated.name)) {
-        await materializeDefaultGrants(db, [validated.name], { extension: true });
+      if ((await listActionCollections(db, resolveExtensionsBase())).includes(name)) {
+        await materializeDefaultGrants(db, [name], { extension: true });
       }
     } catch (err) {
-      console.warn(
-        `   ⚠  default grants for collection '${validated.name}' failed:`,
-        (err as Error).message,
-      );
+      console.warn(`   ⚠  default grants for collection '${name}' failed:`, (err as Error).message);
     }
   }
 
