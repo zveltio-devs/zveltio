@@ -1175,10 +1175,17 @@ export async function invalidateGodCache(userId: string): Promise<void> {
   }
 }
 
+/**
+ * `god`: whether `"user".role` is `god`, as a caller holding a transaction read it
+ * on that transaction — for a principal other than the request's own, whose
+ * flag nothing warmed: the lookup reads the pool, a second connection while the
+ * transaction holds one. Only ever that column, never a guess.
+ */
 export async function checkPermission(
   userId: string,
   resource: string,
   action: string,
+  god?: boolean,
 ): Promise<boolean> {
   // An API key is no Casbin subject: its grant is its scopes AND its issuer's
   // (`checkAccess`, `keyIssuerAllows`). A row naming `apikey:<uuid>` — the role
@@ -1191,7 +1198,7 @@ export async function checkPermission(
   const gen = _policyGen;
   let godLookupError: unknown;
   try {
-    if (await lookupGod(userId)) return true;
+    if (god ?? (await lookupGod(userId))) return true;
   } catch (err) {
     godLookupError = err ?? new Error('god lookup failed');
   }
@@ -1310,16 +1317,17 @@ async function casbinAllows(
  * Require the admin grant AND that it comes from the ROOT tenant domain (the
  * single-tenant default, where admin == instance owner) OR the god role. In
  * single-tenant deployments the domain is always the root, so this is a no-op.
+ * `god` as in `checkPermission`.
  */
-export async function requireInstanceAdmin(userId: string): Promise<boolean> {
-  if (await isGodUser(userId)) return true;
+export async function requireInstanceAdmin(userId: string, god?: boolean): Promise<boolean> {
+  if (god ?? (await isGodUser(userId))) return true;
   // `getCurrentDomainOrNull`, not `getCurrentDomain`: the latter answers
   // DEFAULT_TENANT_ID when no store was ever opened, so a request whose tenant
   // could not be resolved read as "we are in the root tenant" and a delegated
   // tenant_admin passed this gate. No context is not the root tenant.
   const domain = getCurrentDomainOrNull();
   if (domain !== DEFAULT_TENANT_ID) return false;
-  return checkPermission(userId, 'admin', '*');
+  return checkPermission(userId, 'admin', '*', god);
 }
 
 /**
@@ -1340,8 +1348,8 @@ export async function requireInstanceAdmin(userId: string): Promise<boolean> {
  * multi-tenancy instead. Every call site now has to say which one it means, and
  * scripts/admin-gate-check.ts fails the build if the bare form comes back.
  */
-export async function isTenantAdmin(userId: string): Promise<boolean> {
-  return checkPermission(userId, 'admin', '*');
+export async function isTenantAdmin(userId: string, god?: boolean): Promise<boolean> {
+  return checkPermission(userId, 'admin', '*', god);
 }
 
 /**

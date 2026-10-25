@@ -317,7 +317,7 @@ export function usersRoutes(
     const actorId = (c.get('user') as { id: string }).id;
     const target = await db
       .selectFrom('user')
-      .select(['id', 'email'])
+      .select(['id', 'email', 'role'])
       .where('id', '=', targetId)
       .executeTakeFirst();
     if (!target) return c.json({ error: 'User not found' }, 404);
@@ -329,7 +329,12 @@ export function usersRoutes(
     }
     // A non-god admin resets ordinary users only: else any admin could strip
     // another's (or god's) factors and enroll the next first factor themselves.
-    if (!(await isGodUser(actorId)) && (await requireInstanceAdmin(targetId))) {
+    // The target's god flag from the row just read: `isGodUser` misses its cache
+    // for anyone but the caller, and its pool read was a second connection.
+    if (
+      !(await isGodUser(actorId)) &&
+      (await requireInstanceAdmin(targetId, target.role === 'god'))
+    ) {
       return c.json({ error: 'Only god may reset an administrator' }, 403);
     }
     const confirmedBy = await requireStepUp(c, `user.factors.reset:${targetId}`);

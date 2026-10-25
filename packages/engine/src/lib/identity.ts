@@ -224,9 +224,12 @@ async function mayClaim(db: Database, userId: string, tenant: string | null): Pr
                         AND tu.role NOT IN ('member', 'viewer')) AS admin_elsewhere,
              EXISTS (SELECT 1 FROM ${membershipsOf(userId)}) AS anywhere`.execute(db)
   ).rows[0]!;
+  // Not god, from here on: the admin checks below take that from this read, not
+  // from `isGodUser`, whose pool read was a second connection inside the caller's
+  // transaction (for a user who is not the caller, its cache is cold).
   if (r.god) return false;
   if (tenant === DEFAULT_TENANT_ID && (await isSingleTenantInstance(db))) {
-    return !(await requireInstanceAdmin(userId));
+    return !(await requireInstanceAdmin(userId, false));
   }
   const e = await getEnforcer();
   // The baseline `member` row every account holds is nobody's grant of power.
@@ -234,7 +237,7 @@ async function mayClaim(db: Database, userId: string, tenant: string | null): Pr
   const rules = await e.getFilteredPolicy(0, userId);
   if (r.here) {
     if (r.admin_elsewhere) return false;
-    if (tenant === DEFAULT_TENANT_ID && (await requireInstanceAdmin(userId))) return false;
+    if (tenant === DEFAULT_TENANT_ID && (await requireInstanceAdmin(userId, false))) return false;
     return (
       !roles.some((g) => g[2] !== tenant && !PLAIN_GRADES.has(g[1]!)) &&
       !rules.some((p) => p[1] !== tenant)
@@ -392,8 +395,9 @@ async function notOwnedBy(
     ),
   );
   if (!r.rows[0]) return 'missing';
+  // Read on the caller's transaction, so the admin check below need not (`mayClaim`).
   if (r.rows[0].role === 'god') return 'god';
-  if (tenant === DEFAULT_TENANT_ID && (await requireInstanceAdmin(userId))) {
+  if (tenant === DEFAULT_TENANT_ID && (await requireInstanceAdmin(userId, false))) {
     return 'instance_admin';
   }
   if (await isSingleTenantInstance(db)) return null;
@@ -442,7 +446,7 @@ export async function updateUserProfile(
     );
   }
   // A tenant's IdP renames its members, not the people who administer it.
-  await refuseAdministrator(userId, await currentMembership(db, tenant, userId));
+  await refuseAdministrator(db, userId, await currentMembership(db, tenant, userId));
   // The probe refuses a committed address in another case; the unique index
   // refuses one a concurrent writer is committing, under a savepoint so its 23505
   // does not abort the caller's transaction.
@@ -554,8 +558,15 @@ async function inForceAnywhere(db: Database, userId: string): Promise<boolean> {
  * administrator's to remove or suspend, as to demote: the revoke drops every
  * role in the domain, with or without a membership row.
  */
-async function refuseAdministrator(userId: string, had: { role: TenantRole } | null) {
-  if ((had && !EXTENSION_ROLES.has(had.role)) || (await isTenantAdmin(userId))) {
+async function refuseAdministrator(db: Database, userId: string, had: { role: TenantRole } | null) {
+  // God from the caller's transaction, as in `mayClaim`.
+  const god = async () =>
+    (
+      await asEngineRole(db, () =>
+        sql<{ role: string | null }>`SELECT role FROM "user" WHERE id = ${userId}`.execute(db),
+      )
+    ).rows[0]?.role === 'god';
+  if ((had && !EXTENSION_ROLES.has(had.role)) || (await isTenantAdmin(userId, await god()))) {
     throw new IdentityRefusedError(
       'role_not_allowed',
       `User ${userId} administers this tenant; a tenant administrator changes that.`,
@@ -631,7 +642,7 @@ export async function removeTenantMember(
     sql`SELECT 1 FROM "user" WHERE id = ${userId} FOR UPDATE`.execute(db),
   );
   if (!user.rows.length) return { removed: false, orphaned: false, inForceAnywhere: false };
-  await refuseAdministrator(userId, await currentMembership(db, tenant, userId));
+  await refuseAdministrator(db, userId, await currentMembership(db, tenant, userId));
   const removed = await revokeTenantMembership(
     db,
     { id: tenant, slug: await tenantSlug(db, tenant) },
@@ -698,7 +709,7 @@ export async function setTenantMembershipEnd(
   }
   const had = await currentMembership(db, tenant, userId);
   if (!had) return null;
-  await refuseAdministrator(userId, had);
+  await refuseAdministrator(db, userId, had);
   const end = validTo === 'now' ? sql`now()` : sql`${validTo}::timestamptz`;
   const r = await sql<{ valid_to: string | null }>`
     UPDATE zv_tenant_users tu SET valid_to = ${end}

@@ -20,6 +20,8 @@ import { getAuth, revokeAllUserSessions } from './auth.js';
 import { withSavepoint } from './savepoint.js';
 import { isSignInBlocked, SignInBlockedError } from './security/index.js';
 import {
+  currentAfterCommitQueue,
+  DEFAULT_TENANT_ID,
   getCurrentTenantTrx,
   getEnforcer,
   invalidateUserPermCache,
@@ -28,6 +30,9 @@ import {
   membershipsOf,
   onAfterCommit,
   requireInstanceAdmin,
+  runAfterCommitJob,
+  runWithTenantTrx,
+  settleAfterCommit,
   withEveryTenant,
 } from './tenancy/index.js';
 
@@ -147,8 +152,8 @@ export interface TenantlessUsers {
  * In a transaction of its own on `db` (the purge's has committed by now — see
  * `purgeTenant`), one savepoint per user,
  * so a failure is reported and the others go on. The sessions and grants
- * `deleteUser` removes first are not transactional: a failed user is left
- * unable to sign in, never deleted and still able to.
+ * `deleteUser` removes go again after the commit, a failed user's too: one is
+ * left unable to sign in, never deleted and still able to.
  */
 export async function deleteTenantlessUsers(
   db: Database,
@@ -159,10 +164,17 @@ export async function deleteTenantlessUsers(
 ): Promise<TenantlessUsers> {
   const out: TenantlessUsers = { deleted: [], kept: [], failed: [] };
   const e = await getEnforcer();
+  // Before the transaction: both read the pool, a second connection while it
+  // held one. A promotion racing this is caught under the row lock (`refuseGod`).
+  const early = new Map<string, KeptReason>();
+  for (const id of memberIds) {
+    if (id === requesterId) early.set(id, 'self');
+    else if (await isGodUser(id)) early.set(id, 'god');
+    else if (await requireInstanceAdmin(id)) early.set(id, 'instance_admin');
+  }
   const settle = async (trx: Database, id: string): Promise<KeptReason | 'deleted' | null> => {
-    if (id === requesterId) return 'self';
-    if (await isGodUser(id)) return 'god';
-    if (await requireInstanceAdmin(id)) return 'instance_admin';
+    const kept = early.get(id);
+    if (kept) return kept;
     // Locked before the membership read: an insert into zv_tenant_users takes
     // KEY SHARE on this row, so it either committed already and is seen below,
     // or waits for our commit and then fails its foreign key.
@@ -187,7 +199,7 @@ export async function deleteTenantlessUsers(
     });
     return gone ? 'deleted' : null;
   };
-  await db.transaction().execute(async (trx) => {
+  const deleteEach = async (trx: Database) => {
     for (const id of memberIds) {
       const r = await withSavepoint(
         trx,
@@ -203,7 +215,25 @@ export async function deleteTenantlessUsers(
       if (r === 'deleted') out.deleted.push(id);
       else if (r) out.kept.push({ id, reason: r });
     }
-  });
+  };
+  // As a tenant transaction to `deleteUser`, so its pool work — the session
+  // revoke's second pass, the enforcer's grant removal — follows the commit
+  // instead of taking a second connection inside it (an in-transaction revoke
+  // runs first, on `trx`). Queued for a user whose savepoint rolled back too:
+  // a failed user is left unable to sign in, as before.
+  let queue: ReturnType<typeof currentAfterCommitQueue>;
+  try {
+    await db.transaction().execute((trx) =>
+      runWithTenantTrx(trx, DEFAULT_TENANT_ID, () => {
+        queue = currentAfterCommitQueue();
+        return deleteEach(trx);
+      }),
+    );
+  } catch (err) {
+    if (queue) settleAfterCommit(queue, false);
+    throw err;
+  }
+  for (const job of queue ? settleAfterCommit(queue, true) : []) await runAfterCommitJob(job);
   return out;
 }
 
