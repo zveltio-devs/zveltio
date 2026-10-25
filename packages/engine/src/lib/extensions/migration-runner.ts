@@ -467,19 +467,43 @@ export async function purgeExtensionData(
     );
   }
 
-  await db.transaction().execute(async (trx) => {
+  const { DDLManager, announceSchemaChange } = await import('../data/index.js');
+  const dropped = await db.transaction().execute(async (trx) => {
     // The UP path's lock_timeout: a DROP behind one long reader otherwise waits
     // at the head of the lock queue with the table's traffic stalled behind it.
     for (const stmt of migrationTimeoutPreamble()) await _sql.raw(stmt).execute(trx);
+    const before = await collectionsWithTable(trx);
     for (const r of rows) {
       const downSql = r.down_sql as string;
       await _sql.raw(downSql).execute(trx);
       await trx.deleteFrom('zv_migrations').where('id', '=', r.id).execute();
       console.log(`  ✓ Extension purge: rolled back ${r.name}`);
     }
+    // A DOWN drops its tables with SQL, not `dropCollection`: what the engine
+    // keeps under each name (metadata, relations, rules) goes as a drop takes it.
+    const after = new Set(await collectionsWithTable(trx));
+    const out: [string, string[][]][] = [];
+    for (const name of before.filter((n) => !after.has(n))) {
+      out.push([name, await DDLManager.dropInTransaction(trx, name, { gone: true })]);
+    }
+    return out;
   });
+  for (const [name, rules] of dropped) {
+    DDLManager.invalidateCache(name);
+    await DDLManager.forgetDroppedCollection(name, rules);
+    // As every drop: other replicas forget the definition they cached, Studio hears it.
+    announceSchemaChange(name, 'drop');
+  }
   // A DOWN reshapes what its UP did: see `runExtensionMigrations`.
   await dropStalePlans();
+}
+
+/** Registered collections whose table exists. */
+async function collectionsWithTable(db: Database): Promise<string[]> {
+  const { rows } = await _sql<{ name: string }>`
+    SELECT name FROM zvd_collections
+     WHERE to_regclass(format('public.%I', 'zvd_' || name)) IS NOT NULL`.execute(db);
+  return rows.map((r) => r.name);
 }
 
 /**
