@@ -28,6 +28,9 @@ export * from './field-type-registry.js';
 //   - `validateApiKey` so every route that accepts `X-API-Key` runs the same
 //     checks, including the tenant comparison edge functions had left out.
 export { processInput } from './write-pipeline.js';
+//   - `selectReadable` so a background reader (a flow's export) reads a
+//     collection through its masking view, as REST does.
+export { selectReadable } from './write-pipeline.js';
 //   - `afterWrite` so sync push produces the same revisions, webhooks and
 //     realtime events a bulk write does, instead of landing rows silently.
 export { afterWrite } from './write-pipeline.js';
