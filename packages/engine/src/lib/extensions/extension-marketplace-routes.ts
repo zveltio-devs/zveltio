@@ -18,6 +18,7 @@ import {
   forgetSensitiveResources,
   isGodUser,
   isTenantAdmin,
+  recordManifest,
   requireInstanceAdmin,
 } from '../tenancy/index.js';
 import { invalidateActivationCache, isExtensionActiveAnywhere } from './activation.js';
@@ -621,6 +622,8 @@ export function registerMarketplaceRoutes(
           }),
         )
         .execute();
+      // What it claims is read from the row from now on, files or not.
+      await recordManifest(db, entry.name, extDir);
 
       // Installing IS the consent: the admin was shown what the extension asks
       // for and chose to install it. Record the set so a later version that
@@ -825,6 +828,7 @@ export function registerMarketplaceRoutes(
           .where('name', '=', name)
           .where('tenant_id', 'is', null)
           .execute();
+        await recordManifest(db, name, extDir);
       } catch (err) {
         stopObserving();
         const why = (err as Error).message;
@@ -849,6 +853,7 @@ export function registerMarketplaceRoutes(
               .where('name', '=', name)
               .where('tenant_id', 'is', null)
               .execute();
+            await recordManifest(db, name, extDir);
             // Recorded: the old files go. Unrecorded, they stay for the boot sweep to settle.
             staged.commit();
           } catch (e2) {
@@ -995,6 +1000,8 @@ export function registerMarketplaceRoutes(
           }),
         )
         .execute();
+      // Recorded before the load, which may fail: the claim is known either way.
+      await recordManifest(db, name, extDir);
 
       const { hotLoaded, loadError } = await loadRecorded(name);
 

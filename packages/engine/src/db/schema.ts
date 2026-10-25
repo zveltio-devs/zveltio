@@ -694,6 +694,12 @@ export interface ZvExtensionRegistryTable {
   installed_version: string | null;
   /** Superseded by `zv_extension_forward_approvals` (migration 071); not read. */
   approved_forward_credentials: unknown;
+  /**
+   * The manifest.json the engine last read for it, on god's row only (migration
+   * 100). What it claims is read from here, so the claim outlives its files.
+   * null = never read: the claim is unknown.
+   */
+  manifest: unknown; // JSONB
 }
 
 /**

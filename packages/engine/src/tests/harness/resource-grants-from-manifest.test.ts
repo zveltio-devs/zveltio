@@ -5,9 +5,10 @@
  * it, so keeping the reconcile correct meant editing the engine every time the
  * ecosystem grew.
  *
- * The declarations were already on disk the whole time: `manifest.resources` is
- * the field `register.ts` materializes from as each extension loads. These tests
- * pin that `listKnownResources` reads the same source, so the array is a floor
+ * The declarations were already in the manifests the whole time:
+ * `manifest.resources` is the field `register.ts` materializes from as each
+ * extension loads. These tests pin that `listDeclaredResources` reads the same
+ * field, as the boot records it on the registry row, so the array is a floor
  * rather than the mechanism.
  */
 
@@ -17,7 +18,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
-import { listDeclaredResources, listKnownResources } from '../../lib/tenancy/resource-grants.js';
+import {
+  listDeclaredResources,
+  listKnownResources,
+  syncManifestsFromDisk,
+} from '../../lib/tenancy/resource-grants.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -25,7 +30,7 @@ const STAMP = Date.now();
 const EXT_NAME = `audit/sweeptest-${STAMP}`;
 const NOVEL_RESOURCE = `sweeptest_resource_${STAMP}`;
 
-d('listKnownResources reads manifest.resources (in-process)', () => {
+d('listDeclaredResources reads manifest.resources (in-process)', () => {
   let db: Database;
   let extRoot: string;
   let savedDir: string | undefined;
@@ -45,6 +50,12 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
     process.env.EXTENSIONS_DIR = extRoot;
   });
 
+  /** The boot records each manifest on its row; the reconcile reads the record. */
+  const declared = async () => {
+    await syncManifestsFromDisk(db, extRoot);
+    return listDeclaredResources(db);
+  };
+
   afterEach(async () => {
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT_NAME}`.execute(db);
   });
@@ -61,10 +72,8 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       VALUES (${EXT_NAME}, 'Sweep Test', '1.0.0', true, false)
     `.execute(db);
 
-    const known = await listKnownResources(db, extRoot);
-    expect(known).toContain(NOVEL_RESOURCE);
     // What the boot reconcile grants `execute` on: the declarations, no collection.
-    expect(await listDeclaredResources(db, extRoot)).toEqual([NOVEL_RESOURCE]);
+    expect(await declared()).toEqual([NOVEL_RESOURCE]);
   });
 
   it('ignores an extension that is recorded but not installed', async () => {
@@ -73,8 +82,7 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       VALUES (${EXT_NAME}, 'Sweep Test', '1.0.0', false, false)
     `.execute(db);
 
-    const known = await listKnownResources(db, extRoot);
-    expect(known).not.toContain(NOVEL_RESOURCE);
+    expect(await declared()).not.toContain(NOVEL_RESOURCE);
   });
 
   it('returns no extension resources at all when nothing is installed', async () => {
@@ -82,8 +90,8 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
     // asserted they always came back. It was removed on 2026-08-30 (owner
     // decision), so the floor is now exactly the collections — an extension that
     // declares nothing gets nothing, and says so at boot.
-    const known = await listKnownResources(db, extRoot);
-    expect(known).not.toContain(NOVEL_RESOURCE);
+    expect(await declared()).not.toContain(NOVEL_RESOURCE);
+    const known = await listKnownResources(db);
     const collections = await sql<{ name: string }>`SELECT name FROM zvd_collections`.execute(db);
     expect(known.sort()).toEqual([...new Set(collections.rows.map((r) => r.name))].sort());
   });
@@ -106,7 +114,7 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       said.push(a.map(String).join(' '));
     });
     try {
-      await listKnownResources(db, extRoot);
+      await declared();
     } finally {
       warn.mockRestore();
       await sql`DELETE FROM zv_extension_registry WHERE name = ${mute}`.execute(db);
@@ -133,7 +141,7 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       VALUES (${EXT_NAME}, 'Sweep Test', '1.0.0', true, false)
     `.execute(db);
     try {
-      const known = await listKnownResources(db, extRoot);
+      const known = await declared();
       // The good neighbour is still there.
       expect(known).toContain(NOVEL_RESOURCE);
     } finally {
@@ -157,7 +165,10 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       await sql.raw('CREATE TABLE zvd_collections (name TEXT PRIMARY KEY)').execute(partial);
       await sql.raw("INSERT INTO zvd_collections (name) VALUES ('widgets')").execute(partial);
 
-      const known = await listKnownResources(partial, extRoot);
+      const known = [
+        ...(await listKnownResources(partial)),
+        ...(await listDeclaredResources(partial)),
+      ];
 
       // A missing registry costs the extension resources and nothing else: the
       // collections still come back, so deny-by-default does not close the whole
@@ -187,7 +198,7 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       VALUES (${junk}, 'Junk', '1.0.0', true, false)
     `.execute(db);
     try {
-      const known = await listKnownResources(db, extRoot);
+      const known = await declared();
       expect(known).toContain(good);
       expect(known.filter((r) => typeof r !== 'string' || r === '')).toEqual([]);
     } finally {
@@ -215,7 +226,7 @@ d('listKnownResources reads manifest.resources (in-process)', () => {
       });
       let known: string[];
       try {
-        known = await listKnownResources(db, extRoot);
+        known = await declared();
       } finally {
         warn.mockRestore();
       }

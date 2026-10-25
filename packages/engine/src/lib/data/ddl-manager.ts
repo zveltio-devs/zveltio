@@ -115,13 +115,10 @@ function syncTombstoneTrigger(tableName: string): string {
   );
 }
 
-/** `nonCollectionObjects`, resolved where the engine keeps its extensions. */
+/** `nonCollectionObjects`, imported late: tenancy imports back into this layer. */
 async function nonCollectionObjectsNow(db: Database, leaving?: string): Promise<Set<string>> {
-  const [{ nonCollectionObjects }, { resolveExtensionsBase }] = await Promise.all([
-    import('../tenancy/index.js'),
-    import('../extensions/index.js'),
-  ]);
-  return nonCollectionObjects(db, resolveExtensionsBase(), leaving);
+  const { nonCollectionObjects } = await import('../tenancy/index.js');
+  return nonCollectionObjects(db, leaving);
 }
 
 /**
@@ -884,8 +881,7 @@ export class DDLManager {
       );
       await materializeDefaultGrants(db, [name]);
       // An installed extension's action gated on it asks `execute` (extension model v3).
-      const { resolveExtensionsBase } = await import('../extensions/index.js');
-      if ((await listActionCollections(db, resolveExtensionsBase())).includes(name)) {
+      if ((await listActionCollections(db)).includes(name)) {
         await materializeDefaultGrants(db, [name], { extension: true });
       }
     } catch (err) {

@@ -18,6 +18,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { purgeExtensionData } from '../../lib/extensions/migration-runner.js';
 import { getEnforcer } from '../../lib/tenancy/permissions.js';
+import { syncManifestsFromDisk } from '../../lib/tenancy/resource-grants.js';
 import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -126,6 +127,8 @@ d('purging an extension removes the rules on its own objects', () => {
     });
     for (const name of [X, Y]) await install(name);
     await install(V, false);
+    // As a boot does: each manifest on disk is recorded on its row.
+    await syncManifestsFromDisk(db, extRoot);
     await down(X, X_DROPPED);
     await down(Z, Z_DROPPED);
 
@@ -184,10 +187,10 @@ d('purging an extension removes the rules on its own objects', () => {
     expect(await held(ONLY)).toBe(true);
   });
 
-  it("another installed extension's unreadable manifest still fails the purge closed", async () => {
+  it("another installed extension's unknown claim still fails the purge closed", async () => {
     await install(W);
     try {
-      await expect(purgeExtensionData(X, db)).rejects.toThrow(/without a readable manifest/);
+      await expect(purgeExtensionData(X, db)).rejects.toThrow(/no manifest on record/);
     } finally {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${W}`.execute(db);
     }
@@ -198,10 +201,10 @@ d('purging an extension removes the rules on its own objects', () => {
     ).toHaveLength(1);
   });
 
-  it("a soft-uninstalled extension's unreadable manifest fails the purge closed too", async () => {
+  it("a soft-uninstalled extension's unknown claim fails the purge closed too", async () => {
     await install(W, false);
     try {
-      await expect(purgeExtensionData(X, db)).rejects.toThrow(/without a readable manifest/);
+      await expect(purgeExtensionData(X, db)).rejects.toThrow(/no manifest on record/);
     } finally {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${W}`.execute(db);
     }
