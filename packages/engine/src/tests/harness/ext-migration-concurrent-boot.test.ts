@@ -83,4 +83,61 @@ d('extension migrations: concurrent boots run a pending chain once', () => {
       runExtensionMigrations(ext, db),
     ]);
   }, 30_000);
+
+  // A `-- NO TRANSACTION` migration ran unlocked: the second replica ran it beside
+  // the first and failed its load on a 23505. Its lock cannot live in a
+  // transaction (CONCURRENTLY refuses one), and while a replica waits for it no
+  // snapshot may stay open, or the holder's concurrent build waits on the waiter.
+  describe('a -- NO TRANSACTION migration after a transactional one', () => {
+    const notx = {
+      name: EXT,
+      getMigrations: () => [`${DIR}/001_rows.sql`, `${DIR}/002_notx.sql`],
+    } as unknown as ZveltioExtension;
+
+    beforeAll(async () => {
+      await Bun.write(
+        `${DIR}/002_notx.sql`,
+        `-- NO TRANSACTION\nINSERT INTO ${TABLE} DEFAULT VALUES;\nSELECT pg_sleep(0.5);\n` +
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${TABLE}_id ON ${TABLE} (id);`,
+      );
+    });
+
+    async function ranBothOnce(runs: Promise<void>[]): Promise<void> {
+      const outcomes = await Promise.allSettled(runs);
+      const failed = outcomes.flatMap((o) => (o.status === 'rejected' ? [String(o.reason)] : []));
+      expect(failed).toEqual([]);
+      const seeded = await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM ${sql.raw(TABLE)}
+      `.execute(db);
+      expect(seeded.rows[0].n).toBe(2); // one row from each migration, each run once
+      const recorded = await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM zv_migrations WHERE name LIKE ${`ext:${EXT}:%`}
+      `.execute(db);
+      expect(recorded.rows[0].n).toBe(2);
+      const index = await sql<{ valid: boolean }>`
+        SELECT indisvalid AS valid FROM pg_index WHERE indexrelid = ${`${TABLE}_id`}::regclass
+      `.execute(db);
+      expect(index.rows).toEqual([{ valid: true }]);
+    }
+
+    it('two boots: both loads succeed, each UP ran once', async () => {
+      await cleanup();
+      await ranBothOnce([runExtensionMigrations(notx, db), runExtensionMigrations(notx, db)]);
+    }, 30_000);
+
+    it('a boot arriving while the other runs it waits, then finds it applied', async () => {
+      await cleanup();
+      const first = runExtensionMigrations(notx, db);
+      await Bun.sleep(700); // the first is inside 002
+      await ranBothOnce([first, runExtensionMigrations(notx, db)]);
+    }, 30_000);
+
+    it('a boot beside a runtime enable: the same, without a deadlock', async () => {
+      await cleanup();
+      await ranBothOnce([
+        withExtensionLock(db, EXT, () => runExtensionMigrations(notx, db)),
+        runExtensionMigrations(notx, db),
+      ]);
+    }, 30_000);
+  });
 });

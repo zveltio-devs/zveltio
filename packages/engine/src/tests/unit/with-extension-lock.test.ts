@@ -1,7 +1,7 @@
 /**
  * Cross-replica extension lifecycle lock (lib/extensions/extension-utils.ts).
  *
- * withExtensionLock composes inMemoryMutex + pg_advisory_xact_lock inside a
+ * withExtensionLock composes inMemoryMutex + pg_try_advisory_xact_lock inside a
  * transaction. CannedDb exercises the SQL + fn body without Postgres.
  */
 
@@ -13,7 +13,7 @@ import { CannedDb } from './fixtures/canned-db.js';
 describe('withExtensionLock', () => {
   it('runs fn inside a transaction after acquiring the advisory lock', async () => {
     const canned = new CannedDb();
-    canned.when(/pg_advisory_xact_lock/i, []);
+    canned.when(/pg_try_advisory_xact_lock/i, [{ ok: true }]);
     const db = canned.kysely as unknown as Database;
     const seen: string[] = [];
 
@@ -24,12 +24,12 @@ describe('withExtensionLock', () => {
 
     expect(out).toBe(42);
     expect(seen).toEqual(['ran']);
-    expect(canned.executed(/pg_advisory_xact_lock/i).length).toBe(1);
+    expect(canned.executed(/pg_try_advisory_xact_lock/i).length).toBe(1);
   });
 
   it('serializes concurrent locks for the same extension name', async () => {
     const canned = new CannedDb();
-    canned.when(/pg_advisory_xact_lock/i, []);
+    canned.when(/pg_try_advisory_xact_lock/i, [{ ok: true }]);
     const db = canned.kysely as unknown as Database;
     const order: string[] = [];
 
@@ -48,7 +48,7 @@ describe('withExtensionLock', () => {
 
   it('locks per extension: another name neither waits nor shares the key', async () => {
     const canned = new CannedDb();
-    canned.when(/pg_advisory_xact_lock/i, []);
+    canned.when(/pg_try_advisory_xact_lock/i, [{ ok: true }]);
     const db = canned.kysely as unknown as Database;
     const order: string[] = [];
     const p1 = withExtensionLock(db, 'ext-a', async () => {
@@ -64,7 +64,7 @@ describe('withExtensionLock', () => {
     // `b` did not wait for `a` to finish.
     expect(order.indexOf('b')).toBeLessThan(order.indexOf('a-end'));
     const keys = canned
-      .executed(/pg_advisory_xact_lock/i)
+      .executed(/pg_try_advisory_xact_lock/i)
       .map((q) => q.sql.match(/hashtext\('([^']*)'\)/)?.[1]);
     expect(keys.sort()).toEqual(['ext:ext-a', 'ext:ext-b']);
   });

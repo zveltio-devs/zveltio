@@ -75,7 +75,7 @@ function asDb(db: CannedDb): Database {
 }
 
 function seedDb(db: CannedDb): void {
-  db.when(/pg_advisory_xact_lock/i, []);
+  db.when(/pg_try_advisory_xact_lock/i, [{ ok: true }]);
   db.when(/from "zv_extension_registry"/i, []);
   db.when(/from "zv_settings"/i, []);
   db.when(/from "zv_license_audit"/i, []);

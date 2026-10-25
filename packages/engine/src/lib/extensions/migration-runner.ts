@@ -10,6 +10,7 @@
 
 import { sql as _sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import { waitForXactLock, withSessionAdvisoryLock } from '../../db/advisory-lock.js';
 import { escapeLike } from '../../db/dynamic.js';
 import { type Database, recycleActivePool } from '../../db/index.js';
 import {
@@ -329,6 +330,8 @@ export function observeExtensionMigrations(name: string, fn: (ids: number[]) => 
 }
 
 async function runSegments(extName: string, segments: Segment[], db: Database): Promise<void> {
+  const lockKey = `ext-migrations:${extName}`;
+  const lockWait = timeoutSetting('ZVELTIO_MIGRATION_LOCK_WAIT', '10min');
   for (const segment of segments) {
     if (segment.transactional) {
       await db.transaction().execute(async (trx) => {
@@ -338,11 +341,7 @@ async function runSegments(extName: string, segments: Segment[], db: Database): 
         // connection and cannot deadlock a pool of two under the runtime paths'
         // `ext:<name>` holder, hence a key of its own. Waited for as the engine's
         // own migration lock is, then the chain is read again under it.
-        const wait = timeoutSetting('ZVELTIO_MIGRATION_LOCK_WAIT', '10min');
-        const key = _sql.lit(`ext-migrations:${extName}`);
-        await _sql`SET LOCAL statement_timeout = 0`.execute(trx);
-        await _sql`SET LOCAL lock_timeout = ${_sql.lit(wait)}`.execute(trx);
-        await _sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`.execute(trx);
+        await waitForXactLock(trx, lockKey, lockWait);
         const names = segment.items.map((m) => m.name);
         const done = new Set(
           (
@@ -375,20 +374,35 @@ async function runSegments(extName: string, segments: Segment[], db: Database): 
     }
 
     for (const m of segment.items) {
-      // Statement by statement, not as one raw blob. A multi-statement simple
-      // query is itself an implicit transaction block, so sending the whole UP
-      // at once would have Postgres reject CONCURRENTLY just as surely as the
-      // explicit transaction this path exists to escape.
-      for (const stmt of splitSqlStatements(m.up)) {
-        await _sql.raw(stmt).execute(db);
-      }
-      const row = await db
-        .insertInto('zv_migrations')
-        .values({ name: m.name, down_sql: m.down })
-        .returning('id')
-        .executeTakeFirst();
-      if (row) observers.get(extName)?.([row.id]);
-      console.log(`  ✓ Extension migration (no transaction): ${m.name}`);
+      // The same lock, which cannot live in a transaction here: a session lock
+      // on the one backend that runs the statements, then the row read again.
+      await withSessionAdvisoryLock(
+        db,
+        lockKey,
+        async (session) => {
+          const done = await session
+            .selectFrom('zv_migrations')
+            .select('id')
+            .where('name', '=', m.name)
+            .executeTakeFirst();
+          if (done) return; // another replica ran it while this one waited
+          // Statement by statement, not as one raw blob. A multi-statement simple
+          // query is itself an implicit transaction block, so sending the whole UP
+          // at once would have Postgres reject CONCURRENTLY just as surely as the
+          // explicit transaction this path exists to escape.
+          for (const stmt of splitSqlStatements(m.up)) {
+            await _sql.raw(stmt).execute(session);
+          }
+          const row = await session
+            .insertInto('zv_migrations')
+            .values({ name: m.name, down_sql: m.down })
+            .returning('id')
+            .executeTakeFirst();
+          if (row) observers.get(extName)?.([row.id]);
+          console.log(`  ✓ Extension migration (no transaction): ${m.name}`);
+        },
+        { maxWait: lockWait },
+      );
     }
   }
 }
