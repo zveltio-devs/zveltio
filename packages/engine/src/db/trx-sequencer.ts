@@ -1,0 +1,105 @@
+/**
+ * One transaction's statements, kept in an order that leaves multi-statement
+ * scopes whole.
+ *
+ * A savepoint block (`withSavepoint`) and a role window (`asEngineRole`, an
+ * extension's statement) are several statements on the transaction's one
+ * connection. Kysely runs one statement at a time there, not one scope: a
+ * `Promise.all` sibling's statement landed between them. Measured on a request
+ * transaction: two savepoint blocks that both succeeded aborted it (`RELEASE a`
+ * releases `b` too, and `b`'s own RELEASE then fails), a failing block undid a
+ * sibling's write, and a plain read sent during the engine's window ran as its
+ * login — a superuser, past every row policy.
+ *
+ * So each transaction's connection is handed out by a sequencer: `exclusive`
+ * runs a scope alone on it, and every other statement or scope waits for it.
+ * Work inside a scope queues at that scope's level — nested scopes and their
+ * statements run in it, siblings among them still take turns — so a scope never
+ * waits for itself. Ceiling: a scope that awaits a statement issued OUTSIDE it,
+ * on the same transaction and after it began, waits forever.
+ */
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { ConnectionProvider, DatabaseConnection, QueryExecutor } from 'kysely';
+
+interface Level {
+  tail: Promise<unknown>;
+  parent: Level | null;
+  closed: boolean;
+}
+
+/** The scope this async context runs in, per sequencer. */
+const inside = new AsyncLocalStorage<ReadonlyMap<Sequencer, Level>>();
+
+/** A consumer that only asks who provides the connection; any other provider runs it as a no-op. */
+const IDENTIFY = async (_c: DatabaseConnection): Promise<undefined> => undefined;
+
+class Sequencer implements ConnectionProvider {
+  readonly #root: Level = { tail: Promise.resolve(), parent: null, closed: false };
+
+  constructor(readonly inner: ConnectionProvider) {}
+
+  /** Where this context queues: its innermost scope still open, else the root. */
+  #level(): Level {
+    let level = inside.getStore()?.get(this) ?? this.#root;
+    // A statement left running past its scope's end queues where the scope did.
+    while (level.closed && level.parent) level = level.parent;
+    return level;
+  }
+
+  #queue<T>(level: Level, run: () => Promise<T>): Promise<T> {
+    const mine = level.tail.then(run);
+    level.tail = mine.catch(() => undefined);
+    return mine;
+  }
+
+  provideConnection<T>(
+    consumer: (connection: DatabaseConnection) => Promise<T>,
+    options?: Parameters<ConnectionProvider['provideConnection']>[1],
+  ): Promise<T> {
+    if ((consumer as unknown) === IDENTIFY) return Promise.resolve(this as unknown as T);
+    return this.#queue(this.#level(), () => this.inner.provideConnection(consumer, options));
+  }
+
+  exclusive<T>(run: () => Promise<T>): Promise<T> {
+    const parent = this.#level();
+    const level: Level = { tail: Promise.resolve(), parent, closed: false };
+    const scope = new Map(inside.getStore()).set(this, level);
+    return this.#queue(parent, () =>
+      inside.run(scope, run).finally(() => {
+        level.closed = true;
+      }),
+    );
+  }
+}
+
+/**
+ * Hand every transaction (and pinned connection) `db` opens out through a
+ * sequencer. An own property on `db`'s executor, which is what `transaction()`,
+ * `startTransaction()` and `connection()` wrap their one connection with; a
+ * handle derived first (`db.withPlugin(…).transaction()`) is not covered.
+ */
+export function sequenceTransactions<D extends { getExecutor(): QueryExecutor }>(db: D): D {
+  const executor = db.getExecutor();
+  const wrap = executor.withConnectionProvider.bind(executor);
+  Object.defineProperty(executor, 'withConnectionProvider', {
+    value: (provider: ConnectionProvider) => wrap(new Sequencer(provider)),
+  });
+  return db;
+}
+
+/**
+ * Run `run` alone on the transaction `db` is on: after everything already
+ * queued there, before anything sent after it. Outside a transaction, or on one
+ * no sequencer hands out, it just runs.
+ */
+export async function exclusive<T>(
+  db: {
+    readonly isTransaction: boolean;
+    getExecutor(): Pick<ConnectionProvider, 'provideConnection'>;
+  },
+  run: () => Promise<T>,
+): Promise<T> {
+  if (!db.isTransaction) return run();
+  const provider: unknown = await db.getExecutor().provideConnection(IDENTIFY);
+  return provider instanceof Sequencer ? provider.exclusive(run) : run();
+}

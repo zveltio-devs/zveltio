@@ -686,11 +686,9 @@ function windowRoles(extName: string): { plain: string; bypass: string | null } 
  * it too. The previous role is read in the same round trip that sets the new
  * one — target-list order — so the cost is two round trips per statement.
  *
- * Windows on one transaction (`trx`) run one at a time, the engine's own
- * (`asEngineRole`) among them: extensions issue `Promise.all([ctx.db…, ctx.db…])`
- * on the request transaction (`queueRoleWindow`). An ENGINE statement sent
- * concurrently outside a window can still land inside one and run as the
- * narrower role: it may fail, it cannot gain anything.
+ * A window runs alone on its transaction (`trx`, `queueRoleWindow`): extensions
+ * issue `Promise.all([ctx.db…, ctx.db…])` on the request transaction, and any
+ * other statement sent meanwhile — another window, the engine's own — waits.
  *
  * `mirror`: see `setRoleSql` — true for a transaction other than the request's
  * own, e.g. `ctx.adminDb.transaction()`.

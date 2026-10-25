@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { sql } from 'kysely';
+import { exclusive } from '../../db/trx-sequencer.js';
 import { getCurrentTenantTrx } from '../tenancy/index.js';
 
 // ─── Event payloads ────────────────────────────────────────────────────────────
@@ -255,28 +256,32 @@ class TypedEventBus {
     // that triggered the event still commits.
     const trx = getCurrentTenantTrx();
     for (const [index, listener] of listeners.entries()) {
-      // Positional and prefixed: an identifier here is never caller-supplied,
-      // and the loop is sequential, so collisions are not possible.
+      // Positional and prefixed: an identifier here is never caller-supplied.
+      // Alone on the transaction (`exclusive`), so a concurrent emit's block of
+      // the same name cannot interleave with this one.
       const savepoint = `zv_evt_${index}`;
-      if (trx) await sql.raw(`SAVEPOINT ${savepoint}`).execute(trx);
-      try {
-        await (listener as (p: EngineEventMap[K]) => unknown)(payload);
-        if (trx) await sql.raw(`RELEASE SAVEPOINT ${savepoint}`).execute(trx);
-      } catch (err) {
-        if (trx) {
-          await sql
-            .raw(`ROLLBACK TO SAVEPOINT ${savepoint}`)
-            .execute(trx)
-            .catch(() => {
-              /* the transaction is gone entirely; nothing left to salvage */
-            });
+      const block = async () => {
+        if (trx) await sql.raw(`SAVEPOINT ${savepoint}`).execute(trx);
+        try {
+          await (listener as (p: EngineEventMap[K]) => unknown)(payload);
+          if (trx) await sql.raw(`RELEASE SAVEPOINT ${savepoint}`).execute(trx);
+        } catch (err) {
+          if (trx) {
+            await sql
+              .raw(`ROLLBACK TO SAVEPOINT ${savepoint}`)
+              .execute(trx)
+              .catch(() => {
+                /* the transaction is gone entirely; nothing left to salvage */
+              });
+          }
+          console.error(
+            `[events] listener for "${String(event)}" failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
         }
-        console.error(
-          `[events] listener for "${String(event)}" failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
+      };
+      await (trx ? exclusive(trx, block) : block());
     }
   }
 
