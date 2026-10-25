@@ -93,7 +93,17 @@ d('advisory locks on the pool', () => {
       migrated = r;
     });
     try {
-      await until(async () => (await migrationLock()).some((l) => !l.granted));
+      // A waiter tries the lock again and again rather than queueing in pg_locks.
+      await until(
+        async () =>
+          (
+            await sql<{ n: number }>`
+              SELECT count(*)::int AS n FROM pg_stat_activity
+               WHERE datname = current_database()
+                 AND query LIKE ${`%pg_try_advisory_xact_lock(${MIGRATION_KEY})%`}
+            `.execute(probe)
+          ).rows[0]!.n > 0,
+      );
       await busy;
       // The other replica finishes the migration and lets go.
       await sql`
@@ -170,6 +180,35 @@ d('advisory locks on the pool', () => {
           });
           expect(built).toEqual([{ x: null }]);
         }
+      } finally {
+        await sql`DROP TABLE ${sql.id(table)}`.execute(probe);
+      }
+    }, 20_000);
+
+    it('a waiter holds no snapshot either, so the holder’s CREATE INDEX CONCURRENTLY never waits on it', async () => {
+      // A blocked `pg_advisory_xact_lock` keeps its statement's snapshot for the
+      // whole wait, and CONCURRENTLY waits out every older snapshot: the holder's
+      // build waited on the waiter, which waited on the holder — a second replica
+      // booting into the engine's `-- NO TRANSACTION` migration hung the first
+      // until its own wait timed out.
+      const table = `zv_advlock_cicw_${Date.now()}`;
+      await sql`CREATE TABLE ${sql.id(table)} (id int)`.execute(probe);
+      try {
+        const key = freshKey();
+        let waiter!: Promise<unknown>;
+        const took = await withAdvisoryLock(db, key, async () => {
+          waiter = withAdvisoryLock(probe, key, async () => 'ran', { maxWait: '3s' }).catch(
+            (e: unknown) => e,
+          );
+          await Bun.sleep(300); // the waiter is waiting
+          const t0 = Date.now();
+          await sql`CREATE INDEX CONCURRENTLY ${sql.id(`${table}_id`)} ON ${sql.id(table)} (id)`.execute(
+            db,
+          );
+          return Date.now() - t0;
+        });
+        expect(await waiter).toBe('ran');
+        expect(took).toBeLessThan(2_000);
       } finally {
         await sql`DROP TABLE ${sql.id(table)}`.execute(probe);
       }
@@ -253,9 +292,9 @@ d('advisory locks on the pool', () => {
           });
           return waiting;
         };
-        // Without a bound of its own the server setting cancels the wait…
-        expect(String(await wait())).toContain('statement timeout');
-        // …with one, it waits the 600 ms out and takes the lock.
+        // The wait is short tries, so the server setting cancels none of it: with a
+        // bound of its own or without, it waits the 600 ms out and takes the lock.
+        expect(await wait()).toBe('got');
         expect(await wait({ maxWait: '5s' })).toBe('got');
       } finally {
         await strict.destroy();

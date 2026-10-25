@@ -114,6 +114,9 @@ export class CannedDb {
       rows: [{ is_enabled: true }],
     });
     this.handlers.push({ match: /select\s+true as ok\b/i, rows: [{ ok: true }] });
+    // An advisory lock nobody else holds, as on an idle Postgres: the waiting
+    // path asks with tries, and zero rows is no answer to one.
+    this.handlers.push({ match: /select pg_try_advisory(_xact)?_lock\(/i, rows: [{ ok: true }] });
   }
 
   /** Register canned rows for queries whose compiled SQL matches. Returns `this` for chaining. */

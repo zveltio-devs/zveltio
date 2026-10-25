@@ -11,7 +11,8 @@
  *
  * The work itself runs on the pool beside the holder, not inside it: migrations
  * open their own transactions, and `CREATE INDEX CONCURRENTLY` refuses one. The
- * holder takes no snapshot and no table lock, so that work never waits on it.
+ * holder takes no snapshot and no table lock, so that work never waits on it —
+ * nor while it waits for the lock (`waitFor`).
  *
  * Two things end an idle holder early, and either would drop the lock in the
  * middle of the work without a word: the pool's
@@ -29,8 +30,7 @@
  * extension install were enough. Beyond the cap a caller queues for its turn.
  */
 
-import { sql } from 'kysely';
-import { sqlState } from './bun-sql-quirks.js';
+import { type RawBuilder, sql } from 'kysely';
 import { activePoolMax, type Database } from './index.js';
 
 // ponytail: one counter for the process, sized from the engine pool every
@@ -64,7 +64,7 @@ export class AdvisoryLockLost extends Error {
   }
 }
 
-/** The wait for a blocking lock passed `maxWait`: another holder kept it that long. */
+/** The wait for a lock passed `maxWait`: another holder kept it that long. */
 export class AdvisoryLockTimeout extends Error {
   constructor(key: AdvisoryKey, maxWait: string) {
     super(`waited ${maxWait} for advisory lock ${String(key)}; another holder still has it`);
@@ -75,12 +75,10 @@ export class AdvisoryLockTimeout extends Error {
 /**
  * Waits for the lock, then runs `fn` while holding it.
  *
- * `maxWait` (a Postgres interval, e.g. "10min") bounds the wait on the
- * engine's terms: the holder sets its own `lock_timeout` to it and lifts
- * `statement_timeout`, so a server or role `statement_timeout` an operator set
- * for queries no longer decides how long a replica waits for a migration —
- * and the wait still ends, as `AdvisoryLockTimeout`, instead of never.
- * Without it the wait is whatever the session's settings allow.
+ * `maxWait` (e.g. "10min") bounds the wait on the engine's terms, ending it as
+ * `AdvisoryLockTimeout`; without it the wait lasts until the lock is free. A
+ * server or role `statement_timeout` set for queries does not decide it: the
+ * wait is short tries, not one long statement.
  */
 export async function withAdvisoryLock<T>(
   db: Database,
@@ -111,10 +109,7 @@ async function hold<T>(
   fn: () => Promise<T>,
   maxWait?: string,
 ): Promise<T | null> {
-  // Literal, not a parameter: a bound statement leaves its portal — and its
-  // snapshot — open on the holder until the next statement, and every
-  // `CREATE INDEX CONCURRENTLY` beside it then waits on the holder forever.
-  const k = typeof key === 'bigint' ? sql.lit(key) : sql`hashtext(${sql.lit(key)})`;
+  const k = keySql(key);
   let lost: unknown;
   let failed: { err: unknown } | undefined;
   await takeHolderSlot();
@@ -122,19 +117,7 @@ async function hold<T>(
     return await db.transaction().execute(async (holder) => {
       await sql`SET LOCAL idle_in_transaction_session_timeout = 0`.execute(holder);
       if (wait) {
-        if (maxWait) {
-          await sql`SET LOCAL statement_timeout = 0`.execute(holder);
-          await sql`SET LOCAL lock_timeout = ${sql.lit(maxWait)}`.execute(holder);
-        }
-        try {
-          await sql`SELECT pg_advisory_xact_lock(${k})`.execute(holder);
-        } catch (err) {
-          // 55P03: lock_timeout fired while waiting for the advisory lock.
-          if (maxWait && sqlState(err) === '55P03') {
-            throw new AdvisoryLockTimeout(key, maxWait);
-          }
-          throw err;
-        }
+        await waitFor(holder, sql`pg_try_advisory_xact_lock(${k})`, key, maxWait);
       } else {
         const { rows } = await sql<{ ok: boolean }>`
           SELECT pg_try_advisory_xact_lock(${k}) AS ok
@@ -178,4 +161,97 @@ async function hold<T>(
 function heartbeatMs(): number {
   const idle = process.env.BUN_SQL_IDLE_TIMEOUT_MS ?? process.env.DB_IDLE_TIMEOUT_MS ?? 300_000;
   return Math.max(100, Number(idle) / 3 || 100_000);
+}
+
+// Literal, not a parameter: a bound statement leaves its portal — and its
+// snapshot — open on the holder until the next statement, and every
+// `CREATE INDEX CONCURRENTLY` beside it then waits on the holder forever.
+function keySql(key: AdvisoryKey): RawBuilder<unknown> {
+  return typeof key === 'bigint' ? sql.lit(key) : sql`hashtext(${sql.lit(key)})`;
+}
+
+const POLL_MS = 100;
+
+/** A `maxWait` in milliseconds: digits and `ms`, `s` or `min` — bare digits are ms, as in Postgres. */
+function intervalMs(interval: string): number {
+  const m = /^(\d+)(ms|s|min)?$/.exec(interval);
+  if (!m) throw new Error(`maxWait "${interval}" is not an interval like "250ms", "5s" or "2min"`);
+  return Number(m[1]) * ({ ms: 1, s: 1000, min: 60_000 } as Record<string, number>)[m[2] ?? 'ms']!;
+}
+
+/**
+ * Takes the lock `tryLock` asks for on `on`, trying again until `maxWait`
+ * (without one, until it is free).
+ *
+ * Tries, never a blocking `pg_advisory_lock`: a blocked statement keeps its
+ * snapshot for the whole wait, and the holder's `CREATE INDEX CONCURRENTLY`
+ * waits out every snapshot older than its own. Measured: the holder's build
+ * waited for the waiter, the waiter for the holder, until the waiter's
+ * lock_timeout ended it — a replica booting into another's `-- NO TRANSACTION`
+ * migration. Between two tries the waiter holds none.
+ */
+async function waitFor(
+  on: Database,
+  tryLock: RawBuilder<unknown>,
+  key: AdvisoryKey,
+  maxWait?: string,
+): Promise<void> {
+  const deadline = maxWait === undefined ? Infinity : Date.now() + intervalMs(maxWait);
+  for (;;) {
+    const { rows } = await sql<{ ok: boolean }>`SELECT ${tryLock} AS ok`.execute(on);
+    if (rows[0] === undefined)
+      throw new Error(`advisory lock ${String(key)}: the try returned no row`);
+    if (rows[0].ok) return;
+    if (Date.now() >= deadline) throw new AdvisoryLockTimeout(key, maxWait!);
+    await Bun.sleep(POLL_MS);
+  }
+}
+
+/**
+ * Takes `key` as a transaction lock inside `trx`, waiting as `withAdvisoryLock`
+ * does: for work that already runs in a transaction of its own and needs no holder.
+ */
+export function waitForXactLock(trx: Database, key: AdvisoryKey, maxWait?: string): Promise<void> {
+  return waitFor(trx, sql`pg_try_advisory_xact_lock(${keySql(key)})`, key, maxWait);
+}
+
+/**
+ * Runs `fn` on one backend, outside any transaction, holding `key` as a SESSION
+ * lock on that same backend — for work that needs the lock and refuses a
+ * transaction (`CREATE INDEX CONCURRENTLY`). One connection, where a holder
+ * needs a second beside its work: under a runtime path's own holder a pool of
+ * two has no third.
+ *
+ * The backend is pinned the only way this dialect pins one, a transaction,
+ * committed at once and reopened for Kysely to end. A session lock on a pooled
+ * backend is the footgun `withExtensionLock` describes, so it is released in
+ * `finally` on the backend that took it, and a backend that cannot release it
+ * is ended rather than handed back to the pool still holding it.
+ *
+ * `fn` runs everything on `session`: another pooled connection would not hold
+ * the lock, and at a pool of two there is none to spare.
+ */
+export async function withSessionAdvisoryLock<T>(
+  db: Database,
+  key: AdvisoryKey,
+  fn: (session: Database) => Promise<T>,
+  opts: { maxWait?: string } = {},
+): Promise<T> {
+  const k = keySql(key);
+  return db.transaction().execute(async (pinned) => {
+    await sql`COMMIT`.execute(pinned);
+    try {
+      await waitFor(pinned, sql`pg_try_advisory_lock(${k})`, key, opts.maxWait);
+      try {
+        return await fn(pinned);
+      } finally {
+        await sql`SELECT pg_advisory_unlock(${k})`
+          .execute(pinned)
+          .catch(() => sql`SELECT pg_terminate_backend(pg_backend_pid())`.execute(pinned))
+          .catch(() => undefined);
+      }
+    } finally {
+      await sql`BEGIN`.execute(pinned).catch(() => undefined);
+    }
+  });
 }
