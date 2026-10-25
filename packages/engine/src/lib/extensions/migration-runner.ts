@@ -271,6 +271,28 @@ export async function pendingExtensionMigrations(
   return pending;
 }
 
+/**
+ * `name`'s migrations on record in `zv_migrations` that a version shipping
+ * `migrationPaths` does not: the schema is ahead of that version (a newer one ran
+ * them), so its code must not run on it.
+ */
+export async function migrationsAheadOf(
+  name: string,
+  migrationPaths: string[],
+  db: Database,
+): Promise<string[]> {
+  const prefix = `ext:${name}:`;
+  const own = new Set(
+    migrationPaths.map((p) => `${prefix}${p.split('/').pop()?.replace('.sql', '')}`),
+  );
+  const rows = await db
+    .selectFrom('zv_migrations')
+    .select('name')
+    .where('name', 'like', `${escapeLike(prefix)}%`)
+    .execute();
+  return rows.map((r) => r.name).filter((n) => !own.has(n));
+}
+
 const PENDING_REFUSAL = 'migration(s) not applied yet';
 
 /**

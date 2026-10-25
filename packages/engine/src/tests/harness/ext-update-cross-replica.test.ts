@@ -56,6 +56,8 @@ d('updating an extension in place', () => {
   let sigJson = '';
   /** A 1.1.0 that verifies but throws when it starts. */
   const broken = { archive: new Uint8Array(), sigJson: '', sha: '' };
+  /** The same, shipping no migration 1.0.0 does not: the schema stays 1.0.0's. */
+  const brokenSame = { archive: new Uint8Array(), sigJson: '', sha: '' };
   const realFetch = globalThis.fetch;
   const saved = {
     extDir: process.env.EXTENSIONS_DIR,
@@ -103,7 +105,7 @@ d('updating an extension in place', () => {
          name: ${JSON.stringify(NAME)},
          category: 'fixture',
          getMigrations: () => ${JSON.stringify(files)}.map((f) => join(import.meta.dir, f)),
-         async register() { ${broken ? "await globalThis.__zvUpdateWindow?.(); throw new Error('1.1.0 cannot start');" : ''} },
+         async register() { ${broken ? "await globalThis.__zvUpdateWindow?.(); if (globalThis.__zvStartFails !== false) throw new Error('1.1.0 cannot start');" : ''} },
        };`,
     );
   };
@@ -193,6 +195,14 @@ d('updating an extension in place', () => {
     broken.archive = new Uint8Array(readFileSync(btgz));
     broken.sha = createHash('sha256').update(broken.archive).digest('hex');
     broken.sigJson = JSON.stringify(await signBundle(broken.archive, kp));
+    await writeVersion(join(scratch, 'v2-broken-same'), '1.1.0', [T1], true);
+    const stgz = join(scratch, 'v2-broken-same.tar.gz');
+    expect(
+      await Bun.spawn(['tar', '-czf', stgz, '-C', join(scratch, 'v2-broken-same'), '.']).exited,
+    ).toBe(0);
+    brokenSame.archive = new Uint8Array(readFileSync(stgz));
+    brokenSame.sha = createHash('sha256').update(brokenSame.archive).digest('hex');
+    brokenSame.sigJson = JSON.stringify(await signBundle(brokenSame.archive, kp));
     extensionLoader.ctx = {
       ...(extensionLoader.ctx ?? {}),
       db,
@@ -288,9 +298,33 @@ d('updating an extension in place', () => {
     expect(onDisk()).toBe('1.0.0');
   }, 60_000);
 
-  it('another replica where the new version fails to start puts 1.0.0 back and runs it', async () => {
+  // Replica A's update ran 1.1.0's migration: 1.0.0's code never runs on that schema.
+  it('another replica where the new version fails to start stays unloaded, never on 1.0.0', async () => {
     await runningV1({ pinned: broken.sha });
+    await sql.raw(`CREATE TABLE ${T2} (id int)`).execute(db);
+    await sql`INSERT INTO zv_migrations (name, down_sql)
+              VALUES (${`ext:${NAME}:002_${T2}`}, ${`DROP TABLE ${T2}`})`.execute(db);
     serveRegistry(broken.sha, broken);
+    await announce();
+    expect(extensionLoader.isActive(NAME)).toBe(false);
+    expect(extensionLoader.getLastLoadError(NAME)).toContain('1.1.0 cannot start');
+    // 1.1.0 stays on disk, as on the replica that ran the update or a boot.
+    expect(onDisk()).toBe('1.1.0');
+    expect(readdirSync(base).filter((e) => e.startsWith('.update-'))).toEqual([]);
+    // Once it can start, the next sync loads it.
+    (globalThis as { __zvStartFails?: boolean }).__zvStartFails = false;
+    try {
+      await announce();
+    } finally {
+      delete (globalThis as { __zvStartFails?: boolean }).__zvStartFails;
+    }
+    expect(extensionLoader.getLastLoadError(NAME)).toBeUndefined();
+    expect(loadedVersion()).toBe('1.1.0');
+  }, 60_000);
+
+  it("another replica where the new version fails to start, on 1.0.0's schema, runs 1.0.0", async () => {
+    await runningV1({ pinned: brokenSame.sha });
+    serveRegistry(brokenSame.sha, brokenSame);
     await announce();
     expect(extensionLoader.isActive(NAME)).toBe(true);
     expect(loadedVersion()).toBe('1.0.0');
