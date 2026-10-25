@@ -63,10 +63,22 @@ async function createIsolatedTable(
   createSql: string,
   /** A collection's fields: its unserved columns are sealed before anything can write them. */
   fields?: ReadonlyArray<{ name: string; type: string }>,
+  /**
+   * Its row-rule policy too, for a table complete at CREATE. A collection's
+   * gets columns after this (relation FKs), so `createCollection` builds it last.
+   */
+  rowRules = false,
 ): Promise<void> {
   const run = async (h: Database) => {
     await sql.raw(createSql).execute(h);
     await isolateTable(h, table, fields);
+    if (rowRules) {
+      const { applyRowRulePolicy, lockRowRules } = await import('../tenancy/index.js');
+      // Shared, as in `createCollection`: a rule writer either commits before
+      // the rules are read here or waits for this create to commit, then sees it.
+      await lockRowRules(h, 'shared');
+      await applyRowRulePolicy(h, table.slice('zvd_'.length));
+    }
   };
   if ((db as unknown as { isTransaction?: boolean }).isTransaction) await run(db);
   else await db.transaction().execute(run);
@@ -561,6 +573,10 @@ export class DDLManager {
         `"${targetName}_id" UUID REFERENCES "${targetTable}"(id) ON DELETE CASCADE, ` +
         `created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()` +
         `)`,
+      undefined,
+      // Rules outlive a junction (a relation removed and added again) and the
+      // boot reconcile puts them on it; RESTRICTIVE, so missing they restricted nothing.
+      true,
     );
     await buildIndex(
       db,
