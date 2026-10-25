@@ -800,6 +800,12 @@ export class DDLManager {
           junction_table: junctionTable,
         });
       }
+
+      // Last, over every column: the rules already written for it and the `*`
+      // ones. Its rule writers found no table to put them on, and the policy is
+      // RESTRICTIVE: missing, it restricted nothing until the next boot.
+      const { applyRowRulePolicy } = await import('../tenancy/index.js');
+      await applyRowRulePolicy(h, validated.name);
     };
     await db.transaction().execute(build);
     // registerMetadata invalidated inside the transaction; a read before commit re-cached the absence.

@@ -34,6 +34,7 @@ import {
   describeDenial,
   actionCollections,
   existingCollections,
+  applyRowRulePolicy,
 } from '../tenancy/index.js';
 import {
   announceSchemaChange,
@@ -1260,7 +1261,17 @@ export const announcingDDLManager: typeof DDLManager = Object.assign(
       announceSchemaChange(def.name, 'create');
     },
     async registerMetadata(_db: Database, ...[def]: AfterDb<typeof DDLManager.registerMetadata>) {
-      await onEnginePool((pool) => DDLManager.registerMetadata(pool, def));
+      // The registry row and the row rules that now reach the table commit
+      // together: a `*` rule reaches a registered collection only.
+      await onEnginePool(
+        (pool) =>
+          pool.transaction().execute(async (trx) => {
+            await DDLManager.registerMetadata(trx, def);
+            await applyRowRulePolicy(trx, def.name);
+          }),
+        collection(def.name),
+      );
+      DDLManager.invalidateCache(def.name);
       // A table the extension adopts gets what `createCollection` gives one it
       // creates, not nothing until the next boot's reconcile.
       await DDLManager.grantDefaults(getDb(), def.name);
