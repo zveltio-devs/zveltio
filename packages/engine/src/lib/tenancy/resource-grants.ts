@@ -245,7 +245,8 @@ export async function listActionCollections(db: Database, base: string): Promise
 
 /**
  * `manifest.resources` of `installed`, the collections their actions are gated
- * on (`gated`, see `actionCollections`), which of them declare neither, and
+ * on (`gated`, see `actionCollections`), their `manifest.sensitiveResources`
+ * (`sensitive`), which of them declare neither resources nor gates, and
  * which of those have no readable manifest (`unreadable`, a subset of `silent`:
  * what they declare is unknown, not empty).
  *
@@ -258,9 +259,16 @@ export async function listActionCollections(db: Database, base: string): Promise
 async function declaredBy(
   base: string,
   installed: string[],
-): Promise<{ out: string[]; gated: string[]; silent: string[]; unreadable: string[] }> {
+): Promise<{
+  out: string[];
+  gated: string[];
+  sensitive: string[];
+  silent: string[];
+  unreadable: string[];
+}> {
   const out: string[] = [];
   const gated: string[] = [];
+  const sensitive: string[] = [];
   const silent: string[] = [];
   const unreadable: string[] = [];
   for (const name of installed) {
@@ -277,9 +285,11 @@ async function declaredBy(
         actions?: unknown;
       };
       if (Array.isArray(manifest.sensitiveResources)) {
-        registerSensitiveResources(
-          manifest.sensitiveResources.filter((r): r is string => typeof r === 'string'),
+        const names = manifest.sensitiveResources.filter(
+          (r): r is string => typeof r === 'string' && r !== '',
         );
+        registerSensitiveResources(names);
+        sensitive.push(...names);
       }
       const declared = Array.isArray(manifest.resources)
         ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
@@ -298,7 +308,7 @@ async function declaredBy(
       );
     }
   }
-  return { out, gated, silent, unreadable };
+  return { out, gated, sensitive, silent, unreadable };
 }
 
 /**
@@ -315,12 +325,18 @@ async function declaredBy(
  * not let a drop take rules it cannot attribute. That stops every collection
  * create and drop until the extension's files are back or it is uninstalled —
  * the boot reconcile, which only grants, carries on without it.
+ *
+ * `leaving`: the extension being purged. Its manifest is not read: its objects
+ * go with it (`deleteExtensionObjectRules`), and one with no manifest left on
+ * disk could otherwise never be purged.
  */
 export async function nonCollectionObjects(
   db: Database,
   extensionsBase: string,
+  leaving?: string,
 ): Promise<Set<string>> {
-  const { out, unreadable } = await declaredBy(extensionsBase, await installedExtensions(db));
+  const installed = (await installedExtensions(db)).filter((n) => n !== leaving);
+  const { out, unreadable } = await declaredBy(extensionsBase, installed);
   if (unreadable.length > 0) {
     throw new Error(
       `Installed extension(s) without a readable manifest under ${extensionsBase}: ` +
@@ -329,6 +345,58 @@ export async function nonCollectionObjects(
     );
   }
   return new Set([...ENGINE_CASBIN_OBJECTS, ...out, ...(await retiredZoneSlugs(db))]);
+}
+
+/**
+ * Delete the `p` rules, and the revoked defaults, on extension `name`'s own
+ * objects, as its purge does (extension model v3: rules on extension objects
+ * are removed on purge). Resolves the rules deleted, for `forgetDeletedPolicies`
+ * once the caller commits.
+ *
+ * Its objects: `$ext:<name>`, and the v1 `resources` and `sensitiveResources`
+ * of its manifest that no collection carries and nothing else claims — another
+ * installed extension (resources, sensitiveResources, an action's
+ * `permission.resource`), an engine object, a retired zone. A collection's
+ * rules are the collection's, an action-gated `execute` included: its drop
+ * takes them. Role links (`g`) name no object and stay.
+ *
+ * Without a readable manifest only `$ext:<name>` is known, and that is said.
+ * Throws as `nonCollectionObjects` when another installed extension's manifest
+ * cannot be read: what it claims is unknown, so nothing may be taken from it.
+ */
+export async function deleteExtensionObjectRules(
+  db: Database,
+  extensionsBase: string,
+  name: string,
+): Promise<string[][]> {
+  const taken = await nonCollectionObjects(db, extensionsBase, name);
+  const others = await declaredBy(
+    extensionsBase,
+    (await installedExtensions(db)).filter((n) => n !== name),
+  );
+  for (const r of [...others.gated, ...others.sensitive]) taken.add(r);
+  const own = await declaredBy(extensionsBase, [name]);
+  if (own.unreadable.length > 0) {
+    console.warn(
+      `[resource-grants] purge of ${name}: ${own.unreadable.join('; ')}, so the rules on ` +
+        'its v1 resources could not be identified and stay; only $ext:' +
+        `${name} is removed.`,
+    );
+  }
+  // A manifest is free strings: never `*` or an engine `$` object (`$edge`, `$rpc`).
+  const candidates = [...new Set([...own.out, ...own.sensitive])].filter(
+    (r) => r !== '*' && !r.startsWith('$') && !taken.has(r),
+  );
+  const collections = new Set(await existingCollections(db, candidates));
+  const objects = [`$ext:${name}`, ...candidates.filter((r) => !collections.has(r))];
+  await sql`DELETE FROM zv_default_grant_revocations
+             WHERE resource IN (${sql.join(objects)})`.execute(db);
+  const { rows } = await sql<Record<`v${0 | 1 | 2 | 3 | 4 | 5}`, string | null>>`
+    DELETE FROM zvd_permissions WHERE ptype = 'p' AND v2 IN (${sql.join(objects)})
+    RETURNING v0, v1, v2, v3, v4, v5`.execute(db);
+  return rows.map((r) =>
+    [r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v): v is string => v !== null),
+  );
 }
 
 /**

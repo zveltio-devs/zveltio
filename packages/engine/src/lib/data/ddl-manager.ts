@@ -88,12 +88,12 @@ function syncTombstoneTrigger(tableName: string): string {
 }
 
 /** `nonCollectionObjects`, resolved where the engine keeps its extensions. */
-async function nonCollectionObjectsNow(db: Database): Promise<Set<string>> {
+async function nonCollectionObjectsNow(db: Database, leaving?: string): Promise<Set<string>> {
   const [{ nonCollectionObjects }, { resolveExtensionsBase }] = await Promise.all([
     import('../tenancy/index.js'),
     import('../extensions/index.js'),
   ]);
-  return nonCollectionObjects(db, resolveExtensionsBase());
+  return nonCollectionObjects(db, resolveExtensionsBase(), leaving);
 }
 
 /**
@@ -1003,8 +1003,11 @@ export class DDLManager {
   static async dropInTransaction(
     db: Database,
     name: string,
-    /** `gone`: the table was already dropped (an extension's DOWN SQL); clear the rest. */
-    opts: { force?: boolean; gone?: boolean },
+    /**
+     * `gone`: the table was already dropped (an extension's DOWN SQL); clear the rest.
+     * `leaving`: the extension being purged, whose manifest is not consulted.
+     */
+    opts: { force?: boolean; gone?: boolean; leaving?: string },
   ): Promise<string[][]> {
     const tableName = this.getTableName(name);
 
@@ -1027,7 +1030,7 @@ export class DDLManager {
     // drop, not let it delete rules it cannot attribute. A collection made under
     // a reserved name before the reservation, or one an extension adopted under
     // a resource it declares, shares its rules with that object; they stay.
-    const keepGrants = (await nonCollectionObjectsNow(db)).has(name);
+    const keepGrants = (await nonCollectionObjectsNow(db, opts.leaving)).has(name);
     // A rule older than the collection was not written for it: an extension
     // object its manifest does not declare, an uninstalled extension's grant, a
     // grant made before the create. Rules naming it share the object column, so
