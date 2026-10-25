@@ -14,7 +14,7 @@ import { type RawBuilder, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCache } from '../runtime/index.js';
 import { decodeSigned, encodeSigned } from './signed-cache.js';
-import { noteReconcile } from './reconcile-failures.js';
+import { noteReconcile, startReconcile } from './reconcile-failures.js';
 import { getCurrentTenantTrx, onAfterCommit } from './tenant-context.js';
 import {
   checkPermission,
@@ -127,31 +127,34 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
   return policies;
 }
 
-/** Invalidate RLS policy cache for a collection (call after policy CRUD). */
-export async function invalidateRlsCache(collection: string): Promise<void> {
-  // Rebuild the database's copy of these rules first.
-  //
-  // This is the one place every rule change passes through — create, update and
-  // delete all call it — so it is where the generated policy is kept in step.
-  // Hooking the three routes instead would leave any other caller writing rules
-  // the database does not know about, which is the failure the policy exists to
-  // prevent, reintroduced one caller at a time.
+/**
+ * Invalidate RLS policy cache for a collection (call after policy CRUD).
+ * `policyRebuilt`: the rule's own transaction rebuilt the policy
+ * (`writeRowRules`), so only what follows the commit is left to do.
+ */
+export async function invalidateRlsCache(
+  collection: string,
+  opts: { policyRebuilt?: boolean } = {},
+): Promise<void> {
+  // Rebuild the database's copy of these rules first, on the pool after the
+  // COMMIT. A writer of the rules rebuilds it in its own transaction
+  // (`writeRowRules`); this is the net for one that did not — a dropped
+  // collection, a dropped field's caches — and it refreshes the previews.
   //
   // A `*` rule belongs to every collection, so every collection is rebuilt.
   //
-  // Deferred a tick, and issued on the POOL. `CREATE POLICY` is DDL, which the
-  // request's own role (`zveltio_rls`) may not run — so it has to be the
-  // engine's own connection. Taking that connection while the request still
-  // holds its transaction is the second reservation this codebase spent a block
-  // removing, so it waits for the commit instead.
-  //
-  // The window between the rule being written and the policy being rebuilt is
-  // covered by the engine, which applies the same rule itself. A failure here is
-  // loud rather than fatal for the same reason.
+  // On the POOL. `CREATE POLICY` is DDL, which the request's own role
+  // (`zveltio_rls`) may not run — so it has to be the engine's own connection.
+  // Taking that connection while the request still holds its transaction is the
+  // second reservation this codebase spent a block removing, so it waits for the
+  // commit instead. A failure here is loud rather than fatal.
   const refresh = async () => {
     try {
       const { applyRowRulePolicy, reconcileRowRulePolicies } = await import('./row-rule-policy.js');
-      if (collection === '*') await reconcileRowRulePolicies(_db);
+      // A full rebuild that just committed clears every failure the last reconcile recorded.
+      if (opts.policyRebuilt && collection === '*') startReconcile('row_rules');
+      else if (opts.policyRebuilt) noteReconcile('row_rules', collection);
+      else if (collection === '*') await reconcileRowRulePolicies(_db);
       else {
         await applyRowRulePolicy(_db, collection);
         // As the column layers do: a success clears the boot's failure in `db_rules`.
@@ -656,6 +659,31 @@ async function assertEnforceable(
   if (problem) throw new UnenforceableRuleError(problem);
 }
 
+/**
+ * Change row rules with `write`, and rebuild the database's copy of them — the
+ * `zv_row_rules` policy of every collection it names, of every collection for
+ * `*` — in the same transaction: the rule and its enforcement commit together
+ * or not at all. The policy used to follow the COMMIT, and a table busy past
+ * the lock bound kept enforcing the old rules until the next boot while the
+ * change was answered as a success; now that table fails the change (55P03).
+ *
+ * On the pool, as the owner: `CREATE POLICY` is the owner's DDL, and every
+ * writer of the rules runs there (`/api/admin/rls` and schema apply hold no
+ * request transaction).
+ */
+async function writeRowRules<T>(
+  write: (trx: Database) => Promise<{ result: T; collections: string[] }>,
+): Promise<T> {
+  const { applyRowRulePolicies } = await import('./row-rule-policy.js');
+  const out = await _db.transaction().execute(async (trx) => {
+    const done = await write(trx);
+    await applyRowRulePolicies(trx, done.collections);
+    return done;
+  });
+  for (const c of new Set(out.collections)) await invalidateRlsCache(c, { policyRebuilt: true });
+  return out.result;
+}
+
 export async function createRlsPolicy(data: {
   collection: string;
   role: string;
@@ -665,18 +693,19 @@ export async function createRlsPolicy(data: {
   is_enabled?: boolean;
   description?: string;
 }): Promise<RlsPolicy> {
-  await assertEnforceable(data);
-  const rows = await sql<RlsPolicy>`
-    INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled, description)
-    VALUES (
-      ${data.collection}, ${data.role}, ${data.filter_field},
-      ${data.filter_op}, ${data.filter_value_source},
-      ${data.is_enabled ?? true}, ${data.description ?? null}
-    )
-    RETURNING id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description
-  `.execute(rlsDb());
-  await invalidateRlsCache(data.collection);
-  return rows.rows[0];
+  return writeRowRules(async (trx) => {
+    await assertEnforceable(data, trx);
+    const rows = await sql<RlsPolicy>`
+      INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled, description)
+      VALUES (
+        ${data.collection}, ${data.role}, ${data.filter_field},
+        ${data.filter_op}, ${data.filter_value_source},
+        ${data.is_enabled ?? true}, ${data.description ?? null}
+      )
+      RETURNING id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description
+    `.execute(trx);
+    return { result: rows.rows[0], collections: [data.collection] };
+  });
 }
 
 export async function updateRlsPolicy(
@@ -690,18 +719,14 @@ export async function updateRlsPolicy(
   // one before that move, and the one the rule was really leaving kept a
   // policy built from it. `FOR UPDATE` waits for that move and then reads past
   // it; the check below is then on the rule as it will be stored, too.
-  //
-  // On the request's transaction when there is one, like every helper here: the
-  // pool is a second connection held under it. The policy DDL is not in it —
-  // `invalidateRlsCache` defers that past the commit.
-  const write = async (trx: Database) => {
+  return writeRowRules(async (trx) => {
     const cur = (
       await sql<RlsPolicy>`
         SELECT collection, role, filter_field, filter_op, filter_value_source
           FROM zvd_rls_policies WHERE id = ${id} FOR UPDATE
       `.execute(trx)
     ).rows[0];
-    if (!cur) return null;
+    if (!cur) return { result: null, collections: [] };
     // The rule as it will be after the update, through the same door as a create.
     // PATCH used to skip it, so any rule `createRlsPolicy` refuses could be
     // stored in two steps.
@@ -731,22 +756,19 @@ export async function updateRlsPolicy(
         RETURNING id, collection, role, filter_field, filter_op, filter_value_source, is_enabled, description
       `.execute(trx)
     ).rows[0];
-    return next ? { next, previous: cur.collection } : null;
-  };
-  const requestTrx = getCurrentTenantTrx();
-  const moved = requestTrx ? await write(requestTrx) : await _db.transaction().execute(write);
-  if (!moved) return null;
-  await invalidateRlsCache(moved.next.collection);
-  // A rule moved to another collection leaves one too, and that one has to
-  // stop enforcing it.
-  if (moved.previous !== moved.next.collection) await invalidateRlsCache(moved.previous);
-  return moved.next;
+    // A rule moved to another collection leaves one too, and that one has to
+    // stop enforcing it.
+    return { result: next ?? null, collections: next ? [next.collection, cur.collection] : [] };
+  });
 }
 
 export async function deleteRlsPolicy(id: string): Promise<boolean> {
-  const rows = await sql<{ collection: string }>`
-    DELETE FROM zvd_rls_policies WHERE id = ${id} RETURNING collection
-  `.execute(rlsDb());
-  if (rows.rows[0]) await invalidateRlsCache(rows.rows[0].collection);
-  return rows.rows.length > 0;
+  return writeRowRules(async (trx) => {
+    const gone = (
+      await sql<{ collection: string }>`
+        DELETE FROM zvd_rls_policies WHERE id = ${id} RETURNING collection
+      `.execute(trx)
+    ).rows[0];
+    return { result: !!gone, collections: gone ? [gone.collection] : [] };
+  });
 }

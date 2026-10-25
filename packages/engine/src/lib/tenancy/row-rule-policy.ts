@@ -574,24 +574,19 @@ async function rebuildRowRulePolicy(
 }
 
 /**
- * Put the rules on every collection that has them, and take them off every
- * collection that no longer does. Run at boot and on every `*` rule change.
+ * Every collection whose policy the rules reach: those with a rule of their
+ * own, every registered one when a `*` rule exists, and every table still
+ * carrying the policy.
  *
- * Existing installs have rules and no policies; nothing else would ever create
- * them, and a feature that only protects collections created after the upgrade
- * protects the ones nobody has data in yet.
+ * The last because a deleted, disabled or moved `*` rule leaves tables with no
+ * rule at all, and those are exactly the ones that must drop it. Read off the
+ * rules and the policies themselves, not only through `zvd_collections`:
+ * `applyRowRulePolicy` puts a policy on any `zvd_` table a rule names,
+ * registered or not, and that policy carries the `*` rules too — so a table
+ * with no `zvd_collections` row kept a moved or deleted `*` rule for good when
+ * this listed only registered ones.
  */
-export async function reconcileRowRulePolicies(db: Database): Promise<number> {
-  // And every table still carrying the policy: a deleted, disabled or moved
-  // `*` rule leaves tables with no rule at all, and those are exactly the ones
-  // that must drop it.
-  //
-  // Tables are read off the rules and the policies themselves, not only through
-  // `zvd_collections`. `applyRowRulePolicy` puts a policy on any `zvd_` table a
-  // rule names, registered or not, and that policy carries the `*` rules too —
-  // so a table with no `zvd_collections` row kept a moved or deleted `*` rule
-  // for good when this listed only registered ones.
-  const record = startReconcile('row_rules');
+async function rowRuleCollections(db: Database): Promise<string[]> {
   const rows = await sql<{ name: string }>`
     SELECT p.collection AS name FROM zvd_rls_policies p
      WHERE p.is_enabled AND p.collection <> '*'
@@ -602,16 +597,42 @@ export async function reconcileRowRulePolicies(db: Database): Promise<number> {
     SELECT substr(pp.tablename, 5) FROM pg_policies pp
      WHERE pp.schemaname = 'public' AND pp.policyname = ${ROW_RULE_POLICY}
        AND starts_with(pp.tablename, 'zvd_')
-  `
-    .execute(db)
-    .catch((err: Error) => {
-      record('*', err);
-      throw err;
-    });
+  `.execute(db);
+  return rows.rows.map((r) => r.name);
+}
+
+/**
+ * Rebuild the policy of each of `collections` — of every collection the rules
+ * reach when one is `*` — in `db`, the transaction a writer of the rules
+ * opened: the rules and their policies commit together or not at all. A table
+ * busy past the lock bound throws (55P03) and takes the change with it. In
+ * name order, so two writers lock the tables they share in the same order.
+ */
+export async function applyRowRulePolicies(db: Database, collections: string[]): Promise<void> {
+  const names = new Set(collections.filter((c) => c !== '*'));
+  if (collections.includes('*')) for (const c of await rowRuleCollections(db)) names.add(c);
+  for (const c of [...names].sort()) await applyRowRulePolicy(db, c);
+}
+
+/**
+ * Put the rules on every collection that has them, and take them off every
+ * collection that no longer does (`rowRuleCollections`). Run at boot, each
+ * table on its own: one that fails is recorded and the rest are still done.
+ *
+ * Existing installs have rules and no policies; nothing else would ever create
+ * them, and a feature that only protects collections created after the upgrade
+ * protects the ones nobody has data in yet.
+ */
+export async function reconcileRowRulePolicies(db: Database): Promise<number> {
+  const record = startReconcile('row_rules');
+  const names = await rowRuleCollections(db).catch((err: Error) => {
+    record('*', err);
+    throw err;
+  });
   let n = 0;
-  for (const r of rows.rows) {
-    const res = await applyRowRulePolicy(db, r.name).catch((err: Error) => {
-      console.warn(`[row-rules] ${r.name}: could not apply — ${record(r.name, err)}`);
+  for (const name of names) {
+    const res = await applyRowRulePolicy(db, name).catch((err: Error) => {
+      console.warn(`[row-rules] ${name}: could not apply — ${record(name, err)}`);
       return { applied: false, skipped: [] };
     });
     if (res.applied) n++;
