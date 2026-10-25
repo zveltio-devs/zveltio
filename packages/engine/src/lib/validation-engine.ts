@@ -12,7 +12,7 @@ import { celEnv, isCelError, parse, plan } from '@bufbuild/cel';
 import { RE2JS } from '@bufbuild/re2';
 import { sql } from 'kysely';
 import { withSavepoint } from './savepoint.js';
-import { getCurrentTrxTenant } from './tenancy/index.js';
+import { getCurrentTenantTrx, getCurrentTrxTenant } from './tenancy/index.js';
 import type { Database } from '../db/index.js';
 
 type CelExpr = ReturnType<typeof parse>['expr'];
@@ -428,9 +428,17 @@ export function initValidationEngine(db: Database): void {
   _db = db;
 }
 
-/** The handle, or null when the engine has not booted (unit tests, CLI). */
+/**
+ * The handle, or null when the engine has not booted (unit tests, CLI).
+ *
+ * The open tenant transaction when there is one: the rules are read while a
+ * write holds it, and the pool then is a SECOND connection — at
+ * `c = DB_POOL_MAX` a cold burst of writes held every connection waiting for one
+ * more, until the acquire deadline. The request role reads both tables: the
+ * SELECT policy of migration 093 shows it the instance rules and its own tenant's.
+ */
 export function getValidationDb(): Database | null {
-  return _db;
+  return _db && (getCurrentTenantTrx() ?? _db);
 }
 
 // In-memory rules cache (TTL 60s), keyed `<collection>:<field>@<tenant>`.
@@ -441,7 +449,8 @@ const rulesCache = new Map<string, { rules: ValidationRule[]; ts: number }>();
  * open tenant transaction writes as (`getCurrentTrxTenant`), where every write
  * path runs — data API, bulk, sync, `dynamicInsert`, a worker's call, a job
  * inside `withTenantIsolation`. No tenant transaction: instance rules only.
- * Filtered here, not by RLS: the read runs on the pool, as the engine.
+ * Filtered here, not only by RLS: outside a transaction the read runs on the
+ * pool, as the engine.
  */
 export async function getValidationRules(
   db: Database,
@@ -544,7 +553,9 @@ const groupsCache = new Map<string, { groups: RuleGroup[]; ts: number }>();
 const ruleGroupsTablePresent = new WeakMap<object, boolean>();
 
 async function hasRuleGroupsTable(db: Database): Promise<boolean> {
-  const known = ruleGroupsTablePresent.get(db as unknown as object);
+  // Keyed on the pool, not on `db`: that is a new transaction on every write.
+  const key = (_db ?? db) as unknown as object;
+  const known = ruleGroupsTablePresent.get(key);
   if (known !== undefined) return known;
   let present = false;
   try {
@@ -562,13 +573,13 @@ async function hasRuleGroupsTable(db: Database): Promise<boolean> {
     // direction: every rule on a field stays required.
     present = false;
   }
-  ruleGroupsTablePresent.set(db as unknown as object, present);
+  ruleGroupsTablePresent.set(key, present);
   return present;
 }
 
 /** Test seam — a test may create or drop the table under a handle it reuses. */
 export function resetRuleGroupsTableProbe(db?: Database): void {
-  if (db) ruleGroupsTablePresent.delete(db as unknown as object);
+  if (db) ruleGroupsTablePresent.delete((_db ?? db) as unknown as object);
 }
 
 async function getRuleGroups(db: Database, collection: string): Promise<RuleGroup[]> {

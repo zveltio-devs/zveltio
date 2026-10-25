@@ -36,7 +36,7 @@ import { sqlState } from '../../db/bun-sql-quirks.js';
 import { columnGuardRefusal } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
 import { readableColumns, readSource, withEngineColumns } from '../../db/dynamic.js';
-import { withCollectionRead } from '../tenancy/index.js';
+import { onAfterCommit, withCollectionRead } from '../tenancy/index.js';
 import type { VirtualConfig } from '../virtual-collection-adapter.js';
 
 /** Returns the tenant-isolated transaction DB when in multi-tenant mode, else
@@ -639,16 +639,23 @@ export async function afterWrite(
   // Publish to the cross-instance realtime bus (Valkey if
   // configured, else pg_notify). The bus filters its own echo so the
   // already-fired local `broadcastEvent` above doesn't double-deliver.
-  realtimeBus()
-    .publish({
-      event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
-      collection,
-      record_id: recordId as string,
-      data: outbound,
-      timestamp: new Date().toISOString(),
-      tenantId: tenantId ?? null,
-    })
-    .catch((err) => console.error('[afterWrite] realtime publish failed:', err));
+  //
+  // After the commit: pg_notify runs on the pool, and from inside the request
+  // transaction that was a second connection on every write (and a remote
+  // event for a write a later rollback undid).
+  const busEvent = {
+    event: `record.${action === 'create' ? 'created' : action === 'update' ? 'updated' : 'deleted'}`,
+    collection,
+    record_id: recordId as string,
+    data: outbound,
+    timestamp: new Date().toISOString(),
+    tenantId: tenantId ?? null,
+  };
+  onAfterCommit(() =>
+    realtimeBus()
+      .publish(busEvent)
+      .catch((err) => console.error('[afterWrite] realtime publish failed:', err)),
+  );
 
   // Embedding triggered via engineEvents.emit('record.created' | 'record.updated')
   // below — the `ai` extension subscribes to those events. No core call needed.
