@@ -40,6 +40,7 @@ import {
   invalidateAllPermissionCaches,
   isSensitiveResource,
   publishPolicyChange,
+  registerSensitiveResources,
   trackPolicyWrite,
 } from './permissions.js';
 
@@ -247,6 +248,12 @@ export async function listActionCollections(db: Database, base: string): Promise
  * on (`gated`, see `actionCollections`), which of them declare neither, and
  * which of those have no readable manifest (`unreadable`, a subset of `silent`:
  * what they declare is unknown, not empty).
+ *
+ * Registers each one's `manifest.sensitiveResources` as it goes. Loading does
+ * too, but a disabled extension never loads, and every path that grants on what
+ * this returns — the boot reconcile, `DDLManager.createCollection` — reads it
+ * first, so none of them hands out what an installed extension asked to keep
+ * closed, enabled or not.
  */
 async function declaredBy(
   base: string,
@@ -266,8 +273,14 @@ async function declaredBy(
     try {
       const manifest = JSON.parse(await Bun.file(manifestPath).text()) as {
         resources?: unknown;
+        sensitiveResources?: unknown;
         actions?: unknown;
       };
+      if (Array.isArray(manifest.sensitiveResources)) {
+        registerSensitiveResources(
+          manifest.sensitiveResources.filter((r): r is string => typeof r === 'string'),
+        );
+      }
       const declared = Array.isArray(manifest.resources)
         ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
         : [];
@@ -344,6 +357,27 @@ export async function listDeclaredResources(
 ): Promise<string[]> {
   const { out, gated } = await declaredOnDisk(db, extensionsBase);
   return [...new Set([...out, ...(await existingCollections(db, gated))])];
+}
+
+/**
+ * The boot reconcile: default grants on every collection, and on every installed
+ * extension's declared resources and action-gated collections. Collections and
+ * extension resources apart: only the second get `execute`, which extension
+ * actions ask for. Resolves how many rows it wrote.
+ *
+ * The manifests are read before anything is granted: that read registers every
+ * installed extension's `sensitiveResources` (see `declaredBy`), and a
+ * collection one of them names must not get its defaults in the first pass.
+ */
+export async function reconcileDefaultGrants(
+  db: Database,
+  extensionsBase: string,
+): Promise<number> {
+  const declared = await listDeclaredResources(db, extensionsBase);
+  return (
+    (await materializeDefaultGrants(db, await listKnownResources(db))) +
+    (await materializeDefaultGrants(db, declared, { extension: true }))
+  );
 }
 
 /**
