@@ -94,3 +94,25 @@ exists, and the grant goes with the collection. So an extension can leave
   existing collection, let a drop delete all of the collection's rules, and
   delete the machinery that guesses (`since`, `keepGrants`,
   `nonCollectionObjects`, `adopt_rules`).
+
+## 4. An action gated on a collection the extension does not own — breaking
+
+**What happened.** Entry 3's additive rule lets an action's
+`permission.resource` name any collection the manifest's actions or jobs read
+or write. Reading or writing a collection is not owning it: an extension can
+gate an action on a collection another extension or an operator created, and
+the engine then grants the default `execute` there to `tenant_member`. v1 has
+no signal for ownership. `contributes.collections` exists in the manifest
+schema, but no extension sets it, and "writes only" would wrongly withhold the
+grant from a read-only action (a report) on the extension's own collection.
+
+**What v1 does.** Grants the default `execute` on any collection an action is
+gated on and the manifest reads or writes, as entry 3 describes. Pre-GA, with
+no external installs, the exposure is an action of the extension itself.
+
+**What v2 should do.** Under
+[RFC v3](../engine/rfc-extension-model-v3.md) an extension declares its
+collections through schema-as-code and the engine creates them, so the engine
+knows the owner. Require an action's `permission.resource` to be a collection
+the extension declares, refuse the manifest otherwise, and grant the default
+`execute` only there.

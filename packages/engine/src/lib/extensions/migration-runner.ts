@@ -18,13 +18,17 @@ import {
   splitSqlStatements,
 } from '../../db/migrations/index.js';
 import {
+  deleteExtensionObjectRules,
   ensureRlsEnforcementRole,
+  forgetDeletedPolicies,
+  invalidateAllPermissionCaches,
   noteReconcile,
   reconcileExtensionTenantRLS,
   reconcileFailures,
 } from '../tenancy/index.js';
 import { announcePoolRecycle } from '../runtime/index.js';
 import { DownMissingError } from './extension-errors.js';
+import { resolveExtensionsBase } from './extension-paths.js';
 import { parseMigrationSql } from './extension-utils.js';
 
 /**
@@ -432,6 +436,10 @@ async function tenantIsolationPolicies(db: Database): Promise<Map<string, string
  * update that failed after its migrations committed undoes its own, never one
  * another replica recorded meanwhile.
  *
+ * Without `only` (a purge: the extension is leaving), the same transaction
+ * deletes the rules on its own objects — `$ext:<name>` and its v1 resources,
+ * see `deleteExtensionObjectRules` — and its own manifest is not required.
+ *
  * Throws DownMissingError listing the migrations that have no DOWN section.
  * In that case nothing is dropped — the operator can either run those DOWNs
  * manually or accept that purge cannot proceed.
@@ -457,7 +465,8 @@ export async function purgeExtensionData(
   if (only) query = query.where('id', 'in', only);
   const rows = await query.orderBy('id', 'desc').execute();
 
-  if (rows.length === 0) return;
+  // A full purge removes the extension's own objects' rules, migrations or not.
+  if (rows.length === 0 && only) return;
 
   const missing = rows.filter((r) => !r.down_sql || r.down_sql.trim() === '');
   if (missing.length > 0) {
@@ -468,7 +477,9 @@ export async function purgeExtensionData(
   }
 
   const { DDLManager, announceSchemaChange } = await import('../data/index.js');
-  const dropped = await db.transaction().execute(async (trx) => {
+  // A full purge: the extension is leaving, its manifest may already be gone.
+  const leaving = only ? undefined : extensionName;
+  const { dropped, ownRules } = await db.transaction().execute(async (trx) => {
     // The UP path's lock_timeout: a DROP behind one long reader otherwise waits
     // at the head of the lock queue with the table's traffic stalled behind it.
     for (const stmt of migrationTimeoutPreamble()) await _sql.raw(stmt).execute(trx);
@@ -484,9 +495,13 @@ export async function purgeExtensionData(
     const after = new Set(await collectionsWithTable(trx));
     const out: [string, string[][]][] = [];
     for (const name of before.filter((n) => !after.has(n))) {
-      out.push([name, await DDLManager.dropInTransaction(trx, name, { gone: true })]);
+      out.push([name, await DDLManager.dropInTransaction(trx, name, { gone: true, leaving })]);
     }
-    return out;
+    // After the drops: a name is a collection's only while the collection stands.
+    const own = leaving
+      ? await deleteExtensionObjectRules(trx, resolveExtensionsBase(), leaving)
+      : [];
+    return { dropped: out, ownRules: own };
   });
   for (const [name, rules] of dropped) {
     DDLManager.invalidateCache(name);
@@ -494,8 +509,13 @@ export async function purgeExtensionData(
     // As every drop: other replicas forget the definition they cached, Studio hears it.
     announceSchemaChange(name, 'drop');
   }
+  if (ownRules.length > 0) {
+    await forgetDeletedPolicies(ownRules);
+    // Shared too: another replica's cached answer for `$ext:<name>` outlives the rule.
+    await invalidateAllPermissionCaches({ shared: true });
+  }
   // A DOWN reshapes what its UP did: see `runExtensionMigrations`.
-  await dropStalePlans();
+  if (rows.length > 0) await dropStalePlans();
 }
 
 /** Registered collections whose table exists. */
