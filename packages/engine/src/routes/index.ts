@@ -488,9 +488,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // AI — moved to extensions/ai. Mounts /api/ai*, /api/zveltio-ai, /api/ai-analytics.
 
-  // SDK Local-First Sync (push/pull batch operations). `poolDb` for the pull's
-  // watermark: `zveltio_rls` cannot see other sessions in pg_stat_activity.
-  app.route('/api/sync', syncRoutes(db, auth, poolDb));
+  // SDK Local-First Sync (push/pull batch operations).
+  app.route('/api/sync', syncRoutes(db, auth));
 
   // Electric shapes through the engine's read gate (`electric` offline-sync
   // provider). 503 when ELECTRIC_URL + ELECTRIC_SECRET are unset.

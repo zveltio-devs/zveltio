@@ -33,6 +33,7 @@ import {
 } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
+import { asEngineRole } from '../lib/role-window.js';
 import { SYNC_TOMBSTONE_RETENTION_DAYS } from '../lib/runtime/index.js';
 
 /**
@@ -46,8 +47,10 @@ import { SYNC_TOMBSTONE_RETENTION_DAYS } from '../lib/runtime/index.js';
  * received them. Every row older than the oldest open transaction's start is
  * final, so a pull delivers only those.
  *
- * Read on `pool`, as the engine's own login role: inside the tenant transaction
- * the role is `zveltio_rls`, which sees `xact_start` of no session but its own.
+ * Read as the engine's own login role (`asEngineRole`): inside the tenant
+ * transaction the role is `zveltio_rls`, which sees `xact_start` of no session
+ * but its own. Not on the pool: from inside the request that is a second
+ * connection, and at `c = DB_POOL_MAX` it never arrives.
  * `ownPid` is the pull's transaction, whose own writes it sees anyway.
  * `statement_timestamp()` bounds the rest: a transaction starting now is newer.
  *
@@ -118,7 +121,7 @@ async function rowBeforeDelete(db: Database, table: string, id: string) {
   return r.rows[0];
 }
 
-export async function syncWatermarkUs(pool: Database, ownPid: number): Promise<string> {
+export async function syncWatermarkUs(db: Database, ownPid: number): Promise<string> {
   const { rows } = await sql<{ w: string }>`
     SELECT CASE
       WHEN EXISTS (
@@ -134,12 +137,12 @@ export async function syncWatermarkUs(pool: Database, ownPid: number): Promise<s
           AND pid NOT IN (pg_backend_pid(), ${ownPid})
       ))) * 1000000)::bigint
     END::text AS w
-  `.execute(pool);
+  `.execute(db);
   return rows[0]!.w;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
+export function syncRoutes(db: Database, _auth: any): Hono {
   const app = new Hono();
   const auth = getAuth();
 
@@ -756,7 +759,7 @@ export function syncRoutes(db: Database, _auth: any, poolDb: Database): Hono {
         (extract(epoch FROM now() - make_interval(days => ${SYNC_TOMBSTONE_RETENTION_DAYS}::int))
           * 1000000)::bigint::text AS horizon
     `.execute(pullDb);
-    const watermarkUs = await syncWatermarkUs(poolDb, own[0]!.pid);
+    const watermarkUs = await asEngineRole(pullDb, () => syncWatermarkUs(pullDb, own[0]!.pid));
     const horizonUs = BigInt(own[0]!.horizon);
     const resync: Record<string, true> = {};
     const usToTs = (us: string) =>
