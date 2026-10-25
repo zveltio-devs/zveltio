@@ -513,6 +513,10 @@ export class WorkerExtensionHost {
         throw err;
       }
     };
+    return this.enqueueForward(extName, run);
+  }
+
+  private enqueueForward(extName: string, run: () => Promise<void>): Promise<void> {
     const next = (this.forwardRestarts.get(extName) ?? Promise.resolve()).then(run, run);
     this.forwardRestarts.set(extName, next);
     return next;
@@ -662,7 +666,10 @@ export class WorkerExtensionHost {
     const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
     this.respawnBackoff.set(managed.name, backoff);
     console.warn(`🔄 Respawning worker "${managed.name}" in ${backoff}ms — reason: ${reason}`);
-    setTimeout(async () => {
+    // In the forward queue: a respawn already replacing the worker with the old
+    // source would otherwise reject a forward change's replace and keep its map.
+    setTimeout(() => this.enqueueForward(managed.name, respawn), backoff);
+    const respawn = async () => {
       if (managed.stopped) return;
       if (this.workers.get(managed.name) !== managed) return;
       try {
@@ -675,7 +682,7 @@ export class WorkerExtensionHost {
         // Schedule another attempt with further backoff
         this.scheduleRespawn(managed, `respawn-failed: ${(err as Error).message}`);
       }
-    }, backoff);
+    };
   }
 
   /** End a worker that is to be replaced: in the map, answering nothing, until it is. */
