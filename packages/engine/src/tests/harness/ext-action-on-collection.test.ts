@@ -33,7 +33,11 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/permissions.js';
-import { listDeclaredResources, nonCollectionObjects } from '../../lib/tenancy/resource-grants.js';
+import {
+  listDeclaredResources,
+  nonCollectionObjects,
+  recordManifest,
+} from '../../lib/tenancy/resource-grants.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import {
   createGodSession,
@@ -79,11 +83,14 @@ d('an extension action gated on a collection it declares', () => {
       name,
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
-  const install = () =>
-    sql`
+  const install = async () => {
+    await sql`
       INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
       VALUES (${EXT}, ${EXT}, NULL, true, true)
     `.execute(db);
+    // As the install route does: the claim is read from the row.
+    await recordManifest(db, EXT, join(extRoot, EXT));
+  };
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
@@ -166,10 +173,10 @@ d('an extension action gated on a collection it declares', () => {
   });
 
   it('is the collection’s rule: reconciled, offered in the role editor, not reserved', async () => {
-    const declared = await listDeclaredResources(db, extRoot);
+    const declared = await listDeclaredResources(db);
     expect(declared).toContain(G);
     expect(declared).not.toContain(GHOST);
-    expect((await nonCollectionObjects(db, extRoot)).has(G)).toBe(false);
+    expect((await nonCollectionObjects(db)).has(G)).toBe(false);
 
     const res = await engine.request('/api/admin/resources', { headers: { cookie: god } });
     const { resources } = (await res.json()) as {

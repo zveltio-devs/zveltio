@@ -20,6 +20,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { recordManifest } from '../../lib/tenancy/resource-grants.js';
 import {
   createGodSession,
   createMemberSession,
@@ -151,6 +152,8 @@ d('permission matrix actions match what the engine checks', () => {
         INSERT INTO zv_extension_registry (name, display_name, version, is_installed, is_enabled)
         VALUES (${ext}, 'Matrix Test', '1.0.0', true, false)
       `.execute(db);
+      // As the install route does: the claim is read from the row.
+      await recordManifest(db, ext, join(root, ext));
       const res = await app.request('/api/admin/resources', { headers: { cookie: god } });
       const { resources } = (await res.json()) as {
         resources: Array<{ name: string; type: string; actions: string[] }>;

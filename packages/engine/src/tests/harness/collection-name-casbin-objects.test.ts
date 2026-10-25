@@ -9,7 +9,8 @@
  * installed extension guards (`permissionGate(ctx, 'invoices')`).
  *
  * The names come from where they are asked: the engine's own objects
- * (`ENGINE_CASBIN_OBJECTS`) and each installed extension's `manifest.resources`.
+ * (`ENGINE_CASBIN_OBJECTS`) and the `manifest.resources` each extension with
+ * data left has on record.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -21,6 +22,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { getEnforcer } from '../../lib/tenancy/permissions.js';
+import { recordManifest } from '../../lib/tenancy/resource-grants.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -62,6 +64,8 @@ d('collection names and the Casbin objects that are not collections', () => {
     process.env.EXTENSIONS_DIR = extDir;
     await sql`INSERT INTO zv_extension_registry (name, display_name, is_installed)
               VALUES (${EXT}, 'casbin obj', true)`.execute(db);
+    // As the install route does: the claim is read from the row.
+    await recordManifest(db, EXT, join(extDir, EXT));
   });
 
   afterAll(async () => {
@@ -215,9 +219,12 @@ d('collection names and the Casbin objects that are not collections', () => {
     writeFileSync(join(extDir, silent, 'manifest.json'), JSON.stringify({ name: silent }));
     mkdirSync(join(extDir, corrupt), { recursive: true });
     writeFileSync(join(extDir, corrupt, 'manifest.json'), '{ not json');
-    const install = (name: string) =>
-      sql`INSERT INTO zv_extension_registry (name, display_name, is_installed)
-          VALUES (${name}, ${name}, true)`.execute(db);
+    // Recorded as an install records it: a manifest that cannot be read is not.
+    const install = async (name: string) => {
+      await sql`INSERT INTO zv_extension_registry (name, display_name, is_installed)
+                VALUES (${name}, ${name}, true)`.execute(db);
+      await recordManifest(db, name, join(extDir, name));
+    };
     try {
       // Declaring no resources is a known, empty set: it blocks nothing.
       await install(silent);

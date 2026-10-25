@@ -1005,6 +1005,7 @@ export interface ZvExtensionRegistryTable {
   installed_sha256: string | null;
   installed_version: string | null;
   approved_forward_credentials: unknown | null;
+  manifest: unknown | null;
 }
 
 export interface ZvExtensionScheduleRunsTable {

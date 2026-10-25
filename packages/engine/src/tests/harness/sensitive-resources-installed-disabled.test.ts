@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { reconcileDefaultGrants } from '../../lib/tenancy/resource-grants.js';
+import { reconcileDefaultGrants, recordManifest } from '../../lib/tenancy/resource-grants.js';
 import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -56,11 +56,14 @@ d('sensitiveResources of an installed, disabled extension', () => {
       name,
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
-  const installDisabled = (name: string) =>
-    sql`
+  const installDisabled = async (name: string) => {
+    await sql`
       INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
       VALUES (${name}, ${name}, NULL, true, false)
     `.execute(db);
+    // As the install route does: the claim is read from the row.
+    await recordManifest(db, name, join(extRoot, name));
+  };
 
   beforeAll(async () => {
     ({ db } = await getTestApp());

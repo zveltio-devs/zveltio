@@ -14,7 +14,6 @@ import {
   ENGINE_SEEDED_ROLES,
 } from '../../lib/tenancy/index.js';
 import { invalidateColumnPermCache, listDeclaredResources } from '../../lib/tenancy/index.js';
-import { resolveExtensionsBase } from '../../lib/extensions/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager, EDGE_SCOPE } from '../../lib/data/index.js';
 import { withoutAuthValue } from '../../lib/virtual-collection-adapter.js';
@@ -71,7 +70,7 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       ).rows;
     }
     const collectionNames = new Set(collections.map((col) => col.name));
-    const declared = await listDeclaredResources(db, resolveExtensionsBase());
+    const declared = await listDeclaredResources(db);
     const declaredSet = new Set(declared);
     const resources = [
       ...collections.map((col) => ({

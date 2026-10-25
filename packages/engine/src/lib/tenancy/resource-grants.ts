@@ -32,6 +32,7 @@
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { toJsonb } from '../jsonb.js';
 import {
   DEFAULT_ROLE_GRANTS,
   ENGINE_CASBIN_OBJECTS,
@@ -54,10 +55,10 @@ import {
  * name: the two namespaces are disjoint, so a materialization that only walked
  * `zvd_collections` would silently close all 28 of them.
  *
- * The declarations are on disk and authoritative: an extension names its
- * resources in `manifest.resources`, `register.ts` materializes them as it
- * loads, and `listKnownResources` below reads the same field for everything
- * installed.
+ * The declarations are in the manifest and authoritative: an extension names
+ * its resources in `manifest.resources`, `register.ts` materializes them as it
+ * loads, and `listDeclaredResources` below reads the same field, as recorded
+ * on the registry row (`recordManifest`), for everything installed.
  *
  * There used to be a frozen array here as well, holding the 28 names that
  * predate that wiring. It was removed on 2026-08-30 as an owner decision, with
@@ -199,20 +200,82 @@ async function writeDefaultGrants(
 }
 
 /**
- * Register the `sensitiveResources` of every extension the registry still has a
- * row for, read from disk: installed, or soft uninstalled — whose tables, data
- * and files stay, so what it asked to keep closed stays closed. `declaredBy`
- * reads only installed ones, and a restart forgets everything else. Only a
- * purge, which deletes the row with the data, takes them away
- * (`forgetSensitiveResources`). Resolves the ones whose manifest could not be
- * read: what they keep closed is unknown.
+ * Record the manifest on disk of every extension the registry still has a row
+ * for (`syncManifestsFromDisk`), then register their `sensitiveResources` from
+ * the record: installed, or soft uninstalled — whose tables, data and files
+ * stay, so what it asked to keep closed stays closed. A restart forgets
+ * everything else. Only a purge, which deletes the row with the data, takes
+ * them away (`forgetSensitiveResources`). Resolves the ones with no manifest on
+ * record: what they keep closed is unknown.
  */
 export async function registerRegisteredSensitiveResources(
   db: Database,
   extensionsBase: string,
 ): Promise<string[]> {
-  const { unreadable } = await declaredBy(extensionsBase, await registeredExtensions(db));
-  return unreadable;
+  const registered = await registeredExtensions(db);
+  await syncManifestsFromDisk(db, extensionsBase, registered);
+  return (await declaredBy(db, registered)).unreadable;
+}
+
+/**
+ * Record `name`'s manifest.json in `dir` on its registry row (god's), where
+ * every claim reader reads it: the claim then outlives the files, as the row
+ * and the data do. Called at install, enable, update and load, and at boot.
+ *
+ * Not over a newer version on record: a replica whose disk is still behind
+ * another's update would put the older claim back. Compare-and-set on the
+ * record read, so an update committing meanwhile wins. Resolves whether the
+ * record now holds the manifest in `dir`.
+ */
+export async function recordManifest(db: Database, name: string, dir: string): Promise<boolean> {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(await Bun.file(join(dir, 'manifest.json')).text());
+  } catch {
+    return false;
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return false;
+  const { rows } = await sql<{ manifest: unknown }>`
+    SELECT manifest FROM zv_extension_registry
+     WHERE name = ${name} AND tenant_id IS NULL`.execute(db);
+  if (rows.length === 0) return false;
+  const held = rows[0]?.manifest ?? null;
+  if (olderVersion(manifest, held)) return false;
+  const { rows: written } = await sql`
+    UPDATE zv_extension_registry SET manifest = ${toJsonb(manifest)}
+     WHERE name = ${name} AND tenant_id IS NULL
+       AND ${held === null ? sql`manifest IS NULL` : sql`manifest = ${toJsonb(held)}`}
+    RETURNING 1`.execute(db);
+  return written.length > 0;
+}
+
+/** `a`'s version orders before `b`'s. Not comparable: not older. */
+function olderVersion(a: unknown, b: unknown): boolean {
+  const va = (a as { version?: unknown }).version;
+  const vb = (b as { version?: unknown } | null)?.version;
+  if (typeof va !== 'string' || typeof vb !== 'string') return false;
+  try {
+    return Bun.semver.order(va, vb) < 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `recordManifest` for each of `names` (default: every extension with a
+ * registry row) from `base`. The boot backfills and refreshes the record this
+ * way; a manifest that cannot be read leaves the one on record as it is.
+ */
+export async function syncManifestsFromDisk(
+  db: Database,
+  base: string,
+  names?: readonly string[],
+): Promise<void> {
+  for (const name of names ?? (await registeredExtensions(db))) {
+    await recordManifest(db, name, join(base, name)).catch((err: Error) => {
+      console.warn(`[resource-grants] ${name}: manifest not recorded:`, err.message);
+    });
+  }
 }
 
 /**
@@ -242,8 +305,8 @@ export const SENSITIVE_DEFAULTS_REPAIRED = 'repair:sensitive_default_grants';
  * default anyway (`deleteRecordingRevokes` records none on one), and a name
  * that stops being sensitive then starts as it would on a fresh install.
  *
- * Waits, and says so, while an extension with a registry row has no readable
- * manifest (`unreadable`): the names it keeps closed are unknown, and the run
+ * Waits, and says so, while an extension with a registry row has no manifest
+ * on record (`unreadable`): the names it keeps closed are unknown, and the run
  * is not repeated. The marker is claimed in the delete's transaction: another
  * replica's claim waits on the key, then finds it taken.
  */
@@ -334,17 +397,20 @@ export async function existingCollections(
  * get `execute` like a declared resource, but stay collections — never in
  * `nonCollectionObjects`, so their rules live and die with them.
  */
-export async function listActionCollections(db: Database, base: string): Promise<string[]> {
-  const { gated } = await declaredBy(base, await installedExtensions(db));
+export async function listActionCollections(db: Database): Promise<string[]> {
+  const { gated } = await declaredBy(db, await installedExtensions(db));
   return existingCollections(db, gated);
 }
 
 /**
- * `manifest.resources` of `installed`, the collections their actions are gated
+ * `manifest.resources` of `names`, the collections their actions are gated
  * on (`gated`, see `actionCollections`), their `manifest.sensitiveResources`
  * (`sensitive`), which of them declare neither resources nor gates, and
- * which of those have no readable manifest (`unreadable`, a subset of `silent`:
- * what they declare is unknown, not empty).
+ * which of those have no manifest on record (`unreadable`, a subset of
+ * `silent`: what they declare is unknown, not empty).
+ *
+ * Read from the registry's record (`recordManifest`), never from disk: the
+ * claim must stay known once the files are gone and the row is not.
  *
  * Registers each one's `manifest.sensitiveResources` as it goes. Loading does
  * too, but a disabled extension never loads, and every path that grants on what
@@ -353,8 +419,8 @@ export async function listActionCollections(db: Database, base: string): Promise
  * closed, enabled or not.
  */
 async function declaredBy(
-  base: string,
-  installed: string[],
+  db: Database,
+  names: readonly string[],
 ): Promise<{
   out: string[];
   gated: string[];
@@ -367,80 +433,81 @@ async function declaredBy(
   const sensitive: string[] = [];
   const silent: string[] = [];
   const unreadable: string[] = [];
-  for (const name of installed) {
-    const manifestPath = join(base, name, 'manifest.json');
-    if (!(await Bun.file(manifestPath).exists())) {
+  const recorded = new Map<string, unknown>();
+  if (names.length > 0) {
+    const { rows } = await sql<{ name: string; manifest: unknown }>`
+      SELECT name, manifest FROM zv_extension_registry
+       WHERE tenant_id IS NULL AND name IN (${sql.join([...names])})`.execute(db);
+    for (const r of rows) recorded.set(r.name, r.manifest);
+  }
+  for (const name of names) {
+    const manifest = recorded.get(name) as
+      | { resources?: unknown; sensitiveResources?: unknown; actions?: unknown }
+      | null
+      | undefined;
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
       silent.push(name);
-      unreadable.push(`${name} (no manifest.json)`);
+      unreadable.push(`${name} (no manifest on record)`);
       continue;
     }
-    try {
-      const manifest = JSON.parse(await Bun.file(manifestPath).text()) as {
-        resources?: unknown;
-        sensitiveResources?: unknown;
-        actions?: unknown;
-      };
-      if (Array.isArray(manifest.sensitiveResources)) {
-        const names = manifest.sensitiveResources.filter(
-          (r): r is string => typeof r === 'string' && r !== '',
-        );
-        // Merged: this read may race a load of another version, which decides.
-        registerSensitiveResources(name, names, { merge: true });
-        sensitive.push(...names);
-      }
-      const declared = Array.isArray(manifest.resources)
-        ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
-        : [];
-      const onCollections = actionCollections(manifest);
-      if (declared.length === 0 && onCollections.length === 0) silent.push(name);
-      out.push(...declared);
-      gated.push(...onCollections);
-    } catch (err) {
-      silent.push(name);
-      unreadable.push(`${name} (${(err as Error).message})`);
-      console.warn(
-        `[resource-grants] ${name}: manifest.json could not be read; its resources are ` +
-          'not in this reconcile:',
-        (err as Error).message,
+    if (Array.isArray(manifest.sensitiveResources)) {
+      const sens = manifest.sensitiveResources.filter(
+        (r): r is string => typeof r === 'string' && r !== '',
       );
+      // Merged: this read may race a load of another version, which decides.
+      registerSensitiveResources(name, sens, { merge: true });
+      sensitive.push(...sens);
     }
+    const declared = Array.isArray(manifest.resources)
+      ? manifest.resources.filter((r): r is string => typeof r === 'string' && r !== '')
+      : [];
+    const onCollections = actionCollections(manifest);
+    if (declared.length === 0 && onCollections.length === 0) silent.push(name);
+    out.push(...declared);
+    gated.push(...onCollections);
   }
   return { out, gated, sensitive, silent, unreadable };
 }
 
 /**
+ * What every extension with data left (a registry row: installed or soft
+ * uninstalled) claims, `leaving` aside. Throws when one has no manifest on
+ * record: an unknown set must refuse a name, not allow it, and must not let a
+ * drop or a purge take rules it cannot attribute.
+ */
+async function claimsOfOthers(db: Database, leaving?: string) {
+  const names = (await registeredExtensions(db)).filter((n) => n !== leaving);
+  const claims = await declaredBy(db, names);
+  if (claims.unreadable.length > 0) {
+    throw new Error(
+      `Extension(s) with no manifest on record: ${claims.unreadable.join('; ')}. What they ` +
+        'claim is unknown, so no collection can be created or dropped and no other ' +
+        'extension purged: put their files back and restart the engine, or purge them.',
+    );
+  }
+  return claims;
+}
+
+/**
  * Every Casbin object that is not only a collection: the engine's own
- * (`ENGINE_CASBIN_OBJECTS`) and each installed extension's `manifest.resources`
- * — the declarations the boot reconcile grants on.
+ * (`ENGINE_CASBIN_OBJECTS`) and the `manifest.resources` of each extension with
+ * data left, installed or soft uninstalled: its rules stay with its data, and a
+ * reinstall claims the name again.
  *
  * Collections share the policy's object column with these. A collection may not
  * be created under one of them, and dropping a collection that already shares
  * one keeps the rules: they also guard something that is not the collection.
  *
- * Throws when the registry cannot be read, or an installed extension's
- * manifest cannot: an unknown set must refuse a name, not allow it, and must
- * not let a drop take rules it cannot attribute. That stops every collection
- * create and drop until the extension's files are back or it is uninstalled —
- * the boot reconcile, which only grants, carries on without it.
+ * Throws when the registry cannot be read, or one of those extensions has no
+ * manifest on record (`claimsOfOthers`). That stops every collection create and
+ * drop until it is recorded or purged — the boot reconcile, which only grants,
+ * carries on without it.
  *
- * `leaving`: the extension being purged. Its manifest is not read: its objects
- * go with it (`deleteExtensionObjectRules`), and one with no manifest left on
- * disk could otherwise never be purged.
+ * `leaving`: the extension being purged. Its claim is not read: its objects go
+ * with it (`deleteExtensionObjectRules`).
  */
-export async function nonCollectionObjects(
-  db: Database,
-  extensionsBase: string,
-  leaving?: string,
-): Promise<Set<string>> {
-  const installed = (await installedExtensions(db)).filter((n) => n !== leaving);
-  const { out, unreadable } = await declaredBy(extensionsBase, installed);
-  if (unreadable.length > 0) {
-    throw new Error(
-      `Installed extension(s) without a readable manifest under ${extensionsBase}: ` +
-        `${unreadable.join('; ')}. Their resources are unknown, so no collection can be ` +
-        'created or dropped: restore the extension files or uninstall the extension.',
-    );
-  }
+export async function nonCollectionObjects(db: Database, leaving?: string): Promise<Set<string>> {
+  const { out } = await claimsOfOthers(db, leaving);
   return new Set([...ENGINE_CASBIN_OBJECTS, ...out, ...(await retiredZoneSlugs(db))]);
 }
 
@@ -451,24 +518,19 @@ export async function nonCollectionObjects(
  * once the caller commits.
  *
  * Its objects: `$ext:<name>`, and the v1 `resources` and `sensitiveResources`
- * of its manifest that no collection carries and nothing else claims — another
- * extension whose data is still there, installed or soft uninstalled
+ * of its recorded manifest that no collection carries and nothing else claims —
+ * another extension whose data is still there, installed or soft uninstalled
  * (resources, sensitiveResources, an action's `permission.resource`), an engine
- * object, a retired zone. A collection's
- * rules are the collection's, an action-gated `execute` included: its drop
- * takes them. Role links (`g`) name no object and stay.
+ * object, a retired zone. A collection's rules are the collection's, an
+ * action-gated `execute` included: its drop takes them. Role links (`g`) name no
+ * object and stay.
  *
- * Without a readable manifest only `$ext:<name>` is known, and that is said.
- * With one, throws as `nonCollectionObjects` when another such extension's
- * manifest cannot be read: what it claims is unknown, so nothing may be taken
- * from it.
+ * Without a manifest on record only `$ext:<name>` is known, and that is said.
+ * With one, throws as `nonCollectionObjects` when another such extension has
+ * none: what it claims is unknown, so nothing may be taken from it.
  */
-export async function deleteExtensionObjectRules(
-  db: Database,
-  extensionsBase: string,
-  name: string,
-): Promise<string[][]> {
-  const own = await declaredBy(extensionsBase, [name]);
+export async function deleteExtensionObjectRules(db: Database, name: string): Promise<string[][]> {
+  const own = await declaredBy(db, [name]);
   if (own.unreadable.length > 0) {
     console.warn(
       `[resource-grants] purge of ${name}: ${own.unreadable.join('; ')}, so the rules on ` +
@@ -477,10 +539,9 @@ export async function deleteExtensionObjectRules(
     );
   }
   // Without its manifest there is nothing to take but `$ext:<name>`, which no
-  // other extension can claim: another unreadable manifest does not refuse it.
+  // other extension can claim: another unknown claim does not refuse it.
   // It did, and two extensions without files each refused the other's purge.
-  const taken =
-    own.unreadable.length > 0 ? new Set<string>() : await claimedByOthers(db, extensionsBase, name);
+  const taken = own.unreadable.length > 0 ? new Set<string>() : await claimedByOthers(db, name);
   // A manifest is free strings: never `*` or an engine `$` object (`$edge`, `$rpc`).
   const candidates = [...new Set([...own.out, ...own.sensitive])].filter(
     (r) => r !== '*' && !r.startsWith('$') && !taken.has(r),
@@ -500,27 +561,17 @@ export async function deleteExtensionObjectRules(
 /**
  * What `deleteExtensionObjectRules` may not take from `name`: the engine's
  * objects, a retired zone, and what every other extension with data left
- * claims. Throws when one of their manifests cannot be read.
+ * claims. Throws when one of them has no manifest on record.
  */
-async function claimedByOthers(
-  db: Database,
-  extensionsBase: string,
-  name: string,
-): Promise<Set<string>> {
-  const taken = await nonCollectionObjects(db, extensionsBase, name);
-  const others = await declaredBy(
-    extensionsBase,
-    (await registeredExtensions(db)).filter((n) => n !== name),
-  );
-  if (others.unreadable.length > 0) {
-    throw new Error(
-      `Extension(s) without a readable manifest under ${extensionsBase}: ` +
-        `${others.unreadable.join('; ')}. What they claim is unknown, so the purge of ` +
-        `${name} takes nothing: restore their files or purge them.`,
-    );
-  }
-  for (const r of [...others.out, ...others.gated, ...others.sensitive]) taken.add(r);
-  return taken;
+async function claimedByOthers(db: Database, name: string): Promise<Set<string>> {
+  const { out, gated, sensitive } = await claimsOfOthers(db, name);
+  return new Set([
+    ...ENGINE_CASBIN_OBJECTS,
+    ...(await retiredZoneSlugs(db)),
+    ...out,
+    ...gated,
+    ...sensitive,
+  ]);
 }
 
 /**
@@ -538,16 +589,13 @@ async function retiredZoneSlugs(db: Database): Promise<string[]> {
 }
 
 /**
- * `manifest.resources` of every installed extension, read from disk, and the
+ * `manifest.resources` of every installed extension, as recorded, and the
  * existing collections their actions are gated on: the boot reconcile
  * materializes these with `{ extension: true }` on top of `listKnownResources`,
  * and the role editor offers `execute` on them.
  */
-export async function listDeclaredResources(
-  db: Database,
-  extensionsBase: string,
-): Promise<string[]> {
-  const { out, gated } = await declaredOnDisk(db, extensionsBase);
+export async function listDeclaredResources(db: Database): Promise<string[]> {
+  const { out, gated } = await declaredInstalled(db);
   return [...new Set([...out, ...(await existingCollections(db, gated))])];
 }
 
@@ -557,11 +605,12 @@ export async function listDeclaredResources(
  * extension resources apart: only the second get `execute`, which extension
  * actions ask for. Resolves how many rows it wrote.
  *
- * The manifests are read before anything is granted: that read registers the
- * `sensitiveResources` of every extension with a registry row, soft uninstalled
- * ones included (`registerRegisteredSensitiveResources`), and a collection one
- * of them names must not get its defaults in the first pass. Then, once per
- * database, the defaults written on those names before that are removed
+ * The manifests are recorded from disk and read before anything is granted:
+ * that read registers the `sensitiveResources` of every extension with a
+ * registry row, soft uninstalled ones included
+ * (`registerRegisteredSensitiveResources`), and a collection one of them names
+ * must not get its defaults in the first pass. Then, once per database, the
+ * defaults written on those names before that are removed
  * (`repairSensitiveDefaultGrants`).
  */
 export async function reconcileDefaultGrants(
@@ -573,7 +622,7 @@ export async function reconcileDefaultGrants(
   await repairSensitiveDefaultGrants(db, unreadable).catch((err: Error) => {
     console.warn('[resource-grants] sensitive default-grant repair failed:', err.message);
   });
-  const declared = await listDeclaredResources(db, extensionsBase);
+  const declared = await listDeclaredResources(db);
   return (
     (await materializeDefaultGrants(db, await listKnownResources(db))) +
     (await materializeDefaultGrants(db, declared, { extension: true }))
@@ -581,44 +630,27 @@ export async function reconcileDefaultGrants(
 }
 
 /**
- * Every resource name the engine can enumerate right now.
- *
- * Used by the boot reconcile. A collection created while the engine was on an
- * older version, or one belonging to an extension installed since, is picked up
- * here rather than needing its own migration.
+ * Every collection name, for the boot reconcile. A collection created while the
+ * engine was on an older version is picked up here rather than needing its own
+ * migration. Extension resources are `listDeclaredResources`.
  */
-export async function listKnownResources(db: Database, extensionsBase?: string): Promise<string[]> {
+export async function listKnownResources(db: Database): Promise<string[]> {
   const collections = await sql<{ name: string }>`
     SELECT name FROM zvd_collections
   `.execute(db);
-  const declared = extensionsBase ? (await declaredOnDisk(db, extensionsBase)).out : [];
-  return [...new Set([...collections.rows.map((r) => r.name), ...declared])];
+  return [...new Set(collections.rows.map((r) => r.name))];
 }
 
 /**
  * `manifest.resources` for everything installed, and the collections its actions
- * are gated on (`gated`), read from disk.
+ * are gated on (`gated`), as recorded.
  *
  * A frozen array in engine source was once the only extension-side input this
- * reconcile had, which made it go stale by construction: an extension installed but not loaded
- * on this boot contributed nothing, and the fix was to edit engine source. The
- * declarations are already on disk and already authoritative — `register.ts`
- * materializes from the same field — so read them instead of remembering them.
+ * reconcile had, which made it go stale by construction: an extension installed
+ * but not loaded on this boot contributed nothing, and the fix was to edit engine
+ * source. The declarations are in the manifests, recorded at install and boot.
  */
-async function declaredOnDisk(
-  db: Database,
-  base: string,
-): Promise<{ out: string[]; gated: string[] }> {
-  const none = { out: [], gated: [] };
-  // Bun.file(path).exists() returns false for directories, so stat + isDirectory
-  // is the correct existence check for the extensions base path.
-  try {
-    const st = await Bun.file(base).stat();
-    if (!st.isDirectory()) return none;
-  } catch {
-    return none;
-  }
-
+async function declaredInstalled(db: Database): Promise<{ out: string[]; gated: string[] }> {
   let installed: string[];
   try {
     installed = await installedExtensions(db);
@@ -632,10 +664,10 @@ async function declaredOnDisk(
         'are not in this reconcile:',
       (err as Error).message,
     );
-    return none;
+    return { out: [], gated: [] };
   }
 
-  const { out, gated, silent } = await declaredBy(base, installed);
+  const { out, gated, silent } = await declaredBy(db, installed);
 
   // Named, not counted. Deny-by-default refuses access to a resource nobody
   // granted, and the refusal carries no hint about why — so an operator whose

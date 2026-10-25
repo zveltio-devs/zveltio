@@ -132,11 +132,8 @@ export async function introspectSchema(
 
   const results: IntrospectedTable[] = [];
   // Dynamic, as in ddl-manager: both modules import back into this layer.
-  const [{ nonCollectionObjects }, { resolveExtensionsBase }] = await Promise.all([
-    import('./tenancy/index.js'),
-    import('./extensions/index.js'),
-  ]);
-  const reserved = await nonCollectionObjects(db, resolveExtensionsBase());
+  const { nonCollectionObjects } = await import('./tenancy/index.js');
+  const reserved = await nonCollectionObjects(db);
 
   for (const { table_name } of tablesResult.rows) {
     // Skip platform tables and excluded patterns

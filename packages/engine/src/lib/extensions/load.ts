@@ -25,6 +25,7 @@ import type { ZveltioExtension } from '@zveltio/sdk/extension';
 import { auditLog } from '../audit.js';
 import { QuotaExceededError } from './extension-errors.js';
 import { resolveExtensionsBase } from './extension-paths.js';
+import { recordManifest } from '../tenancy/index.js';
 import {
   pendingExtensionMigrations,
   pendingMigrationsRefusal,
@@ -220,6 +221,10 @@ export async function loadExtensionFromDir(
       absentWarning,
     } = manifestPhase.value;
     if (absentWarning !== null) console.warn(absentWarning);
+    // The manifest this code runs with is the claim on record (resource-grants.ts).
+    await recordManifest(ctx.db, extName, extDir).catch((err: Error) => {
+      console.warn(`[extensions] "${extName}": manifest not recorded:`, err.message);
+    });
     // Cache UI-relevant manifest fields for the /api/extensions Studio endpoint.
     // Computed inside the phase (including embedPageSchemas); the state write
     // stays here so the phase is loader-state-free.

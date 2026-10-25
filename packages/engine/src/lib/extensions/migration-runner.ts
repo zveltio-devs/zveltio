@@ -30,7 +30,6 @@ import {
 } from '../tenancy/index.js';
 import { announcePoolRecycle } from '../runtime/index.js';
 import { DownMissingError } from './extension-errors.js';
-import { resolveExtensionsBase } from './extension-paths.js';
 import { parseMigrationSql } from './extension-utils.js';
 
 /**
@@ -558,9 +557,7 @@ export async function purgeExtensionData(
       out.push([name, await DDLManager.dropInTransaction(trx, name, { gone: true, leaving })]);
     }
     // After the drops: a name is a collection's only while the collection stands.
-    const own = leaving
-      ? await deleteExtensionObjectRules(trx, resolveExtensionsBase(), leaving)
-      : [];
+    const own = leaving ? await deleteExtensionObjectRules(trx, leaving) : [];
     return { dropped: out, ownRules: own };
   });
   for (const [name, rules] of dropped) {

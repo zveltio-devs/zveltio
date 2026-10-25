@@ -78,7 +78,7 @@ d('a registry row without an install', () => {
     expect(res.status).toBe(404);
     expect(await row(GHOST)).toEqual([]);
     // What the phantom broke: every collection create and drop.
-    await expect(nonCollectionObjects(db, extRoot)).resolves.toBeInstanceOf(Set);
+    await expect(nonCollectionObjects(db)).resolves.toBeInstanceOf(Set);
   });
 
   it('disable on a name never installed is a no-op and writes no row', async () => {
