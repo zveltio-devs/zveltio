@@ -122,6 +122,9 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`
       .execute(db)
       .catch(() => {});
+    await sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`
+      .execute(db)
+      .catch(() => {});
     await sql`DELETE FROM "user" WHERE id = ${issuer}`.execute(db).catch(() => {});
     await dropTestCollection(db, COLLECTION).catch(() => {});
   });

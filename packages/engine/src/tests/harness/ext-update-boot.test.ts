@@ -30,7 +30,7 @@ import {
 } from '../../lib/extensions/extension-download.js';
 import { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import { clearRevocationCache } from '../../lib/extensions/revocations.js';
-import { withExtensionLock } from '../../lib/extensions/extension-utils.js';
+import { _lockTailForTests, withExtensionLock } from '../../lib/extensions/extension-utils.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -302,7 +302,10 @@ d('boot and a half-done extension update', () => {
         let boot: Promise<void> | undefined;
         await withExtensionLock(db, NAME, async () => {
           boot = loader.loadFromDB(db, new Hono(), []);
-          await Bun.sleep(500); // boot has read the registry and waits on the lock
+          // Boot reads the registry, then queues on this lock: wait for it to queue.
+          const held = _lockTailForTests(NAME);
+          for (let i = 0; i < 200 && _lockTailForTests(NAME) === held; i++) await Bun.sleep(25);
+          expect(_lockTailForTests(NAME)).not.toBe(held);
           await sql`UPDATE zv_extension_registry SET installed_sha256 = ${sha}
                     WHERE name = ${NAME}`.execute(db);
         });

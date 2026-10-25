@@ -40,6 +40,9 @@ import { join, resolve, sep } from 'path';
 // withExtensionLock. The pool default of 10 connections has headroom.
 const extensionLifecycleLocks = new Map<string, Promise<unknown>>();
 
+/** The last caller queued on an extension's lock: a new value means another caller is waiting. */
+export const _lockTailForTests = (name: string) => extensionLifecycleLocks.get(`ext:${name}`);
+
 /**
  * Pure same-process mutex keyed by string. Concurrent calls with the same key
  * are serialized; different keys run in parallel. The map self-cleans when no
