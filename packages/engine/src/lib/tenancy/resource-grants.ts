@@ -36,9 +36,11 @@ import {
   DEFAULT_ROLE_GRANTS,
   ENGINE_CASBIN_OBJECTS,
   EXTENSION_RESOURCE_GRANTS,
+  forgetDeletedPolicies,
   getEnforcer,
   invalidateAllPermissionCaches,
   isSensitiveResource,
+  listSensitiveResources,
   publishPolicyChange,
   registerSensitiveResources,
   trackPolicyWrite,
@@ -202,18 +204,87 @@ async function writeDefaultGrants(
  * and files stay, so what it asked to keep closed stays closed. `declaredBy`
  * reads only installed ones, and a restart forgets everything else. Only a
  * purge, which deletes the row with the data, takes them away
- * (`forgetSensitiveResources`).
+ * (`forgetSensitiveResources`). Resolves the ones whose manifest could not be
+ * read: what they keep closed is unknown.
  */
 export async function registerRegisteredSensitiveResources(
   db: Database,
   extensionsBase: string,
-): Promise<void> {
+): Promise<string[]> {
   const { rows } = await sql<{ name: string }>`
     SELECT DISTINCT name FROM zv_extension_registry`.execute(db);
-  await declaredBy(
+  const { unreadable } = await declaredBy(
     extensionsBase,
     rows.map((r) => r.name),
   );
+  return unreadable;
+}
+
+/** `zv_settings` key: `repairSensitiveDefaultGrants` has run on this database. */
+export const SENSITIVE_DEFAULTS_REPAIRED = 'repair:sensitive_default_grants';
+
+/**
+ * Once per database: delete the default-shaped rules on every sensitive name —
+ * a `DEFAULT_ROLE_GRANTS` or `EXTENSION_RESOURCE_GRANTS` (role, action) in
+ * domain `*`. Until an installed but disabled extension's `sensitiveResources`
+ * were registered before granting, the boot reconcile and createCollection
+ * wrote its defaults on them, and every boot kept them.
+ *
+ * Such a row is the same triple as an operator's grant, so an identical
+ * operator grant goes too (owner decision, 2026-10-25): each removed row is
+ * logged, and the operator re-grants it by name. Once only, so a grant made
+ * after the repair stays. No revocation is recorded: a sensitive name gets no
+ * default anyway (`deleteRecordingRevokes` records none on one), and a name
+ * that stops being sensitive then starts as it would on a fresh install.
+ *
+ * Waits, and says so, while an extension with a registry row has no readable
+ * manifest (`unreadable`): the names it keeps closed are unknown, and the run
+ * is not repeated. The marker is claimed in the delete's transaction: another
+ * replica's claim waits on the key, then finds it taken.
+ */
+export async function repairSensitiveDefaultGrants(
+  db: Database,
+  unreadable: readonly string[],
+): Promise<string[][]> {
+  if (unreadable.length > 0) {
+    console.warn(
+      `[resource-grants] default grants on sensitive names not repaired yet: ${unreadable.join('; ')}. ` +
+        'Retried on the next boot.',
+    );
+    return [];
+  }
+  const defaults = [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS].flatMap(
+    ({ role, actions }) => actions.map((action) => sql`(${role}, ${action})`),
+  );
+  const rules = await trackPolicyWrite(() =>
+    db.transaction().execute(async (trx) => {
+      const claimed = await sql`
+        INSERT INTO zv_settings (key, value, description)
+        VALUES (${SENSITIVE_DEFAULTS_REPAIRED}, 'true'::jsonb,
+                'Default grants on sensitive names removed once; see resource-grants.ts.')
+        ON CONFLICT (key) DO NOTHING RETURNING key`.execute(trx);
+      if (claimed.rows.length === 0) return [];
+      const { rows } = await sql<{ v0: string; v2: string; v3: string }>`
+        DELETE FROM zvd_permissions
+         WHERE ptype = 'p' AND v1 = '*'
+           AND v2 IN (${sql.join(listSensitiveResources())})
+           AND (v0, v3) IN (${sql.join(defaults)})
+           AND COALESCE(v4, '') = '' AND COALESCE(v5, '') = ''
+        RETURNING v0, v2, v3`.execute(trx);
+      return rows.map((r) => [r.v0, '*', r.v2, r.v3]);
+    }),
+  );
+  for (const r of rules) {
+    console.warn(
+      `[resource-grants] removed default-shaped grant on sensitive name: ${r.join(', ')} ` +
+        '(re-grant it by name if it was intended)',
+    );
+  }
+  if (rules.length > 0) {
+    await forgetDeletedPolicies(rules);
+    await invalidateAllPermissionCaches({ shared: true });
+  }
+  return rules;
 }
 
 /** Names of the extensions the registry marks installed, in any tenant. */
@@ -457,13 +528,19 @@ export async function listDeclaredResources(
  * The manifests are read before anything is granted: that read registers the
  * `sensitiveResources` of every extension with a registry row, soft uninstalled
  * ones included (`registerRegisteredSensitiveResources`), and a collection one
- * of them names must not get its defaults in the first pass.
+ * of them names must not get its defaults in the first pass. Then, once per
+ * database, the defaults written on those names before that are removed
+ * (`repairSensitiveDefaultGrants`).
  */
 export async function reconcileDefaultGrants(
   db: Database,
   extensionsBase: string,
 ): Promise<number> {
-  await registerRegisteredSensitiveResources(db, extensionsBase);
+  const unreadable = await registerRegisteredSensitiveResources(db, extensionsBase);
+  // Non-fatal: rolled back with its marker, so the next boot tries again.
+  await repairSensitiveDefaultGrants(db, unreadable).catch((err: Error) => {
+    console.warn('[resource-grants] sensitive default-grant repair failed:', err.message);
+  });
   const declared = await listDeclaredResources(db, extensionsBase);
   return (
     (await materializeDefaultGrants(db, await listKnownResources(db))) +
