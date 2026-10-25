@@ -46,7 +46,7 @@ import { checkRevoked, revocationCheckRequired, revocationMessage } from './revo
 import type { Database } from '../../db/index.js';
 import { invalidateActivationCache } from './activation.js';
 import { withExtensionLock } from './extension-utils.js';
-import { isPendingMigrationsRefusal } from './migration-runner.js';
+import { isPendingMigrationsRefusal, migrationsAheadOf } from './migration-runner.js';
 import { Hono } from 'hono';
 import type { ExtensionLoader } from './extension-loader.js';
 import { unregisterJobs } from './jobs.js';
@@ -271,6 +271,8 @@ export async function syncWithRegistry(
     if (wanted) {
       let unloaded = false;
       let staged: StagedExtension | null = null;
+      // The migrations the version running now ships: checked against the schema before it comes back.
+      const previous = loader.modules.get(name)?.getMigrations?.() ?? [];
       try {
         // Fetched before the unload: a bundle that fails a check leaves the old one running.
         if (row && (behind || !extensionFilesPresent(extDir)))
@@ -287,9 +289,31 @@ export async function syncWithRegistry(
         await loadDynamic(loader, name, new Hono(), godOn);
       } catch (err) {
         const why = (err as Error).message;
-        // The new version does not load here: the old one comes back, as on the
-        // replica that ran the update. Its migrations are on record already.
-        if (staged) {
+        // The new version does not load here. The old one comes back only onto the
+        // schema it knows: once the DB holds a migration it does not ship (the update
+        // ran them), the new version stays on disk and nothing runs here until a
+        // later sync loads it, as on the replica that ran the update or at a boot.
+        let ahead: string[] = [];
+        if (staged && unloaded) {
+          try {
+            ahead = await migrationsAheadOf(name, previous, db);
+          } catch (e) {
+            ahead = [`(not read: ${(e as Error).message})`];
+          }
+        }
+        if (ahead.length > 0) {
+          console.error(
+            `[extensions] "${name}": the previous version is not put back onto a schema ahead of it (${ahead.join(', ')})`,
+          );
+          try {
+            staged?.commit();
+          } catch (e) {
+            console.warn(
+              `[extensions] "${name}": the previous version's files were not removed:`,
+              e,
+            );
+          }
+        } else if (staged) {
           try {
             staged.rollback();
             invalidateFilesPresent(extDir);
@@ -298,6 +322,9 @@ export async function syncWithRegistry(
             console.error(`[extensions] "${name}": the previous version did not come back:`, e);
           }
         }
+        // Not loaded here: the health route says why (lastLoadError), as for a boot.
+        if (!loader.isActive(name) && !loader.lastLoadError.has(name))
+          loader.lastLoadError.set(name, why);
         // The originating replica recorded its own outcome; this one only says why
         // here. A refusal for a firm's row has no god route behind it to record it.
         console.warn(`[extensions] "${name}" enabled elsewhere, not loaded here:`, why);
