@@ -22,7 +22,14 @@ import { _resetExtensionDbRoleForTests } from '../../lib/extensions/ext-db-role.
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
+import { buildExtensionInternals } from '../../lib/extensions/internals.js';
+import {
+  DEFAULT_TENANT_ID,
+  getCurrentTenantTrx,
+  withTenantIsolation,
+} from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -43,6 +50,11 @@ d('extension writes run through the field pipeline', () => {
   };
   type ExtDb = { insertInto(t: string): Chain; updateTable(t: string): Chain };
   let extDb: ExtDb;
+  // A job has no actor, and without one an extension's statement gets no
+  // collection: it writes as the system, as a `data:system` extension's job does.
+  const internals = gateInternals('probe-ext', buildExtensionInternals(), ['data:system']);
+  const asJob = <T>(fn: () => Promise<T>) =>
+    withTenantIsolation(DEFAULT_TENANT_ID, () => internals.asSystem([COLLECTION], fn));
 
   beforeAll(async () => {
     // The role ctx.db runs as is process state a file that loaded an extension
@@ -65,7 +77,8 @@ d('extension writes run through the field pipeline', () => {
         },
       ],
     } as never);
-    extDb = createRestrictedDb(db, 'probe-ext') as unknown as ExtDb;
+    // `ctx.db`: the running tenant's transaction, else the pool.
+    extDb = createRestrictedDb(() => getCurrentTenantTrx() ?? db, 'probe-ext') as unknown as ExtDb;
   });
 
   afterAll(async () => {
@@ -83,10 +96,12 @@ d('extension writes run through the field pipeline', () => {
 
   it('hashes and encrypts on insert', async () => {
     const id = crypto.randomUUID();
-    await extDb
-      .insertInto(TABLE)
-      .values({ id, label: 'via-extension', secret: PLAINTEXT_PW, api_key: SECRET })
-      .execute();
+    await asJob(() =>
+      extDb
+        .insertInto(TABLE)
+        .values({ id, label: 'via-extension', secret: PLAINTEXT_PW, api_key: SECRET })
+        .execute(),
+    );
 
     const rows = (await sql
       .raw(`SELECT secret, api_key, label FROM "${TABLE}" WHERE id = '${id}'`)
@@ -105,12 +120,14 @@ d('extension writes run through the field pipeline', () => {
 
   it('hashes and encrypts on a single-row update', async () => {
     const id = crypto.randomUUID();
-    await extDb.insertInto(TABLE).values({ id, label: 'before' }).execute();
-    await extDb
-      .updateTable(TABLE)
-      .set({ secret: PLAINTEXT_PW, api_key: SECRET })
-      .where('id', '=', id)
-      .execute();
+    await asJob(async () => {
+      await extDb.insertInto(TABLE).values({ id, label: 'before' }).execute();
+      await extDb
+        .updateTable(TABLE)
+        .set({ secret: PLAINTEXT_PW, api_key: SECRET })
+        .where('id', '=', id)
+        .execute();
+    });
 
     const rows = (await sql
       .raw(`SELECT secret, api_key FROM "${TABLE}" WHERE id = '${id}'`)
@@ -124,12 +141,14 @@ d('extension writes run through the field pipeline', () => {
     // The field pipeline only needs the patch, so storing plaintext because
     // the WHERE happened to be broad would be an odd rule.
     const id = crypto.randomUUID();
-    await extDb.insertInto(TABLE).values({ id, label: 'bulk-target' }).execute();
-    await extDb
-      .updateTable(TABLE)
-      .set({ api_key: SECRET })
-      .where('label', '=', 'bulk-target')
-      .execute();
+    await asJob(async () => {
+      await extDb.insertInto(TABLE).values({ id, label: 'bulk-target' }).execute();
+      await extDb
+        .updateTable(TABLE)
+        .set({ api_key: SECRET })
+        .where('label', '=', 'bulk-target')
+        .execute();
+    });
 
     const rows = (await sql
       .raw(`SELECT api_key FROM "${TABLE}" WHERE id = '${id}'`)

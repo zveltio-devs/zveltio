@@ -69,6 +69,13 @@ function asTenantRequest<T>(tenant: string, fn: () => Promise<T>): Promise<T> {
     db.transaction().execute(async (trx) => {
       await sql.raw(`SET LOCAL ROLE "${ROLE}"`).execute(trx);
       await sql`SELECT set_config('zveltio.current_tenant', ${tenant}, true)`.execute(trx);
+      // A request has an actor, and this one may read and write the collection:
+      // what is under test is the tenant boundary, not collection permissions.
+      // Without an actor an extension's statement gets nothing (migration 099).
+      await sql`
+        SELECT set_config('zveltio.actor', 'on', true),
+               set_config('zveltio.collection_grants', ${`,${TABLE.slice(4)}:*,`}, true)
+      `.execute(trx);
       return runWithTenantTrx(trx as unknown as Database, tenant, fn);
     }),
   );
