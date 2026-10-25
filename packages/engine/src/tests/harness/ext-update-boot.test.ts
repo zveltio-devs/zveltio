@@ -13,6 +13,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { SQL } from 'bun';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -172,7 +173,19 @@ d('boot and a half-done extension update', () => {
     it('an update another replica is running keeps its directory', async () => {
       await interrupted(true);
       await record('1.0.0');
-      await withExtensionLock(db, NAME, () => sweepUpdateLeftovers(db, base));
+      // Held by a session of its own, as another replica holds it. Not through
+      // `withExtensionLock`: that takes this process's holder slot, and at
+      // DB_POOL_MAX=2 the cap is one, so the sweep's `tryAdvisoryLock` queued
+      // for it behind its own caller and the test hung.
+      const replica = new SQL(process.env.TEST_DATABASE_URL!, { max: 1 });
+      try {
+        await replica.begin(async (tx) => {
+          await tx`SELECT pg_advisory_xact_lock(hashtext(${`ext:${NAME}`}))`;
+          await sweepUpdateLeftovers(db, base);
+        });
+      } finally {
+        await replica.close();
+      }
       expect(leftovers()).toHaveLength(1);
       expect(version(join(base, NAME))).toBe('1.1.0');
       // Its lock released, the next boot settles it.
