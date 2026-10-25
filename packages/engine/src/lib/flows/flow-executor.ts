@@ -109,6 +109,9 @@ let _warnedNoFlowRole = false;
  */
 let _flowReaderRole = 'zveltio_flow_reader';
 
+/** Rows one `export_collection` step may write; its step schema caps `limit` the same. */
+const EXPORT_MAX_ROWS = 100_000;
+
 /**
  * The step types this executor actually implements.
  *
@@ -415,8 +418,15 @@ async function executeStep(
       const rawCollection = cfg.collection.startsWith('zvd_')
         ? cfg.collection.slice(4)
         : cfg.collection;
+      // Thrown, not returned as output: a run that exported nothing is a failed run.
       if (!SAFE_COLLECTION.test(rawCollection)) {
-        return { output: { error: `Invalid collection name: "${cfg.collection}"` } };
+        throw new Error(`export_collection: invalid collection name "${cfg.collection}"`);
+      }
+      const limit = cfg.limit ?? 1000;
+      if (!Number.isInteger(limit) || limit < 1 || limit > EXPORT_MAX_ROWS) {
+        throw new Error(
+          `export_collection: limit must be an integer from 1 to ${EXPORT_MAX_ROWS}, got ${JSON.stringify(cfg.limit)}`,
+        );
       }
 
       // CSV only: the engine carries no spreadsheet writer, and the "excel"
@@ -443,7 +453,7 @@ async function executeStep(
       const { unserved, sealed } = withheldColumns(def);
       const withheld = new Set([...unserved, ...sealed]);
       const rows = await withTenantIsolation(flowTenantId, async (trx) =>
-        (await selectReadable(trx, tableName)).limit(Number(cfg.limit ?? 1000)).execute(),
+        (await selectReadable(trx, tableName)).limit(limit).execute(),
       );
 
       const columns: string[] | undefined = cfg.columns?.length
