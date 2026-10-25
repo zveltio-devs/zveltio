@@ -6,12 +6,17 @@
  * not configured' }`, and the tests here mocked the missing module into being.
  * The step now writes the CSV itself (recordsToCsv), and the email goes through
  * the engine's SMTP transport — nodemailer is what is mocked.
+ *
+ * The read itself (firm, masking view, withheld columns) is proved against a real
+ * database in `harness/flow-export-read-scope.test.ts`; here the canned database
+ * answers it.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { _internalForTests as emailInternals } from '../../lib/email.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const { executeStep } = _internalForTests;
@@ -29,6 +34,7 @@ beforeAll(() => {
   emailInternals.resetSmtpCacheForTests();
 });
 afterAll(() => {
+  initTenantManager(null as unknown as Database);
   if (savedHost === undefined) delete process.env.SMTP_HOST;
   else process.env.SMTP_HOST = savedHost;
   emailInternals.resetSmtpCacheForTests();
@@ -40,7 +46,9 @@ beforeEach(() => {
 
 function run(table: string, rows: Record<string, unknown>[], config: Record<string, unknown>) {
   const db = new CannedDb();
+  initTenantManager(db.kysely as unknown as Database);
   db.when(/set_config/i, []);
+  db.when(/from "zvd_collections"/i, [{ name: table.slice(4), fields: [] }]);
   db.when(new RegExp(`from "${table}"`, 'i'), rows);
   return {
     db,

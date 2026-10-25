@@ -78,11 +78,14 @@ export class PoolBusyError extends Error {
  * shrink the pool by one, which is the failure this exists to prevent, arriving
  * more slowly. So the losing promise still gets its connection released.
  */
-async function reserveWithTimeout(pool: BunSQLPool): Promise<BunReservedConnection> {
+async function reserveWithTimeout(
+  pool: BunSQLPool,
+  timeoutMs = ACQUIRE_TIMEOUT_MS,
+): Promise<BunReservedConnection> {
   const pending = pool.reserve();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new PoolBusyError(ACQUIRE_TIMEOUT_MS)), ACQUIRE_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new PoolBusyError(timeoutMs)), timeoutMs);
   });
   try {
     return await Promise.race([pending, deadline]);
@@ -108,40 +111,33 @@ async function reserveWithTimeout(pool: BunSQLPool): Promise<BunReservedConnecti
 }
 
 /**
- * A pool query that cannot wait forever.
+ * How long a statement outside a transaction waits for its connection.
  *
- * `pool.unsafe()` queues when every connection is reserved, with no deadline of
- * its own — measured directly: reserve every connection inside a transaction,
- * then call `unsafe()`, and it is still waiting when the test gives up. Same
- * defect `reserveWithTimeout` fixed for transactions, on the path that
- * non-transactional queries take.
- *
- * The threshold sits ABOVE `statement_timeout` (30s on these connections), and
- * that is the design rather than a rounded number. Bun does not separate
- * "waiting for a connection" from "statement running", so a shorter deadline
- * would abandon statements that are legitimately executing — and an abandoned
- * INSERT still commits, leaving its caller told it failed. Above the statement
- * cap, a timeout can only mean a connection never arrived, so nothing is ever
- * abandoned mid-flight.
- *
- * It is a stop against hanging forever, not a latency control. 35s is a bad
- * wait; an unbounded one is worse — the request never ends, the client gives up,
- * and the promise stays pinned in the process.
+ * Longer than a request's `ACQUIRE_TIMEOUT_MS` because these callers — boot,
+ * jobs, after-commit work — have no client waiting on them. It bounds the wait
+ * only: the statement itself is under `statement_timeout`. It used to bound
+ * `pool.unsafe()` as a whole, which cannot tell the two apart, and was set above
+ * the 30 s statement cap for that reason; it stays at 35 s so a saturated pool
+ * fails the same callers at the same moment it always did.
  */
 const QUERY_ACQUIRE_TIMEOUT_MS = Number(process.env.DB_QUERY_ACQUIRE_TIMEOUT_MS ?? 35_000);
 
-/** Reject with `PoolBusyError` if `p` has not settled by the deadline. */
-function withQueryDeadline<T>(p: Promise<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new PoolBusyError(QUERY_ACQUIRE_TIMEOUT_MS)),
-      QUERY_ACQUIRE_TIMEOUT_MS,
-    );
-  });
-  return Promise.race([p, deadline]).finally(() => {
-    if (timer) clearTimeout(timer);
-  }) as Promise<T>;
+/** Bun's own check on `pool.unsafe()`, which a reserved connection does not make. */
+const OPENS_TRANSACTION = /^\s*(BEGIN|START\s+TRANSACTION)\b/i;
+
+/** Give a reserved connection back; one already closed has nothing to give. */
+function releaseReserved(conn: BunReservedConnection): void {
+  try {
+    conn.release();
+  } catch (err) {
+    // Bun's pool can race idle-timeout against a transaction release, leaving
+    // the connection CLOSED by the time we get here. Any other error must
+    // surface so it can be fixed.
+    const e = err as { code?: string; message?: string };
+    const isClosed =
+      e?.code === 'ERR_POSTGRES_CONNECTION_CLOSED' || /Connection closed/i.test(e?.message ?? '');
+    if (!isClosed) throw err;
+  }
 }
 
 /** Main Bun.SQL pool */
@@ -231,10 +227,8 @@ export class BunSqlDialect implements Dialect {
 }
 
 // ─── Module-level pool ref for migration runner ───────────────────────────────
-// pool.unsafe(sql) (no params) uses PostgreSQL simple-query protocol and
-// supports multiple commands. reserved.unsafe(sql) always uses extended-query
-// protocol (prepared statements) even without params, which forbids multiple
-// commands. Migrations need simple-query, so they use this reference directly.
+// `unsafe(sql)` with no params uses the simple-query protocol and runs several
+// commands, on the pool and on a reserved connection alike (measured, 1.3.14).
 export let _activeBunPool: BunSQLPool | null = null;
 let _activeDriver: BunSqlDriver | null = null;
 
@@ -390,10 +384,9 @@ class BunSqlDriver implements Driver {
   }
 
   /**
-   * Returns a smart connection that uses pool.unsafe() directly for normal
-   * queries (no reservation) and lazily reserves a connection only when a
-   * transaction begins. This prevents pool exhaustion — reserve() pins a
-   * dedicated backend connection; using it for every query drains max quickly.
+   * Returns a smart connection that reserves a backend per statement, and for
+   * the whole transaction once one begins — so a connection is held only while
+   * something runs on it.
    */
   async acquireConnection(): Promise<DatabaseConnection> {
     if (!this.#pool) throw new Error('[BunSqlDriver] Driver not initialized. Call initDatabase().');
@@ -585,8 +578,7 @@ function inlineParams(sql: string, params: unknown[]): string {
 
 /**
  * Smart connection:
- * - Normal queries: routes through pool.unsafe() — no connection reservation,
- *   pool manages concurrency efficiently.
+ * - Normal queries: a connection reserved for the one statement (see `#run`).
  * - Transactions: reserves a dedicated connection on beginTransaction so that
  *   BEGIN / queries / COMMIT all run on the same PostgreSQL backend socket.
  */
@@ -643,24 +635,45 @@ class BunSqlSmartConnection implements DatabaseConnection {
     return typeof count === 'number' ? { rows, numAffectedRows: BigInt(count) } : { rows };
   }
 
+  /**
+   * One statement: on the transaction's connection, or else on one reserved for
+   * this statement alone — never through `pool.unsafe()`.
+   *
+   * `Bun.SQL` 1.3.14 runs a `pool.unsafe()` statement INSIDE another caller's
+   * reserved transaction once demand passes `max`. Its `release()` hands a
+   * drained connection to a waiting `reserve()` without taking it out of
+   * `readyConnections`, and `flushConcurrentQueries()` then pipelines pool
+   * statements onto it. Measured with `max: 10` and 24 callers: a pool statement
+   * read another transaction's `SET LOCAL` setting, and within a few bursts the
+   * pool stalled — the pool statement waits for the transaction to end, the
+   * transaction's next statement waits behind it — until the 35 s deadline.
+   * In the engine that is a request's tenant GUCs and role leaking into a query
+   * outside it, and the 30 s schema-dev-writer timeouts after a pool recycle.
+   * Only `pool.unsafe()` feeds that queue, so reserving every statement keeps it
+   * empty. Bun 1.4 rewrote the pool (a reservation leaves `readyConnections`);
+   * re-measure `tests/harness/bun-pool-isolation.test.ts` before going back.
+   */
+  async #run<R>(sql: string, params: unknown[]): Promise<R[]> {
+    const exec = (conn: BunReservedConnection) =>
+      params.length > 0 ? conn.unsafe<R>(sql, params) : conn.unsafe<R>(sql);
+    if (this.#reserved) return exec(this.#reserved);
+    // A transaction opened here would go back to the pool still open.
+    if (OPENS_TRANSACTION.test(sql)) {
+      throw new Error('[BunSqlDialect] open a transaction with db.transaction(), not a raw BEGIN');
+    }
+    const conn = await reserveWithTimeout(this.#pool(), QUERY_ACQUIRE_TIMEOUT_MS);
+    try {
+      return await exec(conn);
+    } finally {
+      releaseReserved(conn);
+    }
+  }
+
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
     const params = encodeArrayParams(compiledQuery.parameters as unknown[]);
 
-    const runPrepared = async (): Promise<QueryResult<R>> => {
-      if (this.#reserved) {
-        const rows =
-          params.length > 0
-            ? await this.#reserved.unsafe<R>(compiledQuery.sql, params)
-            : await this.#reserved.unsafe<R>(compiledQuery.sql);
-        return BunSqlSmartConnection.#wrap(rows);
-      }
-      const rows = await withQueryDeadline(
-        params.length > 0
-          ? this.#pool().unsafe<R>(compiledQuery.sql, params)
-          : this.#pool().unsafe<R>(compiledQuery.sql),
-      );
-      return BunSqlSmartConnection.#wrap(rows);
-    };
+    const runPrepared = async (): Promise<QueryResult<R>> =>
+      BunSqlSmartConnection.#wrap(await this.#run<R>(compiledQuery.sql, params));
 
     /** Last-resort fallback after a prepared-statement failure: inline the
      *  params into the SQL and run via simple-query protocol (no prepare,
@@ -668,10 +681,7 @@ class BunSqlSmartConnection implements DatabaseConnection {
      *  we duplicate here — values are URL-safe primitives Kysely produced. */
     const runInline = async (): Promise<QueryResult<R>> => {
       const inlined = inlineParams(compiledQuery.sql, params);
-      const rows = this.#reserved
-        ? await this.#reserved.unsafe<R>(inlined)
-        : await withQueryDeadline(this.#pool().unsafe<R>(inlined));
-      return BunSqlSmartConnection.#wrap(rows);
+      return BunSqlSmartConnection.#wrap(await this.#run<R>(inlined, []));
     };
 
     if (this.#skipPrepared) return runInline();
@@ -791,20 +801,7 @@ class BunSqlSmartConnection implements DatabaseConnection {
         })();
         return;
       }
-      try {
-        this.#reserved.release();
-      } catch (err) {
-        // Bun's pool can race idle-timeout against a transaction
-        // release, leaving the connection in CLOSED state by the
-        // time we get here. Swallow ERR_POSTGRES_CONNECTION_CLOSED
-        // — there is nothing to release, the connection is already
-        // gone. Any other error must surface so it can be fixed.
-        const e = err as { code?: string; message?: string };
-        const isClosed =
-          e?.code === 'ERR_POSTGRES_CONNECTION_CLOSED' ||
-          /Connection closed/i.test(e?.message ?? '');
-        if (!isClosed) throw err;
-      }
+      releaseReserved(this.#reserved);
       this.#reserved = null;
     }
     // No-op for non-transaction connections — pool manages itself
