@@ -593,16 +593,7 @@ jobs:
         #     files, never from a request, so no runtime path reaches it. Drop the
         #     ignore when braces ships a fix (override it then) or those tools move
         #     to picomatch-only matching.
-        #
-        #   GHSA-mrhx-c7xc-m3w5  zod <=4.6.5 collects one issue per failing array
-        #     element with no cap (published 2026-10-24). This one IS reachable:
-        #     a 9.5 MB body (under the 10 MB /api limit) against
-        #     z.array(z.string()) costs ~1.7 GB RSS. It stays ignored only because
-        #     zod is a lockstep dep inlined into the worker and ~50 extension
-        #     bundles, so the bump (4.6.6+) ships with the extension migration
-        #     wave (owner decision 2026-10-24, engine first). Tracked as an open
-        #     high in the review ledger; drop the ignore with that bump.
-        run: bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm --ignore=GHSA-mrhx-c7xc-m3w5
+        run: bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm
 
   ext-runner-isolation:
     name: Extension runner isolation
