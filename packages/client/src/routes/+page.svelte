@@ -1,9 +1,9 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { useAuth } from '$stores/auth.svelte';
+import { m } from '#lib/i18n.svelte.js';
+import { useAuth } from '#lib/stores/auth.svelte.js';
 import { LogIn, UserPlus } from '@lucide/svelte';
-import BlockRenderer from '$lib/blocks/BlockRenderer.svelte';
-import Popup from '$lib/ext/content/pages/Popup.svelte';
+import BlockRenderer from '#lib/blocks/BlockRenderer.svelte';
+import Popup from '#lib/ext/content/pages/Popup.svelte';
 
 let { data } = $props();
 

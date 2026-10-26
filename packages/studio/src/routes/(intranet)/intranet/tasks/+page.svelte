@@ -1,8 +1,8 @@
 <script lang="ts">
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import { SquareCheck, Clock, ArrowRight, Inbox } from '@lucide/svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let tasks = $state<any[]>([]);

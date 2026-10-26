@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
+  import { m } from '#lib/i18n.svelte.js';
   /**
    * One level of the block tree, and — for a container — the levels beneath it.
    *

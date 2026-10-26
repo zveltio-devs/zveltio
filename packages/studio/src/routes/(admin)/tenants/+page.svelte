@@ -1,7 +1,7 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import {
   Building2,
   RefreshCw,
@@ -15,9 +15,9 @@ import {
   Plus,
   Trash2,
 } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import CrudListPage from '#lib/components/common/CrudListPage.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 // ── State ──────────────────────────────────────────────────────────────────
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

@@ -70,10 +70,10 @@ function extractH1(html: string): { h1?: string; subtitle?: string } {
 }
 
 function patchPage(content: string, key: string): string {
-  if (!content.includes("from '$lib/i18n")) {
+  if (!content.includes("from '#lib/i18n")) {
     content = content.replace(
       /<script lang="ts">\n/,
-      '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+      '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n',
     );
   }
 
@@ -166,7 +166,7 @@ for (const extName of findExtensions(EXT_ROOT)) {
     }
   }
 
-  if (existsSync(pagePath) && !pageHtml.includes("from '$lib/i18n")) {
+  if (existsSync(pagePath) && !pageHtml.includes("from '#lib/i18n")) {
     const next = patchPage(pageHtml, key);
     if (next !== pageHtml) {
       writeFileSync(pagePath, next);

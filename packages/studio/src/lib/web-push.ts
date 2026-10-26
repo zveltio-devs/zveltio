@@ -17,11 +17,11 @@
  * one — and `subscribeToWebPush()` rejects before it ever reaches the engine.
  */
 
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { api } from './api.js';
 
 /** Where the push worker is actually served from. */
-const PUSH_SW = `${base}/push-sw.js`;
+const PUSH_SW = resolve(`push-sw.js`);
 
 export type WebPushState =
   | 'unsupported' // no Push API in this browser

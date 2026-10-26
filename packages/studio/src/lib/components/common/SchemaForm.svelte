@@ -43,8 +43,8 @@
 -->
 <script lang="ts">
 import type { FormSchema, FormField } from '@zveltio/sdk/extension';
-import { studioApi } from '$lib/extension-api.svelte.js';
-import { m } from '$lib/i18n.svelte.js';
+import { studioApi } from '#lib/extension-api.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 
 interface Props {
   /** Stable form id; form-alter hooks match against this. */

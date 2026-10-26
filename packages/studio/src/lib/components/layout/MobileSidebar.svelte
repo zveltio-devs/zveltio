@@ -1,10 +1,11 @@
 <script lang="ts">
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
+import { basePath } from '#lib/paths.js';
 import { page } from '$app/state';
 import { X } from '@lucide/svelte';
-import { m, i18n } from '$lib/i18n.svelte.js';
-import { navLabel } from '$lib/nav-i18n.js';
-import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '$lib/nav-model.js';
+import { m, i18n } from '#lib/i18n.svelte.js';
+import { navLabel } from '#lib/nav-i18n.js';
+import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '#lib/nav-model.js';
 
 interface Props {
   open: boolean;
@@ -46,7 +47,7 @@ const coreItemLabel = (key: string) => {
 
 function isActive(href: string): boolean {
   const cur = page.url.pathname;
-  if (href === `${base}/`) return cur === `${base}/` || cur === `${base}`;
+  if (href === resolve('')) return cur === resolve('') || cur === basePath;
   // Boundary-aware: a bare `startsWith` marks `/admin/users` active on
   // `/admin/users-audit`. Extension page paths come from manifests, so the
   // collision is one sibling repository away, not a hypothetical.

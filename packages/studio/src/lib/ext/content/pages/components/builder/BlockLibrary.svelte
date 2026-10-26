@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
+  import { m } from '#lib/i18n.svelte.js';
   import { LIBRARY, type LibraryBlock } from '../../lib/builder-types.js';
 
   let { onAdd }: { onAdd: (b: any) => void } = $props();

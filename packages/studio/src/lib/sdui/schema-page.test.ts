@@ -16,7 +16,7 @@ const patch = vi.fn(async (_url: string, _body: unknown) => ({}));
 const get = vi.fn(async (url: string) =>
   url.includes('payments') ? rowsByTab.payments : rowsByTab.invoices,
 );
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: {
     get: (url: string) => get(url),
     post: vi.fn(),

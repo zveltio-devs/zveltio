@@ -4,7 +4,7 @@
  *
  * Complements the core time-of-day greeting; does not replace it.
  */
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { Sparkles } from '@lucide/svelte';
 
 type Ctx = {
@@ -17,7 +17,7 @@ const firstName = $derived((user?.name ?? '').split(' ')[0] || '');
 </script>
 
 <a
-  href="{base}/ai/chat"
+  href={resolve('ai/chat')}
   class="flex items-center gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 hover:border-primary/50 transition-colors"
   data-testid="ai-dashboard-hero"
 >

@@ -6,8 +6,8 @@
  * extensions are unregistered without a full page reload.
  */
 
-import { CONTRIBUTION_MODULES } from '$lib/ext/.contributions.generated.js';
-import { registerContributionSlot, unregisterContributions } from '$lib/extension-api.svelte.js';
+import { CONTRIBUTION_MODULES } from '#lib/ext/.contributions.generated.js';
+import { registerContributionSlot, unregisterContributions } from '#lib/extension-api.svelte.js';
 
 type ContributionModules = Record<string, () => Promise<{ activate?: () => void }>>;
 

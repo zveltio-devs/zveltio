@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * it is an irreversible drop of the table and its data.
  */
 const del = vi.fn(async (_name: string) => ({}));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   collectionsApi: {
     list: vi.fn(async () => ({
       collections: [
@@ -27,7 +27,7 @@ vi.mock('$lib/api.js', () => ({
     delete: (name: string) => del(name),
   },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock('$app/navigation', () => ({ replaceState: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/admin/collections') } }));
 

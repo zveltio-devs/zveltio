@@ -144,10 +144,10 @@ function fixCorruptOptions(c: string): string {
 
 function ensureImport(path: string) {
   let c = readFileSync(path, 'utf8');
-  if (!c.includes("from '$lib/i18n") && c.includes("m['")) {
+  if (!c.includes("from '#lib/i18n") && c.includes("m['")) {
     c = c.replace(
       /<script lang="ts">\n/,
-      '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+      '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n',
     );
     writeFileSync(path, c);
   }
@@ -269,11 +269,11 @@ if (!existsSync(valBackup)) {
   val = val.replace(/ÔÇö/g, '—');
   val =
     `<script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
-  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+  import { m } from '#lib/i18n.svelte.js';
+  import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
   import { onMount } from 'svelte';
-  import { api } from '$lib/api.js';
-  import { toast } from '$lib/stores/toast.svelte.js';
+  import { api } from '#lib/api.js';
+  import { toast } from '#lib/stores/toast.svelte.js';
   import { ShieldCheck, Plus, X, Sparkles, LoaderCircle } from '@lucide/svelte';
 
 ` + val.slice(val.indexOf('let rules'));

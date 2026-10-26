@@ -1,23 +1,23 @@
 <script lang="ts">
-import { fmtDate, localToday } from '$lib/stores/format.svelte.js';
-import { copyText } from '$lib/clipboard.js';
-import Modal from '$lib/components/common/Modal.svelte';
+import { fmtDate, localToday } from '#lib/stores/format.svelte.js';
+import { copyText } from '#lib/clipboard.js';
+import Modal from '#lib/components/common/Modal.svelte';
 /**
  * SDUI SPIKE renderer. Interprets a PageSchema with trusted generic host
  * components — no per-extension code. Reuses ExtensionPageShell + ConfirmModal
  * + the shared `api`, exactly like a hand-written extension page would.
  */
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import { isOwnNamespace } from './guard.js';
 import { hasNextPage, showPager } from './paging.js';
-import { ENGINE_URL } from '$lib/config.js';
-import { m } from '$lib/i18n.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import { ENGINE_URL } from '#lib/config.js';
+import { m } from '#lib/i18n.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import ExtensionPageShell from '#lib/components/extension/ExtensionPageShell.svelte';
+import ExtensionDataPanel from '#lib/components/extension/ExtensionDataPanel.svelte';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '#lib/utils/extension-confirm.svelte.js';
 import {
   Plus,
   Trash2,
@@ -48,7 +48,7 @@ import type { PageSchema, ResourceView, ColumnDef, ActionDef, FieldDef } from '.
 import BuilderLayout from './BuilderLayout.svelte';
 import DetailLayout from './DetailLayout.svelte';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { page } from '$app/state';
 
 let {
@@ -847,7 +847,7 @@ function runAction(row: any, a: ActionDef) {
   if (a.kind === 'navigate') {
     const path = fillEndpoint(a.href ?? '', row);
     const href = path.startsWith('/') ? path : `/${path}`;
-    void goto(`${base}${href}`);
+    void goto(resolve(href.slice(1)));
     return;
   }
   if (a.kind === 'open') {

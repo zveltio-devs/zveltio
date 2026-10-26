@@ -1,5 +1,5 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 /**
  * SearchableSelect - Dropdown with server-side search
  * Zero dependencies, callback-based

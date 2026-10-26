@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('$lib/i18n.svelte.js', () => ({
+vi.mock('#lib/i18n.svelte.js', () => ({
   m: { 'common.delete': () => 'Delete', 'common.confirm': () => 'Confirm' },
 }));
 

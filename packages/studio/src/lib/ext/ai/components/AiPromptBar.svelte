@@ -5,11 +5,11 @@
  * Compact entry point into `/admin/ai`. Shown only when at least one provider
  * is configured; otherwise the top bar stays hidden (no empty chrome).
  */
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { goto } from '$app/navigation';
 import { Bot, Sparkles } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { m } from '$lib/i18n.svelte.js';
+import { api } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
 
 let ready = $state(false);
 let configured = $state(false);
@@ -34,7 +34,7 @@ $effect(() => {
 
 function openAi(prefill?: string): void {
   const q = prefill?.trim();
-  goto(q ? `${base}/ai/chat?q=${encodeURIComponent(q)}` : `${base}/ai/chat`);
+  goto(q ? resolve(`ai/chat?q=${encodeURIComponent(q)}`) : resolve('ai/chat'));
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -69,7 +69,7 @@ function onKeydown(e: KeyboardEvent): void {
     </button>
   </form>
 {:else}
-  <a href="{base}/ai" class="btn btn-ghost btn-sm gap-1 mx-auto">
+  <a href={resolve('ai')} class="btn btn-ghost btn-sm gap-1 mx-auto">
     <Bot size={14} />
     {m['ai.topbar.setup']?.() ?? 'Set up AI providers'}
   </a>

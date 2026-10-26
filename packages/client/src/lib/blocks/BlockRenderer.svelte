@@ -12,7 +12,7 @@
   Per the owner's rule — everything belonging to an extension lives in the
   extension — the renderer is now `content/pages/client/BlockRenderer.svelte`,
   and `scripts/sync-extension-clients.ts` copies it here at build time. The copy
-  under `$lib/ext/` is GENERATED and committed, exactly like the Studio's
+  under `#lib/ext/` is GENERATED and committed, exactly like the Studio's
   extension routes: a release build with no extensions checked out keeps the
   committed snapshot rather than overwriting it with nothing.
 
@@ -21,7 +21,7 @@
   callers and to this directory's tests.
 -->
 <script lang="ts">
-import ExtensionBlockRenderer from '$lib/ext/content/pages/BlockRenderer.svelte';
+import ExtensionBlockRenderer from '#lib/ext/content/pages/BlockRenderer.svelte';
 
 // Forwarded wholesale rather than named one by one: a wrapper that lists props
 // silently drops the next one added to the component it delegates to, which is

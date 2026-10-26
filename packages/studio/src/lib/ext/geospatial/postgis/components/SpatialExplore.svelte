@@ -2,9 +2,9 @@
 /**
  * PostGIS explore — near / cluster / bbox against /ext/geospatial/postgis.
  */
-import MapView from '$lib/ext/geospatial/postgis/components/MapView.svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import MapView from '#lib/ext/geospatial/postgis/components/MapView.svelte';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 const API = '/ext/geospatial/postgis';
 

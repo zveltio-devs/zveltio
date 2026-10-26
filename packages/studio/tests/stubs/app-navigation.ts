@@ -9,7 +9,7 @@ export async function invalidate(_resource?: string | URL): Promise<void> {
   return;
 }
 
-export async function invalidateAll(): Promise<void> {
+export async function refreshAll(): Promise<void> {
   return;
 }
 

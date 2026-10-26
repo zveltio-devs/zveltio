@@ -19,7 +19,7 @@ const get = vi.fn(async (url: string) =>
     ? { submissions, form: { fields: [{ id: 'q1', label: 'Question one' }] } }
     : { id: 'f-1', name: 'Form 1', fields: [] },
 );
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: {
     get: (url: string) => get(url),
     post: vi.fn(),

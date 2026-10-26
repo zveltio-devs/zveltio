@@ -1,6 +1,6 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { api } from '$lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
+import { api } from '#lib/api.js';
 import { Terminal } from '@lucide/svelte';
 
 let query = $state('SELECT * FROM "user" LIMIT 10;');

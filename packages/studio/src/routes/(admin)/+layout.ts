@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
-import { base } from '$app/paths';
-import { browser } from '$app/environment';
+import { resolve } from '$app/paths';
+import { browser } from '$app/env';
 import type { LayoutLoad } from './$types';
 
 // The admin panel is a client-side SPA — `adapter-static`, no server at
@@ -26,7 +26,7 @@ export const load: LayoutLoad = async ({ url }) => {
   // lives in cookies/localStorage and exists only in a browser.
   if (!browser) return {};
 
-  const { auth } = await import('$lib/auth.svelte.js');
+  const { auth } = await import('#lib/auth.svelte.js');
   await auth.init();
   if (auth.isAuthenticated) return {};
 
@@ -36,5 +36,5 @@ export const load: LayoutLoad = async ({ url }) => {
   const params = new URLSearchParams();
   if (from && from !== '/' && !from.startsWith('/login')) params.set('redirect', from);
   params.set('reason', 'session_required');
-  throw redirect(302, `${base}/login?${params.toString()}`);
+  throw redirect(302, resolve(`login?${params.toString()}`));
 };

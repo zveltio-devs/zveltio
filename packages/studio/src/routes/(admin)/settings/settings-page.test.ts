@@ -17,14 +17,14 @@ const { getAll, updateBulk } = vi.hoisted(() => ({
   updateBulk: vi.fn(async (_settings: Record<string, unknown>) => ({})),
 }));
 
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: { get: vi.fn(async () => ({ rate_limits: [] })), post: vi.fn(), patch: vi.fn() },
   settingsApi: { getAll, updateBulk },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({
+vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
-vi.mock('$lib/auth.svelte.js', () => ({ auth: { user: { id: 'u1', role: 'god' } } }));
+vi.mock('#lib/auth.svelte.js', () => ({ auth: { user: { id: 'u1', role: 'god' } } }));
 
 import Page from './+page.svelte';
 

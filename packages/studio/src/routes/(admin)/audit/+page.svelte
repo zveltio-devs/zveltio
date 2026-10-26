@@ -1,15 +1,15 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { ClipboardList, Filter } from '@lucide/svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import Pagination from '$lib/components/common/Pagination.svelte';
-import PageSpinner from '$lib/components/common/PageSpinner.svelte';
-import { api } from '$lib/api.js';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import Pagination from '#lib/components/common/Pagination.svelte';
+import PageSpinner from '#lib/components/common/PageSpinner.svelte';
+import { api } from '#lib/api.js';
 // The shared formatter, which honours the instance's locale, timezone and
 // date_format. `toLocaleString()` used the browser's, so the audit log was the
 // one screen that disagreed with every other timestamp in the Studio.
-import { fmtDateTime } from '$lib/stores/format.svelte.js';
+import { fmtDateTime } from '#lib/stores/format.svelte.js';
 
 interface Revision {
   id: string;

@@ -1,7 +1,7 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import {
   Shield,
   Save,
@@ -15,11 +15,11 @@ import {
   Globe,
   Puzzle,
 } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-import SearchBar from '$lib/components/common/SearchBar.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import LoadingSkeleton from '#lib/components/common/LoadingSkeleton.svelte';
+import SearchBar from '#lib/components/common/SearchBar.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 type Resource = {
   name: string;

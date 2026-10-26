@@ -1,18 +1,18 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { Plus, Trash2, X, ArrowRight, GitFork, Columns } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import AddFieldDrawer from '$lib/components/fields/AddFieldDrawer.svelte';
-import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-import { fieldBadgeColor } from '$lib/components/collections/field-helpers.js';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import AddFieldDrawer from '#lib/components/fields/AddFieldDrawer.svelte';
+import LoadingSkeleton from '#lib/components/common/LoadingSkeleton.svelte';
+import { fieldBadgeColor } from '#lib/components/collections/field-helpers.js';
 import type {
   CollectionField,
   Relation,
   FieldType,
   CollectionSummary,
-} from '$lib/components/collections/types.js';
+} from '#lib/components/collections/types.js';
 
 // Schema tab for a collection: custom fields (add/drop via AddFieldDrawer),
 // virtual relations (add/delete via the inline builder), and the read-only

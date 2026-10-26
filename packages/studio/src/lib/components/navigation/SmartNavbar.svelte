@@ -1,5 +1,5 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 /**
  * SmartNavbar - Intelligent navbar with dynamic positioning
  * Positions: top, bottom, left, right

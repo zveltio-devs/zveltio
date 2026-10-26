@@ -1,4 +1,4 @@
-import { authClient, useSession } from '$lib/auth-client';
+import { authClient, useSession } from '#lib/auth-client.js';
 import { goto } from '$app/navigation';
 
 /**

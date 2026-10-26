@@ -50,7 +50,7 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     include: ['src/**/*.test.ts', 'src/**/*.test.svelte.ts', 'tests/**/*.test.ts'],
     // `tests/integration/**` is a separate lane (vitest.integration.config.ts):
-    // it drives a live engine instead of a mocked `$lib/api.js`, so it cannot
+    // it drives a live engine instead of a mocked `#lib/api.js`, so it cannot
     // run in a plain `bun run test` with no database behind it.
     exclude: ['node_modules/**', 'dist/**', '.svelte-kit/**', 'tests/integration/**'],
     // Component tests sometimes touch globals that jsdom doesn't have

@@ -1,10 +1,10 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { page } from '$app/state';
-import { auth } from '$lib/auth.svelte.js';
-import { api } from '$lib/api.js';
+import { auth } from '#lib/auth.svelte.js';
+import { api } from '#lib/api.js';
 import {
   LogOut,
   Sun,
@@ -17,7 +17,7 @@ import {
   SquareCheck,
   User as UserIcon,
 } from '@lucide/svelte';
-import ToastContainer from '$lib/components/common/ToastContainer.svelte';
+import ToastContainer from '#lib/components/common/ToastContainer.svelte';
 
 type NavPage = {
   slug: string;
@@ -38,10 +38,10 @@ let navPages = $state<NavPage[]>([]);
 /** Built-in routes shipped with Studio. These exist as real SvelteKit routes
  *  (no zone-page configuration required) and are always present in the nav. */
 const builtIns = $derived([
-  { href: `${base}/intranet`, title: 'Home', Icon: Home, external: false },
-  { href: `${base}/intranet/tasks`, title: 'Tasks', Icon: SquareCheck, external: false },
-  { href: `${base}/intranet/notifications`, title: 'Notifications', Icon: Bell, external: false },
-  { href: `${base}/intranet/profile`, title: 'Profile', Icon: UserIcon, external: false },
+  { href: resolve(`intranet`), title: 'Home', Icon: Home, external: false },
+  { href: resolve(`intranet/tasks`), title: 'Tasks', Icon: SquareCheck, external: false },
+  { href: resolve(`intranet/notifications`), title: 'Notifications', Icon: Bell, external: false },
+  { href: resolve(`intranet/profile`), title: 'Profile', Icon: UserIcon, external: false },
 ]);
 
 $effect(() => {
@@ -52,7 +52,7 @@ $effect(() => {
 
 function isActive(href: string): boolean {
   const cur = page.url.pathname;
-  if (href === `${base}/intranet`) return cur === `${base}/intranet`;
+  if (href === resolve(`intranet`)) return cur === resolve(`intranet`);
   return cur === href || cur.startsWith(href + '/');
 }
 
@@ -62,7 +62,7 @@ onMount(async () => {
 
   await auth.init();
   if (!auth.isAuthenticated) {
-    goto(`${base}/login`);
+    goto(resolve(`login`));
     return;
   }
 
@@ -86,7 +86,7 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Intranet');
 
 async function signOut() {
   await auth.signOut();
-  goto(`${base}/login`);
+  goto(resolve(`login`));
 }
 
 /** Recursively flatten zone pages so the sidebar can render arbitrary tree
@@ -159,7 +159,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
         </div>
         {#if navPages.length > 0}
           {#each flatten(navPages) as { depth, p } (p.slug)}
-            {@const href = `${base}/intranet/${p.slug}`}
+            {@const href = resolve(`intranet/${p.slug}`)}
             {@const active = isActive(href)}
             <div class="px-2 py-0.5" style="padding-left: {0.5 + depth * 1}rem">
               <a
@@ -176,7 +176,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
         {:else}
           <div class="px-4 py-2 text-center">
             <p class="text-[11px] text-base-content/65 leading-snug">No custom pages yet.</p>
-            <a href="{base}/zones/intranet" class="text-[11px] text-primary hover:underline mt-0.5 inline-block">Add pages →</a>
+            <a href={resolve(`zones/intranet`)} class="text-[11px] text-primary hover:underline mt-0.5 inline-block">Add pages →</a>
           </div>
         {/if}
 
@@ -186,7 +186,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
             <span class="text-[10px] font-semibold uppercase tracking-widest text-base-content/55 select-none">Admin</span>
           </div>
           <a
-            href="{base}/"
+            href={resolve(``)}
             class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium
               text-base-content/65 hover:bg-base-300 hover:text-base-content transition-colors"
           >
@@ -247,7 +247,7 @@ function flatten(pages: NavPage[], depth = 0): Array<{ depth: number; p: NavPage
           {#if navPages.length > 0}
             <div class="border-t border-base-300 my-2"></div>
             {#each flatten(navPages) as { depth, p } (p.slug)}
-              {@const href = `${base}/intranet/${p.slug}`}
+              {@const href = resolve(`intranet/${p.slug}`)}
               <div class="px-2 py-0.5" style="padding-left: {0.5 + depth * 1}rem">
                 <a href={href} onclick={() => (mobileOpen = false)}
                   class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors

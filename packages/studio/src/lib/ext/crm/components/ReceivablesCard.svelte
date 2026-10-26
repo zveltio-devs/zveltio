@@ -5,14 +5,14 @@
  * Session-only briefing (`GET /ext/crm/briefing`): intentionally not gated on
  * `crm:read` so admins see amounts before granting themselves the CRM resource.
  */
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { AlertCircle } from '@lucide/svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 // `$lib/i18n.svelte.js`, like the other 74 callers. Paraglide emits plain
 // `.js` with no declarations, so importing its output directly makes every
 // message key `any`; the host re-exports the same object from a TypeScript
 // module, which is where the types come from.
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 
 type OverdueBucket = { currency: string; count: number; total: number };
 
@@ -66,7 +66,7 @@ const dueSoonCount = $derived((owed?.dueSoon ?? []).reduce((n, b) => n + b.count
   </div>
 {:else if owedCount > 0}
   <a
-    href="{base}/crm"
+    href={resolve('crm')}
     class="card bg-base-100 border border-warning/40 hover:border-warning transition-colors"
     data-testid="crm-receivables-widget"
     aria-label={m['briefing.owedTitle']()}

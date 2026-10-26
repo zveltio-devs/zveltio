@@ -19,7 +19,7 @@ import { LoaderCircle, Plus } from '@lucide/svelte';
 import PageHeader from './PageHeader.svelte';
 import EmptyState from './EmptyState.svelte';
 import SearchBar from './SearchBar.svelte';
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 
 type IllustrationVariant = 'list' | 'table' | 'cloud' | 'target' | 'spark';
 

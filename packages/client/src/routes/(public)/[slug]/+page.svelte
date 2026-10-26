@@ -1,8 +1,8 @@
 <script lang="ts">
 import { error } from '@sveltejs/kit';
 import { untrack } from 'svelte';
-import BlockRenderer from '$lib/blocks/BlockRenderer.svelte';
-import Popup from '$lib/ext/content/pages/Popup.svelte';
+import BlockRenderer from '#lib/blocks/BlockRenderer.svelte';
+import Popup from '#lib/ext/content/pages/Popup.svelte';
 
 let { data } = $props();
 

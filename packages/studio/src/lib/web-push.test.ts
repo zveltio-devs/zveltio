@@ -20,7 +20,10 @@ import { api } from './api';
 // `tests/stubs` answers `base = ''`, and that is exactly why no test could see
 // that the push worker was being registered at the site root — where the engine
 // does not serve it.
-vi.mock('$app/paths', () => ({ base: '/admin', assets: '' }));
+vi.mock('$app/paths', () => ({
+  resolve: (p: string) => `/admin/${p}`,
+  asset: (p: string) => `/admin/${p}`,
+}));
 
 const PUBLIC_KEY =
   'BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8';

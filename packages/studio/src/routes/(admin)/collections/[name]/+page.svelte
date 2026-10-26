@@ -1,8 +1,8 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
-import { collectionsApi, api } from '$lib/api.js';
+import { collectionsApi, api } from '#lib/api.js';
 import {
   Plus,
   Sparkles,
@@ -14,22 +14,22 @@ import {
   GitFork,
   Columns,
 } from '@lucide/svelte';
-import { base } from '$app/paths';
-import SnippetGenerator from '$lib/components/admin/SnippetGenerator.svelte';
-import Breadcrumb from '$lib/components/common/Breadcrumb.svelte';
-import Slot from '$lib/components/common/Slot.svelte';
-import RecordDrawer from '$lib/components/collections/RecordDrawer.svelte';
-import CollectionDataTable from '$lib/components/collections/CollectionDataTable.svelte';
+import { resolve } from '$app/paths';
+import SnippetGenerator from '#lib/components/admin/SnippetGenerator.svelte';
+import Breadcrumb from '#lib/components/common/Breadcrumb.svelte';
+import Slot from '#lib/components/common/Slot.svelte';
+import RecordDrawer from '#lib/components/collections/RecordDrawer.svelte';
+import CollectionDataTable from '#lib/components/collections/CollectionDataTable.svelte';
 import type {
   CollectionField,
   CollectionSummary,
   CollectionRecord,
   Relation,
   FieldType,
-} from '$lib/components/collections/types.js';
-import CollectionSchemaPanel from '$lib/components/collections/CollectionSchemaPanel.svelte';
-import { auth } from '$lib/auth.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+} from '#lib/components/collections/types.js';
+import CollectionSchemaPanel from '#lib/components/collections/CollectionSchemaPanel.svelte';
+import { auth } from '#lib/auth.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 const collectionName = $derived(page.params.name ?? '');
 
@@ -55,9 +55,9 @@ const activeTab = $derived<Tab>(
 function setTab(t: Tab) {
   goto(
     t === 'data'
-      ? `${base}/collections/${collectionName}`
-      : `${base}/collections/${collectionName}?tab=${t}`,
-    { noScroll: true, keepFocus: true },
+      ? resolve(`collections/${collectionName}`)
+      : resolve(`collections/${collectionName}?tab=${t}`),
+    { reset: false },
   );
 }
 
@@ -218,7 +218,7 @@ const m2oTargetMap = $derived.by(() => {
 <div class="space-y-0 pb-16">
 
   <Breadcrumb crumbs={[
-    { label: m['nav.collections'](), href: `${base}/collections` },
+    { label: m['nav.collections'](), href: resolve(`collections`) },
     { label: collection?.display_name || collectionName },
   ]} />
 

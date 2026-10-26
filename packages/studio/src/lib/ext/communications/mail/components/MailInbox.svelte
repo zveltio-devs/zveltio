@@ -2,7 +2,7 @@
 /**
  * Mail inbox — Tier-3 client over existing /ext/communications/mail APIs.
  */
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import {
   Inbox,
   RefreshCw,
@@ -16,10 +16,10 @@ import {
   Paperclip,
   X,
 } from '@lucide/svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import { safeMailHtml, safeMailText } from '../lib/sanitize.js';
-import { m } from '$lib/i18n.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 const API = '/ext/communications/mail';
 
@@ -336,7 +336,7 @@ $effect(() => {
         <span class="loading loading-spinner loading-xs"></span>
       {:else if accounts.length === 0}
         <p class="text-xs opacity-60">{t('communications.mail.ui.no_mail_accounts', 'No mail accounts')}</p>
-        <a href="{base}/mail" class="btn btn-primary btn-xs w-full">
+        <a href={resolve('mail')} class="btn btn-primary btn-xs w-full">
           {t('communications.mail.ui.addAccount', 'Add account')}
         </a>
       {:else}
@@ -384,7 +384,7 @@ $effect(() => {
     </div>
 
     <div class="p-2 border-t border-base-300 text-xs opacity-50">
-      <a href="{base}/mail" class="link link-hover">Accounts & signatures →</a>
+      <a href={resolve('mail')} class="link link-hover">Accounts & signatures →</a>
     </div>
   </aside>
 

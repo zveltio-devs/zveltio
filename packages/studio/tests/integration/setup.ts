@@ -1,9 +1,9 @@
 /**
  * Setup for the integration lane: the same pages the unit tests mount, but
- * talking to a REAL engine instead of a hand-written `$lib/api.js` mock.
+ * talking to a REAL engine instead of a hand-written `#lib/api.js` mock.
  *
  * Why this lane exists. Every admin page test in `src/routes/(admin)/**`
- * replaces `$lib/api.js` with an object literal, so each one asserts against a
+ * replaces `#lib/api.js` with an object literal, so each one asserts against a
  * shape a human typed from memory. That catches page logic and nothing else:
  * when a route's response changes — a key renamed, an array moved under an
  * envelope, a 200 that became a 403 — the mock keeps answering the old shape
@@ -13,7 +13,7 @@
  *
  * What this file provides:
  *   - `zveltio.engineUrl` in `localStorage` BEFORE any test module imports
- *     `$lib/config.js`, which resolves `ENGINE_URL` once at module evaluation.
+ *     `#lib/config.js`, which resolves `ENGINE_URL` once at module evaluation.
  *   - A cookie jar over `fetch`. `api` sends `credentials: 'include'`, which is
  *     a no-op outside a browser: undici neither stores nor replays the session
  *     cookie, so without this every admin route answers 401 at the door and the
@@ -32,7 +32,7 @@ const BASE = process.env.STUDIO_IT_BASE_URL ?? 'http://127.0.0.1:3399';
 const EMAIL = process.env.STUDIO_IT_EMAIL ?? 'e2e-admin@test.invalid';
 const PASSWORD = process.env.STUDIO_IT_PASSWORD ?? 'E2ePassw0rd!';
 
-// Before `$lib/config.js` is evaluated by any test module.
+// Before `#lib/config.js` is evaluated by any test module.
 window.localStorage.setItem('zveltio.engineUrl', BASE);
 
 /** name -> value. One session, one process, one test file. */

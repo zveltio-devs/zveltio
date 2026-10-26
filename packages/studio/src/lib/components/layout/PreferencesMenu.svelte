@@ -8,9 +8,9 @@
  * place these were not.
  */
 import { Settings2, Sun, Moon, Rows2, Rows3, UserCog } from '@lucide/svelte';
-import { base } from '$app/paths';
-import LocaleSwitcher from '$lib/components/common/LocaleSwitcher.svelte';
-import { m } from '$lib/i18n.svelte.js';
+import { resolve } from '$app/paths';
+import LocaleSwitcher from '#lib/components/common/LocaleSwitcher.svelte';
+import { m } from '#lib/i18n.svelte.js';
 
 let {
   dark,
@@ -64,7 +64,7 @@ let open = $state(false);
         </button>
       </li>
       <li>
-        <a href="{base}/account" class="gap-3"><UserCog size={15} /> {m['nav.account']()}</a>
+        <a href={resolve(`account`)} class="gap-3"><UserCog size={15} /> {m['nav.account']()}</a>
       </li>
     </ul>
   {/if}

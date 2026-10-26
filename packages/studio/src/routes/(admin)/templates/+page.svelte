@@ -9,11 +9,11 @@
  * Optional name prefix lets the user install the same template twice
  * (e.g. one CRM for sales, one for partner relations) without colliding.
  */
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
-import { api, collectionsApi, invalidateCollectionsCache } from '$lib/api.js';
+import { resolve } from '$app/paths';
+import { api, collectionsApi, invalidateCollectionsCache } from '#lib/api.js';
 import {
   Users,
   Receipt,
@@ -27,7 +27,7 @@ import {
   Loader2,
   Check,
 } from '@lucide/svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface TemplateSummary {
   id: string;
@@ -206,7 +206,7 @@ async function install() {
             })
           : m['tpl.installedOk']({ name: preview.name, collections: installedCollections.length }),
       );
-      setTimeout(() => goto(`${base}/collections/erd`), 800);
+      setTimeout(() => goto(resolve(`collections/erd`)), 800);
     } else {
       toast.error(m['tpl.timedOut']({ count: pending.size }));
     }

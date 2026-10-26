@@ -9,7 +9,7 @@ import { join } from 'path';
 const EXT = join(import.meta.dir, '..', '../../../zveltio-extensions');
 
 const IMPORT_CONFIRM =
-  "import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';\n  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';";
+  "import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';\n  import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';";
 
 const CONFIRM_INIT =
   '\n  const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExtensionConfirm();\n';
@@ -125,15 +125,15 @@ function findInnermostFunction(src: string, pos: number): FnInfo | null {
 function ensureSetup(script: string): string {
   let s = script;
   if (!s.includes('createExtensionConfirm')) {
-    if (s.includes("import { m } from '$lib/i18n.svelte.js';")) {
+    if (s.includes("import { m } from '#lib/i18n.svelte.js';")) {
       s = s.replace(
-        "import { m } from '$lib/i18n.svelte.js';",
-        `import { m } from '$lib/i18n.svelte.js';\n  ${IMPORT_CONFIRM}`,
+        "import { m } from '#lib/i18n.svelte.js';",
+        `import { m } from '#lib/i18n.svelte.js';\n  ${IMPORT_CONFIRM}`,
       );
     } else {
       s = s.replace(
         '<script lang="ts">',
-        `<script lang="ts">\n  import { m } from '$lib/i18n.svelte.js';\n  ${IMPORT_CONFIRM}`,
+        `<script lang="ts">\n  import { m } from '#lib/i18n.svelte.js';\n  ${IMPORT_CONFIRM}`,
       );
     }
     const insertAt = (() => {

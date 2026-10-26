@@ -1,7 +1,7 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import {
   Play,
   Pause,
@@ -13,10 +13,10 @@ import {
   Webhook,
   RefreshCw,
 } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-import Pagination from '$lib/components/common/Pagination.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import CrudListPage from '#lib/components/common/CrudListPage.svelte';
+import Pagination from '#lib/components/common/Pagination.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface Flow {
   id: string;

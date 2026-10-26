@@ -10,7 +10,7 @@
  * typing: the handler ignores the key whenever focus is in a field, which is
  * where a literal question mark is actually wanted.
  */
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 
 let { open, onclose }: { open: boolean; onclose: () => void } = $props();
 

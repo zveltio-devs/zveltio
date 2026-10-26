@@ -19,7 +19,10 @@ vi.mock('$app/state', () => ({
     },
   },
 }));
-vi.mock('$app/paths', () => ({ base: '/admin' }));
+vi.mock('$app/paths', () => ({
+  resolve: (p: string) => `/admin/${p}`,
+  asset: (p: string) => `/admin/${p}`,
+}));
 
 import Sidebar from './Sidebar.svelte';
 import MobileSidebar from './MobileSidebar.svelte';

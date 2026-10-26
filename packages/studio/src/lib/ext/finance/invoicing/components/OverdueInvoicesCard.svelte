@@ -2,10 +2,10 @@
 /**
  * Invoicing overdue summary — dashboard.widgets slot (Model 2.5).
  */
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { FileWarning } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { m } from '$lib/i18n.svelte.js';
+import { api } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
 
 type Stats = {
   outstanding?: number | string;
@@ -33,7 +33,7 @@ const outstanding = $derived(Number(stats?.outstanding ?? 0));
 
 {#if overdueCount > 0 || outstanding > 0}
   <a
-    href="{base}/finance/invoicing"
+    href={resolve('finance/invoicing')}
     class="card bg-base-100 border border-error/30 hover:border-error/60 transition-colors"
   >
     <div class="card-body flex-row items-center gap-4 py-4">

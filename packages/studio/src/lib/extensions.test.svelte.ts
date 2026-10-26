@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * `api.fetch().then((r) => r.json())`.
  */
 const fetchMock = vi.fn();
-vi.mock('$lib/api.js', () => ({ api: { fetch: (...a: unknown[]) => fetchMock(...a) } }));
+vi.mock('#lib/api.js', () => ({ api: { fetch: (...a: unknown[]) => fetchMock(...a) } }));
 
 const { extensions, initExtensions, refreshExtensions } = await import('./extensions.svelte.js');
 

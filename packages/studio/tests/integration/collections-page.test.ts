@@ -10,13 +10,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
  * answering that shape, if the list moves under an envelope, or if the route
  * starts requiring a permission the god session does not carry.
  *
- * Only the SvelteKit modules are stubbed. `$lib/api.js` is the real client, on
+ * Only the SvelteKit modules are stubbed. `#lib/api.js` is the real client, on
  * the real session installed by `tests/integration/setup.ts`.
  */
 vi.mock('$app/navigation', () => ({ replaceState: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/admin/collections') } }));
 
-import { api, collectionsApi } from '$lib/api.js';
+import { api, collectionsApi } from '#lib/api.js';
 import Page from '../../src/routes/(admin)/collections/+page.svelte';
 
 const NAME = `it_coll_${Date.now().toString(36)}`;

@@ -1,4 +1,4 @@
-import { sync } from '$lib/zveltio';
+import { sync } from '#lib/zveltio.js';
 
 /**
  * Reactive collection store — offline-first via SyncManager.
@@ -9,7 +9,7 @@ import { sync } from '$lib/zveltio';
  * Exemplu:
  * ```svelte
  * <script>
- *   import { useCollection } from '$stores/collection.svelte';
+ *   import { useCollection } from '#lib/stores/collection.svelte.js';
  *   const tasks = useCollection('tasks');
  * </script>
  * {#each tasks.data as task}

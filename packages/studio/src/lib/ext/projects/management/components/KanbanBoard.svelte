@@ -2,8 +2,8 @@
 /**
  * Kanban board over /ext/projects/management tasks (status columns + PATCH).
  */
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 const API = '/ext/projects/management';
 const COLUMNS = [

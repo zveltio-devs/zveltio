@@ -4,8 +4,8 @@
   from the button here, so the browser sees it as the person's own gesture.
 -->
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { stepUp } from '$lib/step-up.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
+import { stepUp } from '#lib/step-up.svelte.js';
 import Modal from './Modal.svelte';
 
 let code = $state('');

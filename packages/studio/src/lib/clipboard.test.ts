@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
  * anyway — on the API-keys screen over a key that is displayed exactly once.
  */
 const { errors } = vi.hoisted(() => ({ errors: [] as string[] }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({
+vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: (msg: string) => errors.push(msg), success: vi.fn() },
 }));
 

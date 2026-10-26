@@ -7,7 +7,7 @@
  */
 import { startAuthentication } from '@simplewebauthn/browser';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { api } from './api.js';
 import { m } from './i18n.svelte.js';
 import { toast } from './stores/toast.svelte.js';
@@ -151,6 +151,6 @@ export function stepUpAborted(e: unknown): boolean {
   if (e instanceof StepUpCancelled) return true;
   if (!(e instanceof StepUpEnrollmentRequired)) return false;
   toast.warning(m['stepUp.enrollFirst']());
-  void goto(`${base}/account`);
+  void goto(resolve(`account`));
   return true;
 }

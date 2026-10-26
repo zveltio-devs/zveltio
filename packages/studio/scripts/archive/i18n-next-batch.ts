@@ -175,7 +175,7 @@ ro['finance.accounting.ui.no_journal_entries'] =
 patch('crm/studio/pages/contacts/+page.svelte', [
   [
     '<script lang="ts">\n  import { onMount }',
-    '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n  import { onMount }',
+    '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n  import { onMount }',
   ],
   ["{m['communications.mail.tab.contacts']()}", "{m['crm.tab.contacts']()}"],
   ['{total} contacts', "{m['crm.contacts.count']({ count: total })}"],
@@ -196,7 +196,7 @@ patch('crm/studio/pages/contacts/+page.svelte', [
 patch('crm/studio/pages/organizations/+page.svelte', [
   [
     '<script lang="ts">\n  import { onMount }',
-    '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n  import { onMount }',
+    '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n  import { onMount }',
   ],
   ["aria-label=m['common.close']()", "aria-label={m['common.close']()}"],
 ]);
@@ -204,7 +204,7 @@ patch('crm/studio/pages/organizations/+page.svelte', [
 patch('crm/studio/pages/transactions/+page.svelte', [
   [
     '<script lang="ts">\n  import { onMount }',
-    '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n  import { onMount }',
+    '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n  import { onMount }',
   ],
   ["aria-label=m['common.close']()", "aria-label={m['common.close']()}"],
 ]);

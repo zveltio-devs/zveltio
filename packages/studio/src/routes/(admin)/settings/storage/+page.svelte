@@ -1,10 +1,10 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { api } from '#lib/api.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface StorageConfig {
   driver: 'local' | 's3';

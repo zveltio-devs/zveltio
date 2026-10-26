@@ -11,12 +11,13 @@
  * `PreferencesMenu`; this component stopped using them and kept the props. This component is
  * pure presentation — it emits intent callbacks.
  */
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
+import { basePath } from '#lib/paths.js';
 import { page } from '$app/state';
-import Slot from '$lib/components/common/Slot.svelte';
-import { m, i18n } from '$lib/i18n.svelte.js';
-import { navLabel } from '$lib/nav-i18n.js';
-import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '$lib/nav-model.js';
+import Slot from '#lib/components/common/Slot.svelte';
+import { m, i18n } from '#lib/i18n.svelte.js';
+import { navLabel } from '#lib/nav-i18n.js';
+import type { ExtensionNavGroup, ExtensionNavGroupId, NavGroup } from '#lib/nav-model.js';
 import { LogOut, PanelLeftClose, PanelLeftOpen, Users2 } from '@lucide/svelte';
 const extGroupLabels: Record<ExtensionNavGroupId, () => string> = {
   business: () => m['nav.group.business'](),
@@ -62,7 +63,7 @@ const coreItemLabel = (key: string) => {
 
 function isActive(href: string): boolean {
   const cur = page.url.pathname;
-  if (href === `${base}/`) return cur === `${base}/` || cur === `${base}`;
+  if (href === resolve('')) return cur === resolve('') || cur === basePath;
   // Boundary-aware — see MobileSidebar for the reason.
   return cur === href || cur.startsWith(`${href}/`);
 }
@@ -81,7 +82,7 @@ function isActive(href: string): boolean {
         <span class="text-primary-content font-bold text-sm leading-none">Z</span>
       </div>
     {:else}
-      <a href="{base}/" class="flex items-center gap-2.5 flex-1 min-w-0 focus-visible:outline-2 focus-visible:outline-primary rounded-lg">
+      <a href={resolve(``)} class="flex items-center gap-2.5 flex-1 min-w-0 focus-visible:outline-2 focus-visible:outline-primary rounded-lg">
         <div class="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center
                     bg-primary shadow-z1">
           <span class="text-primary-content font-bold text-sm leading-none">Z</span>
@@ -184,7 +185,7 @@ function isActive(href: string): boolean {
   <div class="shrink-0 px-2 py-2 space-y-0.5 bg-base-200/40">
 
     <a
-      href="{base}/intranet"
+      href={resolve(`intranet`)}
       title={collapsed ? m['shell.intranet']() : undefined}
       class="
         flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12px] font-medium
@@ -201,7 +202,7 @@ function isActive(href: string): boolean {
 
     <div class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg {collapsed ? 'flex-col' : ''}">
       <a
-        href="{base}/account"
+        href={resolve(`account`)}
         title={m['nav.accountSettings']()}
         class="
           flex items-center gap-2.5 flex-1 min-w-0 hover:bg-base-300 rounded-md

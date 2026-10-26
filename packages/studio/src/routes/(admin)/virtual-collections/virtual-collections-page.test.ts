@@ -25,9 +25,12 @@ const { post, get } = vi.hoisted(() => ({
   get: vi.fn(async () => ({ collections: [] })),
 }));
 
-vi.mock('$lib/api.js', () => ({ api: { post, get } }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
-vi.mock('$app/paths', () => ({ base: '/admin' }));
+vi.mock('#lib/api.js', () => ({ api: { post, get } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('$app/paths', () => ({
+  resolve: (p: string) => `/admin/${p}`,
+  asset: (p: string) => `/admin/${p}`,
+}));
 
 import Page from './+page.svelte';
 

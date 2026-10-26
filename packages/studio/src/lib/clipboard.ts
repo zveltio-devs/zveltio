@@ -1,5 +1,5 @@
-import { m } from '$lib/i18n.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 /**
  * Copy text to the clipboard, reporting failure instead of pretending success.

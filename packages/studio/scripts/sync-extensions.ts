@@ -81,7 +81,7 @@ function findExtensions(base: string, prefix = ''): string[] {
  * reporting success. Without the filter the same call overwrites correctly.
  *
  * So from the day the test-file filter was added, every shared component under
- * `$lib/ext/` was frozen at whatever version happened to be committed. A fix
+ * `#lib/ext/` was frozen at whatever version happened to be committed. A fix
  * made in an extension's `studio/src/` synced cleanly, printed a ✓, and never
  * reached the Studio. That is a silent way to ship a vulnerability you believe
  * you have already fixed.
@@ -135,7 +135,7 @@ const SKIP_SLUGS = new Map<string, string>([]);
 let synced = 0;
 /** Destination slugs written this run — verified against biome ignores below. */
 const syncedSlugs: string[] = [];
-/** `$lib/ext/<name>` directories written this run. */
+/** `#lib/ext/<name>` directories written this run. */
 const syncedLibDirs: string[] = [];
 /** Extensions with `studio/src/contribute.ts` copied this run (manifest.name keys). */
 const syncedContributions: string[] = [];
@@ -155,7 +155,7 @@ for (const extRoot of EXT_ROOTS) {
     // `client/` counts too: an extension may ship only a block renderer.
     if (!hasPages && !hasSrc && !hasClient) continue;
 
-    // The extension's `client/` → `$lib/ext/<name>/client/`.
+    // The extension's `client/` → `#lib/ext/<name>/client/`.
     //
     // The Studio hosts authenticated surfaces — the intranet and the client
     // portal — and those draw PAGES, which since the pages merge means drawing
@@ -267,7 +267,7 @@ writeContributionsRegistry(syncedContributions);
  *
  * Sync only ever added. When `content/page-builder` and `content/portals` merged
  * into `content/pages`, the admin route `(admin)/page-builder/` and the snapshot
- * `$lib/ext/content/page-builder/` stayed exactly where they were — so the Studio
+ * `#lib/ext/content/page-builder/` stayed exactly where they were — so the Studio
  * kept a Page Builder screen whose every call went to
  * `/ext/content/page-builder/blocks`, an extension the engine no longer has. The
  * screen loaded and every button on it 404'd.

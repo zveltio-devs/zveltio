@@ -1,7 +1,7 @@
 <script lang="ts">
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
-import { auth } from '$lib/auth.svelte.js';
+import { resolve } from '$app/paths';
+import { auth } from '#lib/auth.svelte.js';
 
 let email = $state('');
 let password = $state('');
@@ -14,7 +14,7 @@ async function handleLogin(e: Event) {
   error = null;
   try {
     await auth.signIn(email, password);
-    goto(`${base}/portal-client/`);
+    goto(resolve(`portal-client/`));
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
     error = err?.message ?? 'Login failed';

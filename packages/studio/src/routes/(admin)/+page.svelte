@@ -11,10 +11,10 @@
  *   - No broken stats (the previous `slow_queries_24h` always-zero card).
  */
 import { onMount } from 'svelte';
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
-import { api } from '$lib/api.js';
+import { resolve } from '$app/paths';
+import { api } from '#lib/api.js';
 import {
   Database,
   Webhook,
@@ -34,13 +34,13 @@ import {
   Shield,
   Sparkles,
 } from '@lucide/svelte';
-import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import SectionCard from '$lib/components/common/SectionCard.svelte';
-import EmptyState from '$lib/components/common/EmptyState.svelte';
-import Slot from '$lib/components/common/Slot.svelte';
-import { auth } from '$lib/auth.svelte.js';
-import { extensions } from '$lib/extensions.svelte.js';
+import LoadingSkeleton from '#lib/components/common/LoadingSkeleton.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import SectionCard from '#lib/components/common/SectionCard.svelte';
+import EmptyState from '#lib/components/common/EmptyState.svelte';
+import Slot from '#lib/components/common/Slot.svelte';
+import { auth } from '#lib/auth.svelte.js';
+import { extensions } from '#lib/extensions.svelte.js';
 
 interface AdminStats {
   collections?: number;
@@ -105,32 +105,32 @@ const nextSteps = $derived.by(() => {
   steps.push({
     label: 'Create a collection',
     done: collections.length > 0,
-    href: `${base}/collections`,
+    href: resolve(`collections`),
     hint: 'Schema-less tables that hold your data.',
   });
   steps.push({
     label: 'Add permissions',
     done: permissionsCount > 0,
-    href: `${base}/permissions`,
+    href: resolve(`permissions`),
     hint: 'Lock collections down by role before going to production.',
   });
   steps.push({
     label: 'Generate an API key',
     done: apiKeys.length > 0,
-    href: `${base}/api-keys`,
+    href: resolve(`api-keys`),
     hint: 'For server-side / SDK access.',
   });
   steps.push({
     label: 'Set up a webhook',
     done: webhooks.length > 0,
-    href: `${base}/webhooks`,
+    href: resolve(`webhooks`),
     hint: 'Notify external services on data changes.',
   });
   if (collections.length > 0) {
     steps.push({
       label: 'Build a flow',
       done: flowsCount > 0,
-      href: `${base}/flows`,
+      href: resolve(`flows`),
       hint: 'Wire triggers → actions without writing code.',
     });
   }
@@ -138,7 +138,7 @@ const nextSteps = $derived.by(() => {
     steps.push({
       label: 'Try the AI assistant',
       done: false,
-      href: `${base}/ai`,
+      href: resolve(`ai`),
       hint: 'Generate schemas, queries, and insights from natural language.',
     });
   }
@@ -429,7 +429,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
   {:else}
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <a
-        href="{base}/collections"
+        href={resolve(`collections`)}
         class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary group"
       >
         <div class="card-body p-4 gap-2">
@@ -444,7 +444,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
       </a>
 
       <a
-        href={largestCollection ? `${base}/collections/${largestCollection.name}` : `${base}/collections`}
+        href={largestCollection ? resolve(`collections/${largestCollection.name}`) : resolve(`collections`)}
         class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
         title={largestCollection ? `Open ${largestCollection.label ?? largestCollection.name}` : 'Total records across all collections'}
       >
@@ -460,7 +460,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
       </a>
 
       <a
-        href="{base}/request-logs"
+        href={resolve(`request-logs`)}
         class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
       >
         <div class="card-body p-4 gap-2">
@@ -475,7 +475,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
       </a>
 
       <a
-        href="{base}/webhooks"
+        href={resolve(`webhooks`)}
         class="card bg-base-100 shadow-z1 hover:shadow-z2 transition-shadow duration-200 focus-visible:outline-2 focus-visible:outline-primary"
       >
         <div class="card-body p-4 gap-2">
@@ -496,7 +496,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
     <div class="lg:col-span-7 space-y-4">
       <SectionCard title={m['dashboard.recentActivity']()}>
         {#snippet action()}
-          <a href="{base}/audit" class="btn btn-ghost btn-xs gap-1">{m['common.viewAll']()} <ExternalLink size={10} /></a>
+          <a href={resolve(`audit`)} class="btn btn-ghost btn-xs gap-1">{m['common.viewAll']()} <ExternalLink size={10} /></a>
         {/snippet}
         {#if activityLoading}
           <LoadingSkeleton type="list" rows={5} />
@@ -548,7 +548,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
 
       <SectionCard title={m['dashboard.collectionsOverview']()}>
         {#snippet action()}
-          <a href="{base}/collections" class="btn btn-ghost btn-xs gap-1">{m['common.manage']()} <ExternalLink size={10} /></a>
+          <a href={resolve(`collections`)} class="btn btn-ghost btn-xs gap-1">{m['common.manage']()} <ExternalLink size={10} /></a>
         {/snippet}
         {#if collectionsLoading}
           <LoadingSkeleton type="table" rows={4} cols={3} />
@@ -559,7 +559,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
             title={m['dashboard.noCollections']()}
             description={m['dashboard.noCollectionsDesc']()}
             actionLabel={m['dashboard.createFirstCollection']()}
-            actionHref="{base}/collections"
+            actionHref={resolve(`collections`)}
           />
         {:else}
           <div class="overflow-x-auto">
@@ -586,8 +586,8 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                     <td class="text-right font-mono text-sm">{col.record_count.toLocaleString()}</td>
                     <td class="text-right">
                       <div class="flex gap-1 justify-end">
-                        <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs">{m['common.open']()}</a>
-                        <a href="{base}/permissions?collection={col.name}" class="btn btn-ghost btn-xs gap-1" title={m['dashboard.collectionPerms']()}>
+                        <a href={resolve(`collections/${col.name}`)} class="btn btn-ghost btn-xs">{m['common.open']()}</a>
+                        <a href={resolve(`permissions?collection=${col.name}`)} class="btn btn-ghost btn-xs gap-1" title={m['dashboard.collectionPerms']()}>
                           <Shield size={11} />
                         </a>
                       </div>
@@ -642,12 +642,12 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
 
       <SectionCard title={m['dashboard.quickActions']()}>
         <div class="grid grid-cols-2 gap-2">
-          <a href="{base}/collections" class="btn btn-outline btn-sm justify-start gap-2"><Database size={13} /> {m['dashboard.newCollection']()}</a>
-          <a href="{base}/users" class="btn btn-outline btn-sm justify-start gap-2"><UserPlus size={13} /> {m['dashboard.inviteUser']()}</a>
-          <a href="{base}/api-keys" class="btn btn-outline btn-sm justify-start gap-2"><Key size={13} /> {m['nav.apiKeys']()}</a>
-          <a href="{base}/flows" class="btn btn-outline btn-sm justify-start gap-2"><Workflow size={13} /> {m['dashboard.newFlow']()}</a>
+          <a href={resolve(`collections`)} class="btn btn-outline btn-sm justify-start gap-2"><Database size={13} /> {m['dashboard.newCollection']()}</a>
+          <a href={resolve(`users`)} class="btn btn-outline btn-sm justify-start gap-2"><UserPlus size={13} /> {m['dashboard.inviteUser']()}</a>
+          <a href={resolve(`api-keys`)} class="btn btn-outline btn-sm justify-start gap-2"><Key size={13} /> {m['nav.apiKeys']()}</a>
+          <a href={resolve(`flows`)} class="btn btn-outline btn-sm justify-start gap-2"><Workflow size={13} /> {m['dashboard.newFlow']()}</a>
           {#if extensions.isActive('ai')}
-            <a href="{base}/ai" class="btn btn-outline btn-sm justify-start gap-2"><Bot size={13} /> {m['common.aiStudio']()}</a>
+            <a href={resolve(`ai`)} class="btn btn-outline btn-sm justify-start gap-2"><Bot size={13} /> {m['common.aiStudio']()}</a>
           {/if}
         </div>
       </SectionCard>

@@ -10,7 +10,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/svelte';
 
 const errors: string[] = [];
-vi.mock('$lib/stores/toast.svelte.js', () => ({
+vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: (msg: string) => errors.push(msg), success: () => {} },
 }));
 

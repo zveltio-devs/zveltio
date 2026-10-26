@@ -1,10 +1,10 @@
 <script lang="ts">
 import { page } from '$app/state';
-import { api } from '$lib/api.js';
-import { base } from '$app/paths';
-import { auth } from '$lib/auth.svelte.js';
+import { api } from '#lib/api.js';
+import { resolve } from '$app/paths';
+import { auth } from '#lib/auth.svelte.js';
 import { FileX, ShieldCheck, ArrowLeft } from '@lucide/svelte';
-import BlockRenderer from '$lib/ext/content/pages/client/BlockRenderer.svelte';
+import BlockRenderer from '#lib/ext/content/pages/client/BlockRenderer.svelte';
 
 const ZONE_SLUG = 'intranet';
 
@@ -71,11 +71,11 @@ const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'own
         There's no page with the slug <code class="font-mono px-1.5 py-0.5 rounded bg-base-200">{slug}</code> in the Intranet zone.
       </p>
       <div class="flex gap-2 justify-center mt-5">
-        <a href="{base}/intranet" class="btn btn-ghost btn-sm gap-1.5">
+        <a href={resolve(`intranet`)} class="btn btn-ghost btn-sm gap-1.5">
           <ArrowLeft size={14} /> Back to Intranet
         </a>
         {#if isAdmin}
-          <a href="{base}/zones/intranet" class="btn btn-primary btn-sm gap-1.5">
+          <a href={resolve(`zones/intranet`)} class="btn btn-primary btn-sm gap-1.5">
             <ShieldCheck size={14} /> Configure in Admin
           </a>
         {/if}
@@ -86,14 +86,14 @@ const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'own
       <p class="text-sm text-base-content/65 mt-1.5">
         You don't have permission to view this page. Ask an administrator if this is unexpected.
       </p>
-      <a href="{base}/intranet" class="btn btn-ghost btn-sm gap-1.5 mt-5">
+      <a href={resolve(`intranet`)} class="btn btn-ghost btn-sm gap-1.5 mt-5">
         <ArrowLeft size={14} /> Back to Intranet
       </a>
     {:else}
       <FileX size={48} class="mx-auto text-error" strokeWidth={1.2} />
       <h1 class="text-lg font-semibold mt-4">Something went wrong</h1>
       <p class="text-sm text-base-content/65 mt-1.5">{error.message}</p>
-      <a href="{base}/intranet" class="btn btn-ghost btn-sm gap-1.5 mt-5">
+      <a href={resolve(`intranet`)} class="btn btn-ghost btn-sm gap-1.5 mt-5">
         <ArrowLeft size={14} /> Back to Intranet
       </a>
     {/if}

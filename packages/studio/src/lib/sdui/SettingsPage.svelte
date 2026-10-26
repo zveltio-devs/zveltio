@@ -6,12 +6,12 @@
  * runs page-level actions like "Test connection".
  */
 import { onMount } from 'svelte';
-import { copyText } from '$lib/clipboard.js';
-import { api } from '$lib/api.js';
-import { ENGINE_URL } from '$lib/config.js';
-import { m } from '$lib/i18n.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { copyText } from '#lib/clipboard.js';
+import { api } from '#lib/api.js';
+import { ENGINE_URL } from '#lib/config.js';
+import { m } from '#lib/i18n.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import ExtensionPageShell from '#lib/components/extension/ExtensionPageShell.svelte';
 import { Save, Play, Copy, LoaderCircle } from '@lucide/svelte';
 import { isOwnNamespace } from './guard.js';
 import type { SettingsSchema, FieldDef } from './types.js';

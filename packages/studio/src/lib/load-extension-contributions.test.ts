@@ -7,12 +7,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const unregister = vi.fn();
-vi.mock('$lib/extension-api.svelte.js', () => ({
+vi.mock('#lib/extension-api.svelte.js', () => ({
   unregisterContributions: (...args: unknown[]) => unregister(...args),
   registerContributionSlot: vi.fn(),
 }));
 
-vi.mock('$lib/ext/.contributions.generated.js', () => ({
+vi.mock('#lib/ext/.contributions.generated.js', () => ({
   CONTRIBUTION_MODULES: {},
 }));
 

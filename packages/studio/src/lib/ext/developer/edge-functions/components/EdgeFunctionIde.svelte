@@ -3,8 +3,8 @@
  * Edge function IDE — list, edit source, save, invoke.
  */
 import { Play, Save, Plus } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 const API = '/ext/developer/edge-functions';
 

@@ -1,6 +1,6 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import ResetPassword from '$components/auth/ResetPassword.svelte';
+import { m } from '#lib/i18n.svelte.js';
+import ResetPassword from '#lib/components/auth/ResetPassword.svelte';
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-base-200 p-4">

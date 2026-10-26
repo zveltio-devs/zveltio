@@ -1,5 +1,5 @@
 <script lang="ts">
-import { safeHtml } from '$lib/sanitize';
+import { safeHtml } from '#lib/sanitize.js';
 
 let { content = '', align = 'left' } = $props();
 </script>

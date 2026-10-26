@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  */
 const RULE = { ptype: 'p', subject: 'editor', domain: '*', object: 'orders', action: 'read' };
 const create = vi.fn();
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   collectionsApi: {
     list: vi.fn(async () => ({ collections: [] })),
     fieldTypes: vi.fn(async () => ({
@@ -19,7 +19,7 @@ vi.mock('$lib/api.js', () => ({
     delete: vi.fn(),
   },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock('$app/navigation', () => ({ replaceState: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({
   page: { url: new URL('http://localhost/admin/collections?new=1') },

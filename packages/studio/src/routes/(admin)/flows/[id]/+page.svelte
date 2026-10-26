@@ -1,12 +1,12 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { beforeNavigate } from '$app/navigation';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { resolve } from '$app/paths';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 import {
   ArrowLeft,
   Save,
@@ -213,7 +213,7 @@ function updateStepName(name: string) {
 <div class="flex flex-col h-full min-h-screen">
   <!-- Toolbar -->
   <div class="flex items-center gap-3 px-4 py-3 bg-base-200 border-b border-base-300 shrink-0">
-    <button class="btn btn-ghost btn-sm gap-1" onclick={() => goto(`${base}/flows`)}>
+    <button class="btn btn-ghost btn-sm gap-1" onclick={() => goto(resolve(`flows`))}>
       <ArrowLeft size={16} /> {m['flowEdit.backToFlows']()}
     </button>
     <div class="divider divider-horizontal m-0 h-6"></div>

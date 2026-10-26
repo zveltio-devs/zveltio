@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$app/navigation', () => ({ replaceState: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/admin/tenants') } }));
 
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import Page from '../../src/routes/(admin)/tenants/+page.svelte';
 
 const SLUG = `it-tenant-${Date.now().toString(36)}`;

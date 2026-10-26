@@ -2,7 +2,7 @@
  * Vitest config for the public client host.
  *
  * Mirrors the studio setup: Vitest shares Vite's pipeline so Svelte 5
- * components + runes + the `$lib` alias work in tests, jsdom provides DOM
+ * components + runes + the `#lib` alias work in tests, jsdom provides DOM
  * globals, and svelteTesting() resolves Svelte's client build + auto-cleans
  * the DOM between tests.
  *

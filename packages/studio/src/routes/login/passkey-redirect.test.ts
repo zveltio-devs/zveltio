@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/svelte';
 
 const goto = vi.hoisted(() => vi.fn(async () => {}));
-vi.mock('$app/navigation', () => ({ goto, invalidateAll: vi.fn(), afterNavigate: vi.fn() }));
+vi.mock('$app/navigation', () => ({ goto, refreshAll: vi.fn(), afterNavigate: vi.fn() }));
 vi.mock('$app/state', () => ({
   page: {
     url: new URL('http://localhost:5173/admin/login?redirect=%2Fadmin%2Fusers'),

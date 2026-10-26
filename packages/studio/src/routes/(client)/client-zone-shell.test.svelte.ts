@@ -19,8 +19,11 @@ vi.mock('$app/state', async () => ({
 vi.mock('$app/navigation', () => ({
   goto: (...args: unknown[]) => goto(...args),
 }));
-vi.mock('$app/paths', () => ({ base: '/admin' }));
-vi.mock('$lib/auth.svelte.js', () => ({
+vi.mock('$app/paths', () => ({
+  resolve: (p: string) => `/admin/${p}`,
+  asset: (p: string) => `/admin/${p}`,
+}));
+vi.mock('#lib/auth.svelte.js', () => ({
   auth: {
     init: async () => {},
     signOut: async () => {},
@@ -35,7 +38,7 @@ vi.mock('$lib/auth.svelte.js', () => ({
     },
   },
 }));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: { get: async () => ({ site: null, nav: [] }) },
 }));
 

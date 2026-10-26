@@ -1,9 +1,9 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 /**
  * Toast renderer — place once in admin +layout.svelte.
  *
- *   import { toast } from '$lib/stores/toast.svelte.js';
+ *   import { toast } from '#lib/stores/toast.svelte.js';
  *   toast.success('Saved!');
  *   toast.undoable('Deleted webhook', { onUndo: () => restore() });
  *
@@ -11,7 +11,7 @@ import { m } from '$lib/i18n.svelte.js';
  * If a toast carries an action (e.g. Undo), the button renders inline
  * — clicking it runs the handler AND dismisses the toast.
  */
-import { toast, type Toast } from '$lib/stores/toast.svelte.js';
+import { toast, type Toast } from '#lib/stores/toast.svelte.js';
 import { X } from '@lucide/svelte';
 import { fly } from 'svelte/transition';
 import { cubicOut } from 'svelte/easing';

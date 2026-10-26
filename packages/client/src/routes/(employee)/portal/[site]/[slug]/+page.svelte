@@ -1,7 +1,7 @@
 <script lang="ts">
-import BlockRenderer from '$lib/blocks/BlockRenderer.svelte';
-import { safeCss } from '$lib/sanitize';
-import { m } from '$lib/i18n.svelte.js';
+import BlockRenderer from '#lib/blocks/BlockRenderer.svelte';
+import { safeCss } from '#lib/sanitize.js';
+import { m } from '#lib/i18n.svelte.js';
 
 let { data } = $props();
 </script>

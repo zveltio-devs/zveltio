@@ -20,41 +20,41 @@
  */
 import { onMount, untrack } from 'svelte';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { page } from '$app/state';
-import { auth } from '$lib/auth.svelte.js';
-import { realtime } from '$lib/stores/realtime.svelte.js';
-import { chrome, DENSITY_KEY, SIDEBAR_KEY, THEME_KEY } from '$lib/stores/chrome.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { initExtensions, extensions } from '$lib/extensions.svelte.js';
-import { initFormat } from '$lib/stores/format.svelte.js';
+import { auth } from '#lib/auth.svelte.js';
+import { realtime } from '#lib/stores/realtime.svelte.js';
+import { chrome, DENSITY_KEY, SIDEBAR_KEY, THEME_KEY } from '#lib/stores/chrome.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import { initExtensions, extensions } from '#lib/extensions.svelte.js';
+import { initFormat } from '#lib/stores/format.svelte.js';
 // Extension Studio pages: declarative SDUI pages render via the generic
 // host (data, not code) and Tier-3 code pages are baked into this Studio's
 // route tree at release. Compile-time slot contributions load from
 // `$lib/ext/<name>/contribute.ts` when an extension is enabled — no runtime
 // bundle loader and no rebuild-on-enable.
-import { installGlobalApi as installExtensionApi } from '$lib/extension-api.svelte.js';
-import { loadExtensionContributions } from '$lib/load-extension-contributions.js';
+import { installGlobalApi as installExtensionApi } from '#lib/extension-api.svelte.js';
+import { loadExtensionContributions } from '#lib/load-extension-contributions.js';
 import {
   buildNavModel,
   buildExtensionNavGroups,
   buildPaletteNavItems,
   type ExtensionNavGroupId,
-} from '$lib/nav-model.js';
-import { navLabel } from '$lib/nav-i18n.js';
-import { m, i18n } from '$lib/i18n.svelte.js';
-import Sidebar from '$lib/components/layout/Sidebar.svelte';
-import MobileSidebar from '$lib/components/layout/MobileSidebar.svelte';
-import DemoBanner from '$lib/components/common/DemoBanner.svelte';
-import Slot from '$lib/components/common/Slot.svelte';
-import ToastContainer from '$lib/components/common/ToastContainer.svelte';
-import StepUpModal from '$lib/components/common/StepUpModal.svelte';
-import UpdateBanner from '$lib/components/common/UpdateBanner.svelte';
-import CollectionRlsExemptBanner from '$lib/components/common/CollectionRlsExemptBanner.svelte';
-import CommandPalette from '$lib/components/common/CommandPalette.svelte';
-import TenantSwitcher from '$lib/components/layout/TenantSwitcher.svelte';
-import KeyboardMap from '$lib/components/common/KeyboardMap.svelte';
-import PreferencesMenu from '$lib/components/layout/PreferencesMenu.svelte';
+} from '#lib/nav-model.js';
+import { navLabel } from '#lib/nav-i18n.js';
+import { m, i18n } from '#lib/i18n.svelte.js';
+import Sidebar from '#lib/components/layout/Sidebar.svelte';
+import MobileSidebar from '#lib/components/layout/MobileSidebar.svelte';
+import DemoBanner from '#lib/components/common/DemoBanner.svelte';
+import Slot from '#lib/components/common/Slot.svelte';
+import ToastContainer from '#lib/components/common/ToastContainer.svelte';
+import StepUpModal from '#lib/components/common/StepUpModal.svelte';
+import UpdateBanner from '#lib/components/common/UpdateBanner.svelte';
+import CollectionRlsExemptBanner from '#lib/components/common/CollectionRlsExemptBanner.svelte';
+import CommandPalette from '#lib/components/common/CommandPalette.svelte';
+import TenantSwitcher from '#lib/components/layout/TenantSwitcher.svelte';
+import KeyboardMap from '#lib/components/common/KeyboardMap.svelte';
+import PreferencesMenu from '#lib/components/layout/PreferencesMenu.svelte';
 import { Menu, Search, Sun, Moon } from '@lucide/svelte';
 
 let { children } = $props();
@@ -126,10 +126,10 @@ onMount(async () => {
   const isOnboarding = page.url.pathname.includes('/onboarding');
   if (!onboardingDone && !isOnboarding) {
     try {
-      const { api: layoutApi } = await import('$lib/api.js');
+      const { api: layoutApi } = await import('#lib/api.js');
       const res = await layoutApi.fetch(`/api/collections`);
       const data = await res.json();
-      if (!data?.collections?.length) goto(`${base}/onboarding`);
+      if (!data?.collections?.length) goto(resolve(`onboarding`));
     } catch {
       /* silently skip — don't block admin on network error */
     }
@@ -197,7 +197,7 @@ async function signOut() {
   // safe even if no WS was ever opened.
   realtime.disconnect();
   await auth.signOut();
-  goto(`${base}/login?reason=signed_out`);
+  goto(resolve(`login?reason=signed_out`));
 }
 </script>
 

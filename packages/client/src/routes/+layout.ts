@@ -1,5 +1,5 @@
-import { browser } from '$app/environment';
-import { initZveltio } from '$lib/zveltio';
+import { browser } from '$app/env';
+import { initZveltio } from '#lib/zveltio.js';
 
 export const ssr = false;
 export const prerender = false;

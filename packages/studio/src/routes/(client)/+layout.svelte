@@ -1,12 +1,12 @@
 <script lang="ts">
 import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { page } from '$app/state';
-import { auth } from '$lib/auth.svelte.js';
-import { api } from '$lib/api.js';
+import { auth } from '#lib/auth.svelte.js';
+import { api } from '#lib/api.js';
 import { LogOut, Sun, Moon, Menu, X } from '@lucide/svelte';
-import ToastContainer from '$lib/components/common/ToastContainer.svelte';
+import ToastContainer from '#lib/components/common/ToastContainer.svelte';
 
 let { children } = $props();
 let mobileOpen = $state(false);
@@ -32,7 +32,7 @@ $effect(() => {
  * and the redirect below point at that blank page. Public routes of the zone
  * are rendered bare, without the portal shell.
  */
-const isPublic = $derived(page.url.pathname.startsWith(`${base}/portal-client/login`));
+const isPublic = $derived(page.url.pathname.startsWith(resolve(`portal-client/login`)));
 
 function isActive(href: string): boolean {
   const cur = page.url.pathname;
@@ -46,7 +46,7 @@ onMount(async () => {
   await auth.init();
   if (isPublic) return;
   if (!auth.isAuthenticated) {
-    goto(`${base}/portal-client/login`);
+    goto(resolve(`portal-client/login`));
     return;
   }
 
@@ -66,7 +66,7 @@ onMount(async () => {
 
 async function signOut() {
   await auth.signOut();
-  goto(`${base}/portal-client/login`);
+  goto(resolve(`portal-client/login`));
 }
 
 const primaryColor = $derived(zone?.primary_color ?? '#4F46E5');
@@ -108,7 +108,7 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
           </span>
         </div>
         {#each navPages as p}
-          {@const href = `${base}/portal-client/${p.slug}`}
+          {@const href = resolve(`portal-client/${p.slug}`)}
           {@const active = isActive(href)}
           <div class="px-2 py-0.5">
             <a
@@ -167,7 +167,7 @@ const siteName = $derived(zone?.site_name ?? zone?.name ?? 'Portal');
         </div>
         <nav class="flex-1 overflow-y-auto py-3">
           {#each navPages as p}
-            {@const href = `${base}/portal-client/${p.slug}`}
+            {@const href = resolve(`portal-client/${p.slug}`)}
             <div class="px-2 py-0.5">
               <a href={href} onclick={() => (mobileOpen = false)}
                 class="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors

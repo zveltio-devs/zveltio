@@ -17,7 +17,7 @@ const get = vi.fn(async (url: string) => {
   return record;
 });
 const post = vi.fn(async (_url: string, _body?: unknown) => ({}));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: {
     get: (url: string) => get(url),
     post: (url: string, body: unknown) => post(url, body),
@@ -29,7 +29,7 @@ vi.mock('$lib/api.js', () => ({
 }));
 
 const toastError = vi.fn();
-vi.mock('$lib/stores/toast.svelte.js', () => ({
+vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: (msg: string) => toastError(msg), success: vi.fn() },
 }));
 

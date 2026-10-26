@@ -1,8 +1,8 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { ArrowUpCircle, X } from '@lucide/svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 
 let updateInfo = $state<{
   has_update: boolean;

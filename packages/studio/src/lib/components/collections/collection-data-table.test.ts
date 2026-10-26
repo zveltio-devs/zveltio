@@ -11,7 +11,7 @@ const list = vi.fn(async (_c: string, _p?: Record<string, string>) => ({
   records: [{ id: 'r1', title: 'One' }],
   pagination: { total: 1, page: 1, limit: 25, pages: 1 },
 }));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   dataApi: {
     list: (c: string, p?: Record<string, string>) => list(c, p),
     delete: vi.fn(),
@@ -19,8 +19,8 @@ vi.mock('$lib/api.js', () => ({
   },
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
-vi.mock('$lib/stores/realtime.svelte.js', () => ({ realtime: { onCollection: () => () => {} } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('#lib/stores/realtime.svelte.js', () => ({ realtime: { onCollection: () => () => {} } }));
 vi.mock('$app/navigation', () => ({ replaceState: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/collections/orders') } }));
 

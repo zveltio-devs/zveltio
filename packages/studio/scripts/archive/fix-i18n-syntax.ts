@@ -32,10 +32,10 @@ for (const p of walkAll()) {
   c = c.replace(/placeholder="\{m\[([^\]]+)\]\(\)\}"/g, 'placeholder={m[$1]()}');
   c = c.replace(/title="\{m\[([^\]]+)\]\(\)\}"/g, 'title={m[$1]()}');
   if (c.includes("m['") || c.includes('m["') || c.includes('m[')) {
-    if (!c.includes("from '$lib/i18n")) {
+    if (!c.includes("from '#lib/i18n")) {
       c = c.replace(
         /<script lang="ts">\n/,
-        '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+        '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n',
       );
     }
   }

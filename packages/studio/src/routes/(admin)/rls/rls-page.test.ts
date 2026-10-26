@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * second Confirm re-sent the DELETE for a row that no longer existed.
  */
 const { del } = vi.hoisted(() => ({ del: vi.fn(async () => ({})) }));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: {
     get: vi.fn(async (path: string) => {
       if (path === '/api/admin/rls') {
@@ -34,7 +34,7 @@ vi.mock('$lib/api.js', () => ({
     delete: del,
   },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import Page from './+page.svelte';
 

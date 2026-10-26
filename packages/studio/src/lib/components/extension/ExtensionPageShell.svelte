@@ -4,8 +4,8 @@
  * Use with Paraglide (`m`) for all user-visible strings.
  */
 import type { Component, Snippet } from 'svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import SearchBar from '$lib/components/common/SearchBar.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import SearchBar from '#lib/components/common/SearchBar.svelte';
 import ExtensionTabBar from './ExtensionTabBar.svelte';
 
 export type ExtensionTab = {

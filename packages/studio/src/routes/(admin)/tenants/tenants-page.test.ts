@@ -22,7 +22,7 @@ const { del, fixture } = vi.hoisted(() => ({
     >[],
   },
 }));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: {
     get: vi.fn(async (path: string) => {
       if (path === '/api/tenants') {
@@ -39,7 +39,7 @@ vi.mock('$lib/api.js', () => ({
     delete: del,
   },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import Page from './+page.svelte';
 

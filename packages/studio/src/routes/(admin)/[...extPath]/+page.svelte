@@ -8,11 +8,11 @@
  * host renderers. Otherwise show a 404.
  */
 import { page } from '$app/state';
-import { extensions, refreshExtensions } from '$lib/extensions.svelte.js';
-import { validateSchema } from '$lib/sdui/validate.js';
-import SchemaPage from '$lib/sdui/SchemaPage.svelte';
-import SettingsPage from '$lib/sdui/SettingsPage.svelte';
-import { m } from '$lib/i18n.svelte.js';
+import { extensions, refreshExtensions } from '#lib/extensions.svelte.js';
+import { validateSchema } from '#lib/sdui/validate.js';
+import SchemaPage from '#lib/sdui/SchemaPage.svelte';
+import SettingsPage from '#lib/sdui/SettingsPage.svelte';
+import { m } from '#lib/i18n.svelte.js';
 import { PackageX, TriangleAlert } from '@lucide/svelte';
 
 const slug = $derived((page.params.extPath ?? '').replace(/\/$/, ''));

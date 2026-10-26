@@ -3,8 +3,8 @@
  * GraphQL playground — POST /ext/developer/graphql (not stale /api/graphql).
  */
 import { Play, RefreshCw } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 const ENDPOINT = '/ext/developer/graphql';
 

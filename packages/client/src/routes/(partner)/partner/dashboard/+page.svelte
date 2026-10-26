@@ -1,11 +1,11 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { FileText, ShoppingCart, TrendingUp } from '@lucide/svelte';
 
 let { data } = $props();
 
 // Exemplu: fetch comenzi sau documente partener (offline-first)
-// import { useCollection } from '$stores/collection.svelte';
+// import { useCollection } from '#lib/stores/collection.svelte.js';
 // const orders = useCollection('orders');
 </script>
 

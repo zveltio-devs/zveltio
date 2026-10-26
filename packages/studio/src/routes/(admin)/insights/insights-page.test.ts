@@ -49,8 +49,8 @@ const { get, del, post } = vi.hoisted(() => ({
   post: vi.fn(async () => ({ data: [] })),
 }));
 
-vi.mock('$lib/api.js', () => ({ api: { get, post, delete: del, fetch: vi.fn() } }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('#lib/api.js', () => ({ api: { get, post, delete: del, fetch: vi.fn() } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import Page from './+page.svelte';
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 import { Languages } from '@lucide/svelte';
-import { i18n, m } from '$lib/i18n.svelte.js';
+import { i18n, m } from '#lib/i18n.svelte.js';
 
 interface Props {
   collapsed?: boolean;

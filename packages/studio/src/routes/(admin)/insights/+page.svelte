@@ -1,5 +1,5 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import {
   BarChart2,
@@ -12,11 +12,11 @@ import {
   GripVertical,
   RefreshCw,
 } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import Modal from '$lib/components/common/Modal.svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import Modal from '#lib/components/common/Modal.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Panel {

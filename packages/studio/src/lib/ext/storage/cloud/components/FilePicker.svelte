@@ -1,6 +1,6 @@
 <script lang="ts">
 import { Upload, X, File as FileIcon } from '@lucide/svelte';
- import { api } from '$lib/api.js';
+ import { api } from '#lib/api.js';
 
  interface Props {
  value?: string | null;

@@ -1,5 +1,5 @@
 <script lang="ts">
-import MailInbox from '$lib/ext/communications/mail/components/MailInbox.svelte';
+import MailInbox from '#lib/ext/communications/mail/components/MailInbox.svelte';
 </script>
 
 <svelte:head>

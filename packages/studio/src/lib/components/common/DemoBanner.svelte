@@ -1,5 +1,5 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 /**
  * DemoBanner — renders a sticky banner at the top of every admin page
  * when the engine reports `demo_mode: true` on /api/health.
@@ -15,7 +15,7 @@ import { m } from '$lib/i18n.svelte.js';
  */
 import { onMount } from 'svelte';
 import { Sparkles, X } from '@lucide/svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 
 interface DemoState {
   enabled: boolean;

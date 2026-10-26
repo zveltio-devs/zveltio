@@ -19,14 +19,12 @@
     "test:integration:boot": "cd ../.. && BOOT_WITHOUT_STUDIO=1 bun e2e/setup/boot.ts",
     "test:ui": "vitest --ui",
     "test:watch": "vitest",
-    "typecheck": "svelte-kit sync && tsc --noEmit && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+    "typecheck": "svelte-kit sync && tsc --noEmit && tsc --noEmit -p src/service-worker && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.25.0",
     "@lucide/svelte": "^0.577.0",
     "@simplewebauthn/browser": "^13.3.0",
-    "@sveltejs/adapter-static": "^3.0.0",
-    "@sveltejs/kit": "2.70.3",
     "@types/leaflet": "^1.9.22",
     "@zveltio/sdk": "workspace:*",
     "d3-scale": "^4.0.2",
@@ -34,21 +32,27 @@
     "dompurify": "3.4.17",
     "layerchart": "^1.0.13",
     "leaflet": "^1.9.4",
-    "svelte": "^5.57.0",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@inlang/plugin-message-format": "3.2.1",
-    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@sveltejs/adapter-static": "^4.0.0",
+    "@sveltejs/kit": "^3.1.0",
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.4.2",
     "@types/node": "^26.6.1",
     "@vitest/ui": "^4.1.11",
     "jsdom": "^29.1.1",
+    "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
     "vitest": "^4.1.11"
+  },
+  "imports": {
+    "#lib": "./src/lib/index.js",
+    "#lib/*": "./src/lib/*"
   }
 }

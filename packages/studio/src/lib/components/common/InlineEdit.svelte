@@ -1,5 +1,5 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 /**
  * Inline text editor — click (or focus + Enter) on a value to edit it
  * in place. Save on blur or Enter; Cancel on Escape.

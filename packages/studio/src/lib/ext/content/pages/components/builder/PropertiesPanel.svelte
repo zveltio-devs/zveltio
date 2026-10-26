@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
+  import { m } from '#lib/i18n.svelte.js';
   import type { Block, BlockStyle } from '../../lib/builder-types.js';
   import { BREAKPOINT_LABEL, spanKey, styleKey, type Breakpoint } from '../../lib/breakpoints.js';
   import { Image as ImageIcon, X as XIcon } from '@lucide/svelte';

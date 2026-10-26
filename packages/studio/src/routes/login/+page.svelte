@@ -1,14 +1,15 @@
 <script lang="ts">
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
+import { basePath } from '#lib/paths.js';
 import { page } from '$app/state';
 import { onMount } from 'svelte';
-import { auth } from '$lib/auth.svelte.js';
-import { api } from '$lib/api.js';
-import { safeRedirect } from '$lib/utils/safe-redirect.js';
+import { auth } from '#lib/auth.svelte.js';
+import { api } from '#lib/api.js';
+import { safeRedirect } from '#lib/utils/safe-redirect.js';
 import { Fingerprint, AlertCircle, Sparkles } from '@lucide/svelte';
 import { startAuthentication } from '@simplewebauthn/browser';
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 
 let email = $state('');
 let password = $state('');
@@ -42,7 +43,7 @@ function useDemoCreds() {
 const reason = $derived(page.url.searchParams.get('reason'));
 // Validated, not trusted: `?redirect=` is attacker-supplied, and a login page
 // that forwards off-site after a real sign-in is a convincing phishing step.
-const redirectTo = $derived(safeRedirect(page.url.searchParams.get('redirect'), base));
+const redirectTo = $derived(safeRedirect(page.url.searchParams.get('redirect'), basePath));
 const reasonMessage = $derived.by(() => {
   switch (reason) {
     case 'session_required':
