@@ -1816,7 +1816,8 @@ interface RequestTxn {
   ext?: string;
   /**
    * Open `db.transaction()` savepoints, innermost last, each with the extension
-   * that opened it; named `zv_sp_<depth>` by the host.
+   * that opened it; named `zv_sp_<depth>` by the host. Depth names one scope
+   * because the worker runs sibling scopes in turn (`turnsHere` in the runtime).
    */
   savepoints: string[];
   /** Statements run one at a time, in arrival order, on the one connection. */

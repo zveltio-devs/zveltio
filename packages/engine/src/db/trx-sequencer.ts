@@ -27,16 +27,19 @@ interface Level {
   closed: boolean;
 }
 
-/** The scope this async context runs in, per sequencer. */
-const inside = new AsyncLocalStorage<ReadonlyMap<Sequencer, Level>>();
+/** The scope this async context runs in, per turn-taker. */
+const inside = new AsyncLocalStorage<ReadonlyMap<Turns, Level>>();
 
 /** A consumer that only asks who provides the connection; any other provider runs it as a no-op. */
 const IDENTIFY = async (_c: DatabaseConnection): Promise<undefined> => undefined;
 
-class Sequencer implements ConnectionProvider {
+/**
+ * The turns of one transaction: `run` queues one statement, `exclusive` one
+ * scope. Also what a worker-isolated extension's runtime orders its request's
+ * statements with, where the transaction lives across the bridge.
+ */
+export class Turns {
   readonly #root: Level = { tail: Promise.resolve(), parent: null, closed: false };
-
-  constructor(readonly inner: ConnectionProvider) {}
 
   /** Where this context queues: its innermost scope still open, else the root. */
   #level(): Level {
@@ -52,12 +55,8 @@ class Sequencer implements ConnectionProvider {
     return mine;
   }
 
-  provideConnection<T>(
-    consumer: (connection: DatabaseConnection) => Promise<T>,
-    options?: Parameters<ConnectionProvider['provideConnection']>[1],
-  ): Promise<T> {
-    if ((consumer as unknown) === IDENTIFY) return Promise.resolve(this as unknown as T);
-    return this.#queue(this.#level(), () => this.inner.provideConnection(consumer, options));
+  run<T>(run: () => Promise<T>): Promise<T> {
+    return this.#queue(this.#level(), run);
   }
 
   exclusive<T>(run: () => Promise<T>): Promise<T> {
@@ -69,6 +68,20 @@ class Sequencer implements ConnectionProvider {
         level.closed = true;
       }),
     );
+  }
+}
+
+class Sequencer extends Turns implements ConnectionProvider {
+  constructor(readonly inner: ConnectionProvider) {
+    super();
+  }
+
+  provideConnection<T>(
+    consumer: (connection: DatabaseConnection) => Promise<T>,
+    options?: Parameters<ConnectionProvider['provideConnection']>[1],
+  ): Promise<T> {
+    if ((consumer as unknown) === IDENTIFY) return Promise.resolve(this as unknown as T);
+    return this.run(() => this.inner.provideConnection(consumer, options));
   }
 }
 

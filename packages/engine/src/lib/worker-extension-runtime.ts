@@ -24,6 +24,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { type Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { sqlState } from '../db/bun-sql-quirks.js';
+import { Turns } from '../db/trx-sequencer.js';
 import { createSafeFetch } from './edge-functions/safe-fetch.js';
 import { buildWorkerCtx } from './worker-extension-ctx.js';
 import type {
@@ -115,11 +116,29 @@ const invocation = new AsyncLocalStorage<{ id: string; user?: unknown; threw?: b
  * transaction, and a nested callback a savepoint); outside one, a transaction
  * the host opens for this callback alone (owner decision 4).
  */
-const transaction = new AsyncLocalStorage<string>();
+const transaction = new AsyncLocalStorage<{ id: string }>();
+
+/**
+ * The turns a context's statements take on its transaction: its invocation's
+ * (the request is one transaction on the host), else its host transaction's.
+ * The host names savepoints by depth, so two `db.transaction()` scopes side by
+ * side under `Promise.all` stacked theirs: the first to end released or rolled
+ * back the other's, and a sibling's statement landed in it. As inline
+ * (`db/trx-sequencer.ts`), a scope runs alone and siblings take turns.
+ */
+const turnsOf = new WeakMap<object, Turns>();
+function turnsHere(): Turns | undefined {
+  const owner = invocation.getStore() ?? transaction.getStore();
+  if (!owner) return undefined;
+  const turns = turnsOf.get(owner) ?? new Turns();
+  turnsOf.set(owner, turns);
+  return turns;
+}
 
 /** Run a `db.transaction()` callback; one nested in another keeps the outer id. */
 function inTransaction<T>(run: () => Promise<T>): Promise<T> {
-  return transaction.getStore() ? run() : transaction.run(rpcId('txn'), run);
+  const scope = () => (turnsHere() as Turns).exclusive(run);
+  return transaction.getStore() ? scope() : transaction.run({ id: rpcId('txn') }, scope);
 }
 
 /**
@@ -127,7 +146,16 @@ function inTransaction<T>(run: () => Promise<T>): Promise<T> {
  * the rows carry the affected-row `count`, and an error its SQLSTATE in `errno`
  * (and the driver's `code`), as Bun.SQL does.
  */
-async function dbExecute(
+function dbExecute(
+  sql: string,
+  params: unknown[],
+  savepoint?: DbQueryRequest['savepoint'],
+): Promise<unknown[]> {
+  const send = () => dbSend(sql, params, savepoint);
+  return turnsHere()?.run(send) ?? send();
+}
+
+function dbSend(
   sql: string,
   params: unknown[],
   savepoint?: DbQueryRequest['savepoint'],
@@ -150,7 +178,7 @@ async function dbExecute(
       }
     });
     const requestId = invocation.getStore()?.id;
-    const txn = transaction.getStore();
+    const txn = transaction.getStore()?.id;
     send({
       type: 'db:query',
       id,
