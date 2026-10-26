@@ -36,6 +36,8 @@ afterEach(() => {
 async function invite() {
   const { app, db } = await getTestApp();
   const cookie = await createGodSession(app, db);
+  // Enrolling the harness god's passkey mails it too; count the invitation only.
+  sendMailMock.mockClear();
   const email = `inv-mail-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
   const res = await app.request('/api/users/invite', {
     method: 'POST',

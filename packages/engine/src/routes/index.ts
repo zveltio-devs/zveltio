@@ -63,6 +63,7 @@ import { requestLogMiddleware } from '../middleware/request-log.js';
 import { previewEnvMiddleware } from '../middleware/preview-env.js';
 import { tracingMiddleware } from '../middleware/tracing.js';
 import { demoModeMiddleware } from '../middleware/demo-mode.js';
+import { configStepUp } from '../middleware/config-step-up.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
 // /api/flows         — automation flows (routes/flows.ts)
@@ -288,6 +289,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // ── Request log — persists every /api/* call to zv_request_logs ──────────
   app.use('/api/*', requestLogMiddleware(poolDb));
+
+  // ── Step-up on every configuration mutation (ADR 0006) — before the routes ─
+  app.use('/api/*', configStepUp(auth));
 
   // ── Preview environments — X-Preview-Token switches PostgreSQL search_path ─
   app.use('/api/data/*', previewEnvMiddleware(db));

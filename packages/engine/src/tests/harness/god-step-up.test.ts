@@ -70,7 +70,7 @@ d('god step-up for extension mutations', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     origin = passkeyRelyingParty().origin;
-    cookie = await createGodSession(app, db);
+    cookie = await createGodSession(app, db, { factor: false });
     const me = await app.request('/api/me', { headers: { cookie } });
     email = ((await me.json()) as { user: { email: string } }).user.email;
     pk = await newSoftPasskey();
@@ -318,7 +318,7 @@ d('god step-up by TOTP (no passkey on the account)', () => {
     app = t.app;
     ({ cookie, totpURI } = await enrollTotp(
       (p, i) => app.request(p, i),
-      await createGodSession(app, t.db),
+      await createGodSession(app, t.db, { factor: false }),
       PASSWORD,
     ));
   });
@@ -584,7 +584,7 @@ d('god step-up on an account with a passkey and TOTP', () => {
     app = t.app;
     origin = passkeyRelyingParty().origin;
     const req = (p: string, i?: RequestInit) => app.request(p, i);
-    cookie = await createGodSession(app, t.db);
+    cookie = await createGodSession(app, t.db, { factor: false });
     pk = await newSoftPasskey();
     const reg = await registerSoftPasskey(req, cookie, pk, origin, { password: PASSWORD });
     expect(reg.status).toBe(200);

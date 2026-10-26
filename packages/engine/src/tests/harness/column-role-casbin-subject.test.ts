@@ -66,7 +66,7 @@ d('member is a Casbin role, the column only the god attribute', () => {
     const e = await getEnforcer();
     await e.addPolicy('member', '*', MEMBER_COL, 'read');
     await e.addPolicy('god', '*', GOD_COL, 'read');
-    member = await createMemberSession(app, db);
+    member = await createMemberSession(app, db, { configWindow: true });
   });
 
   afterAll(async () => {

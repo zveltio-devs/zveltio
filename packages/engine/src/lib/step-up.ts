@@ -24,7 +24,7 @@ import {
   verifyAuthenticationResponse,
 } from '@simplewebauthn/server';
 import { auth, authPool, passkeyRelyingParty } from './auth.js';
-import { requestSession } from '../middleware/session-prefetch.js';
+import { type RequestSession, requestSession } from '../middleware/session-prefetch.js';
 import { refuseWithoutSession } from './admin-guard.js';
 import { isEmailConfigured, sendEmail } from './email.js';
 
@@ -335,7 +335,55 @@ export async function stepUpVerify(c: Context): Promise<Response> {
 
   const token = randomBytes(32).toString('base64url');
   await put(rowId('token', token, sessionId, action), 'token', method);
+  await openConfigWindow(sessionId, method);
   return c.json({ token, method, action, expires_in: TTL_SECONDS });
+}
+
+/**
+ * How long a step-up opens configuration changes to its session (ADR 0006: an
+ * XSS in the App riding an administrator's cookie meets this, not the cookie
+ * alone). Fixed from the step-up, never slid by use. Any step-up opens it, so
+ * the per-action ones (extensions, factors) that ask a token on top count too.
+ */
+export const CONFIG_WINDOW_SECONDS = 300;
+/** The action a configuration refusal names: the client steps up for it and retries. */
+export const CONFIG_ACTION = 'config';
+
+async function openConfigWindow(sessionId: string, method: StepUpMethod): Promise<void> {
+  await sql`
+    INSERT INTO verification (id, identifier, value, "expiresAt")
+    VALUES (${rowId('window', sessionId)}, 'step-up:window', ${method},
+            now() + make_interval(secs => ${CONFIG_WINDOW_SECONDS}))
+    ON CONFLICT (id) DO UPDATE SET value = excluded.value, "expiresAt" = excluded."expiresAt"
+  `.execute(authPool());
+}
+
+/**
+ * Null when the session's configuration window is open (publishing how it was
+ * opened as `stepUpMethod`); else the 403: `step_up_required` naming
+ * `CONFIG_ACTION`, or `step_up_enrollment_required` when there is no factor yet.
+ */
+export async function requireConfigWindow(
+  c: Context,
+  session: RequestSession,
+): Promise<Response | null> {
+  const r = await sql<{ value: string }>`
+    SELECT value FROM verification
+     WHERE id = ${rowId('window', session.session.id)} AND "expiresAt" > now()`.execute(authPool());
+  const method = r.rows[0]?.value;
+  if (method === 'passkey' || method === 'totp') {
+    c.set('stepUpMethod', method);
+    return null;
+  }
+  if (!(await hasStepUpFactor(session.user.id))) return enrollmentRequired(c);
+  return c.json(
+    {
+      error: 'Configuration changes need a fresh step-up confirmation',
+      code: 'step_up_required',
+      errors: { action: CONFIG_ACTION },
+    },
+    403,
+  );
 }
 
 /**
@@ -355,7 +403,13 @@ export async function requireStepUp(c: Context, action: string): Promise<StepUpM
   }
   if (!(await hasStepUpFactor(session.user.id))) return enrollmentRequired(c);
   return c.json(
-    { error: 'This action needs a fresh step-up confirmation', code: 'step_up_required', action },
+    // `action` rides in `errors`, the one extra member problem+json keeps: the
+    // client steps up for it and retries (Studio lib/api.ts).
+    {
+      error: 'This action needs a fresh step-up confirmation',
+      code: 'step_up_required',
+      errors: { action },
+    },
     403,
   );
 }

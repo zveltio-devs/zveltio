@@ -9,6 +9,7 @@
  */
 import { createHash, createHmac } from 'node:crypto';
 import { chmod, writeFile } from 'node:fs/promises';
+import { isConfigMutation } from '../middleware/config-step-up.js';
 
 export type Req = (path: string, init?: RequestInit) => Response | Promise<Response>;
 
@@ -260,7 +261,9 @@ export async function enrollTotp(
 export function stepUpActionFor(method: string, path: string): string | null {
   if (method === 'GET' || method === 'HEAD') return null;
   if (path === '/api/admin/license/rotate') return 'extension.license-rotate';
-  if (!path.startsWith('/api/marketplace/')) return null;
+  // Any other configuration change wants the session's window, which any step-up opens.
+  if (!path.startsWith('/api/marketplace/'))
+    return isConfigMutation(method, path) ? 'config' : null;
   const rest = decodeURIComponent(path.slice('/api/marketplace/'.length));
   if (rest === 'enable-all') return 'extension.enable-all';
   if (rest.startsWith('license/')) {
@@ -269,7 +272,7 @@ export function stepUpActionFor(method: string, path: string): string | null {
   const i = rest.lastIndexOf('/');
   const verb = rest.slice(i + 1);
   return verb === 'activate' || verb === 'deactivate'
-    ? null
+    ? 'config'
     : `extension.${verb}:${rest.slice(0, i)}`;
 }
 
@@ -335,12 +338,20 @@ export async function steppedUpFetch(
     if (keyFile) await savePasskey(keyFile, pk);
   }
   const key = pk;
+  let windowAt = 0;
   return async (path, init = {}) => {
     const action = stepUpActionFor(init.method ?? 'GET', new URL(path, baseUrl).pathname);
-    if (!action) return req(path, init);
+    if (!action || (action === 'config' && windowOpen(windowAt))) return req(path, init);
     const headers = new Headers(init.headers);
     headers.set('X-Zveltio-Step-Up', await passkeyStepUp(req, cookie, key, action, origin));
+    windowAt = Date.now();
     if (keyFile) await savePasskey(keyFile, key);
     return req(path, { ...init, headers });
   };
 }
+
+/**
+ * Is a configuration window opened at `at` still open, with a minute to spare?
+ * Any step-up opens one (lib/step-up.ts `CONFIG_WINDOW_SECONDS`, 5 minutes).
+ */
+export const windowOpen = (at: number): boolean => Date.now() - at < 4 * 60_000;

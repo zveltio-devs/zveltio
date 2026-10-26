@@ -64,10 +64,10 @@ d('per-tenant rate limit', () => {
   }
 
   /** Sign-ups share one address; keep them out of the `auth` tier's 10/min. */
-  async function newUser() {
+  async function newUser(configWindow = false) {
     process.env.NODE_ENV = 'test';
     try {
-      return await createMemberSession(app, db);
+      return await createMemberSession(app, db, { configWindow });
     } finally {
       process.env.NODE_ENV = 'development';
     }
@@ -248,7 +248,7 @@ d('per-tenant rate limit', () => {
 
   /** A member of `tenantId` holding its `tenant_admin` role. */
   async function tenantAdmin(tenantId: string): Promise<string> {
-    const { cookie, userId } = await newUser();
+    const { cookie, userId } = await newUser(true);
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id)
               VALUES (${tenantId}::uuid, ${userId})`.execute(db);
     await (await getEnforcer()).addRoleForUser(userId, 'tenant_admin', tenantId);
