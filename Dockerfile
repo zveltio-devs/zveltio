@@ -1,5 +1,5 @@
 # ── Stage 1: Build Studio + Client ────────────────────────────
-FROM oven/bun:1.3-alpine AS frontend-builder
+FROM oven/bun:1.4-alpine AS frontend-builder
 
 WORKDIR /app
 
@@ -29,7 +29,7 @@ RUN cd packages/studio && bun run build
 RUN cd packages/client && bun run build
 
 # ── Stage 2: Build Engine Binary ──────────────────────────────
-FROM oven/bun:1.3-alpine AS engine-builder
+FROM oven/bun:1.4-alpine AS engine-builder
 
 ARG TARGETARCH
 
@@ -61,7 +61,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
     fi
 
 # ── Stage 3: Production image ─────────────────────────────────
-FROM oven/bun:1.3-alpine AS production
+FROM oven/bun:1.4-alpine AS production
 
 LABEL org.opencontainers.image.title="Zveltio Engine"
 LABEL org.opencontainers.image.description="Zveltio Business OS — Engine + Studio"

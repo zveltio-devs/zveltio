@@ -24,7 +24,7 @@ C=zveltio-ext-runner-standalone
 trap 'docker rm -f "$C" "$C-user" >/dev/null 2>&1 || true' EXIT
 
 docker build -q -t "$IMG" -f - "$ROOT" >/dev/null <<'EOF'
-FROM oven/bun:1.3-alpine
+FROM oven/bun:1.4-alpine
 RUN apk add --no-cache setpriv tini util-linux-misc && addgroup -S -g 101 zveltio && adduser -S -u 100 -G zveltio zveltio && \
     mkdir -p /data/extensions /data/storage /run/zveltio-ext && chown -R 100:101 /data && \
     echo hunter2-upload > /data/storage/upload && chown 100:101 /data/storage/upload && \

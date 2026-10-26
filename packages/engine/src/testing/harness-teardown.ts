@@ -12,10 +12,23 @@
  * the last file.
  */
 
-import { afterAll } from 'bun:test';
+import { afterAll, afterEach } from 'bun:test';
 import { SQL } from 'bun';
 
 const url = process.env.TEST_DATABASE_URL;
+
+// Bun 1.4 stores `process.env.X = undefined` as the string "undefined", as Node
+// does; 1.3 deleted the variable. A test that restored a saved-but-unset value
+// that way left "undefined" behind, and code after it read a real setting: the
+// schema dev writer exported into `packages/engine/undefined/`. Restore with
+// `delete` when the saved value is undefined.
+afterEach(() => {
+  const left = Object.keys(process.env).filter((k) => process.env[k] === 'undefined');
+  if (left.length) {
+    for (const k of left) delete process.env[k];
+    throw new Error(`test left process.env ${left.join(', ')} = "undefined"; delete it instead`);
+  }
+});
 
 afterAll(async () => {
   if (!url) return;

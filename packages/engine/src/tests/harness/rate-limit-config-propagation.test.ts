@@ -99,7 +99,8 @@ d('rate-limit config: every tier tunable, changes reach every instance', () => {
 
   afterAll(async () => {
     bus.publish = origPublish;
-    process.env.NODE_ENV = savedEnv;
+    if (savedEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = savedEnv;
     if (savedProxy === undefined) delete process.env.TRUSTED_PROXY;
     else process.env.TRUSTED_PROXY = savedProxy;
     await admin('/reset', 'POST');

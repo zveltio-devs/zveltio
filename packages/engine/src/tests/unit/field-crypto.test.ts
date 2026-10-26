@@ -110,7 +110,8 @@ describe('key format', () => {
     try {
       await expect(maybeEncrypt('secret', true)).rejects.toThrow('64-char hex');
     } finally {
-      process.env.FIELD_ENCRYPTION_KEY = saved;
+      if (saved === undefined) delete process.env.FIELD_ENCRYPTION_KEY;
+      else process.env.FIELD_ENCRYPTION_KEY = saved;
     }
   });
 });

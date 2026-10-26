@@ -84,8 +84,10 @@ d('schema dev writer', () => {
   });
 
   afterAll(async () => {
-    process.env.ZVELTIO_SCHEMA_DIR = before.dir;
-    process.env.NODE_ENV = before.env;
+    if (before.dir === undefined) delete process.env.ZVELTIO_SCHEMA_DIR;
+    else process.env.ZVELTIO_SCHEMA_DIR = before.dir;
+    if (before.env === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = before.env;
     const ids = readdirSync(join(dir, 'migrations')).map((f) => f.replace(/\.json$/, ''));
     if (ids.length)
       await sql`DELETE FROM zv_schema_migrations WHERE id IN (${sql.join(ids)})`.execute(db);
@@ -150,7 +152,8 @@ d('schema dev writer', () => {
       expect(migrations().length).toBe(n);
       expect(JSON.parse(files()[`collections/${COL}.json`]).fields[0].indexed).toBe(true);
     } finally {
-      process.env.NODE_ENV = before.env;
+      if (before.env === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = before.env;
     }
     // The next change catches the directory up.
     expect(
@@ -173,7 +176,8 @@ d('schema dev writer', () => {
     try {
       jobId = await enqueueDDLJob(db, 'create_collection', { ...def, adoptRules: true });
     } finally {
-      process.env.NODE_ENV = before.env;
+      if (before.env === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = before.env;
     }
     // Settled before afterAll drops the table: a job still active at exit is
     // retried by the next run's worker, which recreates the collection.
