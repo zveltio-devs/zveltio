@@ -4,6 +4,17 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Public pages can render on the server (ADR 0005).** The public web host
+(`packages/client`) was a single-page app: crawlers that do not run
+JavaScript saw an empty page, so link previews and SEO tags never appeared.
+It now builds with an in-repo adapter that adds a server bundle to the client
+dist, and with `ZVELTIO_CLIENT_SSR=1` the engine renders the home page and the
+public pages inside its own process. A server-side `load` that calls `/api/*`
+or `/ext/*` is answered in-process with the visitor's own cookie, so a render
+never has more rights than the visitor. A render that throws or fails falls
+back to the SPA shell. Off by default; employee and partner portals stay
+client-rendered.
+
 ## [3.0.0-beta.90] - 2026-10-22
 
 **Several replicas now behave like one engine.** Before this release, a change

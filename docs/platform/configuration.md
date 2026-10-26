@@ -440,6 +440,7 @@ for the same reason:
 | `PUBLIC_URL` | — | Public origin when it differs from `BASE_URL` (behind a proxy or CDN). |
 | `STUDIO_DIST_PATH` | `$CWD/studio-dist` | Where the compiled Studio is served from. |
 | `CLIENT_DIST_PATH` | `$CWD/client-dist` | Where the compiled public web host is served from. |
+| `ZVELTIO_CLIENT_SSR` | unset | `1` renders the public web host on the server, inside the engine process (ADR 0005). Pages that fail to render fall back to the SPA shell. |
 | `STORAGE_DIR` | `STORAGE_LOCAL_DIR`, else `$CWD/storage` | Root of the `local` storage driver. |
 | `MAX_UPLOAD_BYTES` | `52428800` (50 MB) | Largest accepted upload; the request cap is this plus 5 MB of envelope. |
 | `MAX_EXT_BODY_BYTES` | the import limit | Largest request body an `/ext/*` route may receive. |

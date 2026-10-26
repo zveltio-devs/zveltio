@@ -5,12 +5,12 @@ import type { PageLoad } from './$types';
 // if the operator opted into one by publishing a page-builder homepage (slug
 // `home`); absent that, login is not a "fallback" — it's the intended default.
 //
-// Universal load so it runs in the browser (static SPA served by the engine).
+// Universal load: rendered on the server by the engine (ADR 0005) and again in the browser.
 const ENGINE_URL: string =
   import.meta.env.PUBLIC_ENGINE_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+  (typeof window !== 'undefined' ? window.location.origin : '');
 
-export const ssr = false;
+export const ssr = true;
 
 export const load: PageLoad = async ({ fetch }) => {
   // Optional public homepage (only present if content/pages is installed AND a

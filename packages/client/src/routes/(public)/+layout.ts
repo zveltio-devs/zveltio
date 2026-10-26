@@ -6,9 +6,9 @@ import type { LayoutLoad } from './$types';
 // install without menus still renders pages, just without a nav bar.
 const ENGINE_URL: string =
   import.meta.env.PUBLIC_ENGINE_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+  (typeof window !== 'undefined' ? window.location.origin : '');
 
-export const ssr = false;
+export const ssr = true;
 
 type MenuItem = { label: string; slug?: string; url?: string; external?: boolean };
 
