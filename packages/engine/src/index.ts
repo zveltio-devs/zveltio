@@ -18,6 +18,7 @@ import { cors } from 'hono/cors';
 import { bodyLimit } from 'hono/body-limit';
 import { join, resolve } from 'path';
 import { getStudioFile, studioEmbedActive } from './studio-embed/index.js';
+import { clientSsrEnabled, isServerBundlePath, renderClient } from './lib/client-ssr.js';
 import { isRecoverableDbError } from './db/bun-sql-quirks.js';
 import { initDatabase, recycleActivePool } from './db/index.js';
 import { setTenantScopedTables, withEveryTenant } from './lib/tenancy/index.js';
@@ -229,6 +230,7 @@ async function serveStaticFile(
   distRoot: string,
   urlPath: string,
   cspNonce?: string,
+  spaFallback = true,
 ): Promise<Response | null> {
   // Prevent directory traversal — resolve the full path and verify it stays within distRoot.
   // URL-decode first to catch %2e%2e encoded traversals.
@@ -246,8 +248,12 @@ async function serveStaticFile(
     return null; // traversal attempt — return 404 implicitly
   }
   const safe = resolved;
+  // The client's server bundle (ADR 0005) is code the engine imports, never a file it serves.
+  if (isServerBundlePath(rootResolved, safe)) return null;
 
-  const candidates = [safe, join(safe, 'index.html')];
+  // Without the SPA fallback (the client rendering on the server) only real
+  // files are static: a directory's index.html is a route for the renderer.
+  const candidates = spaFallback ? [safe, join(safe, 'index.html')] : [safe];
 
   for (const candidate of candidates) {
     const file = Bun.file(candidate);
@@ -270,6 +276,8 @@ async function serveStaticFile(
       });
     }
   }
+
+  if (!spaFallback) return null;
 
   // SPA fallback — serve index.html for client-side routing
   const fallback = Bun.file(join(distRoot, 'index.html'));
@@ -1122,7 +1130,22 @@ rm studio.tar.gz</pre>
     const nonceBytes = new Uint8Array(16);
     crypto.getRandomValues(nonceBytes);
     const nonce = Buffer.from(nonceBytes).toString('base64');
-    const res = await serveStaticFile(CLIENT_DIST, c.req.path, nonce);
+    let res: Response | null = null;
+    // Only reads render; any other method keeps its previous answer.
+    if (clientSsrEnabled() && (c.req.method === 'GET' || c.req.method === 'HEAD')) {
+      res = await serveStaticFile(CLIENT_DIST, c.req.path, nonce, false);
+      if (!res) {
+        const rendered = await renderClient(c, CLIENT_DIST, (req, env) => app.fetch(req, env));
+        if (rendered) {
+          const html = rendered.headers.get('content-type')?.startsWith('text/html');
+          res = new Response(html ? injectCspNonce(await rendered.text(), nonce) : rendered.body, {
+            status: rendered.status,
+            headers: rendered.headers,
+          });
+        }
+      }
+    }
+    res ??= await serveStaticFile(CLIENT_DIST, c.req.path, nonce);
     if (res) {
       res.headers.set(
         'Content-Security-Policy',

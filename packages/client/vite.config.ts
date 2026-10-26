@@ -1,4 +1,4 @@
-import adapter from '@sveltejs/adapter-static';
+import adapter from './adapter.js';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
@@ -9,11 +9,7 @@ export default defineConfig({
     tailwindcss(),
     sveltekit({
       preprocess: vitePreprocess(),
-      adapter: adapter({
-        pages: 'dist',
-        assets: 'dist',
-        fallback: 'index.html' /* SPA mode — client-side routing */,
-      }),
+      adapter: adapter(),
     }),
   ],
   /**
@@ -32,4 +28,9 @@ export default defineConfig({
    * introducing a second convention.
    */
   envPrefix: ['VITE_', 'PUBLIC_'],
+  /**
+   * The server bundle runs inside the engine (ADR 0005), where the client's
+   * node_modules do not exist. Bundle every dependency into it.
+   */
+  ssr: { noExternal: true },
 });
