@@ -354,6 +354,17 @@ ${buildSandboxSsrfGuardSource('_dnsLookupImpl')}
 const _procWrite = process.stdout.write.bind(process.stdout);
 const _procExit = process.exit.bind(process);
 
+// A rejection nobody handles fails the invocation. Bun 1.3 killed the process
+// for it on its own; Bun 1.4 only does when nothing else keeps the loop alive,
+// and the open stdin pipe does, so the handler's return value went out as a
+// success. Said here, so the contract does not depend on the runtime's default.
+// The runtime's stderr, not the sandbox console the handler's logs go to.
+const _procErr = process.stderr.write.bind(process.stderr);
+process.on('unhandledRejection', (reason) => {
+  _procErr('error: ' + String(reason && reason.stack ? reason.stack : reason) + '\n');
+  _procExit(1);
+});
+
 // Captured before lockdown: the egress bridge below encodes bodies with them.
 const _Buffer = Buffer;
 const _Request = Request;

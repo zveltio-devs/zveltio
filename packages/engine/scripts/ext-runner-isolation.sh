@@ -16,7 +16,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-IMAGE="${BUN_IMAGE:-oven/bun:1.3.14}"
+IMAGE="${BUN_IMAGE:-oven/bun:1.4.4}"
 
 docker run --rm -v "${ROOT}:/src:ro" "${IMAGE}" bash -euo pipefail -c '
 cd /tmp

@@ -75,7 +75,8 @@ describe('initPermissions', () => {
         'BETTER_AUTH_SECRET',
       );
     } finally {
-      process.env.BETTER_AUTH_SECRET = saved;
+      if (saved === undefined) delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = saved;
       await initPermissions(seedDb().kysely as unknown as Database);
     }
   });

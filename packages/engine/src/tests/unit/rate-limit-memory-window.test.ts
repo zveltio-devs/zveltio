@@ -39,7 +39,8 @@ describe('in-memory rate limit sweep', () => {
     setSystemTime();
     if (savedProxy === undefined) delete process.env.TRUSTED_PROXY;
     else process.env.TRUSTED_PROXY = savedProxy;
-    process.env.NODE_ENV = savedEnv;
+    if (savedEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = savedEnv;
   });
 
   it('a short-window tier sweeping does not reset a long-window bucket', async () => {

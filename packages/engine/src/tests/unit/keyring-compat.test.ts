@@ -134,7 +134,8 @@ describe('reads what communications/mail already wrote', () => {
     const savedMail = process.env.MAIL_ENCRYPTION_KEY;
     process.env.MAIL_ENCRYPTION_KEY = 'c9d4'.repeat(16);
     await expect(decryptWithKeyring(stored, 'mail')).rejects.toThrow();
-    process.env.MAIL_ENCRYPTION_KEY = savedMail;
+    if (savedMail === undefined) delete process.env.MAIL_ENCRYPTION_KEY;
+    else process.env.MAIL_ENCRYPTION_KEY = savedMail;
   });
 });
 
@@ -161,7 +162,8 @@ describe('a missing key fails loudly', () => {
     delete process.env.MAIL_ENCRYPTION_KEY;
     await expect(encryptWithKeyring('x', 'mail')).rejects.toThrow(MissingKeyError);
     await expect(encryptWithKeyring('x', 'mail')).rejects.toThrow('MAIL_ENCRYPTION_KEY');
-    process.env.MAIL_ENCRYPTION_KEY = savedKey;
+    if (savedKey === undefined) delete process.env.MAIL_ENCRYPTION_KEY;
+    else process.env.MAIL_ENCRYPTION_KEY = savedKey;
   });
 });
 

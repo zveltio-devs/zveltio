@@ -196,7 +196,7 @@ See [security.md](security.md) for the threat model this ordering serves.
 
 | Layer | Choice | Note |
 |---|---|---|
-| Runtime | **Bun 1.3+** (pinned `bun@1.3.14`) | Not Node. Use `Bun.file`, `Bun.spawn`, `Bun.write`. |
+| Runtime | **Bun 1.4+** (pinned `bun@1.4.4`) | Not Node. Use `Bun.file`, `Bun.spawn`, `Bun.write`. |
 | Web framework | Hono 4.13+ | Exact pin, **shared with `zveltio-extensions`** — hono is bundled into every extension artifact, so a version bump does not reach them without a repack. |
 | Database | PostgreSQL 18 + pgvector | Both CI and compose pin `pgvector/pgvector:pg18`. |
 | Query builder | Kysely | No raw SQL string concatenation; use the `sql` template tag. Gates enforce this. |

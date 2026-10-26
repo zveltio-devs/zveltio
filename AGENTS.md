@@ -74,7 +74,7 @@ Other top-level directories:
 
 ## Tech stack
 
-- **Runtime: Bun 1.3+** (package manager pinned to `bun@1.3.14`). Not Node.
+- **Runtime: Bun 1.4+** (package manager pinned to `bun@1.4.4`). Not Node.
 - **Language:** TypeScript 5.4+, ESM throughout (`"type": "module"`).
 - **Web:** Hono 4.13+ (typed RPC, `@hono/zod-validator`). The pin is exact and
   shared with `zveltio-extensions`: hono is BUNDLED into every extension

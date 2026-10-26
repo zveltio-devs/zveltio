@@ -91,7 +91,7 @@ function appWith(auth: unknown, prefetchedKey?: KeyRow | null) {
 
 afterEach(() => {
   _resetPublicRouteRegistryForTests();
-  process.env.ZVELTIO_EXT_AUTH_GATE = undefined as unknown as string;
+  delete process.env.ZVELTIO_EXT_AUTH_GATE;
 });
 
 describe('extensionAuthGate', () => {

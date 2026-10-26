@@ -139,7 +139,8 @@ d('identity provisioning through ctx.internals', () => {
     try {
       first = await as(T, () => scim.provisionUser({ email, name: 'New Person' }));
     } finally {
-      process.env.ZVELTIO_REGISTRATION_ENABLED = prev;
+      if (prev === undefined) delete process.env.ZVELTIO_REGISTRATION_ENABLED;
+      else process.env.ZVELTIO_REGISTRATION_ENABLED = prev;
     }
     expect(first.created).toBe(true);
     expect(first.user).toMatchObject({

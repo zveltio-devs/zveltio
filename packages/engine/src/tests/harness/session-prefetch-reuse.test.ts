@@ -78,7 +78,8 @@ d('session prefetch reuse', () => {
 
   afterAll(async () => {
     api.getSession = original;
-    process.env.NODE_ENV = savedEnv;
+    if (savedEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = savedEnv;
     if (savedProxy === undefined) delete process.env.TRUSTED_PROXY;
     else process.env.TRUSTED_PROXY = savedProxy;
     // Back to the seeded default (migration 019), not deleted: later suites PATCH it.

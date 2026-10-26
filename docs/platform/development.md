@@ -12,7 +12,7 @@ conventions that reviewers enforce.
 
 ## 1. Environment
 
-Prerequisites: **Bun ≥ 1.3.13** (pinned `bun@1.3.14`), **PostgreSQL 18 with
+Prerequisites: **Bun ≥ 1.4.4** (pinned `bun@1.4.4`), **PostgreSQL 18 with
 pgvector**, **Valkey 8**. Linux, macOS or WSL2.
 
 ```sh
