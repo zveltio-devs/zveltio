@@ -197,8 +197,41 @@ export const superuserTitle = (title: string, url: string | null): string =>
  * Create a fresh god user and return its signed session cookie by driving the
  * real auth routes THROUGH the in-process app (so auth handlers are covered
  * too). The user is promoted to `god` directly in the DB after sign-up.
+ *
+ * The session can change configuration: a soft passkey is enrolled and one
+ * step-up opens its configuration window (lib/step-up.ts, five minutes from
+ * here). `{ factor: false }` is a god with no factor and no window, for suites
+ * about enrolling one.
  */
-export async function createGodSession(app: Hono, db: Database): Promise<string> {
+export async function createGodSession(
+  app: Hono,
+  db: Database,
+  opts: { factor?: boolean } = {},
+): Promise<string> {
+  return opts.factor === false ? signUpGod(app, db) : (await godWithPasskey(app, db)).cookie;
+}
+
+/** A god whose session has a soft passkey and an open configuration window. */
+async function godWithPasskey(app: Hono, db: Database) {
+  const cookie = await signUpGod(app, db);
+  return { cookie, ...(await openConfigWindow(app, cookie, 'HarnessGod123!')) };
+}
+
+/** Enroll a soft passkey as the session's first factor and step up once with it. */
+async function openConfigWindow(app: Hono, cookie: string, password: string) {
+  const { newSoftPasskey, registerSoftPasskey, passkeyStepUp } = await import('./step-up.js');
+  const { passkeyRelyingParty } = await import('../lib/auth.js');
+  const { origin } = passkeyRelyingParty();
+  const req = (path: string, init?: RequestInit) => app.request(path, init);
+  const pk = await newSoftPasskey();
+  const reg = await registerSoftPasskey(req, cookie, pk, origin, { password });
+  if (!reg.ok)
+    throw new Error(`harness passkey enrollment failed: ${reg.status} ${await reg.text()}`);
+  await passkeyStepUp(req, cookie, pk, 'config', origin);
+  return { pk, req, origin, passkeyStepUp };
+}
+
+async function signUpGod(app: Hono, db: Database): Promise<string> {
   const email = `harness-god-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
   const password = 'HarnessGod123!';
 
@@ -274,34 +307,35 @@ export async function createGodSession(app: Hono, db: Database): Promise<string>
  * one extension mutation needs; each call mints a fresh single-use token.
  *
  * `app` is the engine behind one door that does that for its caller: a request
- * carrying exactly this god's cookie to an extension mutation gets a fresh token
- * on the way in, so suites about what a mutation DOES need not re-spell how it is
+ * carrying exactly this god's cookie to an extension mutation — or to any
+ * configuration change once the session's window is near its end — gets a fresh
+ * token on the way in, unless it brings its own, so suites about what a mutation DOES need not re-spell how it is
  * confirmed. `god-step-up.test.ts` is where the confirmation itself is tested.
  */
 export async function createSteppedUpGod(
   app: Hono,
   db: Database,
 ): Promise<{ cookie: string; app: Hono; stepUp(action: string): Promise<Record<string, string>> }> {
-  const { newSoftPasskey, registerSoftPasskey, passkeyStepUp, stepUpActionFor } = await import(
-    './step-up.js'
-  );
-  const { passkeyRelyingParty } = await import('../lib/auth.js');
+  const { stepUpActionFor, windowOpen } = await import('./step-up.js');
   const { Hono: HonoApp } = await import('hono');
-  const { origin } = passkeyRelyingParty();
-  const req = (path: string, init?: RequestInit) => app.request(path, init);
-  const cookie = await createGodSession(app, db);
-  const pk = await newSoftPasskey();
-  const reg = await registerSoftPasskey(req, cookie, pk, origin, { password: 'HarnessGod123!' });
-  if (!reg.ok)
-    throw new Error(`harness passkey enrollment failed: ${reg.status} ${await reg.text()}`);
-  const stepUp = async (action: string) => ({
-    'X-Zveltio-Step-Up': await passkeyStepUp(req, cookie, pk, action, origin),
-  });
+  const { cookie, pk, req, origin, passkeyStepUp } = await godWithPasskey(app, db);
+  let windowAt = Date.now();
+  const stepUp = async (action: string) => {
+    const token = await passkeyStepUp(req, cookie, pk, action, origin);
+    windowAt = Date.now();
+    return { 'X-Zveltio-Step-Up': token };
+  };
   const door = new HonoApp();
   door.all('*', async (c) => {
     const raw = c.req.raw;
     const action = stepUpActionFor(raw.method, new URL(raw.url).pathname);
-    if (!action || raw.headers.get('cookie') !== cookie) return app.fetch(raw);
+    if (
+      !action ||
+      raw.headers.get('cookie') !== cookie ||
+      raw.headers.has('X-Zveltio-Step-Up') ||
+      (action === 'config' && windowOpen(windowAt))
+    )
+      return app.fetch(raw);
     const headers = new Headers(raw.headers);
     headers.set('X-Zveltio-Step-Up', (await stepUp(action))['X-Zveltio-Step-Up']);
     return app.fetch(new Request(raw, { headers }));
@@ -344,6 +378,12 @@ export async function createMemberSession(
      * into another suite through a shared role name.
      */
     grants?: Array<{ collection: string; actions: string[] }>;
+    /**
+     * Enroll a soft passkey and open the session's configuration window
+     * (lib/step-up.ts), for a member who will hold an admin role and change
+     * configuration with it.
+     */
+    configWindow?: boolean;
   } = {},
 ): Promise<{ cookie: string; userId: string; email: string }> {
   const role = 'member';
@@ -398,6 +438,7 @@ export async function createMemberSession(
   if (!cookie) {
     throw new Error(`harness sign-in returned no cookie: ${signIn.status} ${await signIn.text()}`);
   }
+  if (opts.configWindow) await openConfigWindow(app, cookie, password);
   return { cookie, userId, email };
 }
 

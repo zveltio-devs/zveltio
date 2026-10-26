@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openAdminWindow } from '../setup/admin-window.js';
 import { E2E } from '../setup/env.js';
 /**
  * Creating a key returns the key, and nothing that is not the key.
@@ -19,6 +20,7 @@ test('creating an API key returns the key and not its hash', async ({ page }) =>
     .first()
     .click();
   await page.waitForTimeout(3500);
+  await openAdminWindow(page.context());
   const r = await page.evaluate(async () => {
     const before = await (await fetch('/api/api-keys', { credentials: 'include' })).json();
     const made = await fetch('/api/api-keys', {

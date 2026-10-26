@@ -11,12 +11,21 @@
  * Usage:
  *   BASE_URL=https://demo.zveltio.com \
  *   DEMO_ADMIN_EMAIL=admin@zveltio.com DEMO_ADMIN_PASSWORD=… \
- *   bun scripts/seed-demo.ts
+ *   [DEMO_ADMIN_PASSKEY_FILE=…] bun scripts/seed-demo.ts
  */
+
+import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { openConfigWindowOver, windowOpen } from '../packages/engine/src/testing/step-up.js';
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:3000';
 const EMAIL = process.env.DEMO_ADMIN_EMAIL ?? process.env.TEST_EMAIL ?? 'admin@zveltio.com';
 const PASS = process.env.DEMO_ADMIN_PASSWORD ?? process.env.TEST_PASS ?? 'Test12345';
+const KEY_FILE =
+  process.env.DEMO_ADMIN_PASSKEY_FILE ??
+  join(homedir(), '.zveltio', `seed-demo-passkey-${new URL(BASE).host.replace(':', '_')}.json`);
+mkdirSync(dirname(KEY_FILE), { recursive: true, mode: 0o700 });
 
 async function signIn(): Promise<string> {
   const res = await fetch(`${BASE}/api/auth/sign-in/email`, {
@@ -68,11 +77,26 @@ async function pollJobs(cookie: string, jobIds: string[], stallMs = 90_000): Pro
 }
 
 /**
+ * Installing and seeding templates is configuration, which needs the session's
+ * step-up window (engine lib/step-up.ts, 5 minutes). A soft passkey opens it: the
+ * admin's first factor when the account has none, kept in `KEY_FILE` (0600) and
+ * reused on later runs. An admin who already has a factor of their own puts
+ * that key there, or seeds through the Studio. Reopened before it can close.
+ */
+let windowAt = 0;
+async function configWindow(cookie: string): Promise<void> {
+  if (windowOpen(windowAt)) return;
+  await openConfigWindowOver(BASE, cookie, PASS, process.env.DEMO_ORIGIN ?? BASE, KEY_FILE);
+  windowAt = Date.now();
+}
+
+/**
  * POST, waiting out a 429. Templates installed and seeded back to back trip
  * the write limiter, and the last two installs failed with a bare 429. The
  * limiter escalates on repeat offences, so the wait is the one it asks for.
  */
 async function post(url: string, headers: Record<string, string>): Promise<Response> {
+  await configWindow(headers.Cookie!);
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, { method: 'POST', headers, body: '{}' });
     if (res.status !== 429 || attempt === 3) return res;

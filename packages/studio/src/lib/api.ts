@@ -48,6 +48,38 @@ export interface ExistingRule {
   action: string;
 }
 
+/**
+ * Send; when the engine answers 403 `step_up_required` — a configuration change
+ * with no step-up window open (engine middleware/config-step-up.ts), or an
+ * action that wants its own token — open the step-up dialog for the action it
+ * names and send once more with the token. A step-up also opens the window, so
+ * the next changes go straight through. Closing the dialog leaves the refusal
+ * as the answer. A streamed body is read by the first send, so a request
+ * carrying one is never resent (`replayable: false`): its refusal stands.
+ */
+async function withStepUp(
+  send: (stepUp: Record<string, string>) => Promise<Response>,
+  replayable = true,
+): Promise<Response> {
+  const res = await send({});
+  if (res.status !== 403 || !replayable) return res;
+  const body = (await res
+    .clone()
+    .json()
+    .catch(() => null)) as { code?: unknown; errors?: { action?: unknown } } | null;
+  if (body?.code !== 'step_up_required') return res;
+  // Imported here: step-up.svelte.ts sends its own requests through this client.
+  const { stepUp, STEP_UP_HEADER } = await import('./step-up.svelte.js');
+  const action = typeof body.errors?.action === 'string' ? body.errors.action : 'config';
+  let token: string;
+  try {
+    token = await stepUp.token(action);
+  } catch {
+    return res; // Cancelled, or the account has no factor: the refusal stands.
+  }
+  return send({ [STEP_UP_HEADER]: token });
+}
+
 class ApiClient {
   private base: string;
 
@@ -57,15 +89,18 @@ class ApiClient {
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   private async request<T>(method: string, path: string, body?: any): Promise<T> {
-    const res = await fetch(`${this.base}${path}`, {
-      method,
-      credentials: 'include',
-      headers: {
-        ...tenantHeader(),
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const res = await withStepUp((stepUp) =>
+      fetch(`${this.base}${path}`, {
+        method,
+        credentials: 'include',
+        headers: {
+          ...tenantHeader(),
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          ...stepUp,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      }),
+    );
 
     if (!res.ok) {
       // Unified error envelope (H-13): prefer problem+json `detail`/`title`,
@@ -110,11 +145,15 @@ class ApiClient {
    * helpers for the common JSON-in/JSON-out flow.
    */
   fetch(path: string, init: RequestInit = {}): Promise<Response> {
-    return fetch(`${this.base}${path}`, {
-      credentials: 'include',
-      ...init,
-      headers: { ...tenantHeader(), ...(init.headers ?? {}) },
-    });
+    return withStepUp(
+      (stepUp) =>
+        fetch(`${this.base}${path}`, {
+          credentials: 'include',
+          ...init,
+          headers: { ...tenantHeader(), ...(init.headers ?? {}), ...stepUp },
+        }),
+      !(init.body instanceof ReadableStream),
+    );
   }
 
   get<T>(path: string) {

@@ -8,6 +8,9 @@
  * "No tests found", which is a confusing way to learn about a module boundary.
  */
 
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 const PORT = process.env.E2E_PORT ?? '3399';
 const DB_NAME = process.env.E2E_DB ?? 'zveltio_e2e';
 const PG_ADMIN = process.env.E2E_PG_ADMIN ?? 'postgres://postgres:postgres@localhost:5432/postgres';
@@ -24,4 +27,10 @@ export const E2E = {
    * through SQL, so what the suite exercises is the same path an operator uses.
    */
   admin: { email: 'e2e-admin@test.invalid', password: 'E2ePassw0rd!' },
+  /**
+   * The admin's soft passkey (engine testing/step-up.ts), enrolled by the first
+   * client that opens a configuration window and reused by the rest; a fresh
+   * database enrolls a new one over it.
+   */
+  adminPasskeyFile: join(tmpdir(), `zveltio-e2e-${PORT}-admin-passkey.json`),
 } as const;

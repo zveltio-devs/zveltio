@@ -159,7 +159,7 @@ d('tenant time zone, across tenants', () => {
 
   /** A member of `memberOf`, holding `tenant_admin` in `adminOf`. */
   async function adminOf(adminIn: string, memberOf: string[]): Promise<string> {
-    const { cookie, userId } = await createMemberSession(app, db);
+    const { cookie, userId } = await createMemberSession(app, db, { configWindow: true });
     users.push(userId);
     for (const t of memberOf)
       await sql`INSERT INTO zv_tenant_users (tenant_id, user_id) VALUES (${t}::uuid, ${userId})`.execute(

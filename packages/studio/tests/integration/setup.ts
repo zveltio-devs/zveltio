@@ -27,6 +27,8 @@
  */
 
 import '../setup.js';
+import { E2E } from '../../../../e2e/setup/env.js';
+import { openConfigWindowOver } from '../../../engine/src/testing/step-up.js';
 
 const BASE = process.env.STUDIO_IT_BASE_URL ?? 'http://127.0.0.1:3399';
 const EMAIL = process.env.STUDIO_IT_EMAIL ?? 'e2e-admin@test.invalid';
@@ -94,3 +96,12 @@ async function signIn(): Promise<void> {
 
 await reachable();
 await signIn();
+// Configuration changes need the session's step-up window (engine lib/step-up.ts);
+// a soft passkey, shared with the browser suite that boots the same way, opens it.
+await openConfigWindowOver(
+  BASE,
+  [...jar].map(([k, v]) => `${k}=${v}`).join('; '),
+  PASSWORD,
+  BASE,
+  E2E.adminPasskeyFile,
+);

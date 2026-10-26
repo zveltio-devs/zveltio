@@ -7,6 +7,10 @@
  * the network stack to get artificial numbers.
  */
 
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { openConfigWindowOver } from '../../packages/engine/src/testing/step-up.js';
+
 export interface BenchHttpClient {
   baseUrl: string;
   /**
@@ -170,5 +174,16 @@ export async function signInForToken(
   if (!cookieHeader) {
     throw new Error('sign-in succeeded but no session cookie was set — engine misconfigured?');
   }
-  return cookieHeader;
+  // The benchmarks create and drop collections: configuration, which needs the
+  // session's step-up window (engine lib/step-up.ts). A soft passkey opens it,
+  // kept under results/ (gitignored) so a rerun against the same account reuses it.
+  const host = new URL(baseUrl).host.replace(/[^a-z0-9.-]/gi, '_');
+  mkdirSync(join(import.meta.dir, '..', 'results'), { recursive: true });
+  return openConfigWindowOver(
+    baseUrl,
+    cookieHeader,
+    password,
+    baseUrl,
+    join(import.meta.dir, '..', 'results', `.passkey-${host}-${email}.json`),
+  );
 }

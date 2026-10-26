@@ -53,7 +53,9 @@ d('PATCH /api/users/:id role is god-only (in-process)', () => {
         id: string;
       }>`SELECT id FROM "user" WHERE role = 'god' LIMIT 1`.execute(db)
     ).rows[0]!.id;
-    ({ cookie: adminCookie, userId: adminId } = await createMemberSession(app, db));
+    ({ cookie: adminCookie, userId: adminId } = await createMemberSession(app, db, {
+      configWindow: true,
+    }));
     // An instance admin, not a god: the role the router lets through.
     await (await getEnforcer()).addRoleForUser(adminId, 'tenant_admin', '*');
     await invalidateUserPermCache(adminId);

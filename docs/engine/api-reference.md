@@ -91,7 +91,21 @@ The client names the action, confirms it, and sends the token it gets back as
   passkey and no TOTP on the account; add one first). From `options`, that refusal
   carries `errors.first_factor`: `password`, `recent_sign_in` (no password, and an
   OAuth sign-in created this session under 5 minutes ago: nothing to ask) or
-  `sign_in_again`.
+  `sign_in_again`. A `step_up_required` refusal names the action to confirm in
+  `errors.action`.
+
+**Configuration window.** Every configuration mutation — any non-GET request under
+`/api/admin`, `/api/api-keys`, `/api/backup`, `/api/collections`, `/api/flows`,
+`/api/marketplace`, `/api/permissions` (except `/bootstrap`), `/api/relations`,
+`/api/schema`, `/api/settings`, `/api/templates`, `/api/tenants`, `/api/users`,
+`/api/webhooks`, and the function registry under `/api/rpc` (calling `POST
+/api/rpc/:fn` is not) — also needs the session's step-up window: any successful
+`verify` opens it for 5 minutes from then (not extended by use). Without it the answer
+is 403 `step_up_required` with `errors.action: "config"` (step up for that action and
+resend) or `step_up_enrollment_required`. An API key never makes a configuration
+change (403; it has no session to step up). Data, files, `/api/me`, notifications and
+the like are not configuration and never ask. The per-action tokens above are still
+required where they are listed.
 
 Sign-in factors are guarded the same way: the first one (passkey or TOTP) needs the
 password (`password` in the `verify-registration` body for a passkey; 403

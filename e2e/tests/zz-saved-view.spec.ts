@@ -6,6 +6,7 @@
  * A list you cannot link to is a list you have to describe.
  */
 import { test, expect } from '@playwright/test';
+import { openAdminWindow } from '../setup/admin-window.js';
 import { E2E } from '../setup/env.js';
 
 test('a search survives a reload and travels in the URL', async ({ page }) => {
@@ -19,6 +20,7 @@ test('a search survives a reload and travels in the URL', async ({ page }) => {
     .first()
     .click();
   await page.waitForTimeout(3500);
+  await openAdminWindow(page.context());
 
   const made = await page.evaluate(async () => {
     const name = `view_probe_${Date.now()}`;

@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { openConfigWindowOver } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const TEST_PORT = process.env.TEST_PORT || '3099';
@@ -72,7 +73,7 @@ beforeAll(async () => {
   // stood down first, the same move the in-process harness makes.
   await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE id = ${userId}`.execute(db);
-  godCookie = await signIn(email, pass);
+  godCookie = await openConfigWindowOver(BASE_URL, await signIn(email, pass), pass);
 
   // Create test collection
   await fetch(`${BASE_URL}/api/collections`, {

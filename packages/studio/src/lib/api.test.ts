@@ -17,6 +17,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 
+const token = vi.fn(async (_action: string) => 'tok-1');
+vi.mock('./step-up.svelte.js', () => ({
+  STEP_UP_HEADER: 'X-Zveltio-Step-Up',
+  stepUp: { token: (action: string) => token(action) },
+}));
+
 const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -43,6 +49,9 @@ function respond(status: number, body: unknown, ok = status < 400) {
         ok,
         status,
         json: async () => body,
+        clone() {
+          return this;
+        },
       }) as unknown as Response,
   );
 }
@@ -56,6 +65,9 @@ function respondUnparseable(status: number) {
         status,
         json: async () => {
           throw new SyntaxError('Unexpected token <');
+        },
+        clone() {
+          return this;
         },
       }) as unknown as Response,
   );
@@ -200,5 +212,40 @@ describe('api — the 30s response cache and who it belongs to', () => {
     respond(200, { collections: [{ name: 'district_invoices' }] });
     const second = await collectionsApi.list();
     expect(second.collections[0]!.name).toBe('district_invoices');
+  });
+});
+
+describe('api — a configuration change without a step-up', () => {
+  it('opens the step-up for the action the engine names and sends once more', async () => {
+    const refusal = { code: 'step_up_required', errors: { action: 'config' } };
+    const calls: RequestInit[] = [];
+    globalThis.fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      calls.push(init);
+      return calls.length === 1
+        ? new Response(JSON.stringify(refusal), { status: 403 })
+        : new Response('{"ok":true}', { status: 200 });
+    }) as unknown as typeof fetch;
+    expect(await api.post('/api/collections', { name: 'x' })).toEqual({ ok: true });
+    expect(token).toHaveBeenCalledWith('config');
+    expect(calls[1]!.headers).toMatchObject({ 'X-Zveltio-Step-Up': 'tok-1' });
+  });
+
+  it('never resends a streamed body, which the first send consumed', async () => {
+    token.mockClear();
+    respond(403, { code: 'step_up_required', errors: { action: 'config' } });
+    const res = await api.fetch('/api/admin/sql', {
+      method: 'POST',
+      body: new ReadableStream({ start: (c) => c.close() }),
+    });
+    expect(res.status).toBe(403);
+    expect(token).not.toHaveBeenCalled();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves any other 403 alone', async () => {
+    token.mockClear();
+    respond(403, { code: 'permission_required', detail: 'no' });
+    await expect(api.post('/api/data/x', {})).rejects.toThrow('no');
+    expect(token).not.toHaveBeenCalled();
   });
 });
