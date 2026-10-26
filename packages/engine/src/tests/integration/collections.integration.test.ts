@@ -12,6 +12,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import { createDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
+import { openConfigWindowOver } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const TEST_PORT = process.env.TEST_PORT || '3099';
@@ -38,7 +39,8 @@ async function setupGodSession(): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password: 'GodPass123!' }),
   });
-  return res.headers.get('set-cookie') ?? '';
+  // Configuration needs the session's step-up window (lib/step-up.ts).
+  return openConfigWindowOver(BASE_URL, res.headers.get('set-cookie') ?? '', 'GodPass123!');
 }
 
 beforeAll(async () => {

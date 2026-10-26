@@ -230,6 +230,18 @@ describe('api — a configuration change without a step-up', () => {
     expect(calls[1]!.headers).toMatchObject({ 'X-Zveltio-Step-Up': 'tok-1' });
   });
 
+  it('never resends a streamed body, which the first send consumed', async () => {
+    token.mockClear();
+    respond(403, { code: 'step_up_required', errors: { action: 'config' } });
+    const res = await api.fetch('/api/admin/sql', {
+      method: 'POST',
+      body: new ReadableStream({ start: (c) => c.close() }),
+    });
+    expect(res.status).toBe(403);
+    expect(token).not.toHaveBeenCalled();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('leaves any other 403 alone', async () => {
     token.mockClear();
     respond(403, { code: 'permission_required', detail: 'no' });

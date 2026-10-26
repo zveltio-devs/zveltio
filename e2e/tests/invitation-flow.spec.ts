@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openAdminWindow } from '../setup/admin-window';
 import { E2E } from '../setup/env';
 
 /**
@@ -25,6 +26,7 @@ async function signInAsAdmin(request: import('@playwright/test').APIRequestConte
     data: { email: E2E.admin.email, password: E2E.admin.password },
   });
   expect(res.ok(), 'admin sign-in failed').toBe(true);
+  await openAdminWindow(request);
 }
 
 const unique = () => `inv-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.invalid`;

@@ -7,6 +7,7 @@
  * filtering it down, which is why in practice nobody asked.
  */
 import { test, expect } from '@playwright/test';
+import { openAdminWindow } from '../setup/admin-window.js';
 import { E2E } from '../setup/env.js';
 
 test('a record shows who changed it and what', async ({ page }) => {
@@ -20,6 +21,7 @@ test('a record shows who changed it and what', async ({ page }) => {
     .first()
     .click();
   await page.waitForTimeout(3500);
+  await openAdminWindow(page.context());
 
   const made = await page.evaluate(async () => {
     const name = `hist_probe_${Date.now()}`;

@@ -47,6 +47,8 @@
     // seeding
     "DEMO_ADMIN_EMAIL",
     "DEMO_ADMIN_PASSWORD",
+    "DEMO_ADMIN_PASSKEY_FILE",
+    "DEMO_ORIGIN",
     // supplied by the runner, not by us
     "GITHUB_REF_NAME",
     "GITHUB_SHA",

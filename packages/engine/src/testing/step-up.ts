@@ -8,8 +8,8 @@
  * engine's BETTER_AUTH_URL (in-process: `passkeyRelyingParty().origin`).
  */
 import { createHash, createHmac } from 'node:crypto';
-import { chmod, writeFile } from 'node:fs/promises';
-import { isConfigMutation } from '../middleware/config-step-up.js';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { isConfigMutation } from '../middleware/config-routes.js';
 
 export type Req = (path: string, init?: RequestInit) => Response | Promise<Response>;
 
@@ -294,9 +294,10 @@ async function savePasskey(file: string, pk: SoftPasskey): Promise<void> {
 }
 
 async function loadPasskey(file: string): Promise<SoftPasskey | null> {
-  const f = Bun.file(file);
-  if (!(await f.exists())) return null;
-  const s = (await f.json()) as {
+  // node:fs, not Bun.file: Playwright's specs (Node) load this module too.
+  const raw = await readFile(file, 'utf8').catch(() => null);
+  if (raw === null) return null;
+  const s = JSON.parse(raw) as {
     id: string;
     counter: number;
     privateKey: JsonWebKey;
@@ -355,3 +356,42 @@ export async function steppedUpFetch(
  * Any step-up opens one (lib/step-up.ts `CONFIG_WINDOW_SECONDS`, 5 minutes).
  */
 export const windowOpen = (at: number): boolean => Date.now() - at < 4 * 60_000;
+
+/**
+ * For a client outside the engine's process (the integration lane, the bench,
+ * the Studio lane, e2e, scripts): open `cookie`'s configuration window on the
+ * engine at `baseUrl` (lib/step-up.ts, 5 minutes) by stepping up once with a
+ * soft passkey. An account with no factor yet gets one enrolled, behind
+ * `password`, and saved to `keyFile` when given; one that has a factor is
+ * stepped up with the key `keyFile` holds. `origin` is the engine's BETTER_AUTH_URL.
+ * Returns the cookie.
+ */
+export async function openConfigWindowOver(
+  baseUrl: string,
+  cookie: string,
+  password: string,
+  origin = baseUrl,
+  keyFile?: string,
+): Promise<string> {
+  const req = (path: string, init?: RequestInit) => fetch(`${baseUrl}${path}`, init);
+  const probe = await req('/api/auth/step-up/options', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: origin, cookie },
+    body: JSON.stringify({ action: 'config' }),
+  });
+  const body = (await probe.json().catch(() => ({}))) as { code?: string };
+  let pk: SoftPasskey | null = null;
+  if (body.code === 'step_up_enrollment_required') {
+    pk = await newSoftPasskey();
+    const reg = await registerSoftPasskey(req, cookie, pk, origin, { password });
+    if (!reg.ok)
+      throw new Error(`passkey enrollment on ${baseUrl}: ${reg.status} ${await reg.text()}`);
+  } else {
+    if (!probe.ok) throw new Error(`step-up options on ${baseUrl}: ${probe.status}`);
+    pk = keyFile ? await loadPasskey(keyFile) : null;
+    if (!pk) throw new Error(`the account has a factor already, and no key file holds it`);
+  }
+  await passkeyStepUp(req, cookie, pk, 'config', origin);
+  if (keyFile) await savePasskey(keyFile, pk);
+  return cookie;
+}

@@ -13,6 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import { createDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
+import { openConfigWindowOver } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const TEST_PORT = process.env.TEST_PORT || '3099';
@@ -61,7 +62,12 @@ beforeAll(async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: godEmail, password: 'GodPass123!' }),
   });
-  godCookie = godRes.headers.get('set-cookie') ?? '';
+  // Configuration needs the session's step-up window (lib/step-up.ts).
+  godCookie = await openConfigWindowOver(
+    BASE_URL,
+    godRes.headers.get('set-cookie') ?? '',
+    'GodPass123!',
+  );
 
   // Regular user (for the 403 tests)
   const regEmail = `reg-rel-${TS}@test.local`;

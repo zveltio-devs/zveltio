@@ -21,6 +21,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { openConfigWindowOver } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const TEST_PORT = process.env.TEST_PORT || '3099';
@@ -123,8 +124,9 @@ beforeAll(async () => {
   await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
       VALUES (${tenantBId}, ${userBId}, 'owner') ON CONFLICT DO NOTHING`.execute(db);
 
-  cookieA = await signIn(`adv-a-${RUN}@test.local`, pwd);
-  cookieB = await signIn(`adv-b-${RUN}@test.local`, pwd);
+  // Both with a step-up window, so A's attempts meet tenancy, not step-up.
+  cookieA = await openConfigWindowOver(BASE_URL, await signIn(`adv-a-${RUN}@test.local`, pwd), pwd);
+  cookieB = await openConfigWindowOver(BASE_URL, await signIn(`adv-b-${RUN}@test.local`, pwd), pwd);
 
   // ── Seed B's tenant with resources carrying the sentinel ──────────────────
   await asTenant(cookieB, SLUG_B, 'POST', '/api/collections', {

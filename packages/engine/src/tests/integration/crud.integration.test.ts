@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { openConfigWindowOver } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const TEST_PORT = process.env.TEST_PORT || '3099';
@@ -60,7 +61,7 @@ beforeAll(async () => {
   db = await initDatabase();
 
   const { email, password } = await createGodUser();
-  sessionCookie = await signIn(email, password);
+  sessionCookie = await openConfigWindowOver(BASE_URL, await signIn(email, password), password);
 
   // Create test collection via API
   const res = await fetch(`${BASE_URL}/api/collections`, {

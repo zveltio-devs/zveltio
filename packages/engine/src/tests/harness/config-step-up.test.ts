@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { passkeyRelyingParty } from '../../lib/auth.js';
-import { isConfigMutation } from '../../middleware/config-step-up.js';
+import { isConfigMutation } from '../../middleware/config-routes.js';
 import {
   createGodSession,
   dropTestCollection,

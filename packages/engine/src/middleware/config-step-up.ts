@@ -6,8 +6,8 @@
  * (`requireConfigWindow`, lib/step-up.ts), which only a passkey or TOTP
  * confirmation opens.
  *
- * One classification for the whole configuration API, here, not a check per
- * handler. Configuration is what the Console does (ADR 0006 §2: schema, roles,
+ * One classification for the whole configuration API (`config-routes.ts`),
+ * checked here, not per handler. Configuration is what the Console does (ADR 0006 §2: schema, roles,
  * permissions, extensions, settings, users, tenants, flows, webhooks, backups,
  * SQL). What a person does in the App is not: their own profile, sessions and
  * factors (`/api/me`, `/api/auth`), data (`/api/data`, `/api/sync`, `/api/rpc/:fn`,
@@ -26,36 +26,8 @@ import type { MiddlewareHandler } from 'hono';
 import { refuseWithoutSession } from '../lib/admin-guard.js';
 import { requestApiKey } from '../lib/data/index.js';
 import { requireConfigWindow } from '../lib/step-up.js';
+import { isConfigMutation } from './config-routes.js';
 import { requestSession } from './session-prefetch.js';
-
-const CONFIG_PREFIXES = [
-  '/api/admin', // incl. /api/admin/rls, /api/admin/sql, /api/admin/schema
-  '/api/api-keys',
-  '/api/backup',
-  '/api/collections',
-  '/api/flows',
-  '/api/marketplace',
-  '/api/permissions',
-  '/api/relations',
-  '/api/schema',
-  '/api/settings',
-  '/api/templates',
-  '/api/tenants',
-  '/api/users',
-  '/api/webhooks',
-];
-
-const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-/** Does `method path` change the system's configuration? */
-export function isConfigMutation(method: string, path: string): boolean {
-  if (SAFE.has(method.toUpperCase())) return false;
-  if (path === '/api/permissions/bootstrap') return false;
-  // `/api/rpc/:fn` calls a function (data); the registry of callable functions is configuration.
-  if (path === '/api/rpc') return true;
-  if (path.startsWith('/api/rpc/')) return method.toUpperCase() !== 'POST';
-  return CONFIG_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
-}
 
 export function configStepUp(auth: Parameters<typeof requestSession>[1]): MiddlewareHandler {
   return async (c, next) => {

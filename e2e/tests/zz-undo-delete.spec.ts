@@ -8,6 +8,7 @@
  * So the test counts DELETE requests, not pixels.
  */
 import { test, expect } from '@playwright/test';
+import { openAdminWindow } from '../setup/admin-window.js';
 import { E2E } from '../setup/env.js';
 
 test('undo stops the delete from ever being sent', async ({ page }) => {
@@ -26,6 +27,7 @@ test('undo stops the delete from ever being sent', async ({ page }) => {
     .first()
     .click();
   await page.waitForTimeout(3500);
+  await openAdminWindow(page.context());
 
   // A collection with one record to delete.
   const made = await page.evaluate(async () => {
@@ -96,6 +98,7 @@ test('letting the window close does send the delete', async ({ page }) => {
     .first()
     .click();
   await page.waitForTimeout(3500);
+  await openAdminWindow(page.context());
 
   const made = await page.evaluate(async () => {
     const name = `undo_probe2_${Date.now()}`;

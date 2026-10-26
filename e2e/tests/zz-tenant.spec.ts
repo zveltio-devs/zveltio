@@ -10,6 +10,7 @@
  * it, and they are the caller the endpoint exists for.
  */
 import { test, expect } from '@playwright/test';
+import { openAdminWindow } from '../setup/admin-window.js';
 import { E2E } from '../setup/env.js';
 
 test('the unit switcher lists the units a person may enter', async ({ page }) => {
@@ -23,6 +24,7 @@ test('the unit switcher lists the units a person may enter', async ({ page }) =>
     .first()
     .click();
   await page.waitForTimeout(3500);
+  await openAdminWindow(page.context());
 
   // A second unit, created the way an operator would.
   const made = await page.evaluate(async () => {

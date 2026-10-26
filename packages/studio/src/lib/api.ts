@@ -54,13 +54,15 @@ export interface ExistingRule {
  * action that wants its own token — open the step-up dialog for the action it
  * names and send once more with the token. A step-up also opens the window, so
  * the next changes go straight through. Closing the dialog leaves the refusal
- * as the answer. `send` must be callable twice: a streamed body cannot be.
+ * as the answer. A streamed body is read by the first send, so a request
+ * carrying one is never resent (`replayable: false`): its refusal stands.
  */
 async function withStepUp(
   send: (stepUp: Record<string, string>) => Promise<Response>,
+  replayable = true,
 ): Promise<Response> {
   const res = await send({});
-  if (res.status !== 403) return res;
+  if (res.status !== 403 || !replayable) return res;
   const body = (await res
     .clone()
     .json()
@@ -143,12 +145,14 @@ class ApiClient {
    * helpers for the common JSON-in/JSON-out flow.
    */
   fetch(path: string, init: RequestInit = {}): Promise<Response> {
-    return withStepUp((stepUp) =>
-      fetch(`${this.base}${path}`, {
-        credentials: 'include',
-        ...init,
-        headers: { ...tenantHeader(), ...(init.headers ?? {}), ...stepUp },
-      }),
+    return withStepUp(
+      (stepUp) =>
+        fetch(`${this.base}${path}`, {
+          credentials: 'include',
+          ...init,
+          headers: { ...tenantHeader(), ...(init.headers ?? {}), ...stepUp },
+        }),
+      !(init.body instanceof ReadableStream),
     );
   }
 
