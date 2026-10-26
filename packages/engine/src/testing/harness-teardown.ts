@@ -13,7 +13,17 @@
  */
 
 import { afterAll, afterEach } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQL } from 'bun';
+
+// Dozens of tests `mkdtempSync(join(tmpdir(), 'zv-…'))` and never remove the
+// directory. Measured 2026-10-26: 23 333 of them, 2.3 GB, filled the /tmp tmpfs
+// until a gate died with EDQUOT. Every run now gets its own TMPDIR, which
+// `tmpdir()` and child processes read, and loses it after the last file.
+const runTmp = mkdtempSync(join(tmpdir(), 'zv-test-run-'));
+process.env.TMPDIR = runTmp;
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -31,6 +41,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  rmSync(runTmp, { recursive: true, force: true });
   if (!url) return;
   const sql = new SQL(url);
   try {
