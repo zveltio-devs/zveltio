@@ -284,6 +284,12 @@ export interface ServiceInvokeRequest {
   id: WorkerMessageId;
   name: string;
   args: unknown[];
+  /**
+   * The caller's request transaction is joined: the worker takes turns on it
+   * per invocation, where outside one each `db.transaction()` is a host
+   * transaction of its own, on its own connection.
+   */
+  requestTxn?: true;
 }
 
 export interface ServiceInvokeResponse {

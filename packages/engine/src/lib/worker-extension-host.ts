@@ -1131,7 +1131,13 @@ export class WorkerExtensionHost {
             reject(new Error(`service "${name}" call timeout (30s)`));
           }
         }, 30_000);
-        this.post(target, { type, id: invokeId, name, args });
+        this.post(target, {
+          type,
+          id: invokeId,
+          name,
+          args,
+          ...(scope.txn ? { requestTxn: true as const } : {}),
+        });
       });
       if (reply.type === 'service:invoke:err') {
         throw new Error(reply.error ?? 'service call failed');
@@ -1816,7 +1822,8 @@ interface RequestTxn {
   ext?: string;
   /**
    * Open `db.transaction()` savepoints, innermost last, each with the extension
-   * that opened it; named `zv_sp_<depth>` by the host.
+   * that opened it; named `zv_sp_<depth>` by the host. Depth names one scope
+   * because the worker runs sibling scopes in turn (`turnsHere` in the runtime).
    */
   savepoints: string[];
   /** Statements run one at a time, in arrival order, on the one connection. */
