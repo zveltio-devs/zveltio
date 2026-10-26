@@ -5,12 +5,12 @@
  * code. Ported from the forms field editor / responses screens.
  */
 import { onMount } from 'svelte';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { page } from '$app/state';
-import { api } from '$lib/api.js';
-import { m } from '$lib/i18n.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
+import { api } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import ExtensionPageShell from '#lib/components/extension/ExtensionPageShell.svelte';
 import {
   ArrowLeft,
   Plus,
@@ -289,7 +289,7 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
 <ExtensionPageShell {title} {subtitle}>
   <div class="flex items-center gap-2 mb-4 flex-wrap">
     {#if b.backHref}
-      <a href="{base}{b.backHref}" class="btn btn-ghost btn-sm gap-1">
+      <a href={resolve(b.backHref.slice(1))} class="btn btn-ghost btn-sm gap-1">
         <ArrowLeft size={14} />
         {t(b.backLabel) || t('forms.btn.back')}
       </a>

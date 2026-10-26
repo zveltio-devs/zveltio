@@ -1,7 +1,7 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { api, settingsApi } from '$lib/api.js';
+import { api, settingsApi } from '#lib/api.js';
 import {
   Globe,
   Palette,
@@ -13,11 +13,11 @@ import {
   EyeOff,
   Gauge,
 } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
-import Slot from '$lib/components/common/Slot.svelte';
-import { auth } from '$lib/auth.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
+import Slot from '#lib/components/common/Slot.svelte';
+import { auth } from '#lib/auth.svelte.js';
 
 let loading = $state(true);
 let saving = $state(false);

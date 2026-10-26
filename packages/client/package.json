@@ -27,9 +27,9 @@
   "devDependencies": {
     "@inlang/paraglide-js": "^2.25.0",
     "@inlang/plugin-message-format": "3.2.1",
-    "@sveltejs/adapter-auto": "^7.0.0",
-    "@sveltejs/kit": "2.70.3",
-    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@sveltejs/adapter-static": "^4.0.0",
+    "@sveltejs/kit": "^3.1.0",
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.4.2",
@@ -38,11 +38,15 @@
     "@types/qrcode": "^1.5.6",
     "daisyui": "^5.7.42",
     "jsdom": "^29.1.1",
-    "svelte": "^5.57.0",
-    "svelte-check": "^4.3.6",
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.7.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
     "vitest": "^4.1.11"
+  },
+  "imports": {
+    "#lib": "./src/lib/index.js",
+    "#lib/*": "./src/lib/*"
   }
 }

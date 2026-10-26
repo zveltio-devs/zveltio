@@ -1,4 +1,4 @@
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 
 export type ExtensionConfirmState = {
   open: boolean;

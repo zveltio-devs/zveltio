@@ -1,10 +1,10 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { fmtTime } from '$lib/stores/format.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
+import { fmtTime } from '#lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import { Activity } from '@lucide/svelte';
-import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import PageSpinner from '#lib/components/common/PageSpinner.svelte';
 
 interface LogEntry {
   id: number;

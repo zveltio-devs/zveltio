@@ -5,7 +5,7 @@ import { redirect } from '@sveltejs/kit';
  *
  * `(employee)` and `(partner)` each had a `+layout.server.ts` that fetched the
  * session and redirected on a missing or insufficient role. It read exactly
- * right, and it never ran: `svelte.config.js` uses `adapter-static` with
+ * right, and it never ran: `vite.config.ts` uses `adapter-static` with
  * `fallback: 'index.html'`, so the build produces a static SPA and there is no
  * server at runtime to execute a server load. The root layout also sets
  * `ssr = false`. Every visitor got the shell regardless of who they were.

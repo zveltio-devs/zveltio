@@ -1,6 +1,3 @@
-/// <reference types="@sveltejs/kit" />
-/// <reference lib="webworker" />
-
 // Studio PWA service worker.
 //
 // Goals:
@@ -9,19 +6,23 @@
 //   - NEVER cache /api/* — those are dynamic and auth-sensitive. Same for any
 //     non-GET or cross-origin request: straight to network.
 //
-// SvelteKit injects `build` (hashed JS/CSS), `files` (static/), and `version`
-// via the virtual `$service-worker` module. Hashed assets are immutable, so we
-// precache them and serve cache-first; navigations are network-first with a
-// cached index.html fallback so the SPA still opens offline.
+// SvelteKit exposes `immutable` (hashed JS/CSS) and `assets` (static/) through
+// `$app/manifest`, and `version` through `$app/env`. Hashed assets are
+// immutable, so we precache them and serve cache-first; navigations are
+// network-first with a cached index.html fallback so the SPA still opens offline.
 
-import { build, files, version } from '$service-worker';
+import { version } from '$app/env';
+import { assets, immutable } from '$app/manifest';
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE = `zveltio-studio-${version}`;
-// Static assets safe to precache. Skip source maps and the manifest (small,
-// fetched fresh). `files` already carries the /admin base path.
-const PRECACHE = [...build, ...files.filter((f) => !f.endsWith('.map'))];
+// Static assets safe to precache. Skip source maps. Manifest paths are relative
+// to the base path, and this script is served from the base path itself
+// (`/admin/service-worker.js`), so resolving against its own URL adds `/admin`.
+const PRECACHE = [...immutable, ...assets]
+  .map(({ path }) => new URL(path, sw.location.href).pathname)
+  .filter((p) => !p.endsWith('.map'));
 
 sw.addEventListener('install', (event) => {
   event.waitUntil(
@@ -58,7 +59,7 @@ sw.addEventListener('fetch', (event) => {
 
   // Navigations (SPA routes) → network-first, fall back to the cached shell
   // so the app still launches offline. adapter-static uses index.html as the
-  // SPA fallback; it lives in `build`/`files` under the base path.
+  // SPA fallback; it lives in the precache under the base path.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(async () => {

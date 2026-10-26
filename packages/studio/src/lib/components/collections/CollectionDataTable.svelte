@@ -1,9 +1,9 @@
 <script lang="ts">
 import { page } from '$app/state';
 import { replaceState } from '$app/navigation';
-import { m } from '$lib/i18n.svelte.js';
-import { deferWithUndo } from '$lib/stores/deferred.svelte.js';
-import { fmtDate } from '$lib/stores/format.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
+import { deferWithUndo } from '#lib/stores/deferred.svelte.js';
+import { fmtDate } from '#lib/stores/format.svelte.js';
 // The Data tab of the collections detail page: record browsing (search, sort,
 // selection, pagination), realtime live-sync, row delete, and bulk delete.
 // Extracted from collections/[name]/+page.svelte (H-07 studio split). It owns
@@ -11,14 +11,14 @@ import { fmtDate } from '$lib/stores/format.svelte.js';
 // and wires create/edit to the RecordDrawer via the onCreate/onEdit callbacks.
 // `reload()` is exported so the parent can refresh after a drawer save.
 import { onDestroy, untrack } from 'svelte';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { Plus, Trash2, RefreshCw, Database, ArrowRight, Settings } from '@lucide/svelte';
-import { dataApi } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { withOptimistic } from '$lib/stores/optimistic.svelte.js';
-import { realtime } from '$lib/stores/realtime.svelte.js';
-import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
+import { dataApi } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import { withOptimistic } from '#lib/stores/optimistic.svelte.js';
+import { realtime } from '#lib/stores/realtime.svelte.js';
+import LoadingSkeleton from '#lib/components/common/LoadingSkeleton.svelte';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
 import { fieldLabel, fmtCell, labelFromRecord } from './field-helpers.js';
 import type { CollectionField, CollectionRecord } from './types.js';
 
@@ -66,7 +66,7 @@ function readViewFromUrl() {
 
 function writeViewToUrl() {
   if (typeof window === 'undefined') return;
-  const url = new URL(page.url);
+  const url = new URL(page.url.href);
   const set = (k: string, v: string | number | null) => {
     if (v === null || v === '' || v === undefined) url.searchParams.delete(k);
     else url.searchParams.set(k, String(v));
@@ -413,7 +413,7 @@ let confirmState = $state<{
                     {record[col.name] ? m['common.yes']() : m['common.no']()}
                   </span>
                 {:else if (col.type === 'm2o' || col.type === 'reference') && record[`${col.name}_expanded`]}
-                  <a href="{base}/collections/{m2oTargetMap[col.name]}" class="badge badge-sm badge-secondary hover:badge-primary gap-1 font-normal">
+                  <a href={resolve(`collections/${m2oTargetMap[col.name]}`)} class="badge badge-sm badge-secondary hover:badge-primary gap-1 font-normal">
                     <ArrowRight size={10} />
                     {(record[`${col.name}_expanded`] as { _label?: unknown })?._label}
                   </a>
@@ -485,7 +485,7 @@ let confirmState = $state<{
                 {#if record[col.name] === null || record[col.name] === undefined}
                   <span class="text-base-content/55">—</span>
                 {:else if (col.type === 'm2o' || col.type === 'reference') && record[`${col.name}_expanded`]}
-                  <a href="{base}/collections/{m2oTargetMap[col.name]}" class="badge badge-sm badge-secondary gap-1">
+                  <a href={resolve(`collections/${m2oTargetMap[col.name]}`)} class="badge badge-sm badge-secondary gap-1">
                     {(record[`${col.name}_expanded`] as { _label?: unknown })?._label}
                   </a>
                 {:else}

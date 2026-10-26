@@ -1,8 +1,8 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { copyText } from '$lib/clipboard.js';
+import { m } from '#lib/i18n.svelte.js';
+import { copyText } from '#lib/clipboard.js';
 import { Code, Copy, Check } from '@lucide/svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface Props {
   collectionName: string;

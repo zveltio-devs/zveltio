@@ -17,7 +17,7 @@
  * Usage:
  *
  *   <script lang="ts">
- *     import { m, i18n } from '$lib/i18n.svelte.js';
+ *     import { m, i18n } from '#lib/i18n.svelte.js';
  *   </script>
  *
  *   <h1>{m['auth.sign_in']()}</h1>

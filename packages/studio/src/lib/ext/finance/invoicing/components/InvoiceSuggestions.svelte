@@ -2,10 +2,10 @@
 /**
  * Invoicing suggestions strip — Model 2.5 `dashboard.suggestions` slot.
  */
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { Lightbulb } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { m } from '$lib/i18n.svelte.js';
+import { api } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
 
 type Stats = {
   overdue_count?: number | string;
@@ -32,7 +32,7 @@ const overdueCount = $derived(Number(stats?.overdue_count ?? 0));
 
 {#if overdueCount > 0}
   <a
-    href="{base}/finance/invoicing"
+    href={resolve('finance/invoicing')}
     class="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 hover:border-warning/60 transition-colors"
     data-testid="invoicing-dashboard-suggestion"
   >

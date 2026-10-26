@@ -2,7 +2,7 @@ import { cleanup, render, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * Every other network call in the Studio goes through `$lib/api.js`, which adds
+ * Every other network call in the Studio goes through `#lib/api.js`, which adds
  * the engine base URL and the `x-tenant-slug` header. This section reached for
  * the global `fetch` instead, so on any install where the Studio and the engine
  * are not the same origin it asked its own origin for the passkey list, got a
@@ -16,7 +16,7 @@ const apiFetch = vi.fn(
   async (_path: string, _init?: RequestInit) =>
     new Response(JSON.stringify({ passkeys: [] }), { status: 200 }),
 );
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: { fetch: (path: string, init?: RequestInit) => apiFetch(path, init) },
 }));
 const toast = vi.hoisted(() => ({
@@ -25,13 +25,13 @@ const toast = vi.hoisted(() => ({
   info: vi.fn(),
   warning: vi.fn(),
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast }));
 vi.mock('@simplewebauthn/browser', () => ({
   startRegistration: vi.fn(async () => ({ id: 'att-1' })),
 }));
 
 import { fireEvent } from '@testing-library/svelte';
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import PasskeysSection from './PasskeysSection.svelte';
 
 afterEach(() => {

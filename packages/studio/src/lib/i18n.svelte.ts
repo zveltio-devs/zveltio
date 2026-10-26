@@ -8,7 +8,7 @@
  * Usage in a component:
  *
  *   <script lang="ts">
- *     import { m, i18n } from '$lib/i18n.svelte.js';
+ *     import { m, i18n } from '#lib/i18n.svelte.js';
  *   </script>
  *
  *   <h1>{m['account.profile']()}</h1>

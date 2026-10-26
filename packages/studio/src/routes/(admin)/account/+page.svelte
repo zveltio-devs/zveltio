@@ -1,12 +1,12 @@
 <script lang="ts">
-import { api } from '$lib/api';
-import { m } from '$lib/i18n.svelte.js';
+import { api } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { auth } from '$lib/auth.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import PasskeysSection from '$lib/components/common/PasskeysSection.svelte';
-import Slot from '$lib/components/common/Slot.svelte';
+import { auth } from '#lib/auth.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import PasskeysSection from '#lib/components/common/PasskeysSection.svelte';
+import Slot from '#lib/components/common/Slot.svelte';
 import { User as UserIcon, Save } from '@lucide/svelte';
 
 let name = $state('');

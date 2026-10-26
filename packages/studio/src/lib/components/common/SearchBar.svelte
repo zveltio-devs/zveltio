@@ -1,6 +1,6 @@
 <script lang="ts">
 import { Search, X } from '@lucide/svelte';
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 interface Props {
   value: string;
   placeholder?: string;

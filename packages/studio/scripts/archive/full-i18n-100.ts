@@ -413,11 +413,11 @@ function walkPages(dir: string, out: string[] = []): string[] {
 }
 
 function ensureMImport(c: string): string {
-  if (c.includes("from '$lib/i18n")) return c;
+  if (c.includes("from '#lib/i18n")) return c;
   if (!c.includes("m['") && !c.includes('m[')) return c;
   return c.replace(
     /<script lang="ts">\n/,
-    '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+    '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n',
   );
 }
 

@@ -38,7 +38,7 @@ const get = vi.fn(async (url: string) => {
 });
 const update = vi.fn(async (_c: string, _id: string, _body: unknown) => ({}));
 const listRecords = vi.fn(async (_c: string, _p?: unknown) => ({ records: [], pagination: {} }));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: {
     get: (url: string) => get(url),
     post: vi.fn(),
@@ -55,7 +55,7 @@ vi.mock('$lib/api.js', () => ({
     bulkDelete: vi.fn(),
   },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({
+vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 

@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 vi.mock('$app/navigation', () => ({ replaceState: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/admin/permissions') } }));
 
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import Page from '../../src/routes/(admin)/permissions/+page.svelte';
 
 const ROLE = `it_role_${Date.now().toString(36)}`;

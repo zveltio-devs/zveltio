@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const get = vi.fn(async () => ({ config: { host: 'ldap.example' } }));
 const post = vi.fn(async (_url: string, _body?: unknown) => ({}));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: {
     get: () => get(),
     post: (url: string, body: unknown) => post(url, body),
@@ -22,7 +22,7 @@ vi.mock('$lib/api.js', () => ({
 
 const success = vi.fn();
 const error = vi.fn();
-vi.mock('$lib/stores/toast.svelte.js', () => ({
+vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { success: (m: string) => success(m), error: (m: string) => error(m) },
 }));
 

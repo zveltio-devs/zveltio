@@ -741,10 +741,10 @@ for (const rel of [
   const p = join(EXT, rel);
   if (!existsSync(p)) continue;
   let c = readFileSync(p, 'utf8');
-  if (!c.includes("from '$lib/i18n")) {
+  if (!c.includes("from '#lib/i18n")) {
     c = c.replace(
       /<script lang="ts">\n/,
-      '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+      '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n',
     );
     writeFileSync(p, c);
   }

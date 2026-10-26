@@ -12,8 +12,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * `primary_color` and a `sidebar | topbar | both` nav position have to reach
  * the layout in the vocabulary it reads.
  */
-vi.mock('$app/environment', () => ({ browser: false }));
-vi.mock('$lib/zveltio', () => ({ initZveltio: async () => {} }));
+vi.mock('$app/env', () => ({ browser: false }));
+vi.mock('#lib/zveltio.js', () => ({ initZveltio: async () => {} }));
 
 const { load } = await import('./+layout');
 

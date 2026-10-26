@@ -1,7 +1,7 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { Download, ChevronDown } from '@lucide/svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 
 interface Props {
   collection: string;
@@ -18,7 +18,7 @@ async function exportFormat(format: 'csv' | 'json' | 'xlsx') {
   try {
     const params = new URLSearchParams({ format, ...filters });
     const res = await fetch(
-      `${(await import('$lib/config.js')).ENGINE_URL}/ext/data/export/${collection}?${params}`,
+      `${(await import('#lib/config.js')).ENGINE_URL}/ext/data/export/${collection}?${params}`,
       { credentials: 'include' },
     );
     if (!res.ok) throw new Error('Export failed');

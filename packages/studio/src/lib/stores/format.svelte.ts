@@ -11,7 +11,7 @@
  * that render before the fetch resolves show browser-default formatting and then
  * re-render with the tenant's once it lands.
  */
-import { settingsApi } from '$lib/api.js';
+import { settingsApi } from '#lib/api.js';
 
 type FormatSettings = {
   language?: string; // BCP-47, e.g. "ro" / "de-AT"

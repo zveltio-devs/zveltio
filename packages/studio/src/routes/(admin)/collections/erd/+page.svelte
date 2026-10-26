@@ -25,11 +25,11 @@
  * concluded the fetch, the PUT and the `serverSynced` indicator were all dead
  * code.
  */
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount, onDestroy, tick } from 'svelte';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
-import { collectionsApi, api } from '$lib/api.js';
+import { resolve } from '$app/paths';
+import { collectionsApi, api } from '#lib/api.js';
 import {
   ArrowLeft,
   ZoomIn,
@@ -47,8 +47,8 @@ import {
   Plus,
   Pencil,
 } from '@lucide/svelte';
-import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import LoadingSkeleton from '#lib/components/common/LoadingSkeleton.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface FieldDef {
   name: string;
@@ -299,7 +299,7 @@ function onMouseUp(e: MouseEvent) {
   if (dragMode === 'card') {
     if (!didMove) {
       // Treat as click → navigate
-      goto(`${base}/collections/${cardDragName}`);
+      goto(resolve(`collections/${cardDragName}`));
     } else {
       persistPositions();
     }
@@ -871,7 +871,7 @@ function edgeColor(type: string): string {
 
   <!-- Toolbar -->
   <div class="flex items-center gap-2 p-3 border-b border-base-300 bg-base-100 flex-wrap">
-    <a href="{base}/collections" class="btn btn-ghost btn-sm gap-1" aria-label={m['erd.backAria']()}>
+    <a href={resolve(`collections`)} class="btn btn-ghost btn-sm gap-1" aria-label={m['erd.backAria']()}>
       <ArrowLeft size={14} /> {m['erd.back']()}
     </a>
     <h1 class="text-base font-semibold ml-2 flex items-center gap-2">
@@ -1003,7 +1003,7 @@ function edgeColor(type: string): string {
       <div class="absolute inset-0 flex flex-col items-center justify-center text-base-content/65 gap-2">
         <Database size={48} />
         <p class="text-sm">{m['erd.noCollections']()}</p>
-        <a href="{base}/collections" class="btn btn-primary btn-sm mt-2">{m['erd.createFirst']()}</a>
+        <a href={resolve(`collections`)} class="btn btn-primary btn-sm mt-2">{m['erd.createFirst']()}</a>
       </div>
     {:else}
       <!-- World layer — translated + scaled together so HTML cards and SVG edges stay aligned. -->
@@ -1040,7 +1040,7 @@ function edgeColor(type: string): string {
               class:!border-primary={cardDragName === col.name && didMove}
               style="left: {pos.x}px; top: {pos.y}px; width: {NODE_W}px;"
               onmousedown={(e) => onCardMouseDown(e, col.name)}
-              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') goto(`${base}/collections/${col.name}`); }}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') goto(resolve(`collections/${col.name}`)); }}
               title={m['erd.cardTitle']()}
             >
               <!-- Header -->

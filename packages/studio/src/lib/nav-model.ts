@@ -2,7 +2,7 @@
  * Nav model — the source of truth for the admin sidebar's grouped items.
  * Labels are Paraglide keys resolved at render time in Sidebar / MobileSidebar.
  */
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import {
   LayoutDashboard,
   Database,
@@ -93,37 +93,100 @@ interface ExtensionState {
 const RAW_NAV: NavGroup[] = [
   {
     items: [
-      { href: `${base}/`, icon: LayoutDashboard, labelKey: 'nav.dashboard' },
-      { href: `${base}/onboarding`, icon: Zap, labelKey: 'nav.quickSetup' },
+      {
+        href: resolve(''),
+        icon: LayoutDashboard,
+        labelKey: 'nav.dashboard',
+      },
+      {
+        href: resolve(`onboarding`),
+        icon: Zap,
+        labelKey: 'nav.quickSetup',
+      },
     ],
   },
+
   {
     labelKey: 'nav.group.build',
     items: [
-      { href: `${base}/collections`, icon: Database, labelKey: 'nav.collections' },
-      { href: `${base}/templates`, icon: Sparkles, labelKey: 'nav.templates' },
-      { href: `${base}/media`, icon: Images, labelKey: 'nav.media', ext: 'content/media' },
+      {
+        href: resolve(`collections`),
+        icon: Database,
+        labelKey: 'nav.collections',
+      },
+      {
+        href: resolve(`templates`),
+        icon: Sparkles,
+        labelKey: 'nav.templates',
+      },
+
+      {
+        href: resolve(`media`),
+        icon: Images,
+        labelKey: 'nav.media',
+        ext: 'content/media',
+      },
     ],
   },
+
   {
     labelKey: 'nav.group.security',
     items: [
-      { href: `${base}/users`, icon: Users, labelKey: 'nav.users' },
-      { href: `${base}/permissions`, icon: Shield, labelKey: 'nav.permissions' },
-      { href: `${base}/rls`, icon: Shield, labelKey: 'nav.rowSecurity' },
-      { href: `${base}/column-permissions`, icon: Shield, labelKey: 'nav.columnSecurity' },
-      { href: `${base}/api-keys`, icon: Key, labelKey: 'nav.apiKeys' },
-      { href: `${base}/tenants`, icon: Building2, labelKey: 'nav.tenants' },
+      { href: resolve(`users`), icon: Users, labelKey: 'nav.users' },
+      {
+        href: resolve(`permissions`),
+        icon: Shield,
+        labelKey: 'nav.permissions',
+      },
+      {
+        href: resolve(`rls`),
+        icon: Shield,
+        labelKey: 'nav.rowSecurity',
+      },
+
+      {
+        href: resolve(`column-permissions`),
+        icon: Shield,
+        labelKey: 'nav.columnSecurity',
+      },
+
+      {
+        href: resolve(`api-keys`),
+        icon: Key,
+        labelKey: 'nav.apiKeys',
+      },
+
+      {
+        href: resolve(`tenants`),
+        icon: Building2,
+        labelKey: 'nav.tenants',
+      },
     ],
   },
+
   {
     labelKey: 'nav.group.workflows',
     items: [
-      { href: `${base}/flows`, icon: Workflow, labelKey: 'nav.flows' },
-      { href: `${base}/webhooks`, icon: Webhook, labelKey: 'nav.webhooks' },
-      { href: `${base}/notifications`, icon: Bell, labelKey: 'nav.notifications' },
       {
-        href: `${base}/workflow/approvals`,
+        href: resolve(`flows`),
+        icon: Workflow,
+        labelKey: 'nav.flows',
+      },
+
+      {
+        href: resolve(`webhooks`),
+        icon: Webhook,
+        labelKey: 'nav.webhooks',
+      },
+
+      {
+        href: resolve(`notifications`),
+        icon: Bell,
+        labelKey: 'nav.notifications',
+      },
+
+      {
+        href: resolve(`workflow/approvals`),
         icon: CheckSquare,
         labelKey: 'nav.approvals',
         ext: 'workflow/approvals',
@@ -133,47 +196,118 @@ const RAW_NAV: NavGroup[] = [
   {
     labelKey: 'nav.group.insights',
     items: [
-      { href: `${base}/insights`, icon: BarChart2, labelKey: 'nav.analytics' },
-      { href: `${base}/audit`, icon: ClipboardList, labelKey: 'nav.auditLog' },
-      { href: `${base}/request-logs`, icon: Activity, labelKey: 'nav.requestLogs' },
+      {
+        href: resolve(`insights`),
+        icon: BarChart2,
+        labelKey: 'nav.analytics',
+      },
+      {
+        href: resolve(`audit`),
+        icon: ClipboardList,
+        labelKey: 'nav.auditLog',
+      },
+
+      {
+        href: resolve(`request-logs`),
+        icon: Activity,
+        labelKey: 'nav.requestLogs',
+      },
     ],
   },
+
   {
     labelKey: 'nav.group.developer',
     items: [
       {
-        href: `${base}/developer/edge-functions`,
+        href: resolve(`developer/edge-functions`),
         icon: Code,
         labelKey: 'nav.edgeFunctions',
         ext: 'developer/edge-functions',
       },
-      { href: `${base}/rpc`, icon: Zap, labelKey: 'nav.rpcFunctions' },
-      { href: `${base}/schema-branches`, icon: GitBranch, labelKey: 'nav.schemaBranches' },
-      { href: `${base}/virtual-collections`, icon: Plug, labelKey: 'nav.virtualCollections' },
-      { href: `${base}/saved-queries`, icon: Bookmark, labelKey: 'nav.savedQueries' },
-      { href: `${base}/sql`, icon: Terminal, labelKey: 'nav.sqlEditor' },
+
+      {
+        href: resolve(`rpc`),
+        icon: Zap,
+        labelKey: 'nav.rpcFunctions',
+      },
+      {
+        href: resolve(`schema-branches`),
+        icon: GitBranch,
+        labelKey: 'nav.schemaBranches',
+      },
+
+      {
+        href: resolve(`virtual-collections`),
+        icon: Plug,
+        labelKey: 'nav.virtualCollections',
+      },
+
+      {
+        href: resolve(`saved-queries`),
+        icon: Bookmark,
+        labelKey: 'nav.savedQueries',
+      },
+
+      {
+        href: resolve(`sql`),
+        icon: Terminal,
+        labelKey: 'nav.sqlEditor',
+      },
     ],
   },
+
   {
     labelKey: 'nav.group.system',
     items: [
-      { href: `${base}/storage`, icon: HardDrive, labelKey: 'nav.storage' },
-      { href: `${base}/backup`, icon: DatabaseBackup, labelKey: 'nav.backup' },
+      {
+        href: resolve(`storage`),
+        icon: HardDrive,
+        labelKey: 'nav.storage',
+      },
+
+      {
+        href: resolve(`backup`),
+        icon: DatabaseBackup,
+        labelKey: 'nav.backup',
+      },
+
       // The extensions declare `/admin/data/import` and `/admin/data/export` and
       // ship a schema for each — richer than the pages that used to sit at the
       // short paths, which had no upsert key, no "create missing columns" and
       // no export history. Pointing at the canonical path means one
       // implementation instead of two.
-      { href: `${base}/data/import`, icon: Upload, labelKey: 'nav.import', ext: 'data/import' },
-      { href: `${base}/data/export`, icon: Download, labelKey: 'nav.export', ext: 'data/export' },
       {
-        href: `${base}/i18n`,
+        href: resolve(`data/import`),
+        icon: Upload,
+        labelKey: 'nav.import',
+        ext: 'data/import',
+      },
+
+      {
+        href: resolve(`data/export`),
+        icon: Download,
+        labelKey: 'nav.export',
+        ext: 'data/export',
+      },
+
+      {
+        href: resolve(`i18n`),
         icon: Languages,
         labelKey: 'nav.translations',
         ext: 'i18n/translations',
       },
-      { href: `${base}/marketplace`, icon: Package, labelKey: 'nav.marketplace' },
-      { href: `${base}/settings`, icon: Settings, labelKey: 'nav.settings' },
+
+      {
+        href: resolve(`marketplace`),
+        icon: Package,
+        labelKey: 'nav.marketplace',
+      },
+
+      {
+        href: resolve(`settings`),
+        icon: Settings,
+        labelKey: 'nav.settings',
+      },
     ],
   },
 ];
@@ -228,7 +362,7 @@ function metaToNavItem(meta: ExtensionMeta): ExtensionNavItem {
     ? firstPage.path.replace(/^\/admin\//, '').replace(/^\//, '')
     : meta.name;
   return {
-    href: `${base}/${slug}`,
+    href: resolve(slug),
     icon: Puzzle,
     label: firstPage?.label || meta.displayName || meta.name,
   };

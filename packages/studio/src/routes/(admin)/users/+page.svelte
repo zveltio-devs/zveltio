@@ -1,22 +1,22 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { page } from '$app/state';
 import { replaceState } from '$app/navigation';
-import { fmtDate } from '$lib/stores/format.svelte.js';
+import { fmtDate } from '#lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
-import { api, usersApi } from '$lib/api.js';
+import { api, usersApi } from '#lib/api.js';
 import { KeyRound, UserPlus, Users, Shield, Trash2 } from '@lucide/svelte';
-import { refusalText, stepUpAborted, stepUpHeaders } from '$lib/step-up.svelte.js';
-import { base } from '$app/paths';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import Modal from '$lib/components/common/Modal.svelte';
-import Pagination from '$lib/components/common/Pagination.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
-import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-import InlineEdit from '$lib/components/common/InlineEdit.svelte';
-import SchemaForm from '$lib/components/common/SchemaForm.svelte';
-import { auth } from '$lib/auth.svelte.js';
+import { refusalText, stepUpAborted, stepUpHeaders } from '#lib/step-up.svelte.js';
+import { resolve } from '$app/paths';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import Modal from '#lib/components/common/Modal.svelte';
+import Pagination from '#lib/components/common/Pagination.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
+import CrudListPage from '#lib/components/common/CrudListPage.svelte';
+import InlineEdit from '#lib/components/common/InlineEdit.svelte';
+import SchemaForm from '#lib/components/common/SchemaForm.svelte';
+import { auth } from '#lib/auth.svelte.js';
 import type { FormSchema } from '@zveltio/sdk/extension';
 
 // S3-02: schema-driven invite form so extensions can register form-alter
@@ -71,7 +71,7 @@ let showInviteModal = $state(false);
 $effect(() => {
   if (page.url.searchParams.get('new') === '1') {
     showInviteModal = true;
-    const url = new URL(page.url);
+    const url = new URL(page.url.href);
     url.searchParams.delete('new');
     replaceState(url, {});
   }
@@ -380,7 +380,7 @@ function confirmDelete(user: any) {
                <td class="text-right">
                  <div class="flex gap-0.5 justify-end opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                    <a
-                     href="{base}/permissions?user={user.id}"
+                     href={resolve(`permissions?user=${user.id}`)}
                      class="btn btn-ghost btn-xs"
                      title={m['users.permsItem']({ email: user.email })}
                      aria-label={m['users.managePermsItem']({ email: user.email })}

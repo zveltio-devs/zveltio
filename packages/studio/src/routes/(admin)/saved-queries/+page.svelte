@@ -1,11 +1,11 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { Bookmark, Play, Trash2, Plus, Share2, X } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 // ── State ────────────────────────────────────────────────────────────────────
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

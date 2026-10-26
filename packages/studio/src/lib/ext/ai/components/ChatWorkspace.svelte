@@ -5,12 +5,12 @@
  * Uses `/ext/ai/chats` session API. Prefill via `?q=` from the topbar prompt.
  */
 import { page } from '$app/state';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { goto } from '$app/navigation';
 import { MessageSquarePlus, Send, Trash2, Bot, User } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { m } from '$lib/i18n.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { api } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 type ChatSummary = {
   id: string;
@@ -145,7 +145,7 @@ $effect(() => {
   prefillDone = true;
   draft = q;
   // Drop the query so refresh doesn't resend.
-  void goto(`${base}/ai/chat`, { replaceState: true, keepFocus: true });
+  void goto(resolve('ai/chat'), { replace: true, reset: false });
 });
 </script>
 
@@ -208,7 +208,7 @@ $effect(() => {
     </div>
 
     <div class="p-2 border-t border-base-300 text-xs opacity-50">
-      <a href="{base}/ai" class="link link-hover">Templates & history →</a>
+      <a href={resolve('ai')} class="link link-hover">Templates & history →</a>
     </div>
   </aside>
 

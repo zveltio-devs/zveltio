@@ -1,13 +1,13 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { fmtDate } from '$lib/stores/format.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
+import { fmtDate } from '#lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import { Zap, Plus, Trash2, Info, X, Check } from '@lucide/svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import LoadingSkeleton from '$lib/components/common/LoadingSkeleton.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import LoadingSkeleton from '#lib/components/common/LoadingSkeleton.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface RpcFunction {
   id: string;

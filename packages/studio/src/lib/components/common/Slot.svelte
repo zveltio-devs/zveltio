@@ -18,7 +18,7 @@
   hosts can declare slots liberally without worrying about empty UI.
 -->
 <script lang="ts">
-import { studioApi } from '$lib/extension-api.svelte.js';
+import { studioApi } from '#lib/extension-api.svelte.js';
 import type { SlotContribution } from '@zveltio/sdk/extension';
 
 interface Props {

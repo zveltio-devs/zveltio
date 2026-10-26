@@ -1,5 +1,5 @@
 <script lang="ts">
-import PageBuilderWorkspace from '$lib/ext/content/pages/components/PageBuilderWorkspace.svelte';
+import PageBuilderWorkspace from '#lib/ext/content/pages/components/PageBuilderWorkspace.svelte';
 </script>
 
 <svelte:head>

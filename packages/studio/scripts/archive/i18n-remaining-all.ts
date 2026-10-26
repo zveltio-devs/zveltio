@@ -330,10 +330,10 @@ function patch(rel: string, reps: [string, string][]) {
 }
 
 function ensureMImport(c: string): string {
-  if (c.includes("from '$lib/i18n")) return c;
+  if (c.includes("from '#lib/i18n")) return c;
   return c.replace(
     /<script lang="ts">\n/,
-    '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+    '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n',
   );
 }
 
@@ -349,7 +349,7 @@ function wrapSimple(
   if (!c.includes('ExtensionPageShell')) {
     c = c.replace(
       /<script lang="ts">\n/,
-      '<script lang="ts">\n  import ExtensionPageShell from \'$lib/components/extension/ExtensionPageShell.svelte\';\n',
+      '<script lang="ts">\n  import ExtensionPageShell from \'#lib/components/extension/ExtensionPageShell.svelte\';\n',
     );
   }
   const marker = `<div class="${wrapperClass}">`;
@@ -440,7 +440,7 @@ function wrapLdapSaml(rel: string, titleKey: string, subtitleKey: string) {
   if (!c.includes('ExtensionPageShell')) {
     c = c.replace(
       /<script lang="ts">\n/,
-      '<script lang="ts">\n  import ExtensionPageShell from \'$lib/components/extension/ExtensionPageShell.svelte\';\n',
+      '<script lang="ts">\n  import ExtensionPageShell from \'#lib/components/extension/ExtensionPageShell.svelte\';\n',
     );
   }
   c = c.replace(

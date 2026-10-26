@@ -1,6 +1,6 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { modalFocus } from '$lib/utils/modal-focus.js';
+import { m } from '#lib/i18n.svelte.js';
+import { modalFocus } from '#lib/utils/modal-focus.js';
 import {
   X,
   Plus,

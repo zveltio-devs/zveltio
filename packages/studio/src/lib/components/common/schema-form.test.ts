@@ -2,7 +2,7 @@ import { cleanup, render } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FormSchema } from '@zveltio/sdk/extension';
 
-vi.mock('$lib/extension-api.svelte.js', () => ({
+vi.mock('#lib/extension-api.svelte.js', () => ({
   studioApi: { applyFormAlters: (_id: string, schema: FormSchema) => schema },
 }));
 

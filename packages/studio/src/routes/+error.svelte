@@ -14,13 +14,13 @@
  * couldn't recover without manually navigating home or refreshing.
  */
 import { page } from '$app/state';
-import { goto, invalidateAll } from '$app/navigation';
-import { base } from '$app/paths';
+import { goto, refreshAll } from '$app/navigation';
+import { resolve } from '$app/paths';
 import { AlertTriangle, Home, RotateCcw } from '@lucide/svelte';
 
 function retry() {
   // Re-run all load functions; if the page recovers, the error is cleared.
-  invalidateAll();
+  refreshAll();
 }
 </script>
 
@@ -41,7 +41,7 @@ function retry() {
         <button class="btn btn-primary btn-sm gap-2" onclick={retry}>
           <RotateCcw size={14} /> Retry
         </button>
-        <button class="btn btn-ghost btn-sm gap-2" onclick={() => goto(`${base}/`)}>
+        <button class="btn btn-ghost btn-sm gap-2" onclick={() => goto(resolve(``))}>
           <Home size={14} /> Go home
         </button>
       </div>

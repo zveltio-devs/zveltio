@@ -4,8 +4,8 @@
  */
 import type { Snippet } from 'svelte';
 import { LoaderCircle } from '@lucide/svelte';
-import EmptyState from '$lib/components/common/EmptyState.svelte';
-import { m } from '$lib/i18n.svelte.js';
+import EmptyState from '#lib/components/common/EmptyState.svelte';
+import { m } from '#lib/i18n.svelte.js';
 
 interface Props {
   loading?: boolean;

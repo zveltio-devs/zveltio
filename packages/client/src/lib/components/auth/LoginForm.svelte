@@ -1,6 +1,6 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { useAuth } from '$stores/auth.svelte';
+import { m } from '#lib/i18n.svelte.js';
+import { useAuth } from '#lib/stores/auth.svelte.js';
 import { Mail, Lock, LoaderCircle } from '@lucide/svelte';
 
 const auth = useAuth();

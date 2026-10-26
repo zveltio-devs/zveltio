@@ -4,15 +4,15 @@
  * genealogy trees, nested tables, and inline forms (consume / HACCP).
  */
 import { onMount } from 'svelte';
-import { base } from '$app/paths';
-import { api } from '$lib/api.js';
-import { ENGINE_URL } from '$lib/config.js';
-import { m } from '$lib/i18n.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { fmtDate } from '$lib/stores/format.svelte.js';
-import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import { createExtensionConfirm } from '$lib/utils/extension-confirm.svelte.js';
+import { resolve } from '$app/paths';
+import { api } from '#lib/api.js';
+import { ENGINE_URL } from '#lib/config.js';
+import { m } from '#lib/i18n.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import { fmtDate } from '#lib/stores/format.svelte.js';
+import ExtensionPageShell from '#lib/components/extension/ExtensionPageShell.svelte';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import { createExtensionConfirm } from '#lib/utils/extension-confirm.svelte.js';
 import { ArrowLeft, LoaderCircle, Download, CheckCircle, Play } from '@lucide/svelte';
 import { isOwnNamespace } from './guard.js';
 import type { ActionDef, DetailPanel, FieldDef, ResourceView } from './types.js';
@@ -283,7 +283,7 @@ $effect(() => {
 <ExtensionPageShell {title} {subtitle}>
   <div class="flex items-center gap-2 mb-4 flex-wrap">
     {#if d.backHref}
-      <a href="{base}{d.backHref}" class="btn btn-ghost btn-sm gap-1">
+      <a href={resolve(d.backHref.slice(1))} class="btn btn-ghost btn-sm gap-1">
         <ArrowLeft size={14} />
         {t(d.backLabel) || t('common.back')}
       </a>

@@ -1,14 +1,14 @@
 <script lang="ts">
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import { Bell, BellOff, BellRing, Check, Clock, Trash2 } from '@lucide/svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 import {
   subscribeToWebPush,
   unsubscribeFromWebPush,
   webPushStatus,
   type WebPushState,
-} from '$lib/web-push.js';
+} from '#lib/web-push.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let notifications = $state<any[]>([]);

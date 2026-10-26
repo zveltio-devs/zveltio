@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { Snippet } from 'svelte';
 import { LayoutDashboard, LogOut, Menu } from '@lucide/svelte';
-import { useAuth } from '$stores/auth.svelte';
+import { useAuth } from '#lib/stores/auth.svelte.js';
 
 /**
  * Typed here rather than from `./$types`: the load is annotated `LayoutLoad`

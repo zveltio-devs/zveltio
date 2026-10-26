@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * explain either.
  */
 const error = vi.hoisted(() => vi.fn());
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   collectionsApi: {
     list: vi.fn(async () => {
       throw new Error('boom');
@@ -28,7 +28,7 @@ vi.mock('$lib/api.js', () => ({
     delete: vi.fn(),
   },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error, success: vi.fn() } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error, success: vi.fn() } }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
 
 import Page from './+page.svelte';

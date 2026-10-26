@@ -20,7 +20,7 @@
  * order and gives it a name.
  */
 import type { Snippet } from 'svelte';
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 
 let {
   children,

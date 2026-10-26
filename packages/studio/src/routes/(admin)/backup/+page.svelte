@@ -1,12 +1,12 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onDestroy, onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { ENGINE_URL } from '$lib/config.js';
+import { api } from '#lib/api.js';
+import { ENGINE_URL } from '#lib/config.js';
 // The shared formatter, which reads the instance's locale, timezone and
 // date_format settings. The local copy this replaces was hardcoded to 'en-US',
 // so backup timestamps were the one date on the admin that ignored them.
-import { fmtDateTime } from '$lib/stores/format.svelte.js';
+import { fmtDateTime } from '#lib/stores/format.svelte.js';
 import {
   DatabaseBackup,
   Download,
@@ -17,9 +17,9 @@ import {
   CheckCircle,
   XCircle,
 } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import CrudListPage from '#lib/components/common/CrudListPage.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface Backup {
   id: string;

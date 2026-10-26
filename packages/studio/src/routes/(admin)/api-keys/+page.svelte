@@ -1,18 +1,18 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { copyText } from '$lib/clipboard.js';
+import { m } from '#lib/i18n.svelte.js';
+import { copyText } from '#lib/clipboard.js';
 import { page } from '$app/state';
 import { replaceState } from '$app/navigation';
-import { fmtDate } from '$lib/stores/format.svelte.js';
+import { fmtDate } from '#lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { extensions } from '$lib/extensions.svelte.js';
+import { api } from '#lib/api.js';
+import { extensions } from '#lib/extensions.svelte.js';
 import { Key, Trash2, Copy, Check, LoaderCircle, Plus } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import Modal from '$lib/components/common/Modal.svelte';
-import Pagination from '$lib/components/common/Pagination.svelte';
-import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import Modal from '#lib/components/common/Modal.svelte';
+import Pagination from '#lib/components/common/Pagination.svelte';
+import CrudListPage from '#lib/components/common/CrudListPage.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface ApiKey {
   id: string;
@@ -43,7 +43,7 @@ let showCreateModal = $state(false);
 $effect(() => {
   if (page.url.searchParams.get('new') === '1') {
     showCreateModal = true;
-    const url = new URL(page.url);
+    const url = new URL(page.url.href);
     url.searchParams.delete('new');
     replaceState(url, {});
   }

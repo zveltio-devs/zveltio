@@ -1,6 +1,6 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import SignupForm from '$components/auth/SignupForm.svelte';
+import { m } from '#lib/i18n.svelte.js';
+import SignupForm from '#lib/components/auth/SignupForm.svelte';
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-base-200 p-4">

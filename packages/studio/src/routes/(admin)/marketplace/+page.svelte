@@ -1,5 +1,5 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import {
   Package,
@@ -24,13 +24,13 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from '@lucide/svelte';
-import { api as marketplaceApi } from '$lib/api.js';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import PageSpinner from '$lib/components/common/PageSpinner.svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { refreshExtensions } from '$lib/extensions.svelte.js';
-import { StepUpEnrollmentRequired, stepUpAborted, stepUpHeaders } from '$lib/step-up.svelte.js';
+import { api as marketplaceApi } from '#lib/api.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import PageSpinner from '#lib/components/common/PageSpinner.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
+import { refreshExtensions } from '#lib/extensions.svelte.js';
+import { StepUpEnrollmentRequired, stepUpAborted, stepUpHeaders } from '#lib/step-up.svelte.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 const CATEGORY_ICONS: Record<string, any> = {

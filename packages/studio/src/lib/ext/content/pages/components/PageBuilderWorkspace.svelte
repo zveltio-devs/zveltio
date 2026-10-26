@@ -4,12 +4,12 @@
  */
 import { onDestroy, onMount } from 'svelte';
 import { page } from '$app/state';
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { ArrowLeft, Monitor, Save, Smartphone, Tablet, Undo2, Redo2 } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { m } from '$lib/i18n.svelte.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import type { Block } from '$lib/ext/content/pages/lib/builder-types.js';
+import { api } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import type { Block } from '#lib/ext/content/pages/lib/builder-types.js';
 import {
   ensureIds,
   findById,
@@ -17,11 +17,11 @@ import {
   isContainer,
   patchById,
   removeById,
-} from '$lib/ext/content/pages/lib/block-tree.js';
-import { BREAKPOINT_LABEL, type Breakpoint } from '$lib/ext/content/pages/lib/breakpoints.js';
-import BlockLibrary from '$lib/ext/content/pages/components/builder/BlockLibrary.svelte';
-import Canvas from '$lib/ext/content/pages/components/builder/Canvas.svelte';
-import PropertiesPanel from '$lib/ext/content/pages/components/builder/PropertiesPanel.svelte';
+} from '#lib/ext/content/pages/lib/block-tree.js';
+import { BREAKPOINT_LABEL, type Breakpoint } from '#lib/ext/content/pages/lib/breakpoints.js';
+import BlockLibrary from '#lib/ext/content/pages/components/builder/BlockLibrary.svelte';
+import Canvas from '#lib/ext/content/pages/components/builder/Canvas.svelte';
+import PropertiesPanel from '#lib/ext/content/pages/components/builder/PropertiesPanel.svelte';
 
 const BASE = '/ext/content/pages/pages';
 
@@ -196,7 +196,7 @@ onDestroy(() => window.removeEventListener('keydown', onKeydown));
 
 <div class="flex flex-col h-[calc(100vh-5rem)] min-h-[32rem]">
   <header class="flex items-center gap-2 px-3 py-2 border-b border-base-300 bg-base-100 shrink-0 flex-wrap">
-    <a href="{base}/pages" class="btn btn-ghost btn-sm gap-1" aria-label="Back">
+    <a href={resolve('pages')} class="btn btn-ghost btn-sm gap-1" aria-label="Back">
       <ArrowLeft size={14} />
       <span class="hidden sm:inline">Pages</span>
     </a>

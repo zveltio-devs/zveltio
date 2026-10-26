@@ -14,7 +14,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import BlockRenderer from './BlockRenderer.svelte';
-import { ALL_BLOCK_TYPES } from '$lib/ext/content/pages/block-types';
+import { ALL_BLOCK_TYPES } from '#lib/ext/content/pages/block-types.js';
 
 // One representative block per type, in the shape the builder actually writes.
 const SAMPLES: Record<string, Record<string, unknown>> = {

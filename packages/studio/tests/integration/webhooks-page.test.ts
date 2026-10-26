@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 vi.mock('$app/navigation', () => ({ replaceState: vi.fn(), goto: vi.fn() }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/admin/webhooks') } }));
 
-import { api, webhooksApi } from '$lib/api.js';
+import { api, webhooksApi } from '#lib/api.js';
 import Page from '../../src/routes/(admin)/webhooks/+page.svelte';
 
 const MASK = '••••••••';

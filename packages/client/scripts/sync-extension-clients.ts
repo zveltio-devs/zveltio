@@ -70,7 +70,7 @@ function findExtensions(base: string, prefix = ''): string[] {
  * Written out rather than `cpSync(..., { filter })`, which in Bun does NOT
  * overwrite existing files when a filter is passed — so a second run is a no-op
  * and the snapshot silently keeps serving the previous version. That trap froze
- * the Studio's `$lib/ext` for months, and it caught this script too: the first
+ * the Studio's `#lib/ext` for months, and it caught this script too: the first
  * sync wrote the files, the next one appeared to succeed and changed nothing,
  * and the renderer answered "Unsupported block: container" for a container it
  * had just been taught to draw.

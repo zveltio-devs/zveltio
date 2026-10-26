@@ -1,8 +1,8 @@
 <script lang="ts">
 import { onMount } from 'svelte';
-import { base } from '$app/paths';
-import { auth } from '$lib/auth.svelte.js';
-import { api } from '$lib/api.js';
+import { resolve } from '$app/paths';
+import { auth } from '#lib/auth.svelte.js';
+import { api } from '#lib/api.js';
 import { SquareCheck, Bell, Clock, ArrowRight, User as UserIcon, FileText } from '@lucide/svelte';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -41,21 +41,21 @@ onMount(async () => {
 // depends on admin-configured zone pages is rendered separately below.
 const quickLinks = [
   {
-    href: `${base}/intranet/tasks`,
+    href: resolve(`intranet/tasks`),
     icon: SquareCheck,
     label: 'My Tasks',
     desc: 'Approvals & action items',
     badge: () => pendingTasks,
   },
   {
-    href: `${base}/intranet/notifications`,
+    href: resolve(`intranet/notifications`),
     icon: Bell,
     label: 'Notifications',
     desc: 'Recent alerts & updates',
     badge: () => unreadCount,
   },
   {
-    href: `${base}/intranet/profile`,
+    href: resolve(`intranet/profile`),
     icon: UserIcon,
     label: 'My Profile',
     desc: 'View and edit your info',
@@ -113,7 +113,7 @@ const quickLinks = [
         </h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {#each zonePages as p}
-            <a href="{base}/intranet/{p.slug}"
+            <a href={resolve(`intranet/${p.slug}`)}
               class="flex items-center gap-3 px-3 py-2 rounded-lg bg-base-100 hover:bg-base-300 transition-colors text-sm">
               {#if p.icon}<span class="text-base leading-none shrink-0">{p.icon}</span>{:else}<FileText size={14} class="text-base-content/65 shrink-0" />{/if}
               <span class="truncate">{p.title}</span>
@@ -133,7 +133,7 @@ const quickLinks = [
           <Bell size={15} class="text-primary" />
           Recent Notifications
         </h2>
-        <a href="{base}/intranet/notifications" class="text-xs text-primary hover:underline">View all</a>
+        <a href={resolve(`intranet/notifications`)} class="text-xs text-primary hover:underline">View all</a>
       </div>
 
       {#if loading}
@@ -179,7 +179,7 @@ const quickLinks = [
           <p class="text-sm text-base-content/65">{auth.user?.email}</p>
           <p class="text-xs text-base-content/65 mt-0.5 capitalize">{auth.user?.role || 'Employee'}</p>
         </div>
-        <a href="{base}/intranet/profile" class="btn btn-outline btn-sm ml-auto">Edit Profile</a>
+        <a href={resolve(`intranet/profile`)} class="btn btn-outline btn-sm ml-auto">Edit Profile</a>
       </div>
     </div>
   </div>

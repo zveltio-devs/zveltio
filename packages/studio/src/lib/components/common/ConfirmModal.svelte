@@ -19,7 +19,7 @@
  */
 import { fade, scale } from 'svelte/transition';
 import { cubicOut } from 'svelte/easing';
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 
 interface Props {
   open: boolean;

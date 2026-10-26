@@ -1,8 +1,8 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { copyText } from '$lib/clipboard.js';
+import { m } from '#lib/i18n.svelte.js';
+import { copyText } from '#lib/clipboard.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import {
   RefreshCw,
   Trash2,
@@ -16,9 +16,9 @@ import {
   ShieldX,
   MessageSquare,
 } from '@lucide/svelte';
-import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-import Modal from '$lib/components/common/Modal.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import CrudListPage from '#lib/components/common/CrudListPage.svelte';
+import Modal from '#lib/components/common/Modal.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface SchemaBranch {
   id: string;

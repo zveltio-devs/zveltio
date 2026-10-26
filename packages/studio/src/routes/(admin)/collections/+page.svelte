@@ -1,16 +1,16 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { page } from '$app/state';
 import { replaceState } from '$app/navigation';
 import { onMount } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
-import { collectionsApi, type ExistingRule } from '$lib/api.js';
+import { collectionsApi, type ExistingRule } from '#lib/api.js';
 import { Table, Trash2, Settings, Database, Shield, GitFork, Plus } from '@lucide/svelte';
-import { base } from '$app/paths';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import Modal from '$lib/components/common/Modal.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
-import CrudListPage from '$lib/components/common/CrudListPage.svelte';
+import { resolve } from '$app/paths';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import Modal from '#lib/components/common/Modal.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
+import CrudListPage from '#lib/components/common/CrudListPage.svelte';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let collections = $state<any[]>([]);
@@ -33,7 +33,7 @@ let existingRules = $state<ExistingRule[]>([]);
 $effect(() => {
   if (page.url.searchParams.get('new') === '1') {
     showCreateModal = true;
-    const url = new URL(page.url);
+    const url = new URL(page.url.href);
     url.searchParams.delete('new');
     replaceState(url, {});
   }
@@ -413,7 +413,7 @@ function clearTemplate() {
           />
           {m['data.selectAll']()}
         </label>
-        <a href="{base}/collections/erd" class="btn btn-ghost btn-xs gap-1.5" aria-label={m['collections.viewDiagram']()}>
+        <a href={resolve(`collections/erd`)} class="btn btn-ghost btn-xs gap-1.5" aria-label={m['collections.viewDiagram']()}>
           <GitFork size={13} /> {m['erd.title']()}
         </a>
       </div>
@@ -448,10 +448,10 @@ function clearTemplate() {
                 </div>
               </div>
               <div class="absolute right-2 top-2 flex gap-0.5 rounded-lg bg-base-200/90 opacity-0 backdrop-blur-sm transition-opacity group-hover:bg-base-300/90 group-hover:opacity-100 focus-within:opacity-100">
-                <a href="{base}/collections/{col.name}" class="btn btn-ghost btn-xs" title={m['collections.openCollection']()} aria-label={m['collections.openItem']({ name: col.display_name || col.name })}>
+                <a href={resolve(`collections/${col.name}`)} class="btn btn-ghost btn-xs" title={m['collections.openCollection']()} aria-label={m['collections.openItem']({ name: col.display_name || col.name })}>
                   <Settings size={13} />
                 </a>
-                <a href="{base}/permissions?collection={col.name}" class="btn btn-ghost btn-xs" title={m['dashboard.collectionPerms']()} aria-label={m['collections.permsItem']({ name: col.display_name || col.name })}>
+                <a href={resolve(`permissions?collection=${col.name}`)} class="btn btn-ghost btn-xs" title={m['dashboard.collectionPerms']()} aria-label={m['collections.permsItem']({ name: col.display_name || col.name })}>
                   <Shield size={13} />
                 </a>
                 {#if !col.is_system}

@@ -1,15 +1,15 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 // Create/Edit record slide-over. Extracted from collections/[name]/+page.svelte
 // (H-07 studio split). Self-contained form: the parent passes the collection
 // name + the insertable field list and an `onSaved` callback; this component
 // owns the drawer open/mode state and exposes `openCreate()` / `openEdit()` so
 // the page header + data-table rows can trigger it via `bind:this`.
 import { X, Layers, Save, Plus, History, ChevronDown } from '@lucide/svelte';
-import { api, dataApi } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { api, dataApi } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 import { fieldLabel, fieldBadgeColor, labelFromRecord } from './field-helpers.js';
-import { modalFocus } from '$lib/utils/modal-focus.js';
+import { modalFocus } from '#lib/utils/modal-focus.js';
 import type { CollectionField, CollectionRecord } from './types.js';
 
 interface Props {

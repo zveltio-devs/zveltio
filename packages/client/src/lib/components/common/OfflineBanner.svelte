@@ -1,5 +1,5 @@
 <script lang="ts">
-import { sync } from '$lib/zveltio';
+import { sync } from '#lib/zveltio.js';
 import { WifiOff, RefreshCw } from '@lucide/svelte';
 
 let isOnline = $state(true);

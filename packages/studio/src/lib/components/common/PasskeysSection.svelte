@@ -12,13 +12,13 @@
   No props for now; the signed-in user is taken from auth.user.
 -->
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { Fingerprint, Plus, Trash2, RefreshCw } from '@lucide/svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 import { startRegistration } from '@simplewebauthn/browser';
-import { refusalText, stepUp, stepUpAborted, stepUpHeaders } from '$lib/step-up.svelte.js';
+import { refusalText, stepUp, stepUpAborted, stepUpHeaders } from '#lib/step-up.svelte.js';
 import Modal from './Modal.svelte';
 
 interface Passkey {

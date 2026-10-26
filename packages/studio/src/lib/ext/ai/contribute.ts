@@ -3,7 +3,7 @@
  *
  * Synced to `$lib/ext/ai/contribute.ts` by `sync-extensions.ts`.
  */
-import { registerContributionSlot } from '$lib/extension-api.svelte.js';
+import { registerContributionSlot } from '#lib/extension-api.svelte.js';
 import AiPromptBar from './components/AiPromptBar.svelte';
 import DashboardHero from './components/DashboardHero.svelte';
 

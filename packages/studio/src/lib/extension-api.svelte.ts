@@ -87,7 +87,7 @@ export const studioApi = {
 
 /**
  * Compile-time extension contributions call this from `studio/src/contribute.ts`
- * (synced into `$lib/ext/<name>/`). Replaces any prior entry from the same
+ * (synced into `#lib/ext/<name>/`). Replaces any prior entry from the same
  * owner on the same slot — extensions do not stack duplicate widgets on reload.
  */
 /** Replace slot registry contents without breaking Svelte 5 `$state` proxies. */

@@ -1,6 +1,6 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import LoginForm from '$components/auth/LoginForm.svelte';
+import { m } from '#lib/i18n.svelte.js';
+import LoginForm from '#lib/components/auth/LoginForm.svelte';
 // `$app/state`, not the deprecated `$app/stores`: every other route in this
 // repository reads the rune, and the store form is on its way out in
 // SvelteKit 2.

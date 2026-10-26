@@ -1,7 +1,7 @@
 <script lang="ts">
 import { page } from '$app/state';
-import { api } from '$lib/api.js';
-import BlockRenderer from '$lib/ext/content/pages/client/BlockRenderer.svelte';
+import { api } from '#lib/api.js';
+import BlockRenderer from '#lib/ext/content/pages/client/BlockRenderer.svelte';
 
 const ZONE_SLUG = 'client';
 

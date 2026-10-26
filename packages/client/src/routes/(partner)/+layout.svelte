@@ -1,8 +1,8 @@
 <script lang="ts">
 import type { Snippet } from 'svelte';
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { FileText, ShoppingCart, MessageSquare, LogOut, Menu } from '@lucide/svelte';
-import { useAuth } from '$stores/auth.svelte';
+import { useAuth } from '#lib/stores/auth.svelte.js';
 
 /**
  * Typed here rather than from `./$types`: the load is annotated `LayoutLoad`

@@ -1,10 +1,10 @@
 <script lang="ts">
 import { onMount, onDestroy } from 'svelte';
 import { goto } from '$app/navigation';
-import { base } from '$app/paths';
-import { api } from '$lib/api.js';
-import { m, i18n } from '$lib/i18n.svelte.js';
-import type { PaletteNavItem } from '$lib/nav-model.js';
+import { resolve } from '$app/paths';
+import { api } from '#lib/api.js';
+import { m, i18n } from '#lib/i18n.svelte.js';
+import type { PaletteNavItem } from '#lib/nav-model.js';
 import { Search, Database, Plus, UserPlus, KeyRound, Webhook, Moon, LogOut } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
@@ -51,10 +51,10 @@ const actionItems = $derived.by((): PaletteItem[] => {
   void _locale;
   const group = m['palette.group.actions']();
   return [
-    { label: m['palette.newCollection'](), href: `${base}/collections?new=1`, icon: Plus, group },
-    { label: m['palette.inviteUser'](), href: `${base}/users?new=1`, icon: UserPlus, group },
-    { label: m['palette.newApiKey'](), href: `${base}/api-keys?new=1`, icon: KeyRound, group },
-    { label: m['palette.newWebhook'](), href: `${base}/webhooks?new=1`, icon: Webhook, group },
+    { label: m['palette.newCollection'](), href: resolve(`collections?new=1`), icon: Plus, group },
+    { label: m['palette.inviteUser'](), href: resolve(`users?new=1`), icon: UserPlus, group },
+    { label: m['palette.newApiKey'](), href: resolve(`api-keys?new=1`), icon: KeyRound, group },
+    { label: m['palette.newWebhook'](), href: resolve(`webhooks?new=1`), icon: Webhook, group },
     {
       label: m['palette.toggleTheme'](),
       icon: Moon,
@@ -76,7 +76,7 @@ const actionItems = $derived.by((): PaletteItem[] => {
       group,
       run: () => {
         void api.post('/api/auth/sign-out', {}).finally(() => {
-          window.location.href = `${base}/login`;
+          window.location.href = resolve(`login`);
         });
       },
     },
@@ -107,7 +107,7 @@ async function loadCollections() {
     const group = m['palette.group.collections']();
     collectionItems = (colRes.collections || []).slice(0, 30).map((c) => ({
       label: c.display_name || c.name,
-      href: `${base}/collections/${c.name}`,
+      href: resolve(`collections/${c.name}`),
       icon: Database,
       group,
       sub: c.name,

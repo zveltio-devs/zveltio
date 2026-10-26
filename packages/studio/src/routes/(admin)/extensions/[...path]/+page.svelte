@@ -1,9 +1,9 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { page } from '$app/state';
-import { extensions } from '$lib/extensions.svelte.js';
+import { extensions } from '#lib/extensions.svelte.js';
 import { Puzzle, CheckCircle } from '@lucide/svelte';
-import PageSpinner from '$lib/components/common/PageSpinner.svelte';
+import PageSpinner from '#lib/components/common/PageSpinner.svelte';
 
 const paramPath = $derived(page.params.path ?? '');
 

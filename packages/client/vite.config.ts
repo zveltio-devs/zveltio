@@ -1,9 +1,21 @@
+import adapter from '@sveltejs/adapter-static';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [
+    tailwindcss(),
+    sveltekit({
+      preprocess: vitePreprocess(),
+      adapter: adapter({
+        pages: 'dist',
+        assets: 'dist',
+        fallback: 'index.html' /* SPA mode — client-side routing */,
+      }),
+    }),
+  ],
   /**
    * Vite only inlines `import.meta.env.X` for names matching a prefix, and the
    * default is `VITE_`. Ten modules read `import.meta.env.PUBLIC_ENGINE_URL`

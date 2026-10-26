@@ -32,7 +32,7 @@ function ext(name: string, category: string, tags: string[] = []) {
   };
 }
 
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   api: {
     fetch: vi.fn(async () => ({
       ok: true,
@@ -42,10 +42,10 @@ vi.mock('$lib/api.js', () => ({
     })),
   },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({
+vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
-vi.mock('$lib/extensions.svelte.js', () => ({ refreshExtensions: vi.fn() }));
+vi.mock('#lib/extensions.svelte.js', () => ({ refreshExtensions: vi.fn() }));
 
 import Page from './+page.svelte';
 

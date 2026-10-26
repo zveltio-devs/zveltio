@@ -1,10 +1,10 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import '../app.css';
-import OfflineBanner from '$components/common/OfflineBanner.svelte';
+import OfflineBanner from '#lib/components/common/OfflineBanner.svelte';
 import { page } from '$app/state';
 import { Menu, X, LogIn } from '@lucide/svelte';
-import { safeCss, safeImageUrl } from '$lib/sanitize';
+import { safeCss, safeImageUrl } from '#lib/sanitize.js';
 
 let { children, data } = $props();
 

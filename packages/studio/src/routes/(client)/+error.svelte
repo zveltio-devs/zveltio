@@ -13,8 +13,8 @@
  * root +error.svelte fallback.
  */
 import { page } from '$app/state';
-import { goto, invalidateAll } from '$app/navigation';
-import { base } from '$app/paths';
+import { goto, refreshAll } from '$app/navigation';
+import { resolve } from '$app/paths';
 import { AlertTriangle, ArrowLeft, RotateCcw } from '@lucide/svelte';
 </script>
 
@@ -37,10 +37,10 @@ import { AlertTriangle, ArrowLeft, RotateCcw } from '@lucide/svelte';
           <pre class="text-xs bg-base-200 p-3 rounded w-full text-left whitespace-pre-wrap break-words max-h-40 overflow-auto font-mono">{page.error.message}</pre>
         {/if}
         <div class="flex flex-wrap gap-2 mt-2">
-          <button class="btn btn-primary btn-sm gap-2" onclick={() => invalidateAll()}>
+          <button class="btn btn-primary btn-sm gap-2" onclick={() => refreshAll()}>
             <RotateCcw size={14} /> Retry
           </button>
-          <button class="btn btn-ghost btn-sm gap-2" onclick={() => goto(`${base}/portal-client`)}>
+          <button class="btn btn-ghost btn-sm gap-2" onclick={() => goto(resolve(`portal-client`))}>
             <ArrowLeft size={14} /> Back to portal
           </button>
         </div>

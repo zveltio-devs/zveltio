@@ -1,12 +1,12 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { base } from '$app/paths';
+import { api } from '#lib/api.js';
+import { resolve } from '$app/paths';
 import { RefreshCw, Plus, Plug, Trash2, ExternalLink } from '@lucide/svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import PageSpinner from '$lib/components/common/PageSpinner.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import PageSpinner from '#lib/components/common/PageSpinner.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface VirtualCollection {
   name: string;
@@ -197,7 +197,7 @@ onMount(load);
  </div>
  <div class="flex gap-2">
  <a
- href="{base}/collections/{col.name}"
+ href={resolve(`collections/${col.name}`)}
  class="btn btn-ghost btn-sm"
  title={m['virtualCollections.browseData']()}
  >

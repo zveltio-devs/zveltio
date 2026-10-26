@@ -31,10 +31,10 @@ vi.mock('$app/state', async () => ({
   page: (await import('./page-state.mock.svelte.js')).pageState,
 }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
-vi.mock('$lib/auth.svelte.js', () => ({ auth: { user: { id: 'u1' } } }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
-vi.mock('$lib/stores/realtime.svelte.js', () => ({ realtime: { onCollection: () => () => {} } }));
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/auth.svelte.js', () => ({ auth: { user: { id: 'u1' } } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('#lib/stores/realtime.svelte.js', () => ({ realtime: { onCollection: () => () => {} } }));
+vi.mock('#lib/api.js', () => ({
   collectionsApi: {
     get: async (name: string) => {
       await gate[name]!.promise;

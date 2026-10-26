@@ -82,7 +82,7 @@ function ensureShellImport(src: string): string {
   if (src.includes('ExtensionPageShell')) return src;
   return src.replace(
     /<script lang="ts">\n/,
-    `<script lang="ts">\n  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';\n`,
+    `<script lang="ts">\n  import ExtensionPageShell from '#lib/components/extension/ExtensionPageShell.svelte';\n`,
   );
 }
 

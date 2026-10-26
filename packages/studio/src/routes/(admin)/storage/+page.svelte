@@ -1,9 +1,9 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
-import { copyText } from '$lib/clipboard.js';
-import { fmtDate } from '$lib/stores/format.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
+import { copyText } from '#lib/clipboard.js';
+import { fmtDate } from '#lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 import {
   Upload,
   Trash2,
@@ -15,9 +15,9 @@ import {
   Image,
   LoaderCircle,
 } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 interface MediaFile {
   id: string;

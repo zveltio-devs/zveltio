@@ -1,11 +1,11 @@
 <script lang="ts">
 import { goto } from '$app/navigation';
-import { copyText } from '$lib/clipboard.js';
-import { base } from '$app/paths';
-import { m } from '$lib/i18n.svelte.js';
-import { api } from '$lib/api.js';
-import { ENGINE_URL } from '$lib/config.js';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { copyText } from '#lib/clipboard.js';
+import { resolve } from '$app/paths';
+import { m } from '#lib/i18n.svelte.js';
+import { api } from '#lib/api.js';
+import { ENGINE_URL } from '#lib/config.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 import {
   CircleCheck,
   Circle,
@@ -203,7 +203,7 @@ function skipWebhook() {
 
 function finish() {
   localStorage.setItem('zveltio-onboarding-done', '1');
-  goto(`${base}/`);
+  goto(resolve(``));
 }
 </script>
 
@@ -441,7 +441,7 @@ function finish() {
             </div>
 
             <div class="flex gap-3 justify-center pt-2">
-              <a href="{base}/collections" class="btn btn-outline btn-sm gap-1">
+              <a href={resolve(`collections`)} class="btn btn-outline btn-sm gap-1">
                 <Database size={14} /> {m['nav.collections']()}
               </a>
               <button class="btn btn-primary gap-2" onclick={finish}>

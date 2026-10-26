@@ -5,7 +5,7 @@ into `src/routes/(admin)/` at build time.
 
 ## Rules
 
-1. **All user-visible strings** go through Paraglide: `import { m } from '$lib/i18n.svelte.js'`.
+1. **All user-visible strings** go through Paraglide: `import { m } from '#lib/i18n.svelte.js'`.
 2. Add keys in `studio/messages/{en,ro,fr,de}.json` (this extension), then `bun run i18n:compile` in Studio.
 3. Use `ExtensionPageShell` + `ExtensionDataPanel` instead of ad-hoc headers/tables.
 4. **Never use `window.confirm()`** — use `createExtensionConfirm()` + `ConfirmModal`
@@ -22,9 +22,9 @@ After adding keys: `bun run i18n:compile` and `bun run sync-ext`.
 
 ```svelte
 <script lang="ts">
-  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';
-  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';
-  import { m } from '$lib/i18n.svelte.js';
+  import ExtensionPageShell from '#lib/components/extension/ExtensionPageShell.svelte';
+  import ExtensionDataPanel from '#lib/components/extension/ExtensionDataPanel.svelte';
+  import { m } from '#lib/i18n.svelte.js';
   import { Plus } from '@lucide/svelte';
 </script>
 

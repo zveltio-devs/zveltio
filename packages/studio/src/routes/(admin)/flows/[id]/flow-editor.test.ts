@@ -24,8 +24,8 @@ vi.mock('$app/navigation', () => ({
   },
 }));
 vi.mock('$app/state', () => ({ page: { params: { id: 'f1' } } }));
-vi.mock('$app/paths', () => ({ base: '' }));
-vi.mock('$lib/api.js', () => ({
+vi.mock('$app/paths', () => ({ resolve: (p: string) => `/${p}` }));
+vi.mock('#lib/api.js', () => ({
   api: {
     get: vi.fn(async () => ({
       flow: {
@@ -44,7 +44,7 @@ vi.mock('$lib/api.js', () => ({
     patch,
   },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import Page from './+page.svelte';
 

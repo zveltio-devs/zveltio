@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from '$lib/i18n.svelte.js';
+  import { m } from '#lib/i18n.svelte.js';
   /**
    * The editing surface: device width, the page's twelve-column grid, and the
    * empty state. Everything about blocks themselves now lives in `BlockList`,

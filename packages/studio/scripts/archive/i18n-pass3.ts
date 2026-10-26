@@ -60,16 +60,16 @@ function patch(rel: string, reps: [string, string][]) {
 }
 
 function ensureImports(c: string): string {
-  if (!c.includes("from '$lib/i18n")) {
+  if (!c.includes("from '#lib/i18n")) {
     c = c.replace(
       /<script lang="ts">\n/,
-      '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+      '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n',
     );
   }
   if (!c.includes('ExtensionPageShell')) {
     c = c.replace(
       /<script lang="ts">\n/,
-      '<script lang="ts">\n  import ExtensionPageShell from \'$lib/components/extension/ExtensionPageShell.svelte\';\n',
+      '<script lang="ts">\n  import ExtensionPageShell from \'#lib/components/extension/ExtensionPageShell.svelte\';\n',
     );
   }
   return c;
@@ -319,11 +319,11 @@ for (const [rel, reps] of Object.entries(PATCHES)) patch(rel, reps);
   const p = join(EXT, 'content/media/studio/pages/+page.svelte');
   if (existsSync(p)) {
     let c = readFileSync(p, 'utf8');
-    c = c.replace("import PageHeader from '$lib/components/common/PageHeader.svelte';\n", '');
+    c = c.replace("import PageHeader from '#lib/components/common/PageHeader.svelte';\n", '');
     if (!c.includes('ExtensionPageShell')) {
       c = c.replace(
         /<script lang="ts">\n/,
-        '<script lang="ts">\n  import ExtensionPageShell from \'$lib/components/extension/ExtensionPageShell.svelte\';\n',
+        '<script lang="ts">\n  import ExtensionPageShell from \'#lib/components/extension/ExtensionPageShell.svelte\';\n',
       );
     }
     c = c.replace(

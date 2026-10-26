@@ -1,10 +1,10 @@
 <script lang="ts">
-import { fmtDate } from '$lib/stores/format.svelte.js';
+import { fmtDate } from '#lib/stores/format.svelte.js';
 import { onMount } from 'svelte';
-import { auth } from '$lib/auth.svelte.js';
-import { api } from '$lib/api.js';
+import { auth } from '#lib/auth.svelte.js';
+import { api } from '#lib/api.js';
 import { User as UserIcon, Save, Lock, Mail, Calendar } from '@lucide/svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 let name = $state('');
 let email = $state('');

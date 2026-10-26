@@ -12,8 +12,8 @@
  */
 import { onMount } from 'svelte';
 import { Building2, Check, ChevronsUpDown } from '@lucide/svelte';
-import { api, currentTenantSlug, setCurrentTenantSlug } from '$lib/api.js';
-import { m } from '$lib/i18n.svelte.js';
+import { api, currentTenantSlug, setCurrentTenantSlug } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
 
 type Tenant = { id: string; name: string; slug: string; parent_id?: string | null };
 

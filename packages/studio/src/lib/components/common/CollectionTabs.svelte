@@ -1,5 +1,5 @@
 <script lang="ts">
-import { base } from '$app/paths';
+import { resolve } from '$app/paths';
 import { Database, Layers, Code, Settings } from '@lucide/svelte';
 
 type Props = {
@@ -13,10 +13,10 @@ let { collectionName, active }: Props = $props();
 <div class="border-b border-base-200 mb-6">
   <div class="flex gap-0">
     {#each [
-      { id: 'data',     label: 'Data',     Icon: Database,  href: `${base}/collections/${collectionName}` },
-      { id: 'schema',   label: 'Schema',   Icon: Layers,    href: `${base}/collections/${collectionName}?tab=schema` },
-      { id: 'api',      label: 'API',      Icon: Code,      href: `${base}/collections/${collectionName}?tab=api` },
-      { id: 'settings', label: 'Settings', Icon: Settings,  href: `${base}/collections/${collectionName}?tab=settings` },
+      { id: 'data',     label: 'Data',     Icon: Database,  href: resolve(`collections/${collectionName}`) },
+      { id: 'schema',   label: 'Schema',   Icon: Layers,    href: resolve(`collections/${collectionName}?tab=schema`) },
+      { id: 'api',      label: 'API',      Icon: Code,      href: resolve(`collections/${collectionName}?tab=api`) },
+      { id: 'settings', label: 'Settings', Icon: Settings,  href: resolve(`collections/${collectionName}?tab=settings`) },
     ] as tab}
       <a
         href={tab.href}

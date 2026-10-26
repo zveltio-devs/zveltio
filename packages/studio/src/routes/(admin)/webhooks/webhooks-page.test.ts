@@ -28,11 +28,11 @@ const { list, update } = vi.hoisted(() => ({
   update: vi.fn(async (_id: string, _data: Record<string, unknown>) => ({})),
 }));
 
-vi.mock('$lib/api.js', () => ({
+vi.mock('#lib/api.js', () => ({
   webhooksApi: { list, update, create: vi.fn(), delete: vi.fn(), test: vi.fn() },
   collectionsApi: { list: vi.fn(async () => ({ collections: [] })) },
 }));
-vi.mock('$lib/stores/toast.svelte.js', () => ({
+vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: vi.fn(), success: vi.fn(), undoable: vi.fn() },
 }));
 vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/admin/webhooks') } }));

@@ -4,10 +4,10 @@
 // be temporary, and a banner that can be closed for good is how it becomes
 // permanent without anyone deciding so. Admins only — the endpoint refuses
 // everyone else, and then nothing renders.
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
 import { ShieldAlert } from '@lucide/svelte';
-import { api } from '$lib/api.js';
+import { api } from '#lib/api.js';
 
 let exempt = $state<string[]>([]);
 

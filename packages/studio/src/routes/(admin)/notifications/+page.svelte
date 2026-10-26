@@ -1,11 +1,11 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '$lib/api.js';
-import { toast } from '$lib/stores/toast.svelte.js';
-import { fmtDateTime } from '$lib/stores/format.svelte.js';
+import { api } from '#lib/api.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import { fmtDateTime } from '#lib/stores/format.svelte.js';
 import { Bell, BellOff, CheckCheck, RefreshCw, LoaderCircle } from '@lucide/svelte';
-import PageHeader from '$lib/components/common/PageHeader.svelte';
+import PageHeader from '#lib/components/common/PageHeader.svelte';
 
 interface Notification {
   id: string;

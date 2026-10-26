@@ -1,15 +1,15 @@
 <script lang="ts">
-import { m } from '$lib/i18n.svelte.js';
+import { m } from '#lib/i18n.svelte.js';
 import { page } from '$app/state';
 import { replaceState } from '$app/navigation';
 import { onMount } from 'svelte';
-import { webhooksApi, collectionsApi } from '$lib/api.js';
+import { webhooksApi, collectionsApi } from '#lib/api.js';
 import { Webhook, LoaderCircle, Trash2 } from '@lucide/svelte';
-import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';
-import Modal from '$lib/components/common/Modal.svelte';
-import Pagination from '$lib/components/common/Pagination.svelte';
-import CrudListPage from '$lib/components/common/CrudListPage.svelte';
-import { toast } from '$lib/stores/toast.svelte.js';
+import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
+import Modal from '#lib/components/common/Modal.svelte';
+import Pagination from '#lib/components/common/Pagination.svelte';
+import CrudListPage from '#lib/components/common/CrudListPage.svelte';
+import { toast } from '#lib/stores/toast.svelte.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let webhooks = $state<any[]>([]);
@@ -32,7 +32,7 @@ let showModal = $state(false);
 $effect(() => {
   if (page.url.searchParams.get('new') === '1') {
     showModal = true;
-    const url = new URL(page.url);
+    const url = new URL(page.url.href);
     url.searchParams.delete('new');
     replaceState(url, {});
   }

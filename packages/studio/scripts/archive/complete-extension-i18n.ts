@@ -101,10 +101,10 @@ function msgKey(extName: string): string {
 
 function ensureImports(content: string): string {
   let c = content;
-  if (!c.includes("from '$lib/i18n")) {
+  if (!c.includes("from '#lib/i18n")) {
     c = c.replace(
       /<script lang="ts">\n/,
-      '<script lang="ts">\n  import { m } from \'$lib/i18n.svelte.js\';\n',
+      '<script lang="ts">\n  import { m } from \'#lib/i18n.svelte.js\';\n',
     );
   }
   if (
@@ -114,13 +114,13 @@ function ensureImports(content: string): string {
     if (!c.includes('ExtensionPageShell from')) {
       c = c.replace(
         /import \{ m \} from '\$lib\/i18n\.svelte\.js';\n/,
-        "import { m } from '$lib/i18n.svelte.js';\n  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';\n  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';\n",
+        "import { m } from '#lib/i18n.svelte.js';\n  import ExtensionPageShell from '$lib/components/extension/ExtensionPageShell.svelte';\n  import ExtensionDataPanel from '$lib/components/extension/ExtensionDataPanel.svelte';\n",
       );
     }
     if (!c.includes('ConfirmModal') && c.includes('confirm(')) {
       c = c.replace(
         /import ExtensionDataPanel[^\n]+\n/,
-        "$&  import ConfirmModal from '$lib/components/common/ConfirmModal.svelte';\n",
+        "$&  import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';\n",
       );
     }
   }
