@@ -6,7 +6,7 @@ export const prerender = false;
 
 const ENGINE_URL: string =
   import.meta.env.PUBLIC_ENGINE_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+  (typeof window !== 'undefined' ? window.location.origin : '');
 
 export async function load({ fetch }) {
   if (browser) {

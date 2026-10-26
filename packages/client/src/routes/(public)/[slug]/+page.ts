@@ -7,9 +7,7 @@ import type { PageLoad } from './$types';
 // server-side, so no tenant plumbing is needed here.
 const ENGINE_URL: string =
   import.meta.env.PUBLIC_ENGINE_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
-
-export const ssr = false;
+  (typeof window !== 'undefined' ? window.location.origin : '');
 
 export const load: PageLoad = async ({ params, fetch }) => {
   try {
