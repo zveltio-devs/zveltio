@@ -283,7 +283,7 @@ $effect(() => {
 <ExtensionPageShell {title} {subtitle}>
   <div class="flex items-center gap-2 mb-4 flex-wrap">
     {#if d.backHref}
-      <a href={resolve(d.backHref.slice(1))} class="btn btn-ghost btn-sm gap-1">
+      <a href={resolve(d.backHref.replace(/^\//, ''))} class="btn btn-ghost btn-sm gap-1">
         <ArrowLeft size={14} />
         {t(d.backLabel) || t('common.back')}
       </a>

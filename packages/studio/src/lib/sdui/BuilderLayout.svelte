@@ -289,7 +289,7 @@ const subtitle = $derived(draft ? String(draft.slug ?? '') : '');
 <ExtensionPageShell {title} {subtitle}>
   <div class="flex items-center gap-2 mb-4 flex-wrap">
     {#if b.backHref}
-      <a href={resolve(b.backHref.slice(1))} class="btn btn-ghost btn-sm gap-1">
+      <a href={resolve(b.backHref.replace(/^\//, ''))} class="btn btn-ghost btn-sm gap-1">
         <ArrowLeft size={14} />
         {t(b.backLabel) || t('forms.btn.back')}
       </a>
