@@ -152,6 +152,7 @@ const SECTIONS: Section[] = [
     focus: 'Registration order decides which guard runs. A gap here disables every guard after it.',
     match: [
       `${E}index.ts`,
+      `${E}lib/client-ssr.ts`,
       `${E}routes/index.ts`,
       `${E}lib/startup-guards.ts`,
       `${E}lib/service-registry.ts`,
