@@ -57,6 +57,6 @@
     "@zveltio/sdk": "workspace:*",
     "bun-types": "latest",
     "fast-check": "^4.10.2",
-    "typescript": "^5.4.0"
+    "typescript": "^6.0.3"
   }
 }

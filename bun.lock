@@ -24,7 +24,7 @@
         "squawk-cli": "2.63.0",
         "svelte": "^5.57.0",
         "turbo": "^2.10.12",
-        "typescript": "^5.4.0",
+        "typescript": "^6.0.3",
       },
     },
     "packages/cli": {
@@ -39,7 +39,7 @@
       },
       "devDependencies": {
         "bun-types": "latest",
-        "typescript": "^5.4.0",
+        "typescript": "^6.0.3",
       },
     },
     "packages/client": {
@@ -70,7 +70,7 @@
         "svelte": "^5.57.0",
         "svelte-check": "^4.3.6",
         "tailwindcss": "^4.3.3",
-        "typescript": "^5.9.3",
+        "typescript": "^6.0.3",
         "vite": "^8.3.4",
         "vitest": "^4.1.11",
       },
@@ -108,7 +108,7 @@
         "@zveltio/sdk": "workspace:*",
         "bun-types": "latest",
         "fast-check": "^4.10.2",
-        "typescript": "^5.4.0",
+        "typescript": "^6.0.3",
       },
     },
     "packages/sdk": {
@@ -124,7 +124,7 @@
         "hono": "^4.13.8",
         "kysely": "^0.29.6",
         "pg": "^8.23.1",
-        "typescript": "^5.4.0",
+        "typescript": "^6.0.3",
       },
       "peerDependencies": {
         "@testcontainers/postgresql": "^11.0.0",
@@ -144,7 +144,7 @@
       "devDependencies": {
         "@types/react": "^18.3.31",
         "@types/react-dom": "^18.3.7",
-        "typescript": "^5.4.0",
+        "typescript": "^6.0.3",
       },
       "peerDependencies": {
         "react": ">=18",
@@ -158,7 +158,7 @@
         "@zveltio/sdk": "workspace:*",
       },
       "devDependencies": {
-        "typescript": "^5.4.0",
+        "typescript": "^6.0.3",
         "vue": "^3.5.42",
       },
       "peerDependencies": {
@@ -194,7 +194,7 @@
         "@vitest/ui": "^4.1.11",
         "jsdom": "^29.1.1",
         "svelte-check": "^4.7.6",
-        "typescript": "^5.4.0",
+        "typescript": "^6.0.3",
         "vite": "^8.3.4",
         "vitest": "^4.1.11",
       },
@@ -1687,7 +1687,7 @@
 
     "typed-rest-client": ["typed-rest-client@2.3.1", "", { "dependencies": { "des.js": "^1.1.0", "js-md4": "^0.3.2", "qs": "6.15.1", "tunnel": "0.0.6", "underscore": "^1.13.8" } }, "sha512-k4kX5Up6qA68D0Cby2AK+6+vM5k3qTxe+/3FqhnHRExjY5cfbOnzjQZbP/LXleF8hVoDvDqxlgk9KK83HoBZlQ=="],
 
-    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+    "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "underscore": ["underscore@1.13.8", "", {}, "sha512-DXtD3ZtEQzc7M8m4cXotyHR+FAS18C64asBYY5vqZexfYryNNnDc02W4hKg3rdQuqOYas1jkseX0+nZXjTXnvQ=="],
 

@@ -70,7 +70,7 @@
     "hono": "^4.13.8",
     "kysely": "^0.29.6",
     "pg": "^8.23.1",
-    "typescript": "^5.4.0"
+    "typescript": "^6.0.3"
   },
   "peerDependencies": {
     "@testcontainers/postgresql": "^11.0.0",
