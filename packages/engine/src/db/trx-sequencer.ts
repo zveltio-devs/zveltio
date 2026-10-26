@@ -30,8 +30,15 @@ interface Level {
 /** The scope this async context runs in, per turn-taker. */
 const inside = new AsyncLocalStorage<ReadonlyMap<Turns, Level>>();
 
-/** A consumer that only asks who provides the connection; any other provider runs it as a no-op. */
-const IDENTIFY = async (_c: DatabaseConnection): Promise<undefined> => undefined;
+/**
+ * Set while `exclusive` asks who provides a transaction's connection. Kysely
+ * (0.29.7+) wraps the consumer on its way down, so the probe is known by its
+ * async context, not by its identity: the sequencer hands itself to the
+ * consumer as the connection, and every wrapper passes that back up. Any other
+ * provider lends its real connection, which is not a `Sequencer`.
+ */
+const probing = new AsyncLocalStorage<true>();
+const IDENTIFY = async (c: DatabaseConnection): Promise<DatabaseConnection> => c;
 
 /**
  * The turns of one transaction: `run` queues one statement, `exclusive` one
@@ -80,7 +87,7 @@ class Sequencer extends Turns implements ConnectionProvider {
     consumer: (connection: DatabaseConnection) => Promise<T>,
     options?: Parameters<ConnectionProvider['provideConnection']>[1],
   ): Promise<T> {
-    if ((consumer as unknown) === IDENTIFY) return Promise.resolve(this as unknown as T);
+    if (probing.getStore()) return consumer(this as unknown as DatabaseConnection);
     return this.run(() => this.inner.provideConnection(consumer, options));
   }
 }
@@ -113,6 +120,8 @@ export async function exclusive<T>(
   run: () => Promise<T>,
 ): Promise<T> {
   if (!db.isTransaction) return run();
-  const provider: unknown = await db.getExecutor().provideConnection(IDENTIFY);
+  const provider: unknown = await probing.run(true, () =>
+    db.getExecutor().provideConnection(IDENTIFY),
+  );
   return provider instanceof Sequencer ? provider.exclusive(run) : run();
 }
