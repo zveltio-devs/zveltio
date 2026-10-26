@@ -10,7 +10,7 @@
  */
 import { join, sep } from 'path';
 import type { Context } from 'hono';
-import { resolveClientIp } from './security/client-ip.js';
+import { resolveClientIp } from './security/index.js';
 
 interface KitServer {
   init(opts: {
