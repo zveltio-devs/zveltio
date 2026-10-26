@@ -111,7 +111,7 @@ describe.skipIf(skipAll)('migration chain divergence fails closed', () => {
     try {
       await assertChainCompatible(db); // must not throw
     } finally {
-      process.env.ZVELTIO_ALLOW_MIGRATION_DIVERGENCE = undefined;
+      delete process.env.ZVELTIO_ALLOW_MIGRATION_DIVERGENCE;
       console.warn = realWarn;
     }
     expect(warnings.join('\n')).toContain('Overridden by ZVELTIO_ALLOW_MIGRATION_DIVERGENCE=1');
