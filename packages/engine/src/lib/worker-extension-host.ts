@@ -1131,7 +1131,13 @@ export class WorkerExtensionHost {
             reject(new Error(`service "${name}" call timeout (30s)`));
           }
         }, 30_000);
-        this.post(target, { type, id: invokeId, name, args });
+        this.post(target, {
+          type,
+          id: invokeId,
+          name,
+          args,
+          ...(scope.txn ? { requestTxn: true as const } : {}),
+        });
       });
       if (reply.type === 'service:invoke:err') {
         throw new Error(reply.error ?? 'service call failed');

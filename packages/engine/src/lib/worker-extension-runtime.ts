@@ -108,7 +108,13 @@ console.debug = console.log;
  * The protocol always had the field and the host always looked it up; this side
  * never sent it, so every worker query ran with no tenant.
  */
-const invocation = new AsyncLocalStorage<{ id: string; user?: unknown; threw?: boolean }>();
+const invocation = new AsyncLocalStorage<{
+  id: string;
+  user?: unknown;
+  threw?: boolean;
+  /** It holds the request's transaction on the host: a route's, or one a service joined. */
+  requestTxn?: boolean;
+}>();
 
 /**
  * The `db.transaction()` callback a statement runs in, by an id minted here. The
@@ -119,8 +125,9 @@ const invocation = new AsyncLocalStorage<{ id: string; user?: unknown; threw?: b
 const transaction = new AsyncLocalStorage<{ id: string }>();
 
 /**
- * The turns a context's statements take on its transaction: its invocation's
- * (the request is one transaction on the host), else its host transaction's.
+ * The turns a context's statements take on its connection: its invocation's
+ * when that holds the request's transaction, else its host transaction's (two
+ * of those are two connections, and overlap).
  * The host names savepoints by depth, so two `db.transaction()` scopes side by
  * side under `Promise.all` stacked theirs: the first to end released or rolled
  * back the other's, and a sibling's statement landed in it. As inline
@@ -128,7 +135,8 @@ const transaction = new AsyncLocalStorage<{ id: string }>();
  */
 const turnsOf = new WeakMap<object, Turns>();
 function turnsHere(): Turns | undefined {
-  const owner = invocation.getStore() ?? transaction.getStore();
+  const store = invocation.getStore();
+  const owner = store?.requestTxn ? store : transaction.getStore();
   if (!owner) return undefined;
   const turns = turnsOf.get(owner) ?? new Turns();
   turnsOf.set(owner, turns);
@@ -385,7 +393,11 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       body: msg.body,
     });
     const app = shadowApp;
-    const store: { id: string; user?: unknown; threw?: boolean } = { id: msg.id, user: msg.user };
+    const store: { id: string; user?: unknown; threw?: boolean; requestTxn: boolean } = {
+      id: msg.id,
+      user: msg.user,
+      requestTxn: true,
+    };
     const res = await invocation.run(store, () => app.fetch(req));
     const body = await res.text();
     const headers: Record<string, string> = {};
@@ -424,7 +436,9 @@ async function handleServiceInvoke(msg: ServiceInvokeRequest): Promise<void> {
   try {
     // The host minted this id as an invocation of its own, recorded under the
     // CALLER's tenant, so the service's queries name it exactly as a route's do.
-    const result = await invocation.run({ id: msg.id }, () => Promise.resolve(impl(...msg.args)));
+    const result = await invocation.run({ id: msg.id, requestTxn: msg.requestTxn }, () =>
+      Promise.resolve(impl(...msg.args)),
+    );
     send({ type: 'service:invoke:ok', id: msg.id, result });
   } catch (err) {
     send({ type: 'service:invoke:err', id: msg.id, error: (err as Error).message });

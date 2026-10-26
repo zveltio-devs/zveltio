@@ -80,10 +80,11 @@ export default {
         // Two overlapping transactions: A must not see B's uncommitted row.
         const one = (who, wait, peek) => db.transaction().execute(async () => {
           const [w] = await db.query(WHO);
+          const began = Date.now();
           await add(who);
           await sleep(wait);
           const [{ n }] = await db.query('SELECT count(*)::int AS n FROM ' + T('rows') + ' WHERE who = $1', peek);
-          return { pid: w.pid, sawOther: n };
+          return { pid: w.pid, sawOther: n, began, ended: Date.now() };
         });
         const [a, b] = await Promise.all([one('pair-a', 300, 'pair-b'), one('pair-b', 600, 'pair-a')]);
         await log(op, { a, b });
@@ -276,9 +277,11 @@ d('db.transaction() outside a request: a host-owned transaction', () => {
 
   it('two overlapping transactions run on two connections, isolated', async () => {
     const { a, b } = (await logged('pair')) as {
-      a: { pid: number; sawOther: number };
-      b: { pid: number; sawOther: number };
+      a: { pid: number; sawOther: number; began: number; ended: number };
+      b: { pid: number; sawOther: number; began: number; ended: number };
     };
+    // Overlapping, not taken in turn: B was under way before A ended.
+    expect(b.began).toBeLessThan(a.ended);
     expect(a.pid).not.toBe(b.pid);
     // A peeked while B was still open; B peeked after A committed.
     expect(a.sawOther).toBe(0);
