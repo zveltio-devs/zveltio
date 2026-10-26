@@ -54,9 +54,16 @@ jobs:
         run: |
           EXT_DIR="${{ github.workspace }}/../zveltio-extensions"
           TOKEN="${GH_TOKEN:-${{ github.token }}}"
-          git clone --depth 1 \
-            "https://x-access-token:${TOKEN}@github.com/zveltio-devs/zveltio-extensions.git" \
-            "$EXT_DIR"
+          URL="https://x-access-token:${TOKEN}@github.com/zveltio-devs/zveltio-extensions.git"
+          # Same paired-branch rule as ci.yml: a change that spans both repos is
+          # built against its own extensions branch, not master.
+          REF="${{ github.head_ref || github.ref_name }}"
+          if [ -n "$REF" ] && git ls-remote --heads "$URL" "$REF" | grep -q "$REF"; then
+            echo "Cloning zveltio-extensions@$REF (paired branch)"
+            git clone --depth 1 --branch "$REF" "$URL" "$EXT_DIR"
+          else
+            git clone --depth 1 "$URL" "$EXT_DIR"
+          fi
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
