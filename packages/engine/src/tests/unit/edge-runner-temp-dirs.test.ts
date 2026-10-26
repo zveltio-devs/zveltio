@@ -19,6 +19,9 @@ import { tmpdir } from 'node:os';
 import { spawn } from 'bun';
 
 const ENGINE = join(import.meta.dir, '..', '..', '..');
+// `env: process.env` on every spawn: the test preload points TMPDIR at a per-run
+// directory, and Bun.spawn without `env` hands the child the environment the
+// process started with, so the child would sweep a different tmpdir.
 
 describe('bootstrap temp directories', () => {
   it('removes its own directory when the process exits normally', async () => {
@@ -31,7 +34,12 @@ describe('bootstrap temp directories', () => {
 console.log(__bootstrapPathForTests);
 `,
     );
-    const p = spawn({ cmd: [process.execPath, 'run', probe], stdout: 'pipe', stderr: 'pipe' });
+    const p = spawn({
+      cmd: [process.execPath, 'run', probe],
+      env: process.env,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     const out = (await new Response(p.stdout).text()).trim();
     await p.exited;
     rmSync(probe, { force: true });
@@ -55,7 +63,12 @@ console.log(__bootstrapPathForTests);
       probe,
       `await import(${JSON.stringify(join(ENGINE, 'src/lib/edge-functions/subprocess-runner.ts'))});\n`,
     );
-    const p = spawn({ cmd: [process.execPath, 'run', probe], stdout: 'pipe', stderr: 'pipe' });
+    const p = spawn({
+      cmd: [process.execPath, 'run', probe],
+      env: process.env,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     await new Response(p.stdout).text();
     await p.exited;
     rmSync(probe, { force: true });
@@ -74,7 +87,12 @@ console.log(__bootstrapPathForTests);
       probe,
       `await import(${JSON.stringify(join(ENGINE, 'src/lib/edge-functions/subprocess-runner.ts'))});\n`,
     );
-    const p = spawn({ cmd: [process.execPath, 'run', probe], stdout: 'pipe', stderr: 'pipe' });
+    const p = spawn({
+      cmd: [process.execPath, 'run', probe],
+      env: process.env,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     await new Response(p.stdout).text();
     await p.exited;
     rmSync(probe, { force: true });
