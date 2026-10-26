@@ -4,6 +4,15 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**zod 4.6.7 and kysely 0.29.7, everywhere at once.** zod below 4.6.6 let an
+oversized array body exhaust memory (GHSA-mrhx-c7xc-m3w5); the engine, the
+worker runtime and every extension bundle move together, and CI no longer
+ignores the advisory. kysely 0.29.7 changed how a transaction hands out its
+connection, which silently turned off the engine's transaction sequencing:
+savepoint blocks and role windows could interleave, so an extension statement
+could run as the engine's login. The sequencer no longer depends on that
+detail.
+
 **Public pages can render on the server (ADR 0005).** The public web host
 (`packages/client`) was a single-page app: crawlers that do not run
 JavaScript saw an empty page, so link previews and SEO tags never appeared.
