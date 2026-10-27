@@ -20,12 +20,22 @@ import type { CollectionField } from '../types.js';
  *
  * Only display metadata is copied out; collection internals (`virtual_config`
  * with its upstream credential, routing, AI settings) never are.
+ *
+ * A collection whose stored `fields` is not an array is left out and logged:
+ * one malformed row used to empty every user's App navigation with a 500.
+ * Leaving it out can only hide a collection, never show one. A gate that throws
+ * still fails the answer: on the request transaction a database error aborts
+ * every later query, and catching it would list the rest as unreadable.
  */
 export async function listReadableCollections(c: Context, db: Database): Promise<Response> {
   const user = c.get('user');
   const conn = getDb(c, db);
   const out = [];
   for (const def of await DDLManager.getCollections(conn)) {
+    if (!Array.isArray(def.fields)) {
+      console.error(`GET /api/data: left out "${def.name}": its fields are not an array`);
+      continue;
+    }
     if (!(await checkAccess(conn, user, def.name, 'read'))) continue;
     const scope = await readScope(conn, def.name, user, c.get('authType'));
     const fields = (def.fields as CollectionField[])
