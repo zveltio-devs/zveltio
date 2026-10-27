@@ -313,15 +313,21 @@ API keys provide programmatic access without sessions. They're managed in Studio
 ### Create an API key
 
 ```bash
-POST /api/admin/api-keys
+POST /api/api-keys            # also mounted at /api/admin/api-keys
 Authorization: Bearer <session-token>
 {
   "name": "CI/CD Pipeline",
+  "scopes": [{ "collection": "products", "actions": ["read", "list"] }],
   "expires_at": "2027-01-01T00:00:00Z",  // optional
   "rate_limit": 1000  // the key's own limit, requests/hour, optional; null = none
 }
 → { "key": "zvk_...", "id": "..." }  // key shown only once
 ```
+
+Creating, changing or revoking a key is a configuration change: the session
+needs its step-up window open (a passkey or TOTP confirmation in the last five
+minutes), or the request answers 403 `step_up_required`. A key never creates
+another key.
 
 ### Use an API key
 
