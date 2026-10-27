@@ -89,6 +89,11 @@ export default {
         const [a, b] = await Promise.all([one('pair-a', 300, 'pair-b'), one('pair-b', 600, 'pair-a')]);
         await log(op, { a, b });
       }
+      if (op === 'orphan') {
+        // Not awaited: the handler returns while the transaction sleeps on.
+        void db.transaction().execute(async () => { await add('orphan-marker'); await sleep(8000); }).catch(() => {});
+        await sleep(500);
+      }
       if (op === 'kill') {
         await db.transaction().execute(async () => {
           await add('kill-marker');
@@ -120,6 +125,8 @@ d('db.transaction() outside a request: a host-owned transaction', () => {
   let heldMidSlow = -1;
   let killMs = 0;
   let heldBeforeKill = -1;
+  let heldDuringOrphan = -1;
+  let heldAfterOrphan = -1;
   let schedRows: string[] = [];
   let pooled: { u: string; r: string; t: string | null }[] = [];
   const saved = process.env.ZVELTIO_EXT_TRANSPORT;
@@ -194,6 +201,14 @@ d('db.transaction() outside a request: a host-owned transaction', () => {
       await runWithDomain(TENANT, () => emit('commit'));
       await emit('throw');
       await emit('pair');
+
+      // Default 30 s timeout: only the invocation's end may release it.
+      const orphan = emit('orphan');
+      await until(async () => (await held('orphan-marker')) === 1);
+      heldDuringOrphan = await held('orphan-marker');
+      await orphan;
+      await until(async () => (await held('orphan-marker')) === 0, 3000);
+      heldAfterOrphan = await held('orphan-marker');
 
       _internalForTests.setRequestTxnTimeoutMs(400);
       const slow = emit('slow');
@@ -287,6 +302,13 @@ d('db.transaction() outside a request: a host-owned transaction', () => {
     expect(a.sawOther).toBe(0);
     expect(b.sawOther).toBe(1);
     expect((await rows("who LIKE 'pair-%'")).sort()).toEqual(['pair-a', 'pair-b']);
+  });
+
+  it('a transaction its event handler left un-awaited ends with the delivery', async () => {
+    expect(heldDuringOrphan).toBe(1);
+    // Rolled back when the invocation ended, not held until the 30 s timeout.
+    expect(heldAfterOrphan).toBe(0);
+    expect(await rows("who = 'orphan-marker'")).toEqual([]);
   });
 
   it('a worker killed mid-transaction rolls back and gives the connection back', async () => {

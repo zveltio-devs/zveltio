@@ -271,6 +271,19 @@ export const FieldSchema = z.object({
       z.string().max(100),
       z.union([z.string().max(10_000), z.number(), z.boolean(), z.null(), z.array(z.any())]),
     )
+    // A relation's referential actions, refused here as a 400 rather than inside
+    // the DDL transaction.
+    .superRefine((o, ctx) => {
+      for (const k of ['on_delete', 'on_update']) {
+        if (o[k] != null && !ON_DELETE_SAFE.has(String(o[k]).toUpperCase())) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [k],
+            message: `${k} must be one of ${[...ON_DELETE_SAFE].join(', ')}`,
+          });
+        }
+      }
+    })
     .optional(),
   label: z.string().max(200).optional(),
   description: z.string().max(1_000).optional(),

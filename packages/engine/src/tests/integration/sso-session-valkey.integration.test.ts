@@ -15,6 +15,7 @@ import { _internalForTests as authTesting, getAuth, initAuth } from '../../lib/a
 import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { initPermissions } from '../../lib/tenancy/index.js';
+import { initTenantManager } from '../../lib/tenancy/tenant-manager.js';
 import { _setCacheForTests, getCache, initCache } from '../../lib/runtime/index.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -47,6 +48,9 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
     previousDb = dbTesting.swapDbForTests(null);
     db = await initDatabase();
     await initPermissions(db);
+    // `withTenantIsolation` runs on the pool tenant-manager was given, not
+    // getDb(): an earlier file's, destroyed — "driver has already been destroyed".
+    initTenantManager(db);
     appAuth = getAuth();
     savedValkey = process.env.VALKEY_URL;
     process.env.VALKEY_URL = VALKEY_URL;
@@ -61,6 +65,7 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
     authTesting.setAuthForTests(appAuth);
     await db.destroy();
     dbTesting.swapDbForTests(previousDb);
+    if (previousDb) initTenantManager(previousDb);
     await getCache()?.quit();
     _setCacheForTests(null);
     if (savedValkey === undefined) delete process.env.VALKEY_URL;

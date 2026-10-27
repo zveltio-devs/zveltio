@@ -143,12 +143,13 @@ export async function unloadExtension(
 
   loader.loaded.delete(name);
   loader.forgetExtensionMessages(name);
-  // A dependent that had it as an optional dependency now has it absent, as at
-  // a load without it: `waitFor` answers "not found" instead of the timeout.
+  // A dependent that declared it, optional or required, now has it absent, as an
+  // optional at a load without it: `waitFor` answers "not found" instead of the
+  // timeout. It turns callable again when it loads (`refreshOptionalDependents`).
   for (const [dependent, entry] of loader.loaded) {
     const deps = entry.serviceDeps as Map<string, boolean> | undefined;
     if (deps?.get(name) !== true) continue;
-    const pin = await optionalPin(loader, dependent, name).catch(() => undefined);
+    const pin = await declaredPin(loader, dependent, name).catch(() => undefined);
     if (!pin) continue;
     deps.set(name, false);
     getWorkerHostIfInitialized()?.resyncServices();
@@ -199,18 +200,22 @@ export async function loadDynamic(
   }
 }
 
-/** `dependent`'s manifest entry for `name` among its optionalDependencies, if any. */
-async function optionalPin(
+/** `dependent`'s manifest entry for `name` among its dependencies or optionalDependencies, if any. */
+async function declaredPin(
   loader: ExtensionLoader,
   dependent: string,
   name: string,
 ): Promise<{ name: string; minVersion?: string } | undefined> {
   const dir = loader.extDirs.get(dependent);
   if (!dir) return undefined;
+  type Dep = { name: string; minVersion?: string };
   const manifest = JSON.parse(await Bun.file(join(dir, 'manifest.json')).text()) as {
-    optionalDependencies?: Array<{ name: string; minVersion?: string }>;
+    dependencies?: Dep[];
+    optionalDependencies?: Dep[];
   };
-  return manifest.optionalDependencies?.find((d) => d.name === name);
+  return [...(manifest.dependencies ?? []), ...(manifest.optionalDependencies ?? [])].find(
+    (d) => d.name === name,
+  );
 }
 
 /**
@@ -230,7 +235,7 @@ export async function refreshOptionalDependents(
     const deps = entry.serviceDeps as Map<string, boolean> | undefined;
     if (deps?.get(name) !== false) continue;
     try {
-      const pin = await optionalPin(loader, dependent, name);
+      const pin = await declaredPin(loader, dependent, name);
       if (!pin) continue;
       const { tooOld } = await checkExtensionDependencies(db, [pin], versions);
       if (!tooOld.includes(name)) {

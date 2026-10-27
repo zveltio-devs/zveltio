@@ -1187,6 +1187,13 @@ export class WorkerExtensionHost {
       target.invokeTenants.delete(invokeId);
       // A scope the service left open outlives it: undone, so the caller's turn comes.
       if (scope.txn) await abandonScopes(scope.txn, target.name, invokeId);
+      // And a host transaction it left un-awaited: its next statement would be
+      // refused anyway (`handleDbQuery`), so it ends now instead of holding its
+      // connection until the hard timeout.
+      for (const [id, open] of target.hostTxns ?? []) {
+        if (open.requestId === invokeId)
+          endHostTxn(target, id, 'rolled back: its invocation is over');
+      }
     }
   }
 
