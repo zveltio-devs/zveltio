@@ -9,7 +9,8 @@ import {
 import { type BetterAuthOptions, betterAuth } from 'better-auth';
 import { kyselyAdapter } from '@better-auth/kysely-adapter';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
-import { twoFactor } from 'better-auth/plugins';
+import { parseCookies } from 'better-auth/cookies';
+import { bearer, twoFactor } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
 import { Kysely } from 'kysely';
@@ -766,6 +767,13 @@ export async function initAuth(db: Database) {
           ]
         : []),
 
+      // A native client cannot hold a cookie jar; it presents the same session as
+      // `Authorization: Bearer <token>` (ADR 0006: sign-in, refresh and step-up
+      // without a cookie). Only the SIGNED token, as the cookie carries it:
+      // `session.token` is stored raw, so accepting it unsigned would make a read
+      // of that table a sign-in. A `zvk_` key has no dot and passes untouched.
+      bearerSessions(),
+
       // WebAuthn / Passkeys — phishing-resistant credentials.
       // RP (relying party) settings: ID is the effective domain (must NOT
       // include scheme or port); origin is the full URL the browser will
@@ -806,6 +814,25 @@ export async function initAuth(db: Database) {
   // @ts-ignore — specific Auth<Options> not assignable to Auth<BetterAuthOptions>
   _auth = authInstance;
   return _auth;
+}
+
+/**
+ * Better Auth's bearer plugin, issuing `set-auth-token` only to a caller that did
+ * not send the session cookie. The cookie is httpOnly so page script can ride it
+ * but not carry it off; the stock plugin echoes the token on every response that
+ * re-sets the cookie (a refresh on `/api/auth/get-session`), which handed it to
+ * any script on the page.
+ */
+export function bearerSessions() {
+  const plugin = bearer({ requireSignature: true });
+  const after = plugin.hooks.after.map((hook) => ({
+    ...hook,
+    matcher: (ctx: Parameters<typeof hook.matcher>[0]) =>
+      !parseCookies(ctx.request?.headers.get('cookie') ?? '').has(
+        ctx.context.authCookies.sessionToken.name,
+      ),
+  }));
+  return { ...plugin, hooks: { ...plugin.hooks, after } };
 }
 
 /** True when getSession should return null (bad/expired cookie) instead of re-throwing. */

@@ -46,9 +46,16 @@ const client = createZveltioClient({
 interface ZveltioClientConfig {
   baseUrl: string;             // Engine URL (no trailing slash)
   apiKey?: string;             // API key (X-API-Key header)
+  sessionToken?: string;       // bearer mode: sent as Authorization: Bearer, cookies off
+  onSessionToken?: (token: string | null) => void; // each issued token; null on logout
   headers?: Record<string, string>; // Additional headers
 }
 ```
+
+A native app (no cookie jar) uses bearer mode: give `onSessionToken` to persist the
+token `auth.login` receives, and pass it back as `sessionToken` on the next launch.
+`client.setSessionToken()` / `getSessionToken()` do the same at runtime. A browser
+leaves both unset and keeps the httpOnly cookie.
 
 ### Collection CRUD
 

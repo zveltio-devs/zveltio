@@ -254,6 +254,21 @@ Sessions are stored in Valkey (fast reads) and synced to the database. `VALKEY_U
 VALKEY_URL=redis://valkey:6379
 ```
 
+### Bearer session tokens (native and server clients)
+
+A client with no cookie jar presents the same session as `Authorization: Bearer <token>`.
+Sign in without a session cookie and the response carries the token in the
+`set-auth-token` header; send it back on every request, including `/api/auth/*`
+(step-up, two-factor, sign-out). A response that replaces the session (confirming
+TOTP) carries the new token the same way.
+
+- The token is the **signed** value from that header; the raw `session.token`
+  column is refused, so reading the table is not a sign-in.
+- A request that sends the session cookie is never handed the token: page script
+  can ride the httpOnly cookie but not carry it off.
+- A bad or expired token is anonymous, exactly like a bad cookie.
+- `Authorization: Bearer zvk_…` is still an API key.
+
 ### Verifying sessions in custom routes
 
 ```typescript
