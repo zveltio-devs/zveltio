@@ -204,17 +204,32 @@ d('advisory locks on the pool', () => {
         const name = `zv_advlock_cicw_${Date.now()}`;
         const own = new globalThis.URL(SUPER!);
         own.pathname = `/${name}`;
+        // Under a full harness run the cluster sits near max_connections (other
+        // files' pools), and a fresh connection answered "too many clients"
+        // before the race began. Setup waits for a slot; the race itself does not.
+        // ponytail: 10 tries over ~5 s; a cluster full for longer fails here.
+        const connect = async (db: ReturnType<typeof createDb>) => {
+          for (let i = 0; ; i++) {
+            try {
+              return await sql`SELECT 1`.execute(db);
+            } catch (e) {
+              const pgCode =
+                (e as { errno?: string; code?: string }).errno ?? (e as { code?: string }).code;
+              if (i >= 9 || pgCode !== '53300') throw e;
+              await Bun.sleep(500);
+            }
+          }
+        };
         const admin = createDb(SUPER!);
+        await connect(admin);
         await sql.raw(`CREATE DATABASE ${name}`).execute(admin);
         const holder = createDb(own.toString());
         const other = createDb(own.toString());
         try {
+          await connect(holder);
           await sql`CREATE TABLE t (id int)`.execute(holder);
-          // Connected before the race: under a full harness run the cluster can be
-          // at max_connections, and a waiter that first connects mid-wait failed
-          // with "too many clients" instead of waiting.
-          // ponytail: retries nothing; a cluster still full at this point fails here, honestly.
-          await sql`SELECT 1`.execute(other);
+          // Connected before the race, so the waiter never first connects mid-wait.
+          await connect(other);
           const key = freshKey();
           let waiter!: Promise<unknown>;
           const took = await withAdvisoryLock(holder, key, async () => {
