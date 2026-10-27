@@ -12,7 +12,9 @@ purpose — every line here is paid for in every session, forever.
 
 First-party extensions are a sibling checkout at `../zveltio-extensions`.
 
-- Do not `cd` between them — use `bun --cwd ../zveltio-extensions <command>`.
+- Do not `cd` between them — use `bun --cwd=../zveltio-extensions <command>`.
+  Always `--cwd=<dir>`, with `=`: `bun --cwd <dir> run <x>` prints bun's usage
+  and exits 0 without running anything.
 - Several gates read that sibling through a hardcoded relative path, so a
   command run from the wrong directory measures the wrong tree and reports a
   confident, wrong answer.
