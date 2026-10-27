@@ -77,6 +77,13 @@ interface TenantStore {
   refuseUnscoped?: boolean;
   /** Who this transaction runs as. See `RequestActor`. */
   actor?: RequestActor;
+  /**
+   * Set while the transaction is a request's (`markRequestTransaction`): work
+   * that joined it and must be over before it commits or rolls back.
+   */
+  requestEnd?: Array<() => Promise<unknown>>;
+  /** Set by `settleRequestTransaction`: the request's transaction is ending or over. */
+  requestOver?: boolean;
 }
 
 /**
@@ -362,6 +369,46 @@ export function runAfterCommitJob(job: () => void | Promise<void>): Promise<void
   return new Promise<void>((resolve) => resolve(job())).catch((err: Error) => {
     console.warn('[after-commit] queued work failed:', err?.message);
   });
+}
+
+/**
+ * Mark the open tenant transaction as the request's: `tenantMiddleware`, which
+ * ends it with the answer. A job's or a reconciler's is never marked.
+ */
+export function markRequestTransaction(): void {
+  const s = store.getStore();
+  if (s?.trx) s.requestEnd = [];
+}
+
+/**
+ * Have `end` run before the request's transaction commits or rolls back. False
+ * outside a request's transaction, and once it is ending: there is none to join.
+ */
+export function beforeRequestTransactionEnds(end: () => Promise<unknown>): boolean {
+  const ends = store.getStore()?.requestEnd;
+  if (!ends) return false;
+  ends.push(end);
+  return true;
+}
+
+/** Run what `beforeRequestTransactionEnds` queued; `tenantMiddleware`, before it ends it. */
+export async function settleRequestTransaction(): Promise<void> {
+  const s = store.getStore();
+  const ends = s?.requestEnd;
+  if (!s || !ends) return;
+  s.requestEnd = undefined;
+  s.requestOver = true;
+  await Promise.allSettled(ends.map((end) => end()));
+}
+
+/**
+ * The current transaction as a request's: `open` while work may join it, `over`
+ * once it is ending or ended, `none` when it is not a request's (a job, boot).
+ */
+export function requestTransactionState(): 'open' | 'over' | 'none' {
+  const s = store.getStore();
+  if (s?.requestOver) return 'over';
+  return s?.requestEnd ? 'open' : 'none';
 }
 
 export function getCurrentTenantTrx(): Database | undefined {

@@ -396,10 +396,16 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    host orders by it with `db/trx-sequencer.ts`), and a scope a service leaves
    open when it returns is rolled back. An inline service a worker calls runs in
    the request's tenant transaction, and a worker route that threw rolls that
-   back with its own (`c.error`, as `tenantMiddleware` does for an inline route)
-   (`tests/harness/worker-service-request-txn.test.ts`). Statements outside a route
-   request — `register()`, timers, event deliveries, a service an inline caller
-   invokes — keep one transaction per statement: no answer exists to commit them
+   back with its own (`c.error`, as `tenantMiddleware` does for an inline route).
+   A worker service an **inline** route or service calls during a request joins
+   that request's own tenant transaction the same way: under the callee's role
+   and the worker's tenant settings, set before each statement and the caller's
+   put back after it; ordered with the caller's statements and `db.transaction()`
+   scopes by the transaction's turns (`db/trx-sequencer.ts`); a scope the service
+   leaves open rolled back. Its statements are refused once the request starts
+   to end, so none lands after the COMMIT (`tests/harness/worker-service-request-txn.test.ts`).
+   Statements outside a request — `register()`, timers, event deliveries, jobs —
+   keep one transaction per statement: no answer exists to commit them
    with (`tests/harness/worker-request-transaction.test.ts`: the burned invoice
    number, the orphan contact, savepoints, a throw, a caught SQL error, the
    timeout, a killed worker, no role or GUC leak — both transports, both
