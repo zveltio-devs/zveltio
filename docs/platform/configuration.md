@@ -385,6 +385,7 @@ In multi-tenant mode, tenants are resolved from:
 | `METRICS_TOKEN` | — | Protects `GET /metrics` with `Authorization: Bearer <token>`. **Unset, `/metrics` returns 403, not metrics** — it fails closed rather than leak uptime, heap and request counts to an anonymous caller. This row previously said the opposite. To scrape without a token over a trusted network, set `METRICS_ALLOW_UNAUTHENTICATED=1` and mean it. |
 | `MAIL_ENCRYPTION_KEY` | — | 32-byte hex key for encrypting IMAP/SMTP passwords at rest. Generate: `openssl rand -hex 32` |
 | `AI_KEY_ENCRYPTION_KEY` | — | 32-byte hex key for encrypting AI provider API keys at rest. Generate: `openssl rand -hex 32` |
+| `ZVELTIO_CONSOLE_HOST` | — | Recommended in production. A bare hostname (`admin.example.com`; no scheme, port or path — the engine refuses to start otherwise). When set, the Console (`/admin`), `/api/admin/*`, every configuration mutation and every extension mutation authorized against `admin` answer only on that host and 404 on any other; what the App uses answers on every host. The console host also refuses a request whose `Origin` names another host, so a script on the main domain cannot use the Console's session (sessions are host-only cookies, but the two hosts are same-site). Sign in to the Console on that host. The engine matches the `Host` header and trusts no `X-Forwarded-Host`: a proxy must pass `Host` through. Point the CLI and any script that configures the engine at the console host. Unset, every route answers on every host. |
 
 ```bash
 # Generate secure keys
