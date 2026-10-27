@@ -79,6 +79,18 @@ d('templates routes (in-process)', () => {
     { timeout: 60_000 },
   );
 
+  it('refuses a prefix over 20 characters on install and seed', async () => {
+    // The limit lived only in the Studio form; a direct call got past it.
+    for (const path of ['install', 'seed']) {
+      const res = await app.request(`/api/templates/helpdesk/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: JSON.stringify({ prefix: 'a'.repeat(21) }),
+      });
+      expect(res.status, path).toBe(400);
+    }
+  });
+
   it('rejects unauthenticated template listing', async () => {
     const res = await app.request('/api/templates');
     expect([401, 403]).toContain(res.status);
