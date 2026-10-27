@@ -770,3 +770,12 @@ export const filesRateLimit = rateLimit({
   max: 1200,
   keyPrefix: 'files',
 });
+
+// Server-side renders of the public client (ADR 0005). A render's own /api calls
+// count against the visitor's api bucket, but a page that loads nothing costs a
+// render and no bucket at all.
+export const ssrRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 300,
+  keyPrefix: 'ssr',
+});
