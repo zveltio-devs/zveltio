@@ -37,13 +37,17 @@ export const load: LayoutLoad = async ({ fetch, url, untrack }) => {
     fetch,
     untrack(() => new URL(url)),
   );
+  // A failed list is not an empty one: the shell still renders, but says the
+  // list could not be loaded, and a collection URL answers 503, not 404.
   let collections: WorkspaceCollection[] = [];
+  let collectionsFailed = false;
   try {
     const res = await fetch(`${ENGINE_URL}/api/data`, { credentials: 'include' });
     if (res.ok)
       collections = ((await res.json()) as { collections: WorkspaceCollection[] }).collections;
+    else collectionsFailed = true;
   } catch {
-    /* engine unreachable: the shell still renders, with no collections */
+    collectionsFailed = true;
   }
-  return { user, collections, engineUrl: ENGINE_URL };
+  return { user, collections, collectionsFailed, engineUrl: ENGINE_URL };
 };

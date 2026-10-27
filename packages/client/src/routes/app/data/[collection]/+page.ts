@@ -9,9 +9,14 @@ const PAGE_SIZE = 25;
  * read, and gets the 404 a direct request would have produced as a 403.
  */
 export const load: PageLoad = async ({ fetch, params, parent, url }) => {
-  const { collections, engineUrl } = await parent();
+  const { collections, collectionsFailed, engineUrl } = await parent();
   const collection = collections.find((c) => c.name === params.collection);
-  if (!collection) error(404, 'Collection not found');
+  if (!collection) {
+    error(
+      collectionsFailed ? 503 : 404,
+      collectionsFailed ? 'Collections could not be loaded' : 'Collection not found',
+    );
+  }
 
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const search = url.searchParams.get('q') ?? '';
