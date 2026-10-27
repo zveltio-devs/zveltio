@@ -337,8 +337,9 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
     // Published after the change committed, seal and view included: forget the
     // definition and readable columns this replica kept, or for up to 30 s its
     // reads miss a new column or fail on a dropped one. Lazily: lib/data imports this module.
+    // A drop also takes the relation fields other collections held for it: all of them.
     return import('../data/index.js')
-      .then((m) => m.DDLManager.invalidateCache(msg.collection))
+      .then((m) => m.DDLManager.invalidateCache(action === 'drop' ? undefined : msg.collection))
       .catch((err: Error) => {
         console.error(`[realtime-bus] ${msg.collection}: schema change not applied:`, err.message);
       });
