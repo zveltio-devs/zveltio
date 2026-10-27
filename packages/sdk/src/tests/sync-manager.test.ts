@@ -101,3 +101,34 @@ describe('SyncManager — clearLocalData', () => {
     await other.close();
   });
 });
+
+describe('SyncManager — paged pull reads the list the engine sends', () => {
+  // A client the sync routes refuse (an API key, 403) pages `list()` instead.
+  // That path read `result.data`, which `GET /api/data/:collection` has never
+  // sent — it answers `{ records, pagination }` — so it applied nothing.
+  it('applies the records of each page', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith('/api/sync/pull')) {
+        return Response.json({ status: 403, title: 'Forbidden' }, { status: 403 });
+      }
+      const page = Number(new URL(url).searchParams.get('page'));
+      const records = page === 1 ? [{ id: 'p1' }, { id: 'p2' }] : [{ id: 'p3' }];
+      return Response.json({ records, pagination: { total: 3, page, limit: 2, pages: 2 } });
+    }) as typeof fetch;
+    try {
+      const { ZveltioClient } = await import('../client.js');
+      sync = new SyncManager(new ZveltioClient({ baseUrl: 'http://engine.test' }), {
+        syncInterval: 60_000,
+      });
+      await sync.start();
+      const store = (sync as unknown as { store: LocalStore }).store;
+      await store.clear();
+      expect(await sync.pull(['posts'], 2)).toBe(3);
+      expect((await store.list('posts')).map((r) => r.id).sort()).toEqual(['p1', 'p2', 'p3']);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

@@ -429,7 +429,7 @@ export class SyncManager {
     for (const name of collections) {
       for (let page = 1; ; page++) {
         const result = await this.client.collection(name).list({ page, limit: pageSize });
-        const rows = result?.data ?? [];
+        const rows = result?.records ?? [];
         for (const row of rows) {
           const id = (row as { id?: string }).id;
           if (!id) continue;

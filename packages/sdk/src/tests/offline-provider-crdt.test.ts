@@ -81,8 +81,10 @@ beforeEach(async () => {
     const name = match?.[1] ?? '';
     const page = Number(new URL(url).searchParams.get('page') ?? '1');
     // One page only: page 2 comes back empty, which is how `pull` stops.
-    const data = page === 1 ? (served[name] ?? []) : [];
-    return json({ data, total: data.length, page, limit: 200 });
+    // The shape `listRecords` sends. This fake answered `{ data, … }`, the shape
+    // the SDK's type wrongly declared, so the test agreed with the bug.
+    const records = page === 1 ? (served[name] ?? []) : [];
+    return json({ records, pagination: { total: records.length, page, limit: 200 } });
   }) as typeof fetch;
 
   const store = new LocalStore();
