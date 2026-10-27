@@ -153,4 +153,35 @@ d('relations m2m (in-process)', () => {
       await sql.raw(`DROP TABLE IF EXISTS "${junction}"`).execute(db);
     }
   });
+  it('dropping the target takes the m2m field the source held for it', async () => {
+    // The field stayed in the source's definition, naming a junction and a
+    // collection that were gone, and every read that expanded it failed.
+    const C = `hm2m_c_${Date.now()}`;
+    await DDLManager.createCollection(db, {
+      name: C,
+      fields: [{ name: 'title', type: 'text' } as never],
+    });
+    const res = await app.request('/api/relations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({
+        name: `${A}_${C}`,
+        type: 'm2m',
+        source_collection: A,
+        source_field: 'labels',
+        target_collection: C,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const names = async () => {
+      const row = await DDLManager.getCollection(db, A);
+      const fields = typeof row?.fields === 'string' ? JSON.parse(row.fields) : row?.fields;
+      return (fields as { name: string }[]).map((f) => f.name);
+    };
+    expect(await names()).toContain('labels');
+
+    await DDLManager.dropCollection(db, C, { force: true });
+    expect(await names()).not.toContain('labels');
+    expect(await names()).toContain('title');
+  });
 });
