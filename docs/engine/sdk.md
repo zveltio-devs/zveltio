@@ -56,6 +56,10 @@ A native app (no cookie jar) uses bearer mode: give `onSessionToken` to persist 
 token `auth.login` receives, and pass it back as `sessionToken` on the next launch.
 `client.setSessionToken()` / `getSessionToken()` do the same at runtime. A browser
 leaves both unset and keeps the httpOnly cookie.
+The other clients (`createRpcClient`, `ZveltioRealtime`, `@zveltio/sdk/offline`)
+take the same token as an `Authorization: Bearer <token>` header, with the token from
+`client.getSessionToken()` (or through `getHeaders` for the RPC client). The token stays the same for the session's
+lifetime, so a header set once does not go stale.
 
 ### Collection CRUD
 
