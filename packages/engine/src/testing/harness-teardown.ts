@@ -9,7 +9,7 @@
  * Casbin model that loads thousands of dead rules is the lying measurement that
  * gate exists to prevent. So the grants on a fixture name (`_<10+ digits>`, the
  * suffix the harness gives them) whose collection is gone go here, once, after
- * the last file.
+ * the last file. So do the role links of users a test deleted by SQL.
  */
 
 import { afterAll, afterEach } from 'bun:test';
@@ -51,6 +51,15 @@ afterAll(async () => {
       DELETE FROM zvd_permissions p
        WHERE p.ptype = 'p' AND p.v2 ~ ${String.raw`_\d{10,}$`}
          AND NOT EXISTS (SELECT 1 FROM zvd_collections c WHERE c.name = p.v2)
+    `;
+    // Role links of users a test deleted by SQL rather than `deleteUser` (which
+    // drops them through the enforcer). Measured 2026-10-27: 10 118 `member@*`
+    // links for users that no longer exist. A Better Auth user id is 32
+    // alphanumerics; role and key subjects never look like one.
+    await sql`
+      DELETE FROM zvd_permissions g
+       WHERE g.ptype = 'g' AND g.v0 ~ '^[A-Za-z0-9]{32}$'
+         AND NOT EXISTS (SELECT 1 FROM "user" u WHERE u.id = g.v0)
     `;
   } catch {
     // No harness schema (a unit run against an empty database): nothing to clear.
