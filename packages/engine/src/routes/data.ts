@@ -5,6 +5,7 @@ import type { RequestUser } from '../lib/data/types.js';
 import { authenticate } from '../lib/data/auth.js';
 import { QuerySchema } from '../lib/data/query-parse.js';
 import { listRecords } from '../lib/data/handlers/list.js';
+import { listReadableCollections } from '../lib/data/handlers/collections.js';
 import { bulkCreate, bulkUpdate, bulkDelete } from '../lib/data/handlers/bulk.js';
 import {
   getRecord,
@@ -41,6 +42,9 @@ export function dataRoutes(db: Database, auth: any): Hono {
   // `(c, db)` — the list handler additionally receives the validated query
   // so the `zValidator('query', …)` middleware stays on the route. Order
   // matters: the `/bulk` collection routes MUST precede `/:collection/:id`.
+
+  // GET / — the collections the caller may read, with the fields they may see
+  app.get('/', (c) => listReadableCollections(c, db));
 
   // GET /:collection — List records
   app.get('/:collection', zValidator('query', QuerySchema), (c) =>

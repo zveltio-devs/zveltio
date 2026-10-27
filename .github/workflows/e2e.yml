@@ -100,6 +100,9 @@ jobs:
           bun run build
           bun scripts/stamp-version.ts
 
+      - name: Build the App
+        run: cd packages/client && bun run build
+
       - name: Install Chromium
         # `--with-deps` needs root, which the runner has. Without the system
         # libraries Chromium exits 127 and every browser test fails with a stack

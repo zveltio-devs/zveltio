@@ -51,10 +51,10 @@ const registrationEnabled = $derived(data?.registrationEnabled === true);
     {#if auth.isPending}
       <span class="loading loading-spinner loading-md" style="color: var(--color-primary, #6366f1)"></span>
     {:else if auth.isLoggedIn}
-      <a href="/employee/dashboard"
+      <a href="/app"
         class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-opacity hover:opacity-90"
         style="background: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
-        Go to Dashboard
+        Open the workspace
       </a>
     {:else}
       <div class="flex gap-4 justify-center">

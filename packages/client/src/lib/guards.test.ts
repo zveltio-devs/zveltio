@@ -1,5 +1,5 @@
 /**
- * `requireRole` — the client's routing guard.
+ * `requireUser` — the App workspace's routing guard.
  *
  * This function exists because the guard it replaced never ran: two
  * `+layout.server.ts` files fetched the session and redirected, under
@@ -7,10 +7,9 @@
  * The code read correctly and did nothing, which is the failure mode this whole
  * file guards against — a protection asserted rather than held.
  *
- * It was rewritten once and shipped with no test. These pin the four decisions
- * it makes, including the two that are easy to get backwards: an unreachable
- * engine must send people to login rather than into the app, and a signed-in
- * user with the wrong role must be told which of the two problems they have.
+ * It was rewritten once and shipped with no test. These pin the decisions it
+ * makes, including the one that is easy to get backwards: an unreachable
+ * engine must send people to login rather than into the app.
  *
  * Read the guard's own docstring for what this is NOT: the engine authorises
  * every call, and a determined visitor can always skip client-side code. What
@@ -18,7 +17,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { requireRole } from './guards';
+import { afterSignIn, requireUser } from './guards';
 
 /** SvelteKit's `redirect()` throws; this is the shape it throws. */
 function asRedirect(e: unknown): { status: number; location: string } {
@@ -71,65 +70,41 @@ function engineFetch(me: unknown, ok = true) {
 
 const url = (path: string) => new URL(`http://localhost${path}`);
 
-const EMPLOYEE_GROUP = ['employee', 'manager', 'admin', 'god'];
-const PARTNER_GROUP = ['partner', 'manager', 'admin', 'god'];
-
-describe('requireRole', () => {
-  it('lets a member holding the Casbin role in', async () => {
-    const fetchFn = engineFetch(REAL.employee);
-
-    const result = await requireRole(fetchFn as never, url('/employee/dashboard'), EMPLOYEE_GROUP);
+describe('requireUser', () => {
+  it('lets a member holding a Casbin role in', async () => {
+    const result = await requireUser(engineFetch(REAL.employee) as never, url('/app'));
 
     expect(result.user.id).toBe('u1');
     expect(result.user.roles).toEqual(['employee']);
   });
 
-  it('lets a god into both portals, though a god holds no Casbin role', async () => {
-    for (const allowed of [EMPLOYEE_GROUP, PARTNER_GROUP]) {
-      const result = await requireRole(engineFetch(REAL.god) as never, url('/x'), allowed);
-      expect(result.user.role).toBe('god');
+  it('lets in a signed-in user whatever their roles, god and none included', async () => {
+    // The App is split from the Console by activity, not role (ADR 0006): what
+    // the workspace shows is what the engine lets each caller read. The guard
+    // this replaced admitted only employee/partner/manager/admin, so a role an
+    // operator created was locked out of the whole app.
+    for (const me of [
+      REAL.god,
+      REAL.partner,
+      { user: { ...REAL.employee.user, roles: ['sales'] } },
+      { user: { ...REAL.employee.user, roles: [] } },
+    ]) {
+      const result = await requireUser(engineFetch(me) as never, url('/app'));
+      expect(result.user.id).toBe(me.user.id);
     }
   });
 
   it('sends an anonymous visitor to login, remembering where they were going', async () => {
     // The returnTo is the point: without it, signing in drops you on a default
     // page and the link someone followed is lost.
-    const fetchFn = engineFetch(REAL.anonymous, false);
-
-    const err = await requireRole(fetchFn as never, url('/employee/reports'), EMPLOYEE_GROUP).catch(
-      (e) => e,
-    );
-
-    const r = asRedirect(err);
-    expect(r.status).toBe(302);
-    expect(r.location).toBe('/auth/login?returnTo=%2Femployee%2Freports');
-  });
-
-  it('distinguishes a wrong role from not being signed in', async () => {
-    // Same destination, different reason. A partner who lands on an employee
-    // page has a different problem from a visitor, and the login screen needs
-    // to be able to say so.
-    const fetchFn = engineFetch(REAL.partner);
-
-    const err = await requireRole(
-      fetchFn as never,
-      url('/employee/dashboard'),
-      EMPLOYEE_GROUP,
+    const err = await requireUser(
+      engineFetch(REAL.anonymous, false) as never,
+      url('/app/data/orders'),
     ).catch((e) => e);
 
     const r = asRedirect(err);
-    expect(r.location).toBe('/auth/login?error=insufficient_role');
-    expect(r.location).not.toContain('returnTo');
-  });
-
-  it('does not treat the `member` grade as a portal role', async () => {
-    const fetchFn = engineFetch({ user: { ...REAL.employee.user, roles: [] } });
-
-    const err = await requireRole(fetchFn as never, url('/employee/x'), EMPLOYEE_GROUP).catch(
-      (e) => e,
-    );
-
-    expect(asRedirect(err).location).toBe('/auth/login?error=insufficient_role');
+    expect(r.status).toBe(302);
+    expect(r.location).toBe('/auth/login?returnTo=%2Fapp%2Fdata%2Forders');
   });
 
   it('treats an unreachable engine as not signed in', async () => {
@@ -140,9 +115,7 @@ describe('requireRole', () => {
       throw new Error('ECONNREFUSED');
     });
 
-    const err = await requireRole(fetchFn as never, url('/employee/x'), EMPLOYEE_GROUP).catch(
-      (e) => e,
-    );
+    const err = await requireUser(fetchFn as never, url('/app/x')).catch((e) => e);
 
     expect(asRedirect(err).location).toContain('/auth/login');
   });
@@ -150,9 +123,7 @@ describe('requireRole', () => {
   it('treats a non-OK response as not signed in', async () => {
     // A proxy or a restart can produce a 502 with a body that looks like a
     // user. That is not a licence to enter.
-    const fetchFn = engineFetch(REAL.employee, false);
-
-    const err = await requireRole(fetchFn as never, url('/employee/x'), EMPLOYEE_GROUP).catch(
+    const err = await requireUser(engineFetch(REAL.employee, false) as never, url('/app/x')).catch(
       (e) => e,
     );
 
@@ -165,11 +136,39 @@ describe('requireRole', () => {
     // login — a total outage that looks like an auth bug.
     const fetchFn = engineFetch(REAL.employee);
 
-    await requireRole(fetchFn as never, url('/employee/x'), EMPLOYEE_GROUP);
+    await requireUser(fetchFn as never, url('/app/x'));
 
     expect(fetchFn).toHaveBeenCalledWith(
       expect.stringContaining('/api/me'),
       expect.objectContaining({ credentials: 'include' }),
     );
+  });
+});
+
+describe('afterSignIn', () => {
+  const login = (q: string) => new URL(`http://localhost/auth/login${q}`);
+
+  it('returns to where the guard sent the visitor from', () => {
+    expect(afterSignIn(login('?returnTo=%2Fapp%2Fdata%2Forders%3Fpage%3D2'))).toBe(
+      '/app/data/orders?page=2',
+    );
+  });
+
+  it('lands in the workspace without a returnTo', () => {
+    expect(afterSignIn(login(''))).toBe('/app');
+  });
+
+  it('never leaves this origin', () => {
+    for (const to of [
+      '//evil.test/x',
+      'https://evil.test/x',
+      '/\\evil.test/x',
+      '/.//evil.test/x',
+      '/..//evil.test/x',
+      '/a/..//evil.test/x',
+    ]) {
+      expect(afterSignIn(login(`?returnTo=${encodeURIComponent(to)}`))).toMatch(/^\/(?!\/)/);
+      expect(afterSignIn(login(`?returnTo=${encodeURIComponent(to)}`))).not.toContain('evil');
+    }
   });
 });

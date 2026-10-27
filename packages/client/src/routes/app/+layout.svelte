@@ -1,19 +1,24 @@
 <script lang="ts">
 import type { Snippet } from 'svelte';
-import { LayoutDashboard, LogOut, Menu } from '@lucide/svelte';
+import { Database, LayoutDashboard, LogOut, Menu, UserRound } from '@lucide/svelte';
+import { page } from '$app/state';
 import { useAuth } from '#lib/stores/auth.svelte.js';
+import type { LayoutData } from './$types';
 
 /**
- * Typed here rather than from `./$types`: the load is annotated `LayoutLoad`
- * with no type argument, which resolves its output to `{}` — so `data.user`
- * arrived as an empty object and reading `data.user.name` was a type error
- * that nothing reported, because the client package runs no `svelte-check`
- * in CI. `requireRole` is what actually fills this.
+ * The workspace shell (ADR 0006). The navigation is what the engine answered:
+ * `GET /api/data` lists only the collections this user may read, so nothing
+ * here decides who sees what.
  */
-let { data, children }: { data: { user?: { name?: string; email?: string } }; children: Snippet } =
-  $props();
+let { data, children }: { data: LayoutData; children: Snippet } = $props();
 const auth = useAuth();
 let drawerOpen = $state(false);
+// The layout outlives navigation; on a narrow screen the drawer would stay open
+// over the page a sidebar link just opened.
+$effect(() => {
+  page.url.pathname;
+  drawerOpen = false;
+});
 </script>
 
 <div class="drawer lg:drawer-open">
@@ -44,13 +49,28 @@ let drawerOpen = $state(false);
         {import.meta.env.PUBLIC_APP_NAME || 'Zveltio'}
       </div>
 
-      <ul class="menu flex-1">
+      <ul class="menu flex-1 w-full">
         <li>
-          <a href="/employee/dashboard" class="gap-2">
+          <a href="/app" class="gap-2" class:menu-active={page.url.pathname === '/app'}>
             <LayoutDashboard size={18} />
             Dashboard
           </a>
         </li>
+        {#if data.collections.length > 0}
+          <li class="menu-title">Data</li>
+          {#each data.collections as c (c.name)}
+            <li>
+              <a
+                href="/app/data/{encodeURIComponent(c.name)}"
+                class="gap-2"
+                class:menu-active={page.url.pathname.startsWith(`/app/data/${encodeURIComponent(c.name)}`)}
+              >
+                <Database size={18} />
+                {c.display_name ?? c.name}
+              </a>
+            </li>
+          {/each}
+        {/if}
       </ul>
 
       <!-- User footer -->
@@ -66,6 +86,10 @@ let drawerOpen = $state(false);
             <div class="text-base-content/65 text-xs">{data.user?.email}</div>
           </div>
         </div>
+        <a href="/app/account" class="btn btn-ghost btn-sm w-full justify-start gap-2">
+          <UserRound size={16} />
+          Account
+        </a>
         <button onclick={() => auth.signOut()} class="btn btn-ghost btn-sm w-full justify-start gap-2">
           <LogOut size={16} />
           Sign Out

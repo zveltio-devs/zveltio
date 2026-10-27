@@ -54,6 +54,9 @@ function engineEnv(): Record<string, string> {
     // so sign-up has to be reachable.
     ZVELTIO_REGISTRATION_ENABLED: '1',
     STUDIO_DIST_PATH: join(ROOT, 'packages', 'studio', 'dist'),
+    // The engine looks for the App in `<cwd>/client-dist`, which a checkout does
+    // not have: every App journey here ran against the engine's 404 page.
+    CLIENT_DIST_PATH: join(ROOT, 'packages', 'client', 'dist'),
     NODE_ENV: 'test',
     // CRM smoke needs engine routes + Studio slot activation for `crm`.
     ...(existsSync(extensionsDir)
@@ -85,6 +88,11 @@ async function main(): Promise<void> {
       `No Studio build at ${env.STUDIO_DIST_PATH}. Run \`cd packages/studio && bun x vite build\` ` +
         'first — this suite exists partly to catch a Studio that does not render, so it must ' +
         'not silently boot without one.',
+    );
+  }
+  if (needsStudioBuild && !existsSync(env.CLIENT_DIST_PATH)) {
+    throw new Error(
+      `No App build at ${env.CLIENT_DIST_PATH}. Run \`bun --cwd=packages/client run build\` first.`,
     );
   }
 

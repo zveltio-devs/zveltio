@@ -1,6 +1,7 @@
 import { authClient, useSession } from '#lib/auth-client.js';
 import { goto } from '$app/navigation';
 import { sync } from '#lib/zveltio.js';
+import { afterSignIn } from '#lib/guards.js';
 
 /**
  * Reactive auth store cu Svelte 5 rune.
@@ -23,7 +24,7 @@ export function useAuth() {
     async signIn(email: string, password: string) {
       const result = await authClient.signIn.email({ email, password });
       if (!result.error) {
-        await goto('/');
+        await goto(afterSignIn(new URL(window.location.href)));
       }
       return result;
     },
