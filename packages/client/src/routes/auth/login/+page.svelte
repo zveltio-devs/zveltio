@@ -18,12 +18,6 @@ import { page } from '$app/state';
         </div>
       {/if}
 
-      {#if page.url.searchParams.get('error') === 'insufficient_role'}
-        <div class="alert alert-warning text-sm mb-2">
-          You don't have permission to access that page.
-        </div>
-      {/if}
-
       <LoginForm />
 
       <div class="divider text-sm">OR</div>

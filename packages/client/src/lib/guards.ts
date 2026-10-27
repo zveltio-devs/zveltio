@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 
 /**
- * Role guard for the client app's authenticated sections.
+ * Sign-in guard for the App's workspace, `/app` (ADR 0006).
  *
  * `(employee)` and `(partner)` each had a `+layout.server.ts` that fetched the
  * session and redirected on a missing or insufficient role. It read exactly
@@ -24,22 +24,37 @@ import { redirect } from '@sveltejs/kit';
  * always skip client-side code. What this buys is that people who are not
  * signed in land on the login page instead of a broken-looking empty app.
  *
- * It asks `/api/me`, not better-auth's `/api/auth/get-session`. The session
- * carries no role at all, so a guard reading `session.user.role` bounced every
- * signed-in user — god included — to `insufficient_role`. `/api/me` returns the
- * `user` row, whose `role` is only `god` or `member`, plus `roles`: the caller's
- * Casbin roles, which is where employee, partner, manager and admin live.
+ * It asks `/api/me`, not better-auth's `/api/auth/get-session`: `/api/me`
+ * returns the `user` row plus `roles`, the caller's Casbin roles, which the
+ * session does not carry.
+ *
+ * It checks no role. It used to admit `(employee)` for employee/manager/admin
+ * and `(partner)` for partner/manager/admin, which bounced every signed-in user
+ * holding any other role — a `sales` or `accountant` role an operator made —
+ * from the whole app. The App is split from the Console by what the user does,
+ * not by who they are: everyone signed in gets the workspace, and what it shows
+ * is what the engine lets them read.
  */
-export async function requireRole(
+export async function requireUser(
   fetchFn: typeof fetch,
   url: URL,
-  allowed: readonly string[],
-): Promise<{ user: { id: string; role: string; roles: string[]; [k: string]: unknown } }> {
+): Promise<{
+  user: {
+    id: string;
+    role: string;
+    roles: string[];
+    name?: string;
+    email?: string;
+    [k: string]: unknown;
+  };
+}> {
   const engineUrl =
     import.meta.env.PUBLIC_ENGINE_URL ??
     (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
 
-  let session: { user?: { id: string; role: string; roles?: string[] } } | null = null;
+  let session: {
+    user?: { id: string; role: string; roles?: string[]; name?: string; email?: string };
+  } | null = null;
   try {
     const res = await fetchFn(`${engineUrl}/api/me`, { credentials: 'include' });
     if (res.ok) session = await res.json();
@@ -54,9 +69,24 @@ export async function requireRole(
   if (!user) {
     throw redirect(302, `/auth/login?returnTo=${encodeURIComponent(url.pathname)}`);
   }
-  const roles = user.roles ?? [];
-  if (![user.role, ...roles].some((r) => allowed.includes(r))) {
-    throw redirect(302, '/auth/login?error=insufficient_role');
+  return { user: { ...user, roles: user.roles ?? [] } };
+}
+
+/**
+ * Where signing in lands: the `returnTo` the guard put on the login URL, or the
+ * workspace. Resolved against this origin and refused when it leaves it, so
+ * `?returnTo=//evil.test` or `?returnTo=https://evil.test` cannot turn the
+ * login page into a redirector. A path that normalises to `//host`
+ * (`/.//evil.test`) is same-origin to the parser and protocol-relative to the
+ * navigation that follows, so it is refused too.
+ */
+export function afterSignIn(url: URL): string {
+  const to = url.searchParams.get('returnTo');
+  if (to) {
+    const target = new URL(to, url.origin);
+    if (target.origin === url.origin && !target.pathname.startsWith('//')) {
+      return target.pathname + target.search + target.hash;
+    }
   }
-  return { user: { ...user, roles } };
+  return '/app';
 }

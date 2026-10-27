@@ -133,8 +133,9 @@ registers; `registerContributionSlot` is a Studio API (not an SDK one).
 
 ## 6. Other surfaces in this package
 
-`packages/client` is a separate SvelteKit application for end users — public
-site (`(public)`), employee area (`(employee)`), and partner portal
-(`(partner)`), with its own auth client and `blocks/` renderer. It shares the
+`packages/client` is a separate SvelteKit application for end users, the App
+— public site (`(public)`), sign-in (`/auth`), and the signed-in workspace
+(`/app`: generic list and form screens for every collection the user may read,
+`/app/account`), with its own auth client and `blocks/` renderer. It shares the
 design system and sanitisation helpers with the Studio but is deployed
 separately.

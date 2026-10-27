@@ -77,6 +77,9 @@ const OWN_USER = exempt("the caller's own rows (user_id), not a tenant's");
  */
 const DOORS: Record<string, Coverage> = {
   // ── Data API ────────────────────────────────────────────────────────────
+  'GET /api/data': exempt(
+    'collection names and field metadata (zvd_collections), which are instance-level and shared by every tenant; no record is read',
+  ),
   'GET /api/data/:collection': here,
   'GET /api/data/:collection/:id': here,
   'POST /api/data/:collection': here,
