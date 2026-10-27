@@ -1028,6 +1028,9 @@ export class DDLManager {
    * thrown, since the drop has already happened.
    */
   static async forgetDroppedCollection(name: string, rules: string[][]): Promise<void> {
+    // Every definition, not only this one: the drop took the relation fields
+    // other collections held for it (`dropInTransaction`).
+    DDLManager.invalidateCache();
     try {
       const tenancy = await import('../tenancy/index.js');
       // Exactly the rules the drop deleted, never "whatever is filed under the
@@ -1140,6 +1143,21 @@ export class DDLManager {
       await dropMaskView(trx, tableName);
       await sql.raw(`DROP TABLE IF EXISTS ${tableName} CASCADE`).execute(trx);
     });
+
+    // The field another collection holds for a relation to this one with no
+    // column behind it — its m2m, its o2m alias — named a junction or a table
+    // that is now gone, and every read that expanded it failed. It goes too.
+    const { removeFieldFromCollection } = await import('./relations.js');
+    const aliases = await db
+      .selectFrom('zvd_relations')
+      .select(['source_collection', 'source_field'])
+      .where('target_collection', '=', name)
+      .where('source_collection', '!=', name)
+      .where('type', 'in', ['m2m', 'o2m'])
+      .execute();
+    for (const a of aliases) {
+      await removeFieldFromCollection(db, a.source_collection, a.source_field);
+    }
 
     // Clean up relation metadata for both sides — the FK constraint is
     // already gone (DROP TABLE CASCADE handled it), but the zvd_relations
