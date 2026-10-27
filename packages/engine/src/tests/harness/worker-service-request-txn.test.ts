@@ -88,6 +88,15 @@ export default {
       .selectNoFrom((eb) => ['statement_timeout', 'zveltio.actor', 'zveltio.visible_tenants']
         .map((n, i) => eb.fn('current_setting', [eb.val(n)]).as('s' + i)))
       .executeTakeFirstOrThrow().then((r) => JSON.stringify(r));
+    // A joined worker service cannot leave a setting changed for the route.
+    app.get('/svc-tamper', async (c) => {
+      const before = await settings();
+      const sp = async () => (await ctx.db.selectNoFrom((eb) =>
+        eb.fn('current_setting', [eb.val('search_path')]).as('p')).executeTakeFirstOrThrow()).p;
+      const path = await sp();
+      const tried = await svc('${CALLEE}.tamper');
+      return c.json({ tried, same: before === (await settings()) && path === (await sp()) });
+    });
     // ... or answers: one transaction, the route's, and the row is there for it.
     app.get('/svc-ok', async (c) => {
       const before = await settings();
@@ -136,6 +145,17 @@ export default {
   async register(app, ctx) {
     const add = (who) => ctx.db.insertInto(T).values({ who }).execute();
     ctx.services.register('${CALLEE}.write', async (who) => { await add(who); return true; });
+    // Tries to change a setting of the request it joined; answers what it got.
+    ctx.services.register('${CALLEE}.tamper', async () => {
+      const tries = [
+        "SELECT set_config('search_path', 'pg_temp', true)",
+        'SET LOCAL search_path TO pg_temp',
+        "SELECT set_config('zveltio.actor', 'someone-else', true)",
+      ];
+      const out = [];
+      for (const q of tries) out.push(await ctx.db.query(q).then(() => 'ran', () => 'refused'));
+      return out;
+    });
     ctx.services.register('${CALLEE}.slow', async (who) => {
       await add(who + '1');
       await sleep(250);
@@ -372,6 +392,16 @@ d('a service call in a worker request runs in the request transaction', () => {
     await new Promise((r) => setTimeout(r, 400));
     expect((await getInline('/svc-late-result')).body).toBe('refused');
     expect(await rows(CALLEE, 'ir-late')).toEqual([]);
+  });
+
+  // The settings window restores a fixed list; this holds only while the worker
+  // SQL policy refuses every way of setting one. If the policy ever admits one,
+  // this fails.
+  it("a joined worker service cannot change the route's settings", async () => {
+    expect(await getInline('/svc-tamper')).toEqual({
+      status: 200,
+      body: { tried: ['refused', 'refused', 'refused'], same: true },
+    });
   });
 
   it("a worker service called by an inline route that answers: in the route's transaction", async () => {

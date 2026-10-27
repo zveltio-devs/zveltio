@@ -1803,6 +1803,12 @@ async function joinedStatement<T>(
   scope: InvokeScope,
   run: () => Promise<T>,
 ): Promise<T> {
+  // Complete only because the worker cannot change a setting itself:
+  // `assertWorkerSqlAllowed` refuses SET, RESET and `set_config` in any spelling
+  // before a statement gets here, so the settings this window changes are the
+  // ones it applies. Admit any of those in the policy and this list must grow.
+  // (`SET TRANSACTION`, which it admits, cannot raise a privilege: at most it
+  // makes the caller's own request read-only.)
   const names = ['role', 'statement_timeout', ...workerSettings(scope).map(([n]) => n)];
   const [saved] = (await conn.unsafe(
     `SELECT json_object_agg(n, coalesce(current_setting(n, true), ''))::text AS s
