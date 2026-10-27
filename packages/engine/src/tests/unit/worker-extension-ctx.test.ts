@@ -109,6 +109,13 @@ describe('worker ctx: db', () => {
     expect(savepoints).toEqual([]);
   });
 
+  // As inline: its statements would name no transaction the host orders.
+  it('refuses startTransaction, as inline does', () => {
+    const { ctx, savepoints } = bridge();
+    expect(() => ctx.db.startTransaction()).toThrow('use ctx.db.transaction()');
+    expect(savepoints).toEqual([]);
+  });
+
   it('reqDb is the same request-scoped db', () => {
     const { ctx } = bridge();
     expect(ctx.reqDb({})).toBe(ctx.db);

@@ -140,6 +140,13 @@ export function buildWorkerCtx(bridge: WorkerBridge): {
           bridge.transaction(() => execute(callback))) as typeof builder.execute,
       });
     },
+    // Refused inline too (UNGUARDED_HANDLES): its statements would name no
+    // transaction, so the host could not order them against the request's.
+    startTransaction: () => {
+      throw new Error(
+        `Extension "${bridge.extName}" used ctx.db.startTransaction(); use ctx.db.transaction().`,
+      );
+    },
   });
   const call =
     (name: string) =>
