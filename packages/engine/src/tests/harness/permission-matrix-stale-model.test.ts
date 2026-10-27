@@ -42,7 +42,14 @@ d('the matrix save through a stale model', () => {
       )
     ).rows.length > 0;
   const inModel = async (r: string[]) => (await getEnforcer()).getModel().hasPolicy('p', 'p', r);
-  const save = (rules: string[][]) =>
+  // The `version` a bulk save carries back: the rules as they stand now.
+  const matrixVersion = async (): Promise<string> =>
+    (
+      (await (
+        await app.request('/api/admin/permissions', { headers: { cookie: god } })
+      ).json()) as { version: string }
+    ).version;
+  const save = (rules: string[][], version: string) =>
     app.request('/api/admin/permissions/bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: god },
@@ -52,6 +59,7 @@ d('the matrix save through a stale model', () => {
           resource: r[2],
           action: r[3],
         })),
+        version,
       }),
     });
 
@@ -85,7 +93,7 @@ d('the matrix save through a stale model', () => {
       expect(await inModel(r)).toBe(false);
     }
 
-    expect((await save([kept])).status).toBe(200);
+    expect((await save([kept], await matrixVersion())).status).toBe(200);
 
     expect(await inTable(dropped)).toBe(false);
     expect(await inTable(kept)).toBe(true);
@@ -102,24 +110,26 @@ d('the matrix save through a stale model', () => {
       expect(await inTable(r)).toBe(false);
     }
 
-    expect((await save([kept])).status).toBe(200);
+    expect((await save([kept], await matrixVersion())).status).toBe(200);
 
     expect(await inTable(kept)).toBe(true);
     expect(await inModel(dropped)).toBe(false);
     expect(await inTable(dropped)).toBe(false);
   });
 
-  it('two concurrent saves leave exactly one of the posted sets', async () => {
+  it('two concurrent saves from one load: one applies, the other is refused', async () => {
     // Each save reads the role's rows, then writes the difference: unlocked,
     // the second read could see neither save's writes, and the result was a
-    // mix of both sets — rules neither operator posted together.
+    // mix of both sets — rules neither operator posted together. Both were
+    // made from the same load, so the second, waiting for the first to commit,
+    // finds the rules changed and is refused rather than undoing it.
     const a = ['ca1', 'ca2', 'ca3', 'ca4'].map(rule);
     const b = ['cb1', 'cb2', 'cb3', 'cb4'].map(rule);
-    expect((await save([a[0], b[0]])).status).toBe(200);
+    expect((await save([a[0], b[0]], await matrixVersion())).status).toBe(200);
 
-    const [ra, rb] = await Promise.all([save(a), save(b)]);
-    expect(ra.status).toBe(200);
-    expect(rb.status).toBe(200);
+    const loaded = await matrixVersion();
+    const [ra, rb] = await Promise.all([save(a, loaded), save(b, loaded)]);
+    expect([ra.status, rb.status].sort()).toEqual([200, 409]);
 
     const held = async (rs: string[][]) =>
       (await Promise.all(rs.map(inTable))).filter(Boolean).length;

@@ -112,8 +112,12 @@ d('an admin write needs one connection (in-process)', () => {
     await call('DELETE', `/api/api-keys/${own.id}`);
     const matrix = (await (await send('GET', '/api/admin/permissions')).json()) as {
       permissions: unknown[];
+      version: string;
     };
-    await call('POST', '/api/admin/permissions/bulk', { permissions: matrix.permissions });
+    await call('POST', '/api/admin/permissions/bulk', {
+      permissions: matrix.permissions,
+      version: matrix.version,
+    });
     await call('POST', '/api/admin/permissions/orphans/prune', {
       rows: [{ ptype: 'g', rule: [`${S}_ghost`, `${S}_role`, '*'] }],
     });

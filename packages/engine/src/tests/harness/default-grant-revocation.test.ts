@@ -194,17 +194,18 @@ d('a revoked default grant stays revoked', () => {
     tenantMemberRoleId = ((await created.json()) as { role: { id: string } }).role.id;
 
     const current = await app.request('/api/admin/permissions', { headers: { cookie: god } });
-    const { permissions } = (await current.json()) as {
+    const { permissions, version } = (await current.json()) as {
       permissions: { role_id: string; resource: string; action: string }[];
+      version: string;
     };
     const omitted = (p: { role_id: string; resource: string; action: string }) =>
       p.role_id === tenantMemberRoleId && p.resource === COLL && p.action === 'create';
     expect(permissions.some(omitted)).toBe(true);
-    const bulk = (list: typeof permissions) =>
+    const bulk = (list: typeof permissions, at: string) =>
       app.request('/api/admin/permissions/bulk', {
         method: 'POST',
         headers: { cookie: god, 'content-type': 'application/json' },
-        body: JSON.stringify({ permissions: list }),
+        body: JSON.stringify({ permissions: list, version: at }),
       });
 
     // A rule the save keeps is not deleted and re-inserted: a save that died
@@ -216,7 +217,14 @@ d('a revoked default grant stays revoked', () => {
                      AND v2 = ${COLL} AND v3 = 'read'`.execute(db)
       ).rows[0];
     const before = await rowOf();
-    expect((await bulk(permissions.filter((p) => !omitted(p)))).status).toBe(200);
+    expect(
+      (
+        await bulk(
+          permissions.filter((p) => !omitted(p)),
+          version,
+        )
+      ).status,
+    ).toBe(200);
     expect(await rowOf()).toEqual(before);
     expect(await held('tenant_member', COLL, 'create')).toBe(false);
     expect(await revoked('tenant_member', COLL, 'create')).toBe(true);
@@ -224,7 +232,10 @@ d('a revoked default grant stays revoked', () => {
     await bootAndLoad();
     expect(await held('tenant_member', COLL, 'create')).toBe(false);
 
-    expect((await bulk(permissions)).status).toBe(200);
+    const reloaded = (await (
+      await app.request('/api/admin/permissions', { headers: { cookie: god } })
+    ).json()) as { version: string };
+    expect((await bulk(permissions, reloaded.version)).status).toBe(200);
     expect(await held('tenant_member', COLL, 'create')).toBe(true);
     // This collection only: on a shared database other suites' cleanups delete
     // default rules on their own collections, and those are revocations too.
@@ -241,8 +252,9 @@ d('a revoked default grant stays revoked', () => {
     await e.addPolicy('tenant_member', tenantDomain, COLL, 'delete');
     try {
       const current = await app.request('/api/admin/permissions', { headers: { cookie: god } });
-      const { permissions } = (await current.json()) as {
+      const { permissions, version } = (await current.json()) as {
         permissions: { role_id: string; resource: string; action: string }[];
+        version: string;
       };
       expect(
         permissions.some(
@@ -252,7 +264,7 @@ d('a revoked default grant stays revoked', () => {
       const saved = await app.request('/api/admin/permissions/bulk', {
         method: 'POST',
         headers: { cookie: god, 'content-type': 'application/json' },
-        body: JSON.stringify({ permissions }),
+        body: JSON.stringify({ permissions, version }),
       });
       expect(saved.status).toBe(200);
       const { rows } = await sql<{ v1: string }>`

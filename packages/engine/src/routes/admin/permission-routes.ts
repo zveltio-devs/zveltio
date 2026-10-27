@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -28,6 +29,30 @@ import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
  * resources, roles, permissions, role hierarchy). Extracted from admin.ts
  * (H-07 split). Route paths are byte-identical.
  */
+/**
+ * The rules the permissions matrix shows and a bulk save replaces: every role's
+ * global (domain '*') `p` rules, in the table.
+ */
+async function matrixRules(db: Database) {
+  const roles = await db.selectFrom('zv_roles').select(['id', 'name']).execute();
+  const names = new Set(roles.map((r) => r.name));
+  const rows = await db
+    .selectFrom('zvd_permissions')
+    .select(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
+    .where('ptype', '=', 'p')
+    // The matrix edits global rules only, and bulk saves what it shows as
+    // domain '*': a tenant's rule listed here came back from a save global.
+    .where('v1', '=', '*')
+    .execute();
+  return { roles, rules: rows.filter((p) => names.has(p.v0)) };
+}
+
+/** A digest of `matrixRules`, order-independent. */
+function matrixVersion(rules: Awaited<ReturnType<typeof matrixRules>>['rules']): string {
+  const lines = rules.map((r) => JSON.stringify([r.v0, r.v1, r.v2, r.v3, r.v4, r.v5])).sort();
+  return createHash('sha256').update(lines.join('\n')).digest('hex');
+}
+
 export function registerPermissionRoutes(app: Hono, db: Database): void {
   // ── Permissions UI helpers ────────────────────────────────────
   // These endpoints back the Studio permissions matrix page.
@@ -202,32 +227,22 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
 
   // GET /permissions — All custom-role permissions (ptype='p' from zvd_permissions)
   app.get('/permissions', async (c) => {
-    const roles = await db.selectFrom('zv_roles').selectAll().execute();
+    const { roles, rules } = await matrixRules(db);
     const roleNameToId = new Map<string, string>(roles.map((r) => [r.name, r.id]));
 
-    const policies = await db
-      .selectFrom('zvd_permissions')
-      .selectAll()
-      .where('ptype', '=', 'p')
-      // The matrix edits global rules only, and bulk saves what it shows as
-      // domain '*': a tenant's rule listed here came back from a save global.
-      .where('v1', '=', '*')
-      .execute();
+    const permissions = rules.map((p) => ({
+      role_id: roleNameToId.get(p.v0),
+      // `bulk` below writes `(role, '*', resource, action)`: v1 is the DOMAIN,
+      // v2 the resource, v3 the action. Reading v1/v2 handed the screen
+      // resource `*` and the collection name as the action — every saved box
+      // came back unticked, and the next save sent `action: '<collection>'`,
+      // which the enum refuses with 400. One grant made the screen unsavable.
+      resource: p.v2,
+      action: p.v3,
+    }));
 
-    const permissions = policies
-      .filter((p) => roleNameToId.has(p.v0))
-      .map((p) => ({
-        role_id: roleNameToId.get(p.v0),
-        // `bulk` below writes `(role, '*', resource, action)`: v1 is the DOMAIN,
-        // v2 the resource, v3 the action. Reading v1/v2 handed the screen
-        // resource `*` and the collection name as the action — every saved box
-        // came back unticked, and the next save sent `action: '<collection>'`,
-        // which the enum refuses with 400. One grant made the screen unsavable.
-        resource: p.v2,
-        action: p.v3,
-      }));
-
-    return c.json({ permissions });
+    // A save carries `version` back and is refused if the rules moved since.
+    return c.json({ permissions, version: matrixVersion(rules) });
   });
 
   // POST /permissions/bulk — Replace every role's permissions with the posted set
@@ -245,25 +260,15 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
             action: z.enum(['view', 'create', 'update', 'delete', 'read', 'write', 'execute', '*']),
           }),
         ),
+        // GET /permissions' `version`: the save replaces every role's global
+        // rules, so one made from a stale load revoked whatever was granted
+        // since — by another admin, the policies API, an extension grant.
+        version: z.string().min(1),
       }),
     ),
     async (c) => {
-      const { permissions } = c.req.valid('json');
-      const roles = await db.selectFrom('zv_roles').selectAll().execute();
-      const roleIdToName = new Map<string, string>(roles.map((r) => [r.id, r.name]));
-
+      const { permissions, version } = c.req.valid('json');
       const e = await getEnforcer();
-
-      // The posted set per role, as rules. `view` is what this screen used to
-      // offer; it means `read` (see /resources). Domain '*' = global (applies
-      // in every tenant). A rule for a role with no row is dropped, as before.
-      const wanted = new Map<string, Set<string>>(roles.map((r) => [r.name, new Set<string>()]));
-      for (const perm of permissions) {
-        const roleName = roleIdToName.get(perm.role_id);
-        if (!roleName) continue;
-        const action = perm.action === 'view' ? 'read' : perm.action;
-        wanted.get(roleName)!.add(JSON.stringify([roleName, '*', perm.resource, action]));
-      }
 
       // A diff, not delete-all-then-add: an unchanged rule is never touched, so a
       // save that dies half-way cannot leave every default grant removed — and
@@ -283,7 +288,26 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
       //
       // One save at a time across replicas: each reads, then writes the
       // difference, and two interleaved saves left a mix of both posted sets.
-      await withAdvisoryLock(db, 'zveltio:permission-matrix-save', async () => {
+      //
+      // The version is checked under the same lock. It is a transaction lock in
+      // the request transaction, so a second save waits for the first to commit
+      // and then reads its rules: two saves from one load cannot both pass.
+      const conflict = await withAdvisoryLock(db, 'zveltio:permission-matrix-save', async () => {
+        const { roles, rules } = await matrixRules(db);
+        if (matrixVersion(rules) !== version) return true;
+        const roleIdToName = new Map<string, string>(roles.map((r) => [r.id, r.name]));
+
+        // The posted set per role, as rules. `view` is what this screen used to
+        // offer; it means `read` (see /resources). Domain '*' = global (applies
+        // in every tenant). A rule for a role with no row is dropped, as before.
+        const wanted = new Map<string, Set<string>>(roles.map((r) => [r.name, new Set<string>()]));
+        for (const perm of permissions) {
+          const roleName = roleIdToName.get(perm.role_id);
+          if (!roleName) continue;
+          const action = perm.action === 'view' ? 'read' : perm.action;
+          wanted.get(roleName)!.add(JSON.stringify([roleName, '*', perm.resource, action]));
+        }
+
         for (const [roleName, keep] of wanted) {
           const tableRows = await db
             .selectFrom('zvd_permissions')
@@ -310,7 +334,18 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
             }
           }
         }
+        return false;
       });
+      if (conflict) {
+        return c.json(
+          {
+            error:
+              'The permissions changed since this matrix was loaded. Reload it and apply your changes again.',
+            code: 'permissions_changed',
+          },
+          409,
+        );
+      }
 
       await invalidateAllPermissionCaches();
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
