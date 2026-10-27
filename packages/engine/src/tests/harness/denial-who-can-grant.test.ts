@@ -24,6 +24,14 @@ const d = harnessAvailable() ? describe : describe.skip;
 /** A tenant nothing else in the suite knows about. */
 const TENANT = '00000000-0000-0000-0000-00000000d001';
 
+/**
+ * Every account this file made. The first block wrote users and `tenant_admin`
+ * rows straight to the table and never removed them: nine accounts per run,
+ * which the live model of every later file in the process never heard of, and
+ * which `permission-set-matches-enforce.test.ts` then sampled as a subject.
+ */
+const made: string[] = [];
+
 async function makeUser(
   db: Awaited<ReturnType<typeof getTestApp>>['db'],
   name: string,
@@ -33,6 +41,7 @@ async function makeUser(
     INSERT INTO "user" (id, name, email, "emailVerified", role, "createdAt", "updatedAt")
     VALUES (${id}, ${name}, ${`${id}@test.local`}, false, 'member', NOW(), NOW())
   `.execute(db);
+  made.push(id);
   return id;
 }
 
@@ -48,6 +57,12 @@ async function grant(
 }
 
 d('who a refusal points at', () => {
+  afterAll(async () => {
+    const { db } = await getTestApp();
+    await sql`DELETE FROM zvd_permissions WHERE v0 = ANY(${made})`.execute(db);
+    await sql`DELETE FROM "user" WHERE id = ANY(${made})`.execute(db);
+  });
+
   it('names the administrators of this tenant', async () => {
     const { db } = await getTestApp();
     const ana = await makeUser(db, 'Ana Popescu');
