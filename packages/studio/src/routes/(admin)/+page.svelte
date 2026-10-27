@@ -44,6 +44,8 @@ import { extensions } from '#lib/extensions.svelte.js';
 
 interface AdminStats {
   collections?: number;
+  /** Null when the engine could not count; virtual collections are not counted. */
+  records?: { total: number; by_collection: Record<string, number> } | null;
   active_webhooks?: number;
   /** Null while the request log samples, when a count would be a fraction of the traffic. */
   api_calls_today?: number | null;
@@ -67,7 +69,8 @@ interface AuditEvent {
 interface CollectionRow {
   name: string;
   label?: string;
-  record_count: number;
+  /** Null when the count is unknown (failed, or a virtual collection). */
+  record_count: number | null;
 }
 
 // ── State ───────────────────────────────────────────────────────────────
@@ -78,7 +81,7 @@ let collectionsLoading = $state(true);
 
 let stats = $state<{
   collections: number;
-  total_records: number;
+  total_records: number | null;
   api_calls_today: number | null;
   active_webhooks: number;
 }>({
@@ -147,7 +150,7 @@ const nextSteps = $derived.by(() => {
 const pendingSteps = $derived(nextSteps.filter((s) => !s.done));
 
 const largestCollection = $derived(
-  collections.slice().sort((a, b) => b.record_count - a.record_count)[0],
+  collections.slice().sort((a, b) => (b.record_count ?? -1) - (a.record_count ?? -1))[0],
 );
 
 // ── Load ────────────────────────────────────────────────────────────────
@@ -191,8 +194,8 @@ async function loadStats() {
     const s = adminStats.status === 'fulfilled' ? adminStats.value : null;
     const c = collectionsData.status === 'fulfilled' ? collectionsData.value : null;
     stats = {
+      ...stats,
       collections: s?.collections ?? c?.collections?.length ?? 0,
-      total_records: 0,
       api_calls_today: s?.api_calls_today ?? null,
       active_webhooks: s?.active_webhooks ?? 0,
     };
@@ -239,22 +242,18 @@ async function loadCollections() {
     // failed requests on every dashboard load also bury real errors in the
     // console, which is how this went unnoticed.
     const cols = (colRes.collections ?? []).filter((c) => !c.is_system);
-    const countResults = await Promise.allSettled(
-      cols.map((col) =>
-        api.get<{ total?: number; pagination?: { total: number } }>(
-          `/api/data/${col.name}?limit=1`,
-        ),
-      ),
-    );
-    let totalRecords = 0;
-    collections = cols.map((col, i) => {
-      const r = countResults[i];
-      const total =
-        r.status === 'fulfilled' ? (r.value.total ?? r.value.pagination?.total ?? 0) : 0;
-      totalRecords += total;
-      return { name: col.name, label: col.label, record_count: total };
-    });
-    stats = { ...stats, collections: cols.length, total_records: totalRecords };
+    // One engine count instead of one `?limit=1` request per collection, where a
+    // failed request was added in as 0. Unknown stays unknown: `—`, not 0.
+    const records = await api
+      .get<AdminStats>('/api/admin/stats')
+      .then((s) => s.records ?? null)
+      .catch(() => null);
+    collections = cols.map((col) => ({
+      name: col.name,
+      label: col.label,
+      record_count: records?.by_collection[col.name] ?? null,
+    }));
+    stats = { ...stats, collections: cols.length, total_records: records?.total ?? null };
   } catch {
     collections = [];
   } finally {
@@ -381,7 +380,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
         {#if stats.collections > 0}
           {m['dashboard.summary']({
             collections: stats.collections.toLocaleString(),
-            records: stats.total_records.toLocaleString(),
+            records: stats.total_records?.toLocaleString() ?? '—',
           })}
         {:else}
           {m['dashboard.emptyLead']()}
@@ -453,7 +452,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
             <div class="p-2 bg-secondary/10 rounded-xl"><Database size={18} class="text-secondary" /></div>
           </div>
           <div>
-            <p class="display-lg text-base-content">{stats.total_records.toLocaleString()}</p>
+            <p class="display-lg text-base-content">{stats.total_records?.toLocaleString() ?? '—'}</p>
             <p class="text-xs text-base-content/65 mt-0.5">{m['dashboard.totalRecords']()}</p>
           </div>
         </div>
@@ -583,7 +582,7 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
                         {/if}
                       </div>
                     </td>
-                    <td class="text-right font-mono text-sm">{col.record_count.toLocaleString()}</td>
+                    <td class="text-right font-mono text-sm">{col.record_count?.toLocaleString() ?? '—'}</td>
                     <td class="text-right">
                       <div class="flex gap-1 justify-end">
                         <a href={resolve(`collections/${col.name}`)} class="btn btn-ghost btn-xs">{m['common.open']()}</a>
