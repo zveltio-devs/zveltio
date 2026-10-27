@@ -43,6 +43,7 @@ import type { RequestUser } from '../lib/data/index.js';
 import { requireConfigWindow } from '../lib/step-up.js';
 import { principalRole } from '../lib/tenancy/index.js';
 import { mutates } from './config-routes.js';
+import { offConsoleHost } from './console-host.js';
 import { requestSession } from './session-prefetch.js';
 
 /**
@@ -222,16 +223,18 @@ export function extensionRequestRefused(): boolean {
  * mutation does (`configStepUp`): no window, no session (an API key) — refused
  * with the same answer, thrown so no caller reads it as a grant. A refusal of
  * `admin` stays a refusal, so a user who is no administrator is never asked to
- * step up. Outside an extension request, and on a read, the grant is unchanged.
+ * step up. Off the console host (`ZVELTIO_CONSOLE_HOST`) it is refused 404, as
+ * `/api/*` configuration is there. Outside an extension request, and on a read,
+ * the grant is unchanged.
  */
 export async function fenceAdminGrant(granted: boolean): Promise<boolean> {
   const store = extRequest.getStore();
   if (!granted || !store || !mutates(store.c.req.method)) return granted;
   if (!store.refusal) {
     const session = await requestSession(store.c, store.auth);
-    const refusal = session
-      ? await requireConfigWindow(store.c, session)
-      : await refuseWithoutSession(store.c);
+    const refusal =
+      offConsoleHost(store.c) ??
+      (session ? await requireConfigWindow(store.c, session) : await refuseWithoutSession(store.c));
     if (!refusal) return true;
     store.refusal = refusal;
   }

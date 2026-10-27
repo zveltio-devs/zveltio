@@ -75,6 +75,7 @@ import { schemaDevWriter } from './lib/schema-artifact/dev-writer.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initValidationEngine } from './lib/validation-engine.js';
 import { extensionAuthGate } from './middleware/extension-auth-gate.js';
+import { assertConsoleHost, consoleHostFence } from './middleware/console-host.js';
 import { extRateLimit, ssrRateLimit } from './middleware/rate-limit.js';
 import {
   initTelemetry,
@@ -692,6 +693,8 @@ async function buildHonoApp(): Promise<Hono> {
     '*',
     refuseWhenRetired(() => _heartbeat?.retired() === true),
   );
+  // The Console and configuration answer only on ZVELTIO_CONSOLE_HOST, when set.
+  app.use('*', consoleHostFence());
   // Upload and import legitimately carry bodies larger than the 10 MB default,
   // so they used to be exempted from the limit entirely — which is not the same
   // thing. Both handlers call `c.req.formData()`, which buffers the whole body,
@@ -1224,6 +1227,7 @@ async function bootstrap() {
   //    misconfigured deploy fails in a second instead of after migrations.
   const { assertProductionConfig } = await import('./lib/startup-guards.js');
   assertProductionConfig();
+  assertConsoleHost();
 
   // 1. Database
   const db = await initDatabase();
