@@ -32,6 +32,8 @@ let resources = $state<Resource[]>([]);
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 let roles = $state<any[]>([]);
 let permissions = $state(new Map<string, Set<string>>());
+// The rules' version as loaded: a save made from a stale load is refused (409).
+let permissionsVersion = '';
 let loading = $state(true);
 let saving = $state(false);
 let saved = $state(false);
@@ -110,7 +112,7 @@ async function loadAll() {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       api.get<{ roles: any[] }>('/api/admin/roles'),
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      api.get<{ permissions: any[] }>('/api/admin/permissions'),
+      api.get<{ permissions: any[]; version: string }>('/api/admin/permissions'),
     ]);
     resources = resRes.resources || [];
     roles = rolRes.roles || [];
@@ -123,6 +125,7 @@ async function loadAll() {
       map.get(key)!.add(p.action);
     }
     permissions = map;
+    permissionsVersion = permRes.version;
   } finally {
     loading = false;
   }
@@ -157,12 +160,17 @@ async function saveMatrix() {
       const [role_id, resource] = key.split(':');
       for (const action of acts) list.push({ role_id, resource, action, conditions: {} });
     }
-    await api.post('/api/admin/permissions/bulk', { permissions: list });
+    await api.post('/api/admin/permissions/bulk', {
+      permissions: list,
+      version: permissionsVersion,
+    });
     saved = true;
     toast.success(m['permissions.saved']());
     setTimeout(() => (saved = false), 3000);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+    // Someone changed the rules since this screen loaded: show what holds now.
+    if ((err as { status?: number }).status === 409) await loadAll();
   } finally {
     saving = false;
   }

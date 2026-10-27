@@ -20,8 +20,11 @@ import Page from '../../src/routes/(admin)/permissions/+page.svelte';
 const ROLE = `it_role_${Date.now().toString(36)}`;
 const COLLECTION = `it_perm_${Date.now().toString(36)}`;
 type Perm = { role_id: string; resource: string; action: string };
+type Matrix = { permissions: Perm[]; version: string };
 let roleId: string;
 let before: Perm[] = [];
+// A bulk save carries back the version of the rules it was made from.
+const load = () => api.get<Matrix>('/api/admin/permissions');
 
 beforeAll(async () => {
   await api.post('/api/collections', {
@@ -29,12 +32,14 @@ beforeAll(async () => {
     fields: [{ name: 'title', type: 'text' }],
   });
   roleId = (await api.post<{ role: { id: string } }>('/api/admin/roles', { name: ROLE })).role.id;
-  before = (await api.get<{ permissions: Perm[] }>('/api/admin/permissions')).permissions;
+  before = (await load()).permissions;
 });
 
 afterAll(async () => {
   // `bulk` replaces every custom role's grants: put back what was there.
-  await api.post('/api/admin/permissions/bulk', { permissions: before }).catch(() => {});
+  await api
+    .post('/api/admin/permissions/bulk', { permissions: before, version: (await load()).version })
+    .catch(() => {});
   await api.delete(`/api/admin/roles/${roleId}`).catch(() => {});
   await api.delete(`/api/collections/${COLLECTION}`).catch(() => {});
 });
@@ -53,18 +58,41 @@ describe('permissions — against the engine', () => {
   it('a saved grant reads back as the same resource and action', async () => {
     await api.post('/api/admin/permissions/bulk', {
       permissions: [...before, { role_id: roleId, resource: COLLECTION, action: 'read' }],
+      version: (await load()).version,
     });
-    const { permissions } = await api.get<{ permissions: Perm[] }>('/api/admin/permissions');
+    const { permissions } = await load();
     expect(permissions).toContainEqual({ role_id: roleId, resource: COLLECTION, action: 'read' });
   });
 
   it('what the screen loads can be saved back unchanged', async () => {
-    const { permissions } = await api.get<{ permissions: Perm[] }>('/api/admin/permissions');
-    await expect(api.post('/api/admin/permissions/bulk', { permissions })).resolves.toBeDefined();
+    const { permissions, version } = await load();
+    await expect(
+      api.post('/api/admin/permissions/bulk', { permissions, version }),
+    ).resolves.toBeDefined();
   });
 
   it('renders the matrix with the role in it', async () => {
     render(Page);
     await waitFor(() => expect(document.body.textContent).toContain(ROLE));
+  });
+
+  it('a save from a stale load is refused and the screen reloads', async () => {
+    render(Page);
+    await waitFor(() => expect(document.body.textContent).toContain(ROLE));
+    // Granted elsewhere after the screen loaded: the save must not revoke it.
+    await api.post('/api/permissions/policies', {
+      subject: ROLE,
+      resource: COLLECTION,
+      action: 'create',
+    });
+    const get = vi.spyOn(api, 'get');
+    const save = Array.from(document.querySelectorAll('button')).find(
+      (el) => el.textContent?.trim() === 'Save',
+    );
+    save!.click();
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/admin/permissions'));
+    get.mockRestore();
+    const { permissions } = await load();
+    expect(permissions).toContainEqual({ role_id: roleId, resource: COLLECTION, action: 'create' });
   });
 });

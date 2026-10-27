@@ -39,6 +39,14 @@ d('permission matrix actions match what the engine checks', () => {
   let member: { cookie: string; userId: string };
   let roleId: string;
 
+  // The `version` a bulk save carries back: the rules as they stand now.
+  const matrixVersion = async (): Promise<string> =>
+    (
+      (await (
+        await app.request('/api/admin/permissions', { headers: { cookie: god } })
+      ).json()) as { version: string }
+    ).version;
+
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     god = await createGodSession(app, db);
@@ -98,6 +106,7 @@ d('permission matrix actions match what the engine checks', () => {
       headers: { 'Content-Type': 'application/json', cookie: god },
       body: JSON.stringify({
         permissions: [{ role_id: roleId, resource: COLLECTION, action: readAction }],
+        version: await matrixVersion(),
       }),
     });
     expect(bulk.status).toBe(200);
@@ -125,13 +134,16 @@ d('permission matrix actions match what the engine checks', () => {
     // The screen saves every grant it loaded, so one it refuses makes it unsavable.
     const loaded = (await (
       await app.request('/api/admin/permissions', { headers: { cookie: god } })
-    ).json()) as { permissions: Array<{ role_id: string; resource: string; action: string }> };
+    ).json()) as {
+      permissions: Array<{ role_id: string; resource: string; action: string }>;
+      version: string;
+    };
     const mine = loaded.permissions.filter((p) => p.role_id === roleId);
     expect(mine.map((p) => p.action)).toContain('execute');
     const bulk = await app.request('/api/admin/permissions/bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: god },
-      body: JSON.stringify({ permissions: mine }),
+      body: JSON.stringify({ permissions: mine, version: loaded.version }),
     });
     expect(bulk.status).toBe(200);
   });

@@ -55,6 +55,14 @@ d('RBAC role + permission management (in-process)', () => {
       .sort();
   };
 
+  // The `version` a bulk save carries back: the rules as they stand now.
+  const matrixVersion = async (): Promise<string> =>
+    (
+      (await (await app.request('/api/admin/permissions', { headers: { cookie } })).json()) as {
+        version: string;
+      }
+    ).version;
+
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
@@ -102,6 +110,7 @@ d('RBAC role + permission management (in-process)', () => {
           { role_id: childId, resource: 'zvd_harness', action: 'view' },
           { role_id: childId, resource: 'zvd_harness', action: 'update' },
         ],
+        version: await matrixVersion(),
       }),
     );
     expect(res.status).toBe(200);
@@ -113,6 +122,7 @@ d('RBAC role + permission management (in-process)', () => {
       '/api/admin/permissions/bulk',
       json('POST', {
         permissions: [{ role_id: childId, resource: 'zvd_harness', action: 'update' }],
+        version: await matrixVersion(),
       }),
     );
     expect(res.status).toBe(200);
