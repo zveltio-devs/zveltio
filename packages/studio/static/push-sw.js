@@ -8,8 +8,10 @@
  * intercepts `fetch` changes how the whole app loads, and that is a decision
  * for whoever owns the Studio shell, not a side effect of adding notifications.
  *
- * Served from `static/`, so it is registered at `/push-sw.js` and its scope is
- * the site root — which is what a push subscription needs.
+ * Served from `static/` and registered as `<base>/push-sw.js` (see
+ * lib/web-push.ts), so its scope is `/admin/`. It is the only worker on that
+ * scope: the Studio is online-only and ships no offline worker. A second worker
+ * there would replace this one and drop every push handler.
  */
 
 self.addEventListener('push', (event) => {
