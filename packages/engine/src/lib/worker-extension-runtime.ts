@@ -118,9 +118,10 @@ const invocation = new AsyncLocalStorage<{
 
 /**
  * The `db.transaction()` callback a statement runs in, by an id minted here. The
- * host decides what it names: inside a request, nothing (the request is the
- * transaction, and a nested callback a savepoint); outside one, a transaction
- * the host opens for this callback alone (owner decision 4).
+ * host decides what it names: inside a request, a scope (the request is the
+ * transaction, the callback a savepoint in it) that the host orders other
+ * extensions' work in the request against; outside one, a transaction the host
+ * opens for this callback alone (owner decision 4).
  */
 const transaction = new AsyncLocalStorage<{ id: string }>();
 
@@ -222,7 +223,11 @@ function serviceCall(name: string, args: unknown[]): Promise<unknown> {
   // The request it serves, as for a query: the host answers the call as that
   // request's tenant, looked up in its own record.
   const requestId = invocation.getStore()?.id;
-  return call((id) => send({ type: 'service:call', id, name, args, requestId }));
+  // And the `db.transaction()` it is made in: the callee's statements join it.
+  const txn = transaction.getStore()?.id;
+  return call((id) =>
+    send({ type: 'service:call', id, name, args, requestId, ...(txn ? { txn } : {}) }),
+  );
 }
 
 /** A ctx member only the host can answer (worker-extension-ctx.ts). */
