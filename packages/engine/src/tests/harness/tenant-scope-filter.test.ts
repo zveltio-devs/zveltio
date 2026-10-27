@@ -21,7 +21,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getSingleTenantId } from '../../lib/tenancy/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/tenant-manager.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -30,15 +30,16 @@ const CHILD = '4b000000-0000-0000-0000-0000000000c1';
 
 d('explicit tenant scope filter', () => {
   let db: Database;
+  /** A member of its own: not a god (whose reach is every tenant), no other assignment. */
+  let userId: string;
 
   beforeAll(async () => {
     const t = await getTestApp();
     db = t.db;
-    // Two of the tests below need a real user row. Without this they depend on
-    // some OTHER file in the shared harness process having created one first,
-    // which is the order-dependence that makes a suite pass together and fail
-    // alone — and it did fail alone, on a fresh database.
-    await createGodSession(t.app, t.db);
+    // Two of the tests below need a real non-god user row of their own, not
+    // whichever `LIMIT 1` finds: on a fresh database there was none, and any
+    // other user may carry assignments that widen its reach.
+    ({ userId } = await createMemberSession(t.app, t.db));
     await sql`
       INSERT INTO zv_tenants (id, slug, name, parent_id) VALUES
         (${ROOT}::uuid,  'scope-root',  'Scope Root',  NULL),
@@ -67,11 +68,6 @@ d('explicit tenant scope filter', () => {
     // The load-bearing one. `withTenantIsolation` resolves an assignment into a
     // visible set; when it produces one, the reach is wider than the caller's
     // own tenant and an equality on that tenant would hide the rest.
-    // Not a god, whose reach is every tenant (another file may leave one first).
-    const rows = await sql<{ id: string }>`
-      SELECT id FROM "user" WHERE role IS DISTINCT FROM 'god' LIMIT 1
-    `.execute(db);
-    const userId = rows.rows[0]?.id ?? null;
     await sql`
       INSERT INTO zv_tenant_users (tenant_id, user_id, role)
       VALUES (${ROOT}::uuid, ${userId}, 'admin')
@@ -99,11 +95,6 @@ d('explicit tenant scope filter', () => {
     // The other half, and the one that would break isolation if it were wrong.
     // A `subtree` assignment on ROOT reaches CHILD too, so an equality on ROOT
     // would hide rows the request is entitled to read.
-    // Not a god, whose reach is every tenant (another file may leave one first).
-    const rows = await sql<{ id: string }>`
-      SELECT id FROM "user" WHERE role IS DISTINCT FROM 'god' LIMIT 1
-    `.execute(db);
-    const userId = rows.rows[0]?.id ?? null;
     await sql`
       INSERT INTO zv_tenant_users (tenant_id, user_id, role, read_scope)
       VALUES (${ROOT}::uuid, ${userId}, 'admin', 'subtree')
