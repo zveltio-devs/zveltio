@@ -5,6 +5,7 @@ import type { Kysely, RawBuilder } from 'kysely';
 export { permissionGate } from './permission-gate.js';
 export { ActionRefusal, ACTION_REFUSAL, type RefusalStatus } from './action-refusal.js';
 export { todayIn } from './dates.js';
+export { RESERVED_PATH_SEGMENTS, isReservedPath } from './reserved-paths.js';
 export { readMultipart, MULTIPART_REQUIRED } from './multipart.js';
 export { toJsonb } from './jsonb.js';
 export {
