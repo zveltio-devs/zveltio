@@ -244,7 +244,9 @@ function apiKeyExpired(key: { expires_at: unknown }): boolean {
 /** What a realtime connection authenticated as — kept so the sweep can ask again. */
 export type RealtimePrincipal =
   | { kind: 'session'; token: string; userId: string }
-  | { kind: 'api_key'; keyId: string };
+  // `issuerId`: whose standing in the connection's tenant the key acts on
+  // (`apiKeyActsIn`) — `stillInTenant` asks it again.
+  | { kind: 'api_key'; keyId: string; issuerId: string | null };
 
 /**
  * Who a realtime connection reads as: the fields `checkAccess` and
@@ -271,7 +273,11 @@ export function realtimeIdentity(
   if (p.authType === 'api_key') {
     return {
       authType: 'api_key',
-      principal: { kind: 'api_key', keyId: apiKeyRowId(p.user.id) },
+      principal: {
+        kind: 'api_key',
+        keyId: apiKeyRowId(p.user.id),
+        issuerId: p.user.authorUserId ?? null,
+      },
       user: {
         id: p.user.id,
         role: 'api_key',
