@@ -63,7 +63,7 @@ export async function refuseWithoutSession(
  * The one model of a key principal — the data API's, which every route that
  * admits a key follows rather than re-deriving:
  * - Who: `authenticate` → `validateApiKey`: active, unexpired, issuer not
- *   banned, and `apiKeyActsIn` the request's tenant (a root key acts in any).
+ *   banned, and `apiKeyActsIn` the request's tenant.
  * - Principal: `{ id: 'apikey:<uuid>', role: 'api_key', scopes, rlsBypass,
  *   authorUserId }`, told from a session by its id (`isApiKeyPrincipal`), never
  *   by `role`.
@@ -138,5 +138,5 @@ export async function presentsUsableKey(c: Context): Promise<boolean> {
       key = null;
     }
   }
-  return !!key && apiKeyActsIn(key.tenant_id, tenantId(c));
+  return !!key && (await apiKeyActsIn(key, tenantId(c)));
 }

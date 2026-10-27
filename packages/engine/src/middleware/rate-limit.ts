@@ -541,12 +541,12 @@ interface RateLimitConfig {
  * value as sent — a bogus or foreign identity must fall back to the IP bucket,
  * or rotating fake keys would buy a fresh bucket each.
  */
-export function rateLimitCaller(c: Context): string | undefined {
+export async function rateLimitCaller(c: Context): Promise<string | undefined> {
   const sessionId = (c.get('prefetchedSession') as { user?: { id?: string } } | null | undefined)
     ?.user?.id;
   if (sessionId) return sessionId;
   const key = c.get('prefetchedApiKey');
-  if (key && apiKeyActsIn(key.tenant_id, tenantId(c))) return `apikey:${key.id}`;
+  if (key && (await apiKeyActsIn(key, tenantId(c)))) return `apikey:${key.id}`;
   // A route-level limiter mounted after its own auth middleware.
   return (c.get('user') as { id?: string } | undefined)?.id;
 }
@@ -556,7 +556,7 @@ export function rateLimit(config: RateLimitConfig) {
   compiledDefaults.set(keyPrefix, { windowMs: config.windowMs, max: config.max });
 
   return async (c: Context, next: Next) => {
-    const callerId = rateLimitCaller(c);
+    const callerId = await rateLimitCaller(c);
     // The bucket's identity; undefined = the client IP.
     const bucketId = perIp ? undefined : callerId;
     // Resolve live limits from DB (falls back to compiled defaults)

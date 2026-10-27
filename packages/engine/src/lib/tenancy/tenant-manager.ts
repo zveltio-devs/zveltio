@@ -10,8 +10,10 @@ import type { Database } from '../../db/index.js';
 import { withAdvisoryLock } from '../../db/advisory-lock.js';
 import { withLockWaitBound } from '../../db/dynamic.js';
 import { getCache } from '../runtime/index.js';
+import { withSavepoint } from '../savepoint.js';
 import {
   currentAfterCommitQueue,
+  getCurrentTenantTrx,
   runAfterCommitJob,
   runWithTenantTrx,
   setRequestActor,
@@ -95,6 +97,7 @@ import {
   activeMembership,
   encodeTenantSet,
   godScopeQuery,
+  membershipsOf,
   NO_UNITS,
   noScopeQuery,
   type ScopeRow,
@@ -217,16 +220,40 @@ export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 export const DEFAULT_TENANT_SLUG = 'default';
 
 /**
- * May an API key owned by `keyTenantId` act in the request's tenant? Root keys
- * act anywhere; a request with no tenant acts in root. One definition, because
- * the auth path and the rate limiter must agree on which keys are real.
+ * May this API key act in the request's tenant? One definition, because the
+ * auth path, the admin guard and the rate limiter must agree on which keys are
+ * real. A request with no tenant acts in root.
+ *
+ * - A key bound to an ordinary tenant acts there alone (its issuer's standing
+ *   there is `apiKeyUsable`'s).
+ * - A root key acts in root, where everyone counts.
+ * - A root key in an ordinary tenant acts there on its issuer's standing, the
+ *   rule `tenantMembershipMiddleware` holds a session to: god, or a membership
+ *   in force there, read uncached so a withdrawal counts on the next request.
+ *   It used to act anywhere: a member that middleware refused by session in a
+ *   tenant got in with their own root key. A failed lookup refuses.
  */
-export function apiKeyActsIn(
-  keyTenantId: string | null | undefined,
+export async function apiKeyActsIn(
+  key: { tenant_id?: string | null; created_by?: string | null },
   requestTenantId: string | null,
-): boolean {
-  if (!keyTenantId || keyTenantId === DEFAULT_TENANT_ID) return true;
-  return keyTenantId === (requestTenantId ?? DEFAULT_TENANT_ID);
+): Promise<boolean> {
+  const acting = requestTenantId ?? DEFAULT_TENANT_ID;
+  if (key.tenant_id && key.tenant_id !== DEFAULT_TENANT_ID) return key.tenant_id === acting;
+  if (acting === DEFAULT_TENANT_ID) return true;
+  const issuer = key.created_by;
+  if (!issuer) return false;
+  if (await isGodUser(issuer)) return true;
+  // `membershipsOf` reads past `zv_tenant_users`'s policy, which inside the
+  // request's transaction answers for the published actor — not yet this key.
+  const trx = getCurrentTenantTrx();
+  const member = () =>
+    sql<{ ok: boolean }>`SELECT EXISTS (SELECT 1 FROM ${membershipsOf(issuer)}
+                          WHERE tu.tenant_id = ${acting}::uuid AND ${activeMembership('tu')}) AS ok`
+      .execute(trx ?? _db)
+      .then((r) => r.rows[0]?.ok === true);
+  return trx
+    ? withSavepoint(trx, 'zv_key_acts_in', member, () => false)
+    : member().catch(() => false);
 }
 
 const DEFAULT_TENANT: Tenant = {
