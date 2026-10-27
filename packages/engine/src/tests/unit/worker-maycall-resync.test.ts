@@ -1,6 +1,6 @@
 // A worker answers ctx.services.has() from its own copy of its ServiceDeps,
 // sent at init. When an optional dependency is upgraded past the dependent's
-// minVersion (lifecycle refreshTooOldDependents), the host map turns callable
+// minVersion (lifecycle refreshOptionalDependents), the host map turns callable
 // and the worker must be told: the snapshot carries the map again.
 import { expect, it } from 'bun:test';
 import { Hono } from 'hono';

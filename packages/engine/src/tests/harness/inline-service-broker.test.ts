@@ -15,6 +15,7 @@ import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { topoSortExtensions } from '../../lib/extensions/discovery.js';
 import { serviceRegistry } from '../../lib/service-registry.js';
+import { unloadExtension } from '../../lib/extensions/lifecycle.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
@@ -58,6 +59,12 @@ export default {
       try {
         const fn = ctx.services.get(c.req.param('svc'));
         return c.json({ out: fn === null ? null : fn() });
+      } catch (e) { return c.json({ error: e.message }); }
+    });
+    app.get('/wait/:svc', async (c) => {
+      try {
+        await ctx.services.waitFor(c.req.param('svc'), 3000);
+        return c.json({ out: 'found' });
       } catch (e) { return c.json({ error: e.message }); }
     });
   },
@@ -123,7 +130,7 @@ d('inline service broker: namespace, declared owners, optional dependencies', ()
 
   afterAll(async () => {
     _setInlineForTests(false);
-    for (const name of ALL) {
+    for (const name of [...ALL, ABSENT]) {
       serviceRegistry.unregisterAll(name);
       extensionLoader.loaded.delete(name);
       await revokeExtensionDbRoles(db, name, true).catch(() => undefined);
@@ -179,6 +186,42 @@ d('inline service broker: namespace, declared owners, optional dependencies', ()
   it('an absent optional dependency is no load error, and its service reads as null', async () => {
     expect(extensionLoader.loaded.has(OPTIONAL)).toBe(true);
     expect(await attempt(OPTIONAL, `${ABSENT}.anything`)).toEqual({ out: null });
+  });
+
+  // A not-installed optional dependency waited the whole timeout; a too-old one
+  // answered at once. Absent is absent: both answer now, until it loads.
+  it('waitFor on an optional dependency that is not loaded answers "not found" at once', async () => {
+    const t0 = Date.now();
+    const wait = (await (await app.request(`/ext/${OPTIONAL}/wait/${ABSENT}.svc`)).json()) as {
+      error?: string;
+    };
+    expect(wait.error).toBe(`service "${ABSENT}.svc" not found`);
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+
+  it('the optional dependency turns callable when it loads, and absent again when it unloads', async () => {
+    writeExt(
+      base,
+      ABSENT,
+      `export default { name: '${ABSENT}', async register(app, ctx) {
+        ctx.services.register('${ABSENT}.svc', () => 'late');
+      } };`,
+    );
+    const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
+    await extensionLoader.loadExtension(ABSENT, app, ctx, base);
+    expect(extensionLoader.loaded.has(ABSENT)).toBe(true);
+    expect(await attempt(OPTIONAL, `${ABSENT}.svc`)).toEqual({ out: 'late' });
+    expect(await (await app.request(`/ext/${OPTIONAL}/wait/${ABSENT}.svc`)).json()).toEqual({
+      out: 'found',
+    });
+
+    await unloadExtension(extensionLoader, ABSENT);
+    const t0 = Date.now();
+    const wait = (await (await app.request(`/ext/${OPTIONAL}/wait/${ABSENT}.svc`)).json()) as {
+      error?: string;
+    };
+    expect(wait.error).toBe(`service "${ABSENT}.svc" not found`);
+    expect(Date.now() - t0).toBeLessThan(1000);
   });
 
   // `minVersion` was never checked for a dependency loaded in this boot: both of

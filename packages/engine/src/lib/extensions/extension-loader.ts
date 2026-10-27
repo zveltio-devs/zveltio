@@ -70,6 +70,7 @@ import {
   syncAllWithRegistry,
   syncWithRegistry,
   unloadExtension,
+  refreshOptionalDependents,
 } from './lifecycle.js';
 import { loadExtensionFromDir } from './load.js';
 import { discoverExternal, getActiveExtensionNames, topoSortExtensions } from './discovery.js';
@@ -423,7 +424,10 @@ export class ExtensionLoader {
     // per-extension load pipeline (dir resolution, Studio-only short-circuit,
     // manifest/tier/entry phases, WASM-or-import, migrations, field types,
     // then finalizeExtensionLoad). Thin delegator so callers stay unchanged.
-    return loadExtensionFromDir(this, extName, app, ctx, basePath, migrate);
+    await loadExtensionFromDir(this, extName, app, ctx, basePath, migrate);
+    // Every load — boot, enable, another replica's, a reload — reaches the
+    // dependents that found this one absent.
+    if (this.isActive(extName)) await refreshOptionalDependents(this, extName, ctx.db);
   }
 
   /**

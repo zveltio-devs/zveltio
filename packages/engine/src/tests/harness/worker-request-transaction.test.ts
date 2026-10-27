@@ -139,6 +139,11 @@ type Out = {
   whoami: { a: Record<string, unknown>; b: Record<string, unknown> };
   pooled: { u: string; t: string | null; pid: number }[];
   login: string;
+  /**
+   * Is the request's `current_user` the worker role, or an extension role under
+   * it — and one RLS binds (a superuser counts as a member of every role)?
+   */
+  workerRole: boolean;
 };
 
 d('one transaction per request across the worker bridge', () => {
@@ -282,6 +287,13 @@ d('one transaction per request across the worker bridge', () => {
           },
           dup,
           whoami,
+          workerRole: (
+            await sql<{
+              m: boolean;
+            }>`SELECT pg_has_role(r.rolname, 'zveltio_worker', 'MEMBER') AND NOT r.rolsuper AND NOT r.rolbypassrls AS m FROM pg_roles r WHERE r.rolname = ${String(whoami.a.u)}`.execute(
+              db,
+            )
+          ).rows[0]!.m,
           pooled: pooled.flatMap((r) => r ?? []),
           login: login?.u ?? '',
         };
@@ -353,6 +365,7 @@ d('one transaction per request across the worker bridge', () => {
         expect(a.pid).toBe(b.pid);
         expect(a.t).toBe(TENANT);
         expect(a.u).not.toBe(out[t]?.login);
+        expect(out[t]?.workerRole).toBe(true);
       });
 
       it('no role or tenant GUC reaches the next pooled query', () => {
