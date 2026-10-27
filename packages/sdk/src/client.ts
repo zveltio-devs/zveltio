@@ -40,6 +40,21 @@ export interface ApiKeySelf {
   rls_bypass: boolean;
 }
 
+/** A key in `GET /api/me/api-keys` — never the hash or the raw key. */
+export interface MemberApiKey extends ApiKeySelf {
+  last_used_at: string | null;
+  created_at: string;
+  is_active: boolean;
+}
+
+/** `POST /api/me/api-keys`: explicit scopes and an expiry at most one year out. */
+export interface MemberApiKeyInput {
+  name: string;
+  scopes: Array<{ collection: string; actions: string[] }>;
+  expires_at: string;
+  rls_bypass?: boolean;
+}
+
 export interface ListParams {
   page?: number;
   limit?: number;
@@ -275,6 +290,17 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
      * longer authenticates.
      */
     apiKey: () => this.request<ApiKeySelf>('GET', '/api/api-keys/self'),
+    /**
+     * The signed-in member's own keys (`/api/me/api-keys`, ADR 0010), when the
+     * instance lets members issue them. A session only; creating one needs a
+     * step-up, which `onStepUpRequired` answers. The raw `key` is returned once.
+     */
+    apiKeys: {
+      list: () => this.request<{ api_keys: MemberApiKey[] }>('GET', '/api/me/api-keys'),
+      create: (input: MemberApiKeyInput) =>
+        this.request<MemberApiKey & { key: string }>('POST', '/api/me/api-keys', input),
+      revoke: (id: string) => this.request('DELETE', `/api/me/api-keys/${encodeURIComponent(id)}`),
+    },
   } as const;
 
   /**

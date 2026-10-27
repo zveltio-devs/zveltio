@@ -38,6 +38,17 @@ describe('ZveltioClient URL building', () => {
     expect(urls).toEqual(['https://engine.test/api/api-keys/self']);
   });
 
+  it("reaches the member's own keys at /api/me/api-keys", async () => {
+    const urls = captureUrls();
+    const client = createZveltioClient({ baseUrl: 'https://engine.test' });
+    await client.auth.apiKeys.list();
+    await client.auth.apiKeys.revoke('a/b');
+    expect(urls).toEqual([
+      'https://engine.test/api/me/api-keys',
+      'https://engine.test/api/me/api-keys/a%2Fb',
+    ]);
+  });
+
   it('encodes the storage folder into the query string', async () => {
     const urls = captureUrls();
     const client = createZveltioClient({ baseUrl: 'https://engine.test' });

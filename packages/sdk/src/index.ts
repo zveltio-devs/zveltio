@@ -1,5 +1,12 @@
 export { ZveltioClient, createZveltioClient } from './client.js';
-export type { ApiKeySelf, ZveltioClientConfig, ListParams, ListResult } from './client.js';
+export type {
+  ApiKeySelf,
+  MemberApiKey,
+  MemberApiKeyInput,
+  ZveltioClientConfig,
+  ListParams,
+  ListResult,
+} from './client.js';
 export { ZveltioApiError, PROBLEM_CONTENT_TYPE } from './errors.js';
 export type { ProblemDetails } from './errors.js';
 export { ZveltioRealtime } from './realtime.js';
