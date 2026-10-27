@@ -16,7 +16,7 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { __allowViaSet, getEnforcer } from '../../lib/tenancy/index.js';
+import { __allowViaSet, getEnforcer, reconcilePolicies } from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -24,6 +24,22 @@ const d = harnessAvailable() ? describe : describe.skip;
 type Case = { subject: string; domain: string; resource: string; action: string };
 
 /**
+ * The oracle is `enforce()` over a model that holds exactly the table.
+ *
+ * The set is not built from the live model alone: for a user whose `member` row
+ * the model has not heard of, it also reads that user's `g` rows from
+ * `zvd_permissions` (`unloadedRoles` in lib/tenancy/permissions.ts, called from
+ * `effectivePermissions`) — a user written by another replica, or straight to
+ * the table, is answered by the table, which is the truth the model only
+ * caches. `enforce()` reads the model and nothing else, so for such a user it
+ * answered `false` where the product answers `true`, and agreed again only once
+ * a reconcile loaded the row. Earlier harness files leave exactly such users
+ * behind in the shared process (a direct `INSERT` of a `tenant_admin` row), and
+ * a sample drawn from "whatever `LIMIT` returns" hit one in CI:
+ * `inainte: true` against `inainte: false`. So the model is brought to the table
+ * first; the table-only shape has its own case below, against `enforce()` after
+ * the model caught up.
+ *
  * `enforce()` over the subject AND its `"user".role`: the set counts the column
  * role as a `g <user> <role> *` row would, and the effect is `some(allow)`, so
  * the union is the two verdicts OR-ed.
@@ -47,13 +63,15 @@ d('resolved permission set matches enforce()', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    // See `oracle`: without this, the oracle is a stale model, not casbin.
+    await reconcilePolicies();
 
     // Real subjects and domains, straight out of the installed policy table.
     const grants = await sql<{ v0: string; v2: string }>`
-      SELECT DISTINCT v0, v2 FROM zvd_permissions WHERE ptype = 'g' LIMIT 8
+      SELECT DISTINCT v0, v2 FROM zvd_permissions WHERE ptype = 'g' ORDER BY v0, v2 LIMIT 8
     `.execute(db);
     const objects = await sql<{ v2: string; v3: string }>`
-      SELECT DISTINCT v2, v3 FROM zvd_permissions WHERE ptype = 'p' LIMIT 6
+      SELECT DISTINCT v2, v3 FROM zvd_permissions WHERE ptype = 'p' ORDER BY v2, v3 LIMIT 6
     `.execute(db);
 
     for (const g of grants.rows) {
@@ -83,6 +101,7 @@ d('resolved permission set matches enforce()', () => {
         JOIN zvd_permissions p
           ON p.ptype = 'p' AND p.v0 = g.v1 AND (p.v1 = '*' OR p.v1 = g.v2)
        WHERE g.ptype = 'g'
+       ORDER BY 1, 2, 3, 4
        LIMIT 4
     `.execute(db);
     cases.unshift(...held.rows);
@@ -92,6 +111,7 @@ d('resolved permission set matches enforce()', () => {
         FROM "user" u
         JOIN zvd_permissions p ON p.ptype = 'p' AND p.v0 = u.role AND p.v1 = '*'
        WHERE u.role = 'member'
+       ORDER BY 1, 3, 4
        LIMIT 1
     `.execute(db);
     cases.unshift(...viaColumn.rows);
@@ -179,33 +199,71 @@ d('resolved permission set matches enforce()', () => {
 
   it('agrees after a grant is added and again after it is removed', async () => {
     const e = await getEnforcer();
-    const grants = await sql<{ v0: string; v2: string }>`
-      SELECT v0, v2 FROM zvd_permissions WHERE ptype = 'g' LIMIT 1
-    `.execute(db);
-    const subject = grants.rows[0]!.v0;
-    const domain = grants.rows[0]!.v2;
+    // A subject of its own, holding the baseline role through the enforcer, so
+    // model and table agree on it and every verdict below is known. It used to
+    // be the first `g` row of the table — whoever an earlier file left there —
+    // and the case could only assert agreement, which a subject that answers
+    // `true` to everything satisfies without the grant ever mattering.
+    const subject = `equiv_user_${Date.now()}`;
+    const domain = '*';
     const resource = `equiv_${Date.now()}`;
+    await e.addRoleForUser(subject, 'member', domain);
 
-    // Agreement is the property under test, not any particular verdict. The
-    // subject here may well be a `tenant_admin`, and `('*','*','*')` means every
-    // question about them answers `true` — including after the specific grant is
-    // taken away. Asserting `false` there would be testing the fixture, not the
-    // code, and it is exactly the wrong assumption this test made first.
     const agree = async (label: string) => {
       const slow = await oracle(db, e, { subject, domain, resource, action: 'read' });
       const fast = await __allowViaSet(subject, domain, resource, 'read');
       expect(`${label}: ${fast}`).toBe(`${label}: ${slow}`);
-      return slow;
+      return fast;
     };
 
-    await agree('inainte');
-    await e.addPolicy(subject, domain, resource, 'read');
     try {
-      expect(await agree('cu grant')).toBe(true);
+      // Resolved and memoized here, so the two below prove the writes drop it.
+      expect(await agree('inainte')).toBe(false);
+      await e.addPolicy(subject, domain, resource, 'read');
+      try {
+        expect(await agree('cu grant')).toBe(true);
+      } finally {
+        await e.removePolicy(subject, domain, resource, 'read');
+      }
+      expect(await agree('dupa retragere')).toBe(false);
     } finally {
-      await e.removePolicy(subject, domain, resource, 'read');
+      await e.deleteRoleForUser(subject, 'member', domain);
     }
-    await agree('dupa retragere');
+  }, 60_000);
+
+  // The shape that disagreed in CI, pinned: a user whose roles are in the table
+  // and not yet in this model (another replica wrote them). The set answers
+  // from the table at once; it must answer what casbin answers once the model
+  // has loaded the same rows — in that tenant, and in no other.
+  it('a role only the table holds answers as casbin does after the model loads it', async () => {
+    const id = `equiv_table_${Date.now()}`;
+    const tenantA = '00000000-0000-4000-8000-0000000000c1';
+    const tenantB = '00000000-0000-4000-8000-0000000000c2';
+    const resource = `equiv_res_${Date.now()}`;
+    // The account trigger writes its `member` row to the table only (migration 059).
+    await sql`
+      INSERT INTO "user" (id, name, email, "emailVerified", role, "createdAt", "updatedAt")
+      VALUES (${id}, 'equiv', ${`${id}@test.local`}, false, 'member', NOW(), NOW())
+    `.execute(db);
+    await sql`
+      INSERT INTO zvd_permissions (ptype, v0, v1, v2) VALUES ('g', ${id}, 'tenant_admin', ${tenantA})
+    `.execute(db);
+    try {
+      const fastA = await __allowViaSet(id, tenantA, resource, 'read');
+      const fastB = await __allowViaSet(id, tenantB, resource, 'read');
+      expect([fastA, fastB]).toEqual([true, false]);
+
+      expect(await reconcilePolicies()).toBe(true);
+      const e = await getEnforcer();
+      expect(e.getModel().hasPolicy('g', 'g', [id, 'tenant_admin', tenantA])).toBe(true);
+      const slowA = await oracle(db, e, { subject: id, domain: tenantA, resource, action: 'read' });
+      const slowB = await oracle(db, e, { subject: id, domain: tenantB, resource, action: 'read' });
+      expect([slowA, slowB]).toEqual([fastA, fastB]);
+    } finally {
+      await sql`DELETE FROM zvd_permissions WHERE v0 = ${id}`.execute(db);
+      await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db);
+      await reconcilePolicies();
+    }
   }, 60_000);
 
   // The sampled cases above come from whatever rows `LIMIT` returns, and on a
