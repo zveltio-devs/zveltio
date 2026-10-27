@@ -76,6 +76,14 @@ two ways a page reaches the Studio, neither of which builds at enable time
   (e.g. `/admin/crm` → `crm`). Shared components in `studio/src/**` are copied
   to `src/lib/ext/<extension-name>/`.
 
+**Console or App.** Each page may set `surface`: `console` (the default) for
+configuration, mounted under `/admin/`; `app` for work screens, mounted under
+`/app/<extension-name>/` in the App. The engine refuses a marked page whose
+path is outside its surface, and the Console drops `app` pages from its nav and
+routes. The App does not render extension pages yet; they arrive with the
+`@zveltio/ui` kit, so mark a page `app` only together with that move. Tier-3
+code pages are baked under `(admin)/`, so `pages[0]` stays a Console page.
+
 Use the same imports the Studio core uses — `$lib/api.js`,
 `$lib/stores/toast.svelte.js`, Svelte 5 runes, DaisyUI classes.
 Anything else has to be vendored under `studio/src/`.
