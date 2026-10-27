@@ -111,3 +111,58 @@ describe('ZveltioClient session token (bearer mode)', () => {
     ]);
   });
 });
+
+describe('ZveltioClient step-up', () => {
+  function engine() {
+    const sent: Array<string | null> = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const token = new Headers(init?.headers).get('X-Zveltio-Step-Up');
+      sent.push(token);
+      if (token === 'su-1') return new Response('{"ok":true}', { status: 200 });
+      return new Response(
+        JSON.stringify({
+          type: 'about:blank',
+          title: 'Forbidden',
+          status: 403,
+          code: 'step_up_required',
+          errors: { action: 'config' },
+        }),
+        { status: 403, headers: { 'content-type': 'application/problem+json' } },
+      );
+    }) as typeof fetch;
+    return sent;
+  }
+
+  it('asks for a step-up on 403 step_up_required and sends once more with the token', async () => {
+    const sent = engine();
+    const asked: string[] = [];
+    const client = createZveltioClient({
+      baseUrl: 'https://engine.test',
+      onStepUpRequired: async (action) => {
+        asked.push(action);
+        return 'su-1';
+      },
+    });
+    expect(await client.post<{ ok: boolean }>('/api/collections', { name: 'x' })).toEqual({
+      ok: true,
+    });
+    expect(asked).toEqual(['config']);
+    expect(sent).toEqual([null, 'su-1']);
+  });
+
+  it('throws the 403 when the hook gives up, and without a hook', async () => {
+    const sent = engine();
+    const giveUp = createZveltioClient({
+      baseUrl: 'https://engine.test',
+      onStepUpRequired: async () => null,
+    });
+    await expect(giveUp.post('/api/collections', {})).rejects.toMatchObject({
+      code: 'step_up_required',
+    });
+    const plain = createZveltioClient({ baseUrl: 'https://engine.test' });
+    await expect(plain.post('/api/collections', {})).rejects.toMatchObject({
+      code: 'step_up_required',
+    });
+    expect(sent).toEqual([null, null]);
+  });
+});

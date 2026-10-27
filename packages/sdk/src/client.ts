@@ -1,5 +1,10 @@
 import { ZveltioApiError } from './errors.js';
 
+/** The header a step-up token rides in (engine lib/step-up.ts). */
+const STEP_UP_HEADER = 'X-Zveltio-Step-Up';
+
+type SendInit = Omit<RequestInit, 'headers'> & { headers: Record<string, string> };
+
 export interface ZveltioClientConfig {
   baseUrl: string;
   apiKey?: string;
@@ -14,6 +19,13 @@ export interface ZveltioClientConfig {
    * with `null` on logout: persist it here and pass it back as `sessionToken`.
    */
   onSessionToken?: (token: string | null) => void;
+  /**
+   * Called when the engine answers 403 `step_up_required` (a configuration change,
+   * or an action that wants a fresh second factor). Confirm the user's passkey or
+   * TOTP for `action` and resolve with the step-up token; the call is then sent
+   * once more with it. Resolve `null` to give up: the 403 is thrown as before.
+   */
+  onStepUpRequired?: (action: string) => Promise<string | null>;
   headers?: Record<string, string>;
 }
 
@@ -121,6 +133,7 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
   private bearer: boolean;
   private sessionToken: string | null;
   private onSessionToken?: (token: string | null) => void;
+  private onStepUpRequired?: (action: string) => Promise<string | null>;
 
   constructor(config: ZveltioClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -132,6 +145,7 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
     this.bearer = config.sessionToken !== undefined || config.onSessionToken !== undefined;
     this.sessionToken = config.sessionToken ?? null;
     this.onSessionToken = config.onSessionToken;
+    this.onStepUpRequired = config.onStepUpRequired;
   }
 
   /** Switch to bearer mode with `token` (or sign this client out of it with `null`). */
@@ -147,7 +161,28 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
   }
 
   /** Every call goes through here: the bearer out, a newly issued token in. */
-  private async send(path: string, init: RequestInit & { headers: Record<string, string> }) {
+  private async send(path: string, init: SendInit) {
+    const res = await this.sendOnce(path, init);
+    if (res.status !== 403 || !this.onStepUpRequired) return this.checked(res);
+    const err = await ZveltioApiError.fromResponse(res);
+    if (err.code !== 'step_up_required') throw err;
+    const action = (err.errors as { action?: unknown } | undefined)?.action;
+    const token = typeof action === 'string' ? await this.onStepUpRequired(action) : null;
+    if (!token) throw err;
+    return this.checked(
+      await this.sendOnce(path, {
+        ...init,
+        headers: { ...init.headers, [STEP_UP_HEADER]: token },
+      }),
+    );
+  }
+
+  private async checked(res: Response): Promise<Response> {
+    if (!res.ok) throw await ZveltioApiError.fromResponse(res);
+    return res;
+  }
+
+  private async sendOnce(path: string, init: SendInit) {
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers:
@@ -159,7 +194,6 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
     });
     const issued = this.bearer ? res.headers.get('set-auth-token') : null;
     if (issued && issued !== this.sessionToken) this.setSessionToken(issued);
-    if (!res.ok) throw await ZveltioApiError.fromResponse(res);
     return res;
   }
 

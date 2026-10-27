@@ -48,6 +48,7 @@ interface ZveltioClientConfig {
   apiKey?: string;             // API key (X-API-Key header)
   sessionToken?: string;       // bearer mode: sent as Authorization: Bearer, cookies off
   onSessionToken?: (token: string | null) => void; // each issued token; null on logout
+  onStepUpRequired?: (action: string) => Promise<string | null>; // 403 step_up_required: return a step-up token to retry once
   headers?: Record<string, string>; // Additional headers
 }
 ```
