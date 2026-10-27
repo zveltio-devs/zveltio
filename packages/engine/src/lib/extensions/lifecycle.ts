@@ -338,7 +338,7 @@ export async function syncWithRegistry(
         }
         // Unloaded above for the version it now refuses: the rebuild drops the old
         // routes, or mounts the old version put back.
-        if (unloaded) await triggerReload(`disable-elsewhere:${name}`);
+        if (unloaded) await triggerReload(`disable-sync:${name}`);
         return why;
       }
       try {
@@ -349,7 +349,7 @@ export async function syncWithRegistry(
     } else {
       await unloadExtension(loader, name);
     }
-    await triggerReload(`${wanted ? 'enable' : 'disable'}-elsewhere:${name}`);
+    await triggerReload(`${wanted ? 'enable' : 'disable'}-sync:${name}`);
   });
 }
 
