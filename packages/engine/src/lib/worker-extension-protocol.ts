@@ -136,8 +136,9 @@ export interface DbQueryRequest {
   savepoint?: 'begin' | 'release' | 'rollback';
   /**
    * The `db.transaction()` callback this statement runs in, by an id the worker
-   * mints. Inside a request the host ignores it: the request is the transaction.
-   * Outside one (owner decision 4) the host opens a transaction of its own under
+   * mints. Inside a request it names the scope the statement belongs to, which
+   * the host orders the request's other work against; the request is the
+   * transaction, and the scope a savepoint in it. Outside one (owner decision 4) the host opens a transaction of its own under
    * it on `begin`, and ends it on the outermost `release` or `rollback`.
    */
   txn?: WorkerMessageId;
@@ -191,6 +192,12 @@ export interface ServiceCallRequest {
    * of that invocation, and refuses an id it no longer holds.
    */
   requestId?: WorkerMessageId;
+  /**
+   * The caller's `db.transaction()` the call was made in, as on `DbQueryRequest`:
+   * inside a request, the callee's statements run in that scope, where any
+   * other work of the request waits for it to end.
+   */
+  txn?: WorkerMessageId;
 }
 
 export interface ServiceCallResponse {

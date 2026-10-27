@@ -389,7 +389,15 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    not after the 30 s route timeout). `db.transaction()` is a savepoint the host
    names (`zv_sp_<depth>`, nested); the worker still cannot send
    BEGIN/COMMIT/SAVEPOINT text. A worker service called during the request joins
-   its transaction under the callee's own role. Statements outside a route
+   its transaction under the callee's own role — also when an inline service the
+   worker called calls it — and takes turns with the caller's `db.transaction()`
+   scopes: a call made inside a scope runs in it, any other work of the request
+   waits for the scope to end (`service:call` carries the caller's scope id; the
+   host orders by it with `db/trx-sequencer.ts`), and a scope a service leaves
+   open when it returns is rolled back. An inline service a worker calls runs in
+   the request's tenant transaction, and a worker route that threw rolls that
+   back with its own (`c.error`, as `tenantMiddleware` does for an inline route)
+   (`tests/harness/worker-service-request-txn.test.ts`). Statements outside a route
    request — `register()`, timers, event deliveries, a service an inline caller
    invokes — keep one transaction per statement: no answer exists to commit them
    with (`tests/harness/worker-request-transaction.test.ts`: the burned invoice
@@ -417,8 +425,9 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    killed worker, two concurrent, no role or GUC leak — process transport, both
    drivers; `tests/unit/worker-extension-host-txn.test.ts` for the bookkeeping.)
    Still open: a worker request holds two connections (the request's tenant
-   transaction and its own); an inline service a worker calls runs in a
-   transaction of its own, not the request's.
+   transaction and its own), committed one after the other — the worker's first,
+   so a COMMIT of the tenant transaction that fails after it keeps the worker's
+   writes and loses an inline service's.
 9. **Default flip:** production uses the runner for third-party extensions, and
    the in-thread worker is removed: development uses the runner protocol over a
    local child (`ZVELTIO_EXT_TRANSPORT=process`), so there are two mechanisms,

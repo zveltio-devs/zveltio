@@ -62,6 +62,7 @@ import {
 } from './service-registry.js';
 import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
+import { Turns } from '../db/trx-sequencer.js';
 import type { RawPool } from '../db/bun-sql-dialect.js';
 import {
   CREDENTIAL_HEADERS,
@@ -82,6 +83,7 @@ import {
   describeDenial,
   getCurrentDomainOrNull,
   getCurrentTenantTrx,
+  getCurrentTrxTenant,
   getRequestActor,
   getResolvedMembership,
   getUserRoles,
@@ -166,7 +168,22 @@ interface InvokeScope {
    * worker service it calls, which joins it as an inline service would.
    */
   txn?: RequestTxn;
+  /**
+   * Where in `txn` this invocation's statements take their turn: inside the
+   * caller's `db.transaction()` scope the call was made in, else at its
+   * caller's level; a route's are at the top.
+   */
+  within?: RunIn;
 }
+
+type RunIn = <R>(fn: () => R) => R;
+const direct: RunIn = (fn) => fn();
+
+/**
+ * The request transaction an inline service runs in when a worker request
+ * called it, so a worker service it calls in turn joins that too.
+ */
+const inlineServiceTxn = new AsyncLocalStorage<Pick<InvokeScope, 'txn' | 'within'>>();
 
 /**
  * What a worker's `ctx` asks the host for (RFC extension-runner, step 7): the
@@ -854,8 +871,14 @@ export class WorkerExtensionHost {
               hostTxnCap(activePoolMax(), this.workers.size),
             )
           : msg.savepoint
-            ? await requestSavepoint(managed.name, scope, msg.savepoint)
-            : await runRawWithParams(managed.name, msg.sql, msg.params, scope);
+            ? await requestSavepoint(managed.name, scope, msg.savepoint, scopeKey(msg))
+            : await runRawWithParams(
+                managed.name,
+                msg.sql,
+                msg.params,
+                scope,
+                scope && levelOf(scope, scopeKey(msg)),
+              );
       // The affected-row count rides on Bun's result array, which neither
       // transport carries across: an UPDATE without RETURNING reported 0.
       const count = (rows as { count?: unknown }).count;
@@ -920,26 +943,43 @@ export class WorkerExtensionHost {
       // is held to what its manifest declared — not to whatever got registered.
       const refusal = serviceCallRefusal(managed.name, managed.mayCall, owner, name);
       if (refusal) throw new Error(refusal);
+      // The callee runs where the caller made the call: in the request's
+      // transaction, inside the caller's `db.transaction()` if it made it there.
+      const within = scope.txn ? levelOf(scope, scopeKey(msg)) : undefined;
       if (ownerWorker && ownerWorker.name !== managed.name) {
-        const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, scope);
+        const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, {
+          ...scope,
+          within,
+        });
         this.post(managed, { type: 'service:ok', id: msg.id, result });
         return;
       }
       // Fall back to inline registry (host-side services).
       const impl = serviceRegistry.get<(...args: unknown[]) => unknown>(name);
       if (typeof impl !== 'function') throw new Error(`service "${msg.name}" is not callable`);
-      const call = () => Promise.resolve(impl(...msg.args));
+      const call = () =>
+        inlineServiceTxn.run({ txn: scope.txn, within }, () => Promise.resolve(impl(...msg.args)));
       // The context an inline extension's code has while serving a request of
       // that tenant — the domain `tenantMiddleware` opens and the tenant
       // transaction inside it — so the service's `ctx.db` and its permission
-      // checks resolve the caller's tenant — and, opened with the same caller,
-      // the row rules keyed on that user. No request, no tenant: unchanged.
-      // Inside the request's async context, so the API key the gate admitted is
-      // the one the service's `checkPermission` answers for — and passes on to a
-      // worker service it calls (`callerScope`).
-      const run = scope.run ?? (<R>(fn: () => R) => fn());
+      // checks resolve the caller's tenant — and the row rules keyed on that
+      // user. Inside the request's async context, so the API key the gate
+      // admitted is the one the service's `checkPermission` answers for — and
+      // passes on to a worker service it calls (`callerScope`).
+      //
+      // In that request's own tenant transaction, as when an inline route calls
+      // it, so what it writes is kept or undone with the request. It used to open
+      // a transaction of its own, which committed when the service returned: a
+      // worker route that threw after the call kept the service's rows. Only
+      // where the request holds none (an event delivery) does it open one, as
+      // that caller, for itself. No request, no tenant: unchanged.
+      const run = scope.run ?? direct;
       const result = tenantId
-        ? await run(() => runWithDomain(tenantId, () => withTenantIsolation(tenantId, call, actor)))
+        ? await run(() =>
+            getCurrentTenantTrx() && getCurrentTrxTenant() === tenantId
+              ? call()
+              : runWithDomain(tenantId, () => withTenantIsolation(tenantId, call, actor)),
+          )
         : await run(call);
       this.post(managed, { type: 'service:ok', id: msg.id, result });
     } catch (err) {
@@ -1145,6 +1185,8 @@ export class WorkerExtensionHost {
       return reply.result;
     } finally {
       target.invokeTenants.delete(invokeId);
+      // A scope the service left open outlives it: undone, so the caller's turn comes.
+      if (scope.txn) await abandonScopes(scope.txn, target.name, invokeId);
     }
   }
 
@@ -1160,11 +1202,13 @@ export class WorkerExtensionHost {
       // registered services callable from inline extensions / other
       // workers. The caller's tenant and user are the ones its async context
       // runs as.
-      serviceRegistry
-        .scope(managed.name)
-        .register(msg.name, (...args: unknown[]) =>
-          this.invokeWorkerService(managed, msg.name, args, callerScope()),
-        );
+      serviceRegistry.scope(managed.name).register(msg.name, (...args: unknown[]) =>
+        this.invokeWorkerService(managed, msg.name, args, {
+          ...callerScope(),
+          // Called by an inline service a worker request called: in that request.
+          ...inlineServiceTxn.getStore(),
+        }),
+      );
       managed.registeredServices.add(msg.name);
       this.post(managed, { type: 'service:register:ok', id: msg.id });
     } catch (err) {
@@ -1203,6 +1247,7 @@ export class WorkerExtensionHost {
           // `tenant` is set by tenantMiddleware; typed narrowly here because the
           // proxy is registered on an untyped sub-app.
           get: (key: string) => unknown;
+          error?: Error;
         }) => {
           const live = this.workers.get(managed.name);
           if (!live) return new Response('Extension worker is not running', { status: 503 });
@@ -1290,8 +1335,13 @@ export class WorkerExtensionHost {
             }
             return new Response((err as Error).message, { status: 500 });
           } finally {
-            // Timed out, or the worker died: nothing it wrote is kept.
-            await endRequestTxn(txn, false);
+            // Timed out, or the worker died: nothing it wrote is kept. Nor what
+            // the request's tenant transaction holds for it — an inline service
+            // it called wrote there: as for an inline route that threw,
+            // `tenantMiddleware` rolls it back on `c.error`, and keeps this answer.
+            if (!(await endRequestTxn(txn, false))) {
+              c.error ??= new Error('the worker request was rolled back');
+            }
             live.inFlightRequests--;
             // The request is over, so the id can no longer name a tenant. Left
             // behind, this map grows for the lifetime of the process and a
@@ -1828,18 +1878,61 @@ interface RequestTxn {
   savepoints: string[];
   /** Statements run one at a time, in arrival order, on the one connection. */
   tail: Promise<unknown>;
+  /**
+   * The order they arrive in: an open `db.transaction()` scope runs alone, and
+   * the request's other work — another extension's too, reached through a
+   * service call — waits for it to end; work made inside it runs in it.
+   */
+  turns: Turns;
+  /** Open scopes, by `scopeKey`. */
+  scopes: Map<string, TxnScope>;
   /** Why statements are refused from now on. */
   over?: string;
   closing?: Promise<boolean>;
   timer?: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * A `db.transaction()` scope open in a request's transaction, across every
+ * worker that shares it. The runtime orders an invocation's own scopes; the
+ * host orders them against the other invocations' work, which it alone sees.
+ */
+interface TxnScope {
+  /** Runs its argument at this scope's level of `RequestTxn.turns`. */
+  runIn: RunIn;
+  /** Its savepoints open now: nested `db.transaction()` calls keep the id. */
+  depth: number;
+  /** Savepoints open below it when it began. */
+  base: number;
+  end: () => void;
+}
+
+/** The scope a worker message names: its invocation and its `db.transaction()` id. */
+function scopeKey(msg: { requestId?: string; txn?: string }): string | undefined {
+  return msg.requestId && msg.txn ? `${msg.requestId} ${msg.txn}` : undefined;
+}
+
+/** Where a statement of `scope`'s invocation in scope `key` takes its turn. */
+function levelOf(scope: InvokeScope, key: string | undefined): RunIn | undefined {
+  return (key && scope.txn?.scopes.get(key)?.runIn) || scope.within;
+}
+
 function newRequestTxn(): RequestTxn {
-  return { savepoints: [], tail: Promise.resolve() };
+  return { savepoints: [], tail: Promise.resolve(), turns: new Turns(), scopes: new Map() };
 }
 
 /** Run `fn` on the request's transaction, opening it on the first statement. */
 function inRequestTxn<T>(
+  txn: RequestTxn,
+  extName: string,
+  scope: InvokeScope,
+  fn: (conn: Reserved) => Promise<T>,
+  at: RunIn = direct,
+): Promise<T> {
+  return at(() => txn.turns.run(() => onConnection(txn, extName, scope, fn)));
+}
+
+function onConnection<T>(
   txn: RequestTxn,
   extName: string,
   scope: InvokeScope,
@@ -1878,6 +1971,8 @@ function endRequestTxn(txn: RequestTxn, commit: boolean, why?: string): Promise<
   if (txn.closing) return txn.closing;
   txn.over = why ?? (commit ? 'committed' : 'rolled back');
   clearTimeout(txn.timer);
+  // Work waiting for a scope that will not end now runs, and is refused.
+  for (const key of [...txn.scopes.keys()]) closeScope(txn, key);
   txn.closing = txn.tail.then(async () => {
     const conn = txn.conn;
     if (!conn) return commit;
@@ -1894,12 +1989,21 @@ function endRequestTxn(txn: RequestTxn, commit: boolean, why?: string): Promise<
 
 /**
  * `db.transaction()` in a worker: a savepoint in its request's transaction,
- * named here — the worker never sends transaction-control text.
+ * named here — the worker never sends transaction-control text. A scope `key`
+ * names (one per `db.transaction()` id of an invocation; outside a request
+ * there is none) runs alone from its `begin` to its outermost end: the request's
+ * other work, from any extension, waits for it — and work made inside it, a
+ * service the scope calls included, runs in it.
+ *
+ * Without that a worker service called beside the scope had its statements land
+ * in the scope's savepoint and undone with it, and a scope of its own opened
+ * there made the caller's RELEASE fail.
  */
 async function requestSavepoint(
   extName: string,
   scope: InvokeScope | undefined,
   op: 'begin' | 'release' | 'rollback',
+  key?: string,
 ): Promise<unknown[]> {
   if (!scope?.txn) {
     throw new Error(
@@ -1908,27 +2012,116 @@ async function requestSavepoint(
     );
   }
   const txn = scope.txn;
-  return inRequestTxn(txn, extName, scope, async (conn) => {
-    if (op === 'begin') {
-      await conn.unsafe(`SAVEPOINT zv_sp_${txn.savepoints.length + 1}`);
-      txn.savepoints.push(extName);
-      return [];
-    }
-    // Only the extension that opened the innermost savepoint ends it: another
-    // one could otherwise roll back work it does not own.
-    if (txn.savepoints.at(-1) !== extName) throw new Error('no db.transaction() is open');
-    const name = `zv_sp_${txn.savepoints.length}`;
-    if (op === 'rollback') {
-      // ROLLBACK TO also undoes every SET LOCAL ROLE since the savepoint, so the
-      // role the connection is in may no longer be `txn.ext`'s: forget it, and
-      // the next statement sets its own.
-      txn.ext = undefined;
-      await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
-    }
-    await conn.unsafe(`RELEASE SAVEPOINT ${name}`);
-    txn.savepoints.pop();
-    return [];
+  const open = key ? txn.scopes.get(key) : undefined;
+  if (key && !open && op === 'begin') return openScope(txn, extName, scope, key);
+  try {
+    await inRequestTxn(
+      txn,
+      extName,
+      scope,
+      (conn) => savepointOp(txn, extName, conn, op),
+      open?.runIn ?? scope.within,
+    );
+  } catch (err) {
+    // A failed RELEASE leaves the savepoint; the rollback that follows ends it.
+    if (open && op === 'rollback' && --open.depth === 0) closeScope(txn, key as string);
+    throw err;
+  }
+  if (open) {
+    open.depth += op === 'begin' ? 1 : -1;
+    if (open.depth === 0) closeScope(txn, key as string);
+  }
+  return [];
+}
+
+/** Open scope `key` once the request's work before it is done, and take its savepoint. */
+function openScope(
+  txn: RequestTxn,
+  extName: string,
+  scope: InvokeScope,
+  key: string,
+): Promise<unknown[]> {
+  return new Promise((resolve, reject) => {
+    void (scope.within ?? direct)(() =>
+      txn.turns.exclusive(async () => {
+        let end = () => {};
+        const ended = new Promise<void>((r) => {
+          end = r;
+        });
+        const runIn = AsyncLocalStorage.snapshot() as RunIn;
+        txn.scopes.set(key, { runIn, depth: 1, base: txn.savepoints.length, end });
+        try {
+          await onConnection(txn, extName, scope, (conn) =>
+            savepointOp(txn, extName, conn, 'begin'),
+          );
+        } catch (err) {
+          closeScope(txn, key);
+          reject(err);
+          return;
+        }
+        resolve([]);
+        await ended;
+      }),
+    );
   });
+}
+
+function closeScope(txn: RequestTxn, key: string): void {
+  const open = txn.scopes.get(key);
+  txn.scopes.delete(key);
+  open?.end();
+}
+
+/**
+ * Roll back the scopes invocation `requestId` left open when it ended — a
+ * service that returned without awaiting its `db.transaction()` — so the
+ * request's other work is not left waiting on them.
+ */
+async function abandonScopes(txn: RequestTxn, extName: string, requestId: string): Promise<void> {
+  for (const [key, open] of txn.scopes) {
+    if (!key.startsWith(`${requestId} `)) continue;
+    const name = `zv_sp_${open.base + 1}`;
+    await open
+      .runIn(() =>
+        txn.turns.run(() =>
+          onConnection(txn, extName, { tenantId: null }, async (conn) => {
+            txn.ext = undefined;
+            await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+            await conn.unsafe(`RELEASE SAVEPOINT ${name}`);
+            txn.savepoints.length = open.base;
+          }),
+        ),
+      )
+      .catch(() => undefined);
+    closeScope(txn, key);
+  }
+}
+
+/** One savepoint statement, for the extension that owns it. */
+async function savepointOp(
+  txn: RequestTxn,
+  extName: string,
+  conn: Reserved,
+  op: 'begin' | 'release' | 'rollback',
+): Promise<void> {
+  if (op === 'begin') {
+    await conn.unsafe(`SAVEPOINT zv_sp_${txn.savepoints.length + 1}`);
+    txn.savepoints.push(extName);
+    return;
+  }
+  // Only the extension that opened the innermost savepoint ends it: another
+  // one could otherwise roll back work it does not own.
+  if (txn.savepoints.at(-1) !== extName) throw new Error('no db.transaction() is open');
+  const name = `zv_sp_${txn.savepoints.length}`;
+  if (op === 'rollback') {
+    // ROLLBACK TO also undoes every SET LOCAL ROLE since the savepoint, so the
+    // role the connection is in may no longer be `txn.ext`'s: forget it, and
+    // the next statement sets its own.
+    txn.ext = undefined;
+    await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+  }
+  await conn.unsafe(`RELEASE SAVEPOINT ${name}`);
+  txn.savepoints.pop();
 }
 
 /**
@@ -2032,12 +2225,13 @@ async function runRawWithParams(
   sql: string,
   params: unknown[],
   scope?: InvokeScope,
+  at?: RunIn,
 ): Promise<unknown[]> {
   assertWorkerSqlAllowed(extName, sql, await workerSqlEngineTables());
   const { encodeArrayParams } = await import('../db/bun-sql-dialect.js');
   const args = params.length > 0 ? encodeArrayParams(params) : undefined;
   const exec = (conn: Reserved) => conn.unsafe(sql, args) as Promise<unknown[]>;
-  if (scope?.txn) return inRequestTxn(scope.txn, extName, scope, exec);
+  if (scope?.txn) return inRequestTxn(scope.txn, extName, scope, exec, at);
   const reserved = await openWorkerTxn(extName, scope);
   let rows: unknown[];
   try {
