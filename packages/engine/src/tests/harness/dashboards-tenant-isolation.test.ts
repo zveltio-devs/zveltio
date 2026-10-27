@@ -264,6 +264,7 @@ d('dashboards tenant isolation (in-process)', () => {
     const probe = { query: 'SELECT name FROM zv_dashboards' };
     const admin = await createMemberSession(app, db, {
       grants: [{ collection: 'admin', actions: ['*'] }],
+      configWindow: true,
     });
     const scoped = await app.request('/api/insights/query', {
       method: 'POST',
