@@ -66,3 +66,48 @@ describe('ZveltioClient URL building', () => {
     ]);
   });
 });
+
+describe('ZveltioClient session token (bearer mode)', () => {
+  function engine(issue: string | null) {
+    const sent: Array<{ auth: string | null; credentials?: RequestCredentials }> = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push({
+        auth: new Headers(init?.headers).get('Authorization'),
+        credentials: init?.credentials,
+      });
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (issue) headers['set-auth-token'] = issue;
+      return new Response('{}', { status: 200, headers });
+    }) as typeof fetch;
+    return sent;
+  }
+
+  it('captures the token at sign-in, sends it as a bearer, and forgets it on logout', async () => {
+    const seen: Array<string | null> = [];
+    const sent = engine('tok.sig');
+    const client = createZveltioClient({
+      baseUrl: 'https://engine.test',
+      onSessionToken: (t) => seen.push(t),
+    });
+    await client.auth.login('a@b.c', 'pw');
+    const next = engine(null);
+    await client.collection('products').list();
+    await client.auth.logout();
+    await client.collection('products').list();
+    expect(sent[0]).toEqual({ auth: null, credentials: 'omit' });
+    expect(next.map((s) => s.auth)).toEqual(['Bearer tok.sig', 'Bearer tok.sig', null]);
+    expect(seen).toEqual(['tok.sig', null]);
+    expect(client.getSessionToken()).toBeNull();
+  });
+
+  it('a browser client keeps cookies and ignores an issued token', async () => {
+    const sent = engine('tok.sig');
+    const client = createZveltioClient({ baseUrl: 'https://engine.test' });
+    await client.auth.login('a@b.c', 'pw');
+    await client.collection('products').list();
+    expect(sent.map((s) => [s.auth, s.credentials])).toEqual([
+      [null, 'include'],
+      [null, 'include'],
+    ]);
+  });
+});

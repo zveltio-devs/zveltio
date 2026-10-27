@@ -3,6 +3,17 @@ import { ZveltioApiError } from './errors.js';
 export interface ZveltioClientConfig {
   baseUrl: string;
   apiKey?: string;
+  /**
+   * A session token for a client with no cookie jar (native app, server): sent as
+   * `Authorization: Bearer`, with cookies off. Giving this or `onSessionToken`
+   * turns that mode on; a browser leaves both unset and keeps the httpOnly cookie.
+   */
+  sessionToken?: string;
+  /**
+   * Called with each token the engine issues (sign-in, a session it replaces) and
+   * with `null` on logout: persist it here and pass it back as `sessionToken`.
+   */
+  onSessionToken?: (token: string | null) => void;
   headers?: Record<string, string>;
 }
 
@@ -107,6 +118,9 @@ class CollectionRef<T extends Record<string, any>> {
 export class ZveltioClient<Schema extends Record<string, any> = Record<string, any>> {
   private baseUrl: string;
   private headers: Record<string, string>;
+  private bearer: boolean;
+  private sessionToken: string | null;
+  private onSessionToken?: (token: string | null) => void;
 
   constructor(config: ZveltioClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -115,19 +129,47 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
       ...(config.apiKey ? { 'X-API-Key': config.apiKey } : {}),
       ...config.headers,
     };
+    this.bearer = config.sessionToken !== undefined || config.onSessionToken !== undefined;
+    this.sessionToken = config.sessionToken ?? null;
+    this.onSessionToken = config.onSessionToken;
+  }
+
+  /** Switch to bearer mode with `token` (or sign this client out of it with `null`). */
+  setSessionToken(token: string | null): void {
+    this.bearer = true;
+    this.sessionToken = token;
+    this.onSessionToken?.(token);
+  }
+
+  /** The token bearer mode sends; null in cookie mode or when signed out. */
+  getSessionToken(): string | null {
+    return this.sessionToken;
+  }
+
+  /** Every call goes through here: the bearer out, a newly issued token in. */
+  private async send(path: string, init: RequestInit & { headers: Record<string, string> }) {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      ...init,
+      headers:
+        this.bearer && this.sessionToken
+          ? { ...init.headers, Authorization: `Bearer ${this.sessionToken}` }
+          : init.headers,
+      // A cookie jar beside the bearer would carry a session the bearer then overrides.
+      credentials: this.bearer ? 'omit' : 'include',
+    });
+    const issued = this.bearer ? res.headers.get('set-auth-token') : null;
+    if (issued && issued !== this.sessionToken) this.setSessionToken(issued);
+    if (!res.ok) throw await ZveltioApiError.fromResponse(res);
+    return res;
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   private async request<T = any>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await this.send(path, {
       method,
       headers: this.headers,
-      credentials: 'include',
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) {
-      throw await ZveltioApiError.fromResponse(res);
-    }
     return res.json();
   }
 
@@ -152,13 +194,7 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
   async upload<T = any>(path: string, formData: FormData): Promise<T> {
     const headers = { ...this.headers };
     delete headers['Content-Type'];
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST',
-      headers,
-      credentials: 'include',
-      body: formData,
-    });
-    if (!res.ok) throw await ZveltioApiError.fromResponse(res);
+    const res = await this.send(path, { method: 'POST', headers, body: formData });
     return res.json();
   }
 
@@ -181,7 +217,13 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
       this.request('POST', '/api/auth/sign-in/email', { email, password }),
     signup: (email: string, password: string, name: string) =>
       this.request('POST', '/api/auth/sign-up/email', { email, password, name }),
-    logout: () => this.request('POST', '/api/auth/sign-out'),
+    logout: async () => {
+      try {
+        return await this.request('POST', '/api/auth/sign-out');
+      } finally {
+        if (this.bearer) this.setSessionToken(null);
+      }
+    },
     session: () => this.request('GET', '/api/auth/get-session'),
     /**
      * The API key this client was made with: its scopes, tenant, expiry and RLS
