@@ -346,7 +346,8 @@ tenant is refused.
 Code inside a tenant transaction that must look across tenants asks a SECURITY
 DEFINER function that answers exactly that: `zveltio_user_memberships(user)`
 (an account's standing elsewhere, for identity provisioning, member removal and
-account deletion), `zveltio_revoke_user_api_keys(user)` (account deletion) and
+account deletion), `zveltio_revoke_user_api_keys(user)` (account deletion, ban,
+password and factor reset, "revoke all sessions") and
 `zveltio_media_share_tenant(token)` (the public share link's tenant, so the
 handler can enter it). A presenting API key also reads its own row, wherever it
 acts.

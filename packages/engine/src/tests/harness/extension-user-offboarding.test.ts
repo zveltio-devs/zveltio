@@ -185,7 +185,7 @@ d('extension offboarding through ctx.internals', () => {
     }
   });
 
-  it('an API key its creator made stops working while they are deactivated', async () => {
+  it('an API key its creator made is revoked when they are deactivated, for good', async () => {
     const god = await createGodSession(app, db);
     const { userId } = await createMemberSession(app, db);
     const keyRes = await app.request('/api/api-keys', {
@@ -214,8 +214,9 @@ d('extension offboarding through ctx.internals', () => {
     expect(await call()).toBe(401);
     expect(await wsUpgrade()).toBe(401);
 
+    // Reactivation does not bring it back (ADR 0010): it was revoked, not hidden.
     await asRequest((trx) => internals.setUserActive(trx, userId, true));
-    expect(await call()).not.toBe(401);
+    expect(await call()).toBe(401);
   });
 
   it('an API key its creator made is revoked when they are deleted', async () => {

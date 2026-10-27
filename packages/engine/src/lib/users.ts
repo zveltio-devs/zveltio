@@ -113,12 +113,9 @@ export async function deleteUser(
   if (getCurrentTenantTrx()) onAfterCommit(dropGrants);
   else await dropGrants();
 
-  // Their API keys stop too. The FK only sets `created_by` NULL, which left a
-  // deleted user's keys working while a deactivated user's were refused.
-  // Revoked, not deleted: the access log cascades with the key row, and it is
-  // the record an offboarding is audited against. In every tenant: under 065's
-  // policy a plain UPDATE here reached only the request's own.
-  await sql`SELECT zveltio_revoke_user_api_keys(${userId})`.execute(db);
+  // Their API keys stopped with the sessions (`revokeAllUserSessions` →
+  // `revokeUserApiKeys`): the FK only sets `created_by` NULL, which left a
+  // deleted user's keys working.
 
   await asEngineRole(db, () => sql`DELETE FROM "user" WHERE id = ${userId}`.execute(db));
 
