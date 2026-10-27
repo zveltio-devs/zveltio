@@ -22,9 +22,19 @@ const CONFIG_PREFIXES = [
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-/** Does `method path` change the system's configuration? */
+/** Can a request with this method change anything (not GET, HEAD or OPTIONS)? */
+export function mutates(method: string): boolean {
+  return !SAFE.has(method.toUpperCase());
+}
+
+/**
+ * Does `method path` change the system's configuration? An extension request is
+ * classified by its permission check instead (`fenceAdminGrant`,
+ * extension-auth-gate.ts): it is configuration when it mutates and is
+ * authorized against the `admin` object.
+ */
 export function isConfigMutation(method: string, path: string): boolean {
-  if (SAFE.has(method.toUpperCase())) return false;
+  if (!mutates(method)) return false;
   if (path === '/api/permissions/bootstrap') return false;
   // `/api/rpc/:fn` calls a function (data); the registry of callable functions is configuration.
   if (path === '/api/rpc') return true;

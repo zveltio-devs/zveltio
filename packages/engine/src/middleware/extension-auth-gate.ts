@@ -35,11 +35,14 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Context, MiddlewareHandler } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import type { Database } from '../db/index.js';
-import { guardSessionOrKey, presentsUsableKey } from '../lib/admin-guard.js';
+import { guardSessionOrKey, presentsUsableKey, refuseWithoutSession } from '../lib/admin-guard.js';
 import { apiKeyHoldsScope, extScope, isApiKeyPrincipal, requestApiKey } from '../lib/data/index.js';
 import type { RequestUser } from '../lib/data/index.js';
+import { requireConfigWindow } from '../lib/step-up.js';
 import { principalRole } from '../lib/tenancy/index.js';
+import { mutates } from './config-routes.js';
 import { requestSession } from './session-prefetch.js';
 
 /**
@@ -163,13 +166,76 @@ export function keyAwareCheckPermission(
   extName: string,
   base: (userId: string, resource: string, action: string) => Promise<boolean>,
 ): (userId: string, resource: string, action: string) => Promise<boolean> {
-  return async (userId, resource, action) => {
+  const check = async (userId: string, resource: string, action: string) => {
     if (!isApiKeyPrincipal({ id: userId })) return base(userId, resource, action);
     const key = admittedApiKey();
     if (key?.id !== userId || !apiKeyHoldsScope(key.scopes, extScope(extName), action))
       return false;
     return !!key.authorUserId && base(key.authorUserId, resource, action);
   };
+  return async (userId, resource, action) => {
+    const granted = await check(userId, resource, action);
+    return resource === 'admin' ? fenceAdminGrant(granted) : granted;
+  };
+}
+
+/**
+ * The extension request being served — `/ext/*`, or a route an extension put on
+ * the global app — and the configuration refusal an `admin` check recorded for it.
+ */
+const extRequest = new AsyncLocalStorage<{
+  c: Context;
+  auth: SessionResolver;
+  refusal?: Response;
+}>();
+
+/**
+ * Serve `c` as an extension request. When an `admin` check refused it for want
+ * of the configuration window, the request answers that refusal and rolls back,
+ * whatever the extension did with the throw: one that caught it and answered
+ * its own 403 hid the `step_up_required` the Console steps up on, and a worker
+ * only ever sees the throw as an error.
+ */
+export async function runExtensionRequest<R>(
+  c: Context,
+  auth: SessionResolver,
+  serve: () => Promise<R>,
+): Promise<R | Response> {
+  const store: { c: Context; auth: SessionResolver; refusal?: Response } = { c, auth };
+  const res = await extRequest.run(store, serve);
+  if (!store.refusal) return res;
+  // `tenantMiddleware` rolls the request back on `c.error` and keeps `c.res`.
+  c.error ??= new HTTPException(403, { message: 'configuration window required' });
+  c.res = store.refusal;
+  return c.res;
+}
+
+/** Did an `admin` check refuse the extension request being served? */
+export function extensionRequestRefused(): boolean {
+  return !!extRequest.getStore()?.refusal;
+}
+
+/**
+ * An extension request is configuration when it mutates and is authorized
+ * against the `admin` object, so a grant of `admin` to a mutating extension
+ * request also needs the session's step-up window, as an `/api/*` configuration
+ * mutation does (`configStepUp`): no window, no session (an API key) — refused
+ * with the same answer, thrown so no caller reads it as a grant. A refusal of
+ * `admin` stays a refusal, so a user who is no administrator is never asked to
+ * step up. Outside an extension request, and on a read, the grant is unchanged.
+ */
+export async function fenceAdminGrant(granted: boolean): Promise<boolean> {
+  const store = extRequest.getStore();
+  if (!granted || !store || !mutates(store.c.req.method)) return granted;
+  if (!store.refusal) {
+    const session = await requestSession(store.c, store.auth);
+    const refusal = session
+      ? await requireConfigWindow(store.c, session)
+      : await refuseWithoutSession(store.c);
+    if (!refusal) return true;
+    store.refusal = refusal;
+  }
+  throw new HTTPException(403, { res: store.refusal.clone() });
 }
 
 /**
@@ -265,7 +331,7 @@ function keyRouteAction(extName: string, method: string, sub: string): string | 
  * extension subapps so it wraps every extension route.
  */
 export function extensionAuthGate(auth: SessionResolver, db: Database): MiddlewareHandler {
-  return async (c: Context, next) => {
+  const gate: MiddlewareHandler = async (c: Context, next) => {
     if (process.env.ZVELTIO_EXT_AUTH_GATE === '0') return next();
     // CORS preflight carries no credentials — never gate it.
     if (c.req.method === 'OPTIONS') return next();
@@ -324,4 +390,6 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
     c.set('user', session.user);
     return runAdmitted(c, session.user as RequestUser, next);
   };
+  // Outside the escape hatch: the configuration window holds with the gate off.
+  return (c, next) => runExtensionRequest(c, auth, async () => gate(c, next));
 }

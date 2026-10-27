@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import { tenantMiddleware } from '../../middleware/tenant.js';
-import type { Context } from 'hono';
+import type { Context, Next } from 'hono';
 import { getDb, type Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import {
@@ -63,6 +63,7 @@ import { cronRunner } from '../runtime/index.js';
 import {
   keyAwareCheckPermission,
   registerExtensionPublicRoutes,
+  runExtensionRequest,
 } from '../../middleware/extension-auth-gate.js';
 import { problem, problemOnError } from '../problem.js';
 import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension';
@@ -526,6 +527,7 @@ export function buildRestrictedContext(
         );
         return;
       }
+      const handler = guardPublicHandler(spec.handler, extName, ctx.db);
       try {
         // Behind `tenantMiddleware`, like `/api/*` and `/ext/*`.
         //
@@ -554,7 +556,9 @@ export function buildRestrictedContext(
           app,
           spec.path,
           tenantMiddleware,
-          guardPublicHandler(spec.handler, extName, ctx.db),
+          // An extension request like `/ext/*`: its `admin` checks are fenced.
+          (c: Context, next: Next) =>
+            runExtensionRequest(c, ctx.auth, async () => handler(c, next)),
         );
         if (logPublicRoute) {
           console.log(

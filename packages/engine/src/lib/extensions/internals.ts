@@ -64,7 +64,7 @@ import { getCurrentDomainOrNull, runWithDomain, withTenantIsolation } from '../t
 import { applyColumnAccess } from '../tenancy/index.js';
 import { checkAccess, dataApiRead, dataApiWrite, readScope } from '../data/index.js';
 import type { ReadQuery } from '../data/index.js';
-import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
+import { fenceAdminGrant, gatePrincipal } from '../../middleware/extension-auth-gate.js';
 import {
   addTenantMember,
   type IdentityMember,
@@ -1053,8 +1053,11 @@ function buildUnboundInternals(): ExtensionInternals {
     readAuditActivity: (query) => readAuditActivity(query),
     countAuditActivity: (query) => countAuditActivity(query),
     getSingleTenantId,
-    isTenantAdmin,
-    requireInstanceAdmin,
+    // Both resolve through the `admin` object, so a grant is fenced as
+    // `ctx.checkPermission(uid, 'admin', …)` is: a mutation needs the window.
+    isTenantAdmin: async (userId, god) => fenceAdminGrant(await isTenantAdmin(userId, god)),
+    requireInstanceAdmin: async (userId, god) =>
+      fenceAdminGrant(await requireInstanceAdmin(userId, god)),
     enqueueDDLJob,
     validatePublicUrl,
     assertPublicUrl,
