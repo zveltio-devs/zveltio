@@ -57,7 +57,7 @@ const client = createZveltioClient<ZveltioSchema>({
 
 ```typescript
 // TypeScript knows the shape of each record automatically
-const { data: products } = await client.collection('products').list();
+const { records: products } = await client.collection('products').list();
 //           ^-- typed as Products[] (from your generated CollectionTypeMap)
 
 const order = await client.collection('orders').getOne('ord-123');

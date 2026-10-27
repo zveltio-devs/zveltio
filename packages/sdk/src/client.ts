@@ -51,11 +51,21 @@ export interface ListParams {
   cursor?: string;
 }
 
+/**
+ * What `GET /api/data/:collection` answers (`listRecords` in the engine). This
+ * declared `{ data, total, page, limit }`, a shape the engine has never sent, so
+ * every typed reader of `.data` got `undefined` — the sync manager's paged pull
+ * among them, which applied no row at all.
+ */
 export interface ListResult<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
+  records: T[];
+  pagination: {
+    /** Absent when the count was skipped. */
+    total?: number;
+    page: number;
+    limit: number;
+    pages?: number;
+  };
   next_cursor?: string;
 }
 
@@ -119,7 +129,7 @@ class CollectionRef<T extends Record<string, any>> {
  *
  *   import type { ZveltioSchema } from './zveltio-types';
  *   const client = createZveltioClient<ZveltioSchema>({ baseUrl: '...' });
- *   const { data } = await client.collection('products').list();
+ *   const { records } = await client.collection('products').list();
  *   //          ^-- typed as your Products interface
  *
  * Usage without types (untyped, same as before):
