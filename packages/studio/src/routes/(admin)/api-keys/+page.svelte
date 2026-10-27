@@ -175,11 +175,19 @@ function switchedToRpc(scopeIdx: number) {
   );
 }
 
-/** A `$rpc`/`$edge` entry's function names, typed as a list; `execute` stays as ticked. */
-function setFunctions(scopeIdx: number, text: string) {
+/**
+ * What a scope holds beyond its checkboxes, typed as a list: a `$rpc`/`$edge`
+ * entry's function names, or an action a manifest gates on (`approve`), which
+ * no checkbox names. The ticked boxes stay as ticked.
+ */
+const typedActions = (scope: { collection: string; actions: string[] }) =>
+  scope.actions.filter((a) => !actionsFor(scope.collection).includes(a));
+
+function setTypedActions(scopeIdx: number, text: string) {
   const names = text.split(/[\s,]+/).filter(Boolean);
   const scope = form.scopes[scopeIdx];
-  const actions = [...(scope.actions.includes('execute') ? ['execute'] : []), ...names];
+  const ticked = scope.actions.filter((a) => actionsFor(scope.collection).includes(a));
+  const actions = [...ticked, ...names.filter((n) => !ticked.includes(n))];
   form.scopes = form.scopes.map((s, i) => (i === scopeIdx ? { ...s, actions } : s));
 }
 
@@ -343,15 +351,13 @@ function formatRelative(dateStr: string): string {
                       <span class="text-xs">{action}</span>
                     </label>
                   {/each}
-                  {#if callScope(scope.collection)}
-                    <input
-                      class="input input-xs w-40"
-                      type="text"
-                      placeholder="fn_a, fn_b"
-                      value={scope.actions.filter((a) => a !== 'execute').join(', ')}
-                      onchange={(e) => setFunctions(i, e.currentTarget.value)}
-                    />
-                  {/if}
+                  <input
+                    class="input input-xs w-40"
+                    type="text"
+                    placeholder={callScope(scope.collection) ? 'fn_a, fn_b' : 'approve, …'}
+                    value={typedActions(scope).join(', ')}
+                    onchange={(e) => setTypedActions(i, e.currentTarget.value)}
+                  />
                 </div>
                 {#if form.scopes.length > 1}
                   <button type="button" class="btn btn-ghost btn-xs text-error" onclick={() => removeScope(i)}>✕</button>

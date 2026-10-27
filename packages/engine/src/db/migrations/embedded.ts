@@ -110,6 +110,7 @@ import m091 from './sql/097_validation_test_case_orphans.sql' with { type: 'text
 import m092 from './sql/098_validation_rule_instance_key.sql' with { type: 'text' };
 import m093 from './sql/099_extension_statement_mark.sql' with { type: 'text' };
 import m094 from './sql/100_extension_manifest_record.sql' with { type: 'text' };
+import m095 from './sql/101_seed_ssr_rate_limit_tier.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -208,4 +209,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '098_validation_rule_instance_key.sql': m092,
   '099_extension_statement_mark.sql': m093,
   '100_extension_manifest_record.sql': m094,
+  '101_seed_ssr_rate_limit_tier.sql': m095,
 };
