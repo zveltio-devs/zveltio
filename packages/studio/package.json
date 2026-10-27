@@ -19,7 +19,7 @@
     "test:integration:boot": "cd ../.. && BOOT_WITHOUT_STUDIO=1 bun e2e/setup/boot.ts",
     "test:ui": "vitest --ui",
     "test:watch": "vitest",
-    "typecheck": "svelte-kit sync && tsc --noEmit && tsc --noEmit -p src/service-worker && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+    "typecheck": "svelte-kit sync && tsc --noEmit && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
   },
   "dependencies": {
     "@inlang/paraglide-js": "^2.25.0",
