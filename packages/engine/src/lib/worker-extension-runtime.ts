@@ -233,7 +233,10 @@ function serviceCall(name: string, args: unknown[]): Promise<unknown> {
 /** A ctx member only the host can answer (worker-extension-ctx.ts). */
 function hostCall(op: HostCallOp, args: unknown[]): Promise<unknown> {
   const requestId = invocation.getStore()?.id;
-  return call((id) => send({ type: 'host:call', id, op, args, requestId }));
+  const txn = transaction.getStore()?.id;
+  return call((id) =>
+    send({ type: 'host:call', id, op, args, requestId, ...(txn ? { txn } : {}) }),
+  );
 }
 
 function registerService(name: string, impl: (...args: unknown[]) => unknown): void {

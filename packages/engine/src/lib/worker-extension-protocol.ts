@@ -233,6 +233,11 @@ export interface HostCallRequest {
   op: HostCallOp;
   args: unknown[];
   requestId?: WorkerMessageId;
+  /**
+   * The `db.transaction()` it was made in, as on `ServiceCallRequest`: what the
+   * host queries for it runs in that scope, not after it.
+   */
+  txn?: WorkerMessageId;
 }
 
 export interface HostCallResponse {

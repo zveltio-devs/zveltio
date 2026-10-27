@@ -430,10 +430,20 @@ instead, which closes the same-uid gap for edge functions too (step 5).
    (`tests/harness/worker-host-transaction.test.ts`: commit, throw, timeout,
    killed worker, two concurrent, no role or GUC leak — process transport, both
    drivers; `tests/unit/worker-extension-host-txn.test.ts` for the bookkeeping.)
-   Still open: a worker request holds two connections (the request's tenant
-   transaction and its own), committed one after the other — the worker's first,
-   so a COMMIT of the tenant transaction that fails after it keeps the worker's
-   writes and loses an inline service's.
+   **Done — one connection per worker request:** a worker route served inside the
+   request's tenant transaction (`tenantMiddleware`) joins it, as a worker service
+   an inline route calls does, rather than open its own beside it. It held two,
+   committed one after the other: the route did not see the rows an inline
+   service it called wrote, a `db.transaction()` that threw kept them, and a
+   tenant COMMIT that failed after the worker's kept the worker's writes. The
+   worker's settings window stays on the connection between its own statements
+   and is put back before anything else runs there (a statement Kysely sends, a
+   savepoint, another extension's statement), so a joined statement costs what
+   its own transaction's did. A host call made inside the worker's
+   `db.transaction()` (`host:call` carries its id) runs in that scope rather than
+   wait for it. A request with no tenant transaction still opens its own
+   (`tests/harness/worker-service-request-txn.test.ts`; the cases above run in both
+   modes in `tests/harness/worker-request-transaction.test.ts`).
 9. **Default flip:** production uses the runner for third-party extensions, and
    the in-thread worker is removed: development uses the runner protocol over a
    local child (`ZVELTIO_EXT_TRANSPORT=process`), so there are two mechanisms,

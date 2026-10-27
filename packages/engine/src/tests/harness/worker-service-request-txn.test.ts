@@ -15,6 +15,11 @@
 // - A worker service an INLINE route called ran its statements each in a
 //   transaction of its own: the route then threw, and the service's row stood.
 //   It now joins the route's tenant transaction, under its own role.
+// - A worker ROUTE held a transaction of its own beside the tenant one, where an
+//   inline service it called wrote: the route did not see those rows, and a
+//   `db.transaction()` of the route that threw kept them. The route now joins
+//   the tenant transaction too; its settings window is put back before anything
+//   else runs there, and a host call made inside its scope runs in it.
 //
 // Through the real tenant middleware and loader, over the process transport.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -58,6 +63,7 @@ export default {
     const xid = () => ctx.db
       .selectNoFrom((eb) => eb.cast(eb.fn('pg_current_xact_id'), 'text').as('x'))
       .executeTakeFirstOrThrow().then((r) => r.x);
+    ctx.services.register('${INLINE}.xid', xid);
     // Two first calls at once, each with its own scope: one joined transaction.
     app.get('/svc-pair-throw', async () => {
       await Promise.all([svc('${CALLEE}.scoped', 'ir-pair-a'), svc('${CALLEE}.scoped', 'ir-pair-b')]);
@@ -88,6 +94,7 @@ export default {
       .selectNoFrom((eb) => ['statement_timeout', 'zveltio.actor', 'zveltio.visible_tenants']
         .map((n, i) => eb.fn('current_setting', [eb.val(n)]).as('s' + i)))
       .executeTakeFirstOrThrow().then((r) => JSON.stringify(r));
+    ctx.services.register('${INLINE}.settings', settings);
     // A joined worker service cannot leave a setting changed for the route.
     app.get('/svc-tamper', async (c) => {
       const before = await settings();
@@ -207,6 +214,49 @@ export default {
       throw new Error('route fails after the inline service wrote');
     });
     app.get('/inline-ok', async (c) => c.json(await svc('${INLINE}.write', 'answered')));
+    // The inline service runs in this request's transaction: the same one.
+    app.get('/inline-xid', async (c) => {
+      const theirs = await svc('${INLINE}.xid');
+      const mine = await db.selectNoFrom((eb) => eb.cast(eb.fn('pg_current_xact_id'), 'text').as('x'))
+        .executeTakeFirstOrThrow().then((r) => r.x);
+      return c.json(theirs === mine);
+    });
+    // Between this worker's statements the inline service sees the request's settings.
+    app.get('/inline-window', async (c) => {
+      const before = await svc('${INLINE}.settings');
+      await db.query('SELECT 1');
+      const between = await svc('${INLINE}.settings');
+      await db.query('SELECT 1');
+      return c.json(before === between);
+    });
+    // A scope rolled back: this worker's next statement still runs as itself,
+    // as it does once an inline call put the request's settings back between.
+    app.get('/role-after-rollback', async (c) => {
+      const who = async () => (await db.query('SELECT current_user AS u'))[0].u;
+      await db.transaction().execute(async () => {
+        await add('rr-a');
+        throw new Error('scope fails');
+      }).catch(() => undefined);
+      const after = await who();
+      await svc('${INLINE}.settings');
+      return c.json(after === (await who()));
+    });
+    // A host call made inside this worker's scope answers there, not after it.
+    app.get('/host-in-scope', async (c) => c.json(await db.transaction().execute(async () => {
+      await add('hs-a');
+      return Promise.race([
+        ctx.describeDenial('zz_nothing', 'read').then(() => 'answered'),
+        sleep(3000).then(() => 'stuck'),
+      ]);
+    })));
+    // Called inside this worker's scope that then throws: undone with it.
+    app.get('/inline-in-scope', async (c) => c.json((await Promise.allSettled([
+      db.transaction().execute(async () => {
+        await add('wsc-a');
+        await svc('${INLINE}.write', 'wsc-i');
+        throw new Error('scope fails');
+      }),
+    ])).map((r) => r.status)));
     // Through an inline service to a worker one, then the route throws.
     app.get('/chain-throw', async () => {
       await svc('${INLINE}.relay', 'chained');
@@ -461,6 +511,29 @@ d('a service call in a worker request runs in the request transaction', () => {
   it('an inline service called by a worker route that answers: its write stands', async () => {
     expect(await get('/inline-ok')).toEqual({ status: 200, body: true });
     expect(await rows(INLINE, 'answered')).toEqual(['answered']);
+  });
+
+  it("an inline service called by a worker route: in the route's own transaction", async () => {
+    expect(await get('/inline-xid')).toEqual({ status: 200, body: true });
+  });
+
+  it("an inline service called between a worker route's statements: the request's settings", async () => {
+    expect(await get('/inline-window')).toEqual({ status: 200, body: true });
+  });
+
+  it("a worker route's scope rolled back: its next statement still runs as the worker", async () => {
+    expect(await get('/role-after-rollback')).toEqual({ status: 200, body: true });
+    expect(await rows(CALLER, 'rr-')).toEqual([]);
+  });
+
+  it("a host call inside a worker route's scope answers in it", async () => {
+    expect(await get('/host-in-scope')).toEqual({ status: 200, body: 'answered' });
+  });
+
+  it("an inline service called inside a worker route's scope that throws: undone with it", async () => {
+    expect(await get('/inline-in-scope')).toEqual({ status: 200, body: ['rejected'] });
+    expect(await rows(CALLER, 'wsc-')).toEqual([]);
+    expect(await rows(INLINE, 'wsc-')).toEqual([]);
   });
 
   it('a worker service reached through an inline one, then the route throws: undone', async () => {
