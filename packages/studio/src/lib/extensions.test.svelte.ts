@@ -51,4 +51,16 @@ describe('extensions store', () => {
     expect(extensions.initialized).toBe(true);
     expect(extensions.loadFailed).toBe(true);
   });
+
+  it('drops App pages: they mount under /app, not in the Console (ADR 0006)', async () => {
+    const pages = [
+      { path: '/admin/crm', label: 'CRM' },
+      { path: '/app/crm', label: 'Contacts', surface: 'app' },
+    ];
+    fetchMock.mockResolvedValue(
+      res(200, { extensions: ['crm'], meta: [{ name: 'crm', studio: { pages } }] }),
+    );
+    await initExtensions();
+    expect(extensions.meta[0]?.studio?.pages?.map((p) => p.path)).toEqual(['/admin/crm']);
+  });
 });

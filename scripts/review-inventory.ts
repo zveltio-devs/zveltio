@@ -342,6 +342,7 @@ const SECTIONS: Section[] = [
     focus: 'Filter parsing, plan shape, cache keys that must carry the tenant, N+1 in the loader.',
     match: [
       `${E}lib/data/handlers/list.ts`,
+      `${E}lib/data/handlers/collections.ts`,
       `${E}lib/data/query-parse.ts`,
       `${E}lib/data/query-cache.ts`,
       `${E}lib/data/query-alter.ts`,

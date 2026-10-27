@@ -21,7 +21,13 @@ async function fetchExtensions(): Promise<void> {
   if (!res.ok) throw new Error(`GET /api/extensions answered ${res.status}`);
   const data = await res.json();
   activeExtensions = data.extensions || [];
-  extensionMetaList = data.meta || [];
+  // App pages (ADR 0006) mount under /app in the App; the Console neither lists
+  // nor routes them.
+  extensionMetaList = ((data.meta || []) as ExtensionMeta[]).map((m) =>
+    m.studio?.pages
+      ? { ...m, studio: { ...m.studio, pages: m.studio.pages.filter((p) => p.surface !== 'app') } }
+      : m,
+  );
 }
 
 export async function initExtensions(): Promise<void> {

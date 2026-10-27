@@ -80,6 +80,8 @@ export type ExtensionMeta = {
        * the engine at load from the manifest's schema file reference). */
       schema?: unknown;
       render?: 'schema';
+      /** `app` pages mount in the App, not here (ADR 0006). */
+      surface?: 'console' | 'app';
     }>;
   };
 };

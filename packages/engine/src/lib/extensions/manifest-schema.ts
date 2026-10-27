@@ -419,6 +419,31 @@ export const ManifestSchema = z
         });
       }
     }
+    // `studio` is passthrough; only `surface`, new in v1, is checked here, and
+    // only when a page sets it, so no manifest that loaded before stops loading.
+    // A Console page lives under /admin, an App page under /app/<this extension>
+    // (ADR 0006): an App page elsewhere would mount in another extension's space.
+    const pages = (m as { studio?: { pages?: unknown } }).studio?.pages;
+    if (!Array.isArray(pages)) return;
+    pages.forEach((p: { path?: unknown; surface?: unknown }, i) => {
+      if (p?.surface === undefined) return;
+      const path = typeof p.path === 'string' ? p.path : '';
+      const ok =
+        p.surface === 'console'
+          ? path.startsWith('/admin/')
+          : p.surface === 'app'
+            ? path === `/app/${m.name}` || path.startsWith(`/app/${m.name}/`)
+            : false;
+      if (ok) return;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['studio', 'pages', i, 'surface'],
+        message:
+          p.surface === 'console' || p.surface === 'app'
+            ? `page "${path}" is marked ${p.surface}, so its path must start with ${p.surface === 'console' ? '/admin/' : `/app/${m.name}`}`
+            : `surface must be "console" or "app"`,
+      });
+    });
   });
 
 export interface ManifestMeta {
@@ -444,6 +469,9 @@ export interface ManifestMeta {
        * + `render: 'schema'` so the Studio renders it without per-host build. */
       schema?: unknown;
       render?: 'schema';
+      /** Where the page mounts (ADR 0006): `console` (the default) under
+       * /admin, `app` under /app/<extension>. Hosts show only their own. */
+      surface?: 'console' | 'app';
     }>;
   };
 }

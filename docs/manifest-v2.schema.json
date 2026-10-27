@@ -84,8 +84,13 @@
             "properties": {
               "path": {
                 "type": "string",
-                "pattern": "^/(admin|portal)/",
-                "description": "URL path, e.g. `/admin/crm`. Either /admin/* (Studio) or /portal/* (client portal)."
+                "pattern": "^/(admin|portal|app)/",
+                "description": "URL path, e.g. `/admin/crm`. /admin/* (Console), /app/<extension>/* (App), or the legacy /portal/*."
+              },
+              "surface": {
+                "type": "string",
+                "enum": ["console", "app"],
+                "description": "Where the page mounts (ADR 0006): `console` under /admin for configuration, `app` under /app/<extension> for work screens. Unset means console. When set, the engine refuses a path outside that surface."
               },
               "label": {
                 "type": "string",

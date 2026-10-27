@@ -182,3 +182,30 @@ describe('ManifestSchema — extension-api v1 actions and jobs', () => {
     expect(ManifestSchema.safeParse(invented).success).toBe(false);
   });
 });
+
+describe('ManifestSchema — studio page surface (ADR 0006)', () => {
+  const parse = (pages: unknown[]) =>
+    ManifestSchema.safeParse({ name: 'hr/payroll', studio: { pages } }).success;
+
+  it('leaves an unmarked page alone, whatever its path', () => {
+    expect(parse([{ path: '/portal/x', label: 'X' }])).toBe(true);
+  });
+
+  it('puts a console page under /admin and an app page under /app/<name>', () => {
+    expect(parse([{ path: '/admin/payroll', label: 'P', surface: 'console' }])).toBe(true);
+    expect(parse([{ path: '/app/hr/payroll', label: 'P', surface: 'app' }])).toBe(true);
+    expect(parse([{ path: '/app/hr/payroll/runs/:id', label: 'P', surface: 'app' }])).toBe(true);
+  });
+
+  it('refuses a page whose path is outside its surface', () => {
+    expect(parse([{ path: '/app/hr/payroll', label: 'P', surface: 'console' }])).toBe(false);
+    expect(parse([{ path: '/admin/payroll', label: 'P', surface: 'app' }])).toBe(false);
+    // Another extension's space, and a prefix that only looks like ours.
+    expect(parse([{ path: '/app/crm', label: 'P', surface: 'app' }])).toBe(false);
+    expect(parse([{ path: '/app/hr/payrollx', label: 'P', surface: 'app' }])).toBe(false);
+  });
+
+  it('refuses an unknown surface', () => {
+    expect(parse([{ path: '/admin/x', label: 'X', surface: 'portal' }])).toBe(false);
+  });
+});
