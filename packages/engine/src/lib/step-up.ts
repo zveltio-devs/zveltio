@@ -334,8 +334,8 @@ export async function stepUpVerify(c: Context): Promise<Response> {
   }
 
   const token = randomBytes(32).toString('base64url');
-  await put(rowId('token', token, sessionId, action), 'token', method);
-  await openConfigWindow(sessionId, method);
+  await put(rowId('token', token, sessionId, action), `token:${userId}`, method);
+  await openConfigWindow(sessionId, userId, method);
   return c.json({ token, method, action, expires_in: TTL_SECONDS });
 }
 
@@ -349,13 +349,31 @@ export const CONFIG_WINDOW_SECONDS = 300;
 /** The action a configuration refusal names: the client steps up for it and retries. */
 export const CONFIG_ACTION = 'config';
 
-async function openConfigWindow(sessionId: string, method: StepUpMethod): Promise<void> {
+async function openConfigWindow(
+  sessionId: string,
+  userId: string,
+  method: StepUpMethod,
+): Promise<void> {
   await sql`
     INSERT INTO verification (id, identifier, value, "expiresAt")
-    VALUES (${rowId('window', sessionId)}, 'step-up:window', ${method},
+    VALUES (${rowId('window', sessionId)}, ${`step-up:window:${userId}`}, ${method},
             now() + make_interval(secs => ${CONFIG_WINDOW_SECONDS}))
     ON CONFLICT (id) DO UPDATE SET value = excluded.value, "expiresAt" = excluded."expiresAt"
   `.execute(authPool());
+}
+
+/**
+ * Close every step-up `userId` holds, on all their sessions: the configuration
+ * window and unspent tokens. Called when a factor goes or the password changes
+ * (lib/auth.ts, lib/users.ts): a step-up proves the factors the account had then,
+ * so it must not outlive one of them. Rows are found by the user in their
+ * `identifier`; their ids hash the session and cannot be listed.
+ */
+export async function closeStepUps(userId: string): Promise<void> {
+  await sql`DELETE FROM verification
+             WHERE identifier IN (${`step-up:window:${userId}`}, ${`step-up:token:${userId}`})`.execute(
+    authPool(),
+  );
 }
 
 /**
