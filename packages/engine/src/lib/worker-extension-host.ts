@@ -1180,9 +1180,10 @@ export class WorkerExtensionHost {
         setTimeout(() => {
           if (invokeWaiters.has(invokeId)) {
             invokeWaiters.delete(invokeId);
-            reject(new Error(`service "${name}" call timeout (30s)`));
+            reject(new Error(`service "${name}" call timeout`));
           }
-        }, 30_000);
+          // The request's hard timeout, as a worker route's (ADR 0009 §3).
+        }, requestTxnTimeoutMs);
         this.post(target, {
           type,
           id: invokeId,
@@ -1859,6 +1860,8 @@ async function joinedStatement<T>(
 async function releaseWindow(txn: RequestTxn): Promise<void> {
   const open = txn.window;
   if (!open || !txn.conn) return;
+  // Cleared before the restore: a failed restore aborts the transaction
+  // (Postgres), and SET LOCAL reverts with it, so nothing runs in the window.
   txn.window = undefined;
   await txn.conn.unsafe(
     `SELECT set_config(k, v, true) FROM json_each_text($1::text::json) AS t(k, v)`,
