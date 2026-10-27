@@ -34,7 +34,9 @@ import {
   type RlsIdentity,
   runAfterCommitJob,
   runWithDomain,
+  markRequestTransaction,
   setCurrentTenantTrx,
+  settleRequestTransaction,
 } from '../lib/tenancy/index.js';
 
 type SettleJob = () => void | Promise<void>;
@@ -356,9 +358,13 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
               // extension's `ctx.db` (which has no Hono context inside a hook or
               // background job) is RLS-scoped to this tenant, not the global pool.
               setCurrentTenantTrx(trx);
+              markRequestTransaction();
               try {
                 await next();
               } finally {
+                // A worker service that joined the transaction is over first:
+                // nothing it sends can land after the COMMIT or ROLLBACK.
+                await settleRequestTransaction();
                 // ALWAYS closed, even when the handler throws.
                 //
                 // Without the `finally` an error inside the transaction left the

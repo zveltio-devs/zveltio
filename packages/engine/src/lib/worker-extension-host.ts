@@ -62,7 +62,8 @@ import {
 } from './service-registry.js';
 import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
-import { Turns } from '../db/trx-sequencer.js';
+import { CompiledQuery } from 'kysely';
+import { Turns, transactionTurns } from '../db/trx-sequencer.js';
 import type { RawPool } from '../db/bun-sql-dialect.js';
 import {
   CREDENTIAL_HEADERS,
@@ -80,10 +81,12 @@ import {
 } from './extensions/index.js';
 import {
   NO_UNITS,
+  beforeRequestTransactionEnds,
   describeDenial,
   getCurrentDomainOrNull,
   getCurrentTenantTrx,
   getCurrentTrxTenant,
+  requestTransactionState,
   getRequestActor,
   getResolvedMembership,
   getUserRoles,
@@ -973,7 +976,10 @@ export class WorkerExtensionHost {
       // worker route that threw after the call kept the service's rows. Only
       // where the request holds none (an event delivery) does it open one, as
       // that caller, for itself. No request, no tenant: unchanged.
-      const run = scope.run ?? direct;
+      // In a joined request transaction, at the caller's place in its turns: a
+      // call made inside the worker's own `db.transaction()` runs in it, as the
+      // statements beside it do, rather than wait for it to end.
+      const run = (scope.txn?.joined && within) || scope.run || direct;
       const result = tenantId
         ? await run(() =>
             getCurrentTenantTrx() && getCurrentTrxTenant() === tenantId
@@ -1209,13 +1215,15 @@ export class WorkerExtensionHost {
       // registered services callable from inline extensions / other
       // workers. The caller's tenant and user are the ones its async context
       // runs as.
-      serviceRegistry.scope(managed.name).register(msg.name, (...args: unknown[]) =>
-        this.invokeWorkerService(managed, msg.name, args, {
-          ...callerScope(),
+      serviceRegistry.scope(managed.name).register(msg.name, async (...args: unknown[]) => {
+        const scope = callerScope();
+        return this.invokeWorkerService(managed, msg.name, args, {
+          ...scope,
           // Called by an inline service a worker request called: in that request.
-          ...inlineServiceTxn.getStore(),
-        }),
-      );
+          // Else by inline code serving a request: in that request's transaction.
+          ...(inlineServiceTxn.getStore() ?? (await joinRequestTxn(scope))),
+        });
+      });
       managed.registeredServices.add(msg.name);
       this.post(managed, { type: 'service:register:ok', id: msg.id });
     } catch (err) {
@@ -1678,7 +1686,6 @@ type Reserved = Awaited<ReturnType<RawPool['reserve']>>;
  * caller in `scope`. On failure it is rolled back and released.
  */
 async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Reserved> {
-  const tenantId = scope?.tenantId;
   const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
   const pool = getActiveBunPool();
   if (!pool) throw new Error('BunSQL pool not initialized — host cannot run worker queries');
@@ -1704,74 +1711,176 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
     // `SET LOCAL` cannot leak, because Postgres unwinds it. Statements that
     // would end this transaction early are refused by `assertWorkerSqlAllowed`.
     await reserved.unsafe('BEGIN');
-    // Per statement: a request's transaction (RFC step 8) runs many.
-    await reserved.unsafe(`SET LOCAL statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
-    await setWorkerRole(reserved, extName);
-    if (tenantId) {
-      // The tenant and the caller, from the host's own record — the settings
-      // `withTenantIsolation` publishes for the request, so the row rules keyed
-      // on the user apply here as they do to an inline extension's `ctx.db`.
-      // Without them `zveltio.actor` was never `on`, every such rule stood down,
-      // and the worker saw what an anonymous caller of the tenant sees.
-      //
-      // Deliberately NOT carried: the caller's exemptions (`rls_bypass`,
-      // `columns_all`) and a reach wider than this tenant
-      // (`visible_tenants`). All only widen, and this code is the extension the platform chose not
-      // to trust; it keeps the single-tenant, rules-apply view it always had.
-      // A reach NARROWER than the tenant is carried: a caller whose assignments
-      // all lapsed sees NO_UNITS inline, and saw the whole tenant through here.
-      //
-      // Parameterised: `set_config` takes bind parameters where `SET` does not.
-      const id = scope?.actor?.identity;
-      const issuer = issuerSettings(id?.issuer);
-      await reserved.unsafe(
-        `SELECT set_config('zveltio.current_tenant', $1, true),
-                set_config('zveltio.user_id', $2, true),
-                set_config('zveltio.user_email', $3, true),
-                set_config('zveltio.user_role', $4, true),
-                set_config('zveltio.user_roles', $5, true),
-                set_config('zveltio.issuer_role', $10, true),
-                set_config('zveltio.issuer_rows', $11, true),
-                set_config('zveltio.issuer_user_id', $12, true),
-                set_config('zveltio.issuer_user_email', $13, true),
-                set_config('zveltio.issuer_user_role', $14, true),
-                set_config('zveltio.issuer_user_roles', $15, true),
-                set_config('zveltio.actor', $6, true),
-                set_config('zveltio.rls_bypass', 'off', true),
-                set_config('zveltio.columns_all', 'off', true),
-                set_config('zveltio.collection_grants', $7, true),
-                set_config('zveltio.collection_all', $8, true),
-                set_config('zveltio.system_collections', '', true),
-                set_config('zveltio.visible_tenants', $9, true)`,
-        [
-          tenantId,
-          id?.userId ?? '',
-          id?.email ?? '',
-          id?.role ?? '',
-          (id?.roles ?? []).join(','),
-          // An anonymous request is an actor too: the tenant's `public` role (R1).
-          id?.userId || id?.anonymous ? 'on' : 'off',
-          // What collection permissions (R1) check — the caller's own grants, so a
-          // worker's query gets no collection its caller could not touch.
-          id?.collectionGrants ?? '',
-          id?.collectionAll ? 'on' : 'off',
-          scope?.noUnits ? NO_UNITS : '',
-          // A key's issuer's column rules (095): only narrows, so it is carried.
-          id?.issuerRole ?? '',
-          // And its row rules (`getRlsFilters`): they only narrow too.
-          issuer.mode,
-          issuer.userId,
-          issuer.email,
-          issuer.role,
-          issuer.roles,
-        ],
-      );
-    }
+    await applyWorkerSettings(reserved, extName, scope);
     return reserved;
   } catch (err) {
     await endWorkerTxn(reserved, false);
     throw err;
   }
+}
+
+/**
+ * What `applyWorkerSettings` sets for a caller in `tenantId`: every name, so a
+ * joined request transaction can put the caller's own values back after.
+ */
+function workerSettings(scope: InvokeScope | undefined): [string, string][] {
+  if (!scope?.tenantId) return [];
+  // The tenant and the caller, from the host's own record — the settings
+  // `withTenantIsolation` publishes for the request, so the row rules keyed
+  // on the user apply here as they do to an inline extension's `ctx.db`.
+  // Without them `zveltio.actor` was never `on`, every such rule stood down,
+  // and the worker saw what an anonymous caller of the tenant sees.
+  //
+  // Deliberately NOT carried: the caller's exemptions (`rls_bypass`,
+  // `columns_all`) and a reach wider than this tenant
+  // (`visible_tenants`). All only widen, and this code is the extension the platform chose not
+  // to trust; it keeps the single-tenant, rules-apply view it always had.
+  // A reach NARROWER than the tenant is carried: a caller whose assignments
+  // all lapsed sees NO_UNITS inline, and saw the whole tenant through here.
+  const id = scope.actor?.identity;
+  const issuer = issuerSettings(id?.issuer);
+  return [
+    ['zveltio.current_tenant', scope.tenantId],
+    ['zveltio.user_id', id?.userId ?? ''],
+    ['zveltio.user_email', id?.email ?? ''],
+    ['zveltio.user_role', id?.role ?? ''],
+    ['zveltio.user_roles', (id?.roles ?? []).join(',')],
+    // A key's issuer's column rules (095): only narrows, so it is carried.
+    ['zveltio.issuer_role', id?.issuerRole ?? ''],
+    // And its row rules (`getRlsFilters`): they only narrow too.
+    ['zveltio.issuer_rows', issuer.mode],
+    ['zveltio.issuer_user_id', issuer.userId],
+    ['zveltio.issuer_user_email', issuer.email],
+    ['zveltio.issuer_user_role', issuer.role],
+    ['zveltio.issuer_user_roles', issuer.roles],
+    // An anonymous request is an actor too: the tenant's `public` role (R1).
+    ['zveltio.actor', id?.userId || id?.anonymous ? 'on' : 'off'],
+    ['zveltio.rls_bypass', 'off'],
+    ['zveltio.columns_all', 'off'],
+    // What collection permissions (R1) check — the caller's own grants, so a
+    // worker's query gets no collection its caller could not touch.
+    ['zveltio.collection_grants', id?.collectionGrants ?? ''],
+    ['zveltio.collection_all', id?.collectionAll ? 'on' : 'off'],
+    ['zveltio.system_collections', ''],
+    ['zveltio.visible_tenants', scope.noUnits ? NO_UNITS : ''],
+  ];
+}
+
+/**
+ * Set a transaction up for `extName`'s SQL as the caller in `scope`: its
+ * statement timeout, its role (`switching` from another role) and the caller's
+ * tenant settings, all `SET LOCAL`.
+ */
+async function applyWorkerSettings(
+  conn: Pick<Reserved, 'unsafe'>,
+  extName: string,
+  scope: InvokeScope | undefined,
+  switching = false,
+): Promise<void> {
+  // Per statement: a request's transaction (RFC step 8) runs many.
+  await conn.unsafe(`SET LOCAL statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
+  await setWorkerRole(conn, extName, switching);
+  const settings = workerSettings(scope);
+  if (settings.length === 0) return;
+  // Parameterised: `set_config` takes bind parameters where `SET` does not.
+  await conn.unsafe(
+    `SELECT ${settings.map((_, i) => `set_config($${2 * i + 1}, $${2 * i + 2}, true)`).join(', ')}`,
+    settings.flat(),
+  );
+}
+
+/**
+ * One statement of `extName`'s in a request transaction it joined: the
+ * caller's role and settings are read, the worker's set, and the caller's put
+ * back — the window an inline extension's statement gets (`asExtensionDbRole`).
+ * The request's turn is held throughout (`inRequestTxn`), so nothing of the
+ * caller's runs inside it. A failed statement aborted the transaction (or the
+ * savepoint around it), whose rollback restores the caller's settings.
+ */
+async function joinedStatement<T>(
+  conn: Pick<Reserved, 'unsafe'>,
+  extName: string,
+  scope: InvokeScope,
+  run: () => Promise<T>,
+): Promise<T> {
+  // Complete only because the worker cannot change a setting itself:
+  // `assertWorkerSqlAllowed` refuses SET, RESET and `set_config` in any spelling
+  // before a statement gets here, so the settings this window changes are the
+  // ones it applies. Admit any of those in the policy and this list must grow.
+  // (`SET TRANSACTION`, which it admits, cannot raise a privilege: at most it
+  // makes the caller's own request read-only.)
+  const names = ['role', 'statement_timeout', ...workerSettings(scope).map(([n]) => n)];
+  const [saved] = (await conn.unsafe(
+    `SELECT json_object_agg(n, coalesce(current_setting(n, true), ''))::text AS s
+       FROM unnest($1::text[]) AS n`,
+    [names],
+  )) as { s: string }[];
+  const restore = () =>
+    conn.unsafe(`SELECT set_config(k, v, true) FROM json_each_text($1::text::json) AS t(k, v)`, [
+      saved?.s ?? '{}',
+    ]);
+  let out: T;
+  try {
+    await applyWorkerSettings(conn, extName, scope, true);
+    out = await run();
+    if (!temporaryObjectsRestricted()) await conn.unsafe('DISCARD TEMP');
+  } catch (err) {
+    await restore().catch(() => undefined);
+    throw err;
+  }
+  await restore();
+  return out;
+}
+
+/**
+ * The request transaction a worker service called from inline code joins: the
+ * request's own tenant transaction (`tenantMiddleware`), one per request,
+ * ordered by its turns (`db/trx-sequencer.ts`) with the caller's statements and
+ * `db.transaction()` scopes. Nothing outside a request's transaction — boot,
+ * timers, events, jobs — and nothing once the request is ending.
+ */
+const joinedTxns = new WeakMap<object, Promise<RequestTxn>>();
+
+async function joinRequestTxn(scope: InvokeScope): Promise<Pick<InvokeScope, 'txn' | 'within'>> {
+  const trx = getCurrentTenantTrx();
+  if (!trx || !scope.tenantId || getCurrentTrxTenant() !== scope.tenantId) return {};
+  // A call made once the request is ending (or by a timer it left behind) is
+  // refused, as inline code on a committed transaction is: run on its own
+  // connection it would escape the request's rollback.
+  const state = requestTransactionState();
+  if (state === 'none') return {};
+  if (state === 'over') {
+    throw new Error("the request's transaction is over; a worker service cannot join it");
+  }
+  let pending = joinedTxns.get(trx);
+  // Cached as a promise before any await: two first calls under `Promise.all`
+  // share one joined transaction (one set of savepoint names on the connection).
+  if (!pending) {
+    pending = openJoinedTxn(trx);
+    joinedTxns.set(trx, pending);
+  }
+  const txn = await pending;
+  // At the caller's place in the turns: inside its `db.transaction()` if it is in one.
+  return { txn, within: scope.run };
+}
+
+async function openJoinedTxn(trx: Database): Promise<RequestTxn> {
+  const joined: RequestTxn = { ...newRequestTxn(), joined: true };
+  const on = await transactionTurns(trx);
+  // Every transaction `getDb()` opens is sequenced; one that is not cannot be
+  // shared safely, and the call is refused rather than run beside it.
+  if (!on) throw new Error("the request's transaction cannot be joined by a worker service");
+  joined.turns = on.turns;
+  joined.conn = {
+    unsafe: async (sql: string, params?: unknown[]) =>
+      (await on.send(CompiledQuery.raw(sql, params ?? []))).rows,
+  } as unknown as Reserved;
+  // Ends before the request's transaction does: what is still queued is refused,
+  // so no statement of the worker's lands after it.
+  if (!beforeRequestTransactionEnds(() => endRequestTxn(joined, true, 'its request is over'))) {
+    throw new Error("the request's transaction cannot be joined by a worker service");
+  }
+  return joined;
 }
 
 /**
@@ -1876,6 +1985,11 @@ let requestTxnTimeoutMs = REQUEST_TXN_TIMEOUT_MS;
  */
 interface RequestTxn {
   conn?: Reserved;
+  /**
+   * An inline request's own tenant transaction, joined by a worker service it
+   * called (`joinRequestTxn`): never opened, switched or ended here.
+   */
+  joined?: true;
   /** The extension whose role the transaction is SET to now. */
   ext?: string;
   /**
@@ -1956,7 +2070,7 @@ function onConnection<T>(
         () => void endRequestTxn(txn, false, `rolled back: timed out after ${ms} ms`),
         ms,
       );
-    } else if (txn.ext !== extName) {
+    } else if (!txn.joined && txn.ext !== extName) {
       // Cleared first: a failed switch must not leave a statement to run as
       // whatever role the switch stopped at.
       txn.ext = undefined;
@@ -1983,7 +2097,8 @@ function endRequestTxn(txn: RequestTxn, commit: boolean, why?: string): Promise<
   for (const key of [...txn.scopes.keys()]) closeScope(txn, key);
   txn.closing = txn.tail.then(async () => {
     const conn = txn.conn;
-    if (!conn) return commit;
+    // A joined transaction is its request's to end.
+    if (!conn || txn.joined) return commit;
     try {
       await endWorkerTxn(conn, commit);
       return commit;
@@ -2134,7 +2249,7 @@ async function savepointOp(
 
 /**
  * A `db.transaction()` callback outside a request — `register()`, a timer, an
- * event delivery, a service an inline caller invoked (owner decision 4): the
+ * event delivery, a service inline code called outside one (owner decision 4): the
  * host's own transaction, on a connection of its own, as the scope a lone
  * statement of the same work runs as (the invocation's tenant and caller, or
  * none). `begin` opens it, the outermost `release` commits it, the outermost
@@ -2224,9 +2339,10 @@ function endHostTxn(managed: ManagedWorker, id: string, why?: string): void {
 
 /**
  * One statement for `extName`: inside its request's transaction when it serves a
- * route (RFC step 8), else in a transaction of its own — background work
- * (`register()`, timers, events, a service an inline caller invoked) has no
- * request whose answer could commit it, unless it opened one (`hostTxnStatement`).
+ * route or a service called during a request, whoever the caller (RFC step 8),
+ * else in a transaction of its own — background work (`register()`, timers,
+ * events, jobs) has no request whose answer could commit it, unless it opened
+ * one (`hostTxnStatement`).
  */
 async function runRawWithParams(
   extName: string,
@@ -2239,6 +2355,15 @@ async function runRawWithParams(
   const { encodeArrayParams } = await import('../db/bun-sql-dialect.js');
   const args = params.length > 0 ? encodeArrayParams(params) : undefined;
   const exec = (conn: Reserved) => conn.unsafe(sql, args) as Promise<unknown[]>;
+  if (scope?.txn?.joined) {
+    return inRequestTxn(
+      scope.txn,
+      extName,
+      scope,
+      (conn) => joinedStatement(conn, extName, scope, () => exec(conn)),
+      at,
+    );
+  }
   if (scope?.txn) return inRequestTxn(scope.txn, extName, scope, exec, at);
   const reserved = await openWorkerTxn(extName, scope);
   let rows: unknown[];

@@ -19,7 +19,13 @@
  * on the same transaction and after it began, waits forever.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { ConnectionProvider, DatabaseConnection, QueryExecutor } from 'kysely';
+import type {
+  CompiledQuery,
+  ConnectionProvider,
+  DatabaseConnection,
+  QueryExecutor,
+  QueryResult,
+} from 'kysely';
 
 interface Level {
   tail: Promise<unknown>;
@@ -124,4 +130,26 @@ export async function exclusive<T>(
     db.getExecutor().provideConnection(IDENTIFY),
   );
   return provider instanceof Sequencer ? provider.exclusive(run) : run();
+}
+
+/**
+ * The turns of the transaction `db` is on, and a way to send a statement on its
+ * connection WITHOUT taking a turn — for a caller that takes the turn itself
+ * (`turns.run`/`exclusive`) and sends several statements in it: a worker
+ * extension joining a request's transaction. Undefined outside a transaction,
+ * or on one no sequencer hands out; throws once it committed or rolled back.
+ */
+export async function transactionTurns(db: {
+  readonly isTransaction: boolean;
+  getExecutor(): Pick<ConnectionProvider, 'provideConnection'>;
+}): Promise<{ turns: Turns; send(q: CompiledQuery): Promise<QueryResult<unknown>> } | undefined> {
+  if (!db.isTransaction) return undefined;
+  const provider: unknown = await probing.run(true, () =>
+    db.getExecutor().provideConnection(IDENTIFY),
+  );
+  if (!(provider instanceof Sequencer)) return undefined;
+  return {
+    turns: provider,
+    send: (q) => provider.inner.provideConnection((c) => c.executeQuery(q)),
+  };
 }
