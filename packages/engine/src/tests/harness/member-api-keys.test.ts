@@ -94,7 +94,16 @@ d('members issue their own API keys (ADR 0010)', () => {
       body: JSON.stringify({ value: true }),
     });
     expect(put.status).toBe(200);
-    expect((await create(m)).status).toBe(200);
+    const made = await create(m);
+    expect(made.status).toBe(200);
+    const { id } = (await made.json()) as { id: string };
+
+    // Off stops issuing only: the member can still see and revoke what they hold.
+    await setSwitch(false);
+    expect((await create(m)).status).toBe(403);
+    const list = await app.request('/api/me/api-keys', { headers: { cookie: m.cookie } });
+    expect(list.status).toBe(200);
+    expect((await revoke(m, id)).status).toBe(200);
   });
 
   it('refuses without a step-up, and a key cannot reach it', async () => {

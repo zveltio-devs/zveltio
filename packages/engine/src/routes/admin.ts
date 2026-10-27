@@ -444,7 +444,8 @@ export function memberApiKeysRoutes(db: Database, auth: SessionSource): Hono {
   app.use('*', async (c, next) => {
     const session = await guardSession(c, auth);
     if (session instanceof Response) return session;
-    if (!(await memberApiKeysEnabled(db))) {
+    // Off stops issuing only: a member can still list and revoke what they hold.
+    if (c.req.method === 'POST' && !(await memberApiKeysEnabled(db))) {
       return c.json(
         { error: 'Members cannot issue API keys on this instance', code: 'member_api_keys_off' },
         403,
@@ -518,10 +519,6 @@ export function memberApiKeysRoutes(db: Database, auth: SessionSource): Hono {
         return c.json({ error: 'rls_bypass needs data:view_all' }, 403);
       }
 
-      // Last before the write: a refusal above must not spend the token.
-      const stepUp = await requireStepUp(c, 'api_key.create');
-      if (stepUp instanceof Response) return stepUp;
-
       // The cap is counted in the request transaction under a per-member lock,
       // so concurrent creates queue here instead of all reading nine.
       await sql`SELECT pg_advisory_xact_lock(hashtext(${`zveltio:member-api-keys:${userId}`}))`.execute(
@@ -545,6 +542,10 @@ export function memberApiKeysRoutes(db: Database, auth: SessionSource): Hono {
           409,
         );
       }
+
+      // Last before the write: a refusal above must not spend the token.
+      const stepUp = await requireStepUp(c, 'api_key.create');
+      if (stepUp instanceof Response) return stepUp;
 
       const minted = await mintApiKey(db, userId, {
         name,
