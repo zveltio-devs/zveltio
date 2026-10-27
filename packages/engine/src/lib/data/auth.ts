@@ -382,10 +382,11 @@ export async function validateApiKey(
   // exist; it scoped the MANAGEMENT routes and left the AUTH path — the one
   // that decides what a request may touch.
   //
-  // Root-tenant keys act anywhere, deliberately. Migration 021 backfilled every
+  // Root-tenant keys are not bound to one tenant: migration 021 backfilled every
   // pre-existing key to root, so a strict match would refuse working keys on
-  // upgrade, and a root-tenant key is already an instance-level credential. The
-  // reported attack — one ordinary tenant's key reaching another — is refused.
+  // upgrade. They act in an ordinary tenant on their issuer's standing there,
+  // as a session does (`apiKeyActsIn`). The reported attack — one ordinary
+  // tenant's key reaching another — is refused.
   //
   // A request that resolved NO tenant is a request acting in the root tenant,
   // and is compared as such. It is not a request exempt from the comparison.
@@ -399,10 +400,10 @@ export async function validateApiKey(
   // refuses.
   const keyTenantId = (apiKey as { tenant_id?: string | null }).tenant_id ?? null;
   const actingTenantId = requestTenantId ?? DEFAULT_TENANT_ID;
-  if (!apiKeyActsIn(keyTenantId, requestTenantId)) {
+  if (!(await apiKeyActsIn(apiKey, requestTenantId))) {
     console.warn(
-      `[api-key] refused: key ${apiKey.id} belongs to tenant ${keyTenantId} but the ` +
-        `request is acting in ${actingTenantId}` +
+      `[api-key] refused: key ${apiKey.id} (tenant ${keyTenantId}) does not act in ` +
+        `${actingTenantId}` +
         (requestTenantId === null ? ' (no tenant resolved; treated as root)' : ''),
     );
     return null;

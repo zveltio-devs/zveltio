@@ -7,9 +7,11 @@
  * this comparison could exist — and scoped the MANAGEMENT routes with it while
  * leaving the AUTH path, which is the one that decides what a request may touch.
  *
- * Root-tenant keys act anywhere by design: migration 021 backfilled every
+ * Root-tenant keys are not bound to one tenant: migration 021 backfilled every
  * pre-existing key to root, so a strict match would refuse working keys on
- * upgrade, and a root-tenant key is already an instance-level credential.
+ * upgrade. Elsewhere they act on their issuer's membership
+ * (api-key-root-tenant-membership.test.ts); this root key's issuer is a member
+ * of the other tenant.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -35,11 +37,11 @@ d('API keys are bound to their tenant', () => {
   let app: Hono;
   let db: Database;
 
-  const insertKey = async (raw: string, tenantId: string, name: string) => {
+  const insertKey = async (raw: string, tenantId: string, name: string, memberOf = [tenantId]) => {
     await sql`
       INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
       VALUES (${name}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
-              '["*"]'::jsonb, true, ${tenantId}::uuid, ${await createKeyCreator(db, [tenantId])})
+              '["*"]'::jsonb, true, ${tenantId}::uuid, ${await createKeyCreator(db, memberOf)})
     `.execute(db);
   };
 
@@ -50,7 +52,7 @@ d('API keys are bound to their tenant', () => {
       db,
     );
     await insertKey(FOREIGN_KEY, OTHER_TENANT, `foreign-${STAMP}`);
-    await insertKey(ROOT_KEY, ROOT_TENANT, `root-${STAMP}`);
+    await insertKey(ROOT_KEY, ROOT_TENANT, `root-${STAMP}`, [OTHER_TENANT]);
   });
 
   afterAll(async () => {

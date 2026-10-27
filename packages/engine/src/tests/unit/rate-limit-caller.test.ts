@@ -27,11 +27,11 @@ async function callerFor(vars: {
 }): Promise<string | undefined> {
   let out: string | undefined;
   const app = new Hono();
-  app.get('/', (c) => {
+  app.get('/', async (c) => {
     if (vars.session) c.set('prefetchedSession', { user: { id: vars.session } });
     if (vars.key !== undefined) c.set('prefetchedApiKey', vars.key as never);
     if (vars.tenant) c.set('tenant', { id: vars.tenant } as never);
-    out = rateLimitCaller(c);
+    out = await rateLimitCaller(c);
     return c.text('ok');
   });
   await app.request('/');
@@ -42,14 +42,16 @@ describe('rateLimitCaller', () => {
   it('prefers the verified session, then a key valid in this tenant', async () => {
     expect(await callerFor({ session: 'u1', key: { id: 'k', tenant_id: T1 } })).toBe('u1');
     expect(await callerFor({ key: { id: 'k', tenant_id: T1 }, tenant: T1 })).toBe('apikey:k');
-    // Root keys act anywhere, as in validateApiKey.
-    expect(await callerFor({ key: { id: 'r', tenant_id: ROOT }, tenant: T2 })).toBe('apikey:r');
+    // A root key acts in root; elsewhere on its issuer's standing (harness test).
+    expect(await callerFor({ key: { id: 'r', tenant_id: ROOT } })).toBe('apikey:r');
   });
 
   it('never keys on a key the auth path would refuse', async () => {
     // Another tenant's key, and the same key with no tenant resolved (= root).
     expect(await callerFor({ key: { id: 'k', tenant_id: T1 }, tenant: T2 })).toBeUndefined();
     expect(await callerFor({ key: { id: 'k', tenant_id: T1 } })).toBeUndefined();
+    // A root key in an ordinary tenant with no issuer to stand on.
+    expect(await callerFor({ key: { id: 'r', tenant_id: ROOT }, tenant: T2 })).toBeUndefined();
     // Looked up, not found (a bogus key).
     expect(await callerFor({ key: null })).toBeUndefined();
     expect(await callerFor({})).toBeUndefined();
