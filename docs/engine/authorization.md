@@ -195,6 +195,20 @@ if (!canAccess) {
 }
 ```
 
+### Extension configuration needs the step-up window
+
+An extension request is configuration when its method is not GET, HEAD or
+OPTIONS and its permission check grants the `admin` object —
+`ctx.checkPermission(uid, 'admin', …)`, `ctx.internals.isTenantAdmin` or
+`ctx.internals.requireInstanceAdmin`, in-process or in a worker, under `/ext/*`
+or on a route the extension put on the global app. Without the session's
+step-up window that check throws, and the request answers what an `/api/*`
+configuration change answers: 403 `step_up_required` (or
+`step_up_enrollment_required`; 403 `Session required` for an API key), rolled
+back, even when the extension caught the throw. A check that refuses `admin`
+stays a plain refusal, so a non-administrator is never asked to step up. There
+is no manifest field and no list: the check is the classification.
+
 ---
 
 ## Collection permissions in the database

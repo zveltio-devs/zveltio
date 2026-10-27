@@ -70,7 +70,7 @@ import {
   extensionLoader,
   guardEventHandler,
 } from './extensions/index.js';
-import { compilePattern } from '../middleware/extension-auth-gate.js';
+import { compilePattern, extensionRequestRefused } from '../middleware/extension-auth-gate.js';
 import { ProblemException, problem, problemOnError } from './problem.js';
 import { ENGINE_EVENT_NAMESPACES, engineEvents } from './runtime/index.js';
 import {
@@ -1319,7 +1319,8 @@ export class WorkerExtensionHost {
             });
             // The rule `tenantMiddleware` applies to an inline request: commit
             // unless the handler threw — whatever status it answered with.
-            const commit = resp.type === 'route:ok' && !resp.threw;
+            // Nor when an `admin` check refused it, even if the worker caught that.
+            const commit = resp.type === 'route:ok' && !resp.threw && !extensionRequestRefused();
             if (!(await endRequestTxn(txn, commit)) && commit) {
               return Response.json({ error: NOT_COMMITTED }, { status: 500 });
             }
