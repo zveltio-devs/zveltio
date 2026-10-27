@@ -191,26 +191,36 @@ d('advisory locks on the pool', () => {
       // build waited on the waiter, which waited on the holder — a second replica
       // booting into the engine's `-- NO TRANSACTION` migration hung the first
       // until its own wait timed out.
-      const table = `zv_advlock_cicw_${Date.now()}`;
-      await sql`CREATE TABLE ${sql.id(table)} (id int)`.execute(probe);
+      //
+      // On a database of its own: CONCURRENTLY also waits out every OTHER old
+      // snapshot in its database, and in the shared harness database a
+      // background job's held one long enough to run the waiter into its
+      // timeout. That wait is per database, so here only these two pools count.
+      const name = `zv_advlock_cicw_${Date.now()}`;
+      const own = new globalThis.URL(URL!);
+      own.pathname = `/${name}`;
+      await sql.raw(`CREATE DATABASE ${name}`).execute(probe);
+      const holder = createDb(own.toString());
+      const other = createDb(own.toString());
       try {
+        await sql`CREATE TABLE t (id int)`.execute(holder);
         const key = freshKey();
         let waiter!: Promise<unknown>;
-        const took = await withAdvisoryLock(db, key, async () => {
-          waiter = withAdvisoryLock(probe, key, async () => 'ran', { maxWait: '3s' }).catch(
+        const took = await withAdvisoryLock(holder, key, async () => {
+          waiter = withAdvisoryLock(other, key, async () => 'ran', { maxWait: '3s' }).catch(
             (e: unknown) => e,
           );
           await Bun.sleep(300); // the waiter is waiting
           const t0 = Date.now();
-          await sql`CREATE INDEX CONCURRENTLY ${sql.id(`${table}_id`)} ON ${sql.id(table)} (id)`.execute(
-            db,
-          );
+          await sql`CREATE INDEX CONCURRENTLY t_id ON t (id)`.execute(holder);
           return Date.now() - t0;
         });
         expect(await waiter).toBe('ran');
         expect(took).toBeLessThan(2_000);
       } finally {
-        await sql`DROP TABLE ${sql.id(table)}`.execute(probe);
+        await holder.destroy();
+        await other.destroy();
+        await sql.raw(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).execute(probe);
       }
     }, 20_000);
 
