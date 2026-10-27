@@ -17,6 +17,7 @@ import { auditLog } from './audit.js';
 import { engineHandle } from './engine-handle.js';
 import { asEngineRole } from './role-window.js';
 import { getAuth, revokeAllUserSessions } from './auth.js';
+import { closeStepUps } from './step-up.js';
 import { withSavepoint } from './savepoint.js';
 import { isSignInBlocked, SignInBlockedError } from './security/index.js';
 import {
@@ -420,6 +421,8 @@ export async function clearUserFactors(
     const totp = await sql<{ id: string }>`
       DELETE FROM "twoFactor" WHERE "userId" = ${userId} RETURNING id`.execute(db);
     await sql`UPDATE "user" SET "twoFactorEnabled" = false WHERE id = ${userId}`.execute(db);
+    // On the auth pool, so it holds even if this transaction rolls back: closed is safe.
+    await closeStepUps(userId);
     return { passkeys: passkeys.rows.length, totp: totp.rows.length };
   });
 }

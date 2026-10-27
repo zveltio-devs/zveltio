@@ -198,7 +198,7 @@ d('god step-up for extension mutations', () => {
   it('an expired token is refused', async () => {
     const t = await token(`extension.config:${PROBE}`);
     await sql`UPDATE verification SET "expiresAt" = now() - interval '1 second'
-               WHERE identifier = 'step-up:token'`.execute(db);
+               WHERE identifier LIKE 'step-up:token:%'`.execute(db);
     expect((await config(PROBE, header(t))).status).toBe(403);
   });
 

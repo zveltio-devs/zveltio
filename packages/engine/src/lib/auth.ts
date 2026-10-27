@@ -352,6 +352,17 @@ const SESSION_ENDING_PATHS = new Set([
   '/delete-user/callback',
 ]);
 
+/**
+ * Endpoints that take a factor away or change the password; each closes the
+ * user's step-ups (lib/step-up.ts `closeStepUps`). `/reset-password` has no
+ * session to name the user, and ends every session of the account besides.
+ */
+const FACTOR_CHANGING_PATHS = new Set([
+  '/passkey/delete-passkey',
+  '/two-factor/disable',
+  '/change-password',
+]);
+
 export async function initAuth(db: Database) {
   if (!process.env.BETTER_AUTH_SECRET) {
     throw new Error('BETTER_AUTH_SECRET environment variable is required');
@@ -519,6 +530,17 @@ export async function initAuth(db: Database) {
     hooks: {
       after: createAuthMiddleware(async (ctx) => {
         if (SESSION_ENDING_PATHS.has(ctx.path)) revalidatePrincipalsEverywhere();
+        // A step-up proved the factors the account had; one is gone or the
+        // password changed, so close them all. Awaited: a failure fails the call.
+        const userId = ctx.context.session?.user.id;
+        if (
+          userId &&
+          FACTOR_CHANGING_PATHS.has(ctx.path) &&
+          !(ctx.context.returned instanceof APIError)
+        ) {
+          const { closeStepUps } = await import('./step-up.js');
+          await closeStepUps(userId);
+        }
       }),
     },
 
