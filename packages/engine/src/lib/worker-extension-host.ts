@@ -1177,13 +1177,19 @@ export class WorkerExtensionHost {
         Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
       >((resolve, reject) => {
         invokeWaiters.set(invokeId, { expect: target.name, resolve, reject });
-        setTimeout(() => {
-          if (invokeWaiters.has(invokeId)) {
-            invokeWaiters.delete(invokeId);
-            reject(new Error(`service "${name}" call timeout`));
-          }
-          // The request's hard timeout, as a worker route's (ADR 0009 §3).
-        }, requestTxnTimeoutMs);
+        setTimeout(
+          () => {
+            if (invokeWaiters.has(invokeId)) {
+              invokeWaiters.delete(invokeId);
+              reject(new Error(`service "${name}" call timeout`));
+            }
+            // In a request, the request's hard timeout, as a worker route's (ADR
+            // 0009 §3). Outside one (an event delivery, a call from a timer) there
+            // is no request transaction to bound: the fixed ceiling, and a host
+            // transaction the callee opened ends on its own timer, not this one.
+          },
+          scope.txn ? requestTxnTimeoutMs : REQUEST_TXN_TIMEOUT_MS,
+        );
         this.post(target, {
           type,
           id: invokeId,
@@ -1911,8 +1917,13 @@ async function openJoinedTxn(trx: Database): Promise<RequestTxn> {
   // Whatever else is sent on the connection runs at the caller's settings.
   on.beforeSend(() => releaseWindow(joined));
   joined.conn = {
-    unsafe: async (sql: string, params?: unknown[]) =>
-      (await on.send(CompiledQuery.raw(sql, params ?? []))).rows,
+    // The affected-row count as a reserved connection carries it (`count` on
+    // the rows, read by `handleDbQuery`): the pg driver's rows are a plain
+    // array, and an UPDATE or DELETE without RETURNING answered 0.
+    unsafe: async (sql: string, params?: unknown[]) => {
+      const { rows, numAffectedRows: n } = await on.send(CompiledQuery.raw(sql, params ?? []));
+      return n === undefined || 'count' in rows ? rows : Object.assign(rows, { count: Number(n) });
+    },
   } as unknown as Reserved;
   // Ends before the request's transaction does: what is still queued is refused,
   // so no statement of the worker's lands after it.
