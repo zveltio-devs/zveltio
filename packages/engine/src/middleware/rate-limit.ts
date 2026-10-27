@@ -546,7 +546,12 @@ export async function rateLimitCaller(c: Context): Promise<string | undefined> {
     ?.user?.id;
   if (sessionId) return sessionId;
   const key = c.get('prefetchedApiKey');
-  if (key && (await apiKeyActsIn(key, tenantId(c)))) return `apikey:${key.id}`;
+  if (key && (await apiKeyActsIn(key, tenantId(c)))) {
+    // A member's own keys spend the member's budget (ADR 0010): one more key is
+    // not one more budget. An administrator's keep a bucket each, and god's
+    // `apikey:<id>` override applies to those only.
+    return key.member_issued && key.created_by ? key.created_by : `apikey:${key.id}`;
+  }
   // A route-level limiter mounted after its own auth middleware.
   return (c.get('user') as { id?: string } | undefined)?.id;
 }

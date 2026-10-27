@@ -503,6 +503,7 @@ table zv_api_keys
   col key_prefix                     text NOT NULL
   col last_ip                        text
   col last_used_at                   timestamp with time zone
+  col member_issued                  boolean NOT NULL DEFAULT false
   col name                           text NOT NULL
   col organization                   text
   col permissions_mode               text NOT NULL DEFAULT 'scoped'::text

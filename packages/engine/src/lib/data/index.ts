@@ -80,6 +80,7 @@ export {
   EDGE_SCOPE,
   isApiKeyPrincipal,
   RPC_SCOPE,
+  SCHEMA_SCOPE,
   STORAGE_SCOPE,
 } from './auth.js';
 //   - `authenticate` so the WebSocket upgrade resolves a session or an API key

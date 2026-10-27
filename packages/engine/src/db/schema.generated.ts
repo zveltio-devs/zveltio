@@ -202,6 +202,7 @@ export interface ZvApiKeysTable {
   last_ip: Generated<string | null>;
   tenant_id: Generated<string>;
   rls_bypass: Generated<boolean>;
+  member_issued: Generated<boolean>;
 }
 
 export interface ZvApprovalDecisionsTable {

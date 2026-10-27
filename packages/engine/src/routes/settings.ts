@@ -91,6 +91,7 @@ const WRITABLE_SETTINGS_KEYS = new Set([
   'two_factor_enabled',
   'session_expiry_hours',
   'api_rate_limit',
+  'member_api_keys',
   // AI configuration (non-secret)
   'ai_enabled',
   'ai_default_provider',

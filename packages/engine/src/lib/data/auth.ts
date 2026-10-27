@@ -495,7 +495,7 @@ export async function validateApiKey(
  * (`SCHEMA_CHANNEL`). `$` cannot start a collection name, so no data grant can
  * be spelled this way.
  */
-const SCHEMA_SCOPE = '$schema';
+export const SCHEMA_SCOPE = '$schema';
 
 /** The scope that lets an API key use `/api/storage` — `read`, `create`, `delete`. */
 export const STORAGE_SCOPE = '$storage';

@@ -12,7 +12,7 @@ import {
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
 import { getCurrentDomain } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID, revalidatePrincipalsEverywhere } from '../lib/tenancy/index.js';
-import { apiKeyUsable, authenticate, fieldTypeRegistry } from '../lib/data/index.js';
+import { apiKeyUsable, authenticate, fieldTypeRegistry, SCHEMA_SCOPE } from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -24,7 +24,8 @@ import { registerSystemRoutes } from './admin/system-routes.js';
 import { registerPermissionRoutes } from './admin/permission-routes.js';
 import { registerConfigRoutes } from './admin/config-routes.js';
 import { registerStorageAdminRoutes } from './admin/storage-routes.js';
-import { guardAdmin } from '../lib/admin-guard.js';
+import { guardAdmin, guardSession, type SessionSource } from '../lib/admin-guard.js';
+import { requireStepUp } from '../lib/step-up.js';
 import { asEngineRole } from '../lib/role-window.js';
 import { paging } from '../lib/utils.js';
 
@@ -44,6 +45,68 @@ export function adminRoutes(db: Database, auth: any): Hono {
   registerConfigRoutes(app, db);
   registerStorageAdminRoutes(app, db);
   return app;
+}
+
+/** JSONB arrives as a string from this driver; hand callers the array. */
+function parseScopes(raw: unknown): Array<{ collection: string; actions: string[] }> {
+  if (Array.isArray(raw)) return raw as Array<{ collection: string; actions: string[] }>;
+  if (typeof raw !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? (parsed as Array<{ collection: string; actions: string[] }>)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Mint a key for `issuer` in the acting tenant. The raw key is in the answer
+ * once and never again; the hash never is.
+ */
+async function mintApiKey(
+  db: Database,
+  issuer: string,
+  fields: {
+    name: string;
+    scopes: Array<{ collection: string; actions: string[] }>;
+    rate_limit: number | null;
+    expires_at: Date | null;
+    rls_bypass: boolean;
+    member_issued: boolean;
+  },
+) {
+  const rawKey = generateApiKey();
+  // `hashApiKey`, not a copy of it. Both routes that MINT a key had this
+  // fourteen-line HMAC written out by hand, while `validateApiKey()` — the
+  // only code that ever checks one — calls the helper. They agree today by
+  // coincidence, and the helper's own docstring says what that costs: change
+  // the hash there and every key minted here becomes unverifiable, silently.
+  const keyHash = await hashApiKey(rawKey);
+  const apiKey = await db
+    .insertInto('zv_api_keys')
+    .values({
+      ...fields,
+      key_hash: keyHash,
+      key_prefix: rawKey.substring(0, 12),
+      // `::text::jsonb`, not `JSON.stringify` alone — see lib/jsonb.ts.
+      // Bound as a plain string this landed as a jsonb STRING, so
+      // `scopes @> '[...]'` matched nothing and `scopes ? 'x'` was false.
+      scopes: toJsonb(fields.scopes),
+      created_by: issuer,
+      is_active: true,
+      request_count: 0,
+      tenant_id: getCurrentDomain(),
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  // Not `...apiKey`: `returningAll()` hands back `key_hash`, a credential-adjacent
+  // value nobody needs that would then sit in devtools, network captures and
+  // client-side error reports. It is an HMAC keyed with the server secret, so not
+  // brute-forceable without it — the case for dropping it is that nothing needs it.
+  const { key_hash: _discardedHash, ...safe } = apiKey;
+  return { ...safe, key: rawKey };
 }
 
 /**
@@ -82,20 +145,6 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     await next();
   });
 
-  /** JSONB arrives as a string from this driver; hand callers the array. */
-  function parseScopes(raw: unknown): Array<{ collection: string; actions: string[] }> {
-    if (Array.isArray(raw)) return raw as Array<{ collection: string; actions: string[] }>;
-    if (typeof raw !== 'string') return [];
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed)
-        ? (parsed as Array<{ collection: string; actions: string[] }>)
-        : [];
-    } catch {
-      return [];
-    }
-  }
-
   // GET / — List API keys
   app.get('/', async (c) => {
     const { page = '1', limit = '50' } = c.req.query();
@@ -127,6 +176,8 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
         // `x-tenant-slug: alpha` reads alpha and gets nothing from beta. The
         // binding works; nobody could see it.
         'tenant_id',
+        // Issued by its owner at /api/me/api-keys rather than by an administrator.
+        'member_issued',
       ])
       // Whether the key authenticates, by the door's own rule: a key whose
       // creator was deleted, barred or left the tenant read `is_active: true`.
@@ -209,59 +260,23 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       const user = c.get('user') as RequestUser;
       const { name, scopes, rate_limit, expires_at, rls_bypass } = c.req.valid('json');
 
-      const rawKey = generateApiKey();
-      const prefix = rawKey.substring(0, 12);
-
-      // `hashApiKey`, not a copy of it. Both routes that MINT a key had this
-      // fourteen-line HMAC written out by hand, while `validateApiKey()` — the
-      // only code that ever checks one — calls the helper. They agree today by
-      // coincidence, and the helper's own docstring says what that costs: change
-      // the hash there and every key minted here becomes unverifiable, silently.
-      const keyHash = await hashApiKey(rawKey);
-
-      const apiKey = await db
-        .insertInto('zv_api_keys')
-        .values({
-          name,
-          key_hash: keyHash,
-          key_prefix: prefix,
-          // `::text::jsonb`, not `JSON.stringify` alone — see lib/jsonb.ts.
-          // Bound as a plain string this landed as a jsonb STRING, so
-          // `scopes @> '[...]'` matched nothing and `scopes ? 'x'` was false.
-          scopes: toJsonb(scopes),
-          rate_limit,
-          rls_bypass,
-          expires_at: expires_at ? new Date(expires_at) : null,
-          created_by: user.id,
-          is_active: true,
-          request_count: 0,
-          tenant_id: getCurrentDomain(),
-        })
-        .returningAll()
-        .executeTakeFirst();
+      const minted = await mintApiKey(db, user.id, {
+        name,
+        scopes,
+        rate_limit,
+        rls_bypass,
+        expires_at: expires_at ? new Date(expires_at) : null,
+        member_issued: false,
+      });
 
       await auditLog(db, {
         type: 'api_key.created',
         userId: user.id,
-        resourceId: apiKey?.id,
+        resourceId: minted.id,
         resourceType: 'api_key',
         metadata: { name, scopes },
       });
-
-      // Not `...apiKey`. The insert above uses `returningAll()`, so spreading it
-      // hands the caller `key_hash` — a credential-adjacent value they have no
-      // use for, which then sits in devtools, in any network capture, and in
-      // whatever client-side error reporting the operator runs. The listing
-      // beside this one selects columns explicitly for exactly that reason;
-      // this undid the care.
-      //
-      // It is an HMAC keyed with the server secret, so it is not brute-forceable
-      // without that secret — the argument for removing it is that nothing
-      // needed it, not that it was breaking anything.
-      //
-      // `key` is the one thing the caller genuinely cannot get again.
-      const { key_hash: _discardedHash, ...safe } = apiKey as typeof apiKey & { key_hash?: string };
-      return c.json({ ...safe, key: rawKey });
+      return c.json(minted);
     },
   );
 
@@ -392,6 +407,186 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       userId: user?.id,
       resourceId: c.req.param('id'),
       resourceType: 'api_key',
+    });
+    return c.json({ success: true });
+  });
+
+  return app;
+}
+
+/** `zv_settings` key: members may issue their own keys at /api/me/api-keys. Off unless set. */
+const MEMBER_API_KEYS_SETTING = 'member_api_keys';
+/** Active keys one member may hold in one tenant. */
+const MEMBER_KEY_CAP = 10;
+const MEMBER_KEY_MAX_MS = 365 * 24 * 3_600_000;
+
+async function memberApiKeysEnabled(db: Database): Promise<boolean> {
+  const row = await db
+    .selectFrom('zv_settings')
+    .select('value')
+    .where('key', '=', MEMBER_API_KEYS_SETTING)
+    .executeTakeFirst();
+  return row?.value === true || row?.value === 'true';
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A member's own keys, mounted at /api/me/api-keys (ADR 0010): `created_by` is
+ * the caller, issued in the acting tenant. Not configuration, so neither the
+ * config window nor the console host applies; a key never exceeds its issuer
+ * (`validateApiKey`), so it grants nothing the member lacks.
+ */
+export function memberApiKeysRoutes(db: Database, auth: SessionSource): Hono {
+  const app = new Hono();
+
+  // A session, never a key: a key does not mint, list or revoke keys.
+  app.use('*', async (c, next) => {
+    const session = await guardSession(c, auth);
+    if (session instanceof Response) return session;
+    if (!(await memberApiKeysEnabled(db))) {
+      return c.json(
+        { error: 'Members cannot issue API keys on this instance', code: 'member_api_keys_off' },
+        403,
+      );
+    }
+    c.set('user', session.user);
+    await next();
+  });
+
+  app.get('/', async (c) => {
+    const { page = '1', limit = '50' } = c.req.query();
+    const { limit: parsedLimit, offset } = paging(page, limit, 50, 200);
+    const keys = await db
+      .selectFrom('zv_api_keys')
+      .select([
+        'id',
+        'name',
+        'key_prefix',
+        'scopes',
+        'expires_at',
+        'last_used_at',
+        'created_at',
+        'rls_bypass',
+        'tenant_id',
+      ])
+      .select((eb) => apiKeyUsable(eb).as('is_active'))
+      .where('created_by', '=', c.get('user').id)
+      .where('tenant_id', '=', getCurrentDomain())
+      .orderBy('created_at', 'desc')
+      .limit(parsedLimit)
+      .offset(offset)
+      .execute();
+    return c.json({ api_keys: keys.map((k) => ({ ...k, scopes: parseScopes(k.scopes) })) });
+  });
+
+  app.post(
+    '/',
+    zValidator(
+      'json',
+      z.object({
+        name: z.string().min(1).max(200),
+        // Explicit: a key with no scope is a key nobody thought about.
+        scopes: z
+          .array(
+            z.object({
+              collection: z.string().min(1),
+              actions: z.array(z.string().min(1)).min(1),
+            }),
+          )
+          .min(1),
+        expires_at: z.string(),
+        rls_bypass: z.boolean().default(false),
+      }),
+    ),
+    async (c) => {
+      const userId = c.get('user').id;
+      const { name, scopes, expires_at, rls_bypass } = c.req.valid('json');
+
+      const expires = new Date(expires_at);
+      const ms = expires.getTime() - Date.now();
+      if (Number.isNaN(ms) || ms <= 0 || ms > MEMBER_KEY_MAX_MS) {
+        return c.json({ error: 'expires_at must be in the future and at most one year out' }, 400);
+      }
+      // Watching the schema is an instance administrator's (`apiKeyMayWatchSchema`).
+      if (scopes.some((s) => s.collection === SCHEMA_SCOPE)) {
+        return c.json({ error: `A member key cannot hold ${SCHEMA_SCOPE}` }, 400);
+      }
+      // Re-checked at every use too (`validateApiKey`); refused here so a member
+      // is not handed an exemption that silently does nothing.
+      if (rls_bypass && !(await checkPermission(userId, 'data', 'view_all'))) {
+        return c.json({ error: 'rls_bypass needs data:view_all' }, 403);
+      }
+
+      // Last before the write: a refusal above must not spend the token.
+      const stepUp = await requireStepUp(c, 'api_key.create');
+      if (stepUp instanceof Response) return stepUp;
+
+      // The cap is counted in the request transaction under a per-member lock,
+      // so concurrent creates queue here instead of all reading nine.
+      await sql`SELECT pg_advisory_xact_lock(hashtext(${`zveltio:member-api-keys:${userId}`}))`.execute(
+        db,
+      );
+      const held = await db
+        .selectFrom('zv_api_keys')
+        .select((eb) => eb.fn.countAll<string>().as('n'))
+        .where('created_by', '=', userId)
+        .where('tenant_id', '=', getCurrentDomain())
+        .where('member_issued', '=', true)
+        .where('is_active', '=', true)
+        .where('expires_at', '>', new Date())
+        .executeTakeFirstOrThrow();
+      if (Number(held.n) >= MEMBER_KEY_CAP) {
+        return c.json(
+          {
+            error: `At most ${MEMBER_KEY_CAP} active keys; revoke one first`,
+            code: 'api_key_limit',
+          },
+          409,
+        );
+      }
+
+      const minted = await mintApiKey(db, userId, {
+        name,
+        scopes,
+        rate_limit: null,
+        rls_bypass,
+        expires_at: expires,
+        member_issued: true,
+      });
+      await auditLog(db, {
+        type: 'api_key.created',
+        userId,
+        resourceId: minted.id,
+        resourceType: 'api_key',
+        metadata: { name, scopes, member_issued: true, tenant_id: minted.tenant_id },
+      });
+      return c.json(minted);
+    },
+  );
+
+  app.delete('/:id', async (c) => {
+    const userId = c.get('user').id;
+    const keyId = c.req.param('id');
+    // Not a uuid is not a key; asked anyway it aborts the request transaction (22P02).
+    if (!UUID_RE.test(keyId)) return c.json({ error: 'API key not found' }, 404);
+    const revoked = await db
+      .updateTable('zv_api_keys')
+      .set({ is_active: false })
+      .where('id', '=', keyId)
+      .where('created_by', '=', userId)
+      .where('tenant_id', '=', getCurrentDomain())
+      .where('is_active', '=', true)
+      .executeTakeFirst();
+    // Another member's key, an unknown one and one already revoked look the same.
+    if (!revoked.numUpdatedRows) return c.json({ error: 'API key not found' }, 404);
+    revalidatePrincipalsEverywhere();
+    await auditLog(db, {
+      type: 'api_key.revoked',
+      userId,
+      resourceId: keyId,
+      resourceType: 'api_key',
+      metadata: { tenant_id: getCurrentDomain() },
     });
     return c.json({ success: true });
   });

@@ -204,6 +204,8 @@ export interface ZvApiKeysTable {
   /** When true (default) this key is not constrained by RLS policies. */
   rls_bypass: Generated<boolean>;
   tenant_id: Generated<string>; // migration 021 — route-level tenant isolation
+  /** Issued by its owner at /api/me/api-keys; rate-limited as that member (102). */
+  member_issued: Generated<boolean>;
 }
 
 export interface ZvApiKeyAccessLogTable {
