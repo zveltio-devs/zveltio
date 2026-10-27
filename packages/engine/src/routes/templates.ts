@@ -159,6 +159,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
           prefix: z
             .string()
             .regex(/^[a-z][a-z0-9_]*$/)
+            .max(20)
             .optional(),
           skip_existing: z.boolean().default(true),
           adopt_rules: z.boolean().optional(),
@@ -304,6 +305,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
           prefix: z
             .string()
             .regex(/^[a-z][a-z0-9_]*$/)
+            .max(20)
             .optional(),
         })
         .optional(),
