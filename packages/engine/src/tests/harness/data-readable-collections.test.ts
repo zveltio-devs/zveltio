@@ -7,6 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
@@ -21,6 +22,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
 const OPEN = `hreadable_${STAMP}`;
 const CLOSED = `hunreadable_${STAMP}`;
+const BROKEN = `hbroken_${STAMP}`;
 
 type Listed = {
   name: string;
@@ -52,8 +54,12 @@ d('GET /api/data lists what the caller may read', () => {
     ({ app, db } = await getTestApp());
     await create(OPEN);
     await create(CLOSED);
+    await create(BROKEN);
     ({ cookie: member } = await createMemberSession(app, db, {
-      grants: [{ collection: OPEN, actions: ['read'] }],
+      grants: [
+        { collection: OPEN, actions: ['read'] },
+        { collection: BROKEN, actions: ['read'] },
+      ],
     }));
     await db
       .insertInto('zvd_column_permissions')
@@ -83,6 +89,7 @@ d('GET /api/data lists what the caller may read', () => {
     await invalidateColumnPermCache(OPEN);
     await dropTestCollection(db, OPEN);
     await dropTestCollection(db, CLOSED);
+    await dropTestCollection(db, BROKEN);
   });
 
   it('refuses without a session', async () => {
@@ -105,5 +112,24 @@ d('GET /api/data lists what the caller may read', () => {
     expect(fields.title!.readonly).toBeUndefined();
     expect(fields.salary).toBeUndefined();
     expect(fields.locked!.readonly).toBe(true);
+  });
+
+  it('leaves out a collection whose definition is malformed, not the whole list', async () => {
+    // `fields` that is not an array threw in the field map and turned the
+    // answer into a 500 for every caller.
+    await sql`UPDATE zvd_collections SET fields = '{}'::jsonb WHERE name = ${BROKEN}`.execute(db);
+    DDLManager.invalidateCache();
+    try {
+      const res = await app.request('/api/data', { headers: { cookie: member } });
+      expect(res.status).toBe(200);
+      const names = ((await res.json()) as { collections: Listed[] }).collections.map(
+        (c) => c.name,
+      );
+      expect(names).toContain(OPEN);
+      expect(names).not.toContain(BROKEN);
+    } finally {
+      await sql`UPDATE zvd_collections SET fields = '[]'::jsonb WHERE name = ${BROKEN}`.execute(db);
+      DDLManager.invalidateCache();
+    }
   });
 });
