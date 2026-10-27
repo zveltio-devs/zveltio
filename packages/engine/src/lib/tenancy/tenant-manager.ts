@@ -1038,8 +1038,8 @@ export async function getTenantById(id: string): Promise<Tenant | null> {
 /** What `stillInTenant` reads off a realtime connection. */
 interface TenantBoundConnection {
   tenantId: string | null;
-  /** A session's carries `userId`; an API key's does not. */
-  principal: { kind: string; userId?: string } | null;
+  /** A session's carries `userId`; an API key's, its issuer's `issuerId`. */
+  principal: { kind: string; userId?: string; issuerId?: string | null } | null;
 }
 
 /**
@@ -1051,8 +1051,12 @@ interface TenantBoundConnection {
  * again, for all of them.
  *
  * Membership as the middleware asks it: the default tenant counts everyone, a
- * god is exempt, and an API key is not asked here: its creator's membership in
- * the key's tenant is part of the key lookup (`stillAuthenticated`). A lapse is a date with no event, so the periodic principal sweep
+ * god is exempt. An API key is asked for its issuer, as `apiKeyActsIn` asks at
+ * the door: a root key acts in an ordinary tenant on its issuer's standing
+ * there, and the key lookup (`stillAuthenticated`) only asks about the KEY's
+ * tenant — root, which counts everyone — so a root key's socket in tenant T
+ * outlived its issuer's membership in T. A key with no issuer holds nowhere but
+ * the default tenant. A lapse is a date with no event, so the periodic principal sweep
  * (`startPolicyReconcile`) is what reaches it. `null` (no tenant captured)
  * always holds.
  *
@@ -1076,10 +1080,11 @@ export async function stillInTenant(
       .execute();
     for (const r of rows) active.add(r.id);
   }
+  // Whose membership decides, or `null` for a key with no issuer (refused).
   const memberOf = (c: TenantBoundConnection) =>
-    c.principal?.kind === 'session' && c.tenantId && c.tenantId !== DEFAULT_TENANT_ID
-      ? c.principal.userId
-      : undefined;
+    !c.principal || !c.tenantId || c.tenantId === DEFAULT_TENANT_ID
+      ? undefined
+      : ((c.principal.kind === 'session' ? c.principal.userId : c.principal.issuerId) ?? null);
   const asked = list.filter((c) => memberOf(c) && active.has(c.tenantId!));
   const held = new Set<string>();
   if (asked.length > 0) {
@@ -1101,7 +1106,8 @@ export async function stillInTenant(
     if (c.tenantId === null) return true;
     if (!active.has(c.tenantId)) return false;
     const userId = memberOf(c);
-    return !userId || held.has(`${c.tenantId}:${userId}`) || held.has(`*:${userId}`);
+    if (userId === undefined) return true;
+    return !!userId && (held.has(`${c.tenantId}:${userId}`) || held.has(`*:${userId}`));
   };
 }
 
