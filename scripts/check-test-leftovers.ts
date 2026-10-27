@@ -66,16 +66,26 @@ try {
     ORDER BY v2
   `;
 
+  // Role links of a user that no longer exists: deleted by SQL, not `deleteUser`.
+  // The bunfig preload sweeps them; any left are a new leak. (Users themselves
+  // are not counted: every harness file signs its own in and keeps them.)
+  const links = await sql<{ subject: string }[]>`
+    SELECT DISTINCT v0 AS subject FROM zvd_permissions g
+    WHERE g.ptype = 'g' AND g.v0 ~ '^[A-Za-z0-9]{32}$'
+      AND NOT EXISTS (SELECT 1 FROM "user" u WHERE u.id = g.v0)
+    ORDER BY v0
+  `;
   await sql.end();
 
   if (
     collections.length === 0 &&
     orphans.length === 0 &&
     revocations.length === 0 &&
-    grants.length === 0
+    grants.length === 0 &&
+    links.length === 0
   ) {
     console.log(
-      '[test-leftovers] OK — the suite left no collections, ghost tables, revocations or grants.',
+      '[test-leftovers] OK — the suite left no collections, ghost tables, revocations, grants or role links.',
     );
     process.exit(0);
   }
@@ -85,6 +95,7 @@ try {
   for (const o of orphans) console.error(`  ghost table ${o.tablename}`);
   for (const r of revocations) console.error(`  revocation  ${r.resource}`);
   for (const g of grants) console.error(`  grant       ${g.resource}`);
+  for (const l of links) console.error(`  role link   ${l.subject} (no such user)`);
   console.error('\nUse `dropTestCollection(db, name)` from `testing/app-harness.ts` in afterAll —');
   console.error('dropping the table alone leaves the row in `zvd_collections`, which is what');
   console.error('made a database accumulate 163 of these and a measurement taken there lie.');
