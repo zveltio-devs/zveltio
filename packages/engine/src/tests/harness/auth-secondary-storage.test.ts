@@ -15,7 +15,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _internalForTests as authTesting, getAuth, initAuth } from '../../lib/auth.js';
 import { _setCacheForTests, getCache } from '../../lib/runtime/cache.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+  plantMagicLink,
+} from '../../testing/app-harness.js';
 
 const VALKEY = process.env.HARNESS_VALKEY_URL;
 const d = harnessAvailable() && VALKEY ? describe : describe.skip;
@@ -56,14 +61,7 @@ d('auth single-use tokens on Valkey secondary storage', () => {
     const { userId, email } = await createMemberSession(app, db);
     await sql`UPDATE "user" SET "emailVerified" = true WHERE id = ${userId}`.execute(db);
     const ctx = await auth.$context;
-    const token = crypto.randomUUID().replaceAll('-', '');
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-    await ctx.internalAdapter.createVerificationValue({
-      identifier: Buffer.from(digest).toString('base64url'), // the plugin's `storeToken: 'hashed'`
-      value: JSON.stringify({ email }),
-      expiresAt: new Date(Date.now() + 60_000),
-    });
-    const url = new URL(`/api/auth/magic-link/verify?token=${token}`, ctx.baseURL);
+    const url = await plantMagicLink(ctx, email);
 
     const first = await auth.handler(new Request(url));
     expect(first.status).toBe(200);

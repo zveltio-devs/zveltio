@@ -27,6 +27,7 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  plantMagicLink,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -152,17 +153,8 @@ d('extension offboarding through ctx.internals', () => {
           body: JSON.stringify({ email, password: 'HarnessMember123!' }),
         })
       ).status;
-    const magicLinkSignIn = async () => {
-      const token = crypto.randomUUID().replaceAll('-', '');
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-      await authCtx.internalAdapter.createVerificationValue({
-        identifier: Buffer.from(digest).toString('base64url'), // the plugin's `storeToken: 'hashed'`
-        value: JSON.stringify({ email }),
-        expiresAt: new Date(Date.now() + 60_000),
-      });
-      const url = new URL(`/api/auth/magic-link/verify?token=${token}`, authCtx.baseURL);
-      return (await auth.handler(new Request(url))).status;
-    };
+    const magicLinkSignIn = async () =>
+      (await auth.handler(new Request(await plantMagicLink(authCtx, email)))).status;
 
     try {
       await asRequest((trx) => internals.setUserActive(trx, userId, false));

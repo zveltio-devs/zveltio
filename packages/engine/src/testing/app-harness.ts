@@ -620,3 +620,34 @@ export async function recoverGod(
     else process.env.RECOVERY_TOKEN = saved;
   }
 }
+
+/**
+ * Plant a magic link for `email` as the plugin stores one, and return the URL
+ * that verifies it. Since better-auth 1.7.7 (GHSA-965c-763c-88jm) the row is
+ * keyed `magic-link:<hashed token>` (`storeToken: 'hashed'`, as `lib/auth.ts`
+ * configures) and typed `{ type: 'magic-link', … }`, so an OAuth `state` row in
+ * the same table cannot be spent as a sign-in link. A row in the old shape
+ * verifies as `?error=INVALID_TOKEN`, whoever the user is.
+ */
+export async function plantMagicLink(
+  ctx: {
+    baseURL: string;
+    internalAdapter: {
+      createVerificationValue(v: {
+        identifier: string;
+        value: string;
+        expiresAt: Date;
+      }): Promise<unknown>;
+    };
+  },
+  email: string,
+): Promise<URL> {
+  const token = crypto.randomUUID().replaceAll('-', '');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  await ctx.internalAdapter.createVerificationValue({
+    identifier: `magic-link:${Buffer.from(digest).toString('base64url')}`,
+    value: JSON.stringify({ type: 'magic-link', email }),
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+  return new URL(`/api/auth/magic-link/verify?token=${token}`, ctx.baseURL);
+}
