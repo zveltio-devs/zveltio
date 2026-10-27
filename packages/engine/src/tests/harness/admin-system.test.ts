@@ -5,7 +5,14 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { sql } from 'kysely';
+import { DDLManager } from '../../lib/data/index.js';
+import {
+  createGodSession,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -72,6 +79,29 @@ d('admin system routes (in-process)', () => {
     const body = await res.json();
     expect(typeof body).toBe('object');
   });
+
+  it('GET /api/admin/stats counts the records of each collection', async () => {
+    // The Studio used to add up one `?limit=1` request per collection, and a
+    // failed one counted as 0; the engine now answers the count itself.
+    const name = `hstats_${Date.now()}`;
+    await DDLManager.createCollection(db, {
+      name,
+      adoptRules: true,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
+    try {
+      const table = DDLManager.getTableName(name);
+      await sql`INSERT INTO ${sql.table(table)} (title) VALUES ('a'), ('b')`.execute(db);
+      const res = await app.request('/api/admin/stats', { headers: { cookie } });
+      const { records } = (await res.json()) as {
+        records: { total: number; by_collection: Record<string, number> } | null;
+      };
+      expect(records?.by_collection[name]).toBe(2);
+      expect(records!.total).toBeGreaterThanOrEqual(2);
+    } finally {
+      await dropTestCollection(db, name);
+    }
+  }, 60_000);
 
   it("GET /api/admin/stats counts today's API calls from the request log", async () => {
     // The count used to come from the tenant quota's usage ledger, which only a

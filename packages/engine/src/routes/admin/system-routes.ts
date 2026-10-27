@@ -781,8 +781,60 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
           ),
     ]);
 
+    // Record counts per collection, one statement. The Studio used to send one
+    // `?limit=1` request per collection and add the totals itself, so a failed
+    // count became a silent 0 and no other client could ask for the number.
+    // Virtual collections are left out: counting them calls their upstream.
+    // `null` means the count failed, never that the instance is empty.
+    // Only tables that exist: the collection list is cached, and one missing
+    // table would fail the statement and, with it, the request transaction.
+    const tables = (
+      (await DDLManager.getCollections(db)) as {
+        name: string;
+        is_system?: boolean;
+        virtual_config?: unknown;
+      }[]
+    )
+      .filter((col) => !col.is_system && !col.virtual_config)
+      .map((col) => ({ name: col.name, table: DDLManager.getTableName(col.name) }));
+    const present = tables.length
+      ? new Set(
+          (
+            await sql<{ relname: string }>`
+              SELECT c.relname FROM pg_class c
+              WHERE c.relname = ANY(${tables.map((t) => t.table)}::text[])
+                AND c.relnamespace = current_schema()::regnamespace`.execute(db)
+          ).rows.map((r) => r.relname),
+        )
+      : new Set<string>();
+    const counts = tables.filter((t) => present.has(t.table));
+    const records = counts.length
+      ? await sql<{ name: string; count: string }>`${sql.join(
+          counts.map(
+            (t) =>
+              sql`SELECT ${t.name}::text AS name, count(*)::text AS count FROM ${sql.table(t.table)}`,
+          ),
+          sql` UNION ALL `,
+        )}`
+          .execute(db)
+          .then((r) => {
+            const by_collection = Object.fromEntries(
+              r.rows.map((row) => [row.name, parseInt(row.count)]),
+            );
+            const total = Object.values(by_collection).reduce((a, b) => a + b, 0);
+            return { total, by_collection };
+          })
+          .catch((err) => {
+            console.error(
+              `[admin/stats] record count failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            return null;
+          })
+      : { total: 0, by_collection: {} };
+
     return c.json({
       collections: collectionsCount,
+      records,
       active_webhooks: webhooksCount,
       slow_queries_24h: slowCount,
       api_calls_today: apiCallsToday,
