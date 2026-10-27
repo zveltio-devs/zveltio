@@ -13,8 +13,9 @@ import { parseCookies } from 'better-auth/cookies';
 import { bearer, twoFactor } from 'better-auth/plugins';
 import { magicLink } from 'better-auth/plugins';
 import { passkey } from '@better-auth/passkey';
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import { BunSqlDialect } from '../db/bun-sql-dialect.js';
+import { auditLog } from './audit.js';
 import { withStoredEmailLookup } from './auth-email.js';
 import type { Database } from '../db/index.js';
 import { withIdleInTransactionTimeout } from '../db/index.js';
@@ -298,9 +299,39 @@ export async function revokeAllUserSessions(
   let del = db.deleteFrom('session').where('userId', '=', userId);
   if (exceptToken) del = del.where('token', '!=', exceptToken);
   await del.execute();
+  // Sparing no session is a lockout — delete, ban, factor reset, an
+  // administrator's "revoke all" — and the user's API keys end with it (ADR
+  // 0010). Sparing one is the user hardening their own account from it.
+  if (!exceptToken) await revokeUserApiKeys(db, userId);
   // A socket or stream authenticates once, at open: close the ones these
   // sessions opened, on every instance.
   revalidatePrincipalsEverywhere(!db.isTransaction);
+}
+
+/**
+ * Deactivate every API key `userId` issued, in every tenant, on `db` — the
+ * caller's transaction, so the keys end with the event that ends the user's
+ * access, or the event fails. Revoked, not deleted: the access log cascades with
+ * the key row. Nothing sets them active again: a key outlives the lockout that
+ * should have ended it only by being re-issued. Before this, only deleting the
+ * user revoked them, and a ban merely hid them (`apiKeyUsable`) until it was
+ * lifted.
+ */
+export async function revokeUserApiKeys(db: Database, userId: string): Promise<void> {
+  // SECURITY DEFINER (migration 065): under the request role a plain UPDATE
+  // reaches only the acting tenant's keys.
+  const r = await sql<{ n: number }>`SELECT zveltio_revoke_user_api_keys(${userId}) AS n`.execute(
+    db,
+  );
+  const count = r.rows[0]?.n ?? 0;
+  if (count === 0) return;
+  await auditLog(db, {
+    type: 'api_key.revoked',
+    tenantId: null,
+    resourceId: userId,
+    resourceType: 'user',
+    metadata: { count },
+  });
 }
 
 export async function countLegacyScryptHashes(db: Database): Promise<number> {
@@ -528,7 +559,29 @@ export async function initAuth(db: Database) {
     // better-auth's own ways of ending a session. With Valkey no database hook
     // fires for them, so the path is what says a session may have ended.
     hooks: {
+      // A password reset ends the account's API keys (ADR 0010). Before the
+      // reset, for a token that names a user: a failure refuses the reset, and
+      // the reset commits on better-auth's own connection, out of reach of ours.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== '/reset-password') return;
+        const token = ctx.body?.token || ctx.query?.token;
+        if (typeof token !== 'string' || !token) return;
+        const v = await ctx.context.internalAdapter.findVerificationValue(
+          `reset-password:${token}`,
+        );
+        if (v && v.expiresAt > new Date()) await revokeUserApiKeys(db, v.value);
+      }),
       after: createAuthMiddleware(async (ctx) => {
+        // "Revoke all sessions" ends the API keys too, as `revokeAllUserSessions`
+        // does for the engine's own lockouts. Awaited: a failure fails the call.
+        const ended = ctx.context.session?.user.id;
+        if (
+          ctx.path === '/revoke-sessions' &&
+          ended &&
+          !(ctx.context.returned instanceof APIError)
+        ) {
+          await revokeUserApiKeys(db, ended);
+        }
         if (SESSION_ENDING_PATHS.has(ctx.path)) revalidatePrincipalsEverywhere();
         // A step-up proved the factors the account had; one is gone or the
         // password changed, so close them all. Awaited: a failure fails the call.
