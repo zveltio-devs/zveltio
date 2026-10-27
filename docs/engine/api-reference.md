@@ -955,6 +955,40 @@ signed-in user's profile). Never the hash. SDK: `client.auth.apiKey()`.
 401: no credentials, or a key that is unknown, revoked, expired or of another tenant. 403: a
 session (only a key has a key record).
 
+### GET /api/me/api-keys
+
+The signed-in member's own keys in the acting tenant, newest first (`page`,
+`limit`). Never the key or its hash. A key cannot call any `/api/me/api-keys`
+route (403). All three answer 403 `member_api_keys_off` until the instance sets
+`member_api_keys` to `true` (`PUT /api/settings/member_api_keys`).
+
+### POST /api/me/api-keys
+
+Issue a key for yourself in the acting tenant. Needs a step-up token for
+`api_key.create` in `X-Zveltio-Step-Up` (403 `step_up_required` otherwise).
+
+```json
+{
+  "name": "My script",
+  "scopes": [{ "collection": "orders", "actions": ["read"] }],
+  "expires_at": "2027-01-25T00:00:00Z",
+  "rls_bypass": false
+}
+```
+
+`scopes` is required and non-empty; `$schema` is refused (400). `expires_at` is
+required, in the future and at most one year out (400). `rls_bypass: true` needs
+`data:view_all` now (403), and is re-checked at every use. At most ten active
+keys per member per tenant (409 `api_key_limit`). The answer is the
+[`POST /api/api-keys`](#post-apiapi-keys) one, `key` shown once. The key's
+requests count against the member's rate-limit bucket, shared with their
+session and their other keys.
+
+### DELETE /api/me/api-keys/:id
+
+Revoke one of your own keys. 404 for a key that is not yours, unknown or
+already revoked.
+
 ### PUT /api/api-keys/:id/rate-limit
 
 God only. Set a custom rate limit for a specific API key, overriding the tier defaults (it can loosen or tighten them). The key's own `rate_limit` still applies on top of it and can only tighten.

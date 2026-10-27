@@ -329,6 +329,20 @@ needs its step-up window open (a passkey or TOTP confirmation in the last five
 minutes), or the request answers 403 `step_up_required`. A key never creates
 another key.
 
+### A member's own keys
+
+With the instance setting `member_api_keys` on (`PUT /api/settings/member_api_keys
+{"value": true}`; off by default), any signed-in member manages their own keys at
+`/api/me/api-keys` — `GET` lists them (never a secret), `POST` creates one, `DELETE
+/:id` revokes one. A key is issued in the tenant the request acts in and never
+exceeds the member. `POST` asks a fresh step-up token for `api_key.create` (header
+`X-Zveltio-Step-Up`; no password fallback), explicit `scopes` (never `$schema`),
+an `expires_at` in the future and at most a year out, and `rls_bypass` only from a
+member who holds `data:view_all`. A member holds at most ten active keys per
+tenant (409 `api_key_limit`). Their keys' requests count against the member's
+rate-limit bucket, not one bucket per key. See
+[`/api/me/api-keys`](api-reference.md#get-apimeapi-keys).
+
 ### Use an API key
 
 ```bash

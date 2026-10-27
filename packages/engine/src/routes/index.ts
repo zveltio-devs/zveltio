@@ -14,7 +14,7 @@ import { storageRoutes } from './storage.js';
 import { filesRoutes } from './files.js';
 import { webhooksRoutes } from './webhooks.js';
 import { isRegistrationEnabled, settingsRoutes } from './settings.js';
-import { adminRoutes, apiKeysRoutes } from './admin.js';
+import { adminRoutes, apiKeysRoutes, memberApiKeysRoutes } from './admin.js';
 import { wsRoutes } from './ws.js';
 import { relationsRoutes } from './relations.js';
 import { revisionsRoutes } from './revisions.js';
@@ -357,6 +357,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Profile convenience routes
   app.route('/api/me', authRoutes(db, auth));
+  // A member's own keys (ADR 0010); off unless `member_api_keys` is set.
+  app.route('/api/me/api-keys', memberApiKeysRoutes(db, auth));
 
   // Public invitation accept flow (no session required)
   app.route('/api/invitations', invitationRoutes(db, auth));

@@ -19,7 +19,7 @@ type SessionUser = ContextVariableMap['user'];
  * overloads `getSession` on `returnHeaders`, which no single signature matches.
  * Called without `returnHeaders`, it answers `{ session, user } | null`.
  */
-interface SessionSource {
+export interface SessionSource {
   api: { getSession(opts: { headers: Headers }): Promise<unknown> };
 }
 

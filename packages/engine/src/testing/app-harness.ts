@@ -385,7 +385,13 @@ export async function createMemberSession(
      */
     configWindow?: boolean;
   } = {},
-): Promise<{ cookie: string; userId: string; email: string }> {
+): Promise<{
+  cookie: string;
+  userId: string;
+  email: string;
+  /** With `configWindow`: the header one step-up for `action` needs, fresh per call. */
+  stepUp?: (action: string) => Promise<Record<string, string>>;
+}> {
   const role = 'member';
   const email = `harness-${role}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
   const password = 'HarnessMember123!';
@@ -438,8 +444,12 @@ export async function createMemberSession(
   if (!cookie) {
     throw new Error(`harness sign-in returned no cookie: ${signIn.status} ${await signIn.text()}`);
   }
-  if (opts.configWindow) await openConfigWindow(app, cookie, password);
-  return { cookie, userId, email };
+  if (!opts.configWindow) return { cookie, userId, email };
+  const { pk, req, origin, passkeyStepUp } = await openConfigWindow(app, cookie, password);
+  const stepUp = async (action: string) => ({
+    'X-Zveltio-Step-Up': await passkeyStepUp(req, cookie, pk, action, origin),
+  });
+  return { cookie, userId, email, stepUp };
 }
 
 /**
