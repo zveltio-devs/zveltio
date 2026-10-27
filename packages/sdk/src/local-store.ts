@@ -408,9 +408,12 @@ export class LocalStore {
     await this.db.delete('offline_blobs', id);
   }
 
-  /** Clear all local data */
+  /** Clear all local data; a closed store is opened for it and closed again. */
   async clear(): Promise<void> {
-    if (!this.db) throw new Error('LocalStore not opened');
+    if (!this.db) {
+      await this.open();
+      return this.clear().finally(() => this.close());
+    }
     const tx = this.db.transaction(['records', 'sync_queue', 'meta', 'offline_blobs'], 'readwrite');
     await tx.objectStore('records').clear();
     await tx.objectStore('sync_queue').clear();
