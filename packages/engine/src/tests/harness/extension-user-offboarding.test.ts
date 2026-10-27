@@ -27,6 +27,7 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  plantMagicLink,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -152,20 +153,8 @@ d('extension offboarding through ctx.internals', () => {
           body: JSON.stringify({ email, password: 'HarnessMember123!' }),
         })
       ).status;
-    const magicLinkSignIn = async () => {
-      const token = crypto.randomUUID().replaceAll('-', '');
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-      await authCtx.internalAdapter.createVerificationValue({
-        // The plugin's record since better-auth 1.7.7: `storeToken: 'hashed'`
-        // under a `magic-link:` namespace, typed, so an OAuth state row (the
-        // same table) can no longer be spent as a sign-in link.
-        identifier: `magic-link:${Buffer.from(digest).toString('base64url')}`,
-        value: JSON.stringify({ type: 'magic-link', email }),
-        expiresAt: new Date(Date.now() + 60_000),
-      });
-      const url = new URL(`/api/auth/magic-link/verify?token=${token}`, authCtx.baseURL);
-      return (await auth.handler(new Request(url))).status;
-    };
+    const magicLinkSignIn = async () =>
+      (await auth.handler(new Request(await plantMagicLink(authCtx, email)))).status;
 
     try {
       await asRequest((trx) => internals.setUserActive(trx, userId, false));
