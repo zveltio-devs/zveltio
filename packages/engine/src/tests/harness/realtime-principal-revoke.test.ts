@@ -202,6 +202,30 @@ d('an open realtime connection after its principal is revoked', () => {
     expectClosed(socket);
   });
 
+  it('a key stops receiving a collection its issuer lost read on', async () => {
+    // A key reads no more than the person it acts for: the re-check runs as
+    // the key AND its issuer (`authorUserId`), so the issuer's revoke trims it.
+    const issuer = await member();
+    const { id, key } = await createKey();
+    await sql`UPDATE zv_api_keys SET created_by = ${issuer.userId} WHERE id = ${id}`.execute(db);
+    const socket = await openWs({ 'X-API-Key': key });
+    socket.sent.length = 0;
+    socket.send('before');
+    expect(socket.sent.join('')).toContain('"before"');
+
+    const res = await app.request('/api/permissions/policies', {
+      method: 'DELETE',
+      headers: { cookie: god, 'content-type': 'application/json' },
+      body: JSON.stringify({ subject: issuer.userId, resource: COLLECTION, action: 'read' }),
+    });
+    expect(res.status).toBe(200);
+    await settle(() => socket.sent.some((m) => m.includes('"unsubscribed"')));
+
+    socket.sent.length = 0;
+    socket.send('after');
+    expect(socket.sent.join('')).not.toContain('"after"');
+  });
+
   it('a key narrowed by PATCH stops receiving the collection it lost', async () => {
     const { id, key } = await createKey();
     const socket = await openWs({ 'X-API-Key': key });
