@@ -224,7 +224,17 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
       if (c.res.status >= 400) return;
       const userId = before?.user?.id;
       if (!userId) return;
-      const currentToken = (before as { session?: { token?: string } } | null)?.session?.token;
+      // Better Auth rotates the session on enable and disable: `before`'s token is
+      // already gone, and the tab's session is the one the response sets.
+      const rotated = c.res.headers
+        .getSetCookie()
+        .map((v) => v.split(';')[0])
+        .join('; ');
+      const after = rotated
+        ? await auth.api.getSession({ headers: new Headers({ cookie: rotated }) }).catch(() => null)
+        : null;
+      const currentToken = ((after ?? before) as { session?: { token?: string } } | null)?.session
+        ?.token;
       // `poolDb`, not `db`. The request runs as `zveltio_rls`, which has no
       // grants on `session` since migration 044 — see the third reason in the
       // `poolDb` doc-comment above, which describes this exact failure.
