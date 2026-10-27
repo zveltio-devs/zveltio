@@ -3,9 +3,14 @@ import type { PageLoad } from './$types';
 
 /** One record of any collection the user may read, or `new` for an empty form. */
 export const load: PageLoad = async ({ fetch, params, parent }) => {
-  const { collections, engineUrl } = await parent();
+  const { collections, collectionsFailed, engineUrl } = await parent();
   const collection = collections.find((c) => c.name === params.collection);
-  if (!collection) error(404, 'Collection not found');
+  if (!collection) {
+    error(
+      collectionsFailed ? 503 : 404,
+      collectionsFailed ? 'Collections could not be loaded' : 'Collection not found',
+    );
+  }
   if (params.id === 'new') return { collection, record: null };
 
   const res = await fetch(

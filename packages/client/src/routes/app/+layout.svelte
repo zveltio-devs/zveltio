@@ -56,7 +56,10 @@ $effect(() => {
             Dashboard
           </a>
         </li>
-        {#if data.collections.length > 0}
+        {#if data.collectionsFailed}
+          <li class="menu-title">Data</li>
+          <li class="px-4 py-2 text-sm text-error" role="alert">Collections could not be loaded.</li>
+        {:else if data.collections.length > 0}
           <li class="menu-title">Data</li>
           {#each data.collections as c (c.name)}
             <li>
