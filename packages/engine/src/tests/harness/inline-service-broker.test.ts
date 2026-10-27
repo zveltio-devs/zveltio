@@ -224,6 +224,24 @@ d('inline service broker: namespace, declared owners, optional dependencies', ()
     expect(Date.now() - t0).toBeLessThan(1000);
   });
 
+  // A required dependency unloaded under a loaded dependent read as callable, so
+  // waitFor waited out its timeout. Absent while unloaded, callable once back.
+  it('a required dependency unloaded under its dependent answers "not found" at once, then returns', async () => {
+    await unloadExtension(extensionLoader, OWNER);
+    try {
+      const t0 = Date.now();
+      const wait = (await (await app.request(`/ext/${DEPENDENT}/wait/${OWNER}.secret`)).json()) as {
+        error?: string;
+      };
+      expect(wait.error).toBe(`service "${OWNER}.secret" not found`);
+      expect(Date.now() - t0).toBeLessThan(1000);
+    } finally {
+      const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
+      await extensionLoader.loadExtension(OWNER, app, ctx, base);
+    }
+    expect(await attempt(DEPENDENT, `${OWNER}.secret`)).toEqual({ out: 'secret' });
+  });
+
   // `minVersion` was never checked for a dependency loaded in this boot: both of
   // these loaded against OWNER 1.0.0 and STALE_OPT read its service.
   it('a required dependency loaded below its minVersion refuses the dependent', () => {
