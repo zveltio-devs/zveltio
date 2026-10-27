@@ -75,7 +75,7 @@ import { schemaDevWriter } from './lib/schema-artifact/dev-writer.js';
 import { tenantMembershipMiddleware } from './middleware/tenant-membership.js';
 import { initValidationEngine } from './lib/validation-engine.js';
 import { extensionAuthGate } from './middleware/extension-auth-gate.js';
-import { extRateLimit } from './middleware/rate-limit.js';
+import { extRateLimit, ssrRateLimit } from './middleware/rate-limit.js';
 import {
   initTelemetry,
   getDomainMetricsLines,
@@ -1135,6 +1135,8 @@ rm studio.tar.gz</pre>
     if (clientSsrEnabled() && (c.req.method === 'GET' || c.req.method === 'HEAD')) {
       res = await serveStaticFile(CLIENT_DIST, c.req.path, nonce, false);
       if (!res) {
+        const limited = await ssrRateLimit(c, async () => {});
+        if (limited) return limited;
         const rendered = await renderClient(c, CLIENT_DIST, (req, env) => app.fetch(req, env));
         if (rendered) {
           const html = rendered.headers.get('content-type')?.startsWith('text/html');

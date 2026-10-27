@@ -836,7 +836,7 @@ export async function finalizeExtensionLoad(
   ctx: ExtensionContext,
   manifest: ExtensionManifest | null,
   allowedTables: Set<string>,
-  /** Optional dependencies `resolveManifest` found too old to use: absent to this one. */
+  /** Optional dependencies `resolveManifest` found not loaded or too old: absent to this one. */
   absentOptional: readonly string[] = [],
 ): Promise<void> {
   // First, so a mismatch refuses the load before anything is granted for it.
@@ -914,8 +914,9 @@ export async function finalizeExtensionLoad(
   // Also inject the full public API (checkPermission, auth, DDLManager…) and
   // ctx.internals.* so extensions never have to relative-import engine modules.
   const dependencies = (manifest?.dependencies ?? []).map((d) => d.name);
-  // An optional dependency too old to use is declared but absent: its services
-  // read as unregistered to this extension, inline and through the broker alike.
+  // An optional dependency not loaded, or too old to use, is declared but absent:
+  // its services read as unregistered to this extension, inline and through the
+  // broker alike. lifecycle.ts keeps the map current as dependencies load and unload.
   const serviceDeps: ServiceDeps = new Map([
     ...dependencies.map((d): [string, boolean] => [d, true]),
     ...(manifest?.optionalDependencies ?? []).map((d): [string, boolean] => [

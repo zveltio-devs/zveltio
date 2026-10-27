@@ -87,6 +87,35 @@ d('configuration mutations need the step-up window', () => {
     expect((await send('POST', '/api/insights/query', { query: 'SELECT 1' })).status).toBe(200);
   });
 
+  it('every mutating /api route is configuration or a named App surface', () => {
+    // A new /api prefix is App use until someone adds it to config-routes.ts;
+    // this list makes that a decision. Configuration goes in CONFIG_PREFIXES,
+    // App use here.
+    const APP = [
+      '/api/auth', // own sessions and factors
+      '/api/data',
+      '/api/erd', // own diagram layout
+      '/api/insights', // running a panel; saved queries
+      '/api/invitations', // accepting one (creating one is /api/users)
+      '/api/me',
+      '/api/notifications',
+      '/api/permissions', // the god recovery door only
+      '/api/realtime',
+      '/api/revisions',
+      '/api/rpc', // calling a whitelisted function
+      '/api/saved-queries',
+      '/api/storage',
+      '/api/sync',
+    ];
+    const app_ = new Set<string>();
+    for (const r of app.routes) {
+      if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) || !r.path.startsWith('/api/'))
+        continue;
+      if (!isConfigMutation(r.method, r.path)) app_.add(r.path.split('/').slice(0, 3).join('/'));
+    }
+    expect([...app_].sort()).toEqual(APP);
+  });
+
   it('the god recovery door is not configuration', () => {
     expect(isConfigMutation('POST', '/api/permissions/bootstrap')).toBe(false);
     expect(isConfigMutation('POST', '/api/rpc/my_fn')).toBe(false);

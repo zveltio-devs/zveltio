@@ -210,6 +210,11 @@ d('advisory locks on the pool', () => {
         const other = createDb(own.toString());
         try {
           await sql`CREATE TABLE t (id int)`.execute(holder);
+          // Connected before the race: under a full harness run the cluster can be
+          // at max_connections, and a waiter that first connects mid-wait failed
+          // with "too many clients" instead of waiting.
+          // ponytail: retries nothing; a cluster still full at this point fails here, honestly.
+          await sql`SELECT 1`.execute(other);
           const key = freshKey();
           let waiter!: Promise<unknown>;
           const took = await withAdvisoryLock(holder, key, async () => {

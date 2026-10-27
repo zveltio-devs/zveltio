@@ -47,8 +47,9 @@ export function serviceRegisterRefusal(extName: string, name: string): string | 
 /**
  * The owners an extension declared — manifest `dependencies` +
  * `optionalDependencies` — each mapped to whether it is there to call. `false`
- * marks an optional dependency treated as absent: installed below the
- * `minVersion` the manifest asks for (`resolveManifest`).
+ * marks an optional dependency treated as absent: not loaded, or loaded below
+ * the `minVersion` the manifest asks for (`resolveManifest`, kept current by
+ * lifecycle.ts `refreshOptionalDependents` / `unloadExtension`).
  */
 export type ServiceDeps = ReadonlyMap<string, boolean>;
 
