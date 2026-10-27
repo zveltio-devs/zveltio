@@ -102,11 +102,12 @@ d('removing a factor or changing the password closes step-up', () => {
   });
 
   it('disabling TOTP closes the window its own step-up opened', async () => {
-    const { cookie, totpURI } = await enrollTotp(
-      req,
-      await createGodSession(app, db, { factor: false }),
-      PASSWORD,
-    );
+    const first = await createGodSession(app, db, { factor: false });
+    const other = await signIn(await emailOf(first));
+    const { cookie, totpURI } = await enrollTotp(req, first, PASSWORD);
+    // Turning TOTP on ends every other session and keeps this one.
+    expect((await req('/api/me', { headers: { cookie: other } })).status).toBe(401);
+    expect((await req('/api/me', { headers: { cookie } })).status).toBe(200);
     const v = await post('/api/auth/step-up/verify', cookie, {
       action: 'factor.totp.disable',
       code: totpCode(totpURI),
@@ -122,10 +123,12 @@ d('removing a factor or changing the password closes step-up', () => {
       { 'X-Zveltio-Step-Up': token },
     );
     expect(off.status).toBe(200);
-    // Better Auth replaces the session on disable, and the revocation of the
-    // others in routes/index.ts ends the replacement too: neither configures.
+    // Better Auth replaces the session on disable; the revocation of the others
+    // in routes/index.ts spares the replacement, which has no window (and no factor).
     expect((await configure(cookie)).status).toBe(401);
-    expect((await configure(cookieOf(off))).status).toBe(401);
+    const fresh = await configure(cookieOf(off));
+    expect(fresh.status).toBe(403);
+    expect(await codeOf(fresh)).toBe('step_up_enrollment_required'); // no factor left
   });
 
   it('changing the password leaves no window: not on the old session, not on the new one', async () => {
