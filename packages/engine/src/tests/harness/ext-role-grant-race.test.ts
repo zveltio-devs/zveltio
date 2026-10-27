@@ -18,6 +18,7 @@ import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
 import {
   _resetExtensionDbRoleForTests,
+  ensureExtensionDbRole,
   extensionDbRoleNames,
   grantExtensionDbRole,
   revokeExtensionDbRoles,
@@ -56,6 +57,9 @@ d('extension grants racing another replica', () => {
 
   beforeAll(async () => {
     db = (await getTestApp()).db;
+    // The rounds revoke from `zveltio_ext` before any grant creates it: on a
+    // fresh database where no earlier file loaded an extension, it was missing.
+    expect(await ensureExtensionDbRole(db)).toBe(true);
     // Shared tables first: the grant loop meets them before the own ones.
     for (const t of ALL) {
       await sql`CREATE TABLE IF NOT EXISTS ${sql.table(t)} (id int)`.execute(db);
