@@ -1011,7 +1011,13 @@ export class WorkerExtensionHost {
   ): Promise<void> {
     try {
       const scope = requestScope(managed, msg.requestId, msg.op);
-      const run = scope?.run ?? (<R>(fn: () => R) => fn());
+      // In a joined request transaction, at the caller's place in its turns: a
+      // query made for a call inside the worker's `db.transaction()` runs in it,
+      // rather than wait for the scope that is waiting for this answer.
+      const run =
+        (scope?.txn?.joined && levelOf(scope, scopeKey(msg))) ||
+        scope?.run ||
+        (<R>(fn: () => R) => fn());
       const session = async () => (scope?.session ? await run(scope.session) : null) ?? null;
       const who = async () =>
         scope?.user?.id ?? ((await session()) as { user?: { id?: string } } | null)?.user?.id;
@@ -1171,12 +1177,19 @@ export class WorkerExtensionHost {
         Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
       >((resolve, reject) => {
         invokeWaiters.set(invokeId, { expect: target.name, resolve, reject });
-        setTimeout(() => {
-          if (invokeWaiters.has(invokeId)) {
-            invokeWaiters.delete(invokeId);
-            reject(new Error(`service "${name}" call timeout (30s)`));
-          }
-        }, 30_000);
+        setTimeout(
+          () => {
+            if (invokeWaiters.has(invokeId)) {
+              invokeWaiters.delete(invokeId);
+              reject(new Error(`service "${name}" call timeout`));
+            }
+            // In a request, the request's hard timeout, as a worker route's (ADR
+            // 0009 §3). Outside one (an event delivery, a call from a timer) there
+            // is no request transaction to bound: the fixed ceiling, and a host
+            // transaction the callee opened ends on its own timer, not this one.
+          },
+          scope.txn ? requestTxnTimeoutMs : REQUEST_TXN_TIMEOUT_MS,
+        );
         this.post(target, {
           type,
           id: invokeId,
@@ -1286,14 +1299,22 @@ export class WorkerExtensionHost {
           const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
           const user = (c.get('user') ?? undefined) as { id?: string } | undefined;
           const auth = live.source?.auth;
-          const txn = newRequestTxn();
-          live.invokeTenants.set(id, {
+          const scope: InvokeScope = {
             ...currentScope(reqTenantId),
             user,
             run: AsyncLocalStorage.snapshot(),
             session: async () => auth?.api.getSession({ headers: c.req.raw.headers }) ?? null,
-            txn,
-          });
+          };
+          // The request's own tenant transaction, joined as a worker service an
+          // inline route calls joins it: one connection, so an inline service
+          // this route calls writes where the route reads, inside its
+          // `db.transaction()` if it is in one. It used to be a transaction of
+          // its own beside the tenant one: the route did not see the service's
+          // rows, a scope that threw kept them, and the two committed apart.
+          // A request with no tenant transaction still opens its own.
+          const joined = await joinRequestTxn(scope);
+          const txn = joined.txn ?? newRequestTxn();
+          live.invokeTenants.set(id, { ...scope, ...joined, txn });
           live.inFlightRequests++;
           live.totalRequests++;
           try {
@@ -1304,7 +1325,9 @@ export class WorkerExtensionHost {
                   live.pendingInvokes.delete(id);
                   reject(new Error('worker route handler timeout (30s)'));
                 }
-              }, 30_000);
+                // The request's hard timeout, the same as its transaction's: a
+                // joined transaction is the tenant's, ended only by the answer.
+              }, requestTxnTimeoutMs);
               // A post that throws (a body encoding past MAX_FRAME_BYTES) used
               // to leave the pending entry and its timer behind for 30 s.
               try {
@@ -1790,9 +1813,14 @@ async function applyWorkerSettings(
 }
 
 /**
- * One statement of `extName`'s in a request transaction it joined: the
- * caller's role and settings are read, the worker's set, and the caller's put
- * back — the window an inline extension's statement gets (`asExtensionDbRole`).
+ * One statement of `extName`'s in a request transaction it joined, in its
+ * window: the caller's role and settings read, the worker's set — what an
+ * inline extension's statement gets (`asExtensionDbRole`). The window stays
+ * open for the same invocation's next statement and is put back
+ * (`releaseWindow`) before anything else runs on the connection: another
+ * extension's statement, a savepoint, or any statement Kysely sends there
+ * (`transactionTurns`). Restored after every statement, a worker route
+ * paid seven round trips for each one where its own transaction paid one.
  * The request's turn is held throughout (`inRequestTxn`), so nothing of the
  * caller's runs inside it. A failed statement aborted the transaction (or the
  * savepoint around it), whose rollback restores the caller's settings.
@@ -1803,33 +1831,48 @@ async function joinedStatement<T>(
   scope: InvokeScope,
   run: () => Promise<T>,
 ): Promise<T> {
-  // Complete only because the worker cannot change a setting itself:
-  // `assertWorkerSqlAllowed` refuses SET, RESET and `set_config` in any spelling
-  // before a statement gets here, so the settings this window changes are the
-  // ones it applies. Admit any of those in the policy and this list must grow.
-  // (`SET TRANSACTION`, which it admits, cannot raise a privilege: at most it
-  // makes the caller's own request read-only.)
-  const names = ['role', 'statement_timeout', ...workerSettings(scope).map(([n]) => n)];
-  const [saved] = (await conn.unsafe(
-    `SELECT json_object_agg(n, coalesce(current_setting(n, true), ''))::text AS s
-       FROM unnest($1::text[]) AS n`,
-    [names],
-  )) as { s: string }[];
-  const restore = () =>
-    conn.unsafe(`SELECT set_config(k, v, true) FROM json_each_text($1::text::json) AS t(k, v)`, [
-      saved?.s ?? '{}',
-    ]);
+  const txn = scope.txn as RequestTxn;
   let out: T;
   try {
-    await applyWorkerSettings(conn, extName, scope, true);
+    if (txn.window?.scope !== scope) {
+      await releaseWindow(txn);
+      // Complete only because the worker cannot change a setting itself:
+      // `assertWorkerSqlAllowed` refuses SET, RESET and `set_config` in any
+      // spelling before a statement gets here, so the settings this window
+      // changes are the ones it applies. Admit any of those in the policy and
+      // this list must grow. (`SET TRANSACTION`, which it admits, cannot raise a
+      // privilege: at most it makes the caller's own request read-only.)
+      const names = ['role', 'statement_timeout', ...workerSettings(scope).map(([n]) => n)];
+      const [saved] = (await conn.unsafe(
+        `SELECT json_object_agg(n, coalesce(current_setting(n, true), ''))::text AS s
+           FROM unnest($1::text[]) AS n`,
+        [names],
+      )) as { s: string }[];
+      // Recorded before the worker's settings go on, so a failure halfway puts
+      // the caller's back.
+      txn.window = { scope, saved: saved?.s ?? '{}' };
+      await applyWorkerSettings(conn, extName, scope, true);
+    }
     out = await run();
     if (!temporaryObjectsRestricted()) await conn.unsafe('DISCARD TEMP');
   } catch (err) {
-    await restore().catch(() => undefined);
+    await releaseWindow(txn).catch(() => undefined);
     throw err;
   }
-  await restore();
   return out;
+}
+
+/** Put the caller's settings back on a joined transaction, if a worker's window is open. */
+async function releaseWindow(txn: RequestTxn): Promise<void> {
+  const open = txn.window;
+  if (!open || !txn.conn) return;
+  // Cleared before the restore: a failed restore aborts the transaction
+  // (Postgres), and SET LOCAL reverts with it, so nothing runs in the window.
+  txn.window = undefined;
+  await txn.conn.unsafe(
+    `SELECT set_config(k, v, true) FROM json_each_text($1::text::json) AS t(k, v)`,
+    [open.saved],
+  );
 }
 
 /**
@@ -1871,9 +1914,16 @@ async function openJoinedTxn(trx: Database): Promise<RequestTxn> {
   // shared safely, and the call is refused rather than run beside it.
   if (!on) throw new Error("the request's transaction cannot be joined by a worker service");
   joined.turns = on.turns;
+  // Whatever else is sent on the connection runs at the caller's settings.
+  on.beforeSend(() => releaseWindow(joined));
   joined.conn = {
-    unsafe: async (sql: string, params?: unknown[]) =>
-      (await on.send(CompiledQuery.raw(sql, params ?? []))).rows,
+    // The affected-row count as a reserved connection carries it (`count` on
+    // the rows, read by `handleDbQuery`): the pg driver's rows are a plain
+    // array, and an UPDATE or DELETE without RETURNING answered 0.
+    unsafe: async (sql: string, params?: unknown[]) => {
+      const { rows, numAffectedRows: n } = await on.send(CompiledQuery.raw(sql, params ?? []));
+      return n === undefined || 'count' in rows ? rows : Object.assign(rows, { count: Number(n) });
+    },
   } as unknown as Reserved;
   // Ends before the request's transaction does: what is still queued is refused,
   // so no statement of the worker's lands after it.
@@ -1990,6 +2040,11 @@ interface RequestTxn {
    * called (`joinRequestTxn`): never opened, switched or ended here.
    */
   joined?: true;
+  /**
+   * Joined only: the invocation whose worker settings are on the connection now,
+   * and the caller's they replaced (`joinedStatement`).
+   */
+  window?: { scope: InvokeScope; saved: string };
   /** The extension whose role the transaction is SET to now. */
   ext?: string;
   /**
@@ -2209,6 +2264,7 @@ async function abandonScopes(txn: RequestTxn, extName: string, requestId: string
         txn.turns.run(() =>
           onConnection(txn, extName, { tenantId: null }, async (conn) => {
             txn.ext = undefined;
+            await releaseWindow(txn);
             await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
             await conn.unsafe(`RELEASE SAVEPOINT ${name}`);
             txn.savepoints.length = open.base;
@@ -2227,6 +2283,9 @@ async function savepointOp(
   conn: Reserved,
   op: 'begin' | 'release' | 'rollback',
 ): Promise<void> {
+  // At the caller's settings, always: a ROLLBACK TO would otherwise put back
+  // (or take away) a worker's window behind `txn.window`'s back.
+  await releaseWindow(txn);
   if (op === 'begin') {
     await conn.unsafe(`SAVEPOINT zv_sp_${txn.savepoints.length + 1}`);
     txn.savepoints.push(extName);

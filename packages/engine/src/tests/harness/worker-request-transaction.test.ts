@@ -20,7 +20,11 @@ import { getActiveBunPool } from '../../db/bun-sql-dialect.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
-import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
+import {
+  markRequestTransaction,
+  runWithDomain,
+  settleRequestTransaction,
+} from '../../lib/tenancy/tenant-context.js';
 import {
   _internalForTests,
   _resetWorkerHostForTests,
@@ -30,7 +34,10 @@ import { ALL_COLLECTIONS_ACTOR, getTestApp, harnessAvailable } from '../../testi
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
-const TRANSPORTS = ['process'] as const;
+// `joined`: as `tenantMiddleware` serves a request, whose tenant transaction a
+// worker route joins (one connection); `process`: a transaction of its own, as
+// a request with no tenant transaction gets.
+const TRANSPORTS = ['process', 'joined'] as const;
 const TENANT = crypto.randomUUID();
 const extName = (t: string) => `wkrtx${t[0]}${SFX}`;
 const tbl = (t: string, s: string) => `zv_${extName(t)}_${s}`;
@@ -193,7 +200,7 @@ d('one transaction per request across the worker bridge', () => {
       writeFileSync(join(dir, 'engine', 'index.js'), entry(name, transport));
       writeFileSync(join(dir, 'engine', 'migrations', '001_tx.sql'), MIGRATION(transport));
 
-      process.env.ZVELTIO_EXT_TRANSPORT = transport;
+      process.env.ZVELTIO_EXT_TRANSPORT = 'process';
       _resetWorkerHostForTests();
       // As tenantMiddleware serves a request: the tenant's transaction held for it.
       const app = new Hono();
@@ -203,7 +210,14 @@ d('one transaction per request across the worker bridge', () => {
             TENANT,
             async () => {
               c.set('tenant' as never, { id: TENANT } as never);
-              await next();
+              if (transport === 'process') return next();
+              markRequestTransaction();
+              try {
+                await next();
+              } finally {
+                await settleRequestTransaction();
+              }
+              if (c.error) throw c.error;
             },
             { identity: ALL_COLLECTIONS_ACTOR },
           ),

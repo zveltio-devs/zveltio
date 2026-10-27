@@ -85,6 +85,9 @@ export class Turns {
 }
 
 class Sequencer extends Turns implements ConnectionProvider {
+  /** Run in a statement's turn before it is sent (`transactionTurns`). */
+  before?: () => Promise<void>;
+
   constructor(readonly inner: ConnectionProvider) {
     super();
   }
@@ -94,7 +97,10 @@ class Sequencer extends Turns implements ConnectionProvider {
     options?: Parameters<ConnectionProvider['provideConnection']>[1],
   ): Promise<T> {
     if (probing.getStore()) return consumer(this as unknown as DatabaseConnection);
-    return this.run(() => this.inner.provideConnection(consumer, options));
+    return this.run(async () => {
+      await this.before?.();
+      return this.inner.provideConnection(consumer, options);
+    });
   }
 }
 
@@ -136,13 +142,23 @@ export async function exclusive<T>(
  * The turns of the transaction `db` is on, and a way to send a statement on its
  * connection WITHOUT taking a turn — for a caller that takes the turn itself
  * (`turns.run`/`exclusive`) and sends several statements in it: a worker
- * extension joining a request's transaction. Undefined outside a transaction,
- * or on one no sequencer hands out; throws once it committed or rolled back.
+ * extension joining a request's transaction. `beforeSend` sets what runs in the
+ * turn of every statement sent through `db` instead (one hook per transaction),
+ * so that caller can put back settings it left on the connection. Undefined
+ * outside a transaction, or on one no sequencer hands out; throws once it
+ * committed or rolled back.
  */
 export async function transactionTurns(db: {
   readonly isTransaction: boolean;
   getExecutor(): Pick<ConnectionProvider, 'provideConnection'>;
-}): Promise<{ turns: Turns; send(q: CompiledQuery): Promise<QueryResult<unknown>> } | undefined> {
+}): Promise<
+  | {
+      turns: Turns;
+      send(q: CompiledQuery): Promise<QueryResult<unknown>>;
+      beforeSend(hook: () => Promise<void>): void;
+    }
+  | undefined
+> {
   if (!db.isTransaction) return undefined;
   const provider: unknown = await probing.run(true, () =>
     db.getExecutor().provideConnection(IDENTIFY),
@@ -151,5 +167,8 @@ export async function transactionTurns(db: {
   return {
     turns: provider,
     send: (q) => provider.inner.provideConnection((c) => c.executeQuery(q)),
+    beforeSend: (hook) => {
+      provider.before = hook;
+    },
   };
 }
