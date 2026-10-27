@@ -76,8 +76,8 @@ export interface ManifestResolution {
    */
   manifestMeta: ManifestMeta | null;
   /**
-   * Optional dependencies installed below the `minVersion` this manifest asks
-   * for. Treated as absent — the caller logs `absentWarning` and hands these to
+   * Optional dependencies not loaded, or loaded below the `minVersion` this
+   * manifest asks for. Treated as absent — the caller logs `absentWarning` and hands these to
    * `finalizeExtensionLoad`, which marks them so in the extension's ServiceDeps.
    */
   absentOptional: string[];
@@ -171,11 +171,18 @@ export async function resolveManifest(
       }
     }
 
-    // Optional dependencies: one that is not installed is simply absent. One that
-    // is installed below its `minVersion` is decided by the same check that
-    // refuses a required one, and is absent too — a version this extension says
-    // it cannot work with is not one it gets to call.
-    const pinnedOptional = manifest.optionalDependencies.filter((d) => d.minVersion);
+    // Optional dependencies: one not loaded is absent — no load error, and its
+    // services answer "not found" at once, `waitFor` included, rather than
+    // after the timeout; it turns callable when it loads (lifecycle.ts
+    // `refreshOptionalDependents`). One loaded below its `minVersion` is
+    // decided by the same check that refuses a required one, and is absent too —
+    // a version this extension says it cannot work with is not one it gets to call.
+    absentOptional = manifest.optionalDependencies
+      .filter((d) => !alreadyLoaded?.has(d.name))
+      .map((d) => d.name);
+    const pinnedOptional = manifest.optionalDependencies.filter(
+      (d) => d.minVersion && alreadyLoaded?.has(d.name),
+    );
     if (pinnedOptional.length > 0) {
       // A failed registry read cannot show an optional dependency meets its
       // minimum: it is absent, and this extension still loads without it.
@@ -186,11 +193,11 @@ export async function resolveManifest(
           return { satisfied: false, missing: names.map((n) => `${n} (${reason})`), tooOld: names };
         },
       );
-      absentOptional = opt.tooOld;
+      absentOptional.push(...opt.tooOld);
       if (opt.tooOld.length > 0) {
         absentWarning =
           `⚠️  Extension "${extName}": optional extensions treated as absent: ` +
-          opt.missing.filter((m) => !m.endsWith(' (not installed)')).join(', ');
+          opt.missing.join(', ');
       }
     }
 

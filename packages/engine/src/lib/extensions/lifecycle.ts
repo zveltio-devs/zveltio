@@ -143,6 +143,16 @@ export async function unloadExtension(
 
   loader.loaded.delete(name);
   loader.forgetExtensionMessages(name);
+  // A dependent that had it as an optional dependency now has it absent, as at
+  // a load without it: `waitFor` answers "not found" instead of the timeout.
+  for (const [dependent, entry] of loader.loaded) {
+    const deps = entry.serviceDeps as Map<string, boolean> | undefined;
+    if (deps?.get(name) !== true) continue;
+    const pin = await optionalPin(loader, dependent, name).catch(() => undefined);
+    if (!pin) continue;
+    deps.set(name, false);
+    getWorkerHostIfInitialized()?.resyncServices();
+  }
   console.log(`🔌 Extension unloaded from memory: ${name}`);
 
   // Audit trail — record unload (system-triggered; userId omitted to
@@ -187,29 +197,42 @@ export async function loadDynamic(
     const fallback = `engine/index.ts not found at ${extBase}/${name}/. Ensure EXTENSIONS_DIR is set and the extension package is deployed.`;
     throw new Error(realError ?? fallback);
   }
-  await refreshTooOldDependents(loader, name);
+}
+
+/** `dependent`'s manifest entry for `name` among its optionalDependencies, if any. */
+async function optionalPin(
+  loader: ExtensionLoader,
+  dependent: string,
+  name: string,
+): Promise<{ name: string; minVersion?: string } | undefined> {
+  const dir = loader.extDirs.get(dependent);
+  if (!dir) return undefined;
+  const manifest = JSON.parse(await Bun.file(join(dir, 'manifest.json')).text()) as {
+    optionalDependencies?: Array<{ name: string; minVersion?: string }>;
+  };
+  return manifest.optionalDependencies?.find((d) => d.name === name);
 }
 
 /**
- * `name` has just loaded, perhaps at a newer version: a loaded extension that
- * found it below its optional `minVersion` asks again, so an upgrade reaches
- * it without reloading it. Its `serviceDeps` is the map its `ctx.services`
- * scope and the worker broker read, so marking the dependency callable there
- * is the whole change.
+ * `name` has just loaded (`ExtensionLoader.loadExtension`), perhaps at a newer
+ * version: a loaded extension that found it absent — not loaded yet, or below
+ * its optional `minVersion` — asks again, so the dependency reaches it without
+ * reloading it. Its `serviceDeps` is the map its `ctx.services` scope and the
+ * worker broker read, so marking the dependency callable there is the whole change.
  */
-async function refreshTooOldDependents(loader: ExtensionLoader, name: string): Promise<void> {
+export async function refreshOptionalDependents(
+  loader: ExtensionLoader,
+  name: string,
+  db: Database,
+): Promise<void> {
   const versions = new Map(Array.from(loader.loaded, ([n, l]) => [n, l.version]));
   for (const [dependent, entry] of loader.loaded) {
     const deps = entry.serviceDeps as Map<string, boolean> | undefined;
-    const dir = loader.extDirs.get(dependent);
-    if (deps?.get(name) !== false || !dir || !loader.ctx) continue;
+    if (deps?.get(name) !== false) continue;
     try {
-      const manifest = JSON.parse(await Bun.file(join(dir, 'manifest.json')).text()) as {
-        optionalDependencies?: Array<{ name: string; minVersion?: string }>;
-      };
-      const pin = manifest.optionalDependencies?.find((d) => d.name === name);
+      const pin = await optionalPin(loader, dependent, name);
       if (!pin) continue;
-      const { tooOld } = await checkExtensionDependencies(loader.ctx.db, [pin], versions);
+      const { tooOld } = await checkExtensionDependencies(db, [pin], versions);
       if (!tooOld.includes(name)) {
         deps.set(name, true);
         // A worker dependent answers `has()` from its own copy of the map.
