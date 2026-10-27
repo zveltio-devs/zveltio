@@ -156,8 +156,11 @@ d('extension offboarding through ctx.internals', () => {
       const token = crypto.randomUUID().replaceAll('-', '');
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
       await authCtx.internalAdapter.createVerificationValue({
-        identifier: Buffer.from(digest).toString('base64url'), // the plugin's `storeToken: 'hashed'`
-        value: JSON.stringify({ email }),
+        // The plugin's record since better-auth 1.7.7: `storeToken: 'hashed'`
+        // under a `magic-link:` namespace, typed, so an OAuth state row (the
+        // same table) can no longer be spent as a sign-in link.
+        identifier: `magic-link:${Buffer.from(digest).toString('base64url')}`,
+        value: JSON.stringify({ type: 'magic-link', email }),
         expiresAt: new Date(Date.now() + 60_000),
       });
       const url = new URL(`/api/auth/magic-link/verify?token=${token}`, authCtx.baseURL);
