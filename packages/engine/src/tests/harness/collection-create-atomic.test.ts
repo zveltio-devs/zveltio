@@ -4,8 +4,8 @@
  *
  * `createIsolatedTable` made only CREATE TABLE + tenant RLS atomic; the indexes,
  * triggers, `zvd_collections` row, relation FKs and junctions then ran as
- * separate statements on the pool. A failure among them (here: an m2o field's
- * `on_delete` that `applyRelationFK` refuses) left a committed `zvd_` table and
+ * separate statements on the pool. A failure among them (here: a trigger that
+ * refuses the `zvd_collections` row, written after the table) left a committed `zvd_` table and
  * its metadata behind, and the create_collection job's retry then failed on
  * "already exists" forever.
  */
@@ -24,9 +24,9 @@ const DST = `atomic_dst_${SFX}`;
 const JOB = `atomic_job_${SFX}`;
 const EXT = `atomic_ext_${SFX}`;
 const REL = `atomic_rel_${SFX}`;
-const fields = (onDelete: string): CollectionInput['fields'] => [
+const fields: CollectionInput['fields'] = [
   { name: 'title', type: 'text' },
-  { name: 'owner', type: 'm2o', options: { related_collection: DST, on_delete: onDelete } },
+  { name: 'owner', type: 'm2o', options: { related_collection: DST, on_delete: 'CASCADE' } },
   { name: 'tags', type: 'm2m', options: { related_collection: DST } },
 ];
 
@@ -44,6 +44,23 @@ d('collection create is atomic', () => {
       (e: Error) => e,
     );
 
+  // A late failure: the metadata row is written after CREATE TABLE, inside the
+  // same transaction. (A bad `on_delete` used to serve, until the schema
+  // refused it up front.)
+  const refuseRow = (on: boolean) =>
+    sql
+      .raw(
+        on
+          ? `CREATE OR REPLACE FUNCTION zv_atomic_refuse_row() RETURNS trigger LANGUAGE plpgsql AS $$
+               BEGIN IF NEW.name IN ('${JOB}', '${EXT}') THEN RAISE EXCEPTION 'refused late'; END IF;
+               RETURN NEW; END $$;
+             CREATE TRIGGER zv_atomic_refuse_row BEFORE INSERT ON zvd_collections
+               FOR EACH ROW EXECUTE FUNCTION zv_atomic_refuse_row()`
+          : `DROP TRIGGER IF EXISTS zv_atomic_refuse_row ON zvd_collections;
+             DROP FUNCTION IF EXISTS zv_atomic_refuse_row()`,
+      )
+      .execute(db);
+
   beforeAll(async () => {
     ({ db } = await getTestApp());
     await runCreateCollection(db, { name: DST, fields: [{ name: 'title', type: 'text' }] });
@@ -53,6 +70,7 @@ d('collection create is atomic', () => {
     if (!db) return;
     await sql.raw('DROP TRIGGER IF EXISTS zv_atomic_refuse ON zvd_relations').execute(db);
     await sql.raw('DROP FUNCTION IF EXISTS zv_atomic_refuse()').execute(db);
+    await refuseRow(false);
     for (const n of [JOB, EXT, REL, DST]) {
       await sql.raw(`DROP TABLE IF EXISTS "zvd_jnc_${n}_${DST}" CASCADE`).execute(db);
       await dropTestCollection(db, n);
@@ -60,12 +78,18 @@ d('collection create is atomic', () => {
   });
 
   it('a create_collection job that fails late leaves nothing, and its retry succeeds', async () => {
-    const err = await failure(runCreateCollection(db, { name: JOB, fields: fields('EXPLODE') }));
-    expect(err?.message).toContain('Invalid on_delete');
+    await refuseRow(true);
+    let err: Error | null;
+    try {
+      err = await failure(runCreateCollection(db, { name: JOB, fields }));
+    } finally {
+      await refuseRow(false);
+    }
+    expect(err?.message).toContain('refused late');
     expect(await exists(`zvd_${JOB}`)).toBe(false);
     expect(await DDLManager.getCollection(db, JOB)).toBeNull();
 
-    await runCreateCollection(db, { name: JOB, fields: fields('CASCADE') });
+    await runCreateCollection(db, { name: JOB, fields });
     expect(await exists(`zvd_${JOB}`)).toBe(true);
     expect(await exists(`zvd_jnc_${JOB}_${DST}`)).toBe(true);
     const fk = await sql<{ n: number }>`
@@ -85,10 +109,14 @@ d('collection create is atomic', () => {
   });
 
   it("an extension's ctx.DDLManager.createCollection that fails late leaves nothing", async () => {
-    const err = await failure(
-      announcingDDLManager.createCollection(db, { name: EXT, fields: fields('EXPLODE') }),
-    );
-    expect(err?.message).toContain('Invalid on_delete');
+    await refuseRow(true);
+    let err: Error | null;
+    try {
+      err = await failure(announcingDDLManager.createCollection(db, { name: EXT, fields }));
+    } finally {
+      await refuseRow(false);
+    }
+    expect(err?.message).toContain('refused late');
     expect(await exists(`zvd_${EXT}`)).toBe(false);
     expect(await DDLManager.getCollection(db, EXT)).toBeNull();
   });
@@ -104,7 +132,7 @@ d('collection create is atomic', () => {
         'CREATE TRIGGER zv_atomic_refuse BEFORE INSERT ON zvd_relations FOR EACH ROW EXECUTE FUNCTION zv_atomic_refuse()',
       )
       .execute(db);
-    await runCreateCollection(db, { name: REL, fields: fields('CASCADE') });
+    await runCreateCollection(db, { name: REL, fields });
     expect(await exists(`zvd_${REL}`)).toBe(true);
     expect(await DDLManager.getCollection(db, REL)).not.toBeNull();
   });
