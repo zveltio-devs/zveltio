@@ -742,6 +742,61 @@ function buildSpec() {
       },
 
       // ── API Keys ───────────────────────────────────────────────────────────
+      '/me/api-keys': {
+        get: {
+          tags: ['API Keys'],
+          summary: "The signed-in member's own keys (session only; ADR 0010)",
+          responses: { '200': { description: 'API keys list, never hashes or raw keys' } },
+        },
+        post: {
+          tags: ['API Keys'],
+          summary:
+            'Issue an own key: needs the member_api_keys switch, a step-up, explicit scopes and an expiry at most one year out; at most 10 active',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['name', 'scopes', 'expires_at'],
+                  properties: {
+                    name: { type: 'string' },
+                    scopes: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          collection: { type: 'string' },
+                          actions: { type: 'array', items: { type: 'string' } },
+                        },
+                      },
+                    },
+                    expires_at: { type: 'string', format: 'date-time' },
+                    rls_bypass: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Key created; `key` holds the raw key, shown once' },
+            '403': {
+              description: 'Switch off, step-up required, or rls_bypass without data:view_all',
+            },
+            '409': { description: 'api_key_limit: 10 active keys already' },
+          },
+        },
+      },
+      '/me/api-keys/{id}': {
+        delete: {
+          tags: ['API Keys'],
+          summary: 'Revoke one of your own keys',
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+          ],
+          responses: { '200': { description: 'Key revoked' }, '404': { description: 'Not found' } },
+        },
+      },
       '/api-keys': {
         get: {
           tags: ['API Keys'],
