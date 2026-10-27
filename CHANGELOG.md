@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Reserved first path segments, published to extensions.** `@zveltio/sdk/extension`
+exports `RESERVED_PATH_SEGMENTS` and `isReservedPath()`: `api`, `ext`, `admin`,
+`app`, `auth`, `_app`, `_server`, `.well-known` and the root files belong to the
+engine and the App. An extension that mints public URLs (a site page slug, a
+base path) refuses them. Additive in extension-api v1.
+
 **zod 4.6.7 and kysely 0.29.7, everywhere at once.** zod below 4.6.6 let an
 oversized array body exhaust memory (GHSA-mrhx-c7xc-m3w5); the engine, the
 worker runtime and every extension bundle move together, and CI no longer
