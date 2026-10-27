@@ -21,9 +21,12 @@ import {
 } from '../../db/advisory-lock.js';
 import { autoMigrate } from '../../db/auto-migrate.js';
 import { MAX_SCHEMA_VERSION } from '../../version.js';
+import { superuserUrl } from '../../testing/app-harness.js';
 
 const URL = process.env.TEST_DATABASE_URL;
 const d = URL ? describe : describe.skip;
+/** Creating a database takes a superuser; the owner lane has one beside it. */
+const SUPER = URL ? await superuserUrl() : null;
 // 'zveltio\0' — the migration key; Postgres files a bigint key as (high, low).
 const MIGRATION_KEY = 0x7a76656c74696f00n;
 const HIGH = Number(MIGRATION_KEY >> 32n);
@@ -185,44 +188,50 @@ d('advisory locks on the pool', () => {
       }
     }, 20_000);
 
-    it('a waiter holds no snapshot either, so the holder’s CREATE INDEX CONCURRENTLY never waits on it', async () => {
-      // A blocked `pg_advisory_xact_lock` keeps its statement's snapshot for the
-      // whole wait, and CONCURRENTLY waits out every older snapshot: the holder's
-      // build waited on the waiter, which waited on the holder — a second replica
-      // booting into the engine's `-- NO TRANSACTION` migration hung the first
-      // until its own wait timed out.
-      //
-      // On a database of its own: CONCURRENTLY also waits out every OTHER old
-      // snapshot in its database, and in the shared harness database a
-      // background job's held one long enough to run the waiter into its
-      // timeout. That wait is per database, so here only these two pools count.
-      const name = `zv_advlock_cicw_${Date.now()}`;
-      const own = new globalThis.URL(URL!);
-      own.pathname = `/${name}`;
-      await sql.raw(`CREATE DATABASE ${name}`).execute(probe);
-      const holder = createDb(own.toString());
-      const other = createDb(own.toString());
-      try {
-        await sql`CREATE TABLE t (id int)`.execute(holder);
-        const key = freshKey();
-        let waiter!: Promise<unknown>;
-        const took = await withAdvisoryLock(holder, key, async () => {
-          waiter = withAdvisoryLock(other, key, async () => 'ran', { maxWait: '3s' }).catch(
-            (e: unknown) => e,
-          );
-          await Bun.sleep(300); // the waiter is waiting
-          const t0 = Date.now();
-          await sql`CREATE INDEX CONCURRENTLY t_id ON t (id)`.execute(holder);
-          return Date.now() - t0;
-        });
-        expect(await waiter).toBe('ran');
-        expect(took).toBeLessThan(2_000);
-      } finally {
-        await holder.destroy();
-        await other.destroy();
-        await sql.raw(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).execute(probe);
-      }
-    }, 20_000);
+    it.skipIf(!SUPER)(
+      'a waiter holds no snapshot either, so the holder’s CREATE INDEX CONCURRENTLY never waits on it',
+      async () => {
+        // A blocked `pg_advisory_xact_lock` keeps its statement's snapshot for the
+        // whole wait, and CONCURRENTLY waits out every older snapshot: the holder's
+        // build waited on the waiter, which waited on the holder — a second replica
+        // booting into the engine's `-- NO TRANSACTION` migration hung the first
+        // until its own wait timed out.
+        //
+        // On a database of its own: CONCURRENTLY also waits out every OTHER old
+        // snapshot in its database, and in the shared harness database a
+        // background job's held one long enough to run the waiter into its
+        // timeout. That wait is per database, so here only these two pools count.
+        const name = `zv_advlock_cicw_${Date.now()}`;
+        const own = new globalThis.URL(SUPER!);
+        own.pathname = `/${name}`;
+        const admin = createDb(SUPER!);
+        await sql.raw(`CREATE DATABASE ${name}`).execute(admin);
+        const holder = createDb(own.toString());
+        const other = createDb(own.toString());
+        try {
+          await sql`CREATE TABLE t (id int)`.execute(holder);
+          const key = freshKey();
+          let waiter!: Promise<unknown>;
+          const took = await withAdvisoryLock(holder, key, async () => {
+            waiter = withAdvisoryLock(other, key, async () => 'ran', { maxWait: '3s' }).catch(
+              (e: unknown) => e,
+            );
+            await Bun.sleep(300); // the waiter is waiting
+            const t0 = Date.now();
+            await sql`CREATE INDEX CONCURRENTLY t_id ON t (id)`.execute(holder);
+            return Date.now() - t0;
+          });
+          expect(await waiter).toBe('ran');
+          expect(took).toBeLessThan(2_000);
+        } finally {
+          await holder.destroy();
+          await other.destroy();
+          await sql.raw(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`).execute(admin);
+          await admin.destroy();
+        }
+      },
+      20_000,
+    );
 
     it('a second caller waits for the first to finish', async () => {
       const key = freshKey();
