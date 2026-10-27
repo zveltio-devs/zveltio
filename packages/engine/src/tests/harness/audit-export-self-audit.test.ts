@@ -37,7 +37,10 @@ d('the audit export records itself (in-process)', () => {
       SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = 'export.executed'
     `.execute(db);
 
-    const res = await app.request('/api/admin/audit/export?event_type=god_action', {
+    // From this test on: `god_action` rows outlive a run, and past the export's
+    // 50 000-row cap a long-lived test database answered `truncated: true`.
+    const from = new Date(Date.now() - 60_000).toISOString();
+    const res = await app.request(`/api/admin/audit/export?event_type=god_action&from=${from}`, {
       headers: { cookie },
     });
     expect(res.status).toBe(200);

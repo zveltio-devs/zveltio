@@ -207,10 +207,9 @@ d('advisory locks on the pool', () => {
         // Under a full harness run the cluster sits near max_connections (other
         // files' pools), and a fresh connection answered "too many clients"
         // before the race began. Setup waits for a slot; the race itself does not.
-        // 5 s was not enough in CI (#1376, #1382): the pools of a full run keep
-        // idle backends for 300 s, and a lower idle timeout only adds churn
-        // (measured 2026-10-27: peak 81 at 300 s, 121 at 10 s).
-        // ponytail: 40 tries over ~20 s; a cluster full for longer fails here.
+        // The cluster was full because every `createDb()` opened 20 backends
+        // whatever DB_POOL_MAX said (fixed in createDb, measured peak 81 -> 57).
+        // ponytail: 10 tries over ~5 s; a cluster full for longer fails here.
         const connect = async (db: ReturnType<typeof createDb>) => {
           for (let i = 0; ; i++) {
             try {
@@ -218,7 +217,7 @@ d('advisory locks on the pool', () => {
             } catch (e) {
               const pgCode =
                 (e as { errno?: string; code?: string }).errno ?? (e as { code?: string }).code;
-              if (i >= 39 || pgCode !== '53300') throw e;
+              if (i >= 9 || pgCode !== '53300') throw e;
               await Bun.sleep(500);
             }
           }
@@ -253,7 +252,7 @@ d('advisory locks on the pool', () => {
           await admin.destroy();
         }
       },
-      45_000,
+      20_000,
     );
 
     it('a second caller waits for the first to finish', async () => {

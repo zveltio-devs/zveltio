@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { _setConnectionTracing, tracedAcquisitionSite } from '../../db/connection-trace.js';
+import { _settleAuditWrites } from '../../lib/audit.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateRulesCache, resetRuleGroupsTableProbe } from '../../lib/validation-engine.js';
 import {
@@ -33,7 +34,12 @@ d('a data write needs one connection (in-process)', () => {
   let db: Database;
   let cookie = '';
 
-  const cold = () => {
+  // The connection trace counts process-wide, so an audit row the previous
+  // request left in flight (it writes on the pool, after that request let go of
+  // its connection) landed in this request's window: 'bulk PATCH 200 1' at
+  // writeAuditRow, seen once in CI. Settled first, each window is its own.
+  const cold = async () => {
+    await _settleAuditWrites();
     resetRuleGroupsTableProbe(db);
     invalidateRulesCache(C);
   };
@@ -63,7 +69,7 @@ d('a data write needs one connection (in-process)', () => {
     _setConnectionTracing(true);
     const seen: string[] = [];
     const call = async (label: string, method: string, path: string, body?: unknown) => {
-      cold();
+      await cold();
       const res = await send(method, path, body);
       const extra = res.headers.get('x-zveltio-extra-connections') ?? '0';
       seen.push(
@@ -79,7 +85,7 @@ d('a data write needs one connection (in-process)', () => {
     await call('bulk POST', 'POST', '/bulk', { records: [{ title: 'd' }, { title: 'e' }] });
     await call('bulk PATCH', 'PATCH', '/bulk', { records: [{ id: created.id, title: 'f' }] });
     await call('DELETE', 'DELETE', `/${created.id}`);
-    cold();
+    await cold();
     const pull = await app.request('/api/sync/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -105,7 +111,7 @@ d('a data write needs one connection (in-process)', () => {
     // Red before the fix: every connection held by a transaction waiting for
     // the validation probe's second one, until the 35 s acquire deadline.
     const pool = Number(process.env.DB_POOL_MAX ?? '10');
-    cold();
+    await cold();
     const statuses = await Promise.race([
       Promise.all(
         Array.from({ length: pool * 2 }, (_, n) =>
