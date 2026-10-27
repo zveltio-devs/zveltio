@@ -73,3 +73,31 @@ describe('SyncManager — stop() before start() settles', () => {
     expect((sync as unknown as { syncTimer: unknown }).syncTimer).toBeNull();
   });
 });
+
+describe('SyncManager — clearLocalData', () => {
+  // The next user of the browser must neither see this user's records nor send
+  // this user's queued writes under their own session.
+  it('drops records and pending writes, open or not', async () => {
+    sync = new SyncManager(fakeClient(), { syncInterval: 60_000 });
+    await sync.start();
+    const store = (sync as unknown as { store: LocalStore }).store;
+    await sync.collection('posts').create({ title: 'mine' });
+    expect(await store.getPendingOps()).not.toEqual([]);
+    await sync.clearLocalData();
+    expect(await store.list('posts')).toEqual([]);
+    expect(await store.getPendingOps()).toEqual([]);
+  });
+
+  it('clears a store this manager never opened', async () => {
+    const other = new LocalStore();
+    await other.open();
+    await other.put('posts', 'p9', { title: 'left behind' });
+    await other.close();
+    sync = new SyncManager(fakeClient(), { syncInterval: 60_000 });
+    await sync.clearLocalData();
+    await other.open();
+    expect(await other.list('posts')).toEqual([]);
+    expect(await other.getPendingOps()).toEqual([]);
+    await other.close();
+  });
+});

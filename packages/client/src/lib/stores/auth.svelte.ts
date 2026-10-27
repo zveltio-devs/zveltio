@@ -1,5 +1,6 @@
 import { authClient, useSession } from '#lib/auth-client.js';
 import { goto } from '$app/navigation';
+import { sync } from '#lib/zveltio.js';
 
 /**
  * Reactive auth store cu Svelte 5 rune.
@@ -36,7 +37,11 @@ export function useAuth() {
     },
 
     async signOut() {
+      // Push what is pending while the session still exists, then forget it
+      // all: the next user of this browser must not inherit it.
+      await sync.syncNow().catch(() => {});
       await authClient.signOut();
+      await sync.clearLocalData();
       await goto('/auth/login');
     },
 

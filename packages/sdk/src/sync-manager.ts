@@ -461,6 +461,19 @@ export class SyncManager {
     };
   }
 
+  /**
+   * Delete everything the local store holds — records, pending writes, blobs,
+   * pull positions — so the next user of this browser neither sees this user's
+   * data nor sends this user's queued writes under their own session. Call it
+   * after sign-out (a sync started then is refused and stores nothing); call
+   * `syncNow()` before sign-out to push what is pending, which is lost otherwise.
+   */
+  async clearLocalData(): Promise<void> {
+    // ponytail: polls the in-flight sync; a stored promise if it ever matters.
+    while (this.isSyncing) await new Promise((r) => setTimeout(r, 50));
+    await this.store.clear();
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.syncTimer) clearInterval(this.syncTimer);
