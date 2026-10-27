@@ -39,7 +39,7 @@ function buildSpec() {
       contact: { url: 'https://zveltio.com' },
     },
     servers: [{ url: '/api', description: 'Engine API' }],
-    security: [{ cookieAuth: [] }, { apiKey: [] }],
+    security: [{ cookieAuth: [] }, { bearerAuth: [] }, { apiKey: [] }],
     paths: {
       // ── Health ─────────────────────────────────────────────────────────────
       '/health': {
@@ -1219,6 +1219,8 @@ function buildSpec() {
       securitySchemes: {
         cookieAuth: { type: 'apiKey', in: 'cookie', name: 'better-auth.session_token' },
         apiKey: { type: 'apiKey', in: 'header', name: 'X-API-Key' },
+        // A native client presents the same session as a signed bearer token.
+        bearerAuth: { type: 'http', scheme: 'bearer' },
       },
     },
   };

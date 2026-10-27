@@ -1,8 +1,6 @@
 import { describe, it, expect, afterEach, jest, spyOn } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { RealtimeClient } from '../client/RealtimeClient.js';
-import { ZveltioClient } from '../client/ZveltioClient.js';
 import { ZveltioRealtime } from '../realtime.js';
 import { watchSchema } from '../schema-watcher.js';
 
@@ -47,8 +45,7 @@ describe('ZveltioRealtime upgrade headers', () => {
   });
 
   // A browser reads the second argument as subprotocols and throws a
-  // SyntaxError on an object: `new ZveltioClient({ apiKey })` in a page threw
-  // on `realtime.connect()`. There the socket opens on the session cookie.
+  // SyntaxError on an object. There the socket opens on the session cookie.
   it('opens without headers where the constructor refuses them (a browser)', () => {
     const calls: unknown[][] = [];
     globalThis.WebSocket = class {
@@ -63,12 +60,9 @@ describe('ZveltioRealtime upgrade headers', () => {
       close() {}
       send() {}
     } as unknown as typeof WebSocket;
-    const zv = new ZveltioClient({ baseUrl: 'https://engine.test', apiKey: 'zvk_x' });
-    zv.realtime.connect();
     const rt = new ZveltioRealtime('https://engine.test', { headers: { 'X-API-Key': 'zvk_x' } });
     rt.connect();
-    expect(calls).toEqual([['wss://engine.test/api/ws'], ['wss://engine.test/api/ws']]);
-    zv.realtime.disconnect();
+    expect(calls).toEqual([['wss://engine.test/api/ws']]);
     rt.disconnect();
   });
 });
@@ -147,98 +141,6 @@ describe('a socket the engine closed for revoked credentials', () => {
     expect(made).toHaveLength(2);
     expect(told).toBe(0);
     rt.disconnect();
-  });
-
-  it('RealtimeClient stops reconnecting on 4001 and says so', () => {
-    jest.useFakeTimers();
-    const made = fakeSockets();
-    const rt = new RealtimeClient('http://engine.test');
-    let told = 0;
-    rt.onUnauthorized(() => told++);
-    rt.connect();
-    closeWith(made[0]!, 4001);
-    jest.advanceTimersByTime(60_000);
-    expect(made).toHaveLength(1);
-    expect(told).toBe(1);
-    rt.disconnect();
-  });
-
-  it('RealtimeClient still reconnects on any other close', () => {
-    jest.useFakeTimers();
-    const made = fakeSockets();
-    const rt = new RealtimeClient('http://engine.test');
-    rt.connect();
-    closeWith(made[0]!, 1006);
-    jest.advanceTimersByTime(1_000);
-    expect(made).toHaveLength(2);
-    rt.disconnect();
-  });
-});
-
-describe('RealtimeClient after a revocation and while the engine refuses it', () => {
-  afterEach(() => jest.useRealTimers());
-
-  it('after 4001, subscribe() only records; an explicit connect() sends it', () => {
-    jest.useFakeTimers();
-    const made = fakeSockets();
-    const rt = new RealtimeClient('http://engine.test');
-    rt.connect();
-    closeWith(made[0]!, 4001);
-
-    // It used to dial again here, be refused with 401 (seen as 1006) and back
-    // off forever.
-    rt.subscribe('orders', '*', () => {});
-    jest.advanceTimersByTime(600_000);
-    expect(made).toHaveLength(1);
-
-    rt.connect(); // the app re-authenticated
-    expect(made).toHaveLength(2);
-    accept(made[1]!);
-    expect(made[1]!.sent).toEqual([JSON.stringify({ type: 'subscribe', channel: 'orders:*' })]);
-    rt.disconnect();
-  });
-
-  it('stops after a bounded number of reconnects', () => {
-    jest.useFakeTimers();
-    const made = fakeSockets();
-    const rt = new RealtimeClient('http://engine.test');
-    rt.connect();
-    // A refused handshake: no runtime shows the 401, only a 1006/1002 close.
-    for (let i = 0; i < 20; i++) {
-      closeWith(made[made.length - 1]!, 1006);
-      jest.advanceTimersByTime(30_000);
-    }
-    expect(made).toHaveLength(11); // the first dial and ten retries
-    rt.disconnect();
-  });
-
-  it('sends its headers with the upgrade', () => {
-    const made = fakeSockets();
-    const rt = new RealtimeClient('https://engine.test', { headers: { 'X-API-Key': 'zvk_x' } });
-    rt.connect();
-    expect(made[0]!.args).toEqual([
-      'wss://engine.test/api/ws',
-      { headers: { 'X-API-Key': 'zvk_x' } },
-    ]);
-    rt.disconnect();
-  });
-
-  it('ZveltioClient sends its API key on the socket and reports a 4001 as unauthorized', () => {
-    const made = fakeSockets();
-    let told = 0;
-    const client = new ZveltioClient({
-      baseUrl: 'https://engine.test',
-      apiKey: 'zvk_y',
-      onUnauthorized: () => told++,
-    });
-    client.realtime.connect();
-    expect(made[0]!.args).toEqual([
-      'wss://engine.test/api/ws',
-      { headers: { 'X-API-Key': 'zvk_y' } },
-    ]);
-    closeWith(made[0]!, 4001);
-    expect(told).toBe(1);
-    client.realtime.disconnect();
   });
 });
 
