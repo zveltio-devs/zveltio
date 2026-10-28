@@ -230,24 +230,26 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     return c.json({ success: true });
   });
 
-  // PATCH /api-keys/:id — Update API key (scopes, IPs, permissions_mode, etc.)
+  // PATCH /api-keys/:id — Update API key (name, scopes, IPs, rate limit, etc.)
   app.patch(
     '/api-keys/:id',
     zValidator(
       'json',
-      z.object({
-        name: z.string().optional(),
-        scopes: z
-          .array(z.object({ collection: z.string(), actions: z.array(z.string()) }))
-          .optional(),
-        allowed_ips: z.array(z.string()).nullable().optional(),
-        organization: z.string().nullable().optional(),
-        description: z.string().nullable().optional(),
-        // 'god' is in the column's type but grants nothing: refused, not stored.
-        permissions_mode: z.enum(['scoped', 'casbin']).optional(),
-        casbin_subject: z.string().nullable().optional(),
-        rate_limit: z.number().int().min(1).max(1_000_000).nullable().optional(),
-      }),
+      z
+        .object({
+          name: z.string().optional(),
+          scopes: z
+            .array(z.object({ collection: z.string(), actions: z.array(z.string()) }))
+            .optional(),
+          allowed_ips: z.array(z.string()).nullable().optional(),
+          organization: z.string().nullable().optional(),
+          description: z.string().nullable().optional(),
+          rate_limit: z.number().int().min(1).max(1_000_000).nullable().optional(),
+        })
+        // `permissions_mode` and `casbin_subject` were accepted and stored, but no
+        // auth path reads them: the write answered success and changed nothing.
+        // Strict, so any field the engine does not apply is a 400, not a no-op.
+        .strict(),
     ),
     async (c) => {
       const id = c.req.param('id');
@@ -264,14 +266,26 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       // issuance allows (`memberKeyScopeRefusal`); an admin wanting `*` mints
       // an admin key.
       const refused = scopes && memberKeyScopeRefusal(scopes);
-      if (refused) {
+      if (refused || data.rate_limit !== undefined) {
         const key = await db
           .selectFrom('zv_api_keys')
           .select('member_issued')
           .where('id', '=', id)
           .where('tenant_id', '=', tenantId(c))
           .executeTakeFirst();
-        if (key?.member_issued) return c.json({ error: refused }, 400);
+        if (key?.member_issued && refused) return c.json({ error: refused }, 400);
+        // A member's key spends its member's bucket, so `keyOwnLimitRefusal`
+        // never reads its own `rate_limit` (ADR 0010 amendment 4): refused, not
+        // stored as a limit that looks applied.
+        if (key?.member_issued && data.rate_limit !== undefined) {
+          return c.json(
+            {
+              error: "A member's key spends its member's rate limit; it takes no per-key limit",
+              code: 'member_api_key_rate_limit',
+            },
+            409,
+          );
+        }
       }
       await db
         .updateTable('zv_api_keys')

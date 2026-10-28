@@ -150,6 +150,28 @@ d('members issue their own API keys (ADR 0010)', () => {
     const row = await sql<{ scopes: unknown }>`
       SELECT scopes FROM zv_api_keys WHERE id = ${id}::uuid`.execute(db);
     expect(row.rows[0]?.scopes).toEqual([{ collection: 'mak_other', actions: ['read'] }]);
+
+    // Writes the engine would never apply are refused, not answered with success.
+    const raw = (path: string, method: string, body: unknown) =>
+      app.request(path, {
+        method,
+        headers: { 'Content-Type': 'application/json', cookie: god },
+        body: JSON.stringify(body),
+      });
+    expect((await raw(`/api/admin/api-keys/${id}`, 'PATCH', { rate_limit: 1 })).status).toBe(409);
+    const own = await sql<{ rate_limit: number | null }>`
+      SELECT rate_limit FROM zv_api_keys WHERE id = ${id}::uuid`.execute(db);
+    expect(own.rows[0]?.rate_limit).toBeNull();
+    const override = await raw(`/api/api-keys/${id}/rate-limit`, 'PUT', {
+      window_ms: 60_000,
+      max_requests: 100_000,
+    });
+    expect(override.status).toBe(409);
+    const rl = await sql<{ n: string }>`
+      SELECT count(*) AS n FROM zv_rate_limit_configs WHERE key_prefix = ${`apikey:${id}`}`.execute(
+      db,
+    );
+    expect(Number(rl.rows[0]?.n)).toBe(0);
   });
 
   it('grants rls_bypass only to a member who holds data:view_all', async () => {
