@@ -37,6 +37,7 @@ import {
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
+import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -116,10 +117,33 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
         sub.post('/other', (c) => c.json({ other: true }));
       },
     };
+    const manifest = ManifestSchema.parse({
+      name: EXT,
+      permissions: ['data:write'],
+      // Must not turn an action's gate into `create` (see the `approve` case).
+      apiKeyRoutes: ['POST /actions/*'],
+      resources: [RES],
+      actions: [
+        {
+          name: 'addItem',
+          permission: { resource: RES },
+          input: {
+            type: 'object',
+            properties: { label: { type: 'string' } },
+            required: ['label'],
+          },
+          reads: [C],
+          writes: [C],
+        },
+        // An action asked by name: the key must name it, `execute` does not reach it.
+        { name: 'approve', permission: { resource: RES, action: 'approve' }, input: {} },
+      ],
+    });
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
+    // Recorded, as `load.ts` does before this phase: an unknown claim grants nothing.
     await sql`
-      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
-      VALUES (${EXT}, ${EXT}, NULL, true, true)
+      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled, manifest)
+      VALUES (${EXT}, ${EXT}, NULL, true, true, ${toJsonb(manifest)})
     `.execute(db);
     const ctx = { db, internals: buildExtensionInternals() } as unknown as ExtensionContext;
     loader = {
@@ -137,28 +161,7 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
       `/tmp/${EXT}`,
       app,
       ctx,
-      ManifestSchema.parse({
-        name: EXT,
-        permissions: ['data:write'],
-        // Must not turn an action's gate into `create` (see the `approve` case).
-        apiKeyRoutes: ['POST /actions/*'],
-        resources: [RES],
-        actions: [
-          {
-            name: 'addItem',
-            permission: { resource: RES },
-            input: {
-              type: 'object',
-              properties: { label: { type: 'string' } },
-              required: ['label'],
-            },
-            reads: [C],
-            writes: [C],
-          },
-          // An action asked by name: the key must name it, `execute` does not reach it.
-          { name: 'approve', permission: { resource: RES, action: 'approve' }, input: {} },
-        ],
-      }) as never,
+      manifest as never,
       new Set(),
     );
     invalidateActivationCache();
