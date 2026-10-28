@@ -500,8 +500,8 @@ async function claimsOfOthers(db: Database, leaving?: string) {
  *
  * Throws when the registry cannot be read, or one of those extensions has no
  * manifest on record (`claimsOfOthers`). That stops every collection create and
- * drop until it is recorded or purged — the boot reconcile, which only grants,
- * carries on without it.
+ * drop until it is recorded or purged, as the boot reconcile grants nothing
+ * (`reconcileDefaultGrants`).
  *
  * `leaving`: the extension being purged. Its claim is not read: its objects go
  * with it (`deleteExtensionObjectRules`).
@@ -611,7 +611,8 @@ export async function listDeclaredResources(db: Database): Promise<string[]> {
  * (`registerRegisteredSensitiveResources`), and a collection one of them names
  * must not get its defaults in the first pass. Then, once per database, the
  * defaults written on those names before that are removed
- * (`repairSensitiveDefaultGrants`).
+ * (`repairSensitiveDefaultGrants`). While one of them has no manifest on
+ * record, nothing is granted.
  */
 export async function reconcileDefaultGrants(
   db: Database,
@@ -622,6 +623,15 @@ export async function reconcileDefaultGrants(
   await repairSensitiveDefaultGrants(db, unreadable).catch((err: Error) => {
     console.warn('[resource-grants] sensitive default-grant repair failed:', err.message);
   });
+  // What they keep closed is unknown, and any name may be one of them: a default
+  // written now outlives the repair, which has already run on a settled install.
+  if (unreadable.length > 0) {
+    console.warn(
+      `[resource-grants] no default grants reconciled: ${unreadable.join('; ')}. ` +
+        'Put their files back and restart the engine, or purge them.',
+    );
+    return 0;
+  }
   const declared = await listDeclaredResources(db);
   return (
     (await materializeDefaultGrants(db, await listKnownResources(db))) +
