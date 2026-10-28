@@ -12,7 +12,12 @@ import {
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
 import { getCurrentDomain } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID, revalidatePrincipalsEverywhere } from '../lib/tenancy/index.js';
-import { apiKeyUsable, authenticate, fieldTypeRegistry, SCHEMA_SCOPE } from '../lib/data/index.js';
+import {
+  apiKeyUsable,
+  authenticate,
+  fieldTypeRegistry,
+  memberKeyScopeRefusal,
+} from '../lib/data/index.js';
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -509,10 +514,8 @@ export function memberApiKeysRoutes(db: Database, auth: SessionSource): Hono {
       if (Number.isNaN(ms) || ms <= 0 || ms > MEMBER_KEY_MAX_MS) {
         return c.json({ error: 'expires_at must be in the future and at most one year out' }, 400);
       }
-      // Watching the schema is an instance administrator's (`apiKeyMayWatchSchema`).
-      if (scopes.some((s) => s.collection === SCHEMA_SCOPE)) {
-        return c.json({ error: `A member key cannot hold ${SCHEMA_SCOPE}` }, 400);
-      }
+      const refused = memberKeyScopeRefusal(scopes);
+      if (refused) return c.json({ error: refused }, 400);
       // Re-checked at every use too (`validateApiKey`); refused here so a member
       // is not handed an exemption that silently does nothing.
       if (rls_bypass && !(await checkPermission(userId, 'data', 'view_all'))) {

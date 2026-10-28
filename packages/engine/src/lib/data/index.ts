@@ -79,6 +79,7 @@ export {
   apiKeyRowId,
   EDGE_SCOPE,
   isApiKeyPrincipal,
+  memberKeyScopeRefusal,
   RPC_SCOPE,
   SCHEMA_SCOPE,
   STORAGE_SCOPE,

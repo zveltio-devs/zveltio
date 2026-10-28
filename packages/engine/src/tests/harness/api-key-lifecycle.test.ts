@@ -130,6 +130,32 @@ d('API keys end with the lockout events (ADR 0010 item 5)', () => {
     expect(await ext.status()).toBe(401);
   });
 
+  it('sign out everywhere else', async () => {
+    const m = await memberWithKey();
+    const res = await app.request('/api/auth/revoke-other-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: m.cookie },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    expect(await m.status()).toBe(401);
+  });
+
+  it('not a password change, even one that signs out the other sessions', async () => {
+    const m = await memberWithKey();
+    const res = await app.request('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: m.cookie },
+      body: JSON.stringify({
+        currentPassword: 'HarnessMember123!',
+        newPassword: 'HarnessChanged123!',
+        revokeOtherSessions: true,
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(await m.status()).toBe(200);
+  });
+
   it('a ban, and lifting it does not bring the keys back', async () => {
     const m = await memberWithKey();
     await asRequest((trx) => internals.setUserActive(trx, m.userId, false));

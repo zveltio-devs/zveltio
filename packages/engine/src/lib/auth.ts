@@ -572,11 +572,13 @@ export async function initAuth(db: Database) {
         if (v && v.expiresAt > new Date()) await revokeUserApiKeys(db, v.value);
       }),
       after: createAuthMiddleware(async (ctx) => {
-        // "Revoke all sessions" ends the API keys too, as `revokeAllUserSessions`
-        // does for the engine's own lockouts. Awaited: a failure fails the call.
+        // "Revoke all sessions" and "sign out everywhere else" end the API keys
+        // too, as `revokeAllUserSessions` does for the engine's own lockouts; a
+        // password change or factor removal does not (ADR 0010 amendment).
+        // Awaited: a failure fails the call.
         const ended = ctx.context.session?.user.id;
         if (
-          ctx.path === '/revoke-sessions' &&
+          (ctx.path === '/revoke-sessions' || ctx.path === '/revoke-other-sessions') &&
           ended &&
           !(ctx.context.returned instanceof APIError)
         ) {
