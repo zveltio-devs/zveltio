@@ -3103,6 +3103,7 @@
   "permissions.builtIn": "Integrato:",
   "permissions.builtInRoles": "Ruoli integrati (sempre attivi, non modificabili qui):",
   "permissions.casbinInheritance": "Ereditarietà dei ruoli Casbin",
+  "permissions.changedReload": "I permessi sono cambiati da quando questa schermata è stata caricata. Ora mostra le regole attuali; applica di nuovo le modifiche.",
   "permissions.childRole": "Ruolo figlio (erede)",
   "permissions.collectionsCount": "Raccolte ({count})",
   "permissions.collectionsFiltered": "Raccolte ({count} di {total})",

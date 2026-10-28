@@ -3103,6 +3103,7 @@
   "permissions.builtIn": "Predefinit:",
   "permissions.builtInRoles": "Roluri predefinite (mereu active, needitabile aici):",
   "permissions.casbinInheritance": "Moștenirea rolurilor Casbin",
+  "permissions.changedReload": "Permisiunile s-au schimbat de când s-a încărcat acest ecran. Acum arată regulile actuale; aplică din nou modificările.",
   "permissions.childRole": "Rol copil (moștenitor)",
   "permissions.collectionsCount": "Colecții ({count})",
   "permissions.collectionsFiltered": "Colecții ({count} din {total})",

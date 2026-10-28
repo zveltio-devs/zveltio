@@ -1083,6 +1083,7 @@
   "permissions.zone": "Zóna",
   "permissions.zonesCount": "Zónák ({count})",
   "permissions.zonesFiltered": "Zónák ({count} / {total})",
+  "permissions.changedReload": "Az engedélyek megváltoztak a képernyő betöltése óta. Most az aktuális szabályokat mutatja; alkalmazd újra a módosításaidat.",
   "perms.addInheritanceFailed": "Az öröklés hozzáadása nem sikerült",
   "profile.updateFailed": "A profil frissítése sikertelen",
   "profile.updated": "Profil frissítve",

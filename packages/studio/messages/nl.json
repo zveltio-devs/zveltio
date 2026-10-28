@@ -3103,6 +3103,7 @@
   "permissions.builtIn": "Ingebouwd:",
   "permissions.builtInRoles": "Ingebouwde rollen (altijd actief, hier niet bewerkbaar):",
   "permissions.casbinInheritance": "Casbin-rolovererving",
+  "permissions.changedReload": "De rechten zijn gewijzigd sinds dit scherm is geladen. Het toont nu de huidige regels; pas je wijzigingen opnieuw toe.",
   "permissions.childRole": "Onderliggende rol (erfgenaam)",
   "permissions.collectionsCount": "Collecties ({count})",
   "permissions.collectionsFiltered": "Collecties ({count} van {total})",
