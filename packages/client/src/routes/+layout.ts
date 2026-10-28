@@ -1,5 +1,6 @@
 import { browser } from '$app/env';
 import { initZveltio } from '#lib/zveltio.js';
+import type { Theme } from '@zveltio/ui/theme';
 
 export const ssr = false;
 export const prerender = false;
@@ -24,13 +25,27 @@ export async function load({ fetch }) {
   // The site row carries its own column names, which are not the zone's. They
   // are mapped here rather than at every reader, so the layout and the landing
   // page keep the one shape they already use.
+  // The theme as data (ADR 0007): the tenant's, else the instance's, from the
+  // public settings. A site's own two colours sit on top of it.
+  const [siteRes, settingsRes] = await Promise.allSettled([
+    fetch(`${ENGINE_URL}/ext/content/pages/sites/client/render`, { credentials: 'include' }),
+    fetch(`${ENGINE_URL}/api/settings/public`, { credentials: 'include' }),
+  ]);
+  let base: Theme | null = null;
   try {
-    const res = await fetch(`${ENGINE_URL}/ext/content/pages/sites/client/render`, {
-      credentials: 'include',
-    });
-    if (res.ok) {
+    if (settingsRes.status === 'fulfilled' && settingsRes.value.ok) {
+      base = ((await settingsRes.value.json()) as { theme?: Theme | null }).theme ?? null;
+    }
+  } catch {
+    /* engine not ready — degrade gracefully */
+  }
+
+  try {
+    const res = siteRes.status === 'fulfilled' ? siteRes.value : null;
+    if (res?.ok) {
       const { site, nav } = await res.json();
       return {
+        tokens: site ? siteTokens(base, site) : base,
         theme: site
           ? {
               app_name: site.site_name ?? site.name ?? null,
@@ -50,5 +65,15 @@ export async function load({ fetch }) {
     /* engine not ready — degrade gracefully */
   }
 
-  return { theme: null, nav: [] };
+  return { tokens: base, theme: null, nav: [] };
+}
+
+function siteTokens(
+  base: Theme | null,
+  site: { primary_color?: string; secondary_color?: string },
+): Theme {
+  const colors = { ...base?.colors };
+  if (site.primary_color) colors.primary = site.primary_color;
+  if (site.secondary_color) colors.secondary = site.secondary_color;
+  return { ...base, colors };
 }

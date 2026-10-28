@@ -29,6 +29,8 @@ import {
 } from '../lib/tenancy/index.js';
 import { getStorage } from '../lib/storage/index.js';
 import { effectiveTimeZone, isTimeZone } from '../lib/tenancy/index.js';
+import { effectiveTheme, parseTheme, themeSchema } from '../lib/theme.js';
+import { toJsonb } from '../lib/jsonb.js';
 import {
   invalidateRateLimitCache,
   parseTenantLimitKey,
@@ -790,6 +792,57 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
         metadata: { timezone },
       });
       return c.json({ timezone, effective: await effectiveTimeZone(db, id) });
+    },
+  );
+
+  // The tenant's own theme (ADR 0007): `theme` is the tenant's (null = the
+  // instance's), `effective` what its pages render with.
+  router.get('/current/theme', async (c) => {
+    const user = c.get('user' as never) as { id: string };
+    if (!(await isTenantAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
+    const id = getCurrentDomain();
+    const row = await db
+      .selectFrom('zv_tenants')
+      .select(sql<unknown>`settings->'theme'`.as('theme'))
+      .where('id', '=', id)
+      .executeTakeFirst();
+    return c.json({
+      theme: parseTheme(row?.theme),
+      effective: await effectiveTheme(db, id),
+    });
+  });
+
+  router.put(
+    '/current/theme',
+    zValidator('json', z.object({ theme: themeSchema.nullable() })),
+    async (c) => {
+      const user = c.get('user' as never) as { id: string };
+      if (!(await isTenantAdmin(user.id))) return c.json({ error: 'Forbidden' }, 403);
+      const id = getCurrentDomain();
+      const { theme } = c.req.valid('json');
+      const updated = await db
+        .updateTable('zv_tenants')
+        .set({
+          settings:
+            theme === null
+              ? sql`COALESCE(settings, '{}'::jsonb) - 'theme'`
+              : sql`jsonb_set(COALESCE(settings, '{}'::jsonb), '{theme}', ${toJsonb(theme)})`,
+          updated_at: new Date(),
+        })
+        .where('id', '=', id)
+        .returning(['slug'])
+        .executeTakeFirst();
+      if (!updated) return c.json({ error: 'Tenant not found' }, 404);
+      await invalidateTenantCache(updated.slug, id);
+      await auditLog(db, {
+        type: 'settings.changed',
+        userId: user.id,
+        resourceId: id,
+        resourceType: 'tenant_theme',
+        tenantId: id,
+        metadata: { cleared: theme === null },
+      });
+      return c.json({ theme, effective: await effectiveTheme(db, id) });
     },
   );
 
