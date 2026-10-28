@@ -4,6 +4,57 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.91] - 2026-10-28
+
+The engine's review campaign is closed for this stage: every open engine finding
+is fixed, settled by design, or deferred by decision to the extension migration
+wave that follows this release.
+
+**`@zveltio/ui`, the UI kit, is published.** One kit for the Console, the App,
+extensions and third-party front ends (Svelte 5, Tailwind 4, daisyUI 5, bits-ui
+for accessible behaviour): button, field, table with sort links, pagination,
+filters, dialog, dropdown, tabs, toast, card, empty state, page header; a
+generic list and form for any collection; page-builder blocks (hero, call to
+action, stats, gallery, video, …). The kit has no catalogue: every word comes
+from the host. Block links pass `safeHref`, so a `javascript:` URL never reaches
+an `href`.
+
+**Themes are data.** A theme is a few daisyUI tokens stored per instance or per
+tenant (`/api/tenants/current/theme`), validated at write and again at render,
+and applied when a page loads, with no build. The Console edits it with a live
+preview (Settings → Branding) and imports any daisyUI theme.
+
+**The App (`/app`, ADR 0006).** Members work in `/app`: every collection they may
+read, as a list with search, filters, sorting and paging, and a form; account
+settings; in all nine locales. The Console (`/admin`) keeps configuration.
+`ZVELTIO_CONSOLE_HOST` can fence the Console to one host.
+
+**Members issue their own API keys** at `/api/me/api-keys` (ADR 0010), bounded
+by their own rights, behind step-up, off by default; the SDK exposes them as
+`auth.apiKeys`. Lockout events and "sign out everywhere else" revoke a user's
+keys. A root-tenant API key acts in another tenant only for a member of it.
+
+**Configuration needs a fresh step-up.** Every configuration mutation, an
+extension's admin mutation, insights panels and the ad-hoc query require the
+configuration window. Native clients get bearer user sessions.
+
+**Extensions update in place**, on every replica; an interrupted or failed
+update leaves neither files nor migrations behind. Extension claims live on the
+registry row, created together with its manifest; a boot or a write grants no
+defaults while a claim is unknown.
+
+**Correctness under load and across replicas.** A write or an API-key request
+holds one connection, so a cold burst at the pool size no longer deadlocks;
+`createDb` opens `DB_POOL_MAX` backends. Savepoint blocks, role windows and
+sibling transaction scopes take turns on their transaction. Replicas booting
+together run an extension's migrations once. Row and column rules reach the
+database in the transaction that changes them. A substring filter on a number,
+boolean or date column matches its text instead of failing with a 500.
+
+**Security fixes.** better-auth 1.7.14 (two account-takeover advisories); zod
+4.6.7 (GHSA-mrhx-c7xc-m3w5); public server renders have their own rate limit;
+a worker's session carries neither the session token nor unknown fields.
+
 **Reserved first path segments, published to extensions.** `@zveltio/sdk/extension`
 exports `RESERVED_PATH_SEGMENTS` and `isReservedPath()`: `api`, `ext`, `admin`,
 `app`, `auth`, `_app`, `_server`, `.well-known` and the root files belong to the
