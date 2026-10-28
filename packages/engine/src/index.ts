@@ -21,7 +21,8 @@ import { getStudioFile, studioEmbedActive } from './studio-embed/index.js';
 import { clientSsrEnabled, isServerBundlePath, renderClient } from './lib/client-ssr.js';
 import { isRecoverableDbError } from './db/bun-sql-quirks.js';
 import { initDatabase, recycleActivePool } from './db/index.js';
-import { setTenantScopedTables, withEveryTenant } from './lib/tenancy/index.js';
+import { readManifestObject, setTenantScopedTables, withEveryTenant } from './lib/tenancy/index.js';
+import { toJsonb } from './lib/jsonb.js';
 import { problemNormalizer, problemOnError } from './lib/problem.js';
 import { enrichDenial } from './middleware/enrich-denial.js';
 import { initAuth } from './lib/auth.js';
@@ -619,6 +620,14 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
       continue;
     }
 
+    // With its manifest: a row without one stops every default grant
+    // (`claimsOfOthers`), so the boot would grant nothing to anyone. No
+    // manifest, no auto-activation.
+    const manifest = await readManifestObject(join(extBase, def.name));
+    if (!manifest) {
+      console.warn(`[bootstrap] ${def.name} has no readable manifest.json — not auto-activated`);
+      continue;
+    }
     let activated = true;
     await db
       .insertInto('zv_extension_registry')
@@ -629,6 +638,7 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
         is_enabled: true,
         installed_at: new Date(),
         enabled_at: new Date(),
+        manifest: toJsonb(manifest),
       })
       .execute()
       .catch((err: Error) => {

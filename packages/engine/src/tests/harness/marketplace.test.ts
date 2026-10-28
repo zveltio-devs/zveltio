@@ -251,11 +251,38 @@ d('extension marketplace routes (in-process)', () => {
   }, 20_000);
 
   it('installs hello-ext from on-disk files (POST /:name/install)', async () => {
-    const res = await app.request(
-      `/api/marketplace/${HELLO_EXT}/install`,
-      post(`/${HELLO_EXT}/install`),
-    );
+    // The row is written with its manifest: one without it, even for a moment,
+    // stops every default grant (`claimsOfOthers`). The trigger refuses that write.
+    await sql`CREATE OR REPLACE FUNCTION zv_test_registry_needs_manifest() RETURNS trigger
+              LANGUAGE plpgsql AS $$
+              BEGIN
+                IF NEW.name = 'hello-ext' AND NEW.manifest IS NULL THEN
+                  RAISE EXCEPTION 'registry row written without its manifest';
+                END IF;
+                RETURN NEW;
+              END $$`.execute(db);
+    await sql`CREATE TRIGGER zv_test_registry_needs_manifest BEFORE INSERT ON zv_extension_registry
+              FOR EACH ROW EXECUTE FUNCTION zv_test_registry_needs_manifest()`.execute(db);
+    let res: Response;
+    try {
+      res = await app.request(
+        `/api/marketplace/${HELLO_EXT}/install`,
+        post(`/${HELLO_EXT}/install`),
+      );
+    } finally {
+      await sql`DROP TRIGGER IF EXISTS zv_test_registry_needs_manifest ON zv_extension_registry`.execute(
+        db,
+      );
+      await sql`DROP FUNCTION IF EXISTS zv_test_registry_needs_manifest()`.execute(db);
+    }
     expect(res.status).toBe(200);
+    const row = await sql<{
+      name: unknown;
+    }>`SELECT manifest->>'name' AS name FROM zv_extension_registry
+                                             WHERE name = ${HELLO_EXT} AND tenant_id IS NULL`.execute(
+      db,
+    );
+    expect(row.rows[0]?.name).toBe(HELLO_EXT);
     const body = (await res.json()) as { success: boolean; files_on_disk: boolean };
     expect(body.success).toBe(true);
     expect(body.files_on_disk).toBe(true);
