@@ -285,22 +285,29 @@ async function waitFor<R>(
 }
 
 /**
- * Takes `key` as a transaction lock inside `trx`, waiting as `withAdvisoryLock`
- * does: for work that already runs in a transaction of its own and needs no holder.
- *
- * Its tries run in `trx`, so a `CREATE INDEX CONCURRENTLY` under the same key
- * that catches one in flight waits for all of `trx` — and `trx` for it — until
- * `maxWait`. Fine for work that never builds concurrently under its key; work
- * that does waits with `withAdvisoryLock` or `withSessionAdvisoryLock`, whose
- * tries end their own transactions.
+ * Runs `fn` in a transaction that holds `key` as a transaction lock, waiting as
+ * `withAdvisoryLock` does: for work that needs its own transaction and no
+ * holder beside it, so it costs one connection. Each try is a transaction of
+ * its own and a miss ends it — a `CREATE INDEX CONCURRENTLY` under the same key
+ * that caught a try waits for that try alone, not for a whole waiting
+ * transaction that waits for it in turn.
  */
-export async function waitForXactLock(
-  trx: Database,
+export function withXactAdvisoryLock<T>(
+  db: Database,
   key: AdvisoryKey,
+  fn: (trx: Database) => Promise<T>,
   maxWait?: string,
-): Promise<void> {
+): Promise<T> {
   const tryLock = sql`pg_try_advisory_xact_lock(${keySql(key)})`;
-  await waitFor(trx, async () => (await tryOnce(trx, tryLock, key)) || MISS, key, maxWait);
+  return waitFor(
+    db,
+    () =>
+      db
+        .transaction()
+        .execute(async (trx) => ((await tryOnce(trx, tryLock, key)) ? fn(trx) : MISS)),
+    key,
+    maxWait,
+  );
 }
 
 /**

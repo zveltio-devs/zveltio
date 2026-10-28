@@ -18,6 +18,7 @@ import {
   AdvisoryLockTimeout,
   tryAdvisoryLock,
   withAdvisoryLock,
+  withXactAdvisoryLock,
 } from '../../db/advisory-lock.js';
 import { autoMigrate } from '../../db/auto-migrate.js';
 import { MAX_SCHEMA_VERSION } from '../../version.js';
@@ -182,9 +183,17 @@ d('advisory locks on the pool', () => {
       }
     }, 20_000);
 
-    it.skipIf(!SUPER)(
-      'a waiter holds no snapshot either, so the holder’s CREATE INDEX CONCURRENTLY never waits on it',
-      async () => {
+    // withXactAdvisoryLock waits the same way for work that runs in the lock's
+    // own transaction (extension migrations under `ext-migrations:<name>`).
+    const waiters = {
+      withAdvisoryLock: (on: Database, key: bigint) =>
+        withAdvisoryLock(on, key, async () => 'ran', { maxWait: '3s' }),
+      withXactAdvisoryLock: (on: Database, key: bigint) =>
+        withXactAdvisoryLock(on, key, async () => 'ran', '3s'),
+    };
+    it.skipIf(!SUPER).each(Object.keys(waiters) as (keyof typeof waiters)[])(
+      'a %s waiter holds no snapshot either, so the holder’s CREATE INDEX CONCURRENTLY never waits on it',
+      async (via) => {
         // A blocked `pg_advisory_xact_lock` keeps its statement's snapshot for the
         // whole wait, and CONCURRENTLY waits out every older snapshot: the holder's
         // build waited on the waiter, which waited on the holder — a second replica
@@ -244,9 +253,7 @@ d('advisory locks on the pool', () => {
           const key = freshKey();
           let waiter!: Promise<unknown>;
           const took = await withAdvisoryLock(holder, key, async () => {
-            waiter = withAdvisoryLock(other, key, async () => 'ran', { maxWait: '3s' }).catch(
-              (e: unknown) => e,
-            );
+            waiter = waiters[via](other, key).catch((e: unknown) => e);
             // The waiter is mid-try, its snapshot taken. Asked as the superuser
             // that owns these backends: a non-superuser sees no state or query.
             await until(
