@@ -58,8 +58,8 @@ describe('buildCondition', () => {
   it('emits the null and pattern operators', () => {
     expect(compile('c', { op: 'null' })).toMatch(/"c" IS NULL/);
     expect(compile('c', { op: 'not_null' })).toMatch(/"c" IS NOT NULL/);
-    expect(compile('c', { op: 'like', value: 'x' })).toMatch(/"c" LIKE /);
-    expect(compile('c', { op: 'ilike', value: 'x' })).toMatch(/"c" ILIKE /);
+    expect(compile('c', { op: 'like', value: 'x' })).toMatch(/"c"::text LIKE /);
+    expect(compile('c', { op: 'ilike', value: 'x' })).toMatch(/"c"::text ILIKE /);
   });
 
   it('binds a pattern value as a literal substring, not a pattern', () => {
@@ -69,10 +69,10 @@ describe('buildCondition', () => {
   });
 
   it('emits the business text operators: literal, case-insensitive, NULL kept by not_contains', () => {
-    expect(compile('c', { op: 'starts_with', value: 'x' })).toMatch(/"c" ILIKE /);
-    expect(compile('c', { op: 'ends_with', value: 'x' })).toMatch(/"c" ILIKE /);
+    expect(compile('c', { op: 'starts_with', value: 'x' })).toMatch(/"c"::text ILIKE /);
+    expect(compile('c', { op: 'ends_with', value: 'x' })).toMatch(/"c"::text ILIKE /);
     expect(compile('c', { op: 'not_contains', value: 'x' })).toMatch(
-      /\("c" IS NULL OR "c" NOT ILIKE /,
+      /\("c" IS NULL OR "c"::text NOT ILIKE /,
     );
     expect(compiled('c', { op: 'starts_with', value: 'A_1%' }).parameters).toEqual(['A\\_1\\%%']);
     expect(compiled('c', { op: 'ends_with', value: '.pdf' }).parameters).toEqual(['%.pdf']);
@@ -104,5 +104,14 @@ describe('buildCondition', () => {
         .compile().parameters;
     expect(params('in')).toEqual([['a']]);
     expect(params('not_in')).toEqual([['a']]);
+  });
+});
+
+describe('buildCondition on a column that is not text', () => {
+  it('matches a substring operator against the text of the column', () => {
+    // PostgreSQL has no LIKE on numeric or boolean (42883); the cast is what
+    // keeps `qty[contains]=5` from being a 500.
+    for (const op of ['like', 'ilike', 'not_contains', 'starts_with', 'ends_with'] as const)
+      expect(compile('qty', { op, value: '5' })).toContain('"qty"::text ');
   });
 });
