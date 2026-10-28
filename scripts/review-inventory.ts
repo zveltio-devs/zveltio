@@ -756,6 +756,14 @@ const SECTIONS: Section[] = [
     focus: 'The end-user app: block renderer, binding, sanitiser, guards.',
     match: ['packages/client/'],
   },
+  {
+    id: 'C15',
+    track: 'C — Studio & client',
+    title: 'UI kit',
+    focus:
+      'The one kit (ADR 0007): dialog, step-up store and dialog, shared by the Console and the App.',
+    match: ['packages/ui/'],
+  },
 
   // ── Track D — SDK, CLI, bindings ─────────────────────────────────────────
   {
@@ -1104,6 +1112,7 @@ const ORDER: string[] = [
   'C12',
   'C13',
   'C14',
+  'C15',
   'D01',
   'D02',
   'D03',

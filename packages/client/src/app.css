@@ -1,2 +1,4 @@
 @import 'tailwindcss';
 @plugin 'daisyui';
+/* The kit lives outside this package, so Tailwind's automatic scan does not reach it. */
+@source '../../ui/src';

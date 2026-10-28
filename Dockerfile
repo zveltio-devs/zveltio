@@ -11,12 +11,14 @@ COPY packages/sdk/package.json ./packages/sdk/
 COPY packages/sdk-react/package.json ./packages/sdk-react/
 COPY packages/sdk-vue/package.json ./packages/sdk-vue/
 COPY packages/studio/package.json ./packages/studio/
+COPY packages/ui/package.json ./packages/ui/
 
 RUN bun install --frozen-lockfile
 
 COPY packages/sdk ./packages/sdk
 COPY packages/studio ./packages/studio
 COPY packages/client ./packages/client
+COPY packages/ui ./packages/ui
 
 # Build SDK first — client imports from @zveltio/sdk (dist/index.js must exist)
 RUN cd packages/sdk && bun run build
@@ -43,6 +45,7 @@ COPY packages/sdk/package.json ./packages/sdk/
 COPY packages/sdk-react/package.json ./packages/sdk-react/
 COPY packages/sdk-vue/package.json ./packages/sdk-vue/
 COPY packages/studio/package.json ./packages/studio/
+COPY packages/ui/package.json ./packages/ui/
 
 RUN bun install --frozen-lockfile
 
