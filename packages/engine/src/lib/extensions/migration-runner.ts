@@ -10,7 +10,7 @@
 
 import { sql as _sql } from 'kysely';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
-import { waitForXactLock, withSessionAdvisoryLock } from '../../db/advisory-lock.js';
+import { withSessionAdvisoryLock, withXactAdvisoryLock } from '../../db/advisory-lock.js';
 import { escapeLike } from '../../db/dynamic.js';
 import { type Database, recycleActivePool } from '../../db/index.js';
 import {
@@ -333,43 +333,47 @@ async function runSegments(extName: string, segments: Segment[], db: Database): 
   const lockWait = timeoutSetting('ZVELTIO_MIGRATION_LOCK_WAIT', '10min');
   for (const segment of segments) {
     if (segment.transactional) {
-      await db.transaction().execute(async (trx) => {
-        // Replicas booting together each read this chain as pending, and boot
-        // held no extension lock then: the second ran it beside the first and failed
-        // its load on a 23505. Boot holds it now; this stays for any caller that
-        // does not. The lock lives in this transaction, so it costs no
-        // connection and cannot deadlock a pool of two under the runtime paths'
-        // `ext:<name>` holder, hence a key of its own. Waited for as the engine's
-        // own migration lock is, then the chain is read again under it.
-        await waitForXactLock(trx, lockKey, lockWait);
-        const names = segment.items.map((m) => m.name);
-        const done = new Set(
-          (
-            await trx
-              .selectFrom('zv_migrations')
-              .select('name')
-              .where('name', 'in', names)
-              .execute()
-          ).map((r) => r.name),
-        );
-        // Same lock_timeout / statement_timeout as the engine's own migrations.
-        for (const stmt of migrationTimeoutPreamble()) await _sql.raw(stmt).execute(trx);
-        const ids: number[] = [];
-        for (const m of segment.items) {
-          if (done.has(m.name)) continue; // another replica ran it while this one waited
-          await _sql.raw(m.up).execute(trx);
-          // Persist DOWN alongside the migration row so a future uninstall with
-          // purgeData=true can replay rollbacks without the original files.
-          const row = await trx
-            .insertInto('zv_migrations')
-            .values({ name: m.name, down_sql: m.down })
-            .returning('id')
-            .executeTakeFirst();
-          if (row) ids.push(row.id);
-          console.log(`  ✓ Extension migration: ${m.name}`);
-        }
-        observers.get(extName)?.(ids);
-      });
+      await withXactAdvisoryLock(
+        db,
+        lockKey,
+        async (trx) => {
+          // Replicas booting together each read this chain as pending, and boot
+          // held no extension lock then: the second ran it beside the first and failed
+          // its load on a 23505. Boot holds it now; this stays for any caller that
+          // does not. The lock lives in this transaction, so it costs no
+          // connection and cannot deadlock a pool of two under the runtime paths'
+          // `ext:<name>` holder, hence a key of its own. Waited for as the engine's
+          // own migration lock is, then the chain is read again under it.
+          const names = segment.items.map((m) => m.name);
+          const done = new Set(
+            (
+              await trx
+                .selectFrom('zv_migrations')
+                .select('name')
+                .where('name', 'in', names)
+                .execute()
+            ).map((r) => r.name),
+          );
+          // Same lock_timeout / statement_timeout as the engine's own migrations.
+          for (const stmt of migrationTimeoutPreamble()) await _sql.raw(stmt).execute(trx);
+          const ids: number[] = [];
+          for (const m of segment.items) {
+            if (done.has(m.name)) continue; // another replica ran it while this one waited
+            await _sql.raw(m.up).execute(trx);
+            // Persist DOWN alongside the migration row so a future uninstall with
+            // purgeData=true can replay rollbacks without the original files.
+            const row = await trx
+              .insertInto('zv_migrations')
+              .values({ name: m.name, down_sql: m.down })
+              .returning('id')
+              .executeTakeFirst();
+            if (row) ids.push(row.id);
+            console.log(`  ✓ Extension migration: ${m.name}`);
+          }
+          observers.get(extName)?.(ids);
+        },
+        lockWait,
+      );
       continue;
     }
 
