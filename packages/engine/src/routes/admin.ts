@@ -348,11 +348,23 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
       // Verify API key exists
       const key = await db
         .selectFrom('zv_api_keys')
-        .select('id')
+        .select(['id', 'member_issued'])
         .where('id', '=', id)
         .where('tenant_id', '=', getCurrentDomain())
         .executeTakeFirst();
       if (!key) return c.json({ error: 'API key not found' }, 404);
+      // A member's key spends its member's bucket (`rateLimitCaller`), so an
+      // `apikey:<id>` override would never be read: refused, not stored as a
+      // limit that looks applied (ADR 0010 amendment 4).
+      if (key.member_issued) {
+        return c.json(
+          {
+            error: "A member's key spends its member's rate limit; it takes no per-key override",
+            code: 'member_api_key_rate_limit',
+          },
+          409,
+        );
+      }
 
       const keyPrefix = `apikey:${id}`;
       // Instance-wide, so the request role reads it and the engine's own writes

@@ -230,24 +230,28 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     return c.json({ success: true });
   });
 
-  // PATCH /api-keys/:id — Update API key (scopes, IPs, permissions_mode, etc.)
+  // PATCH /api-keys/:id — Update API key (name, scopes, IPs, rate limit, etc.)
   app.patch(
     '/api-keys/:id',
     zValidator(
       'json',
-      z.object({
-        name: z.string().optional(),
-        scopes: z
-          .array(z.object({ collection: z.string(), actions: z.array(z.string()) }))
-          .optional(),
-        allowed_ips: z.array(z.string()).nullable().optional(),
-        organization: z.string().nullable().optional(),
-        description: z.string().nullable().optional(),
-        // 'god' is in the column's type but grants nothing: refused, not stored.
-        permissions_mode: z.enum(['scoped', 'casbin']).optional(),
-        casbin_subject: z.string().nullable().optional(),
-        rate_limit: z.number().int().min(1).max(1_000_000).nullable().optional(),
-      }),
+      z
+        .object({
+          name: z.string().optional(),
+          scopes: z
+            .array(z.object({ collection: z.string(), actions: z.array(z.string()) }))
+            .optional(),
+          allowed_ips: z.array(z.string()).nullable().optional(),
+          organization: z.string().nullable().optional(),
+          description: z.string().nullable().optional(),
+          // A key's own limit only adds a stricter bucket (`keyOwnLimitRefusal`),
+          // so an administrator may set it on a member's key too.
+          rate_limit: z.number().int().min(1).max(1_000_000).nullable().optional(),
+        })
+        // `permissions_mode` and `casbin_subject` were accepted and stored, but no
+        // auth path reads them: the write answered success and changed nothing.
+        // Strict, so any field the engine does not apply is a 400, not a no-op.
+        .strict(),
     ),
     async (c) => {
       const id = c.req.param('id');
