@@ -1,3 +1,12 @@
+<script lang="ts" module>
+export interface Column {
+  key: string;
+  label: string;
+  /** Present when the column can order the rows: the URL that does it. */
+  sortHref?: string;
+}
+</script>
+
 <script lang="ts" generics="Row extends Record<string, unknown>">
 /**
  * A data table (`@zveltio/ui`, ADR 0007). Sorting is a link per column, so the
@@ -6,13 +15,6 @@
  * every word comes from the host.
  */
 import type { Snippet } from 'svelte';
-
-export interface Column {
-  key: string;
-  label: string;
-  /** Present when the column can order the rows: the URL that does it. */
-  sortHref?: string;
-}
 
 let {
   columns,

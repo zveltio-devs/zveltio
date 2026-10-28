@@ -41,7 +41,7 @@ jobs:
       - name: Set package versions
         run: |
           VERSION="${{ inputs.version }}"
-          for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli; do
+          for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli packages/ui; do
             node -e "
               const fs = require('fs');
               const p = '$pkg/package.json';
@@ -63,6 +63,9 @@ jobs:
           cd packages/sdk-react && bun run build && cd -
           cd packages/sdk-vue && bun run build && cd -
           cd packages/cli && bun run build && cd -
+          # The kit is source in the workspace; npm gets svelte-package output
+          # with types, and exports rewritten to it (packages/ui/scripts).
+          cd packages/ui && bun run prepare-publish && cd -
 
       # Node >= 22.14.0 + npm >= 11.5.1 are required for OIDC trusted
       # publishing. registry-url configures the registry (needed for the
@@ -90,10 +93,10 @@ jobs:
       - name: Publish to npm (OIDC trusted publishing)
         run: |
           # Don't let one package's failure (e.g. a not-yet-configured
-          # trusted publisher) halt the others — attempt all four, collect
+          # trusted publisher) halt the others — attempt all five, collect
           # failures, and fail the job at the end if any didn't publish.
           failed=""
-          for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli; do
+          for pkg in packages/sdk packages/sdk-react packages/sdk-vue packages/cli packages/ui; do
             cd $pkg
             PKG_NAME=$(node -e "console.log(require('./package.json').name)")
             PKG_VER=$(node -e "console.log(require('./package.json').version)")

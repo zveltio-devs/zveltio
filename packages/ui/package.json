@@ -1,12 +1,21 @@
 {
   "name": "@zveltio/ui",
   "version": "3.0.0-beta.90",
-  "private": true,
   "description": "The one UI kit for the Console, the App and extensions (Svelte 5, daisyUI 5).",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zveltio-devs/zveltio.git",
+    "directory": "packages/ui"
+  },
   "files": [
-    "src"
+    "src",
+    "README.md"
   ],
+  "scripts": {
+    "prepare-publish": "bun scripts/prepare-publish.ts",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
+  },
   "exports": {
     "./Dialog.svelte": {
       "svelte": "./src/Dialog.svelte",
@@ -105,6 +114,9 @@
     "@lucide/svelte": "^0.577.0",
     "@simplewebauthn/browser": "^13.3.0",
     "bits-ui": "^2.20.2"
+  },
+  "devDependencies": {
+    "@sveltejs/package": "^3.0.1"
   },
   "peerDependencies": {
     "svelte": "^5.57.1"
