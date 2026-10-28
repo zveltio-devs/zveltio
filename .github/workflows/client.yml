@@ -43,6 +43,11 @@ jobs:
         # The client imports from `@zveltio/sdk` (dist), so compile it first.
         run: cd packages/sdk && bun run build
 
+      - name: Compile i18n catalogue
+        # `src/lib/paraglide` is generated and git-ignored; the App's pages and
+        # their tests import it.
+        run: cd packages/client && bun run i18n:compile
+
       - name: SvelteKit sync
         # Generates .svelte-kit/tsconfig.json, which the client tsconfig
         # extends. Without it esbuild fails to resolve a tsconfig when

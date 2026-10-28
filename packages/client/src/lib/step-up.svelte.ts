@@ -4,6 +4,7 @@
  * in the workspace layout; the SDK client asks it through `onStepUpRequired`.
  */
 import { createStepUp } from '@zveltio/ui/step-up';
+import { i18n, m } from '#lib/i18n.svelte.js';
 
 const ENGINE_URL: string =
   import.meta.env.PUBLIC_ENGINE_URL ||
@@ -16,19 +17,41 @@ export const stepUp = createStepUp({
   refusalText: (body, status, totp) =>
     body.code === 'step_up_user_verification_required'
       ? totp
-        ? 'This passkey confirmed a touch but not you. Set a PIN or turn on fingerprint or face unlock for your security key, or enter the code from your authenticator app.'
-        : 'This passkey confirmed a touch but not you. Set a PIN or turn on fingerprint or face unlock for your security key, then try again.'
+        ? m['stepUp.userVerificationOrCode']()
+        : m['stepUp.userVerificationRequired']()
       : String(body.detail ?? body.message ?? body.error ?? `HTTP ${status}`),
 });
 
-/** The words the dialog shows; the App's account page is English-only so far. */
+/** A message that re-renders on a locale switch: reading `i18n.locale` is the dependency. */
+const t = (key: string): string => {
+  void i18n.locale;
+  return m[key]();
+};
+
+/** The words the dialog shows, as getters so they follow the locale. */
 export const stepUpLabels = {
-  title: 'Confirm it is you',
-  intro: 'This change needs a fresh confirmation from your passkey or authenticator app.',
-  codeLabel: 'Code from your authenticator app',
-  orCodeLabel: 'Or a code from your authenticator app',
-  verifyCode: 'Verify code',
-  usePasskey: 'Use passkey',
-  cancel: 'Cancel',
-  close: 'Close',
+  get title() {
+    return t('stepUp.title');
+  },
+  get intro() {
+    return t('stepUp.intro');
+  },
+  get codeLabel() {
+    return t('stepUp.codeLabel');
+  },
+  get orCodeLabel() {
+    return t('stepUp.orCodeLabel');
+  },
+  get verifyCode() {
+    return t('stepUp.verifyCode');
+  },
+  get usePasskey() {
+    return t('stepUp.usePasskey');
+  },
+  get cancel() {
+    return t('common.cancel');
+  },
+  get close() {
+    return t('common.close');
+  },
 };

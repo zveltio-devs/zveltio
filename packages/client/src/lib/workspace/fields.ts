@@ -4,6 +4,8 @@
  * never comes here; these are what every other collection gets.
  */
 
+import { m } from '#lib/i18n.svelte.js';
+
 export type InputKind =
   | 'checkbox'
   | 'number'
@@ -77,14 +79,14 @@ export function fromInput(kind: InputKind, raw: string | boolean, name: string):
   if (s.trim() === '') return null;
   if (kind === 'number') {
     const n = Number(s);
-    if (Number.isNaN(n)) throw new Error(`${name}: not a number`);
+    if (Number.isNaN(n)) throw new Error(m['data.not_a_number']({ field: name }));
     return n;
   }
   if (kind === 'json') {
     try {
       return JSON.parse(s);
     } catch {
-      throw new Error(`${name}: not valid JSON`);
+      throw new Error(m['data.invalid_json']({ field: name }));
     }
   }
   if (kind === 'datetime-local') return new Date(s).toISOString();

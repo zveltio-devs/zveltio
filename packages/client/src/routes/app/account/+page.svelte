@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { MemberApiKey } from '@zveltio/sdk';
 import { authClient } from '#lib/auth-client.js';
+import { m } from '#lib/i18n.svelte.js';
 import { StepUpCancelled, StepUpEnrollmentRequired } from '#lib/step-up.svelte.js';
 import { client } from '#lib/zveltio.js';
 import { invalidateAll } from '$app/navigation';
@@ -29,7 +30,7 @@ async function loadSessions() {
   try {
     const res = await authClient.listSessions();
     sessions = res.data ?? [];
-    if (res.error) problem = res.error.message ?? 'Could not list the sessions';
+    if (res.error) problem = res.error.message ?? m['account.list_sessions_failed']();
   } catch (err) {
     problem = err instanceof Error ? err.message : String(err);
   }
@@ -91,7 +92,7 @@ async function issueKey(e: SubmitEvent) {
     .filter(([, actions]) => actions.length > 0)
     .map(([collection, actions]) => ({ collection, actions }));
   if (scopes.length === 0) {
-    problem = 'Choose at least one action on one collection';
+    problem = m['account.choose_scope']();
     return;
   }
   issuing = true;
@@ -110,7 +111,7 @@ async function issueKey(e: SubmitEvent) {
     if (err instanceof StepUpCancelled) return;
     problem =
       err instanceof StepUpEnrollmentRequired
-        ? 'Issuing a key needs a passkey or an authenticator app on your account'
+        ? m['account.key_needs_enrollment']()
         : err instanceof Error
           ? err.message
           : String(err);
@@ -132,51 +133,51 @@ async function revokeKey(id: string) {
 async function revoke(token: string) {
   problem = null;
   const res = await authClient.revokeSession({ token });
-  if (res.error) problem = res.error.message ?? 'Could not revoke the session';
+  if (res.error) problem = res.error.message ?? m['account.revoke_session_failed']();
   await loadSessions();
 }
 </script>
 
-<svelte:head><title>Account</title></svelte:head>
+<svelte:head><title>{m['account.title']()}</title></svelte:head>
 
 <div class="max-w-2xl space-y-6">
-  <h1 class="text-2xl font-bold">Account</h1>
+  <h1 class="text-2xl font-bold">{m['account.title']()}</h1>
   {#if problem}<div role="alert" class="alert alert-error">{problem}</div>{/if}
 
   <form onsubmit={saveProfile} class="card bg-base-100 shadow">
     <div class="card-body gap-3">
-      <h2 class="card-title">Profile</h2>
+      <h2 class="card-title">{m['account.profile']()}</h2>
       <label class="floating-label">
-        <span>Email</span>
+        <span>{m['auth.email']()}</span>
         <input class="input w-full" value={data.user.email ?? ''} readonly />
       </label>
       <label class="floating-label">
-        <span>Name</span>
+        <span>{m['account.name']()}</span>
         <input class="input w-full" bind:value={name} required maxlength="200" />
       </label>
       <div class="card-actions justify-end items-center">
-        {#if saved}<span class="text-sm text-success">Saved</span>{/if}
-        <button class="btn btn-primary">Save</button>
+        {#if saved}<span class="text-sm text-success">{m['account.saved']()}</span>{/if}
+        <button class="btn btn-primary">{m['common.save']()}</button>
       </div>
     </div>
   </form>
 
   <div class="card bg-base-100 shadow">
     <div class="card-body">
-      <h2 class="card-title">Sessions</h2>
+      <h2 class="card-title">{m['account.sessions']()}</h2>
       <ul class="divide-y divide-base-300">
         {#each sessions as s (s.id)}
           <li class="py-2 flex items-center gap-3">
             <div class="flex-1 text-sm">
-              <div>{s.userAgent ?? 'Unknown device'}</div>
+              <div>{s.userAgent ?? m['account.unknown_device']()}</div>
               <div class="text-base-content/60 text-xs">
-                {s.ipAddress ?? ''} · since {new Date(s.createdAt).toLocaleString()}
+                {s.ipAddress ?? ''} · {m['account.since']({ date: new Date(s.createdAt).toLocaleString() })}
               </div>
             </div>
             {#if s.id === current.get().data?.session?.id}
-              <span class="badge badge-ghost">This device</span>
+              <span class="badge badge-ghost">{m['account.this_device']()}</span>
             {:else}
-              <button class="btn btn-ghost btn-xs text-error" onclick={() => revoke(s.token)}>Sign out</button>
+              <button class="btn btn-ghost btn-xs text-error" onclick={() => revoke(s.token)}>{m['account.sign_out']()}</button>
             {/if}
           </li>
         {/each}
@@ -186,13 +187,13 @@ async function revoke(token: string) {
 
   <div class="card bg-base-100 shadow">
     <div class="card-body gap-3">
-      <h2 class="card-title">API keys</h2>
+      <h2 class="card-title">{m['account.api_keys']()}</h2>
       <p class="text-sm text-base-content/70">
-        A key lets a script act as you, on the collections and actions you choose, never beyond your own access.
+        {m['account.api_keys_intro']()}
       </p>
       {#if issued}
         <div role="status" class="alert alert-success flex-col items-start">
-          <span>Copy the key now; it is not shown again.</span>
+          <span>{m['account.copy_key_now']()}</span>
           <code class="break-all select-all">{issued}</code>
         </div>
       {/if}
@@ -203,28 +204,28 @@ async function revoke(token: string) {
               <div>{k.name} <span class="text-base-content/60 font-mono">{k.key_prefix}…</span></div>
               <div class="text-base-content/60 text-xs">
                 {k.scopes.map((s) => `${s.collection}: ${s.actions.join(', ')}`).join(' · ')}
-                {#if k.expires_at}· expires {new Date(k.expires_at).toLocaleDateString()}{/if}
+                {#if k.expires_at}· {m['account.expires_on']({ date: new Date(k.expires_at).toLocaleDateString() })}{/if}
               </div>
             </div>
             {#if k.is_active}
-              <button class="btn btn-ghost btn-xs text-error" onclick={() => revokeKey(k.id)}>Revoke</button>
+              <button class="btn btn-ghost btn-xs text-error" onclick={() => revokeKey(k.id)}>{m['account.revoke']()}</button>
             {:else}
-              <span class="badge badge-ghost">Inactive</span>
+              <span class="badge badge-ghost">{m['account.inactive']()}</span>
             {/if}
           </li>
         {:else}
-          <li class="py-2 text-sm text-base-content/60">No keys yet.</li>
+          <li class="py-2 text-sm text-base-content/60">{m['account.no_keys']()}</li>
         {/each}
       </ul>
 
       <form onsubmit={issueKey} class="space-y-3 border-t border-base-300 pt-3">
-        <h3 class="font-semibold">New key</h3>
+        <h3 class="font-semibold">{m['account.new_key']()}</h3>
         <label class="floating-label">
-          <span>Name</span>
+          <span>{m['account.name']()}</span>
           <input class="input w-full" bind:value={keyName} required maxlength="200" />
         </label>
         <label class="floating-label">
-          <span>Expires</span>
+          <span>{m['account.expires']()}</span>
           <input
             class="input w-full"
             type="date"
@@ -236,7 +237,7 @@ async function revoke(token: string) {
         </label>
         <table class="table table-sm">
           <thead>
-            <tr><th>Collection</th>{#each ACTIONS as a}<th>{a}</th>{/each}</tr>
+            <tr><th>{m['account.collection']()}</th>{#each ACTIONS as a}<th>{m[`account.action_${a}`]()}</th>{/each}</tr>
           </thead>
           <tbody>
             {#each data.collections as c (c.name)}
@@ -247,7 +248,7 @@ async function revoke(token: string) {
                     <input
                       type="checkbox"
                       class="checkbox checkbox-sm"
-                      aria-label={`${a} ${c.display_name ?? c.name}`}
+                      aria-label={m['account.action_scope']({ action: m[`account.action_${a}`](), collection: c.display_name ?? c.name })}
                       checked={keyActions[c.name]?.includes(a) ?? false}
                       onchange={(e) => {
                         const on = e.currentTarget.checked;
@@ -262,7 +263,7 @@ async function revoke(token: string) {
           </tbody>
         </table>
         <div class="flex justify-end">
-          <button class="btn btn-primary" disabled={issuing}>Issue key</button>
+          <button class="btn btn-primary" disabled={issuing}>{m['account.issue_key']()}</button>
         </div>
       </form>
     </div>

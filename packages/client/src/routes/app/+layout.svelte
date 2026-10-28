@@ -3,6 +3,7 @@ import type { Snippet } from 'svelte';
 import { Database, LayoutDashboard, LogOut, Menu, UserRound } from '@lucide/svelte';
 import { page } from '$app/state';
 import StepUpDialog from '@zveltio/ui/StepUpDialog.svelte';
+import { m } from '#lib/i18n.svelte.js';
 import { stepUp, stepUpLabels } from '#lib/step-up.svelte.js';
 import { useAuth } from '#lib/stores/auth.svelte.js';
 import type { LayoutData } from './$types';
@@ -55,14 +56,14 @@ $effect(() => {
         <li>
           <a href="/app" class="gap-2" class:menu-active={page.url.pathname === '/app'}>
             <LayoutDashboard size={18} />
-            Dashboard
+            {m['app.dashboard']()}
           </a>
         </li>
         {#if data.collectionsFailed}
-          <li class="menu-title">Data</li>
-          <li class="px-4 py-2 text-sm text-error" role="alert">Collections could not be loaded.</li>
+          <li class="menu-title">{m['app.data']()}</li>
+          <li class="px-4 py-2 text-sm text-error" role="alert">{m['app.collections_failed']()}</li>
         {:else if data.collections.length > 0}
-          <li class="menu-title">Data</li>
+          <li class="menu-title">{m['app.data']()}</li>
           {#each data.collections as c (c.name)}
             <li>
               <a
@@ -93,11 +94,11 @@ $effect(() => {
         </div>
         <a href="/app/account" class="btn btn-ghost btn-sm w-full justify-start gap-2">
           <UserRound size={16} />
-          Account
+          {m['app.account']()}
         </a>
         <button onclick={() => auth.signOut()} class="btn btn-ghost btn-sm w-full justify-start gap-2">
           <LogOut size={16} />
-          Sign Out
+          {m['app.sign_out']()}
         </button>
       </div>
     </aside>
