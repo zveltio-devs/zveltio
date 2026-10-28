@@ -2,7 +2,7 @@
  * A member issues their own API keys at /api/me/api-keys (ADR 0010 items 2-4, 6).
  *
  * Off unless the instance switches it on; a fresh step-up per key; explicit
- * scopes without `$schema`; `rls_bypass` only with `data:view_all`; an expiry
+ * scopes without `$schema` or `*`; `rls_bypass` only with `data:view_all`; an expiry
  * within a year; at most ten active keys, even when created concurrently; a
  * member revokes only their own; the keys share the member's rate-limit bucket;
  * created and revoked are audited.
@@ -118,17 +118,38 @@ d('members issue their own API keys (ADR 0010)', () => {
     expect(asKey.status).toBe(403);
   });
 
-  it('refuses $schema, empty scopes, and an expiry missing, past or beyond a year', async () => {
+  it('refuses $schema, *, empty scopes, and an expiry missing, past or beyond a year', async () => {
     await setSwitch(true);
     const m = await member();
     const schema = await create(m, { scopes: [{ collection: '$schema', actions: ['read'] }] });
     expect(schema.status).toBe(400);
+    const star = await create(m, { scopes: [{ collection: '*', actions: ['read'] }] });
+    expect(star.status).toBe(400);
     expect((await create(m, { scopes: [] })).status).toBe(400);
     expect((await create(m, { expires_at: undefined })).status).toBe(400);
     expect((await create(m, { expires_at: inDays(-1) })).status).toBe(400);
     expect((await create(m, { expires_at: inDays(366) })).status).toBe(400);
     expect((await create(m, { expires_at: 'soon' })).status).toBe(400);
     expect((await create(m, { expires_at: inDays(364) })).status).toBe(200);
+  });
+
+  it("an administrator's PATCH cannot give a member key $schema or *", async () => {
+    await setSwitch(true);
+    const m = await member();
+    const { id } = (await (await create(m)).json()) as { id: string };
+    const god = await createGodSession(app, db);
+    const patch = (collection: string) =>
+      app.request(`/api/admin/api-keys/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', cookie: god },
+        body: JSON.stringify({ scopes: [{ collection, actions: ['read'] }] }),
+      });
+    expect((await patch('*')).status).toBe(400);
+    expect((await patch('$schema')).status).toBe(400);
+    expect((await patch('mak_other')).status).toBe(200);
+    const row = await sql<{ scopes: unknown }>`
+      SELECT scopes FROM zv_api_keys WHERE id = ${id}::uuid`.execute(db);
+    expect(row.rows[0]?.scopes).toEqual([{ collection: 'mak_other', actions: ['read'] }]);
   });
 
   it('grants rls_bypass only to a member who holds data:view_all', async () => {

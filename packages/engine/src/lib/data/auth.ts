@@ -503,6 +503,20 @@ export async function validateApiKey(
  */
 export const SCHEMA_SCOPE = '$schema';
 
+/**
+ * Why a member-issued key may not hold `scopes`, or null (ADR 0010 item 3 and
+ * amendment 3): watching the schema is an administrator's, and `*` would grow
+ * with every collection created after the key. Asked wherever a member key's
+ * scopes are written — its issuance and an administrator's PATCH.
+ */
+export function memberKeyScopeRefusal(scopes: Array<{ collection: string }>): string | null {
+  if (scopes.some((s) => s.collection === SCHEMA_SCOPE)) {
+    return `A member key cannot hold ${SCHEMA_SCOPE}`;
+  }
+  if (scopes.some((s) => s.collection === '*')) return 'A member key cannot hold the * collection';
+  return null;
+}
+
 /** The scope that lets an API key use `/api/storage` — `read`, `create`, `delete`. */
 export const STORAGE_SCOPE = '$storage';
 

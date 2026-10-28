@@ -12,7 +12,7 @@ import {
   withEveryTenant,
 } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
-import { apiKeyUsable, escapeLike } from '../../lib/data/index.js';
+import { apiKeyUsable, escapeLike, memberKeyScopeRefusal } from '../../lib/data/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
@@ -259,6 +259,19 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       // Nothing to set is the caller's mistake: an empty SET reached SQL and answered 500.
       if (Object.keys(data).length === 0) {
         return c.json({ error: 'No fields to update' }, 400);
+      }
+      // A member's key stays one an administrator could not widen past what its
+      // issuance allows (`memberKeyScopeRefusal`); an admin wanting `*` mints
+      // an admin key.
+      const refused = scopes && memberKeyScopeRefusal(scopes);
+      if (refused) {
+        const key = await db
+          .selectFrom('zv_api_keys')
+          .select('member_issued')
+          .where('id', '=', id)
+          .where('tenant_id', '=', tenantId(c))
+          .executeTakeFirst();
+        if (key?.member_issued) return c.json({ error: refused }, 400);
       }
       await db
         .updateTable('zv_api_keys')
