@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cell, fromInput, inputKind, isWritable, toInput } from './fields';
+import { cell, fromInput, inputKind, isWritable, toInput } from '@zveltio/ui/fields';
 
 describe('workspace field mapping', () => {
   it('writes no relation, computed value or read-only column', () => {

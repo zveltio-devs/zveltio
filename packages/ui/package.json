@@ -67,9 +67,26 @@
     "./Tabs.svelte": {
       "svelte": "./src/Tabs.svelte",
       "default": "./src/Tabs.svelte"
+    },
+    "./CollectionList.svelte": {
+      "svelte": "./src/CollectionList.svelte",
+      "default": "./src/CollectionList.svelte"
+    },
+    "./CollectionForm.svelte": {
+      "svelte": "./src/CollectionForm.svelte",
+      "default": "./src/CollectionForm.svelte"
+    },
+    "./fields": {
+      "types": "./src/fields.ts",
+      "default": "./src/fields.ts"
+    },
+    "./collection": {
+      "types": "./src/collection.ts",
+      "default": "./src/collection.ts"
     }
   },
   "dependencies": {
+    "@lucide/svelte": "^0.577.0",
     "@simplewebauthn/browser": "^13.3.0",
     "bits-ui": "^2.20.2"
   },

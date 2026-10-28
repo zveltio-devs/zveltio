@@ -116,3 +116,26 @@ describe('kit toasts', () => {
     vi.useRealTimers();
   });
 });
+
+describe('/app/data record form words a bad value in the host catalogue', () => {
+  it('names the field that is not a number, in the host words', async () => {
+    const { fireEvent } = await import('@testing-library/svelte');
+    render(Record, {
+      props: {
+        data: {
+          collection: { ...collection, fields: [{ name: 'qty', label: 'Qty', type: 'integer' }] },
+          record: null,
+          engineUrl: '',
+        },
+      } as never,
+    });
+    const input = screen.getByRole('spinbutton', { name: 'Qty' }) as HTMLInputElement;
+    // jsdom keeps a typed value on a number input only if it parses; set it raw.
+    Object.defineProperty(input, 'value', { configurable: true, get: () => 'four', set: () => {} });
+    await fireEvent.input(input);
+    await fireEvent.submit(input.closest('form')!);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('qty');
+    expect(alert.textContent).not.toContain('not a valid');
+  });
+});
