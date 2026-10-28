@@ -232,13 +232,8 @@ export async function registerRegisteredSensitiveResources(
  * record now holds the manifest in `dir`.
  */
 export async function recordManifest(db: Database, name: string, dir: string): Promise<boolean> {
-  let manifest: unknown;
-  try {
-    manifest = JSON.parse(await Bun.file(join(dir, 'manifest.json')).text());
-  } catch {
-    return false;
-  }
-  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return false;
+  const manifest = await readManifestObject(dir);
+  if (!manifest) return false;
   const { rows } = await sql<{ manifest: unknown }>`
     SELECT manifest FROM zv_extension_registry
      WHERE name = ${name} AND tenant_id IS NULL`.execute(db);
@@ -251,6 +246,22 @@ export async function recordManifest(db: Database, name: string, dir: string): P
        AND ${held === null ? sql`manifest IS NULL` : sql`manifest = ${toJsonb(held)}`}
     RETURNING 1`.execute(db);
   return written.length > 0;
+}
+
+/**
+ * `dir/manifest.json` as an object, or null when it cannot be read as one. An
+ * install puts it in the row it creates, so the row never exists without its
+ * claim — a row with no manifest stops every default grant (`claimsOfOthers`).
+ */
+export async function readManifestObject(dir: string): Promise<Record<string, unknown> | null> {
+  try {
+    const manifest: unknown = JSON.parse(await Bun.file(join(dir, 'manifest.json')).text());
+    return manifest && typeof manifest === 'object' && !Array.isArray(manifest)
+      ? (manifest as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /** `a`'s version orders before `b`'s. Not comparable: not older. */

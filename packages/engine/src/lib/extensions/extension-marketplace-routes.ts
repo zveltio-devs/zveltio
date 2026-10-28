@@ -18,6 +18,7 @@ import {
   forgetSensitiveResources,
   isGodUser,
   isTenantAdmin,
+  readManifestObject,
   recordManifest,
   requireInstanceAdmin,
 } from '../tenancy/index.js';
@@ -47,6 +48,7 @@ import { resolvePublisherTier } from './extension-catalog.js';
 import { DownMissingError } from './extension-errors.js';
 import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
+import { toJsonb } from '../jsonb.js';
 import { requireStepUp } from '../step-up.js';
 import { guardAdmin } from '../admin-guard.js';
 import {
@@ -590,6 +592,9 @@ export function registerMarketplaceRoutes(
         }
       }
 
+      // A new row carries its claim from the start; an existing one is moved
+      // forward by `recordManifest`, which keeps a newer one already recorded.
+      const recorded = await readManifestObject(extDir);
       await db
         .insertInto('zv_extension_registry')
         .values({
@@ -603,6 +608,7 @@ export function registerMarketplaceRoutes(
           is_enabled: false,
           installed_at: new Date(),
           tenant_id: null,
+          ...(recorded ? { manifest: toJsonb(recorded) } : {}),
           // Pin what we actually installed. Only set on a real download —
           // files already on disk (air-gapped / EXTENSIONS_DIR) were never
           // fetched, so there is no digest to attest to and inventing one
@@ -970,6 +976,9 @@ export function registerMarketplaceRoutes(
         }
       }
 
+      // A new row carries its claim from the start; an existing one is moved
+      // forward by `recordManifest`, which keeps a newer one already recorded.
+      const recorded = await readManifestObject(extDir);
       await db
         .insertInto('zv_extension_registry')
         .values({
@@ -984,6 +993,7 @@ export function registerMarketplaceRoutes(
           installed_at: new Date(),
           enabled_at: new Date(),
           tenant_id: null,
+          ...(recorded ? { manifest: toJsonb(recorded) } : {}),
           ...(downloadedSha
             ? { installed_sha256: downloadedSha, installed_version: entry.version }
             : {}),
@@ -1066,9 +1076,16 @@ export function registerMarketplaceRoutes(
     ];
     for (const name of ordered) {
       // Mark enabled regardless of load outcome (self-heal model).
+      const recorded = await readManifestObject(join(extBase, name));
       await db
         .insertInto('zv_extension_registry')
-        .values({ name, display_name: name, is_installed: true, is_enabled: true })
+        .values({
+          name,
+          display_name: name,
+          is_installed: true,
+          is_enabled: true,
+          ...(recorded ? { manifest: toJsonb(recorded) } : {}),
+        })
         .onConflict((oc) =>
           oc
             .columns(['tenant_id', 'name'])
