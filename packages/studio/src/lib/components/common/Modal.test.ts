@@ -18,34 +18,32 @@ import Modal from './Modal.svelte';
 import ModalHarness from './ModalHarness.test.svelte';
 
 /**
- * `focusables()` drops anything whose `offsetParent` is null, which is how it
- * skips hidden controls. jsdom reports null for every element, so the list was
- * always empty here and the Tab handler took its `items.length === 0` branch —
- * it called `preventDefault()` and returned without moving focus. Every
- * assertion below about the trap was therefore passing against a trap that
- * never ran.
+ * The dialog's behaviour comes from `bits-ui`, which finds tabbable controls
+ * with `tabbable` — and that treats anything without client rects as hidden.
+ * jsdom lays nothing out, so every control looked hidden, nothing was tabbable,
+ * and the trap and the open-focus both did nothing. Give elements a rect.
  */
-const offsetParentDescriptor = Object.getOwnPropertyDescriptor(
-  HTMLElement.prototype,
-  'offsetParent',
-);
+const rectsDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'getClientRects');
 beforeAll(() =>
-  Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
+  Object.defineProperty(Element.prototype, 'getClientRects', {
     configurable: true,
-    get(this: HTMLElement) {
-      return this.parentElement;
-    },
+    value: () => [{ width: 1, height: 1 }],
   }),
 );
 afterAll(() => {
-  if (offsetParentDescriptor)
-    Object.defineProperty(HTMLElement.prototype, 'offsetParent', offsetParentDescriptor);
+  if (rectsDescriptor) Object.defineProperty(Element.prototype, 'getClientRects', rectsDescriptor);
 });
+
+/** bits-ui moves focus on the frame after open; wait it out. */
+const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
 
 describe('Modal', () => {
   it('renders nothing while closed', () => {
     render(Modal, { props: { open: false, title: 'Edit user', children: undefined as never } });
     expect(screen.queryByText('Edit user')).toBeNull();
+    // Nothing may cover the page either: a leftover `.modal-open` layer takes
+    // every click meant for the page behind.
+    expect(document.querySelector('.modal')).toBeNull();
     cleanup();
   });
 
@@ -60,7 +58,7 @@ describe('Modal', () => {
   it('closes on Escape from anywhere, not just the backdrop', () => {
     const onClose = vi.fn();
     render(ModalHarness, { props: { open: true, title: 'Edit user', onClose } });
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
     cleanup();
   });
@@ -71,7 +69,7 @@ describe('Modal', () => {
     render(ModalHarness, {
       props: { open: true, title: 'Confirm', onClose, dismissible: false },
     });
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
     cleanup();
   });
@@ -88,40 +86,31 @@ describe('Modal', () => {
     expect(inside.length).toBeGreaterThan(0);
 
     // Tab from the last focusable must wrap to the FIRST control in the box.
-    // The previous assertion — `activeElement !== document.body` — held the
-    // moment `.focus()` succeeded, so it stayed green with the trap deleted.
-    // Wait out the open effect's microtask first. Without it, focusing the last
-    // field and then awaiting `fireEvent` lets the effect focus the FIRST
-    // control — and the assertion below reads as the trap having wrapped.
-    await new Promise((r) => queueMicrotask(() => r(null)));
-    const box = screen.getByRole('dialog').querySelector('.modal-box');
-    const first = box?.querySelector<HTMLElement>('button, input, select, textarea, a[href]');
+    // Wait out the open focus first, or it lands after we focus the last field
+    // and the assertion reads as the trap having wrapped.
+    await frame();
+    const first = screen
+      .getByRole('dialog')
+      .querySelector<HTMLElement>('button, input, select, textarea, a[href]');
     const focusable = screen.getByTestId('last-field') as HTMLElement;
     focusable.focus();
-    await fireEvent.keyDown(window, { key: 'Tab' });
+    await fireEvent.keyDown(focusable, { key: 'Tab' });
     expect(document.activeElement).toBe(first);
     cleanup();
   });
 
-  it('pulls focus back in when Tab is pressed from outside the box', async () => {
+  it('pulls focus back in when it lands outside the box', async () => {
     // Focus reaches the page behind without the user tabbing there: a backdrop
     // click on a non-dismissible dialog, a programmatic focus, the browser
-    // restoring focus after an alert. Only the Shift+Tab branch recognised
-    // that, so one forward Tab walked into content the dialog covers.
+    // restoring focus after an alert. The trap pulls it back the moment it
+    // lands outside, not on the next Tab.
     const outside = document.createElement('button');
     document.body.appendChild(outside);
     render(ModalHarness, { props: { open: true, title: 'Edit user' } });
-    // The open effect focuses into the box on a microtask. Let it land first,
-    // or focusing `outside` races it and the assertion passes on the effect's
-    // work rather than the trap's.
-    await new Promise((r) => queueMicrotask(() => r(null)));
+    await frame();
 
     outside.focus();
-    expect(document.activeElement).toBe(outside);
-
-    await fireEvent.keyDown(window, { key: 'Tab' });
-    const box = screen.getByRole('dialog').querySelector('.modal-box');
-    expect(box?.contains(document.activeElement)).toBe(true);
+    expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
 
     outside.remove();
     cleanup();
@@ -129,7 +118,7 @@ describe('Modal', () => {
 
   it('moves focus into the dialog when it opens', async () => {
     render(ModalHarness, { props: { open: true, title: 'Edit user' } });
-    await new Promise((r) => queueMicrotask(() => r(null)));
+    await frame();
     const dialog = screen.getByRole('dialog');
     expect(dialog.contains(document.activeElement)).toBe(true);
     cleanup();

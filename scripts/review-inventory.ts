@@ -414,6 +414,8 @@ const SECTIONS: Section[] = [
     match: [
       `${E}lib/audit.ts`,
       `${E}routes/settings.ts`,
+      // The theme validator behind the public settings and the tenant theme route.
+      `${E}lib/theme.ts`,
       `${E}lib/system-collections.ts`,
       `${E}lib/notifications.ts`,
       `${E}routes/templates.ts`,

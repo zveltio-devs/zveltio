@@ -59,10 +59,19 @@
     "./toast": {
       "types": "./src/toast.svelte.ts",
       "default": "./src/toast.svelte.ts"
+    },
+    "./Dropdown.svelte": {
+      "svelte": "./src/Dropdown.svelte",
+      "default": "./src/Dropdown.svelte"
+    },
+    "./Tabs.svelte": {
+      "svelte": "./src/Tabs.svelte",
+      "default": "./src/Tabs.svelte"
     }
   },
   "dependencies": {
-    "@simplewebauthn/browser": "^13.3.0"
+    "@simplewebauthn/browser": "^13.3.0",
+    "bits-ui": "^2.20.2"
   },
   "peerDependencies": {
     "svelte": "^5.57.1"
