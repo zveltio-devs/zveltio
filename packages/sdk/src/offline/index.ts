@@ -1,13 +1,14 @@
 /**
  * Offline-sync provider abstraction.
  *
- * The SDK ships TWO sync strategies for the Postgres ↔ client-SQLite
+ * The SDK ships TWO sync strategies for the Postgres ↔ client store
  * loop, picked at construction time:
  *
  *   - **`crdt`** (default) — bespoke field-level Last-Write-Wins merge on
- *     top of IndexedDB / SQLite via `LocalStore` + `SyncManager`. Works
- *     offline, applies on reconnect, handles conflicts. No external
- *     dependency beyond the SDK + engine.
+ *     top of IndexedDB via `LocalStore` + `SyncManager`. Works offline,
+ *     applies on reconnect, handles conflicts. No external dependency beyond
+ *     the SDK + engine. Browser only: there is no store for React Native or
+ *     Node (no SQLite backend).
  *
  *   - **`electric`** — Electric 1.x shapes, served THROUGH the engine:
  *     `GET {engineUrl}/api/electric/v1/shape?collection=…`. The engine decides

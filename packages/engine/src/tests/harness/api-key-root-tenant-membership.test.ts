@@ -15,7 +15,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
+import { apiKeyActsIn, DEFAULT_TENANT_ID, runWithTenantTrx } from '../../lib/tenancy/index.js';
 import {
   asKeyIssuer,
   createGodSession,
@@ -113,5 +113,26 @@ d('a root-tenant API key in an ordinary tenant', () => {
     await sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 second'
               WHERE tenant_id = ${T.id}::uuid AND user_id = ${insider}`.execute(db);
     expect((await list({ 'X-API-Key': memberKey })).status).toBe(401);
+  }, 60_000);
+
+  // The membership read is the only thing between a root key and tenant T, so a
+  // failed read must answer "no" and, inside a request, must not poison the
+  // request's transaction. A tenant id that is not a uuid makes the cast throw.
+  it('refuses when the membership lookup fails, and the transaction survives', async () => {
+    // The case above withdrew the insider; put them back.
+    await sql`UPDATE zv_tenant_users SET valid_to = NULL
+              WHERE tenant_id = ${T.id}::uuid AND user_id = ${insider}`.execute(db);
+    const key = { tenant_id: DEFAULT_TENANT_ID, created_by: insider };
+    expect(await apiKeyActsIn(key, T.id)).toBe(true);
+    expect(await apiKeyActsIn(key, 'not-a-uuid')).toBe(false);
+
+    await db.transaction().execute(async (trx) => {
+      await runWithTenantTrx(trx as never, T.id, async () => {
+        expect(await apiKeyActsIn(key, 'not-a-uuid')).toBe(false);
+        expect(await apiKeyActsIn(key, T.id)).toBe(true);
+      });
+      const ok = await sql<{ one: number }>`SELECT 1 AS one`.execute(trx);
+      expect(ok.rows[0]?.one).toBe(1);
+    });
   }, 60_000);
 });

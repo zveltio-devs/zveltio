@@ -311,40 +311,50 @@ d('advisory locks on the pool', () => {
       expect(await withAdvisoryLock(db, key, async () => 'ran', { maxWait: '200ms' })).toBe('ran');
     });
 
-    it("maxWait, not the database's statement_timeout, decides how long a replica waits", async () => {
-      // A statement_timeout an operator set on the database for queries used to
-      // cancel a replica waiting for migrations — a restart loop with a bare
-      // Postgres message. New connections pick the setting up; existing ones not.
-      const dbName = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(probe))
-        .rows[0]!.d;
-      await sql`ALTER DATABASE ${sql.id(dbName)} SET statement_timeout = '150ms'`.execute(probe);
-      const strict = createDb(URL!);
-      try {
-        const key = freshKey();
-        // Holds the key for 600 ms while `strict` waits for it; the waiter's
-        // promise is returned after the hold ends, not awaited inside it.
-        const wait = async (opts?: { maxWait: string }) => {
-          let waiting!: Promise<unknown>;
-          await withAdvisoryLock(probe, key, async () => {
-            waiting = withAdvisoryLock(strict, key, async () => 'got', opts).catch(
-              (e: unknown) => e,
-            );
-            await Bun.sleep(600);
-          });
-          return waiting;
-        };
-        // Without a bound of its own the server setting cancels the wait, as it
-        // cancelled the blocking lock call: same message, same SQLSTATE…
-        const err = await wait();
-        expect(String(err)).toContain('statement timeout');
-        expect((err as { errno?: string }).errno).toBe('57014');
-        // …with one, it waits the 600 ms out and takes the lock.
-        expect(await wait({ maxWait: '5s' })).toBe('got');
-      } finally {
-        await strict.destroy();
-        await sql`ALTER DATABASE ${sql.id(dbName)} RESET statement_timeout`.execute(probe);
-      }
-    }, 20_000);
+    // A statement_timeout or lock_timeout an operator set on the database used to
+    // cancel a replica waiting for migrations — a restart loop with a bare
+    // Postgres message. New connections pick the setting up; existing ones not.
+    // Without maxWait the shorter of the two bounds the run of tries.
+    it.each([
+      ['statement_timeout', '57014', 'statement timeout'],
+      ['lock_timeout', '55P03', 'lock timeout'],
+    ])(
+      "maxWait, not the database's %s, decides how long a replica waits",
+      async (setting, sqlstate, message) => {
+        const dbName = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(probe))
+          .rows[0]!.d;
+        await sql`ALTER DATABASE ${sql.id(dbName)} SET ${sql.raw(setting)} = '150ms'`.execute(
+          probe,
+        );
+        const strict = createDb(URL!);
+        try {
+          const key = freshKey();
+          // Holds the key for 600 ms while `strict` waits for it; the waiter's
+          // promise is returned after the hold ends, not awaited inside it.
+          const wait = async (opts?: { maxWait: string }) => {
+            let waiting!: Promise<unknown>;
+            await withAdvisoryLock(probe, key, async () => {
+              waiting = withAdvisoryLock(strict, key, async () => 'got', opts).catch(
+                (e: unknown) => e,
+              );
+              await Bun.sleep(600);
+            });
+            return waiting;
+          };
+          // Without a bound of its own the server setting cancels the wait, as it
+          // cancelled the blocking lock call: same message, same SQLSTATE…
+          const err = await wait();
+          expect(String(err)).toContain(message);
+          expect((err as { errno?: string }).errno).toBe(sqlstate);
+          // …with one, it waits the 600 ms out and takes the lock.
+          expect(await wait({ maxWait: '5s' })).toBe('got');
+        } finally {
+          await strict.destroy();
+          await sql`ALTER DATABASE ${sql.id(dbName)} RESET ${sql.raw(setting)}`.execute(probe);
+        }
+      },
+      20_000,
+    );
 
     it('outlives the idle-in-transaction timeout the engine pool runs with', async () => {
       const u = new globalThis.URL(URL!);
