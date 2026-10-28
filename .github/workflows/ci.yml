@@ -688,6 +688,16 @@ jobs:
           cd packages/sdk && bun test && cd -
           cd packages/sdk-react && bun test && cd -
           cd packages/sdk-vue && bun test
+      - name: Kit typechecks on its own and packs for npm
+        # @zveltio/ui is published (ADR 0007). In the workspace its consumers'
+        # checks read it through their own config; a published kit has only its
+        # own. prepare-publish fails if an export names a file the build did
+        # not produce.
+        run: |
+          cd packages/ui
+          bun run check
+          bun run prepare-publish
+          npm pack --dry-run 2>&1 | tail -3
 
   installed-schema:
     name: Installed schema (engine + every extension)
