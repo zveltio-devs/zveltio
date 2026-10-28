@@ -46,13 +46,13 @@ type Dashboard = {
   data: WidgetData;
 };
 
-const LABELS: Record<string, string> = {
-  welcome: 'Welcome',
-  health: 'System health',
-  people: 'People',
-  data: 'Data & records',
-  activity: 'Recent activity',
-  trust: 'Data protection',
+const LABELS: Record<string, () => string> = {
+  welcome: () => m['dash.widget_welcome'](),
+  health: () => m['dash.widget_health'](),
+  people: () => m['dash.widget_people'](),
+  data: () => m['dash.widget_data'](),
+  activity: () => m['dash.widget_activity'](),
+  trust: () => m['dash.widget_trust'](),
 };
 
 /**
@@ -87,7 +87,7 @@ async function mutate(method: 'PUT' | 'DELETE', body?: unknown) {
     if (!res.ok) {
       // Leaving the editor open is the whole point: it closed on failure too,
       // so a rejected layout change looked exactly like a saved one.
-      saveError = `Could not save (HTTP ${res.status})`;
+      saveError = m['dash.save_failed']({ status: res.status });
       return;
     }
     dash = await res.json();
@@ -117,11 +117,12 @@ function describe(e: AuditRow): string {
   );
 }
 
-const greeting = () => {
+const greeting = (name: string) => {
   const h = new Date().getHours();
-  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  const key = h < 12 ? 'dash.good_morning' : h < 18 ? 'dash.good_afternoon' : 'dash.good_evening';
+  return m[key]({ name });
 };
-const orgName = $derived(dash?.data?.welcome?.organization ?? 'your organization');
+const orgName = $derived(dash?.data?.welcome?.organization ?? m['dash.your_org']());
 const choosable = $derived(
   dash
     ? dash.catalog.filter((w) => dash!.widgets.includes(w.id) || dash!.available.includes(w.id))
@@ -133,12 +134,12 @@ const has = (id: string) => !!dash?.widgets.includes(id);
 <div class="max-w-5xl mx-auto space-y-6">
   <div class="flex items-start justify-between gap-4">
     <div>
-      <h1 class="text-2xl font-bold">{greeting()}, {data.user?.name ?? ''}</h1>
-      <p class="text-base-content/60 text-sm">Here's how {orgName} is doing.</p>
+      <h1 class="text-2xl font-bold">{greeting(data.user?.name ?? '')}</h1>
+      <p class="text-base-content/60 text-sm">{m['dash.subtitle']({ org: orgName })}</p>
     </div>
     {#if dash && !editing}
       <button class="btn btn-sm btn-ghost gap-2" onclick={startEditing}>
-        <SlidersHorizontal size={16} /> Personalize
+        <SlidersHorizontal size={16} /> {m['dash.personalize']()}
       </button>
     {/if}
   </div>
@@ -148,25 +149,25 @@ const has = (id: string) => !!dash?.widgets.includes(id);
   {:else if editing}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body p-5 space-y-3">
-        <h2 class="font-semibold flex items-center gap-2"><SlidersHorizontal size={16} /> Personalize your dashboard</h2>
-        <p class="text-sm text-base-content/60">Choose which cards to show. Options are limited to what your role allows.</p>
+        <h2 class="font-semibold flex items-center gap-2"><SlidersHorizontal size={16} /> {m['dash.personalize_title']()}</h2>
+        <p class="text-sm text-base-content/60">{m['dash.personalize_hint']()}</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {#each choosable as w (w.id)}
             <label class="flex items-center gap-3 p-2 rounded hover:bg-base-300/40 cursor-pointer">
               <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" bind:checked={draft[w.id]} disabled={!w.removable} />
-              <span class="text-sm">{LABELS[w.id] ?? w.id}</span>
-              {#if !w.removable}<span class="badge badge-ghost badge-xs">always on</span>{/if}
+              <span class="text-sm">{LABELS[w.id]?.() ?? w.id}</span>
+              {#if !w.removable}<span class="badge badge-ghost badge-xs">{m['dash.always_on']()}</span>{/if}
             </label>
           {/each}
         </div>
         <div class="flex items-center justify-between pt-2">
           <button class="btn btn-ghost btn-sm gap-2" onclick={() => mutate('DELETE')} disabled={saving}>
-            <RotateCcw size={14} /> Reset
+            <RotateCcw size={14} /> {m['dash.reset']()}
           </button>
           <div class="flex gap-2">
             {#if saveError}<span class="text-error text-sm mr-auto">{saveError}</span>{/if}
             <button class="btn btn-ghost btn-sm" onclick={() => (editing = false)} disabled={saving}>{m['common.cancel']()}</button>
-            <button class="btn btn-primary btn-sm" onclick={saveEditing} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            <button class="btn btn-primary btn-sm" onclick={saveEditing} disabled={saving}>{saving ? m['common.saving']() : m['common.save']()}</button>
           </div>
         </div>
       </div>
@@ -182,7 +183,7 @@ const has = (id: string) => !!dash?.widgets.includes(id);
         {:else}
           <div class="alert bg-warning/10 border border-warning/40">
             <TriangleAlert size={20} class="text-warning" />
-            <span><strong>{m['status.attention']()}</strong> A core service isn't responding.</span>
+            <span><strong>{m['status.attention']()}</strong> {m['status.service_down']()}</span>
           </div>
         {/if}
       {/if}
@@ -191,23 +192,23 @@ const has = (id: string) => !!dash?.widgets.includes(id);
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {#if has('people')}
             <div class="card bg-base-200"><div class="card-body p-5">
-              <div class="flex items-center gap-2 text-base-content/60 text-sm"><Users size={16} /> People</div>
+              <div class="flex items-center gap-2 text-base-content/60 text-sm"><Users size={16} /> {m['dash.widget_people']()}</div>
               <p class="text-3xl font-bold tabular-nums">{fmtNum(dash.data.people?.total)}</p>
-              <p class="text-xs text-base-content/65">{dash.data.people?.admins ?? 0} with full access</p>
+              <p class="text-xs text-base-content/65">{m['dash.with_full_access']({ count: dash.data.people?.admins ?? 0 })}</p>
             </div></div>
           {/if}
           {#if has('data')}
             <div class="card bg-base-200"><div class="card-body p-5">
-              <div class="flex items-center gap-2 text-base-content/60 text-sm"><Database size={16} /> Records</div>
+              <div class="flex items-center gap-2 text-base-content/60 text-sm"><Database size={16} /> {m['dash.records']()}</div>
               <p class="text-3xl font-bold tabular-nums">~{fmtNum(dash.data.data?.records_estimate)}</p>
-              <p class="text-xs text-base-content/65">across {dash.data.data?.collections ?? 0} collections</p>
+              <p class="text-xs text-base-content/65">{m['dash.across_collections']({ count: dash.data.data?.collections ?? 0 })}</p>
             </div></div>
           {/if}
           {#if has('activity')}
             <div class="card bg-base-200"><div class="card-body p-5">
-              <div class="flex items-center gap-2 text-base-content/60 text-sm"><Activity size={16} /> Activity today</div>
+              <div class="flex items-center gap-2 text-base-content/60 text-sm"><Activity size={16} /> {m['dash.activity_today']()}</div>
               <p class="text-3xl font-bold tabular-nums">{fmtNum(dash.data.activity?.today)}</p>
-              <p class="text-xs text-base-content/65">recorded events</p>
+              <p class="text-xs text-base-content/65">{m['dash.recorded_events']()}</p>
             </div></div>
           {/if}
         </div>
@@ -215,7 +216,7 @@ const has = (id: string) => !!dash?.widgets.includes(id);
 
       {#if has('activity')}
         <div class="card bg-base-200"><div class="card-body p-5">
-          <h2 class="font-semibold flex items-center gap-2"><Activity size={16} /> Recent activity</h2>
+          <h2 class="font-semibold flex items-center gap-2"><Activity size={16} /> {m['dash.widget_activity']()}</h2>
           {#if !dash.data.activity?.recent?.length}
             <p class="text-sm text-base-content/65 py-4 text-center">{m['dash.no_activity']()}</p>
           {:else}
@@ -233,12 +234,12 @@ const has = (id: string) => !!dash?.widgets.includes(id);
 
       {#if has('trust')}
         <div class="card bg-base-200 border border-primary/20"><div class="card-body p-5">
-          <h2 class="font-semibold flex items-center gap-2 text-primary"><ShieldCheck size={16} /> Your data is protected</h2>
+          <h2 class="font-semibold flex items-center gap-2 text-primary"><ShieldCheck size={16} /> {m['dash.protected']()}</h2>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-            <div class="flex items-start gap-2.5"><Lock size={18} class={dash.data.trust?.encryption ? 'text-success mt-0.5' : 'text-base-content/55 mt-0.5'} /><div><p class="text-sm font-medium">{m['about.encryption']()}</p><p class="text-xs text-base-content/65">{dash.data.trust?.encryption ? 'Encrypted at rest' : 'Not configured'}</p></div></div>
+            <div class="flex items-start gap-2.5"><Lock size={18} class={dash.data.trust?.encryption ? 'text-success mt-0.5' : 'text-base-content/55 mt-0.5'} /><div><p class="text-sm font-medium">{m['about.encryption']()}</p><p class="text-xs text-base-content/65">{dash.data.trust?.encryption ? m['about.encrypted_at_rest']() : m['about.not_configured']()}</p></div></div>
             <div class="flex items-start gap-2.5"><ScrollText size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">{m['about.audit_trail']()}</p><p class="text-xs text-base-content/65">{m['about.every_change']()}</p></div></div>
             <div class="flex items-start gap-2.5"><Server size={18} class="text-success mt-0.5" /><div><p class="text-sm font-medium">{m['about.self_hosted']()}</p><p class="text-xs text-base-content/65">{m['about.on_your_infra']()}</p></div></div>
-            <div class="flex items-start gap-2.5"><HardDriveDownload size={18} class={dash.data.trust?.last_backup ? 'text-success mt-0.5' : 'text-warning mt-0.5'} /><div><p class="text-sm font-medium">{m['about.backups']()}</p><p class="text-xs text-base-content/65">{dash.data.trust?.last_backup ? `Last: ${fmtDateTime(dash.data.trust.last_backup)}` : 'None yet'}</p></div></div>
+            <div class="flex items-start gap-2.5"><HardDriveDownload size={18} class={dash.data.trust?.last_backup ? 'text-success mt-0.5' : 'text-warning mt-0.5'} /><div><p class="text-sm font-medium">{m['about.backups']()}</p><p class="text-xs text-base-content/65">{dash.data.trust?.last_backup ? m['about.last_backup']({ date: fmtDateTime(dash.data.trust.last_backup) }) : m['about.none_yet']()}</p></div></div>
           </div>
         </div></div>
       {/if}
@@ -246,7 +247,7 @@ const has = (id: string) => !!dash?.widgets.includes(id);
 
     {#if dash.personalized}
       <p class="text-xs text-base-content/65 text-center">
-        Personalized view. <button class="link" onclick={() => mutate('DELETE')}>{m['common.reset_default']()}</button>
+        {m['dash.personalized_view']()} <button class="link" onclick={() => mutate('DELETE')}>{m['common.reset_default']()}</button>
       </p>
     {/if}
   {/if}

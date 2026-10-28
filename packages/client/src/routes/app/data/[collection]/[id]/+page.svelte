@@ -1,5 +1,6 @@
 <script lang="ts">
 import { goto, invalidateAll } from '$app/navigation';
+import { m } from '#lib/i18n.svelte.js';
 import { fromInput, inputKind, isWritable, toInput } from '#lib/workspace/fields.js';
 import type { PageData } from './$types';
 
@@ -61,7 +62,7 @@ async function save(e: SubmitEvent) {
 }
 
 async function remove() {
-  if (!data.record || !confirm('Delete this record?')) return;
+  if (!data.record || !confirm(m['data.confirm_delete']())) return;
   try {
     await send('DELETE', `${api}/${encodeURIComponent(data.record.id)}`);
     await goto(base);
@@ -75,7 +76,7 @@ async function remove() {
   <div class="breadcrumbs text-sm">
     <ul>
       <li><a href={base}>{data.collection.display_name ?? data.collection.name}</a></li>
-      <li>{data.record ? data.record.id : 'New'}</li>
+      <li>{data.record ? data.record.id : m['data.new']()}</li>
     </ul>
   </div>
 
@@ -108,9 +109,9 @@ async function remove() {
 
       <div class="card-actions justify-between mt-2">
         {#if data.record}
-          <button type="button" class="btn btn-ghost text-error" onclick={remove}>Delete</button>
+          <button type="button" class="btn btn-ghost text-error" onclick={remove}>{m['data.delete']()}</button>
         {:else}<span></span>{/if}
-        <button class="btn btn-primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button class="btn btn-primary" disabled={saving}>{saving ? m['common.saving']() : m['common.save']()}</button>
       </div>
     </div>
   </form>

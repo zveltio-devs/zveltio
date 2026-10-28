@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Plus, Search } from '@lucide/svelte';
+import { m } from '#lib/i18n.svelte.js';
 import { cell } from '#lib/workspace/fields.js';
 import type { PageData } from './$types';
 
@@ -31,10 +32,10 @@ const link = (page: number) =>
   <div class="flex flex-wrap items-center gap-3">
     <h1 class="text-2xl font-bold flex-1">{data.collection.display_name ?? data.collection.name}</h1>
     <form method="GET" action={base} class="join">
-      <input name="q" value={data.search} placeholder="Search" class="input input-sm join-item" />
-      <button class="btn btn-sm join-item" aria-label="Search"><Search size={16} /></button>
+      <input name="q" value={data.search} placeholder={m['data.search']()} class="input input-sm join-item" />
+      <button class="btn btn-sm join-item" aria-label={m['data.search']()}><Search size={16} /></button>
     </form>
-    <a href="{base}/new" class="btn btn-primary btn-sm gap-1"><Plus size={16} />New</a>
+    <a href="{base}/new" class="btn btn-primary btn-sm gap-1"><Plus size={16} />{m['data.new']()}</a>
   </div>
 
   <div class="overflow-x-auto bg-base-100 rounded-box shadow">
@@ -58,7 +59,7 @@ const link = (page: number) =>
             {/each}
           </tr>
         {:else}
-          <tr><td colspan={columns.length || 1} class="text-center text-base-content/60 py-8">No records</td></tr>
+          <tr><td colspan={columns.length || 1} class="text-center text-base-content/60 py-8">{m['data.no_records']()}</td></tr>
         {/each}
       </tbody>
     </table>

@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { m } from '#lib/i18n.svelte.js';
 import type { PageLoad } from './$types';
 
 const PAGE_SIZE = 25;
@@ -14,7 +15,7 @@ export const load: PageLoad = async ({ fetch, params, parent, url }) => {
   if (!collection) {
     error(
       collectionsFailed ? 503 : 404,
-      collectionsFailed ? 'Collections could not be loaded' : 'Collection not found',
+      collectionsFailed ? m['app.collections_failed']() : m['data.collection_not_found'](),
     );
   }
 
@@ -26,7 +27,10 @@ export const load: PageLoad = async ({ fetch, params, parent, url }) => {
     credentials: 'include',
   });
   if (!res.ok)
-    error(res.status, ((await res.json().catch(() => null))?.error as string) ?? 'Load failed');
+    error(
+      res.status,
+      ((await res.json().catch(() => null))?.error as string) ?? m['data.load_failed'](),
+    );
   const body = (await res.json()) as {
     records: Array<Record<string, unknown> & { id: string }>;
     pagination: { total?: number; page: number; limit: number; pages?: number };

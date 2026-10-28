@@ -7,7 +7,7 @@ let { data } = $props();
 </script>
 
 <svelte:head>
-  <title>{data.page?.title ?? data.site?.name ?? 'Portal'}</title>
+  <title>{data.page?.title ?? data.site?.name ?? m['portal.title']()}</title>
   <!-- A private page is never for a crawler, whatever its SEO fields say. -->
   <meta name="robots" content="noindex, nofollow" />
 </svelte:head>
