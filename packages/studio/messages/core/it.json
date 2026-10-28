@@ -1083,6 +1083,7 @@
   "permissions.zone": "Zona",
   "permissions.zonesCount": "Zone ({count})",
   "permissions.zonesFiltered": "Zone ({count} di {total})",
+  "permissions.changedReload": "I permessi sono cambiati da quando questa schermata è stata caricata. Ora mostra le regole attuali; applica di nuovo le modifiche.",
   "perms.addInheritanceFailed": "Impossibile aggiungere l'ereditarietà",
   "profile.updateFailed": "Impossibile aggiornare il profilo",
   "profile.updated": "Profilo aggiornato",

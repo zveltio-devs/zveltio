@@ -3103,6 +3103,7 @@
   "permissions.builtIn": "Beépített:",
   "permissions.builtInRoles": "Beépített szerepkörök (mindig aktívak, itt nem szerkeszthetők):",
   "permissions.casbinInheritance": "Casbin szerepkör-öröklés",
+  "permissions.changedReload": "Az engedélyek megváltoztak a képernyő betöltése óta. Most az aktuális szabályokat mutatja; alkalmazd újra a módosításaidat.",
   "permissions.childRole": "Gyermek szerepkör (örökös)",
   "permissions.collectionsCount": "Gyűjtemények ({count})",
   "permissions.collectionsFiltered": "Gyűjtemények ({count} / {total})",

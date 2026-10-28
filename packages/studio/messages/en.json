@@ -3103,6 +3103,7 @@
   "permissions.builtIn": "Built-in:",
   "permissions.builtInRoles": "Built-in roles (always active, not editable here):",
   "permissions.casbinInheritance": "Casbin Role Inheritance",
+  "permissions.changedReload": "The permissions changed since this screen loaded. It now shows the current rules; apply your changes again.",
   "permissions.childRole": "Child role (inheritor)",
   "permissions.collectionsCount": "Collections ({count})",
   "permissions.collectionsFiltered": "Collections ({count} of {total})",

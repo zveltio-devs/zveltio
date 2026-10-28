@@ -1083,6 +1083,7 @@
   "permissions.zone": "Zonă",
   "permissions.zonesCount": "Zone ({count})",
   "permissions.zonesFiltered": "Zone ({count} din {total})",
+  "permissions.changedReload": "Permisiunile s-au schimbat de când s-a încărcat acest ecran. Acum arată regulile actuale; aplică din nou modificările.",
   "perms.addInheritanceFailed": "Adăugarea moștenirii a eșuat",
   "profile.updateFailed": "Profilul nu a putut fi actualizat",
   "profile.updated": "Profil actualizat",

@@ -1083,6 +1083,7 @@
   "permissions.zone": "Strefa",
   "permissions.zonesCount": "Strefy ({count})",
   "permissions.zonesFiltered": "Strefy ({count} z {total})",
+  "permissions.changedReload": "Uprawnienia zmieniły się od załadowania tego ekranu. Teraz pokazuje aktualne reguły; zastosuj zmiany ponownie.",
   "perms.addInheritanceFailed": "Nie udało się dodać dziedziczenia",
   "profile.updateFailed": "Nie udało się zaktualizować profilu",
   "profile.updated": "Profil zaktualizowany",

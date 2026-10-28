@@ -168,9 +168,13 @@ async function saveMatrix() {
     toast.success(m['permissions.saved']());
     setTimeout(() => (saved = false), 3000);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
-    // Someone changed the rules since this screen loaded: show what holds now.
-    if ((err as { status?: number }).status === 409) await loadAll();
+    // Someone changed the rules since this screen loaded: say so, then show what holds now.
+    if ((err as { status?: number }).status === 409) {
+      toast.error(m['permissions.changedReload']());
+      await loadAll();
+    } else {
+      toast.error(err instanceof Error ? err.message : m['common.saveFailed']());
+    }
   } finally {
     saving = false;
   }

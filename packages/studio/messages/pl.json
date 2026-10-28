@@ -3103,6 +3103,7 @@
   "permissions.builtIn": "Wbudowane:",
   "permissions.builtInRoles": "Role wbudowane (zawsze aktywne, tu nieedytowalne):",
   "permissions.casbinInheritance": "Dziedziczenie ról Casbin",
+  "permissions.changedReload": "Uprawnienia zmieniły się od załadowania tego ekranu. Teraz pokazuje aktualne reguły; zastosuj zmiany ponownie.",
   "permissions.childRole": "Rola podrzędna (dziedzicząca)",
   "permissions.collectionsCount": "Kolekcje ({count})",
   "permissions.collectionsFiltered": "Kolekcje ({count} z {total})",
