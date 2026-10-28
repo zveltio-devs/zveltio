@@ -908,7 +908,7 @@ export async function finalizeExtensionLoad(
     } catch (err) {
       console.warn(
         `   ⚠  ${extName}: could not grant default access to its resources — ` +
-          `they stay administrator-only until the next boot:`,
+          `they stay administrator-only until the boot reconcile grants them:`,
         (err as Error).message,
       );
     }

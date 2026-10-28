@@ -40,6 +40,7 @@ import {
   harnessAvailable,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
+import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -78,10 +79,12 @@ d('extension jobs run after the request commits, in its tenant, as the extension
   }
 
   async function load(ext: ZveltioExtension, manifest: Record<string, unknown>): Promise<void> {
+    const parsed = ManifestSchema.parse({ name: ext.name, ...manifest });
     await sql`DELETE FROM zv_extension_registry WHERE name = ${ext.name}`.execute(db);
+    // Recorded, as `load.ts` does before this phase: an unknown claim grants nothing.
     await sql`
-      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
-      VALUES (${ext.name}, ${ext.name}, NULL, true, true)
+      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled, manifest)
+      VALUES (${ext.name}, ${ext.name}, NULL, true, true, ${toJsonb(parsed)})
     `.execute(db);
     const ctx = { db, internals: buildExtensionInternals() } as unknown as ExtensionContext;
     await finalizeExtensionLoad(
@@ -91,7 +94,7 @@ d('extension jobs run after the request commits, in its tenant, as the extension
       `/tmp/${ext.name}`,
       app,
       ctx,
-      ManifestSchema.parse({ name: ext.name, ...manifest }) as never,
+      parsed as never,
       new Set(),
     );
   }
