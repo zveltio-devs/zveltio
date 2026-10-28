@@ -20,6 +20,7 @@ import {
   isSensitiveResource,
 } from '../../lib/tenancy/permissions.js';
 import {
+  materializeDefaultGrants,
   reconcileDefaultGrants,
   SENSITIVE_DEFAULTS_REPAIRED,
 } from '../../lib/tenancy/resource-grants.js';
@@ -90,6 +91,14 @@ d('boot reconcile with an extension whose claim is unknown', () => {
     await reconcileDefaultGrants(db, extRoot);
     expect(await held(SECRET)).toBe(false);
     expect(await held(PLAIN)).toBe(false);
+  });
+
+  // An extension loading meanwhile, and a collection created, take the same call.
+  it('an extension load grants nothing on its resources either', async () => {
+    await expect(materializeDefaultGrants(db, [SECRET], { extension: true })).rejects.toThrow(
+      /no manifest on record/,
+    );
+    expect(await held(SECRET)).toBe(false);
   });
 
   it('grants the ordinary collection, and not the sensitive one, once the manifest is back', async () => {

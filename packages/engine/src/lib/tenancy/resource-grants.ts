@@ -104,6 +104,10 @@ export async function materializeDefaultGrants(
         'it publishes the grants to the other instances as soon as it writes them.',
     );
   }
+  // Every caller, not only the boot reconcile: an extension load or a collection
+  // create would otherwise grant on a name an unknown claim keeps closed. Throws
+  // while one is unknown, and registers the known `sensitiveResources` first.
+  await claimsOfOthers(db);
   const targets = [...new Set(resources)].filter((r) => r && !isSensitiveResource(r));
   if (targets.length === 0) return 0;
   const grants = opts.extension

@@ -36,6 +36,7 @@ import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/permissions.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import { effectiveTimeZone } from '../../lib/tenancy/timezone.js';
+import { toJsonb } from '../../lib/jsonb.js';
 import { _setConnectionTracing, tracedAcquisitionSite } from '../../db/connection-trace.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -83,10 +84,12 @@ d('extension actions run as the caller, in the request transaction', () => {
     manifest: Record<string, unknown>,
     target = app,
   ): Promise<void> {
+    const parsed = ManifestSchema.parse({ name: ext.name, ...manifest });
     await sql`DELETE FROM zv_extension_registry WHERE name = ${ext.name}`.execute(db);
+    // Recorded, as `load.ts` does before this phase: an unknown claim grants nothing.
     await sql`
-      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
-      VALUES (${ext.name}, ${ext.name}, NULL, true, true)
+      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled, manifest)
+      VALUES (${ext.name}, ${ext.name}, NULL, true, true, ${toJsonb(parsed)})
     `.execute(db);
     const ctx = { db, internals: buildExtensionInternals() } as unknown as ExtensionContext;
     await finalizeExtensionLoad(
@@ -96,7 +99,7 @@ d('extension actions run as the caller, in the request transaction', () => {
       `/tmp/${ext.name}`,
       target,
       ctx,
-      ManifestSchema.parse({ name: ext.name, ...manifest }) as never,
+      parsed as never,
       new Set(),
     );
   }
