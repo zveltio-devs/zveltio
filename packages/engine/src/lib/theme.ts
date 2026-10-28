@@ -78,7 +78,11 @@ export function parseTheme(raw: unknown): Theme | null {
   return value != null && parsed.success ? parsed.data : null;
 }
 
-/** The tenant's theme where it set one, else the instance's; null when neither is valid. */
+/**
+ * The tenant's theme where it set one, else the instance's; null when neither is
+ * valid. A theme is one unit: a tenant's replaces the instance's whole, so `{}`
+ * means daisyUI's defaults, not "inherit".
+ */
 export async function effectiveTheme(db: Database, tenantId: string | null): Promise<Theme | null> {
   const r = await sql<{ tenant: unknown; instance: unknown }>`
     SELECT
