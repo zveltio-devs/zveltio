@@ -35,7 +35,7 @@ const sizes: Record<string, string> = { xs: 'btn-xs', sm: 'btn-sm', md: '', lg: 
 <button
   {...rest}
   {type}
-  class="btn {variants[variant]} {sizes[size]} {rest.class ?? ''}"
+  class={['btn', variants[variant], sizes[size], rest.class]}
   disabled={disabled || loading}
   aria-busy={loading || undefined}
 >

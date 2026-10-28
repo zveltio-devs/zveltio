@@ -69,6 +69,7 @@ describe('/app/data list on the kit', () => {
     expect((await run('sort=title&order=asc')).sort).toEqual({ key: 'title', dir: 'asc' });
     expect(seen.at(-1)).toContain('sort=title&order=asc');
     expect((await run('sort=password_hash')).sort).toBeNull();
+    expect((await run('sort=tags')).sort).toBeNull();
     expect(seen.at(-1)).not.toContain('sort=');
   });
 });
@@ -81,7 +82,13 @@ describe('/app/data record form on the kit', () => {
           collection: {
             ...collection,
             fields: [
-              { name: 'title', label: 'Title', type: 'text', description: 'Shown in lists' },
+              {
+                name: 'title',
+                label: 'Title',
+                type: 'text',
+                description: 'Shown in lists',
+                required: true,
+              },
             ],
           },
           record: null,
@@ -89,9 +96,10 @@ describe('/app/data record form on the kit', () => {
         },
       } as never,
     });
-    const input = screen.getByLabelText('Title');
+    const input = screen.getByRole('textbox', { name: 'Title' });
     const hint = document.getElementById(input.getAttribute('aria-describedby') ?? '');
     expect(hint?.textContent).toBe('Shown in lists');
+    expect(input.getAttribute('aria-required')).toBe('true');
   });
 });
 

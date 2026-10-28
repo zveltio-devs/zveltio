@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { m } from '#lib/i18n.svelte.js';
+import { isSortable } from '#lib/workspace/fields.js';
 import type { PageLoad } from './$types';
 
 const PAGE_SIZE = 25;
@@ -24,7 +25,8 @@ export const load: PageLoad = async ({ fetch, params, parent, url }) => {
   // Only a column this user sees; the engine answers 400 to any other.
   const sortKey = url.searchParams.get('sort');
   const sort =
-    sortKey && (sortKey === 'id' || collection.fields.some((f) => f.name === sortKey))
+    sortKey &&
+    (sortKey === 'id' || collection.fields.some((f) => f.name === sortKey && isSortable(f)))
       ? {
           key: sortKey,
           dir: url.searchParams.get('order') === 'asc' ? ('asc' as const) : ('desc' as const),

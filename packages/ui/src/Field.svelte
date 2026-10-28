@@ -18,7 +18,9 @@ let {
   hint?: string;
   error?: string;
   required?: boolean;
-  control: Snippet<[{ id: string; describedby: string | undefined; invalid: boolean }]>;
+  control: Snippet<
+    [{ id: string; describedby: string | undefined; invalid: boolean; required: boolean }]
+  >;
 } = $props();
 
 const id = $props.id();
@@ -31,7 +33,7 @@ const describedby = $derived(
   <label class="fieldset-legend" for={id}>
     {label}{#if required}<span class="text-error" aria-hidden="true"> *</span>{/if}
   </label>
-  {@render control({ id, describedby, invalid: !!error })}
+  {@render control({ id, describedby, invalid: !!error, required })}
   {#if hint}<p id="{id}-hint" class="label">{hint}</p>{/if}
   {#if error}<p id="{id}-error" class="label text-error" role="alert">{error}</p>{/if}
 </fieldset>

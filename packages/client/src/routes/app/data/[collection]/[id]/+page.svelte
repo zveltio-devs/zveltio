@@ -97,12 +97,12 @@ async function remove() {
           </label>
         {:else}
           <Field label={f.label ?? f.name} hint={f.description ?? ''} required={f.required}>
-            {#snippet control({ id, describedby })}
+            {#snippet control({ id, describedby, required })}
               {#if f.kind === 'textarea' || f.kind === 'json'}
-                <textarea {id} aria-describedby={describedby} class="textarea w-full" class:font-mono={f.kind === 'json'} rows="4"
+                <textarea {id} aria-describedby={describedby} aria-required={required || undefined} class="textarea w-full" class:font-mono={f.kind === 'json'} rows="4"
                   readonly={!f.writable} bind:value={values[f.name] as string}></textarea>
               {:else}
-                <input {id} aria-describedby={describedby} type={f.kind} step={f.kind === 'number' ? 'any' : f.kind === 'datetime-local' || f.kind === 'time' ? '1' : undefined} class="input w-full"
+                <input {id} aria-describedby={describedby} aria-required={required || undefined} type={f.kind} step={f.kind === 'number' ? 'any' : f.kind === 'datetime-local' || f.kind === 'time' ? '1' : undefined} class="input w-full"
                   readonly={!f.writable} required={f.required && f.writable && !data.record}
                   bind:value={values[f.name] as string} />
               {/if}

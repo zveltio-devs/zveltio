@@ -58,6 +58,10 @@ const hasNext = $derived(
   <PageHeader title={data.collection.display_name ?? data.collection.name}>
     {#snippet actions()}
       <form method="GET" action={base} class="join">
+        {#if data.sort}
+          <input type="hidden" name="sort" value={data.sort.key} />
+          <input type="hidden" name="order" value={data.sort.dir} />
+        {/if}
         <input name="q" value={data.search} placeholder={m['data.search']()} class="input input-sm join-item" />
         <button class="btn btn-sm join-item" aria-label={m['data.search']()}><Search size={16} /></button>
       </form>
