@@ -66,4 +66,20 @@ d('data list gt filter (in-process)', () => {
     expect(body.records.some((r) => r.label === 'high')).toBe(true);
     expect(body.records.some((r) => r.label === 'mid')).toBe(true);
   });
+
+  // PostgreSQL has no LIKE on an integer (42883): this was a 500.
+  it('filters with contains on an integer field as its text', async () => {
+    const res = await app.request(`/api/data/${COLLECTION}?amount[contains]=5`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { records: Array<{ label: string }> };
+    expect(body.records.map((r) => r.label).sort()).toEqual(['high', 'low', 'mid']);
+    const none = await app.request(`/api/data/${COLLECTION}?amount[starts_with]=9`, {
+      headers: { cookie },
+    });
+    expect(
+      ((await none.json()) as { records: Array<{ label: string }> }).records.map((r) => r.label),
+    ).toEqual(['high']);
+  });
 });
