@@ -1,10 +1,9 @@
 /**
- * How the workspace's generic screens (`/app/data/…`, ADR 0006) draw and read
- * a field, from nothing but its type. A collection with screens of its own
- * never comes here; these are what every other collection gets.
+ * How the kit's generic collection screens (`CollectionList`, `CollectionForm`;
+ * ADR 0007 item 3) draw and read a field, from nothing but its type. A
+ * collection with screens of its own never comes here; these are what every
+ * other collection gets.
  */
-
-import { m } from '#lib/i18n.svelte.js';
 
 export type InputKind =
   | 'checkbox'
@@ -74,9 +73,22 @@ export function toInput(kind: InputKind, value: unknown): string | boolean {
 }
 
 /**
+ * An input that cannot become the value its column takes. The kit has no
+ * catalogue: the host words it from `field` and `reason`.
+ */
+export class FieldValueError extends Error {
+  constructor(
+    readonly field: string,
+    readonly reason: 'number' | 'json',
+  ) {
+    super(`${field}: not a valid ${reason}`);
+  }
+}
+
+/**
  * What the input holds, as the API takes it. An empty input is `null`, not `''`:
  * an empty string in a number or date column is a 400, and in a text column it
- * is a value the user did not type. Malformed JSON throws, naming the field.
+ * is a value the user did not type. Malformed JSON or a non-number throws a `FieldValueError` naming the field.
  */
 export function fromInput(kind: InputKind, raw: string | boolean, name: string): unknown {
   if (kind === 'checkbox') return raw === true;
@@ -84,14 +96,14 @@ export function fromInput(kind: InputKind, raw: string | boolean, name: string):
   if (s.trim() === '') return null;
   if (kind === 'number') {
     const n = Number(s);
-    if (Number.isNaN(n)) throw new Error(m['data.not_a_number']({ field: name }));
+    if (Number.isNaN(n)) throw new FieldValueError(name, 'number');
     return n;
   }
   if (kind === 'json') {
     try {
       return JSON.parse(s);
     } catch {
-      throw new Error(m['data.invalid_json']({ field: name }));
+      throw new FieldValueError(name, 'json');
     }
   }
   if (kind === 'datetime-local') return new Date(s).toISOString();

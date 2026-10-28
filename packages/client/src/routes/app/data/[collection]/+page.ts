@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { m } from '#lib/i18n.svelte.js';
-import { isSortable } from '#lib/workspace/fields.js';
+import { isSortable } from '@zveltio/ui/fields';
 import type { PageLoad } from './$types';
 
 const PAGE_SIZE = 25;
