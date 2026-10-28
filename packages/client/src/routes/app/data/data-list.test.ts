@@ -139,3 +139,76 @@ describe('/app/data record form words a bad value in the host catalogue', () => 
     expect(alert.textContent).not.toContain('not a valid');
   });
 });
+
+describe('/app/data filters on the kit', () => {
+  const fields = [
+    { name: 'title', label: 'Title', type: 'text' },
+    { name: 'qty', label: 'Qty', type: 'integer' },
+    { name: 'tags', label: 'Tags', type: 'm2m' },
+  ];
+
+  it('forwards only a filter on a seen field with an operator that field takes', async () => {
+    const seen: string[] = [];
+    const out = (await load({
+      params: { collection: 'tasks' },
+      url: new URL(
+        'http://x/app/data/tasks?title[contains]=a&qty[gt]=3&qty[contains]=x&tags[eq]=1&secret[eq]=1&title[is_null]=zz',
+      ),
+      parent: async () => ({
+        collections: [{ ...collection, fields }],
+        collectionsFailed: false,
+        engineUrl: '',
+      }),
+      fetch: (async (u: string) => {
+        seen.push(u);
+        return {
+          ok: true,
+          json: async () => ({ records: [], pagination: { page: 1, limit: 25 } }),
+        };
+      }) as never,
+    } as never)) as { filters: unknown };
+    expect(out.filters).toEqual([
+      { field: 'title', op: 'contains', value: 'a' },
+      { field: 'qty', op: 'gt', value: '3' },
+      { field: 'title', op: 'is_null', value: '' },
+    ]);
+    const qs = new URL(seen[0], 'http://x').searchParams;
+    expect(qs.get('title[contains]')).toBe('a');
+    expect(qs.get('qty[gt]')).toBe('3');
+    expect(qs.has('qty[contains]')).toBe(false);
+    expect(qs.has('tags[eq]')).toBe(false);
+    expect(qs.has('secret[eq]')).toBe(false);
+  });
+
+  it('shows each filter with a link that drops it and keeps the rest', () => {
+    render(Page, {
+      props: {
+        data: {
+          ...data({ key: 'title', dir: 'asc' }),
+          collection: { ...collection, fields },
+          search: 'hi',
+          filters: [
+            { field: 'title', op: 'contains', value: 'a' },
+            { field: 'qty', op: 'gt', value: '3' },
+          ],
+        },
+      } as never,
+    });
+    const drop = screen.getByLabelText('Remove filter: Title contains a');
+    const href = new URL(drop.getAttribute('href')!, 'http://x');
+    expect(href.pathname).toBe('/app/data/tasks');
+    expect(href.searchParams.get('q')).toBe('hi');
+    expect(href.searchParams.get('sort')).toBe('title');
+    expect(href.searchParams.get('qty[gt]')).toBe('3');
+    expect(href.searchParams.has('title[contains]')).toBe(false);
+    expect(href.searchParams.has('page')).toBe(false);
+    // Paging and ordering keep the filters.
+    expect(screen.getByLabelText('Next page').getAttribute('href')).toContain('qty%5Bgt%5D=3');
+    // A relation is not offered.
+    const field = screen.getByRole('combobox', { name: 'Field' });
+    expect([...field.querySelectorAll('option')].map((o) => o.value)).toEqual(['title', 'qty']);
+    expect(screen.getByRole('textbox', { name: 'Value' }).getAttribute('name')).toBe(
+      'title[contains]',
+    );
+  });
+});

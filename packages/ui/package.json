@@ -83,6 +83,10 @@
     "./collection": {
       "types": "./src/collection.ts",
       "default": "./src/collection.ts"
+    },
+    "./Filters.svelte": {
+      "svelte": "./src/Filters.svelte",
+      "default": "./src/Filters.svelte"
     }
   },
   "dependencies": {
