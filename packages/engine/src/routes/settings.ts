@@ -12,6 +12,7 @@ import {
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
+import { effectiveTheme, themeSchema } from '../lib/theme.js';
 
 /**
  * Settings whose value is a credential and must never be read back.
@@ -64,6 +65,7 @@ const WRITABLE_SETTINGS_KEYS = new Set([
   'logo_url',
   'favicon_url',
   'primary_color',
+  'theme',
   'support_email',
   'contact_email',
   'timezone',
@@ -223,6 +225,9 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         .executeTakeFirst();
       if (isTimeZone(own?.timezone)) result.timezone = own.timezone;
     }
+    // Public by nature: every page applies it before anyone signs in. Read on
+    // its own, tenant over instance, rather than through the is_public rows.
+    result.theme = await effectiveTheme(db, domain);
     return c.json(result);
   });
 
@@ -314,6 +319,9 @@ export function settingsRoutes(db: Database, auth: any): Hono {
         return c.json({ error: `Setting key "${key}" is not a recognized writable setting.` }, 400);
       }
       const { value, is_public } = c.req.valid('json');
+      if (key === 'theme' && !themeSchema.safeParse(value).success) {
+        return c.json({ error: 'Invalid theme' }, 400);
+      }
       // Never write the mask back over the credential it stands for. A client
       // that reads settings and submits them again — the ordinary shape of a
       // settings form — would otherwise replace the password with `********`
@@ -410,6 +418,9 @@ export function settingsRoutes(db: Database, auth: any): Hono {
       // for something indistinguishable from the accident, so it is refused on
       // both write paths rather than left as a trap on one.
       if (isSecretSettingKey(key) && value === MASKED_SECRET) continue;
+      if (key === 'theme' && !themeSchema.safeParse(value).success) {
+        return c.json({ error: 'Invalid theme' }, 400);
+      }
 
       try {
         JSON.stringify(value);

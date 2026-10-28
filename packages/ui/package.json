@@ -19,6 +19,10 @@
     "./step-up": {
       "types": "./src/step-up.svelte.ts",
       "default": "./src/step-up.svelte.ts"
+    },
+    "./theme": {
+      "types": "./src/theme.ts",
+      "default": "./src/theme.ts"
     }
   },
   "dependencies": {

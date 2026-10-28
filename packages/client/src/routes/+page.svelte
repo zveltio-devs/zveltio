@@ -11,7 +11,9 @@ const auth = useAuth();
 const theme = $derived(data?.theme ?? null);
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 const nav = $derived((data?.nav ?? []) as any[]);
-const appName = $derived(theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? 'Portal');
+const appName = $derived(
+  theme?.app_name ?? import.meta.env.PUBLIC_APP_NAME ?? m['home.default_name'](),
+);
 // `/` is the login landing by DEFAULT (ADR 0001). A published page-builder
 // homepage (slug `home`) is an optional override that takes over when present.
 const homepage = $derived(data?.homepage ?? null);
@@ -37,35 +39,25 @@ const registrationEnabled = $derived(data?.registrationEnabled === true);
 {:else}
 <!-- Default `/`: the login landing (app/intranet-first). A published page-builder
      homepage would override this; none here, so login is the intended entry. -->
-<div class="min-h-screen flex items-center justify-center" style="background: var(--color-bg, #f9fafb)">
+<div class="min-h-screen flex items-center justify-center bg-base-200">
   <div class="text-center max-w-lg px-6">
     {#if theme?.logo_url}
       <img src={theme.logo_url} alt={appName} class="h-16 w-auto mx-auto mb-6"/>
     {/if}
 
-    <h1 class="text-4xl font-bold mb-3" style="color: var(--color-text, #111827)">{appName}</h1>
-    <p class="text-base opacity-60 mb-8" style="color: var(--color-text, #111827)">
-      Welcome. Please sign in to continue.
-    </p>
+    <h1 class="text-4xl font-bold mb-3">{appName}</h1>
+    <p class="text-base opacity-60 mb-8">{m['home.welcome']()}</p>
 
     {#if auth.isPending}
-      <span class="loading loading-spinner loading-md" style="color: var(--color-primary, #6366f1)"></span>
+      <span class="loading loading-spinner loading-md text-primary"></span>
     {:else if auth.isLoggedIn}
-      <a href="/app"
-        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-opacity hover:opacity-90"
-        style="background: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
-        Open the workspace
-      </a>
+      <a href="/app" class="btn btn-primary">{m['home.open_workspace']()}</a>
     {:else}
       <div class="flex gap-4 justify-center">
-        <a href="/auth/login"
-          class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-opacity hover:opacity-90"
-          style="background: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
+        <a href="/auth/login" class="btn btn-primary">
           <LogIn size={18}/>{m['auth.sign_in']()}</a>
         {#if registrationEnabled}
-          <a href="/auth/signup"
-            class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium border transition-colors hover:bg-black/5"
-            style="color: var(--color-primary, #6366f1); border-color: var(--color-primary, #6366f1); border-radius: var(--radius, 0.5rem)">
+          <a href="/auth/signup" class="btn btn-outline btn-primary">
             <UserPlus size={18}/>{m['auth.sign_up']()}</a>
         {/if}
       </div>
@@ -75,8 +67,7 @@ const registrationEnabled = $derived(data?.registrationEnabled === true);
       <nav class="mt-8 flex gap-3 justify-center flex-wrap text-sm opacity-60">
         {#each nav as item}
           <a href="/{item.slug === '/' ? '' : item.slug}"
-            class="hover:opacity-100 transition-opacity"
-            style="color: var(--color-primary, #6366f1)">
+            class="link link-primary hover:opacity-100 transition-opacity">
             {item.title}
           </a>
         {/each}
