@@ -73,7 +73,6 @@ const behavior = $derived(dismissible ? 'close' : 'ignore');
       <Dialog.Overlay class="modal-backdrop" />
       <Dialog.Content
         class="modal-box {sizes[size] ?? sizes.md}"
-        aria-label={title ? undefined : closeLabel}
         escapeKeydownBehavior={behavior}
         interactOutsideBehavior={behavior}
       >

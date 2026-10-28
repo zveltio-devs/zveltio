@@ -20,9 +20,13 @@ let {
   /** The tab list's accessible name. */
   label: string;
 } = $props();
+
+// A value that names no tab (tabs loaded after mount, a stale bound value)
+// falls back to the first tab, so a tab is always active.
+const active = $derived(tabs.some((t) => t.value === value) ? value : (tabs[0]?.value ?? ''));
 </script>
 
-<Tabs.Root bind:value>
+<Tabs.Root value={active} onValueChange={(v) => (value = v)}>
   <Tabs.List class="tabs tabs-border" aria-label={label}>
     {#each tabs as t (t.value)}
       <Tabs.Trigger value={t.value} disabled={t.disabled} class="tab">{t.label}</Tabs.Trigger>
@@ -31,7 +35,7 @@ let {
   {#each tabs as t (t.value)}
     <!-- Only the active panel renders: a hidden panel would still mount and fetch. -->
     <Tabs.Content value={t.value} class="pt-4">
-      {#if value === t.value}{@render panel(t.value)}{/if}
+      {#if active === t.value}{@render panel(t.value)}{/if}
     </Tabs.Content>
   {/each}
 </Tabs.Root>

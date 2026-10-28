@@ -33,12 +33,14 @@ let {
 <DropdownMenu.Root>
   <DropdownMenu.Trigger class={triggerClass}>{label}</DropdownMenu.Trigger>
   <DropdownMenu.Portal>
+    <!-- Above daisyUI's `.modal` (z-index 999): a menu opened inside a dialog
+         is portaled to <body> and would otherwise render under it. -->
     <DropdownMenu.Content
       {align}
       sideOffset={4}
-      class="menu bg-base-100 rounded-box z-50 min-w-40 p-2 shadow-lg"
+      class="menu bg-base-100 rounded-box z-[1000] min-w-40 p-2 shadow-lg"
     >
-      {#each items as item (item.label)}
+      {#each items as item, i (i)}
         <DropdownMenu.Item
           disabled={item.disabled}
           onSelect={item.onSelect}
