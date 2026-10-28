@@ -244,8 +244,6 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
           allowed_ips: z.array(z.string()).nullable().optional(),
           organization: z.string().nullable().optional(),
           description: z.string().nullable().optional(),
-          // A key's own limit only adds a stricter bucket (`keyOwnLimitRefusal`),
-          // so an administrator may set it on a member's key too.
           rate_limit: z.number().int().min(1).max(1_000_000).nullable().optional(),
         })
         // `permissions_mode` and `casbin_subject` were accepted and stored, but no
@@ -268,14 +266,26 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       // issuance allows (`memberKeyScopeRefusal`); an admin wanting `*` mints
       // an admin key.
       const refused = scopes && memberKeyScopeRefusal(scopes);
-      if (refused) {
+      if (refused || data.rate_limit !== undefined) {
         const key = await db
           .selectFrom('zv_api_keys')
           .select('member_issued')
           .where('id', '=', id)
           .where('tenant_id', '=', tenantId(c))
           .executeTakeFirst();
-        if (key?.member_issued) return c.json({ error: refused }, 400);
+        if (key?.member_issued && refused) return c.json({ error: refused }, 400);
+        // A member's key spends its member's bucket, so `keyOwnLimitRefusal`
+        // never reads its own `rate_limit` (ADR 0010 amendment 4): refused, not
+        // stored as a limit that looks applied.
+        if (key?.member_issued && data.rate_limit !== undefined) {
+          return c.json(
+            {
+              error: "A member's key spends its member's rate limit; it takes no per-key limit",
+              code: 'member_api_key_rate_limit',
+            },
+            409,
+          );
+        }
       }
       await db
         .updateTable('zv_api_keys')

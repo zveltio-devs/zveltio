@@ -158,9 +158,10 @@ d('members issue their own API keys (ADR 0010)', () => {
         headers: { 'Content-Type': 'application/json', cookie: god },
         body: JSON.stringify(body),
       });
-    expect(
-      (await raw(`/api/admin/api-keys/${id}`, 'PATCH', { casbin_subject: 'god' })).status,
-    ).toBe(400);
+    expect((await raw(`/api/admin/api-keys/${id}`, 'PATCH', { rate_limit: 1 })).status).toBe(409);
+    const own = await sql<{ rate_limit: number | null }>`
+      SELECT rate_limit FROM zv_api_keys WHERE id = ${id}::uuid`.execute(db);
+    expect(own.rows[0]?.rate_limit).toBeNull();
     const override = await raw(`/api/api-keys/${id}/rate-limit`, 'PUT', {
       window_ms: 60_000,
       max_requests: 100_000,
