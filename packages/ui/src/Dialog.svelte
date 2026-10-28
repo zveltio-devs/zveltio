@@ -2,23 +2,14 @@
 /**
  * The one dialog (`@zveltio/ui`), used by the Console, the App and extensions.
  *
- * This component existed with zero importers while thirteen route files wrote
- * their own `<dialog>` — and it would not have been worth adopting anyway: no
- * Escape handling, no focus trap, no `aria-modal`. A keyboard user could tab
- * out of an open dialog into the page behind it, and a screen reader was never
- * told the rest of the page was inert.
- *
- * What a dialog owes the person using it:
- *   - Escape closes it, wherever focus happens to be;
- *   - focus moves INTO it on open and cannot leave while it is open;
- *   - focus returns to whatever opened it on close, so the keyboard does not
- *     jump back to the top of the document;
- *   - `aria-modal` + `role="dialog"` so assistive tech treats the rest as inert.
- *
- * The backdrop stays a <button> rather than a click handler on a div: it is
- * genuinely actionable, and making it a real control is what puts it in the tab
- * order and gives it a name.
+ * What a dialog owes the person using it — Escape closes it, focus moves in on
+ * open and cannot leave, focus returns to whatever opened it, the page behind
+ * is inert to assistive tech and does not scroll — comes from `bits-ui`'s
+ * dialog primitive (ADR 0007: daisyUI for the look, bits-ui for behaviour).
+ * This file used to hand-roll the focus trap; it had two escape routes found
+ * one review at a time, and no scroll lock at all.
  */
+import { Dialog } from 'bits-ui';
 import type { Snippet } from 'svelte';
 
 let {
@@ -33,18 +24,16 @@ let {
    * Pass a submit handler and the body becomes a real <form>.
    *
    * What that buys, and why it is not cosmetic: Enter from any field submits,
-   * which is what someone typing into a dialog expects and what every one of
-   * these dialogs was missing; the browser runs `required` and `type` checks
-   * before the handler; and a password manager can recognise a credential form,
-   * which it cannot do without one.
+   * which is what someone typing into a dialog expects; the browser runs
+   * `required` and `type` checks before the handler; and a password manager can
+   * recognise a credential form, which it cannot do without one.
    *
    * Named `onSubmit`, not `onsubmit`: Svelte 5 reads a lowercase `on*` on a
    * COMPONENT as an event attribute rather than a prop, so the handler never
    * arrives and the form silently never renders.
    *
-   * Left off, the body renders exactly as before — a dialog whose fields apply
-   * as they change has nothing to submit, and wrapping it would invent a
-   * submission that does not exist.
+   * Left off, the body renders without a form — a dialog whose fields apply as
+   * they change has nothing to submit.
    */
   onSubmit = null,
   /** The close control's accessible name; the kit has no catalogue, the host translates. */
@@ -68,107 +57,46 @@ const sizes: Record<string, string> = {
   '2xl': 'max-w-6xl',
 };
 
-let box = $state<HTMLElement | null>(null);
-let restoreTo: HTMLElement | null = null;
-
-function close() {
-  if (!dismissible) return;
-  open = false;
-  onClose?.();
+// bits-ui reports only the person's own dismissals here (Escape, outside
+// click, the close button) — never the host setting `open` itself — which is
+// exactly when `onClose` has always fired.
+function onOpenChange(next: boolean) {
+  if (!next) onClose?.();
 }
 
-/** Everything focusable inside the box, in document order. */
-function focusables(): HTMLElement[] {
-  if (!box) return [];
-  return [
-    ...box.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  ].filter((el) => el.offsetParent !== null);
-}
-
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    close();
-    return;
-  }
-  if (e.key !== 'Tab') return;
-
-  // The trap. Without it, Tab walks out of the dialog and into the page behind
-  // it, which is still rendered — the user is then editing something they
-  // cannot see.
-  const items = focusables();
-  if (items.length === 0) {
-    e.preventDefault();
-    return;
-  }
-  const first = items[0]!;
-  const last = items[items.length - 1]!;
-  const active = document.activeElement as HTMLElement | null;
-
-  // Focus can sit outside the box without the user having tabbed there: a click
-  // on the backdrop of a non-dismissible dialog, a programmatic focus from the
-  // page behind, the browser restoring focus after an alert. Only the backward
-  // branch handled that, so Tab forward from outside walked into the page the
-  // dialog is covering — the exact escape the trap exists to prevent.
-  const outside = !box?.contains(active);
-  if (e.shiftKey && (active === first || outside)) {
-    e.preventDefault();
-    last.focus();
-  } else if (!e.shiftKey && (active === last || outside)) {
-    e.preventDefault();
-    first.focus();
-  }
-}
-
-$effect(() => {
-  if (!open) return;
-  // Remember where focus came from BEFORE moving it, so closing returns the
-  // keyboard to the button that opened the dialog rather than the document top.
-  restoreTo = document.activeElement as HTMLElement | null;
-  // Wait a tick so the box is in the DOM.
-  queueMicrotask(() => {
-    const items = focusables();
-    (items[0] ?? box)?.focus();
-  });
-  return () => restoreTo?.focus?.();
-});
+const behavior = $derived(dismissible ? 'close' : 'ignore');
 </script>
 
-<svelte:window onkeydown={open ? onKeydown : undefined} />
-
-{#if open}
-  <!-- `open` is not decoration: a <dialog> without it is display:none per the UA
-       stylesheet and absent from the accessibility tree. DaisyUI's `modal-open`
-       overrides the display in CSS, so the dialog looks open to a sighted user
-       and does not exist for a screen reader. -->
-  <dialog open class="modal modal-open" aria-modal="true" aria-label={title || undefined}>
-    <div class="modal-box {sizes[size] ?? sizes.md}" bind:this={box} tabindex="-1">
-      {#if title}<h3 class="font-bold text-lg">{title}</h3>{/if}
-      {#if dismissible}
-        <button
-          class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-          onclick={close}
-          aria-label={closeLabel}>✕</button
-        >
-      {/if}
-      {#if onSubmit}
-        <form
-          class="py-4"
-          onsubmit={(e) => {
-            e.preventDefault();
-            onSubmit();
-          }}
-        >
-          {@render children()}
-        </form>
-      {:else}
-        <div class="py-4">{@render children()}</div>
-      {/if}
+<Dialog.Root bind:open {onOpenChange}>
+  <Dialog.Portal>
+    <div class="modal modal-open">
+      <Dialog.Overlay class="modal-backdrop" />
+      <Dialog.Content
+        class="modal-box {sizes[size] ?? sizes.md}"
+        aria-label={title ? undefined : closeLabel}
+        escapeKeydownBehavior={behavior}
+        interactOutsideBehavior={behavior}
+      >
+        {#if title}<Dialog.Title level={3} class="font-bold text-lg">{title}</Dialog.Title>{/if}
+        {#if dismissible}
+          <Dialog.Close class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label={closeLabel}
+            >✕</Dialog.Close
+          >
+        {/if}
+        {#if onSubmit}
+          <form
+            class="py-4"
+            onsubmit={(e) => {
+              e.preventDefault();
+              onSubmit();
+            }}
+          >
+            {@render children()}
+          </form>
+        {:else}
+          <div class="py-4">{@render children()}</div>
+        {/if}
+      </Dialog.Content>
     </div>
-    {#if dismissible}
-      <button type="button" class="modal-backdrop" aria-label={closeLabel} onclick={close}></button>
-    {/if}
-  </dialog>
-{/if}
+  </Dialog.Portal>
+</Dialog.Root>

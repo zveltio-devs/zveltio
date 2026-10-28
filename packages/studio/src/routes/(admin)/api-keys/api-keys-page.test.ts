@@ -31,7 +31,9 @@ afterEach(() => {
 });
 
 it('a typed action rides next to the ticked ones', async () => {
-  const { container } = render(Page);
+  render(Page);
+  // The dialog renders in a portal on <body>, outside the render container.
+  const container = document;
   const typed = await waitFor(() => {
     const el = container.querySelector<HTMLInputElement>('input[placeholder="approve, …"]');
     if (!el) throw new Error('no typed-actions input');
