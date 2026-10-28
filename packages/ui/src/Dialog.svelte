@@ -69,6 +69,9 @@ const behavior = $derived(dismissible ? 'close' : 'ignore');
 
 <Dialog.Root bind:open {onOpenChange}>
   <Dialog.Portal>
+    <!-- The portal renders whatever it holds, open or not: an unconditional
+         `.modal-open` wrapper covered the whole page and took every click. -->
+    {#if open}
     <div class="modal modal-open">
       <Dialog.Overlay class="modal-backdrop" />
       <Dialog.Content
@@ -97,5 +100,6 @@ const behavior = $derived(dismissible ? 'close' : 'ignore');
         {/if}
       </Dialog.Content>
     </div>
+    {/if}
   </Dialog.Portal>
 </Dialog.Root>

@@ -41,6 +41,9 @@ describe('Modal', () => {
   it('renders nothing while closed', () => {
     render(Modal, { props: { open: false, title: 'Edit user', children: undefined as never } });
     expect(screen.queryByText('Edit user')).toBeNull();
+    // Nothing may cover the page either: a leftover `.modal-open` layer takes
+    // every click meant for the page behind.
+    expect(document.querySelector('.modal')).toBeNull();
     cleanup();
   });
 
