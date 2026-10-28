@@ -96,18 +96,12 @@ d('advisory locks on the pool', () => {
       migrated = r;
     });
     try {
-      // A waiter tries the lock again and again rather than queueing in pg_locks.
-      await until(
-        async () =>
-          (
-            await sql<{ n: number }>`
-              SELECT count(*)::int AS n FROM pg_stat_activity
-               WHERE datname = current_database()
-                 AND query LIKE ${`%pg_try_advisory_xact_lock(${MIGRATION_KEY})%`}
-            `.execute(probe)
-          ).rows[0]!.n > 0,
-      );
       await busy;
+      // Still waiting, several tries later: the other replica holds the key. Each
+      // try ends its own transaction, so pg_stat_activity shows no waiter to
+      // look for between them.
+      await Bun.sleep(300);
+      expect(migrated).toBeUndefined();
       // The other replica finishes the migration and lets go.
       await sql`
         INSERT INTO zv_schema_versions (${sql.join(cols.map((c) => sql.id(c)))})
@@ -201,6 +195,13 @@ d('advisory locks on the pool', () => {
         // snapshot in its database, and in the shared harness database a
         // background job's held one long enough to run the waiter into its
         // timeout. That wait is per database, so here only these two pools count.
+        //
+        // Tries alone were not enough: CONCURRENTLY waits on the virtual xid of
+        // every transaction it catches holding a snapshot, so for the whole
+        // transaction. A waiter that polled inside one long transaction was
+        // caught whenever the build looked during a try — a CI flake, ~1 in 100.
+        // Here every try takes a second (a shadowing function on this database's
+        // search_path) and the build starts during one, so it is caught every time.
         const name = `zv_advlock_cicw_${Date.now()}`;
         const own = new globalThis.URL(SUPER!);
         own.pathname = `/${name}`;
@@ -225,11 +226,19 @@ d('advisory locks on the pool', () => {
         const admin = createDb(SUPER!);
         await connect(admin);
         await sql.raw(`CREATE DATABASE ${name}`).execute(admin);
+        await sql
+          .raw(`ALTER DATABASE ${name} SET search_path = slow, pg_catalog, public`)
+          .execute(admin);
         const holder = createDb(own.toString());
         const other = createDb(own.toString());
         try {
           await connect(holder);
-          await sql`CREATE TABLE t (id int)`.execute(holder);
+          await sql`CREATE TABLE public.t (id int)`.execute(holder);
+          await sql`CREATE SCHEMA slow`.execute(holder);
+          await sql`
+            CREATE FUNCTION slow.pg_try_advisory_xact_lock(k bigint) RETURNS boolean LANGUAGE sql
+            AS $$ SELECT pg_sleep(1); SELECT pg_catalog.pg_try_advisory_xact_lock(k) $$
+          `.execute(holder);
           // Connected before the race, so the waiter never first connects mid-wait.
           await connect(other);
           const key = freshKey();
@@ -238,7 +247,16 @@ d('advisory locks on the pool', () => {
             waiter = withAdvisoryLock(other, key, async () => 'ran', { maxWait: '3s' }).catch(
               (e: unknown) => e,
             );
-            await Bun.sleep(300); // the waiter is waiting
+            // The waiter is mid-try, its snapshot taken.
+            await until(
+              async () =>
+                (
+                  await sql<{ n: number }>`
+                    SELECT count(*)::int AS n FROM pg_stat_activity
+                     WHERE datname = ${name} AND state = 'active' AND query LIKE '%advisory%'
+                  `.execute(probe)
+                ).rows[0]!.n > 0,
+            );
             const t0 = Date.now();
             await sql`CREATE INDEX CONCURRENTLY t_id ON t (id)`.execute(holder);
             return Date.now() - t0;

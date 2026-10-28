@@ -110,26 +110,50 @@ async function hold<T>(
   fn: () => Promise<T>,
   maxWait?: string,
 ): Promise<T | null> {
-  const k = keySql(key);
-  let lost: unknown;
-  let failed: { err: unknown } | undefined;
   await takeHolderSlot();
   try {
-    return await db.transaction().execute(async (holder) => {
-      await sql`SET LOCAL idle_in_transaction_session_timeout = 0`.execute(holder);
-      if (wait) {
-        await waitFor(holder, sql`pg_try_advisory_xact_lock(${k})`, key, maxWait);
-      } else {
-        const { rows } = await sql<{ ok: boolean }>`
-          SELECT pg_try_advisory_xact_lock(${k}) AS ok
-        `.execute(holder);
-        if (!rows[0]?.ok) return null;
-      }
+    if (!wait) {
+      const got = await holdOnce(db, key, fn);
+      return got === MISS ? null : got;
+    }
+    return await waitFor(db, () => holdOnce(db, key, fn), key, maxWait);
+  } finally {
+    giveHolderSlot();
+  }
+}
 
+const MISS = Symbol('advisory lock missed');
+
+/**
+ * One holder transaction: a try, then `fn` under the lock — or, on a miss, the
+ * transaction ends with it. A waiter keeps no transaction open between tries:
+ * `CREATE INDEX CONCURRENTLY` waits for every transaction it caught holding a
+ * snapshot (`WaitForOlderSnapshots` waits on the virtual xid, so for the whole
+ * transaction, not the statement), and one that caught a try of a single long
+ * waiting transaction waited on the waiter, the waiter on its holder, until
+ * `maxWait` ended it.
+ */
+async function holdOnce<T>(
+  db: Database,
+  key: AdvisoryKey,
+  fn: () => Promise<T>,
+): Promise<T | typeof MISS> {
+  let lost: unknown;
+  let failed: { err: unknown } | undefined;
+  try {
+    return await db.transaction().execute(async (holder) => {
+      if (!(await tryOnce(holder, sql`pg_try_advisory_xact_lock(${keySql(key)})`, key))) {
+        return MISS;
+      }
+      await sql`SET LOCAL idle_in_transaction_session_timeout = 0`.execute(holder);
+
+      // A beat is a SHOW, which takes no snapshot: a `SELECT` in flight when a
+      // `CREATE INDEX CONCURRENTLY` inside `fn` looks would make it wait for this
+      // whole transaction, which ends only after `fn` returns.
       let beat: Promise<unknown> = Promise.resolve();
       const timer = setInterval(() => {
         beat = beat
-          .then(() => sql`SELECT 1`.execute(holder))
+          .then(() => sql`SHOW server_version`.execute(holder))
           .catch((err) => {
             lost ??= err;
             clearInterval(timer);
@@ -153,8 +177,6 @@ async function hold<T>(
     if (failed) throw failed.err;
     if (lost !== undefined) throw new AdvisoryLockLost(key, lost);
     throw err;
-  } finally {
-    giveHolderSlot();
   }
 }
 
@@ -221,9 +243,21 @@ async function sessionBound(on: Database): Promise<{ at: number; err: () => Erro
   return { at: Infinity, err: () => new Error('unreachable') };
 }
 
+/** One try of `tryLock` on `on`: whether it took the lock. */
+async function tryOnce(
+  on: Database,
+  tryLock: RawBuilder<unknown>,
+  key: AdvisoryKey,
+): Promise<boolean> {
+  const { rows } = await sql<{ ok: boolean }>`SELECT ${tryLock} AS ok`.execute(on);
+  if (rows[0] === undefined)
+    throw new Error(`advisory lock ${String(key)}: the try returned no row`);
+  return rows[0].ok;
+}
+
 /**
- * Takes the lock `tryLock` asks for on `on`, trying again until `maxWait`
- * (without one, until the session's own timeouts — `sessionBound`).
+ * Runs `attempt` until it takes the lock, trying again until `maxWait` (without
+ * one, until the session's own timeouts, read on `on` — `sessionBound`).
  *
  * Tries, never a blocking `pg_advisory_lock`: a blocked statement keeps its
  * snapshot for the whole wait, and the holder's `CREATE INDEX CONCURRENTLY`
@@ -232,21 +266,19 @@ async function sessionBound(on: Database): Promise<{ at: number; err: () => Erro
  * lock_timeout ended it — a replica booting into another's `-- NO TRANSACTION`
  * migration. Between two tries the waiter holds none.
  */
-async function waitFor(
+async function waitFor<R>(
   on: Database,
-  tryLock: RawBuilder<unknown>,
+  attempt: () => Promise<R | typeof MISS>,
   key: AdvisoryKey,
   maxWait?: string,
-): Promise<void> {
+): Promise<R> {
   const bound =
     maxWait === undefined
       ? await sessionBound(on)
       : { at: Date.now() + intervalMs(maxWait), err: () => new AdvisoryLockTimeout(key, maxWait) };
   for (;;) {
-    const { rows } = await sql<{ ok: boolean }>`SELECT ${tryLock} AS ok`.execute(on);
-    if (rows[0] === undefined)
-      throw new Error(`advisory lock ${String(key)}: the try returned no row`);
-    if (rows[0].ok) return;
+    const got = await attempt();
+    if (got !== MISS) return got;
     if (Date.now() >= bound.at) throw bound.err();
     await Bun.sleep(POLL_MS);
   }
@@ -255,9 +287,20 @@ async function waitFor(
 /**
  * Takes `key` as a transaction lock inside `trx`, waiting as `withAdvisoryLock`
  * does: for work that already runs in a transaction of its own and needs no holder.
+ *
+ * Its tries run in `trx`, so a `CREATE INDEX CONCURRENTLY` under the same key
+ * that catches one in flight waits for all of `trx` — and `trx` for it — until
+ * `maxWait`. Fine for work that never builds concurrently under its key; work
+ * that does waits with `withAdvisoryLock` or `withSessionAdvisoryLock`, whose
+ * tries end their own transactions.
  */
-export function waitForXactLock(trx: Database, key: AdvisoryKey, maxWait?: string): Promise<void> {
-  return waitFor(trx, sql`pg_try_advisory_xact_lock(${keySql(key)})`, key, maxWait);
+export async function waitForXactLock(
+  trx: Database,
+  key: AdvisoryKey,
+  maxWait?: string,
+): Promise<void> {
+  const tryLock = sql`pg_try_advisory_xact_lock(${keySql(key)})`;
+  await waitFor(trx, async () => (await tryOnce(trx, tryLock, key)) || MISS, key, maxWait);
 }
 
 /**
@@ -286,7 +329,14 @@ export async function withSessionAdvisoryLock<T>(
   return db.transaction().execute(async (pinned) => {
     await sql`COMMIT`.execute(pinned);
     try {
-      await waitFor(pinned, sql`pg_try_advisory_lock(${k})`, key, opts.maxWait);
+      // Outside a transaction: each try is one of its own.
+      const tryLock = sql`pg_try_advisory_lock(${k})`;
+      await waitFor(
+        pinned,
+        async () => (await tryOnce(pinned, tryLock, key)) || MISS,
+        key,
+        opts.maxWait,
+      );
       try {
         return await fn(pinned);
       } finally {
