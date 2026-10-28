@@ -67,6 +67,22 @@ describe('renderClient', () => {
     expect(seen).toEqual(['/api/me']);
   });
 
+  it('passes a cookie the engine set during the render on to the visitor', async () => {
+    const root = fakeDist(`async (req, { platform }) => {
+      await platform.engineFetch(new Request('http://site.test/api/me'));
+      return new Response('page', { headers: { 'set-cookie': 'theme=dark; Path=/' } });
+    }`);
+    const res = await render(root, () => {
+      const h = new Headers();
+      h.append('set-cookie', 'session=refreshed; Path=/; HttpOnly');
+      return new Response('{}', { headers: h });
+    });
+    expect(res.headers.getSetCookie()).toEqual([
+      'theme=dark; Path=/',
+      'session=refreshed; Path=/; HttpOnly',
+    ]);
+  });
+
   it('refuses any other path, so a load cannot re-enter the renderer', async () => {
     const root = fakeDist(`async (req, { platform }) => {
       const r = await platform.engineFetch(new Request('http://site.test/admin/'));
