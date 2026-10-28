@@ -1,4 +1,5 @@
 <script lang="ts">
+import Toaster from '@zveltio/ui/Toaster.svelte';
 import type { Snippet } from 'svelte';
 import { Database, LayoutDashboard, LogOut, Menu, UserRound } from '@lucide/svelte';
 import { page } from '$app/state';
@@ -41,6 +42,7 @@ $effect(() => {
     <!-- Page content -->
     <main class="p-4 lg:p-8">
       {@render children()}
+      <Toaster dismissLabel={m['common.close']()} />
     </main>
   </div>
 

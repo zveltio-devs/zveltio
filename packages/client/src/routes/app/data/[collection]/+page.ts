@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { m } from '#lib/i18n.svelte.js';
+import { isSortable } from '#lib/workspace/fields.js';
 import type { PageLoad } from './$types';
 
 const PAGE_SIZE = 25;
@@ -21,8 +22,22 @@ export const load: PageLoad = async ({ fetch, params, parent, url }) => {
 
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
   const search = url.searchParams.get('q') ?? '';
+  // Only a column this user sees; the engine answers 400 to any other.
+  const sortKey = url.searchParams.get('sort');
+  const sort =
+    sortKey &&
+    (sortKey === 'id' || collection.fields.some((f) => f.name === sortKey && isSortable(f)))
+      ? {
+          key: sortKey,
+          dir: url.searchParams.get('order') === 'asc' ? ('asc' as const) : ('desc' as const),
+        }
+      : null;
   const qs = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
   if (search) qs.set('search', search);
+  if (sort) {
+    qs.set('sort', sort.key);
+    qs.set('order', sort.dir);
+  }
   const res = await fetch(`${engineUrl}/api/data/${encodeURIComponent(collection.name)}?${qs}`, {
     credentials: 'include',
   });
@@ -35,5 +50,5 @@ export const load: PageLoad = async ({ fetch, params, parent, url }) => {
     records: Array<Record<string, unknown> & { id: string }>;
     pagination: { total?: number; page: number; limit: number; pages?: number };
   };
-  return { collection, records: body.records, pagination: body.pagination, search };
+  return { collection, records: body.records, pagination: body.pagination, search, sort };
 };

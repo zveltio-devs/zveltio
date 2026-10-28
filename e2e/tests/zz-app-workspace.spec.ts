@@ -58,7 +58,8 @@ test('the workspace lists a readable collection and creates a record in it', asy
   await expect(page.getByText('No records')).toBeVisible();
 
   await page.getByRole('link', { name: 'New' }).click();
-  await page.locator('#f-title').fill('first from the app');
+  // By its label, as a person finds it; the kit's `Field` owns the id.
+  await page.getByRole('textbox', { name: 'title' }).fill('first from the app');
   await page.getByRole('button', { name: 'Save' }).click();
   await page.waitForURL(new RegExp(`/app/data/${name}/[0-9a-f-]{36}$`));
 

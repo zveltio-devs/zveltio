@@ -23,6 +23,42 @@
     "./theme": {
       "types": "./src/theme.ts",
       "default": "./src/theme.ts"
+    },
+    "./Table.svelte": {
+      "svelte": "./src/Table.svelte",
+      "default": "./src/Table.svelte"
+    },
+    "./Pagination.svelte": {
+      "svelte": "./src/Pagination.svelte",
+      "default": "./src/Pagination.svelte"
+    },
+    "./PageHeader.svelte": {
+      "svelte": "./src/PageHeader.svelte",
+      "default": "./src/PageHeader.svelte"
+    },
+    "./EmptyState.svelte": {
+      "svelte": "./src/EmptyState.svelte",
+      "default": "./src/EmptyState.svelte"
+    },
+    "./Card.svelte": {
+      "svelte": "./src/Card.svelte",
+      "default": "./src/Card.svelte"
+    },
+    "./Field.svelte": {
+      "svelte": "./src/Field.svelte",
+      "default": "./src/Field.svelte"
+    },
+    "./Button.svelte": {
+      "svelte": "./src/Button.svelte",
+      "default": "./src/Button.svelte"
+    },
+    "./Toaster.svelte": {
+      "svelte": "./src/Toaster.svelte",
+      "default": "./src/Toaster.svelte"
+    },
+    "./toast": {
+      "types": "./src/toast.svelte.ts",
+      "default": "./src/toast.svelte.ts"
     }
   },
   "dependencies": {

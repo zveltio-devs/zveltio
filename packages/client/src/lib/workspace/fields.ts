@@ -48,6 +48,11 @@ export function isWritable(field: { type: string; readonly?: boolean }): boolean
   return !field.readonly && !NOT_A_COLUMN.has(field.type);
 }
 
+/** A column the list can order by; relations and computed values are not columns. */
+export function isSortable(field: { type?: string }): boolean {
+  return !NOT_A_COLUMN.has(field.type ?? '');
+}
+
 export function inputKind(type: string): InputKind {
   return KIND[type] ?? 'text';
 }
