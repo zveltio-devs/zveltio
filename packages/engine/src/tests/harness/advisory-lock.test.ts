@@ -247,14 +247,15 @@ d('advisory locks on the pool', () => {
             waiter = withAdvisoryLock(other, key, async () => 'ran', { maxWait: '3s' }).catch(
               (e: unknown) => e,
             );
-            // The waiter is mid-try, its snapshot taken.
+            // The waiter is mid-try, its snapshot taken. Asked as the superuser
+            // that owns these backends: a non-superuser sees no state or query.
             await until(
               async () =>
                 (
                   await sql<{ n: number }>`
                     SELECT count(*)::int AS n FROM pg_stat_activity
                      WHERE datname = ${name} AND state = 'active' AND query LIKE '%advisory%'
-                  `.execute(probe)
+                  `.execute(admin)
                 ).rows[0]!.n > 0,
             );
             const t0 = Date.now();
