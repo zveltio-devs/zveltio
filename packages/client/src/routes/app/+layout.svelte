@@ -2,6 +2,8 @@
 import type { Snippet } from 'svelte';
 import { Database, LayoutDashboard, LogOut, Menu, UserRound } from '@lucide/svelte';
 import { page } from '$app/state';
+import StepUpDialog from '@zveltio/ui/StepUpDialog.svelte';
+import { stepUp, stepUpLabels } from '#lib/step-up.svelte.js';
 import { useAuth } from '#lib/stores/auth.svelte.js';
 import type { LayoutData } from './$types';
 
@@ -101,3 +103,5 @@ $effect(() => {
     </aside>
   </div>
 </div>
+
+<StepUpDialog {stepUp} labels={stepUpLabels} />

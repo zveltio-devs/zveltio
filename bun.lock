@@ -47,6 +47,7 @@
       "dependencies": {
         "@lucide/svelte": "^0.577.0",
         "@zveltio/sdk": "workspace:*",
+        "@zveltio/ui": "workspace:*",
         "better-auth": "^1.7.14",
         "dompurify": "3.4.17",
         "leaflet": "^1.9.4",
@@ -172,6 +173,7 @@
         "@simplewebauthn/browser": "^13.3.0",
         "@types/leaflet": "^1.9.22",
         "@zveltio/sdk": "workspace:*",
+        "@zveltio/ui": "workspace:*",
         "d3-scale": "^4.0.2",
         "daisyui": "^5.7.42",
         "dompurify": "3.4.17",
@@ -195,6 +197,16 @@
         "typescript": "^6.0.3",
         "vite": "^8.3.4",
         "vitest": "^4.1.11",
+      },
+    },
+    "packages/ui": {
+      "name": "@zveltio/ui",
+      "version": "3.0.0-beta.90",
+      "dependencies": {
+        "@simplewebauthn/browser": "^13.3.0",
+      },
+      "peerDependencies": {
+        "svelte": "^5.57.1",
       },
     },
   },
@@ -798,6 +810,8 @@
     "@zveltio/sdk": ["@zveltio/sdk@workspace:packages/sdk"],
 
     "@zveltio/studio": ["@zveltio/studio@workspace:packages/studio"],
+
+    "@zveltio/ui": ["@zveltio/ui@workspace:packages/ui"],
 
     "@zveltio/vue": ["@zveltio/vue@workspace:packages/sdk-vue"],
 

@@ -1,0 +1,30 @@
+{
+  "name": "@zveltio/ui",
+  "version": "3.0.0-beta.90",
+  "private": true,
+  "description": "The one UI kit for the Console, the App and extensions (Svelte 5, daisyUI 5).",
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    "./Dialog.svelte": {
+      "svelte": "./src/Dialog.svelte",
+      "default": "./src/Dialog.svelte"
+    },
+    "./StepUpDialog.svelte": {
+      "svelte": "./src/StepUpDialog.svelte",
+      "default": "./src/StepUpDialog.svelte"
+    },
+    "./step-up": {
+      "types": "./src/step-up.svelte.ts",
+      "default": "./src/step-up.svelte.ts"
+    }
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "^13.3.0"
+  },
+  "peerDependencies": {
+    "svelte": "^5.57.1"
+  }
+}

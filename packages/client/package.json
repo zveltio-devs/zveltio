@@ -19,6 +19,7 @@
   "dependencies": {
     "@lucide/svelte": "^0.577.0",
     "@zveltio/sdk": "workspace:*",
+    "@zveltio/ui": "workspace:*",
     "better-auth": "^1.7.14",
     "dompurify": "3.4.17",
     "leaflet": "^1.9.4",
