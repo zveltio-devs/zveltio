@@ -100,6 +100,10 @@ export async function renderClient(
   // sees; a synthetic request has none, so answer with the visitor's.
   const subEnv = { server: { requestIP: () => outerEnv?.server?.requestIP?.(outer) ?? null } };
 
+  // SvelteKit forwards a Set-Cookie only from its own internal fetch, not from
+  // the response `handleFetch` returns; without this a session the engine
+  // refreshed during the render never reached the visitor's browser.
+  const setCookies: string[] = [];
   const engineFetch = async (request: Request): Promise<Response> => {
     if (!ENGINE_PATH.test(new URL(request.url).pathname)) {
       return new Response(null, { status: 404 });
@@ -110,7 +114,9 @@ export async function renderClient(
       if (value) headers.set(name, value);
       else headers.delete(name);
     }
-    return appFetch(new Request(request, { headers }), subEnv);
+    const res = await appFetch(new Request(request, { headers }), subEnv);
+    setCookies.push(...res.headers.getSetCookie());
+    return res;
   };
 
   try {
@@ -125,6 +131,7 @@ export async function renderClient(
     // Every rendered response (page, `__data.json`, redirect) carries this
     // visitor's data: no shared cache may store it.
     out.headers.set('Cache-Control', 'private, no-store');
+    for (const cookie of setCookies) out.headers.append('Set-Cookie', cookie);
     return out;
   } catch (err) {
     console.error('[client-ssr] render failed; serving the SPA shell:', err);
