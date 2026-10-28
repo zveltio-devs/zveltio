@@ -49,7 +49,7 @@ test('the palette creates, and ? shows the keyboard map', async ({ page }) => {
   await page.waitForTimeout(600);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(2500);
-  await expect(page.locator('dialog.modal-open')).toBeVisible();
+  await expect(page.getByRole('dialog')).toBeVisible();
   // The URL is clean again: `?new=1` opened the dialog and was consumed, so a
   // back navigation does not reopen it.
   expect(page.url()).not.toContain('new=1');
