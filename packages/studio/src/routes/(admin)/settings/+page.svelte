@@ -17,6 +17,7 @@ import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
 import PageHeader from '#lib/components/common/PageHeader.svelte';
 import { toast } from '#lib/stores/toast.svelte.js';
 import Slot from '#lib/components/common/Slot.svelte';
+import ThemeEditor from '#lib/components/admin/ThemeEditor.svelte';
 import { auth } from '#lib/auth.svelte.js';
 
 let loading = $state(true);
@@ -401,6 +402,8 @@ let confirmState = $state<{
  <input id="setting-primary-color-text" class="input font-mono flex-1" bind:value={s.primary_color} placeholder="#4F46E5" />
  </div>
  </div>
+ <div class="divider"></div>
+ <ThemeEditor />
 
  {:else if tab === 'smtp'}
  <div class="alert alert-info text-sm py-2">
