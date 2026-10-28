@@ -59,7 +59,10 @@ async function saveProfile(e: SubmitEvent) {
 
 const ACTIONS = ['read', 'create', 'update', 'delete'] as const;
 const DAY_MS = 86_400_000;
-const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+// The local calendar day: `expires_at` is the end of the chosen day in local time,
+// so the bounds and the default must be local days too, not UTC ones.
+const isoDay = (ms: number) =>
+  new Date(ms - new Date(ms).getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 
 let keys = $state<MemberApiKey[]>([]);
 let keyName = $state('');
