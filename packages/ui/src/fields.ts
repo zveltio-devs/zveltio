@@ -117,3 +117,88 @@ export function cell(value: unknown): string {
   const s = String(value);
   return s.length > 80 ? `${s.slice(0, 79)}…` : s;
 }
+
+/** The engine's filter operators the kit offers (`?field[op]=value`). */
+export type FilterOp =
+  | 'contains'
+  | 'eq'
+  | 'neq'
+  | 'starts_with'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'is_null'
+  | 'is_not_null';
+
+export interface CollectionFilter {
+  field: string;
+  op: FilterOp;
+  /** As typed; `''` for `is_null` and `is_not_null`. */
+  value: string;
+}
+
+const EMPTY_OPS: FilterOp[] = ['is_null', 'is_not_null'];
+const ORDERED_OPS: FilterOp[] = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', ...EMPTY_OPS];
+const OPS: Partial<Record<InputKind, FilterOp[]>> = {
+  number: ORDERED_OPS,
+  date: ORDERED_OPS,
+  'datetime-local': ORDERED_OPS,
+  time: ORDERED_OPS,
+  checkbox: ['eq', ...EMPTY_OPS],
+  color: ['eq', 'neq', ...EMPTY_OPS],
+  json: EMPTY_OPS,
+};
+
+/** The operators a field can be filtered by; none for a relation or a computed value. */
+export function filterOps(field: { type: string }): FilterOp[] {
+  if (!isSortable(field)) return [];
+  return OPS[inputKind(field.type)] ?? ['contains', 'eq', 'neq', 'starts_with', ...EMPTY_OPS];
+}
+
+export function needsValue(op: FilterOp): boolean {
+  return !EMPTY_OPS.includes(op);
+}
+
+const BRACKET = /^([a-zA-Z_][a-zA-Z0-9_]*)\[([a-z_]+)\]$/;
+
+/**
+ * The filters a URL names (`?title[contains]=x`), only on a field the user sees
+ * and with an operator that field takes; anything else is dropped, as the
+ * engine would answer it with a 400 or a 500.
+ */
+export function readFilters(
+  params: URLSearchParams,
+  fields: Array<{ name: string; type: string }>,
+): CollectionFilter[] {
+  const out: CollectionFilter[] = [];
+  for (const [key, value] of params) {
+    const m = BRACKET.exec(key);
+    const field = m && fields.find((f) => f.name === m[1]);
+    const op = m?.[2] as FilterOp | undefined;
+    if (field && op && filterOps(field).includes(op))
+      out.push({ field: field.name, op, value: needsValue(op) ? value : '' });
+  }
+  return out;
+}
+
+/** The words a filter UI needs; the kit has no catalogue. */
+export interface FilterLabels {
+  add: string;
+  remove: string;
+  field: string;
+  op: string;
+  value: string;
+  yes: string;
+  no: string;
+  ops: Record<FilterOp, string>;
+}
+
+export const filterParam = (f: CollectionFilter): string => `${f.field}[${f.op}]`;
+
+/** A filter's value as the engine compares it: a local date-time becomes an instant. */
+export function filterValue(f: CollectionFilter, field: { type: string }): string {
+  if (inputKind(field.type) !== 'datetime-local' || !f.value) return f.value;
+  const d = new Date(f.value);
+  return Number.isNaN(d.getTime()) ? f.value : d.toISOString();
+}

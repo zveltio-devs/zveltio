@@ -1,13 +1,21 @@
 <script lang="ts">
 /**
- * A page of any collection (`@zveltio/ui`, ADR 0007 item 3): search, a table
- * ordered through links, pagination. Navigation is plain links under `base`
- * (`?q=`, `?sort=&order=`, `?page=`); the host loads the page those name. The
+ * A page of any collection (`@zveltio/ui`, ADR 0007 item 3): search, filters,
+ * a table ordered through links, pagination. Navigation is plain links under
+ * `base` (`?q=`, `?field[op]=`, `?sort=&order=`, `?page=`); the host loads the
+ * page those name. The
  * kit has no catalogue: the host passes the words.
  */
 import { Plus, Search } from '@lucide/svelte';
 import type { CollectionMeta, CollectionRecord, CollectionSort } from './collection.js';
-import { cell as show, isSortable } from './fields.js';
+import {
+  type CollectionFilter,
+  type FilterLabels,
+  cell as show,
+  filterParam,
+  isSortable,
+} from './fields.js';
+import Filters from './Filters.svelte';
 import PageHeader from './PageHeader.svelte';
 import Pagination from './Pagination.svelte';
 import Table from './Table.svelte';
@@ -18,6 +26,7 @@ let {
   pagination,
   search = '',
   sort = null,
+  filters = [],
   base,
   labels,
 }: {
@@ -26,20 +35,33 @@ let {
   pagination: { page: number; limit: number; pages?: number };
   search?: string;
   sort?: CollectionSort | null;
+  filters?: CollectionFilter[];
   /** The list's own URL; a record is at `<base>/<id>`, a new one at `<base>/new`. */
   base: string;
-  labels: { search: string; new: string; empty: string; previous: string; next: string };
+  labels: {
+    search: string;
+    new: string;
+    empty: string;
+    previous: string;
+    next: string;
+    filter: FilterLabels;
+  };
 } = $props();
 
-const link = (params: { page?: number; sort?: string; order?: string }) => {
+const params = (opts: { q?: boolean; sort?: string; order?: string; filters?: boolean }) => {
   const qs = new URLSearchParams();
-  if (search) qs.set('q', search);
-  const key = params.sort ?? sort?.key;
+  if (opts.q !== false && search) qs.set('q', search);
+  if (opts.filters !== false) for (const f of filters) qs.append(filterParam(f), f.value);
+  const key = opts.sort ?? sort?.key;
   if (key) {
     qs.set('sort', key);
-    qs.set('order', params.order ?? sort?.dir ?? 'desc');
+    qs.set('order', opts.order ?? sort?.dir ?? 'desc');
   }
-  qs.set('page', String(params.page ?? 1));
+  return qs;
+};
+const link = (opts: { page?: number; sort?: string; order?: string }) => {
+  const qs = params(opts);
+  qs.set('page', String(opts.page ?? 1));
   return `${base}?${qs}`;
 };
 
@@ -70,16 +92,23 @@ const hasNext = $derived(
   <PageHeader title={collection.display_name ?? collection.name}>
     {#snippet actions()}
       <form method="GET" action={base} class="join">
-        {#if sort}
-          <input type="hidden" name="sort" value={sort.key} />
-          <input type="hidden" name="order" value={sort.dir} />
-        {/if}
+        {#each params({ q: false }) as [k, v], i (k + i)}
+          <input type="hidden" name={k} value={v} />
+        {/each}
         <input name="q" value={search} placeholder={labels.search} class="input input-sm join-item" />
         <button class="btn btn-sm join-item" aria-label={labels.search}><Search size={16} /></button>
       </form>
       <a href="{base}/new" class="btn btn-primary btn-sm gap-1"><Plus size={16} />{labels.new}</a>
     {/snippet}
   </PageHeader>
+
+  <Filters
+    fields={collection.fields}
+    {filters}
+    action={base}
+    keep={[...params({ filters: false })]}
+    labels={labels.filter}
+  />
 
   <Table {columns} rows={records} rowKey={(r: CollectionRecord) => r.id} {sort} empty={labels.empty}>
     {#snippet cell(r: CollectionRecord, c, i)}

@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { m } from '#lib/i18n.svelte.js';
-import { isSortable } from '@zveltio/ui/fields';
+import { filterParam, filterValue, isSortable, readFilters } from '@zveltio/ui/fields';
 import type { PageLoad } from './$types';
 
 const PAGE_SIZE = 25;
@@ -38,6 +38,13 @@ export const load: PageLoad = async ({ fetch, params, parent, url }) => {
     qs.set('sort', sort.key);
     qs.set('order', sort.dir);
   }
+  // Only on a field the user sees, with an operator that field takes.
+  const filters = readFilters(url.searchParams, collection.fields);
+  for (const f of filters)
+    qs.append(
+      filterParam(f),
+      filterValue(f, collection.fields.find((x) => x.name === f.field) ?? { type: 'text' }),
+    );
   const res = await fetch(`${engineUrl}/api/data/${encodeURIComponent(collection.name)}?${qs}`, {
     credentials: 'include',
   });
@@ -50,5 +57,12 @@ export const load: PageLoad = async ({ fetch, params, parent, url }) => {
     records: Array<Record<string, unknown> & { id: string }>;
     pagination: { total?: number; page: number; limit: number; pages?: number };
   };
-  return { collection, records: body.records, pagination: body.pagination, search, sort };
+  return {
+    collection,
+    records: body.records,
+    pagination: body.pagination,
+    search,
+    sort,
+    filters,
+  };
 };
