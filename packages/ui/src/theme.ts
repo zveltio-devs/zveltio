@@ -63,6 +63,10 @@ const DENSITY: Record<NonNullable<Theme['density']>, string> = {
 
 const ok = (re: RegExp, v: unknown): v is string => typeof v === 'string' && re.test(v);
 
+/** What an editor may offer: the checks `themeVars` applies. */
+export const isThemeColor = (v: unknown): v is string => ok(COLOR, v);
+export const isThemeLength = (v: unknown): v is string => ok(LENGTH, v);
+
 /** The CSS variables a theme sets; anything invalid is left out. */
 export function themeVars(theme: Theme | null | undefined): Record<string, string> {
   const vars: Record<string, string> = {};
@@ -97,4 +101,39 @@ export function themeStyle(theme: Theme | null | undefined): string {
 /** daisyUI's base theme to start from: the one named by `scheme`, else none. */
 export function themeName(theme: Theme | null | undefined): 'light' | 'dark' | undefined {
   return theme?.scheme === 'dark' || theme?.scheme === 'light' ? theme.scheme : undefined;
+}
+
+const DENSITY_OF = (size: string): NonNullable<Theme['density']> => {
+  const rem = Number.parseFloat(size) / (size.endsWith('px') ? 16 : 1);
+  return rem < 0.25 ? 'compact' : rem > 0.25 ? 'comfortable' : 'normal';
+};
+
+/**
+ * A daisyUI theme as data: the declarations of a theme block (the theme
+ * generator's `@plugin "daisyui/theme" { … }` or a `[data-theme=x] { … }` rule).
+ * Only what a `Theme` holds is read, each value checked like `themeVars` checks
+ * it; the rest (`--depth`, `--noise`, names) is ignored. Font is not a daisyUI token.
+ */
+export function importDaisyTheme(css: string): Theme {
+  const theme: Theme = {};
+  const colors: Theme['colors'] = {};
+  const radius: NonNullable<Theme['radius']> = {};
+  for (const [, name, raw] of css.matchAll(/([a-z0-9-]+)\s*:\s*([^;{}]+)/gi)) {
+    const key = name.toLowerCase();
+    const value = raw.trim();
+    if (key === 'color-scheme' && (value === 'light' || value === 'dark')) theme.scheme = value;
+    else if (key.startsWith('--color-')) {
+      const c = key.slice(8) as ThemeColor;
+      if (THEME_COLORS.includes(c) && ok(COLOR, value)) colors[c] = value;
+    } else if (key.startsWith('--radius-')) {
+      const r = key.slice(9);
+      if ((r === 'selector' || r === 'field' || r === 'box') && ok(LENGTH, value))
+        radius[r] = value;
+    } else if (key === '--border' && ok(LENGTH, value)) theme.border = value;
+    else if (key === '--size-field' && /^\d*\.?\d+(rem|px)$/.test(value))
+      theme.density = DENSITY_OF(value);
+  }
+  if (Object.keys(colors).length) theme.colors = colors;
+  if (Object.keys(radius).length) theme.radius = radius;
+  return theme;
 }
