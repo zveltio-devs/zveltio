@@ -87,6 +87,18 @@
     "./Filters.svelte": {
       "svelte": "./src/Filters.svelte",
       "default": "./src/Filters.svelte"
+    },
+    "./blocks/*.svelte": {
+      "svelte": "./src/blocks/*.svelte",
+      "default": "./src/blocks/*.svelte"
+    },
+    "./blocks/href": {
+      "types": "./src/blocks/href.ts",
+      "default": "./src/blocks/href.ts"
+    },
+    "./blocks/grid": {
+      "types": "./src/blocks/grid.ts",
+      "default": "./src/blocks/grid.ts"
     }
   },
   "dependencies": {
