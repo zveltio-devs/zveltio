@@ -1,5 +1,8 @@
 <script lang="ts">
 import { goto, invalidateAll } from '$app/navigation';
+import Button from '@zveltio/ui/Button.svelte';
+import Field from '@zveltio/ui/Field.svelte';
+import { toast } from '@zveltio/ui/toast';
 import { m } from '#lib/i18n.svelte.js';
 import { fromInput, inputKind, isWritable, toInput } from '#lib/workspace/fields.js';
 import type { PageData } from './$types';
@@ -50,6 +53,7 @@ async function save(e: SubmitEvent) {
     if (data.record) {
       await send('PATCH', `${api}/${encodeURIComponent(data.record.id)}`, body);
       await invalidateAll();
+      toast.show(m['data.saved'](), 'success');
     } else {
       const created = await send('POST', api, body);
       await goto(created?.id ? `${base}/${encodeURIComponent(created.id)}` : base);
@@ -92,26 +96,26 @@ async function remove() {
             {f.label ?? f.name}
           </label>
         {:else}
-          <label class="floating-label" for={id}>
-            <span>{f.label ?? f.name}{f.required ? ' *' : ''}</span>
-            {#if f.kind === 'textarea' || f.kind === 'json'}
-              <textarea {id} class="textarea w-full" class:font-mono={f.kind === 'json'} rows="4"
-                readonly={!f.writable} placeholder={f.label ?? f.name} bind:value={values[f.name] as string}></textarea>
-            {:else}
-              <input {id} type={f.kind} step={f.kind === 'number' ? 'any' : f.kind === 'datetime-local' || f.kind === 'time' ? '1' : undefined} class="input w-full"
-                readonly={!f.writable} required={f.required && f.writable && !data.record}
-                placeholder={f.label ?? f.name} bind:value={values[f.name] as string} />
-            {/if}
-          </label>
-          {#if f.description}<p class="text-xs text-base-content/60 -mt-2">{f.description}</p>{/if}
+          <Field label={f.label ?? f.name} hint={f.description ?? ''} required={f.required}>
+            {#snippet control({ id, describedby })}
+              {#if f.kind === 'textarea' || f.kind === 'json'}
+                <textarea {id} aria-describedby={describedby} class="textarea w-full" class:font-mono={f.kind === 'json'} rows="4"
+                  readonly={!f.writable} bind:value={values[f.name] as string}></textarea>
+              {:else}
+                <input {id} aria-describedby={describedby} type={f.kind} step={f.kind === 'number' ? 'any' : f.kind === 'datetime-local' || f.kind === 'time' ? '1' : undefined} class="input w-full"
+                  readonly={!f.writable} required={f.required && f.writable && !data.record}
+                  bind:value={values[f.name] as string} />
+              {/if}
+            {/snippet}
+          </Field>
         {/if}
       {/each}
 
       <div class="card-actions justify-between mt-2">
         {#if data.record}
-          <button type="button" class="btn btn-ghost text-error" onclick={remove}>{m['data.delete']()}</button>
+          <Button variant="ghost" class="text-error" onclick={remove}>{m['data.delete']()}</Button>
         {:else}<span></span>{/if}
-        <button class="btn btn-primary" disabled={saving}>{saving ? m['common.saving']() : m['common.save']()}</button>
+        <Button type="submit" variant="primary" loading={saving}>{saving ? m['common.saving']() : m['common.save']()}</Button>
       </div>
     </div>
   </form>
