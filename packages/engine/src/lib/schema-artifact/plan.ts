@@ -413,6 +413,18 @@ interface Sink {
   fieldOf: (collection: string, field: string) => Obj | undefined;
 }
 
+/**
+ * A relation entry with what `createRelation` stores for a key it leaves out: a
+ * default left out of one side and written on the other is not a change.
+ */
+const relationDefaults = (collection: string, e: Obj): Obj => ({
+  ...e,
+  targetField: e.targetField ?? (e.type === 'o2m' ? `${collection}_id` : 'id'),
+  onDelete: e.onDelete ?? 'SET NULL',
+  onUpdate: e.onUpdate ?? 'CASCADE',
+  metadata: e.metadata ?? {},
+});
+
 function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
   const owned = sink.owned.get(name) ?? new Set<string>();
   const step = (
@@ -505,9 +517,13 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
   }
 
   for (const { key, entries, noun, id, canon = (e: Obj) => e } of LISTS) {
-    const raw = new Map(list(name, des[key], key).map((e) => [id(e), e]));
-    const curList = new Map(list(name, cur[key], key).map((e) => [id(e), e]));
     const isRelation = key === 'relations';
+    const byId = (from: Obj) =>
+      new Map(
+        list(name, from[key], key).map((e) => [id(e), isRelation ? relationDefaults(name, e) : e]),
+      );
+    const raw = byId(des);
+    const curList = byId(cur);
     const into = isRelation ? sink.relations : sink.tail;
     // A relation is removed with its field, by a migration's dropField, so a
     // removal left here has no op.

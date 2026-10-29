@@ -829,6 +829,19 @@ export async function dynamicSetColumnRequired(
   });
 }
 
+/** Whether each of `keys` (`table.column`) is NOT NULL; a column that does not exist is absent. */
+export async function columnsNotNull(db: Database, keys: string[]): Promise<Map<string, boolean>> {
+  if (keys.length === 0) return new Map();
+  const { rows } = await sql<{ k: string; n: boolean }>`
+    SELECT c.relname || '.' || a.attname AS k, a.attnotnull AS n
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+      JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = 'public' AND a.attnum > 0 AND NOT a.attisdropped
+       AND c.relname || '.' || a.attname IN (${sql.join(keys)})`.execute(db);
+  return new Map(rows.map((r) => [r.k, r.n]));
+}
+
 /**
  * Run `fn` with its lock waits bounded, in the caller's transaction or a new one.
  *

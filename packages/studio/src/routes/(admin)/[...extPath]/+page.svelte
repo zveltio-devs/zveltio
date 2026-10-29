@@ -40,6 +40,7 @@ const resolved = $derived.by(() => {
     score: number;
     result: ReturnType<typeof validateSchema> & {
       extName: string;
+      collections: string[];
       routeParams: Record<string, string>;
     };
   } | null = null;
@@ -67,7 +68,12 @@ const resolved = $derived.by(() => {
       if (best && best.score >= score) continue;
       best = {
         score,
-        result: { ...validateSchema(pg.schema), extName: meta.name as string, routeParams },
+        result: {
+          ...validateSchema(pg.schema),
+          extName: meta.name as string,
+          collections: meta.collections ?? [],
+          routeParams,
+        },
       };
     }
   }
@@ -93,7 +99,11 @@ const resolved = $derived.by(() => {
   </div>
 {:else if resolved.kind === 'settings'}
   <div class="p-6">
-    <SettingsPage schema={resolved.schema as any} extName={resolved.extName} />
+    <SettingsPage
+      schema={resolved.schema as any}
+      extName={resolved.extName}
+      collections={resolved.collections}
+    />
   </div>
 {:else}
   <div class="p-6">
@@ -101,6 +111,7 @@ const resolved = $derived.by(() => {
       <SchemaPage
         schema={resolved.schema as any}
         extName={resolved.extName}
+        collections={resolved.collections}
         routeParams={resolved.routeParams}
       />
     {/key}

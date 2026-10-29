@@ -33,9 +33,10 @@
  * the row back and asks what it means.
  */
 
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { DDLManager } from '../../lib/data/index.js';
+import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import {
   checkPermission,
   invalidateUserPermCache,
@@ -81,6 +82,25 @@ async function makeUser(
 }
 
 d('sensitive resources', () => {
+  // Ordinary business data: a collection, which gets the default grants. The
+  // names 001 granted on without a collection (`projects`, `crm`) are gone (105).
+  const ORDINARY = `sens_ordinary_${Date.now()}`;
+  let created = false;
+  const ordinary = async () => {
+    if (!created) {
+      const { db } = await getTestApp();
+      await DDLManager.createCollection(db, {
+        name: ORDINARY,
+        fields: [{ name: 'title', type: 'text' }],
+      } as never);
+      created = true;
+    }
+    return ORDINARY;
+  };
+  afterAll(async () => {
+    if (created) await dropTestCollection((await getTestApp()).db, ORDINARY);
+  });
+
   it('a member keeps ordinary access', async () => {
     // First, because a fix that quietly removed everyone's access would satisfy
     // every other assertion in this file.
@@ -88,12 +108,10 @@ d('sensitive resources', () => {
     const user = await makeUser(db, 'member-ok');
     await grantRole(db, user, 'tenant_member');
 
+    const name = await ordinary();
     await runWithDomain(TENANT, async () => {
-      // `projects` is a non-CRM ordinary collection that still gets default
-      // grants. Do not pin this on `contacts` — CRM tables are extension-owned
-      // and absent on bare BaaS.
-      expect(await checkPermission(user, 'projects', 'read')).toBe(true);
-      expect(await checkPermission(user, 'projects', 'update')).toBe(true);
+      expect(await checkPermission(user, name, 'read')).toBe(true);
+      expect(await checkPermission(user, name, 'update')).toBe(true);
     });
   });
 
@@ -119,14 +137,14 @@ d('sensitive resources', () => {
     const user = await makeUser(db, 'widened');
     await grantRole(db, user, 'tenant_member');
 
+    const name = await ordinary();
     await runWithDomain(TENANT, async () => {
       expect(await checkPermission(user, 'expenses', 'read')).toBe(false);
       expect(await checkPermission(user, 'time-tracking', 'read')).toBe(false);
       expect(await checkPermission(user, 'accounting', 'read')).toBe(false);
       expect(await checkPermission(user, 'invoices', 'read')).toBe(false);
       // Ordinary business data is untouched — the revoke was scoped, not broad.
-      expect(await checkPermission(user, 'crm', 'read')).toBe(true);
-      expect(await checkPermission(user, 'projects', 'read')).toBe(true);
+      expect(await checkPermission(user, name, 'read')).toBe(true);
     });
   });
 

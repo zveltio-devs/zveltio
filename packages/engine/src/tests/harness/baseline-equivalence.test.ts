@@ -161,7 +161,8 @@ d(superuserTitle('GA baseline', SERVER), () => {
     const volatile = volatileColumns(chain, seeds(await readData(url.again), versions));
     const base = seeds(await readData(url.base), versions);
     expect(base.map((t) => t.name)).toEqual(chain.map((t) => t.name));
-    expect(chain.find((t) => t.name === 'zvd_permissions')?.rows.length).toBeGreaterThan(100);
+    // The engine's own rules, after 105 removed the ones on business names.
+    expect(chain.find((t) => t.name === 'zvd_permissions')?.rows.length).toBeGreaterThanOrEqual(8);
     for (const t of chain) {
       const b = base.find((x) => x.name === t.name);
       expect(b && stableProjection(b, volatile)).toEqual(stableProjection(t, volatile));

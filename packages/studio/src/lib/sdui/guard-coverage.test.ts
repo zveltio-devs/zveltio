@@ -70,7 +70,9 @@ describe('SDUI mutation guard coverage', () => {
     const raw = SOURCES.filter(({ src }) => /url\.startsWith\(`\/ext\//.test(src));
     expect(raw.map((s) => s.file)).toEqual([]);
     for (const { file, src } of SOURCES) {
-      expect(`${file}: ${src.includes('isOwnNamespace(extName, url)')}`).toBe(`${file}: true`);
+      expect(`${file}: ${src.includes('isOwnNamespace(extName, url, collections)')}`).toBe(
+        `${file}: true`,
+      );
     }
   });
 

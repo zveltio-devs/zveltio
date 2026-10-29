@@ -1,7 +1,8 @@
 /**
  * Namespace guard for declarative (SDUI) pages.
  *
- * A declarative page may only MUTATE its own extension's `/ext/<name>/` routes.
+ * A declarative page may only MUTATE its own extension's `/ext/<name>/` routes
+ * and the data API of the collections that extension declares.
  * The publish validator is the primary gate; this stops a hand-edited or
  * tampered on-disk schema from calling core endpoints with the admin's cookie.
  *
@@ -16,7 +17,12 @@
  * `.` segments before the request leaves the browser, so a prefix test against
  * the raw string accepts `/ext/foo/../../api/users`, which reaches `/api/users`.
  */
-export function isOwnNamespace(extName: string, url: string): boolean {
+export function isOwnNamespace(
+  extName: string,
+  url: string,
+  /** The extension's declared collections (ADR 0012): their data API is its own too. */
+  collections: readonly string[] = [],
+): boolean {
   const ns = `/ext/${extName}`;
   const base = 'http://sdui.invalid';
   let resolved: URL;
@@ -30,5 +36,8 @@ export function isOwnNamespace(extName: string, url: string): boolean {
   }
   if (resolved.origin !== base) return false;
   const path = resolved.pathname;
-  return path === ns || path.startsWith(`${ns}/`);
+  if (path === ns || path.startsWith(`${ns}/`)) return true;
+  // `/api/data/<collection>[/<id>]`; the data API authorizes the caller itself.
+  const data = /^\/api\/data\/([^/]+)(?:\/[^/]+)?$/.exec(path);
+  return data !== null && collections.includes(data[1]);
 }

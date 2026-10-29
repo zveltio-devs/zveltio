@@ -205,6 +205,15 @@ List them in `manifest.json` and ship one file per name, in the
   role grants, at creation and at every boot: an internal collection only the
   extension's actions and jobs reach. It replaces `sensitiveResources` for
   declared collections, and cannot change after creation yet.
+- A required m2o field's key column is NOT NULL. A relation entry may leave out
+  what the engine fills in (`targetField`, `onDelete` `SET NULL`, `onUpdate`
+  `CASCADE`, `metadata`).
+- A Studio-only extension (`contributes.engine: false`) declares collections on
+  the same terms.
+- A declarative (SDUI) page may name `/api/data/<collection>` and
+  `/api/data/<collection>/<id>` for the collections its extension declares, and
+  no other core endpoint. The data API authorizes the signed-in user as for any
+  other request.
 
 ## Actions and jobs — `extension-api v1`
 

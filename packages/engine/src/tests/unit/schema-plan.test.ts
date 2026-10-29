@@ -312,4 +312,15 @@ describe('planSchema', () => {
     expect(steps({ ...rel, onDelete: 'CASCADE' })[0].op?.kind).toBe('putRelation');
     expect(steps({ ...rel, target: 'people' })[0].op).toBeUndefined();
   });
+
+  it('plans nothing for a relation that leaves out what the engine stores by default', () => {
+    const p = (r: Obj) => ({ ...posts(), relations: [r] });
+    const same = (left: Obj, stored: Obj) =>
+      planSchema(files([p({ ...left, ...stored })]), files([p(left)]));
+    const defaults = { onDelete: 'SET NULL', onUpdate: 'CASCADE', metadata: {} };
+    const m2o = { name: 'posts_author', type: 'm2o', field: 'author', target: 'users' };
+    expect(same(m2o, { ...defaults, targetField: 'id' })).toEqual([]);
+    const o2m = { name: 'posts_comments', type: 'o2m', field: 'comments', target: 'comments' };
+    expect(same(o2m, { ...defaults, targetField: 'posts_id' })).toEqual([]);
+  });
 });
