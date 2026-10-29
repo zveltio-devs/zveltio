@@ -282,6 +282,16 @@ export function registerMarketplaceRoutes(
     return c.json({ history: rows });
   });
 
+  /** The version of the bundle in `dir`, per its manifest. */
+  const diskVersion = (dir: string): string | null => {
+    try {
+      const { version } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+      return typeof version === 'string' ? version : null;
+    } catch {
+      return null;
+    }
+  };
+
   // GET /api/marketplace — catalog fetched from registry (fallback: local) merged with DB state
   app.get('/api/marketplace', async (c) => {
     const gate = await requireAdmin(c);
@@ -340,6 +350,8 @@ export function registerMarketplaceRoutes(
     const rowsFiltered: RegRow[] = [...merged.values()];
 
     const dbMap = new Map(rowsFiltered.map((r) => [r.name, r]));
+    // Update acts on the instance-wide row, whichever row the listing shows.
+    const godRows = new Map(rows.filter((r) => r.tenant_id === null).map((r) => [r.name, r]));
     const licenseSet = new Set(licenseRows.map((r) => r.key.replace('ext_license:', '')));
 
     // An extension is a satisfied dependency once it is enabled (or already
@@ -391,6 +403,21 @@ export function registerMarketplaceRoutes(
       const filesOnDisk = extensionFilesPresentCached(extDir);
       const dependencies = readDeps(entry.name);
       const missing_dependencies = dependencies.filter((d) => !enabledNames.has(d));
+      // What runs (the manifest on disk) against what the registry serves.
+      // `update_available` is true only where POST /:name/update would act:
+      // installed from the registry (a download on record) and the catalog
+      // strictly newer. Versions that do not compare are not offered, as the
+      // update route refuses them.
+      const installed_version = filesOnDisk ? diskVersion(extDir) : null;
+      const godRow = godRows.get(entry.name);
+      let update_available = false;
+      if (installed_version && godRow?.is_installed && godRow.installed_sha256) {
+        try {
+          update_available = Bun.semver.order(entry.version, installed_version) > 0;
+        } catch {
+          // not comparable: not offered
+        }
+      }
 
       return {
         ...entry,
@@ -421,6 +448,9 @@ export function registerMarketplaceRoutes(
         is_enabled: dbEntry?.is_enabled ?? runtimeActive,
         is_running: runtimeActive,
         files_on_disk: filesOnDisk,
+        installed_version,
+        catalog_version: entry.version,
+        update_available,
         has_license: licenseSet.has(entry.name),
         tenant_id: dbEntry?.tenant_id ?? null,
         needs_restart:
@@ -469,16 +499,6 @@ export function registerMarketplaceRoutes(
       .catch(() => undefined);
     if (!row?.installed_sha256) return null;
     return row.installed_version === version ? row.installed_sha256 : null;
-  };
-
-  /** The version of the bundle in `dir`, per its manifest. */
-  const diskVersion = (dir: string): string | null => {
-    try {
-      const { version } = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
-      return typeof version === 'string' ? version : null;
-    } catch {
-      return null;
-    }
   };
 
   const installExtension = async (c: Context, name: string) => {
