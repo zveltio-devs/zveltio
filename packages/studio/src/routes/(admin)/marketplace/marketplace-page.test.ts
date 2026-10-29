@@ -143,3 +143,43 @@ describe('marketplace update', () => {
     );
   });
 });
+
+describe("marketplace what's new", () => {
+  const openDialog = async (changelog: unknown) => {
+    apiFetch.mockImplementation(async (path: string) => ({
+      ok: true,
+      json: async () =>
+        (path.endsWith('/changelog')
+          ? changelog
+          : { extensions: [outdated], version: '1.2.0' }) as never,
+    }));
+    const { container } = render(Page);
+    await waitFor(() => expect(document.body.textContent).toContain('crm-ext'));
+    (
+      [...container.querySelectorAll('button')].find(
+        (b) => b.textContent?.trim() === "What's new",
+      ) as HTMLButtonElement
+    ).click();
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
+    return document.querySelector('[role="dialog"]') as HTMLElement;
+  };
+
+  it('shows the entries between the installed and the catalog version, as text', async () => {
+    const dialog = await openDialog({
+      published: true,
+      entries: [
+        { version: '1.2.0', title: '(2026-10-29)', body: '- <img src=x onerror=alert(1)>' },
+      ],
+    });
+    expect(apiFetch).toHaveBeenCalledWith('/api/marketplace/crm-ext/changelog', expect.anything());
+    await waitFor(() => expect(dialog.textContent).toContain('(2026-10-29)'));
+    expect(dialog.textContent).toContain('1.0.0 → 1.2.0');
+    expect(dialog.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(dialog.querySelector('img')).toBeNull();
+  });
+
+  it('says when the registry publishes no notes', async () => {
+    const dialog = await openDialog({ published: false, entries: [] });
+    await waitFor(() => expect(dialog.textContent).toContain('publishes no release notes'));
+  });
+});

@@ -135,6 +135,13 @@ let processingId = $state<string | null>(null);
 let restartNeeded = $state(false);
 let searchQuery = $state('');
 let configuringExt = $state<Extension | null>(null);
+// "What's new": the changelog entries between the installed and the catalog version.
+let changelogExt = $state<Extension | null>(null);
+let changelog = $state<{
+  published: boolean;
+  entries: { version: string; title: string; body: string }[];
+} | null>(null);
+let changelogError = $state('');
 let confirmState = $state<{
   open: boolean;
   title: string;
@@ -298,6 +305,20 @@ async function install(ext: Extension) {
     toast.error(m['mkt.installFailed']({ error: e.message }));
   } finally {
     processingId = null;
+  }
+}
+
+async function openChangelog(ext: Extension) {
+  changelogExt = ext;
+  changelog = null;
+  changelogError = '';
+  try {
+    const res = await api(`/api/marketplace/${encodeURIComponent(ext.name)}/changelog`);
+    // A late answer for a dialog closed or reopened on another extension is dropped.
+    if (changelogExt?.name === ext.name) changelog = res;
+  } catch (e) {
+    if (changelogExt?.name === ext.name)
+      changelogError = m['mkt.changelogFailed']({ error: (e as Error).message });
   }
 }
 
@@ -756,6 +777,9 @@ onMount(loadCatalog);
                   {#if ext.update_available && !isProcessing}
                     <div class="alert alert-info alert-soft py-2 px-3 mb-3 text-xs items-center">
                       <span class="flex-1">{m['mkt.updateAvailable']({ version: ext.catalog_version ?? ext.version })}</span>
+                      <button class="btn btn-ghost btn-xs" onclick={() => openChangelog(ext)}>
+                        {m['mkt.whatsNew']()}
+                      </button>
                       <button class="btn btn-info btn-xs gap-1" onclick={() => update(ext)}>
                         <RefreshCw size={12} /> {m['mkt.update']()}
                       </button>
@@ -887,6 +911,42 @@ onMount(loadCatalog);
       </div>
     </div>
     <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => configuringExt = null}></button>
+  </div>
+{/if}
+
+{#if changelogExt}
+  <div class="modal modal-open">
+    <div class="modal-box max-w-2xl" role="dialog" aria-modal="true" aria-labelledby="changelog-title">
+      <h3 id="changelog-title" class="font-bold text-lg mb-1">
+        {m['mkt.whatsNewTitle']({ name: changelogExt.displayName })}
+      </h3>
+      <p class="text-sm opacity-60 mb-3">
+        {changelogExt.installed_version ?? '—'} → {changelogExt.catalog_version ?? changelogExt.version}
+      </p>
+      {#if changelogError}
+        <p class="text-error text-sm">{changelogError}</p>
+      {:else if !changelog}
+        <span class="loading loading-spinner loading-sm text-primary"></span>
+      {:else if !changelog.published}
+        <p class="text-sm">{m['mkt.changelogNone']()}</p>
+      {:else if changelog.entries.length === 0}
+        <p class="text-sm">{m['mkt.changelogEmpty']()}</p>
+      {:else}
+        <div class="max-h-96 overflow-y-auto space-y-4">
+          {#each changelog.entries as entry (entry.version)}
+            <section>
+              <h4 class="font-semibold text-sm">{entry.version} <span class="opacity-60 font-normal">{entry.title}</span></h4>
+              <!-- Markdown shown as text: release notes need no renderer, and text cannot inject. -->
+              <p class="text-sm whitespace-pre-wrap mt-1">{entry.body}</p>
+            </section>
+          {/each}
+        </div>
+      {/if}
+      <div class="modal-action">
+        <button class="btn btn-ghost" onclick={() => (changelogExt = null)}>{m['common.close']()}</button>
+      </div>
+    </div>
+    <button class="modal-backdrop" aria-label={m['common.close']()} onclick={() => (changelogExt = null)}></button>
   </div>
 {/if}
 
