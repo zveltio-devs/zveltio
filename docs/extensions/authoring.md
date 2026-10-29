@@ -194,6 +194,13 @@ List them in `manifest.json` and ship one file per name, in the
   operator adds stay: a load adds, changes and removes only the entries the
   extension's own files declared, judged against what its previous apply
   declared.
+- Uninstalling keeps them, with their rows and rules. A purge
+  (`uninstall?purgeData=true`) drops every collection the extension owns, with
+  its junction tables and every rule naming it — grants in every domain, revoked
+  defaults, row rules, column permissions, validation — and the operator's own
+  fields on it. While an operator's collection holds a key into one of them (an
+  m2o), the purge answers 409 naming the field and drops nothing: a purge never
+  changes a collection the extension does not own.
 - `"defaultGrants": false` in a collection's file withholds it from the default
   role grants, at creation and at every boot: an internal collection only the
   extension's actions and jobs reach. It replaces `sensitiveResources` for

@@ -38,3 +38,19 @@ export class DownMissingError extends Error {
     this.name = 'DownMissingError';
   }
 }
+
+/** A purge refused: operator columns hold keys into collections the extension owns. */
+export class OwnedCollectionsReferencedError extends Error {
+  constructor(
+    public readonly extensionName: string,
+    /** `<collection>.<column> -> <owned collection>` */
+    public readonly references: string[],
+  ) {
+    super(
+      `Extension "${extensionName}" cannot be purged: ${references.join(', ')} ` +
+        `reference${references.length === 1 ? 's' : ''} a collection it owns. ` +
+        'Remove those fields first; a purge never changes a collection the extension does not own.',
+    );
+    this.name = 'OwnedCollectionsReferencedError';
+  }
+}
