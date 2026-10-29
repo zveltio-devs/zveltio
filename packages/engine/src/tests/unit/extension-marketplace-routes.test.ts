@@ -272,6 +272,73 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(((await res.json()) as { error: string }).error).toBe('Invalid extension name');
   });
 
+  describe('GET /api/marketplace/<name>/changelog', () => {
+    const MD =
+      '# Changelog\n\n## 1.2.0 (2026-10-29)\n\n- new\n\n## 1.1.0\n\n- mid\n\n## 1.0.0\n\n- old\n';
+    const mountWith = (changelog: (name: string) => Promise<string | null>) => {
+      process.env.EXTENSIONS_DIR = extBase;
+      const app = new Hono();
+      registerMarketplaceRoutes(makeLoader(), app, asDb(db), triggerReloadMock, {
+        fetchRegistryCatalog: async () => [{ ...CATALOG_ENTRY, version: '1.2.0' }],
+        downloadExtension: downloadMock,
+        fetchRegistryChangelog: changelog,
+      } as never);
+      return app;
+    };
+    const get = (app: Hono, name = CATALOG_ENTRY.name) =>
+      app.request(`/api/marketplace/${encodeURIComponent(name)}/changelog`, {
+        headers: adminHeaders,
+      });
+
+    it('returns the entries after the installed version up to the catalog one', async () => {
+      writeExtOnDisk(extBase, CATALOG_ENTRY.name); // 1.0.0 on disk
+      const asked: string[] = [];
+      const res = await get(
+        mountWith(async (n) => {
+          asked.push(n);
+          return MD;
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(asked).toEqual([CATALOG_ENTRY.name]);
+      expect(body).toMatchObject({
+        installed_version: '1.0.0',
+        catalog_version: '1.2.0',
+        published: true,
+      });
+      expect(body.entries).toEqual([
+        { version: '1.2.0', title: '(2026-10-29)', body: '- new' },
+        { version: '1.1.0', title: '', body: '- mid' },
+      ]);
+    });
+
+    it('says "none published" apart from "nothing changed", and 502 when unreachable', async () => {
+      const none = (await (await get(mountWith(async () => null))).json()) as Record<
+        string,
+        unknown
+      >;
+      expect(none).toMatchObject({ installed_version: null, published: false, entries: [] });
+      const down = await get(
+        mountWith(async () => Promise.reject(new Error('Registry returned 500'))),
+      );
+      expect(down.status).toBe(502);
+    });
+
+    it('is admin-only and 404 for a name outside the catalog', async () => {
+      expect(
+        (
+          await get(
+            mountWith(async () => MD),
+            'not-listed',
+          )
+        ).status,
+      ).toBe(404);
+      getSessionSpy.mockResolvedValue({ user: { id: 'u-nobody' } } as never);
+      expect((await get(mountWith(async () => MD))).status).toBe(403);
+    });
+  });
+
   it('GET /api/marketplace merges catalog with registry rows', async () => {
     writeExtOnDisk(extBase, CATALOG_ENTRY.name);
     db.when(/from "zv_extension_registry"/i, [

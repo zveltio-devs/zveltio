@@ -139,6 +139,52 @@ export async function fetchRegistryCatalog(
 /** Per request: the archive and its signature each. */
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 
+export interface ChangelogEntry {
+  version: string;
+  /** The heading after the version, e.g. `(2026-10-27)`; empty when none. */
+  title: string;
+  /** The entry's Markdown, heading excluded. */
+  body: string;
+}
+
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * The entries of a CHANGELOG.md (`## <version> …` headings) newer than `after`
+ * and not newer than `upTo`, newest first. `after` null = everything up to
+ * `upTo`. Headings that are not a semver version are skipped: an entry we
+ * cannot place is not shown as part of an update.
+ */
+export function changelogBetween(md: string, after: string | null, upTo: string): ChangelogEntry[] {
+  const entries: ChangelogEntry[] = [];
+  for (const part of md.split(/^(?=## )/m)) {
+    const m = part.match(/^## \[?v?([^\s\]]+)\]?[ \t]*(.*)\n?([\s\S]*)$/);
+    if (!m) continue;
+    const [, version, title, body] = m;
+    // Bun.semver.order does not throw on junk ("Unreleased" sorts above 1.0.0).
+    if (!SEMVER.test(version)) continue;
+    if (Bun.semver.order(version, upTo) > 0) continue;
+    if (after && Bun.semver.order(version, after) <= 0) continue;
+    entries.push({ version, title: title.trim(), body: body.trim() });
+  }
+  return entries.sort((a, b) => Bun.semver.order(b.version, a.version));
+}
+
+/**
+ * The extension's CHANGELOG.md from the registry, or null when it serves none
+ * (404: none published, or a registry older than the changelog route). Any
+ * other failure throws, so the caller reports "unreachable", not "no notes".
+ */
+export async function fetchRegistryChangelog(name: string): Promise<string | null> {
+  const res = await fetch(
+    `${REGISTRY_URL}/api/extensions/by-name/${encodeURIComponent(name)}/changelog`,
+    { headers: { Accept: 'text/markdown' }, signal: AbortSignal.timeout(5000) },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Registry returned ${res.status}`);
+  return res.text();
+}
+
 /**
  * Whether a missing signature blocks install. Exported so the default can be
  * pinned directly by a test, rather than a test reimplementing this
