@@ -24,6 +24,8 @@
  *   UPGRADE_STATE_FILE   default /tmp/upgrade-smoke-state.json
  */
 
+import { openConfigWindowOver } from '../src/testing/step-up.js';
+
 const BASE = process.env.UPGRADE_BASE_URL ?? 'http://localhost:3000';
 const EMAIL = process.env.UPGRADE_EMAIL ?? 'admin@example.com';
 const PASSWORD = process.env.UPGRADE_PASSWORD ?? 'admin1234';
@@ -72,7 +74,9 @@ async function waitForTable(cookie: string, collection: string): Promise<void> {
 }
 
 async function seed(): Promise<void> {
-  const cookie = await signIn();
+  // Creating a collection, webhook and flow is configuration: a god needs a step-up
+  // window open on the session first (lib/step-up.ts). Verify only reads.
+  const cookie = await openConfigWindowOver(BASE, await signIn(), PASSWORD);
   const stamp = Date.now();
   const collection = `upgrade_probe_${stamp}`;
 
