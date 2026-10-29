@@ -70,6 +70,11 @@ interface Extension {
   is_running: boolean;
   needs_restart: boolean;
   files_on_disk: boolean;
+  /** The manifest on disk; null when no files. `version` is the catalog's. */
+  installed_version?: string | null;
+  catalog_version?: string;
+  /** True only where POST /:name/update would act (a registry install, catalog newer). */
+  update_available?: boolean;
   /**
    * Why the last load attempt failed, straight from the engine.
    *
@@ -291,6 +296,29 @@ async function install(ext: Extension) {
   } catch (e: any) {
     if (stepUpAborted(e)) return;
     toast.error(m['mkt.installFailed']({ error: e.message }));
+  } finally {
+    processingId = null;
+  }
+}
+
+async function update(ext: Extension) {
+  processingId = ext.name;
+  try {
+    const res = await api(
+      `/api/marketplace/${encodeURIComponent(ext.name)}/update`,
+      { method: 'POST' },
+      `extension.update:${ext.name}`,
+    );
+    await loadCatalog();
+    await refreshExtensions();
+    // `updated: false`: the files already were that version; the reload shows it.
+    if (res.updated)
+      toast.success(m['mkt.updated']({ name: ext.displayName, version: res.version }));
+  } catch (e) {
+    if (stepUpAborted(e)) return;
+    // A refused or failed update can still change what is installed and running.
+    await loadCatalog();
+    toast.error(m['mkt.updateFailed']({ error: (e as Error).message }));
   } finally {
     processingId = null;
   }
@@ -580,7 +608,7 @@ onMount(loadCatalog);
                       <Icon size={22} class={iconColor} />
                       <div class="min-w-0">
                         <h3 class="font-bold truncate">{ext.displayName}</h3>
-                        <p class="text-xs opacity-40">v{ext.version} · {ext.author}</p>
+                        <p class="text-xs opacity-40">v{ext.installed_version ?? ext.version} · {ext.author}</p>
                       </div>
                     </div>
 
@@ -722,6 +750,15 @@ onMount(loadCatalog);
                           <ShieldCheck size={12} /> {m['common.approve']()}
                         </button>
                       </div>
+                    </div>
+                  {/if}
+
+                  {#if ext.update_available && !isProcessing}
+                    <div class="alert alert-info alert-soft py-2 px-3 mb-3 text-xs items-center">
+                      <span class="flex-1">{m['mkt.updateAvailable']({ version: ext.catalog_version ?? ext.version })}</span>
+                      <button class="btn btn-info btn-xs gap-1" onclick={() => update(ext)}>
+                        <RefreshCw size={12} /> {m['mkt.update']()}
+                      </button>
                     </div>
                   {/if}
 

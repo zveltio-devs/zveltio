@@ -1,5 +1,5 @@
 import { cleanup, render, waitFor } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Two ways an extension could be present in the catalogue and unreachable
@@ -32,15 +32,29 @@ function ext(name: string, category: string, tags: string[] = []) {
   };
 }
 
-vi.mock('#lib/api.js', () => ({
-  api: {
-    fetch: vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        extensions: [ext('billing-ext', 'billing', ['Invoices']), ext('ai-ext', 'ai', ['llm'])],
-      }),
-    })),
-  },
+// Installed from the registry at 1.0.0; the registry serves 1.2.0.
+const outdated = {
+  ...ext('crm-ext', 'billing'),
+  is_installed: true,
+  is_enabled: true,
+  is_running: true,
+  installed_version: '1.0.0',
+  catalog_version: '1.2.0',
+  version: '1.2.0',
+  update_available: true,
+};
+
+const { apiFetch } = vi.hoisted(() => ({
+  apiFetch: vi.fn(async (_path: string, _init?: RequestInit) => ({
+    ok: true,
+    json: async () => ({ extensions: [] as unknown[], version: '1.2.0' }),
+  })),
+}));
+vi.mock('#lib/api.js', () => ({ api: { fetch: apiFetch } }));
+vi.mock('#lib/step-up.svelte.js', () => ({
+  StepUpEnrollmentRequired: class extends Error {},
+  stepUpAborted: () => false,
+  stepUpHeaders: vi.fn(async (action: string) => ({ 'X-Zveltio-Step-Up': `token:${action}` })),
 }));
 vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
@@ -48,6 +62,20 @@ vi.mock('#lib/stores/toast.svelte.js', () => ({
 vi.mock('#lib/extensions.svelte.js', () => ({ refreshExtensions: vi.fn() }));
 
 import Page from './+page.svelte';
+
+beforeEach(() => {
+  apiFetch.mockImplementation(async () => ({
+    ok: true,
+    json: async () => ({
+      extensions: [
+        ext('billing-ext', 'billing', ['Invoices']),
+        ext('ai-ext', 'ai', ['llm']),
+        outdated,
+      ],
+      version: '1.2.0',
+    }),
+  }));
+});
 
 afterEach(cleanup);
 
@@ -84,5 +112,34 @@ describe('marketplace catalogue', () => {
 
     await waitFor(() => expect(document.body.textContent).not.toContain('ai-ext'));
     expect(document.body.textContent).toContain('billing-ext');
+  });
+});
+
+describe('marketplace update', () => {
+  it('shows the installed version and updates behind a step-up', async () => {
+    const { container } = render(Page);
+    await waitFor(() => expect(document.body.textContent).toContain('crm-ext'));
+    expect(document.body.textContent).toContain('v1.0.0');
+    expect(document.body.textContent).toContain('1.2.0');
+
+    const button = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Update',
+    ) as HTMLButtonElement;
+    expect(
+      [...container.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Update'),
+    ).toHaveLength(1);
+    button.click();
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/marketplace/crm-ext/update',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'X-Zveltio-Step-Up': 'token:extension.update:crm-ext',
+          }),
+        }),
+      ),
+    );
   });
 });
