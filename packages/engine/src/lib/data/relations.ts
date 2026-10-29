@@ -132,7 +132,12 @@ export function fieldsChanged(...collections: string[]): void {
   }
 }
 
-type FieldDef = { name: string; type: string; options?: Record<string, unknown> };
+type FieldDef = {
+  name: string;
+  type: string;
+  required?: boolean;
+  options?: Record<string, unknown>;
+};
 
 /**
  * Creates the relation `data` describes. `defs` replaces the field definitions
@@ -191,6 +196,8 @@ export async function createRelation(
       targetTable,
       data.on_delete,
       data.on_update,
+      true,
+      defs.source?.required === true,
     );
     fieldsToAdd.push([
       data.source_collection,
@@ -224,6 +231,8 @@ export async function createRelation(
       sourceTable,
       data.on_delete,
       data.on_update,
+      true,
+      defs.target?.required === true,
     );
     // Virtual alias on the source collection (no physical column on source)
     fieldsToAdd.push([

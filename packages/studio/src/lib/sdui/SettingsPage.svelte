@@ -16,11 +16,15 @@ import { Save, Play, Copy, LoaderCircle } from '@lucide/svelte';
 import { isOwnNamespace } from './guard.js';
 import type { SettingsSchema, FieldDef } from './types.js';
 
-let { schema, extName = '' }: { schema: SettingsSchema; extName?: string } = $props();
+let {
+  schema,
+  extName = '',
+  collections = [],
+}: { schema: SettingsSchema; extName?: string; collections?: readonly string[] } = $props();
 
 // See SchemaPage: a settings page may only write its own /ext/<name>/ routes.
 function guardMutation(url: string): boolean {
-  if (!extName || isOwnNamespace(extName, url)) return true;
+  if (!extName || isOwnNamespace(extName, url, collections)) return true;
   toast.error(t('ext.saveFailed'));
   console.warn(`[sdui] blocked mutation to "${url}" — outside extension "/ext/${extName}/"`);
   return false;

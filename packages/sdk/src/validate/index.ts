@@ -784,6 +784,11 @@ export const SDUI_SHARED_READ_ALLOWLIST: ReadonlySet<string> = new Set([
   '/api/views',
 ]);
 
+/** `/api/data/<collection>` or `/api/data/<collection>/<id>`; the id a token, a
+ * param or a plain key, never a dot segment. Group 1 is the collection. */
+const SDUI_DATA_ENDPOINT =
+  /^\/api\/data\/([a-z][a-z0-9_]*)(?:\/(?:\{[^{}/]+\}|:[A-Za-z_]\w*|[A-Za-z0-9_-]+))?$/;
+
 /** Collapse `{token}` and `:param` path segments so a schema endpoint
  * (`/periods/{id}/generate`) matches an engine route (`/periods/:id/generate`). */
 function normalizeRoute(p: string): string {
@@ -949,6 +954,10 @@ export interface SduiValidationInput {
    * A schema may read a dependency's `/ext/<dep>/` routes (relation pickers),
    * which is otherwise treated as foreign. */
   dependencies?: string[];
+  /** The collections this extension declares (manifest `collections`, ADR 0012):
+   * a schema may name `/api/data/<collection>` and `/api/data/<collection>/<id>`
+   * for these, and for no other collection. */
+  collections?: string[];
   /** Message keys this schema may resolve against: the extension's own
    * `studio/messages/en.json` keys, unioned with `SHARED_MESSAGE_KEYS`.
    * Omit to skip the i18n checks (endpoint checks still run). */
@@ -990,11 +999,14 @@ export function validateSduiSchema(input: SduiValidationInput): ValidationError[
     if (SDUI_SHARED_READ_ALLOWLIST.has(bare)) continue;
     // A dependency's namespace is allowed (relation pickers etc.).
     if (depMounts.some((m) => inMount(bare, m))) continue;
+    // Its own collections, through the data API, which authorizes the caller.
+    const data = SDUI_DATA_ENDPOINT.exec(bare);
+    if (data && (input.collections ?? []).includes(data[1])) continue;
     if (!inMount(bare, mount)) {
       out.push(
         err(
           'SDUI_ENDPOINT_FOREIGN',
-          `endpoint "${raw}" is outside this extension's namespace "${mount}/" (or a declared dependency, or the shared-read allowlist). Schemas may only call their own routes.`,
+          `endpoint "${raw}" is outside this extension's namespace "${mount}/" (or a declared dependency, the data API of a collection it declares, or the shared-read allowlist). Schemas may only call their own routes.`,
           file,
         ),
       );

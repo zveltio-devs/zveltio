@@ -553,6 +553,9 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
             extName,
             providedRoutes: provided,
             dependencies,
+            collections: Array.isArray(manifestRecord?.collections)
+              ? manifestRecord.collections.filter((c): c is string => typeof c === 'string')
+              : [],
             messageKeys:
               ownMessageKeys &&
               new Set([

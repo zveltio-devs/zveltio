@@ -29,10 +29,13 @@ let {
   resource,
   routeParams = {},
   extName = '',
+  collections = [],
 }: {
   resource: ResourceView;
   routeParams?: Record<string, string>;
   extName?: string;
+  /** The extension's declared collections: their data API passes the guard. */
+  collections?: readonly string[];
 } = $props();
 
 const b = $derived(resource.builder!);
@@ -54,7 +57,7 @@ function fill(tmpl: string): string {
 }
 
 function guardMutation(url: string): boolean {
-  if (!extName || isOwnNamespace(extName, url)) return true;
+  if (!extName || isOwnNamespace(extName, url, collections)) return true;
   toast.error(t('ext.saveFailed'));
   return false;
 }

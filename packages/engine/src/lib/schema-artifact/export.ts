@@ -16,6 +16,7 @@
  */
 
 import { sql } from 'kysely';
+import { columnsNotNull } from '../../db/dynamic.js';
 import type { Database } from '../../db/index.js';
 import {
   ENGINE_SEEDED_ROLES,
@@ -207,6 +208,22 @@ export async function exportSchema(
     }),
   };
 
+  // A relation's key under a required field: the plan compares its column's
+  // NOT NULL, not the field's word for it (alterField does the same).
+  const fieldsOf = (c: { fields: unknown }) =>
+    ((typeof c.fields === 'string' ? JSON.parse(c.fields) : c.fields) ?? []) as Record<
+      string,
+      unknown
+    >[];
+  const notNull = await columnsNotNull(
+    db,
+    collections.flatMap((c) =>
+      fieldsOf(c)
+        .filter((f) => f.required === true && (f.type === 'm2o' || f.type === 'reference'))
+        .map((f) => `zvd_${c.name}.${f.name}`),
+    ),
+  );
+
   for (const row of collections) {
     // The ai_* columns are not in the hand-written DbSchema.
     const col = row as typeof row & {
@@ -215,9 +232,9 @@ export async function exportSchema(
       ai_embed_excluded_fields?: string[] | null;
     };
     const name = col.name;
-    const fields = (typeof col.fields === 'string' ? JSON.parse(col.fields) : col.fields) as
-      | Record<string, unknown>[]
-      | null;
+    const fields = fieldsOf(col).map((f) =>
+      notNull.get(`zvd_${name}.${f.name}`) === false ? { ...f, required: false } : f,
+    );
     files[`collections/${name}.json`] = serialize({
       $schema: `${SCHEMA_URL}/collection.json`,
       name,
@@ -237,7 +254,7 @@ export async function exportSchema(
       aiEmbedExcludedFields: sortedOrNull(col.ai_embed_excluded_fields),
       defaultGrants: col.default_grants ? null : false,
       // Declared order: it is the order Studio shows.
-      fields: (fields ?? []).map(exportField),
+      fields: fields.map(exportField),
       relations: relations
         .filter((r) => r.source_collection === name)
         .map((r) => ({

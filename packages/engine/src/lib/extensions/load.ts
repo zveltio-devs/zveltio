@@ -32,7 +32,7 @@ import {
   runExtensionMigrations,
 } from './migration-runner.js';
 import { grantExtensionDbRole, grantWorkerDbRole } from './ext-db-role.js';
-import { embedPageSchemas, type ManifestMeta } from './manifest-schema.js';
+import { embedPageSchemas, type ManifestMeta, ManifestSchema } from './manifest-schema.js';
 import {
   enforcePublisherTier,
   enforceRunnerInProduction,
@@ -113,6 +113,7 @@ export async function loadExtensionFromDir(
       contributes?: { engine?: boolean };
       i18nPrefixes?: string[];
       studio?: ManifestMeta['studio'];
+      collections?: unknown;
     } | null = null;
     if (existsSync(earlyManifestPath)) {
       try {
@@ -165,6 +166,20 @@ export async function loadExtensionFromDir(
     // rebuild, separately) and skip the whole engine-load path below,
     // which would otherwise hard-fail on the missing engine bundle.
     if (early?.contributes?.engine === false) {
+      // ADR 0012: no engine code, but its declared collections are the engine's,
+      // applied and refused on the same terms as below.
+      const collections =
+        early.collections === undefined ? [] : ManifestSchema.parse(early).collections;
+      if (collections.length > 0) {
+        await recordManifest(ctx.db, extName, extDir).catch((err: Error) => {
+          console.warn(`[extensions] "${extName}": manifest not recorded:`, err.message);
+        });
+        const { applyDeclaredCollections, readDeclaredCollections } = await import(
+          './declared-collections.js'
+        );
+        const files = await readDeclaredCollections(extName, extDir, collections);
+        await applyDeclaredCollections(ctx.db, extName, files, migrate);
+      }
       loader.loaded.set(extName, {
         name: extName,
         version: extVersion,
@@ -177,6 +192,7 @@ export async function loadExtensionFromDir(
         category: early.category,
         contributes: early.contributes,
         i18nPrefixes: early.i18nPrefixes,
+        collections,
         studio: await embedPageSchemas(extDir, early.studio),
       });
       console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);

@@ -14,6 +14,7 @@ import {
   dynamicDropColumn,
   dynamicRenameColumn,
   dynamicSetColumnRequired,
+  columnsNotNull,
 } from '../../db/dynamic.js';
 import { DDLManager, fieldRuleTables, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
@@ -259,6 +260,14 @@ export async function alterField(
   }
 
   const tableName = DDLManager.getTableName(name);
+  // A relation's key: its column is created by the relation, not from the field,
+  // so whether it is required is the column's NOT NULL (a key a relation made
+  // nullable under a required field is drift the schema plan shows).
+  const key = `${tableName}.${fieldName}`;
+  const wasRequired =
+    required !== undefined && (fieldDef.type === 'm2o' || fieldDef.type === 'reference')
+      ? ((await columnsNotNull(db, [key])).get(key) ?? !!fieldDef.required)
+      : !!fieldDef.required;
   // A default the column type refuses is refused before anything runs: the
   // rename and retype below commit on their own, so a failure after them
   // answered 400 for a change that had half happened.
@@ -311,7 +320,7 @@ export async function alterField(
     }
 
     // ── 2) Required toggle ────────────────────────────────────────
-    if (required !== undefined && required !== !!fieldDef.required) {
+    if (required !== undefined && required !== wasRequired) {
       await dynamicSetColumnRequired(trx, tableName, fieldName, required);
       updatedFieldShape = { ...updatedFieldShape, required };
       actions.push(`required→${required}`);

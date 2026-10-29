@@ -475,6 +475,8 @@ export interface ManifestMeta {
   /** Message-key namespaces this extension owns — see `ManifestSchema.i18nPrefixes`.
    *  Carried to the host so it can attribute a key to its owner. */
   i18nPrefixes?: string[];
+  /** The collections it declares (ADR 0012): a declarative page may name their data API. */
+  collections?: string[];
   /** Present only when the caller asked for a locale (`?messages=<locale>`):
    *  this extension's own catalogue, flat `key → text`. The host merges the
    *  per-extension catalogues itself; the engine never unions them. */

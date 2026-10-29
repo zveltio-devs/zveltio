@@ -25,4 +25,17 @@ describe('isOwnNamespace', () => {
   it('refuses an absolute URL to another origin', () => {
     expect(isOwnNamespace('hr', 'https://evil.example/ext/hr/x')).toBe(false);
   });
+
+  it('accepts the data API of a collection the extension declares, and of no other', () => {
+    const own = ['projects', 'tasks'];
+    expect(isOwnNamespace('hr', '/api/data/projects', own)).toBe(true);
+    expect(isOwnNamespace('hr', '/api/data/tasks/42?x=1', own)).toBe(true);
+    expect(isOwnNamespace('hr', '/api/data/invoices', own)).toBe(false);
+    expect(isOwnNamespace('hr', '/api/data/projects')).toBe(false);
+    expect(isOwnNamespace('hr', '/api/data/projects/42/history', own)).toBe(false);
+    expect(isOwnNamespace('hr', '/api/data/projects/../invoices', own)).toBe(false);
+    expect(isOwnNamespace('hr', '/api/data/projects/%2e%2e/invoices', own)).toBe(false);
+    expect(isOwnNamespace('hr', '/api/users', own)).toBe(false);
+    expect(isOwnNamespace('hr', 'https://evil.example/api/data/projects', own)).toBe(false);
+  });
 });

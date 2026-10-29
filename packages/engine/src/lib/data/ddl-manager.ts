@@ -463,6 +463,8 @@ export class DDLManager {
     onUpdate = 'CASCADE',
     /** False from `createCollection`, for the table it just made; see the note there. */
     concurrently = true,
+    /** The field is required: the key is NOT NULL, as a required plain column is. */
+    required = false,
   ): Promise<void> {
     if (concurrently && (db as unknown as { isTransaction?: boolean }).isTransaction) {
       throw new Error(
@@ -494,6 +496,12 @@ export class DDLManager {
             `REFERENCES "${targetTable}"(id) ON DELETE ${od} ON UPDATE ${ou}`,
         )
         .execute(trx);
+      // Separate from the ADD: it also holds for a column a failed earlier attempt left.
+      if (required) {
+        await sql`ALTER TABLE ${sql.id(tableName)} ALTER COLUMN ${sql.id(fieldName)} SET NOT NULL`.execute(
+          trx,
+        );
+      }
       await sealColumns(trx, tableName.slice('zvd_'.length));
     });
     // Index the FK column for join performance
@@ -827,6 +835,7 @@ export class DDLManager {
           onDelete,
           onUpdate,
           false,
+          field.required === true,
         );
         await this.registerRelation(h, {
           name: `${validated.name}_${field.name}`,

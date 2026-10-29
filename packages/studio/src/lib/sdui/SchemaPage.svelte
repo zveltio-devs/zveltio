@@ -54,10 +54,13 @@ import { page } from '$app/state';
 let {
   schema,
   extName = '',
+  collections = [],
   routeParams = {},
 }: {
   schema: PageSchema;
   extName?: string;
+  /** The extension's declared collections: their data API passes the guard. */
+  collections?: readonly string[];
   routeParams?: Record<string, string>;
 } = $props();
 
@@ -67,7 +70,7 @@ let {
 // admin's cookie. Reads (GET) are not gated here (lower risk + the validator
 // already covers them).
 function guardMutation(url: string): boolean {
-  if (!extName || isOwnNamespace(extName, url)) return true;
+  if (!extName || isOwnNamespace(extName, url, collections)) return true;
   toast.error(t('ext.saveFailed'));
   console.warn(
     `[sdui] blocked mutation to "${url}" — outside extension namespace "/ext/${extName}/"`,
@@ -1049,9 +1052,9 @@ const shellTabs = $derived(
 </script>
 
 {#if active.layout === 'builder' && active.builder}
-  <BuilderLayout resource={active} {routeParams} {extName} />
+  <BuilderLayout resource={active} {routeParams} {extName} {collections} />
 {:else if active.layout === 'detail' && active.detail}
-  <DetailLayout resource={active} {routeParams} {extName} />
+  <DetailLayout resource={active} {routeParams} {extName} {collections} />
 {:else}
 <ExtensionPageShell
   title={t(schema.title)}

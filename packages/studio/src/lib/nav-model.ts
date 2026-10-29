@@ -70,6 +70,8 @@ export type ExtensionMeta = {
   description?: string;
   category?: string;
   contributes?: { engine?: boolean; studio?: boolean; client?: boolean };
+  /** The collections the extension declares (ADR 0012). */
+  collections?: string[];
   studio?: {
     navGroup?: string;
     pages?: Array<{

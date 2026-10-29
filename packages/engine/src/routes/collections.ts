@@ -510,6 +510,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           targetTable,
           onDelete,
           onUpdate,
+          true,
+          field.required === true,
         );
         await DDLManager.registerRelation(db, {
           name: `${name}_${field.name}`,
