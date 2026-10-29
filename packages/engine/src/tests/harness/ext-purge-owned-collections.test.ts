@@ -25,6 +25,7 @@ import {
   revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
+import { readSchemaDir, schemaDigest } from '../../lib/extensions/declared-collections.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
@@ -131,6 +132,8 @@ d('a purge drops the collections the extension owns, with all their rules', () =
       relations: [{ name: 'po_items_tags', type: 'm2m', field: 'tags', target: TAGS }],
     });
     await file(TAGS, { fields: [text('label')] });
+    manifest.integrity = { schemaSha256: schemaDigest(await readSchemaDir(join(base, NAME))) };
+    await Bun.write(join(base, NAME, 'manifest.json'), JSON.stringify(manifest));
     await sql`INSERT INTO zv_extension_registry (name, display_name, is_installed, is_enabled)
               VALUES (${NAME}, ${NAME}, true, false)`.execute(db);
     const r = await call('POST', `/api/marketplace/${NAME}/enable`, {});

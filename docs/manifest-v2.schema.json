@@ -218,6 +218,11 @@
           "pattern": "^[a-f0-9]{64}$",
           "description": "SHA-256 of the bundled engine/index.js file. Engine recomputes at load time and refuses on mismatch."
         },
+        "schemaSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 over every .json under schema/ (path and bytes, sorted by path), filled by pack. Required when the manifest declares collections; the engine recomputes it at load and refuses on mismatch."
+        },
         "archiveSha256": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$",

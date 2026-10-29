@@ -54,6 +54,7 @@ import {
 import { checkValidationExpression, invalidateRulesCache } from '../validation-engine.js';
 import { exportSchema, memberKey } from './export.js';
 import { sql } from 'kysely';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import {
   type ApplyOp,
   type MigrationOp,
@@ -304,8 +305,9 @@ const optional = (v: unknown, type: string) => v === undefined || v === null || 
 
 /** The keys each list entry needs, as `exportSchema` writes them. */
 function checkEntry(target: string, list: string, e: Record<string, unknown>) {
-  // The plan checked a group's keys, and that each member is a rule in the files.
-  if (list === 'validationGroups') return;
+  // The plan checked a group's keys, and that each member is a rule in the files;
+  // and an index's fields.
+  if (list === 'validationGroups' || list === 'indexes') return;
   const ok =
     list === 'rowRules'
       ? str(e.role) &&
@@ -408,6 +410,33 @@ async function putRuleGroup(db: Database, collection: string, e: Entry, userId?:
   );
 }
 
+/**
+ * A unique key over several fields, `(tenant_id, …fields)` like a field's own,
+ * built or dropped the way `alterField` builds a field's. Its fields exist by
+ * now: relations and fields run before every list entry.
+ */
+async function setIndex(db: Database, collection: string, e: Entry, on: boolean) {
+  const names = e.fields as string[];
+  const key = `${collection} unique index (${names.join(', ')})`;
+  if (on) {
+    const fields = await fieldsOf(db, collection);
+    for (const n of names) {
+      const type = fields.find((f) => f.name === n)?.type;
+      if (!type || fieldTypeRegistry.get(type)?.db.virtual) {
+        throw new SchemaFileError(`${key}: ${n} has no column`);
+      }
+    }
+  }
+  try {
+    await DDLManager.setTenantUniqueKey(db, DDLManager.getTableName(collection), names, on);
+  } catch (err) {
+    if (sqlState(err) === '23505') {
+      throw new SchemaFileError(`${key}: rows already repeat these values within a tenant`);
+    }
+    throw err;
+  }
+}
+
 /** Adds an entry, or changes the one with its natural key (the plan's `id`). */
 async function putEntry(
   db: Database,
@@ -416,7 +445,8 @@ async function putEntry(
   e: Entry,
   userId: string | undefined,
 ) {
-  if (list === 'validationGroups') {
+  if (list === 'indexes') await setIndex(db, collection, e, true);
+  else if (list === 'validationGroups') {
     await putRuleGroup(db, collection, e, userId);
     invalidateRulesCache(collection);
   } else if (list === 'rowRules') {
@@ -508,7 +538,8 @@ async function putRelation(
 }
 
 async function removeEntry(db: Database, collection: string, list: string, e: Entry) {
-  if (list === 'validationGroups') {
+  if (list === 'indexes') await setIndex(db, collection, e, false);
+  else if (list === 'validationGroups') {
     await sql`DELETE FROM zvd_validation_rule_groups
                WHERE collection = ${collection} AND name = ${e.name}`.execute(db);
     invalidateRulesCache(collection);

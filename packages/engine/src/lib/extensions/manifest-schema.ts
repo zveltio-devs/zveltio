@@ -367,7 +367,16 @@ export const ManifestSchema = z
       .optional(),
     integrity: z
       .object({
-        engineSha256: z.string().regex(/^[a-f0-9]{64}$/),
+        // Absent from a Studio-only extension, which has no bundle.
+        engineSha256: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
+        // ADR 0012: the declared schema files, checked at load (`readDeclaredCollections`).
+        schemaSha256: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
         // archiveSha256 is computed by the registry on upload. The pack
         // command writes an empty string as a placeholder (registry fills
         // it in later); accept either missing/empty OR a valid hash.

@@ -276,6 +276,7 @@ computes the SHA-256, and patches these blocks in place.
 | `engine.bundlePeers` | bool | no | Default `false`. Set `true` to inline the `peerDependencies` into the bundle. Required when the extension uses any peer dep — external peers don't work on the binary install. See alpha.113 in CHANGELOG. |
 | `engine.isolation` | `"inline" \| "worker"` | no | Default `"inline"`. **`"worker"` is REQUIRED for community/third-party submissions** per marketplace-policy.md §2 — the loader hard-fails the enable otherwise. See §13.5 below for the trade-offs. |
 | `integrity.engineSha256` | hex64 | yes (v2) | SHA-256 of `engine/index.js`. Filled by pack; engine refuses to load a bundle whose bytes don't match. |
+| `integrity.schemaSha256` | hex64 | with `collections` | Digest of every `.json` under `schema/`, sorted by path. Filled by pack; the engine refuses declared collections whose files don't match, or a manifest that declares collections without it. |
 | `integrity.archiveSha256` | hex64 | no | SHA-256 of the `.zvext` archive. Optional; the registry computes and stores this on upload. Engine verifies it against the `X-Archive-Sha256` response header at install time. |
 | `signature` | object | no | Filled by `zveltio extension publish`. Do not edit by hand. |
 

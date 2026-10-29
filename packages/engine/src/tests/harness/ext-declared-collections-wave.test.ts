@@ -26,6 +26,7 @@ import {
   revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
+import { readSchemaDir, schemaDigest } from '../../lib/extensions/declared-collections.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
@@ -119,7 +120,6 @@ d('ADR 0012 pilot gaps: seeded names, required keys, relation defaults, Studio-o
     };
     delete manifest.integrity;
     manifest.collections = Object.keys(collections);
-    await Bun.write(join(base, NAME, 'manifest.json'), JSON.stringify(manifest));
     rmSync(join(base, NAME, 'schema'), { recursive: true, force: true });
     for (const [name, file] of Object.entries(collections)) {
       await Bun.write(
@@ -127,6 +127,9 @@ d('ADR 0012 pilot gaps: seeded names, required keys, relation defaults, Studio-o
         JSON.stringify(Array.isArray(file) ? { name, fields: file } : { name, ...file }),
       );
     }
+    // As `extension pack` writes it.
+    manifest.integrity = { schemaSha256: schemaDigest(await readSchemaDir(join(base, NAME))) };
+    await Bun.write(join(base, NAME, 'manifest.json'), JSON.stringify(manifest));
   };
   const owner = async (name: string) =>
     (

@@ -138,7 +138,10 @@ async function runEnginePack(
   dir: string,
   tierOpts: { firstParty?: boolean; token?: string; registryUrl?: string },
 ): Promise<void> {
-  if (!existsSync(join(dir, 'engine', 'index.ts'))) return;
+  // A Studio-only extension packs only for its declared collections' digest.
+  const { collections } = readManifest(dir);
+  const declares = Array.isArray(collections) && collections.length > 0;
+  if (!existsSync(join(dir, 'engine', 'index.ts')) && !declares) return;
   await extensionPackCommand({ dir, ...tierOpts });
 }
 

@@ -110,7 +110,12 @@ const MIGRATION_ID = /^\d{8}T\d{6}(-[a-z0-9-]+)?$/;
 const NAME = /^[a-z][a-z0-9_]*$/;
 
 /** The collection lists `apply` writes entry by entry. */
-export type EntryList = 'rowRules' | 'columnPermissions' | 'validation' | 'validationGroups';
+export type EntryList =
+  | 'indexes'
+  | 'rowRules'
+  | 'columnPermissions'
+  | 'validation'
+  | 'validationGroups';
 
 export class SchemaFileError extends Error {}
 
@@ -160,6 +165,7 @@ const COLLECTION_KEYS = new Set([
   'aiEmbedExcludedFields',
   'defaultGrants',
   'fields',
+  'indexes',
   'relations',
   'rowRules',
   'columnPermissions',
@@ -176,6 +182,14 @@ const LISTS: {
   id: (e: Obj) => string;
   canon?: (e: Obj) => Obj;
 }[] = [
+  // A unique key over several fields, per tenant like a field's own `unique`.
+  // Structure, not an entry an operator adds: an extension's load plans all of them.
+  {
+    key: 'indexes',
+    entries: 'indexes',
+    noun: 'unique index',
+    id: (e) => `(${(e.fields as string[]).join(', ')})`,
+  },
   { key: 'relations', noun: 'relation', id: (e) => String(e.name) },
   {
     key: 'rowRules',
@@ -229,7 +243,7 @@ export function declaredEntriesOnly(current: string, declared: unknown): string 
     theirs(r.field),
   );
   for (const { key, entries, id } of LISTS) {
-    if (!entries) continue;
+    if (!entries || key === 'indexes') continue;
     const ids = new Set(list('declared', had[key], key).map(id));
     file[key] = list(String(file.name), file[key], key).filter((e) => ids.has(id(e)));
   }
@@ -260,6 +274,67 @@ function checkGroups(path: string, file: Obj) {
       if (!rules.has(`${g.field} ${memberKey(m)}`)) {
         throw new SchemaFileError(
           `${where} names rule ${memberKey(m)} on ${g.field}, which no validation entry in this file is`,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * An entry of `indexes` is a unique key over two or more of the file's fields;
+ * one field's key is its own `unique` flag. A non-unique index has no op.
+ */
+function checkIndexes(path: string, file: Obj, fields: Set<string>) {
+  const keys = new Set<string>();
+  for (const ix of list(path, file.indexes, 'indexes')) {
+    const names = ix.fields;
+    const extra = Object.keys(ix).filter((k) => k !== 'fields' && k !== 'unique');
+    if (extra.length)
+      throw new SchemaFileError(`${path}: index has unknown key ${extra.join(', ')}`);
+    if (
+      !Array.isArray(names) ||
+      names.length < 2 ||
+      new Set(names).size !== names.length ||
+      names.some((n) => typeof n !== 'string' || !fields.has(n))
+    ) {
+      throw new SchemaFileError(
+        `${path}: an index names two or more distinct fields of this file (one field's key is its \`unique\` flag)`,
+      );
+    }
+    const key = names.join(', ');
+    if (ix.unique !== true) {
+      throw new SchemaFileError(
+        `${path}: index (${key}) must be unique; only unique indexes are supported`,
+      );
+    }
+    if (keys.has(key)) throw new SchemaFileError(`${path}: index (${key}) twice`);
+    keys.add(key);
+  }
+}
+
+/**
+ * A required key column whose relation sets it NULL when the parent goes: every
+ * such delete (or key update) fails with 23502, so the file contradicts itself.
+ * `onDelete` left out is `SET NULL` (`relationDefaults`).
+ */
+function checkRequiredSetNull(collections: Map<string, Obj>) {
+  const fieldOf = (collection: string, name: string) =>
+    list(collection, collections.get(collection)?.fields, 'fields').find((f) => f.name === name);
+  for (const [name, file] of collections) {
+    for (const r of list(name, file.relations, 'relations')) {
+      const [holder, column] =
+        r.type === 'o2m'
+          ? [String(r.target), String(r.targetField ?? `${name}_id`)]
+          : [name, String(r.field)];
+      if (r.type === 'm2m' || r.type === 'm2a' || fieldOf(holder, column)?.required !== true) {
+        continue;
+      }
+      const e = relationDefaults(name, r);
+      for (const k of ['onDelete', 'onUpdate']) {
+        if (String(e[k]).toUpperCase() !== 'SET NULL') continue;
+        throw new SchemaFileError(
+          `collections/${name}.json: relation ${show(r.name)}: ${holder}.${column} is required, so ${k} cannot be SET NULL ` +
+            `(${k === 'onDelete' ? 'deleting' : 'changing the key of'} a ${r.type === 'o2m' ? name : String(r.target)} row would fail); use CASCADE, RESTRICT or NO ACTION`,
         );
       }
     }
@@ -391,6 +466,7 @@ function read(files: Record<string, unknown>): Parsed {
         seen.add(f.name);
       }
       for (const { key } of LISTS) list(path, file[key], key);
+      checkIndexes(path, file, seen);
       checkGroups(path, file);
       out.collections.set(name, file);
     }
@@ -630,6 +706,9 @@ function migrate(state: Parsed, id: string, checksum: string, op: MigrationOp, l
         for (const r of list(where, col.relations, 'relations')) {
           if (r.field === op.from) r.field = op.to;
         }
+        for (const ix of list(where, col.indexes, 'indexes')) {
+          ix.fields = (ix.fields as string[]).map((n) => (n === op.from ? op.to : n));
+        }
         for (const other of state.collections.values()) {
           for (const r of list(where, other.relations, 'relations')) {
             if (r.target === op.collection && r.targetField === op.from) r.targetField = op.to;
@@ -648,6 +727,10 @@ function migrate(state: Parsed, id: string, checksum: string, op: MigrationOp, l
     case 'dropField':
       col.fields = fields.filter((f) => f.name !== op.field);
       col.relations = list(where, col.relations, 'relations').filter((r) => r.field !== op.field);
+      // Postgres drops an index with any of its columns.
+      col.indexes = list(where, col.indexes, 'indexes').filter(
+        (ix) => !(ix.fields as string[]).includes(op.field),
+      );
       return result(op.collection, `drop field ${op.field}`, true);
   }
 }
@@ -665,6 +748,7 @@ export function planSchema(
 ): PlanStep[] {
   const cur = read(current);
   const des = read(desired);
+  checkRequiredSetNull(des.collections);
   const steps: PlanStep[] = [];
 
   // Pending migrations first, in id order; the state diff is planned against

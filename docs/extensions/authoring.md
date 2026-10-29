@@ -207,7 +207,19 @@ List them in `manifest.json` and ship one file per name, in the
   declared collections, and cannot change after creation yet.
 - A required m2o field's key column is NOT NULL. A relation entry may leave out
   what the engine fills in (`targetField`, `onDelete` `SET NULL`, `onUpdate`
-  `CASCADE`, `metadata`).
+  `CASCADE`, `metadata`) — but a required key cannot be `SET NULL`, written or
+  left out: deleting its parent would fail, so the file is refused. Say
+  `CASCADE`, `RESTRICT` or `NO ACTION`.
+- `"indexes": [{ "fields": ["project_id", "user_id"], "unique": true }]` is a
+  unique key over two or more fields, per tenant like a field's own `unique`
+  (`UNIQUE (tenant_id, project_id, user_id)`). A repeat answers 409
+  `unique_violation`. Only unique indexes are supported; one field's key is its
+  `unique` flag.
+- `zveltio extension pack` records `integrity.schemaSha256`, a digest of every
+  `.json` under `schema/`. Each load recomputes it and refuses the extension
+  when a file changed after pack, or when a manifest that declares collections
+  has no digest. Re-pack after editing a schema file; a Studio-only extension is
+  packed for this alone.
 - A Studio-only extension (`contributes.engine: false`) declares collections on
   the same terms.
 - A declarative (SDUI) page may name `/api/data/<collection>` and
