@@ -358,6 +358,12 @@ export type CollectionInput = Omit<CollectionDefinition, 'fields'> & {
   fields: z.input<typeof FieldSchema>[];
 };
 
+/** An extension-declared collection's owner and its `defaultGrants` setting (ADR 0012). */
+export interface CollectionOwner {
+  extension: string;
+  defaultGrants: boolean;
+}
+
 /** A Casbin policy row naming a collection that does not exist yet. */
 export interface ExistingRule {
   ptype: string;
@@ -603,11 +609,14 @@ export class DDLManager {
 
   // ── createCollection ─────────────────────────────────────────────────────────
 
-  /** `owner`: the extension that declared it (ADR 0012), recorded with the create. */
+  /**
+   * `owner`: the extension that declared it (ADR 0012), recorded with the create,
+   * and whether its file lets it have the default grants (`defaultGrants`).
+   */
   static async createCollection(
     db: Database,
     definition: CollectionInput,
-    owner?: string,
+    owner?: CollectionOwner,
   ): Promise<void> {
     // It owns its transaction: the cache drop and the default grants (which
     // refuse a transaction) must follow the commit, and a caller's commit is
@@ -784,7 +793,7 @@ export class DDLManager {
       if (owner) {
         await h
           .updateTable('zvd_collections')
-          .set({ owner_extension: owner })
+          .set({ owner_extension: owner.extension, default_grants: owner.defaultGrants })
           .where('name', '=', validated.name)
           .execute();
       }

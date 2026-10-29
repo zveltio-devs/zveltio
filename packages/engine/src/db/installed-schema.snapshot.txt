@@ -3823,6 +3823,8 @@ table zvd_collections
   col ai_search_enabled              boolean NOT NULL DEFAULT false
   col ai_search_field                text
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col declared_file                  jsonb
+  col default_grants                 boolean NOT NULL DEFAULT true
   col description                    text
   col display_name                   text
   col fields                         jsonb NOT NULL DEFAULT '[]'::jsonb

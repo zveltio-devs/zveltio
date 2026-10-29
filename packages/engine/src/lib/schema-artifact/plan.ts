@@ -128,6 +128,7 @@ const CREATE_KEYS = [
   'schemaLocked',
   'aiSearchEnabled',
   'aiSearchField',
+  'defaultGrants',
   'fields',
 ];
 
@@ -156,6 +157,7 @@ const COLLECTION_KEYS = new Set([
   'aiSearchEnabled',
   'aiSearchField',
   'aiEmbedExcludedFields',
+  'defaultGrants',
   'fields',
   'relations',
   'rowRules',
@@ -209,6 +211,23 @@ const LISTS: {
     }),
   },
 ];
+
+/**
+ * An extension's collection file as its load plans it (ADR 0012): of its row
+ * rules, column permissions and validation, only the entries `declared` (its
+ * file as its last apply wrote it) holds, by natural key. The others are an
+ * operator's, which a load neither changes nor removes.
+ */
+export function declaredEntriesOnly(current: string, declared: unknown): string {
+  const file = JSON.parse(current) as Obj;
+  const had = (declared ?? {}) as Obj;
+  for (const { key, entries, id } of LISTS) {
+    if (!entries) continue;
+    const ids = new Set(list('declared', had[key], key).map(id));
+    file[key] = list(String(file.name), file[key], key).filter((e) => ids.has(id(e)));
+  }
+  return serialize(file);
+}
 
 /**
  * A group names each member by the key of a rule in the same file, on the
@@ -413,7 +432,9 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
     // The export leaves the upstream credential out; a file pulled before it did
     // still holds it, which must neither show as drift nor print in the plan.
     const want = key === 'virtualConfig' ? withoutAuthValue(des[key]) : des[key];
-    if (want === undefined || want === null || same(cur[key], want)) continue;
+    // `defaultGrants` true is the default, which the export leaves out.
+    const have = key === 'defaultGrants' ? (cur[key] ?? true) : cur[key];
+    if (want === undefined || want === null || same(have, want)) continue;
     const op: ApplyOp | undefined = canSet(key, want)
       ? { kind: 'setCollection', collection: name, key, value: want ?? null }
       : undefined;

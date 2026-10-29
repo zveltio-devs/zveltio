@@ -417,7 +417,7 @@ function mapJobToPublic(job: any, type: DdlJobType): PublicJobShape {
 export async function runCreateCollection(
   db: Database,
   definition: Parameters<typeof DDLManager.createCollection>[1],
-  owner?: string,
+  owner?: Parameters<typeof DDLManager.createCollection>[2],
 ): Promise<void> {
   // Tenant RLS is part of the create (DDLManager's `createIsolatedTable`): a
   // table it cannot isolate is not created, and the job fails.
@@ -458,13 +458,15 @@ export async function runAddField(
   db: Database,
   collection: string,
   field: Parameters<typeof DDLManager.addField>[2],
+  /** The extension whose apply this is (ADR 0012), when it is one. */
+  by?: string,
 ): Promise<void> {
   // Both callers (schema-branch merge, schema apply) reach a BYOD table only
   // through here, and nothing upstream asked: Ghost DDL refused it and
   // `addField` then altered it anyway.
-  const { schemaChangeRefusal, FieldChangeError } = await import('./field-changes.js');
-  const refusal = await schemaChangeRefusal(db, collection, 'add');
-  if (refusal) throw new FieldChangeError(refusal, 403);
+  const { schemaChangeRefusal } = await import('./field-changes.js');
+  const refusal = await schemaChangeRefusal(db, collection, 'add', by);
+  if (refusal) throw refusal;
   const tableName = DDLManager.getTableName(collection);
   if (
     fieldTypeRegistry.getColumnDDL(field as FieldConfig) &&

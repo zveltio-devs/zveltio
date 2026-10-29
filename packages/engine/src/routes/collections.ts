@@ -20,6 +20,7 @@ import {
   apiKeyMayWatchSchema,
   dropField,
   FieldChangeError,
+  ownedStructureRefusal,
   schemaChangeRefusal,
   authenticate,
   enqueueDDLJob,
@@ -295,6 +296,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const user = c.get('user') as any;
     const exists = await DDLManager.tableExists(db, name);
     if (!exists) return c.json({ error: 'Table does not exist' }, 404);
+    const owned = await ownedStructureRefusal(db, [name]);
+    if (owned) return c.json({ error: owned.message }, owned.status);
     const count = await DDLManager.syncFieldsFromDB(db, name);
     if (count > 0) {
       announceSchemaChange(name, 'alter');
@@ -363,6 +366,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     async (c) => {
       const name = c.req.param('name');
       const updates = c.req.valid('json');
+      const owned = await ownedStructureRefusal(db, [name]);
+      if (owned) return c.json({ error: owned.message }, owned.status);
       await DDLManager.updateCollectionMetadata(db, name, updates);
       announceSchemaChange(name, 'alter');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -384,8 +389,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     // Use the tenant-scoped DB binding so a request from one tenant can
     // never drop a collection belonging to another.
     const effectiveDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const guardError = await assertMutable(name, 'drop');
-    if (guardError) return c.json({ error: guardError }, 403);
+    const refusal = await assertMutable(name, 'drop');
+    if (refusal) return c.json({ error: refusal.message }, refusal.status);
     const force = c.req.query('force') === 'true';
     try {
       await DDLManager.dropCollection(effectiveDb, name, { force });
@@ -429,8 +434,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const collection = await DDLManager.getCollection(db, name);
     if (!collection) return c.json({ error: 'Collection not found' }, 404);
 
-    const guardError = await assertMutable(name, 'add');
-    if (guardError) return c.json({ error: guardError }, 403);
+    const refusal = await assertMutable(name, 'add');
+    if (refusal) return c.json({ error: refusal.message }, refusal.status);
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     let existingFields: any[];

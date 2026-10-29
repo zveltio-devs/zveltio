@@ -86,8 +86,9 @@ exists, and the grant goes with the collection. So an extension can leave
 
 **What v2 should do.**
 
-- Remove manifest `resources` and `sensitiveResources`, and decide how an
-  extension withholds one of its collections from the default grants.
+- Remove manifest `resources` and `sensitiveResources`. An extension withholds
+  one of its declared collections from the default grants with
+  `"defaultGrants": false` in the collection's schema file (shipped 2026-10-29).
 - Remove `ctx.checkPermission` on a free string. A check names a collection
   the extension declares, or an engine object through `host.*`.
 - Then refuse a rule on anything that is not `*`, an engine object or an

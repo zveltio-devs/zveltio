@@ -36,38 +36,83 @@ export class FieldChangeError extends Error {
 }
 
 /**
+ * The refusal of a structure change on the first of `names` that an extension
+ * other than `by` owns (ADR 0012): its fields, relations and settings change
+ * only through that extension's own apply. Rules and grants stay the operator's.
+ */
+export async function ownedStructureRefusal(
+  db: Database,
+  names: string[],
+  by?: string,
+): Promise<FieldChangeError | null> {
+  const rows = await db
+    .selectFrom('zvd_collections')
+    .select(['name', 'owner_extension'])
+    .where('name', 'in', names)
+    .where('owner_extension', 'is not', null)
+    .execute();
+  const owned = rows.find((r) => r.owner_extension !== by);
+  return owned ? ownedError(owned.name, String(owned.owner_extension)) : null;
+}
+
+const ownedError = (name: string, extension: string) =>
+  new FieldChangeError(
+    `Collection '${name}' belongs to extension "${extension}": its fields, relations and ` +
+      'settings change only with a new version of that extension. Row rules, column ' +
+      'permissions, validation rules and grants can still be added to it.',
+    409,
+  );
+
+/**
  * Why `collection` may not take this kind of schema change, or null. Unmanaged
- * (BYOD) collections take none; a schema-locked one takes only additions.
+ * (BYOD) collections take none; a schema-locked one takes only additions; an
+ * extension's takes none but from that extension's apply (`by`).
  * `ddl-queue.ts` enforces the same rule for the async DDL jobs.
  */
 export async function schemaChangeRefusal(
   db: Database,
   collectionName: string,
   op: 'add' | 'remove' | 'drop',
-): Promise<string | null> {
+  by?: string,
+): Promise<FieldChangeError | null> {
   const meta = await db
     .selectFrom('zvd_collections')
-    .select(['is_managed', 'schema_locked'])
+    .select(['is_managed', 'schema_locked', 'owner_extension'])
     .where('name', '=', collectionName)
     .executeTakeFirst();
   if (!meta) return null; // collection-not-found is handled by caller
+  if (meta.owner_extension && meta.owner_extension !== by) {
+    return ownedError(collectionName, meta.owner_extension);
+  }
   if (meta.is_managed === false) {
-    return `Collection '${collectionName}' is unmanaged (BYOD). Schema changes are not allowed.`;
+    return new FieldChangeError(
+      `Collection '${collectionName}' is unmanaged (BYOD). Schema changes are not allowed.`,
+      403,
+    );
   }
   if (meta.schema_locked === true && op !== 'add') {
-    return `Collection '${collectionName}' is schema-locked. ${op === 'drop' ? 'Dropping' : 'Removing fields from'} it is not allowed.`;
+    return new FieldChangeError(
+      `Collection '${collectionName}' is schema-locked. ${op === 'drop' ? 'Dropping' : 'Removing fields from'} it is not allowed.`,
+      403,
+    );
   }
   return null;
 }
 
 type FieldDef = { name: string; type: string; required?: boolean; [k: string]: unknown };
 
-async function fieldsOf(db: Database, name: string, fieldName: string, op: 'add' | 'remove') {
+async function fieldsOf(
+  db: Database,
+  name: string,
+  fieldName: string,
+  op: 'add' | 'remove',
+  by: string | undefined,
+) {
   if (!SAFE_NAME_RE.test(fieldName)) throw new FieldChangeError('Invalid field name', 400);
   const collection = await DDLManager.getCollection(db, name);
   if (!collection) throw new FieldChangeError('Collection not found', 404);
-  const guardError = await schemaChangeRefusal(db, name, op);
-  if (guardError) throw new FieldChangeError(guardError, 403);
+  const refusal = await schemaChangeRefusal(db, name, op, by);
+  if (refusal) throw refusal;
   let fields: FieldDef[];
   try {
     fields =
@@ -105,6 +150,8 @@ export async function alterField(
     indexed?: boolean;
     defaultValue?: unknown;
   },
+  /** The extension whose apply this is (ADR 0012), when it is one. */
+  by?: string,
 ): Promise<{ field: FieldDef; actions: string[] }> {
   const { newName, newType, required } = change;
   if (SYSTEM_COLUMNS.has(fieldName) || (newName && SYSTEM_COLUMNS.has(newName))) {
@@ -114,7 +161,7 @@ export async function alterField(
     throw new FieldChangeError('Invalid field name', 400);
   }
   // rename/type/required keep the column → "add" semantics
-  const { fields, fieldDef } = await fieldsOf(db, name, fieldName, 'add');
+  const { fields, fieldDef } = await fieldsOf(db, name, fieldName, 'add', by);
 
   const isRelation = ALL_RELATION_TYPES.has(fieldDef.type);
 
@@ -288,7 +335,7 @@ export async function alterField(
       }
       throw err;
     }
-    const current = (await fieldsOf(db, name, shape.name, 'add')).fields;
+    const current = (await fieldsOf(db, name, shape.name, 'add', by)).fields;
     await DDLManager.updateCollectionMetadata(db, name, {
       fields: current.map((f) => (f.name === shape.name ? shape : f)) as never,
     });
@@ -300,11 +347,16 @@ export async function alterField(
 }
 
 /** Drops a field: its column (or, for o2m and m2m, the column or junction it stands for), its relation and its metadata. */
-export async function dropField(db: Database, name: string, fieldName: string): Promise<void> {
+export async function dropField(
+  db: Database,
+  name: string,
+  fieldName: string,
+  by?: string,
+): Promise<void> {
   if (SYSTEM_COLUMNS.has(fieldName)) {
     throw new FieldChangeError(`"${fieldName}" is a reserved system field name`, 400);
   }
-  const { fields } = await fieldsOf(db, name, fieldName, 'remove');
+  const { fields } = await fieldsOf(db, name, fieldName, 'remove', by);
   const tableName = DDLManager.getTableName(name);
   const fieldDef = fields.find((f) => f.name === fieldName);
 

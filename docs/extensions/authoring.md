@@ -188,6 +188,16 @@ List them in `manifest.json` and ship one file per name, in the
   is enabled. A drop, a rename or a type change is refused for now.
 - The instance's own schema export leaves the extension's collections out: they
   belong to its package.
+- Their fields, relations and settings are the extension's: an operator's change
+  through `/api/collections`, `/api/relations`, Studio or a schema branch
+  answers 409. Row rules, column permissions, validation rules and grants an
+  operator adds stay: a load adds, changes and removes only the entries the
+  extension's own files declared, judged against what its previous apply
+  declared.
+- `"defaultGrants": false` in a collection's file withholds it from the default
+  role grants, at creation and at every boot: an internal collection only the
+  extension's actions and jobs reach. It replaces `sensitiveResources` for
+  declared collections, and cannot change after creation yet.
 
 ## Actions and jobs — `extension-api v1`
 

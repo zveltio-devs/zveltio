@@ -12,7 +12,9 @@ import {
   dropMaskView,
   FieldChangeError,
   fieldsChanged,
+  ownedStructureRefusal,
   RelationSchema,
+  relationTables,
   removeFieldFromCollection,
   sealColumns,
 } from '../lib/data/index.js';
@@ -116,6 +118,8 @@ export function relationsRoutes(db: Database, auth: any): Hono {
         .executeTakeFirst();
 
       if (!existing) return c.json({ error: 'Relation not found' }, 404);
+      const owned = await ownedStructureRefusal(db, relationTables(existing));
+      if (owned) return c.json({ error: owned.message }, owned.status);
 
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const toUpdate: Record<string, any> = { updated_at: new Date() };
@@ -144,6 +148,8 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       .executeTakeFirst();
 
     if (!relation) return c.json({ error: 'Relation not found' }, 404);
+    const owned = await ownedStructureRefusal(db, relationTables(relation));
+    if (owned) return c.json({ error: owned.message }, owned.status);
     // An extension's m2m over its own table (crm `contact_organizations`) is the
     // extension's: refused before the transaction removes the source field.
     if (
