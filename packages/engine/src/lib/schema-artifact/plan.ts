@@ -13,7 +13,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { isOperatorField } from '../data/index.js';
+import { isOperatorField, relationKey, requiredSetNull } from '../data/index.js';
 import {
   ENGINE_SEEDED_ROLES,
   exportField,
@@ -322,21 +322,20 @@ function checkRequiredSetNull(collections: Map<string, Obj>) {
     list(collection, collections.get(collection)?.fields, 'fields').find((f) => f.name === name);
   for (const [name, file] of collections) {
     for (const r of list(name, file.relations, 'relations')) {
-      const [holder, column] =
-        r.type === 'o2m'
-          ? [String(r.target), String(r.targetField ?? `${name}_id`)]
-          : [name, String(r.field)];
-      if (r.type === 'm2m' || r.type === 'm2a' || fieldOf(holder, column)?.required !== true) {
-        continue;
-      }
       const e = relationDefaults(name, r);
-      for (const k of ['onDelete', 'onUpdate']) {
-        if (String(e[k]).toUpperCase() !== 'SET NULL') continue;
-        throw new SchemaFileError(
-          `collections/${name}.json: relation ${show(r.name)}: ${holder}.${column} is required, so ${k} cannot be SET NULL ` +
-            `(${k === 'onDelete' ? 'deleting' : 'changing the key of'} a ${r.type === 'o2m' ? name : String(r.target)} row would fail); use CASCADE, RESTRICT or NO ACTION`,
-        );
-      }
+      const rel = {
+        name: r.name,
+        type: String(r.type),
+        source_collection: name,
+        source_field: String(r.field),
+        target_collection: String(r.target),
+        target_field: r.type === 'o2m' ? String(e.targetField) : undefined,
+        on_delete: String(e.onDelete),
+        on_update: String(e.onUpdate),
+      };
+      const k = relationKey(rel);
+      const refusal = k && requiredSetNull(rel, fieldOf(k.holder, k.column)?.required === true);
+      if (refusal) throw new SchemaFileError(`collections/${name}.json: ${refusal}`);
     }
   }
 }

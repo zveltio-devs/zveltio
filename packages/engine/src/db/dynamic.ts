@@ -842,6 +842,77 @@ export async function columnsNotNull(db: Database, keys: string[]): Promise<Map<
   return new Map(rows.map((r) => [r.k, r.n]));
 }
 
+const FK_ACTIONS: Record<string, string> = {
+  a: 'NO ACTION',
+  r: 'RESTRICT',
+  c: 'CASCADE',
+  n: 'SET NULL',
+  d: 'SET DEFAULT',
+};
+
+/**
+ * The foreign key on each of `keys` (`table.column`) as the database enforces
+ * it — not as `zvd_relations` describes it; a column without one is absent.
+ */
+export async function foreignKeysOf(
+  db: Database,
+  keys: string[],
+): Promise<Map<string, { name: string; onDelete: string; onUpdate: string }>> {
+  if (keys.length === 0) return new Map();
+  const { rows } = await sql<{ k: string; name: string; d: string; u: string }>`
+    SELECT c.relname || '.' || a.attname AS k, con.conname AS name,
+           con.confdeltype::text AS d, con.confupdtype::text AS u
+      FROM pg_constraint con
+      JOIN pg_class c ON c.oid = con.conrelid
+      JOIN pg_namespace ns ON ns.oid = c.relnamespace
+      JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = con.conkey[1]
+     WHERE ns.nspname = 'public' AND con.contype = 'f' AND cardinality(con.conkey) = 1
+       AND c.relname || '.' || a.attname IN (${sql.join(keys)})`.execute(db);
+  return new Map(
+    rows.map((r) => [r.k, { name: r.name, onDelete: FK_ACTIONS[r.d], onUpdate: FK_ACTIONS[r.u] }]),
+  );
+}
+
+/**
+ * Gives the foreign key on `table.column` these actions: dropped and added back
+ * under its own name in one statement, in the caller's transaction, so the key
+ * and the relation row it is written beside change together. PostgreSQL has no
+ * ALTER CONSTRAINT for referential actions.
+ */
+export async function dynamicSetForeignKeyActions(
+  db: Database,
+  tableName: string,
+  columnName: string,
+  refTable: string,
+  onDelete: string,
+  onUpdate: string,
+): Promise<void> {
+  const od = onDelete.toUpperCase();
+  const ou = onUpdate.toUpperCase();
+  const allowed = ['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION'];
+  if (!allowed.includes(od) || !allowed.includes(ou)) {
+    throw new Error(`Invalid on_delete/on_update value: ${od}/${ou}`);
+  }
+  const table = sql.id(sanitizeIdentifier(tableName));
+  const col = sql.id(sanitizeIdentifier(columnName));
+  const ref = sql.id(sanitizeIdentifier(refTable));
+  const fk = (await foreignKeysOf(db, [`${tableName}.${columnName}`])).get(
+    `${tableName}.${columnName}`,
+  );
+  if (fk?.onDelete === od && fk.onUpdate === ou) return;
+  const key = sql`FOREIGN KEY (${col}) REFERENCES ${ref}(id) ON DELETE ${sql.raw(od)} ON UPDATE ${sql.raw(ou)}`;
+  await withLockTimeout(db, async (trx) => {
+    // A key the relation should have and does not (drift) is added.
+    if (!fk) await sql`ALTER TABLE ${table} ADD ${key}`.execute(trx);
+    else {
+      const name = sql.id(fk.name);
+      await sql`ALTER TABLE ${table} DROP CONSTRAINT ${name}, ADD CONSTRAINT ${name} ${key}`.execute(
+        trx,
+      );
+    }
+  });
+}
+
 /**
  * Run `fn` with its lock waits bounded, in the caller's transaction or a new one.
  *

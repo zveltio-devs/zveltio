@@ -35,6 +35,7 @@ import {
   runCreateCollection,
   schemaChangeRefusal,
   SYSTEM_COLUMNS,
+  updateRelation,
 } from '../data/index.js';
 import { toJsonb } from '../jsonb.js';
 import {
@@ -516,7 +517,7 @@ async function putRelation(
 ) {
   const existing = await db
     .selectFrom('zvd_relations')
-    .select('id')
+    .selectAll()
     .where('source_collection', '=', data.source_collection)
     .where('source_field', '=', data.source_field)
     .executeTakeFirst();
@@ -524,17 +525,7 @@ async function putRelation(
     await createRelation(db, data, fields, owner);
     return;
   }
-  await db
-    .updateTable('zvd_relations')
-    .set({
-      name: data.name,
-      on_delete: data.on_delete,
-      on_update: data.on_update,
-      metadata: toJsonb(data.metadata),
-      updated_at: new Date(),
-    })
-    .where('id', '=', existing.id)
-    .execute();
+  await updateRelation(db, existing, data);
 }
 
 async function removeEntry(db: Database, collection: string, list: string, e: Entry) {
