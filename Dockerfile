@@ -1,5 +1,8 @@
 # ── Stage 1: Build Studio + Client ────────────────────────────
-FROM oven/bun:1.4-alpine AS frontend-builder
+# On the build machine's own platform: the output is static JavaScript, the same
+# for every target. Emulated under QEMU for linux/arm64 the Studio's Vite build
+# hung for six hours and the beta.91 image never shipped (amd64 took 2.5 min).
+FROM --platform=$BUILDPLATFORM oven/bun:1.4-alpine AS frontend-builder
 
 WORKDIR /app
 
