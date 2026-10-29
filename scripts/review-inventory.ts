@@ -271,6 +271,8 @@ const SECTIONS: Section[] = [
       `${E}lib/secret-files.ts`,
       `${E}lib/step-up.ts`,
       `${E}routes/step-up.ts`,
+      `${E}lib/cli-sign-in.ts`,
+      `${E}routes/cli-sign-in.ts`,
     ],
   },
   {
