@@ -33,7 +33,9 @@ import {
 } from './extension-paths.js';
 import {
   REGISTRY_URL,
+  changelogBetween,
   fetchRegistryCatalog,
+  fetchRegistryChangelog,
   downloadExtension,
   stageExtensionDir,
 } from './extension-download.js';
@@ -77,9 +79,11 @@ export function registerMarketplaceRoutes(
     fetchRegistryCatalog: typeof fetchRegistryCatalog;
     downloadExtension: typeof downloadExtension;
     requireStepUp?: typeof requireStepUp;
+    fetchRegistryChangelog?: typeof fetchRegistryChangelog;
   } = { fetchRegistryCatalog, downloadExtension },
 ): void {
   const { fetchRegistryCatalog: fetchCatalog, downloadExtension: doDownload } = deps;
+  const fetchChangelog = deps.fetchRegistryChangelog ?? fetchRegistryChangelog;
   const spendStepUp = deps.requireStepUp ?? requireStepUp;
   // Admin-only guard
   const requireAdmin = (c: Context) => guardAdmin(c, auth, requireInstanceAdmin);
@@ -1620,6 +1624,35 @@ export function registerMarketplaceRoutes(
     invalidateActivationCache(name);
     announceExtensionLifecycle(name);
   };
+  // What changed between the installed version and the catalog's: the "What's
+  // new" dialog beside Update. One wildcard for the same reason as the POST
+  // below; `changelog` is the only GET under a name.
+  app.get('/api/marketplace/*', async (c) => {
+    const rest = c.req.path.slice('/api/marketplace/'.length);
+    if (!rest.endsWith('/changelog')) return c.json({ error: 'Not found' }, 404);
+    const gate = await requireAdmin(c);
+    if (gate instanceof Response) return gate;
+    const name = decodeName(rest.slice(0, -'/changelog'.length));
+    const entry = (await fetchCatalog()).find((e) => e.name === name);
+    if (!entry) return c.json({ error: `Extension "${name}" is not in the catalog` }, 404);
+    const extDir = join(resolveExtensionsBase(), name);
+    const installed_version = extensionFilesPresent(extDir) ? diskVersion(extDir) : null;
+    let md: string | null;
+    try {
+      md = await fetchChangelog(name);
+    } catch (err) {
+      return c.json({ error: `Registry unreachable: ${(err as Error).message}` }, 502);
+    }
+    return c.json({
+      name,
+      installed_version,
+      catalog_version: entry.version,
+      // false = the registry serves no changelog for it, not "nothing changed"
+      published: md !== null,
+      entries: md === null ? [] : changelogBetween(md, installed_version, entry.version),
+    });
+  });
+
   app.post('/api/marketplace/*', (c) => {
     const rest = c.req.path.slice('/api/marketplace/'.length);
     if (rest === 'enable-all') return enableAllExtensions(c);
