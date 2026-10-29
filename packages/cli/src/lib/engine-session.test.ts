@@ -46,32 +46,39 @@ describe('engine session', () => {
         return new Response('{}', { headers: { 'set-auth-token': 'tok.sig' } });
       },
     });
-    const token = await signIn('http://e.test:3000/x', 'a@b.c', 'pw', async () => '123456');
+    const token = await signIn('https://e.test:3000/x', 'a@b.c', 'pw', async () => '123456');
     expect(token).toBe('tok.sig');
     expect(sentCookie).toBe('better-auth.two_factor=2fa-abc');
   });
 
   it('keeps one 0600 session per engine origin', () => {
-    saveSession('http://e.test:3000/admin', 'one');
-    saveSession('http://other.test', 'two');
-    expect(sessionFor('http://e.test:3000')).toBe('one');
-    expect(sessionFor('http://other.test/')).toBe('two');
+    saveSession('https://e.test:3000/admin', 'one');
+    saveSession('https://other.test', 'two');
+    expect(sessionFor('https://e.test:3000')).toBe('one');
+    expect(sessionFor('https://other.test/')).toBe('two');
     expect(statSync(credentialsPath()).mode & 0o777).toBe(0o600);
   });
 
   it('sends a passkey-only account to the Console instead of asking for a code', async () => {
-    saveSession('http://e.test:3000', 'one');
+    saveSession('https://e.test:3000', 'one');
     fakeEngine({
       '/api/auth/step-up/options': () =>
         new Response(JSON.stringify({ method: 'passkey', totp: false })),
     });
     await expect(
       engineFetch(
-        { url: 'http://e.test:3000' },
+        { url: 'https://e.test:3000' },
         '/api/marketplace/crm/update',
         {},
         'extension.update:crm',
       ),
     ).rejects.toThrow(/passkey only/);
+  });
+});
+
+describe('engine session refusals', () => {
+  it('refuses a cleartext session to an engine that is not on this machine', () => {
+    expect(() => saveSession('http://engine.example.com', 'x')).toThrow(/https/);
+    expect(() => saveSession('http://localhost:3000', 'x')).not.toThrow();
   });
 });

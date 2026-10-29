@@ -11,7 +11,7 @@
  * session and that one action. A passkey cannot be used from a terminal, so an
  * account that steps up with a passkey only is sent to the Console.
  */
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promptHidden } from './prompt.js';
@@ -28,21 +28,45 @@ export function credentialsPath(): string {
 }
 
 function readAll(): Record<string, string> {
+  let text: string;
   try {
-    return JSON.parse(readFileSync(credentialsPath(), 'utf8')) as Record<string, string>;
+    text = readFileSync(credentialsPath(), 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw e;
+  }
+  // A file that does not parse is refused, not replaced: rewriting it would drop
+  // every other engine's session.
+  try {
+    return JSON.parse(text) as Record<string, string>;
   } catch {
-    return {};
+    throw new Error(
+      `${credentialsPath()} is not valid JSON. Fix or delete it, then sign in again.`,
+    );
   }
 }
 
 function writeAll(all: Record<string, string>): void {
   const path = credentialsPath();
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(path, 0o600); // an existing file keeps its mode on write
+  // A new file, 0600 from creation, renamed over the old one: the token is never
+  // in a file with a wider mode, whatever mode the old one had.
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+  renameSync(tmp, path);
 }
 
-const originOf = (url: string): string => new URL(url).origin;
+/** The engine's origin. A session goes in clear over `http:` only to this machine. */
+const originOf = (url: string): string => {
+  const u = new URL(url);
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) {
+    throw new Error(
+      `Refusing ${u.origin}: use https:// for an engine that is not on this machine.`,
+    );
+  }
+  return u.origin;
+};
 
 export function sessionFor(url: string): string | null {
   return readAll()[originOf(url)] ?? null;
@@ -97,7 +121,7 @@ export async function signIn(
     const v = await fetch(`${origin}/api/auth/two-factor/verify-totp`, {
       method: 'POST',
       headers: { ...json, cookie },
-      body: JSON.stringify({ code: await askCode() }),
+      body: JSON.stringify({ code: (await askCode()).trim() }),
     });
     if (!v.ok) throw new Error(`Sign-in failed: ${await errorOf(v)}`);
     token = v.headers.get('set-auth-token');

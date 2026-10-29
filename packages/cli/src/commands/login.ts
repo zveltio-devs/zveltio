@@ -28,6 +28,8 @@ export async function loginCommand(opts: { url?: string; email?: string }) {
   }
   const password = await promptHidden('Password: ');
   try {
+    // A second login replaces the session: end the old one rather than orphan it.
+    if (sessionFor(url)) await endOnEngine(url);
     const token = await signIn(url, email.trim(), password, () =>
       promptHidden('Authenticator code: '),
     );
@@ -41,15 +43,33 @@ export async function loginCommand(opts: { url?: string; email?: string }) {
 
 export async function logoutCommand(opts: { url?: string }) {
   const url = engineUrlOf(opts.url);
-  if (!sessionFor(url)) {
-    console.log(`Not signed in to ${new URL(url).origin}.`);
-    return;
+  let ended: boolean;
+  try {
+    if (!sessionFor(url)) {
+      console.log(`Not signed in to ${new URL(url).origin}.`);
+      return;
+    }
+    ended = await endOnEngine(url);
+    forgetSession(url);
+  } catch (e) {
+    console.error(`❌ ${(e as Error).message}`);
+    process.exit(1);
   }
-  // End it on the engine too; the local copy goes either way.
-  await engineFetch({ url }, '/api/auth/sign-out', {
+  if (!ended) {
+    console.error(
+      `⚠️  Forgot the local session, but ${new URL(url).origin} did not confirm the sign-out. ` +
+        'It may still be valid: revoke it in the Console under your sessions.',
+    );
+    process.exit(1);
+  }
+  console.log(`Signed out of ${new URL(url).origin}.`);
+}
+
+/** Sign the stored session out on the engine; false when the engine did not confirm. */
+async function endOnEngine(url: string): Promise<boolean> {
+  const res = await engineFetch({ url }, '/api/auth/sign-out', {
     method: 'POST',
     headers: { Origin: new URL(url).origin },
   }).catch(() => null);
-  forgetSession(url);
-  console.log(`Signed out of ${new URL(url).origin}.`);
+  return res?.ok === true;
 }

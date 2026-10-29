@@ -162,7 +162,7 @@ zveltio login --url https://console.example.com
 zveltio logout --url https://console.example.com
 ```
 
-`login` asks for your email, password and, when the account has one, the code from your authenticator app. The CLI keeps the session the engine issues, never the password, in `$XDG_CONFIG_HOME/zveltio/credentials.json` (default `~/.config`, mode 0600), one per engine. `logout` ends the session on the engine and removes it from the file.
+`login` asks for your email, password and, when the account has one, the code from your authenticator app. The CLI keeps the session the engine issues, never the password, in `$XDG_CONFIG_HOME/zveltio/credentials.json` (default `~/.config`, mode 0600), one per engine. The CLI sends a session over `http://` only to `localhost`; any other engine must be `https://`. Signing in again ends the previous session. `logout` ends the session on the engine and removes it from the file, and exits non-zero if the engine did not confirm.
 
 Every marketplace change (install, enable, disable, update) then asks for a fresh authenticator code, the same confirmation the Console asks for. One code confirms one change, so `install`, which installs and then enables, asks twice. Pass `--totp <code>` to give the first code on the command line. An account that confirms with a passkey only cannot use these commands: a terminal cannot use a passkey. Add an authenticator app to the account or use the Console.
 

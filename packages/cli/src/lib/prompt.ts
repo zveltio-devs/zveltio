@@ -22,20 +22,25 @@ export async function promptHidden(question: string): Promise<string> {
     stdin.setRawMode?.(true);
     stdin.setEncoding('utf8');
 
-    const handler = (char: string) => {
-      if (char === '\n' || char === '\r' || char === '\u0003') {
-        if (char === '\u0003') process.exit(1);
-        stdin.setRawMode?.(false);
-        stdin.pause();
-        stdin.off('data', handler);
-        process.stdout.write('\n');
-        resolve(value);
-      } else if (char === '\u007f') {
-        // Backspace
-        if (value.length > 0) value = value.slice(0, -1);
-      } else {
-        value += char;
-        process.stdout.write('*');
+    // A chunk is a keystroke when typed, but a whole line when pasted or piped.
+    const handler = (chunk: string) => {
+      for (const char of chunk) {
+        if (char === '\n' || char === '\r' || char === '\u0003') {
+          if (char === '\u0003') process.exit(1);
+          stdin.setRawMode?.(false);
+          stdin.pause();
+          stdin.off('data', handler);
+          process.stdout.write('\n');
+          resolve(value);
+          return;
+        }
+        if (char === '\u007f') {
+          // Backspace
+          if (value.length > 0) value = value.slice(0, -1);
+        } else {
+          value += char;
+          process.stdout.write('*');
+        }
       }
     };
 
