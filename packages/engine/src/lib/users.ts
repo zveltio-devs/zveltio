@@ -477,7 +477,7 @@ export async function createBetterAuthSession(
   poolDb: Database,
   userId: string,
   opts: CreateSsoSessionOptions = {},
-): Promise<{ token: string; setCookie: string }> {
+): Promise<{ token: string; setCookie: string; signed: string }> {
   const db = engineHandle(callerDb); // engine SQL — see deleteUser
   if (await isSignInBlocked(db, userId)) throw new SignInBlockedError();
   const ctx = await getAuth().$context;
@@ -521,7 +521,9 @@ export async function createBetterAuthSession(
   } else throw new Error(`No user ${userId} to sign in.`);
 
   const cookie = ctx.authCookies.sessionToken;
-  const value = encodeURIComponent(`${token}.${await makeSignature(token, ctx.secret)}`);
+  // The signed value is what the cookie carries and what a bearer client sends.
+  const signed = `${token}.${await makeSignature(token, ctx.secret)}`;
+  const value = encodeURIComponent(signed);
   const parts = [`${cookie.name}=${value}`, 'Path=/', 'HttpOnly', `Max-Age=${ttl}`];
   if (opts.crossDomain) parts.push('SameSite=None', 'Secure');
   else {
@@ -529,5 +531,5 @@ export async function createBetterAuthSession(
     parts.push(`SameSite=${sameSite[0]?.toUpperCase()}${sameSite.slice(1)}`);
     if (cookie.attributes.secure) parts.push('Secure');
   }
-  return { token, setCookie: parts.join('; ') };
+  return { token, setCookie: parts.join('; '), signed };
 }

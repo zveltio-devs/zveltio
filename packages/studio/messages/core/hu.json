@@ -1619,5 +1619,19 @@
   "settings.theme.sample": "Minta",
   "settings.theme.save": "Téma mentése",
   "settings.theme.reset": "Vissza a daisyUI alapértelmezésre",
-  "settings.theme.useInstance": "A példány témájának használata"
+  "settings.theme.useInstance": "A példány témájának használata",
+  "cli.title": "CLI-kérés megerősítése",
+  "cli.subtitle": "Egy terminál a nevedben szeretne eljárni.",
+  "cli.codeLabel": "Kód",
+  "cli.lookup": "Kérés megjelenítése",
+  "cli.compare": "Ellenőrizd, hogy ez a kód egyezik-e a terminálban látottal. Ha nem te indítottad, utasítsd el.",
+  "cli.kindLogin": "A CLI bejelentkeztetése a fiókoddal",
+  "cli.kindStepUp": "Engedélyezés a CLI-nek: {action}",
+  "cli.from": "Innen: {ip} · {agent}",
+  "cli.approve": "Jóváhagyás",
+  "cli.deny": "Elutasítás",
+  "cli.approved": "Jóváhagyva. Térj vissza a terminálhoz.",
+  "cli.denied": "Elutasítva. A terminál kérése véget ért.",
+  "cli.notFound": "Ez a kérés lejárt vagy már felhasználták.",
+  "cli.notForYou": "Ez a megerősítés egy másik fiókhoz tartozik. Jelentkezz be azzal a felhasználóval a jóváhagyáshoz."
 }

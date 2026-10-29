@@ -7,6 +7,7 @@
  */
 import { createInterface } from 'readline';
 import {
+  confirmInBrowser,
   credentialsPath,
   engineFetch,
   forgetSession,
@@ -18,8 +19,22 @@ import { prompt, promptHidden } from '../lib/prompt.js';
 
 const engineUrlOf = (url?: string) => url || process.env.ENGINE_URL || 'http://localhost:3000';
 
-export async function loginCommand(opts: { url?: string; email?: string }) {
+export async function loginCommand(opts: { url?: string; email?: string; web?: boolean }) {
   const url = engineUrlOf(opts.url);
+  if (opts.web) {
+    // Approved in the Console, signed in there with a passkey or TOTP.
+    try {
+      const token = await confirmInBrowser(url, { kind: 'login' });
+      // Only once the new one exists: a cancelled sign-in keeps the old session.
+      if (sessionFor(url)) await endOnEngine(url);
+      saveSession(url, token);
+    } catch (e) {
+      console.error(`❌ ${(e as Error).message}`);
+      process.exit(1);
+    }
+    console.log(`✅ Signed in to ${new URL(url).origin} (session kept in ${credentialsPath()}).`);
+    return;
+  }
   let email = opts.email;
   if (!email) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });

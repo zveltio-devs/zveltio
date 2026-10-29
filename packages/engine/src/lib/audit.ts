@@ -8,6 +8,8 @@ export type AuditEventType =
   | 'auth.logout'
   /** A passkey or TOTP factor was added, removed or disabled (routes/step-up.ts). */
   | 'auth.factor_changed'
+  /** A CLI sign-in or step-up was approved in the Console (routes/cli-sign-in.ts). */
+  | 'auth.cli_approved'
   | 'permission.denied'
   | 'permission.granted'
   | 'permission.revoked'

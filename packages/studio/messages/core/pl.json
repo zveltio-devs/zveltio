@@ -1619,5 +1619,19 @@
   "settings.theme.sample": "Przykład",
   "settings.theme.save": "Zapisz motyw",
   "settings.theme.reset": "Przywróć domyślne daisyUI",
-  "settings.theme.useInstance": "Użyj motywu instancji"
+  "settings.theme.useInstance": "Użyj motywu instancji",
+  "cli.title": "Potwierdź żądanie z CLI",
+  "cli.subtitle": "Terminal prosi o działanie w Twoim imieniu.",
+  "cli.codeLabel": "Kod",
+  "cli.lookup": "Pokaż żądanie",
+  "cli.compare": "Sprawdź, czy ten kod jest taki sam jak w terminalu. Jeśli to nie Ty je rozpocząłeś, odrzuć.",
+  "cli.kindLogin": "Zaloguj CLI na swoje konto",
+  "cli.kindStepUp": "Zezwól CLI na: {action}",
+  "cli.from": "Z {ip} · {agent}",
+  "cli.approve": "Zatwierdź",
+  "cli.deny": "Odrzuć",
+  "cli.approved": "Zatwierdzono. Wróć do terminala.",
+  "cli.denied": "Odrzucono. Żądanie terminala zostało zakończone.",
+  "cli.notFound": "To żądanie wygasło lub zostało już użyte.",
+  "cli.notForYou": "To potwierdzenie dotyczy innego konta. Zaloguj się jako ten użytkownik, aby je zatwierdzić."
 }

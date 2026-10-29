@@ -130,6 +130,85 @@ export async function signIn(
   return token;
 }
 
+/**
+ * Open `url` in the default browser; the printed link is the fallback.
+ * `ZVELTIO_NO_BROWSER=1` only prints it (a server, a test).
+ */
+function openBrowser(url: string): void {
+  if (process.env.ZVELTIO_NO_BROWSER) return;
+  const cmd =
+    process.platform === 'darwin'
+      ? ['open', url]
+      : process.platform === 'win32'
+        ? ['rundll32', 'url.dll,FileProtocolHandler', url] // no shell parses the URL
+        : ['xdg-open', url];
+  try {
+    Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore' });
+  } catch {
+    // No opener: the person follows the printed link.
+  }
+}
+
+/**
+ * Have the person confirm in the Console (ADR 0011 amendment 1): a sign-in, or
+ * one step-up for the session `bearer`. Returns the session or step-up token.
+ */
+export async function confirmInBrowser(
+  url: string,
+  request: { kind: 'login' } | { kind: 'step-up'; action: string },
+  bearer?: string,
+): Promise<string> {
+  const origin = originOf(url);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Origin: origin };
+  if (bearer) headers.Authorization = `Bearer ${bearer}`;
+  const res = await fetch(`${origin}/api/auth/cli/start`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(request),
+  });
+  if (res.status === 401) throw notSignedIn(origin);
+  if (!res.ok) throw new Error(await errorOf(res));
+  const started = (await res.json()) as {
+    device_code: string;
+    user_code: string;
+    verification_path: string;
+    expires_in: number;
+    interval: number;
+  };
+  // The link goes to a browser opener: built from checked parts, on the engine's
+  // own origin, whatever the response says.
+  if (
+    !/^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/.test(started.user_code) ||
+    !/^\/[A-Za-z0-9_/-]*$/.test(started.verification_path)
+  ) {
+    throw new Error(`${origin} answered with a malformed confirmation request.`);
+  }
+  const u = new URL(started.verification_path, origin);
+  if (u.origin !== origin) throw new Error(`${origin} pointed the confirmation elsewhere.`);
+  u.searchParams.set('code', started.user_code);
+  const link = u.href;
+  const what = request.kind === 'login' ? 'sign-in' : request.action;
+  console.log(`\n  Confirm ${what} in your browser. Code: ${started.user_code}`);
+  console.log(`  ${link}\n`);
+  openBrowser(link);
+
+  const deadline = Date.now() + started.expires_in * 1000;
+  while (Date.now() < deadline) {
+    await Bun.sleep(started.interval * 1000);
+    const p = await fetch(`${origin}/api/auth/cli/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({ device_code: started.device_code }),
+    }).catch(() => null);
+    if (!p) continue; // a dropped poll is retried until the request expires
+    const body = (await p.json().catch(() => ({}))) as { status?: string; token?: string };
+    if (body.status === 'approved' && body.token) return body.token;
+    if (body.status === 'expired' || p.status === 410)
+      throw new Error('The request was denied or has expired.');
+  }
+  throw new Error('The request has expired.');
+}
+
 const notSignedIn = (origin: string) =>
   new Error(`Not signed in to ${origin}. Run: zveltio login --url ${origin}`);
 
@@ -151,12 +230,9 @@ async function stepUp(target: EngineTarget, token: string, action: string): Prom
   if (options.status === 401) throw notSignedIn(origin);
   if (!options.ok) throw new Error(await errorOf(options));
   const { method, totp } = (await options.json()) as { method: string; totp?: boolean };
-  if (method !== 'totp' && !totp) {
-    throw new Error(
-      'This account confirms with a passkey only, which a terminal cannot use. ' +
-        'Add an authenticator app to it, or do this in the Console.',
-    );
-  }
+  // A passkey cannot be used from a terminal: the browser confirms instead.
+  if (method !== 'totp' && !totp)
+    return confirmInBrowser(origin, { kind: 'step-up', action }, token);
 
   for (let attempt = 0; attempt < 3; attempt++) {
     const given = target.totp;

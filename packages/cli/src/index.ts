@@ -219,6 +219,7 @@ program
   .description('Sign in to an engine as your user (password, then authenticator code)')
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
   .option('--email <email>', 'Account email (asked for otherwise)')
+  .option('--web', 'Approve the sign-in in the Console instead (passkey or TOTP)')
   .action((opts) => loginCommand(opts));
 
 program

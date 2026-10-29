@@ -1619,5 +1619,19 @@
   "settings.theme.sample": "Sample",
   "settings.theme.save": "Save theme",
   "settings.theme.reset": "Reset to daisyUI defaults",
-  "settings.theme.useInstance": "Use the instance theme"
+  "settings.theme.useInstance": "Use the instance theme",
+  "cli.title": "Confirm a CLI request",
+  "cli.subtitle": "A terminal asks to act as you.",
+  "cli.codeLabel": "Code",
+  "cli.lookup": "Show request",
+  "cli.compare": "Check that this code is the one your terminal shows. If you did not start this, deny it.",
+  "cli.kindLogin": "Sign the CLI in as you",
+  "cli.kindStepUp": "Let the CLI do: {action}",
+  "cli.from": "From {ip} · {agent}",
+  "cli.approve": "Approve",
+  "cli.deny": "Deny",
+  "cli.approved": "Approved. Go back to your terminal.",
+  "cli.denied": "Denied. The terminal's request has ended.",
+  "cli.notFound": "This request has expired or was already used.",
+  "cli.notForYou": "This confirmation is for another account. Sign in as that user to approve it."
 }
