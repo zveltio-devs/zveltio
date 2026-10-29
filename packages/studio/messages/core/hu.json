@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Válasszon célgyűjteményt ehhez a kapcsolatmezőhöz",
   "fields.fasterQueries": "Gyorsabb lekérdezések ezen a mezőn",
   "fields.fieldName": "Mező neve",
+  "fields.operatorPrefixHint": "Ez a gyűjtemény a(z) {extension} bővítményhez tartozik; az általad hozzáadott mezők {prefix} előtaggal kezdődnek.",
   "fields.fillNameToContinue": "Adja meg a mező nevét a folytatáshoz",
   "fields.goToSchema": "Ugrás a sémához mezők hozzáadásához →",
   "fields.hint.m2mTarget": "A kapcsolótábla másik oldala",

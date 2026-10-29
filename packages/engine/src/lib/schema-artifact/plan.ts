@@ -13,6 +13,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { isOperatorField } from '../data/index.js';
 import {
   ENGINE_SEEDED_ROLES,
   exportField,
@@ -216,11 +217,17 @@ const LISTS: {
  * An extension's collection file as its load plans it (ADR 0012): of its row
  * rules, column permissions and validation, only the entries `declared` (its
  * file as its last apply wrote it) holds, by natural key. The others are an
- * operator's, which a load neither changes nor removes.
+ * operator's, which a load neither changes nor removes; so are the fields
+ * named with the operator prefix and their relations (amendment 2).
  */
 export function declaredEntriesOnly(current: string, declared: unknown): string {
   const file = JSON.parse(current) as Obj;
   const had = (declared ?? {}) as Obj;
+  const theirs = (name: unknown) => !isOperatorField(String(name));
+  file.fields = list(String(file.name), file.fields, 'fields').filter((f) => theirs(f.name));
+  file.relations = list(String(file.name), file.relations, 'relations').filter((r) =>
+    theirs(r.field),
+  );
   for (const { key, entries, id } of LISTS) {
     if (!entries) continue;
     const ids = new Set(list('declared', had[key], key).map(id));

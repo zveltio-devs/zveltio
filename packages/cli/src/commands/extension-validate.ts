@@ -20,6 +20,7 @@ import {
   type ValidationError,
 } from '@zveltio/sdk/validate';
 import { parseSchema } from '@zveltio/sdk/codegen';
+import { OPERATOR_FIELD_PREFIX } from '@zveltio/sdk/extension';
 import { resolvePublisherTier, tierAllowsInline } from '../lib/publisher-tier.js';
 import { hashEngineSources } from './extension-pack.js';
 
@@ -212,6 +213,42 @@ function inferExpectedName(dir: string): string {
  * A manifest with no `sourceSha256` was packed by an older CLI: warn, don't
  * fail — there is nothing to compare against, and the author's fix is a repack.
  */
+/**
+ * A declared collection's file may not name a field with the operator prefix
+ * (ADR 0012 amendment 2): those names are the operator's, so the two sets never
+ * collide. The engine refuses the same file at load; this says so before publish.
+ */
+export function checkOperatorFieldNames(dir: string, manifest: unknown): ValidationError[] {
+  const declared = (manifest as { collections?: unknown } | null)?.collections;
+  const out: ValidationError[] = [];
+  for (const name of Array.isArray(declared) ? declared : []) {
+    const rel = `schema/collections/${String(name)}.json`;
+    let file: { fields?: { name?: unknown }[]; relations?: Record<string, unknown>[] };
+    try {
+      file = JSON.parse(readFileSync(join(dir, rel), 'utf8'));
+    } catch {
+      continue; // missing: file presence reports it; malformed: the engine does
+    }
+    const names = [
+      ...(Array.isArray(file?.fields) ? file.fields : []).map((f) => f?.name),
+      ...(Array.isArray(file?.relations) ? file.relations : []).flatMap((r) => [
+        r?.field,
+        r?.targetField,
+      ]),
+    ];
+    for (const n of names) {
+      if (typeof n === 'string' && n.startsWith(OPERATOR_FIELD_PREFIX)) {
+        out.push({
+          code: 'COLLECTION_OPERATOR_FIELD',
+          message: `"${n}" starts with "${OPERATOR_FIELD_PREFIX}", which names an operator's field; an extension may not declare one`,
+          file: rel,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * The capabilities an extension declares to TypeScript (`defineExtension([...],
  * …)`, roadmap R8) must be the ones its manifest declares to the engine.
@@ -689,6 +726,12 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   if (integrityErrors.length > 0) {
     result.errors.push(...integrityErrors);
     if (integrityErrors.some((e) => e.severity !== 'warning')) result.ok = false;
+  }
+
+  const operatorFieldErrors = checkOperatorFieldNames(dir, manifest);
+  if (operatorFieldErrors.length > 0) {
+    result.errors.push(...operatorFieldErrors);
+    result.ok = false;
   }
 
   // The capabilities `defineExtension` types `ctx` with are the manifest's (R8).

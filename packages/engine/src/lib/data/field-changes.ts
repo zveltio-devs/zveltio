@@ -29,7 +29,7 @@ const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 export class FieldChangeError extends Error {
   constructor(
     message: string,
-    public readonly status: 400 | 403 | 404 | 409,
+    public readonly status: 400 | 403 | 404 | 409 | 422,
   ) {
     super(message);
   }
@@ -45,6 +45,7 @@ export async function ownedStructureRefusal(
   names: string[],
   by?: string,
 ): Promise<FieldChangeError | null> {
+  if (!names.length) return null;
   const rows = await db
     .selectFrom('zvd_collections')
     .select(['name', 'owner_extension'])
@@ -64,16 +65,57 @@ const ownedError = (name: string, extension: string) =>
   );
 
 /**
+ * The prefix of a field an operator adds to a collection an extension owns
+ * (ADR 0012 amendment 2). The SDK exports the same value for the CLI and Studio;
+ * the engine keeps its own, as it imports no runtime value from the SDK, and
+ * `operator-field-prefix.test.ts` holds the two together.
+ */
+export const OPERATOR_FIELD_PREFIX = 'my_';
+
+/** Whether a field of an extension's collection is an operator's: decided by its name alone. */
+export const isOperatorField = (name: string) => name.startsWith(OPERATOR_FIELD_PREFIX);
+
+type FieldShape = { name: string; required?: boolean };
+
+/**
+ * Why an operator's field may not be on `collection`, which `extension` owns:
+ * a name without the prefix (never added silently, so a client reads back the
+ * name it sent), or required — which fails the extension's inserts, which do
+ * not know the field, even with a default: the data API demands a required
+ * field's value on every create.
+ */
+function operatorFieldRefusal(collection: string, extension: string, field: FieldShape) {
+  if (!isOperatorField(field.name)) {
+    return new FieldChangeError(
+      `Collection '${collection}' belongs to extension "${extension}": a field you add to it ` +
+        `must start with "${OPERATOR_FIELD_PREFIX}" ("${field.name}" does not).`,
+      422,
+    );
+  }
+  if (field.required) {
+    return new FieldChangeError(
+      `Collection '${collection}' belongs to extension "${extension}": "${field.name}" must be ` +
+        "optional, or the extension's own inserts, which do not know it, fail.",
+      422,
+    );
+  }
+  return null;
+}
+
+/**
  * Why `collection` may not take this kind of schema change, or null. Unmanaged
- * (BYOD) collections take none; a schema-locked one takes only additions; an
- * extension's takes none but from that extension's apply (`by`).
- * `ddl-queue.ts` enforces the same rule for the async DDL jobs.
+ * (BYOD) collections take none; a schema-locked one takes no removal or drop;
+ * an extension's takes none but from that extension's apply (`by`), or to an
+ * operator's own `field` (ADR 0012 amendment 2). `field` is the field changed:
+ * the whole definition for an add. `ddl-queue.ts` enforces the same rule for
+ * the async DDL jobs.
  */
 export async function schemaChangeRefusal(
   db: Database,
   collectionName: string,
-  op: 'add' | 'remove' | 'drop',
+  op: 'add' | 'alter' | 'remove' | 'drop',
   by?: string,
+  field?: FieldShape,
 ): Promise<FieldChangeError | null> {
   const meta = await db
     .selectFrom('zvd_collections')
@@ -82,7 +124,13 @@ export async function schemaChangeRefusal(
     .executeTakeFirst();
   if (!meta) return null; // collection-not-found is handled by caller
   if (meta.owner_extension && meta.owner_extension !== by) {
-    return ownedError(collectionName, meta.owner_extension);
+    if (by !== undefined || !field) return ownedError(collectionName, meta.owner_extension);
+    if (op === 'add') {
+      const refusal = operatorFieldRefusal(collectionName, meta.owner_extension, field);
+      if (refusal) return refusal;
+    } else if (!isOperatorField(field.name)) {
+      return ownedError(collectionName, meta.owner_extension);
+    }
   }
   if (meta.is_managed === false) {
     return new FieldChangeError(
@@ -90,7 +138,7 @@ export async function schemaChangeRefusal(
       403,
     );
   }
-  if (meta.schema_locked === true && op !== 'add') {
+  if (meta.schema_locked === true && (op === 'remove' || op === 'drop')) {
     return new FieldChangeError(
       `Collection '${collectionName}' is schema-locked. ${op === 'drop' ? 'Dropping' : 'Removing fields from'} it is not allowed.`,
       403,
@@ -105,13 +153,13 @@ async function fieldsOf(
   db: Database,
   name: string,
   fieldName: string,
-  op: 'add' | 'remove',
+  op: 'alter' | 'remove',
   by: string | undefined,
 ) {
   if (!SAFE_NAME_RE.test(fieldName)) throw new FieldChangeError('Invalid field name', 400);
   const collection = await DDLManager.getCollection(db, name);
   if (!collection) throw new FieldChangeError('Collection not found', 404);
-  const refusal = await schemaChangeRefusal(db, name, op, by);
+  const refusal = await schemaChangeRefusal(db, name, op, by, { name: fieldName });
   if (refusal) throw refusal;
   let fields: FieldDef[];
   try {
@@ -126,7 +174,7 @@ async function fieldsOf(
   if (!fieldDef) {
     throw new FieldChangeError(`Field "${fieldName}" not found in collection "${name}"`, 404);
   }
-  return { fields, fieldDef };
+  return { fields, fieldDef, owner: collection.owner_extension as string | null };
 }
 
 /** The keys `alterField` changes with `DDLManager.setFieldKeys`, outside its transaction. */
@@ -160,8 +208,13 @@ export async function alterField(
   if (newName !== undefined && !SAFE_NAME_RE.test(newName)) {
     throw new FieldChangeError('Invalid field name', 400);
   }
-  // rename/type/required keep the column → "add" semantics
-  const { fields, fieldDef } = await fieldsOf(db, name, fieldName, 'add', by);
+  const { fields, fieldDef, owner } = await fieldsOf(db, name, fieldName, 'alter', by);
+  // An operator's field stays one: its new name and its new shape (amendment 2).
+  if (owner && owner !== by) {
+    const after = { name: newName ?? fieldName, required: required ?? !!fieldDef.required };
+    const refusal = operatorFieldRefusal(name, owner, after);
+    if (refusal) throw refusal;
+  }
 
   const isRelation = ALL_RELATION_TYPES.has(fieldDef.type);
 
@@ -335,7 +388,7 @@ export async function alterField(
       }
       throw err;
     }
-    const current = (await fieldsOf(db, name, shape.name, 'add', by)).fields;
+    const current = (await fieldsOf(db, name, shape.name, 'alter', by)).fields;
     await DDLManager.updateCollectionMetadata(db, name, {
       fields: current.map((f) => (f.name === shape.name ? shape : f)) as never,
     });

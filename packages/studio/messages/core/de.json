@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Bitte wählen Sie eine Zielsammlung für dieses Beziehungsfeld",
   "fields.fasterQueries": "Schnellere Abfragen auf diesem Feld",
   "fields.fieldName": "Feldname",
+  "fields.operatorPrefixHint": "Diese Collection gehört zur Erweiterung {extension}; Felder, die Sie hinzufügen, beginnen mit {prefix}.",
   "fields.fillNameToContinue": "Feldnamen ausfüllen, um fortzufahren",
   "fields.goToSchema": "Zum Schema wechseln, um Felder anzulegen →",
   "fields.hint.m2mTarget": "Die andere Seite der Verknüpfungstabelle",

@@ -2012,6 +2012,7 @@
   "fields.noDuplicates": "Keine doppelten Werte",
   "fields.none": "Noch keine eigenen Felder",
   "fields.noneDefined": "Noch keine Felder definiert.",
+  "fields.operatorPrefixHint": "Diese Collection gehört zur Erweiterung {extension}; Felder, die Sie hinzufügen, beginnen mit {prefix}.",
   "fields.selectCollection": "— Sammlung wählen —",
   "fields.shownInStudio": "Wird im Studio angezeigt (optional)",
   "fields.targetCollection": "Zielsammlung",

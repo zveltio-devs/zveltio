@@ -465,7 +465,7 @@ export async function runAddField(
   // through here, and nothing upstream asked: Ghost DDL refused it and
   // `addField` then altered it anyway.
   const { schemaChangeRefusal } = await import('./field-changes.js');
-  const refusal = await schemaChangeRefusal(db, collection, 'add', by);
+  const refusal = await schemaChangeRefusal(db, collection, 'add', by, field);
   if (refusal) throw refusal;
   const tableName = DDLManager.getTableName(collection);
   if (

@@ -29,6 +29,7 @@ let {
   allCollections,
   m2oTargetMap,
   loading,
+  ownerExtension = null,
   onSchemaChanged,
 }: {
   collectionName: string;
@@ -38,6 +39,8 @@ let {
   allCollections: CollectionSummary[];
   m2oTargetMap: Record<string, string>;
   loading: boolean;
+  /** The extension that owns this collection (ADR 0012), if one does. */
+  ownerExtension?: string | null;
   onSchemaChanged: () => Promise<void> | void;
 } = $props();
 
@@ -563,6 +566,7 @@ let confirmState = $state<{
   {fieldTypes}
   {allCollections}
   {collectionName}
+  {ownerExtension}
   onsave={handleAddField}
 />
 

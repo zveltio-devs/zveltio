@@ -8,6 +8,13 @@ export { todayIn } from './dates.js';
 export { RESERVED_PATH_SEGMENTS, isReservedPath } from './reserved-paths.js';
 export { readMultipart, MULTIPART_REQUIRED } from './multipart.js';
 export { toJsonb } from './jsonb.js';
+
+/**
+ * The prefix of a field an operator adds to a collection an extension owns
+ * (ADR 0012 amendment 2). Such a name is the operator's: an extension may not
+ * declare one, and its load never drops or alters one.
+ */
+export const OPERATOR_FIELD_PREFIX = 'my_';
 export {
   isStorableNumeric,
   NumericConversionError,

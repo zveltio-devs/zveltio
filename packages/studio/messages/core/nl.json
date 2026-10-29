@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Selecteer een doelcollectie voor dit relatieveld",
   "fields.fasterQueries": "Snellere query’s op dit veld",
   "fields.fieldName": "Veldnaam",
+  "fields.operatorPrefixHint": "Deze collectie hoort bij de extensie {extension}; velden die je toevoegt beginnen met {prefix}.",
   "fields.fillNameToContinue": "Vul de veldnaam in om door te gaan",
   "fields.goToSchema": "Ga naar Schema om velden toe te voegen →",
   "fields.hint.m2mTarget": "De andere kant van de koppeltabel",

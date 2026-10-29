@@ -2012,6 +2012,7 @@
   "fields.noDuplicates": "Bez zduplikowanych wartości",
   "fields.none": "Brak własnych pól",
   "fields.noneDefined": "Nie zdefiniowano jeszcze żadnych pól.",
+  "fields.operatorPrefixHint": "Ta kolekcja należy do rozszerzenia {extension}; dodawane pola zaczynają się od {prefix}.",
   "fields.selectCollection": "— Wybierz kolekcję —",
   "fields.shownInStudio": "Widoczne w Studio (opcjonalnie)",
   "fields.targetCollection": "Kolekcja docelowa",

@@ -14,6 +14,11 @@
  * 409 (point 5), while the row rules and column permissions an operator adds
  * survive the extension's next load, which removes only its own entries; a
  * `defaultGrants: false` file gets no default grant, at enable or at boot (point 2).
+ *
+ * Amendment 2: an operator adds fields named with `OPERATOR_FIELD_PREFIX` to an
+ * owned collection, optional or with a default, and alters and drops them; the
+ * extension's next load neither drops nor alters them, and a file that declares
+ * one is refused.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -24,7 +29,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getAuth } from '../../lib/auth.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, OPERATOR_FIELD_PREFIX as P } from '../../lib/data/index.js';
 import {
   _resetExtensionDbRoleForTests,
   revokeExtensionDbRoles,
@@ -272,7 +277,12 @@ d('an extension declares its collections; the engine creates and owns them', () 
       );
     };
     await refused(await call('PATCH', `/api/collections/${TASKS}`, { displayName: 'Mine' }));
-    await refused(await call('POST', `/api/collections/${TASKS}/fields`, text('extra')));
+    // A name without the operator prefix: a 422 that names it (amendment 2).
+    const unprefixed = await call('POST', `/api/collections/${TASKS}/fields`, text('extra'));
+    expect(unprefixed.status).toBe(422);
+    expect(((await unprefixed.json()) as { detail: string }).detail).toMatch(
+      /belongs to extension "hello-ext": a field you add to it must start with "my_"/,
+    );
     await refused(
       await call('PATCH', `/api/collections/${TASKS}/fields/title`, { required: true }),
     );
@@ -442,4 +452,112 @@ d('an extension declares its collections; the engine creates and owns them', () 
     await expect(applySchema(db, own, undefined)).rejects.toThrow(/extension collection's setting/);
     expect(await DDLManager.tableExists(db, NOTES)).toBe(false);
   }, 60_000);
+  it("an operator's prefixed fields on an owned collection; the extension's load leaves them", async () => {
+    await reset(() =>
+      DDLManager.createCollection(db, { name: PLAIN, fields: [text('x')] } as never),
+    );
+    await ship({ [TASKS]: [text('title')] });
+    expect((await post('enable')).status).toBe(200);
+    const status = async (r: Response, want: number, detail?: RegExp) => {
+      const body = (await r.json()) as { detail?: string };
+      expect([r.status, body.detail]).toEqual([
+        want,
+        detail ? expect.stringMatching(detail) : body.detail,
+      ]);
+    };
+    const add = (field: Record<string, unknown>) =>
+      call('POST', `/api/collections/${TASKS}/fields`, field);
+
+    // Prefixed, and optional: the extension's inserts know none of them. A default does
+    // not make a required field safe — the data API demands one on every create.
+    await status(await add(text('note')), 422, /must start with "my_"/);
+    await status(
+      await add({ ...text(`${P}req`), required: true, defaultValue: 'n/a' }),
+      422,
+      /must be optional/,
+    );
+    await status(await add({ ...text(`${P}req`), defaultValue: 'n/a' }), 200);
+    await status(await add(text(`${P}note`)), 200);
+    // An m2o is a field on the owned collection; an o2m into it keys the owned table.
+    const rel = await call('POST', '/api/relations', {
+      name: `${TASKS}_plain`,
+      type: 'm2o',
+      source_collection: TASKS,
+      source_field: `${P}plain_id`,
+      target_collection: PLAIN,
+    });
+    expect(rel.status).toBe(201);
+    await status(
+      await call('POST', `/api/collections/${PLAIN}/fields`, {
+        name: 'tasks',
+        type: 'o2m',
+        options: { related_collection: TASKS },
+      }),
+      409,
+      /belongs to extension "hello-ext"/,
+    );
+    expect(await fields(PLAIN)).toEqual(['x']);
+
+    // The operator's own field changes as the operator likes, and stays the operator's.
+    const field = (name: string) => `/api/collections/${TASKS}/fields/${name}`;
+    await status(await call('PATCH', field(`${P}note`), { required: true }), 422, /optional/);
+    await status(await call('PATCH', field(`${P}note`), { new_name: 'memo' }), 422, /"my_"/);
+    await status(await call('PATCH', field(`${P}note`), { new_name: `${P}memo` }), 200);
+    await status(await call('PATCH', field('title'), { new_name: `${P}title` }), 409);
+
+    // A member's insert, through the handlers the extension's own writes run.
+    const { cookie } = await createMemberSession(engine, db, {
+      grants: [{ collection: TASKS, actions: ['read', 'create'] }],
+    });
+    const created = await engine.request(`/api/data/${TASKS}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'first' }),
+    });
+    expect(created.status).toBe(201);
+    expect(JSON.stringify(await created.json())).toContain(`"${P}req":"n/a"`);
+    await extensionLoader.unload(NAME);
+
+    // A new version adds a field, then reorders its own: the operator's stay, after them.
+    const mine = [`${P}req`, `${P}memo`, `${P}plain_id`];
+    await ship({ [TASKS]: [text('title'), text('due')] });
+    expect((await post('enable')).status).toBe(200);
+    expect(await fields(TASKS)).toEqual(['title', ...mine, 'due']);
+    await extensionLoader.unload(NAME);
+    await ship({ [TASKS]: [text('due'), text('title')] });
+    expect((await post('enable')).status).toBe(200);
+    expect(await fields(TASKS)).toEqual(['due', 'title', ...mine]);
+    const relations = await sql<{ n: number }>`SELECT count(*)::int AS n FROM zvd_relations
+      WHERE source_collection = ${TASKS} AND source_field = ${`${P}plain_id`}`.execute(db);
+    expect(relations.rows[0]?.n).toBe(1);
+    // Settled with them in place: nothing owed, so a firm's activate loads it.
+    expect((await post('disable')).status).toBe(200);
+    expect((await post('activate')).status).toBe(200);
+
+    // The operator drops its own field, through the route and through a branch merge.
+    await status(await call('DELETE', field(`${P}memo`)), 200);
+    const made = (await (
+      await call('POST', '/api/schema/branches', { name: 'declcol2' })
+    ).json()) as { branch: { id: string }; schema: string };
+    try {
+      const at = `/api/schema/branches/${made.branch.id}`;
+      await call('POST', `${at}/changes`, {
+        type: 'remove_field',
+        payload: { collection: TASKS, field: `${P}req` },
+      });
+      const merged = (await (await call('POST', `${at}/merge`)).json()) as { errors: string[] };
+      expect(merged.errors).toEqual([]);
+    } finally {
+      await sql`DELETE FROM zv_schema_branches WHERE id = ${made.branch.id}`.execute(db);
+      await sql`DROP SCHEMA IF EXISTS ${sql.id(made.schema)} CASCADE`.execute(db);
+    }
+    expect(await fields(TASKS)).toEqual(['due', 'title', `${P}plain_id`]);
+    await extensionLoader.unload(NAME);
+
+    // A file that declares an operator's name is refused, and changes nothing.
+    await ship({ [TASKS]: [text('due'), text('title'), text(`${P}bad`)] });
+    expect((await post('enable')).status).toBe(422);
+    expect(await lastLoadError()).toMatch(/my_bad starts with "my_"/);
+    expect(await fields(TASKS)).toEqual(['due', 'title', `${P}plain_id`]);
+  }, 90_000);
 });
