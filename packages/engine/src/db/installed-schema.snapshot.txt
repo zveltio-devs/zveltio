@@ -3833,6 +3833,7 @@ table zvd_collections
   col is_permissioned                boolean DEFAULT true
   col is_system                      boolean NOT NULL DEFAULT false
   col name                           text NOT NULL
+  col owner_extension                text
   col route_group                    text DEFAULT 'private'::text
   col schema_locked                  boolean NOT NULL DEFAULT false
   col singular_name                  text

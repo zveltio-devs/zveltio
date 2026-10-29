@@ -471,6 +471,15 @@ export async function loadExtensionFromDir(
     // grants. Before the migrations: they read it too, and reading it twice
     // printed its engine-table warning twice per load.
     const allowedTables = await buildAllowedTables(migrationPaths, extName);
+    // ADR 0012. Read and, for a firm-only load, checked before any DDL below.
+    const declared = manifest?.collections ?? [];
+    const { applyDeclaredCollections, readDeclaredCollections } = await import(
+      './declared-collections.js'
+    );
+    const declaredFiles = await readDeclaredCollections(extName, extDir, declared);
+    if (!migrate && declared.length > 0) {
+      await applyDeclaredCollections(ctx.db, extName, declaredFiles, false);
+    }
     if (migrationPaths.length > 0) {
       // Migrations are DDL for the whole instance: god's decision, never a
       // firm's (owner, 2026-10-23). With none pending the runner below only
@@ -493,6 +502,10 @@ export async function loadExtensionFromDir(
     // Register new field types contributed by extension
     if (extension.registerFieldTypes) {
       extension.registerFieldTypes(ctx.fieldTypeRegistry);
+    }
+    // After its field types: a declared field may be one of them.
+    if (migrate && declared.length > 0) {
+      await applyDeclaredCollections(ctx.db, extName, declaredFiles, true);
     }
 
     for (const t of EXTENSION_TABLE_GRANTS[extName] ?? []) allowedTables.add(t);

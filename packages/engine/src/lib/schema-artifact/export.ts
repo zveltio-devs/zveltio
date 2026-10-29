@@ -7,7 +7,8 @@
  * change produces no diff and a pull after a change shows exactly that change.
  * Studio's dev-mode writer (step 4) will reuse it.
  *
- * Out of the artifact (RFC §2): engine and extension collections (`is_system`),
+ * Out of the artifact (RFC §2): engine collections (`is_system`), the
+ * collections an extension declared (`owner_extension`, ADR 0012),
  * BYOD tables (`is_managed = false`), rows, secrets, and tenant state — grants
  * scoped to one tenant and user→role assignments. Validation rules are the
  * instance's (a tenant's own rule, migration 092, is tenant state), and so are
@@ -133,7 +134,15 @@ async function ruleGroups(db: Database): Promise<RuleGroupRow[]> {
   return rows.rows.map((r) => ({ ...r, rule_ids: toIdArray(r.rule_ids) }));
 }
 
-export async function exportSchema(db: Database): Promise<Record<string, string>> {
+/**
+ * `owner` exports one extension's collections instead of the instance's: an
+ * extension's declared collections belong to its package (ADR 0012), so the
+ * instance artifact leaves them out, and its plan is made against them alone.
+ */
+export async function exportSchema(
+  db: Database,
+  opts: { owner?: string } = {},
+): Promise<Record<string, string>> {
   const [collections, relations, rowRules, columnPerms, validation, roles, grants, revoked] =
     await Promise.all([
       db
@@ -141,6 +150,11 @@ export async function exportSchema(db: Database): Promise<Record<string, string>
         .selectAll()
         .where('is_system', '=', false)
         .where('is_managed', '=', true)
+        .where((eb) =>
+          opts.owner === undefined
+            ? eb('owner_extension', 'is', null)
+            : eb('owner_extension', '=', opts.owner),
+        )
         .orderBy('name')
         .execute(),
       db.selectFrom('zvd_relations').selectAll().execute(),

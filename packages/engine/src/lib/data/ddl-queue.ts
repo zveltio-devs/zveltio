@@ -417,10 +417,11 @@ function mapJobToPublic(job: any, type: DdlJobType): PublicJobShape {
 export async function runCreateCollection(
   db: Database,
   definition: Parameters<typeof DDLManager.createCollection>[1],
+  owner?: string,
 ): Promise<void> {
   // Tenant RLS is part of the create (DDLManager's `createIsolatedTable`): a
   // table it cannot isolate is not created, and the job fails.
-  await DDLManager.createCollection(db, definition);
+  await DDLManager.createCollection(db, definition, owner);
   announceSchemaChange(definition.name, 'create');
 }
 
