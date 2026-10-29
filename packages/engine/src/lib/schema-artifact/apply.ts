@@ -55,6 +55,7 @@ import { sql } from 'kysely';
 import {
   type ApplyOp,
   type MigrationOp,
+  declaredEntriesOnly,
   type PlanStep,
   planSchema,
   SchemaFileError,
@@ -63,7 +64,7 @@ import {
 /** An op after `prepare`: its definition parsed into the shape the engine takes. */
 type Field = z.infer<typeof FieldSchema>;
 type Prepared =
-  | { kind: 'createCollection'; definition: CollectionDefinition }
+  | { kind: 'createCollection'; definition: CollectionDefinition; defaultGrants: boolean }
   | { kind: 'addField'; collection: string; field: Field }
   | { kind: 'alterField'; collection: string; field: Field; keys: string[] }
   | {
@@ -146,7 +147,21 @@ async function prepare(
       // The request decides, not the file: rules naming it would take effect
       // on it (A13). Checked here, before any step runs.
       await DDLManager.refuseExistingRules(db, [definition.name], adoptRules);
-      return { ...op, definition: { ...definition, adoptRules: true } };
+      // ADR 0012: an extension's setting. An instance withholds a default with
+      // roles.json `revokedDefaults`.
+      const { defaultGrants } = op.definition;
+      if (defaultGrants !== undefined && (!owner || typeof defaultGrants !== 'boolean')) {
+        throw new SchemaFileError(
+          owner
+            ? `${target}: defaultGrants must be true or false`
+            : `${target}: defaultGrants is an extension collection's setting; withhold a default with roles.json revokedDefaults`,
+        );
+      }
+      return {
+        ...op,
+        definition: { ...definition, adoptRules: true },
+        defaultGrants: defaultGrants !== false,
+      };
     }
     case 'addField': {
       const field = parsed(target, FieldSchema.safeParse(op.field));
@@ -240,7 +255,7 @@ async function prepare(
         const why =
           meta?.is_system || meta?.owner_extension
             ? `Collection '${c.collection}' is an engine or extension collection.`
-            : await schemaChangeRefusal(db, c.collection, 'drop');
+            : (await schemaChangeRefusal(db, c.collection, 'drop'))?.message;
         if (why) throw new SchemaFileError(`${target}: ${why}`);
       }
       return op;
@@ -260,7 +275,7 @@ const fieldsOf = async (db: Database, collection: string) => {
  * when its effect is already there, so an apply that failed part-way through
  * a migration can run it again from the top.
  */
-async function migrate(db: Database, op: MigrationOp, userId: string | undefined) {
+async function migrate(db: Database, op: MigrationOp, owner: string | undefined) {
   if (op.op === 'dropRole') return deleteRole(db, op.role);
   if (op.op === 'dropCollection') {
     if (!(await DDLManager.getCollection(db, op.collection))) return;
@@ -272,11 +287,13 @@ async function migrate(db: Database, op: MigrationOp, userId: string | undefined
   );
   if (!field) return;
   if (op.op === 'renameField') {
-    await alterField(db, op.collection, op.from, { newName: op.to });
+    await alterField(db, op.collection, op.from, { newName: op.to }, owner);
   } else if (op.op === 'changeFieldType') {
-    if (field.type !== op.to) await alterField(db, op.collection, op.field, { newType: op.to });
+    if (field.type !== op.to) {
+      await alterField(db, op.collection, op.field, { newType: op.to }, owner);
+    }
   } else {
-    await dropField(db, op.collection, op.field);
+    await dropField(db, op.collection, op.field, owner);
   }
 }
 
@@ -463,6 +480,7 @@ async function putRelation(
   db: Database,
   data: z.infer<typeof RelationSchema>,
   fields: { source?: Field; target?: Field },
+  owner: string | undefined,
 ) {
   const existing = await db
     .selectFrom('zvd_relations')
@@ -471,7 +489,7 @@ async function putRelation(
     .where('source_field', '=', data.source_field)
     .executeTakeFirst();
   if (!existing) {
-    await createRelation(db, data, fields);
+    await createRelation(db, data, fields, owner);
     return;
   }
   await db
@@ -514,9 +532,13 @@ async function run(
   switch (op.kind) {
     case 'createCollection':
       // The owner is written in the create's own transaction (ADR 0012).
-      return runCreateCollection(db, op.definition, owner);
+      return runCreateCollection(
+        db,
+        op.definition,
+        owner ? { extension: owner, defaultGrants: op.defaultGrants } : undefined,
+      );
     case 'addField':
-      return runAddField(db, op.collection, op.field);
+      return runAddField(db, op.collection, op.field, owner);
     case 'setCollection':
       await DDLManager.updateCollectionMetadata(db, op.collection, { [op.key]: op.value });
       return announceSchemaChange(op.collection, 'alter');
@@ -555,7 +577,7 @@ async function run(
     }
     case 'migration':
       try {
-        await migrate(db, op.change, userId);
+        await migrate(db, op.change, owner);
       } catch (err) {
         // The migrations before this one are recorded and stay applied.
         throw new SchemaFileError(`migration ${op.id}: ${(err as Error).message}`);
@@ -570,13 +592,19 @@ async function run(
       const columnKeys = ['required', 'unique', 'indexed', 'defaultValue'];
       const has = (k: string) => op.keys.includes(k);
       if (columnKeys.some(has)) {
-        await alterField(db, op.collection, op.field.name, {
-          required: has('required') ? op.field.required : undefined,
-          unique: has('unique') ? op.field.unique : undefined,
-          indexed: has('indexed') ? op.field.indexed : undefined,
-          // Gone from the file: the field's own default goes too.
-          defaultValue: has('defaultValue') ? (op.field.defaultValue ?? null) : undefined,
-        });
+        await alterField(
+          db,
+          op.collection,
+          op.field.name,
+          {
+            required: has('required') ? op.field.required : undefined,
+            unique: has('unique') ? op.field.unique : undefined,
+            indexed: has('indexed') ? op.field.indexed : undefined,
+            // Gone from the file: the field's own default goes too.
+            defaultValue: has('defaultValue') ? (op.field.defaultValue ?? null) : undefined,
+          },
+          owner,
+        );
       }
       const rest = op.keys.filter((k) => !columnKeys.includes(k));
       if (!rest.length) return;
@@ -597,7 +625,7 @@ async function run(
       return announceSchemaChange(op.collection, 'alter');
     }
     case 'putRelation':
-      return putRelation(db, op.data, op.fields);
+      return putRelation(db, op.data, op.fields, owner);
     case 'putEntry':
       // A row rule is checked against the columns it names, which an earlier
       // step may have added, so only now; the steps before it stay applied.
@@ -629,6 +657,21 @@ export async function planExtensionSchema(
     throw new SchemaFileError(`${owner}: an extension declares collections only, not ${stray[0]}`);
   }
   const current = await exportSchema(db, { owner });
+  // Its rules, permissions and validation: the entries its last apply declared;
+  // the others are an operator's, out of its plan (amendment 1, point 5).
+  const declared = await db
+    .selectFrom('zvd_collections')
+    .select(['name', 'declared_file'])
+    .where('owner_extension', '=', owner)
+    .execute();
+  for (const { name, declared_file } of declared) {
+    const path = `collections/${name}.json`;
+    if (!current[path]) continue;
+    current[path] = declaredEntriesOnly(
+      current[path],
+      typeof declared_file === 'string' ? JSON.parse(declared_file) : declared_file,
+    );
+  }
   const steps = planSchema(current, {
     ...files,
     'zveltio-schema.json': current['zveltio-schema.json'],
@@ -700,6 +743,16 @@ export async function applySchema(
       throw err;
     } finally {
       if (policies) await invalidateAllPermissionCaches();
+    }
+    // What this extension's next load counts as its own entries (planExtensionSchema).
+    for (const content of owner ? Object.values(files) : []) {
+      const file = JSON.parse(String(content)) as { name: string };
+      await db
+        .updateTable('zvd_collections')
+        .set({ declared_file: toJsonb(file) })
+        .where('name', '=', file.name)
+        .where('owner_extension', '=', String(owner))
+        .execute();
     }
     if (steps.length) {
       await auditLog(db, {

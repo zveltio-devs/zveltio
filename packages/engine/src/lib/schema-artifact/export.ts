@@ -17,7 +17,12 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { ENGINE_SEEDED_ROLES, isDefaultGrant, isDefaultGrantRole } from '../tenancy/index.js';
+import {
+  ENGINE_SEEDED_ROLES,
+  isDefaultGrant,
+  isDefaultGrantRole,
+  loadWithheldCollections,
+} from '../tenancy/index.js';
 import { toIdArray } from '../validation-engine.js';
 import { withoutAuthValue } from '../virtual-collection-adapter.js';
 
@@ -143,6 +148,8 @@ export async function exportSchema(
   db: Database,
   opts: { owner?: string } = {},
 ): Promise<Record<string, string>> {
+  // `isDefaultGrant` below tells a default from a grant by it.
+  await loadWithheldCollections(db);
   const [collections, relations, rowRules, columnPerms, validation, roles, grants, revoked] =
     await Promise.all([
       db
@@ -228,6 +235,7 @@ export async function exportSchema(
       aiSearchEnabled: col.ai_search_enabled || null,
       aiSearchField: col.ai_search_field,
       aiEmbedExcludedFields: sortedOrNull(col.ai_embed_excluded_fields),
+      defaultGrants: col.default_grants ? null : false,
       // Declared order: it is the order Studio shows.
       fields: (fields ?? []).map(exportField),
       relations: relations

@@ -818,16 +818,26 @@ export function forgetSensitiveResources(extension: string): void {
   EXTENSION_SENSITIVE.delete(extension);
 }
 
+/**
+ * The collections whose extension's file says `defaultGrants: false` (ADR 0012),
+ * as `zvd_collections` read them last (`loadWithheldCollections`).
+ */
+let WITHHELD_COLLECTIONS = new Set<string>();
+
+export function setWithheldCollections(names: Iterable<string>): void {
+  WITHHELD_COLLECTIONS = new Set(names);
+}
+
 /** Test seam + introspection for the settings UI. */
 export function listSensitiveResources(): string[] {
-  const all = new Set(SENSITIVE_RESOURCES);
+  const all = new Set([...SENSITIVE_RESOURCES, ...WITHHELD_COLLECTIONS]);
   for (const names of EXTENSION_SENSITIVE.values()) for (const n of names) all.add(n);
   return [...all].sort();
 }
 
 /** Whether a resource is withheld from default grants. */
 export function isSensitiveResource(name: string): boolean {
-  if (SENSITIVE_RESOURCES.has(name)) return true;
+  if (SENSITIVE_RESOURCES.has(name) || WITHHELD_COLLECTIONS.has(name)) return true;
   for (const names of EXTENSION_SENSITIVE.values()) if (names.has(name)) return true;
   return false;
 }

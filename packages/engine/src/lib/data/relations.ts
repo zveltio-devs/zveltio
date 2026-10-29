@@ -9,7 +9,7 @@ import type { Database } from '../../db/index.js';
 import { toJsonb } from '../jsonb.js';
 import { DDLManager } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
-import { FieldChangeError } from './field-changes.js';
+import { FieldChangeError, ownedStructureRefusal } from './field-changes.js';
 
 const SAFE_IDENTIFIER = /^[a-z][a-z0-9_]*$/;
 
@@ -32,6 +32,13 @@ export const RelationSchema = z.object({
   on_update: z.enum(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION']).default('CASCADE'),
   metadata: z.record(z.string(), z.any()).default({}),
 });
+
+/** The collections whose structure a relation is part of: its source, and an o2m's target, which holds its key. */
+export const relationTables = (r: {
+  type: string;
+  source_collection: string;
+  target_collection: string;
+}) => (r.type === 'o2m' ? [r.source_collection, r.target_collection] : [r.source_collection]);
 
 // The field helpers run on the CALLER's transaction, so a collection's fields and
 // the `zvd_relations` row describing them commit or roll back together. Each on
@@ -129,7 +136,11 @@ export async function createRelation(
   db: Database,
   data: z.infer<typeof RelationSchema>,
   defs: { source?: FieldDef; target?: FieldDef } = {},
+  /** The extension whose apply this is (ADR 0012), when it is one. */
+  by?: string,
 ) {
+  const owned = await ownedStructureRefusal(db, relationTables(data), by);
+  if (owned) throw owned;
   const [sourceExists, targetExists] = await Promise.all([
     DDLManager.tableExists(db, data.source_collection),
     DDLManager.tableExists(db, data.target_collection),

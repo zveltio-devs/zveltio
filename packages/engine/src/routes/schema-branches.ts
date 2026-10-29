@@ -15,6 +15,7 @@ import {
   ExistingRulesError,
   FieldSchema,
   mirrorPublicProtections,
+  ownedStructureRefusal,
   runAddField,
 } from '../lib/data/index.js';
 import { toJsonb } from '../lib/jsonb.js';
@@ -400,6 +401,8 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
               applied.push(`Add field: ${field.name} to ${collection}`);
             } else if (change.type === 'remove_field') {
               const { collection, field } = RemoveFieldPayload.parse(change.payload);
+              const owned = await ownedStructureRefusal(db, [collection]);
+              if (owned) throw owned;
               // No Ghost DDL at any size: DROP COLUMN rewrites nothing, and a ghost
               // drop ran before removeField's rules — the swap then failed on the
               // row-rule policy naming the column, `*` rules unreported (#1059).

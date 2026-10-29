@@ -44,6 +44,7 @@ import {
   listSensitiveResources,
   publishPolicyChange,
   registerSensitiveResources,
+  setWithheldCollections,
   trackPolicyWrite,
 } from './permissions.js';
 
@@ -108,12 +109,27 @@ export async function materializeDefaultGrants(
   // create would otherwise grant on a name an unknown claim keeps closed. Throws
   // while one is unknown, and registers the known `sensitiveResources` first.
   await claimsOfOthers(db);
+  await loadWithheldCollections(db);
   const targets = [...new Set(resources)].filter((r) => r && !isSensitiveResource(r));
   if (targets.length === 0) return 0;
   const grants = opts.extension
     ? [...DEFAULT_ROLE_GRANTS, ...EXTENSION_RESOURCE_GRANTS]
     : DEFAULT_ROLE_GRANTS;
   return trackPolicyWrite(() => writeDefaultGrants(db, targets, grants));
+}
+
+/**
+ * Reads which collections their extension withholds from the default grants
+ * (`defaultGrants: false`, ADR 0012) into `isSensitiveResource`. Every path that
+ * grants reads it first, from the table, so a boot or a create never re-adds one.
+ */
+export async function loadWithheldCollections(db: Database): Promise<void> {
+  const rows = await db
+    .selectFrom('zvd_collections')
+    .select('name')
+    .where('default_grants', '=', false)
+    .execute();
+  setWithheldCollections(rows.map((r) => r.name));
 }
 
 async function writeDefaultGrants(
