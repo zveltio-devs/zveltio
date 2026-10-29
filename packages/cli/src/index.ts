@@ -16,6 +16,8 @@ import { schemaApplyCommand, schemaDiffCommand, schemaPullCommand } from './comm
 import { installCommand } from './commands/install.js';
 import { createGodCommand } from './commands/create-god.js';
 import { extensionsListCommand } from './commands/extensions-list.js';
+import { extensionMutationCommand } from './commands/extensions-manage.js';
+import { loginCommand, logoutCommand } from './commands/login.js';
 import { rollbackCommand } from './commands/rollback.js';
 import { versionCommand } from './commands/version-cmd.js';
 import { updateCommand } from './commands/update.js';
@@ -169,6 +171,7 @@ program
     '--approve-forward-credentials',
     "Approve the caller-credential forwarding the extension's manifest declares",
   )
+  .option('--totp <code>', 'Authenticator code for the first confirmation (asked for otherwise)')
   .action((name, opts) => installCommand(name, opts));
 
 // ── zveltio extensions ────────────────────────────────────────────────────────
@@ -192,45 +195,37 @@ extensions
     '--approve-forward-credentials',
     "Approve the caller-credential forwarding the extension's manifest declares",
   )
+  .option('--totp <code>', 'Authenticator code for the first confirmation (asked for otherwise)')
   .action((name, opts) => installCommand(name, opts));
 
-extensions
-  .command('enable <name>')
-  .description('Enable an installed extension')
-  .option('--url <url>', 'Engine URL', 'http://localhost:3000')
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  .action(async (name: string, opts: any) => {
-    const url = opts.url || 'http://localhost:3000';
-    const res = await fetch(`${url}/api/marketplace/${name}/enable`, { method: 'POST' }).catch(
-      () => null,
+for (const [verb, description] of [
+  ['enable', 'Enable an installed extension'],
+  ['disable', 'Disable an active extension'],
+  ['update', 'Update an installed extension to the version the registry serves'],
+] as const) {
+  extensions
+    .command(`${verb} <name>`)
+    .description(description)
+    .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+    .option('--totp <code>', 'Authenticator code for the first confirmation (asked for otherwise)')
+    .action((name: string, opts: { url?: string; totp?: string }) =>
+      extensionMutationCommand(verb, name, opts),
     );
-    if (!res?.ok) {
-      console.error(`Failed to enable ${name}`);
-      process.exit(1);
-    }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const body = (await res.json()) as any;
-    console.log(
-      body.hot_loaded ? `${name} is now active.` : `${name} will be active after restart.`,
-    );
-  });
+}
 
-extensions
-  .command('disable <name>')
-  .description('Disable an active extension')
+// ── zveltio login / logout ────────────────────────────────────────────────────
+program
+  .command('login')
+  .description('Sign in to an engine as your user (password, then authenticator code)')
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  .action(async (name: string, opts: any) => {
-    const url = opts.url || 'http://localhost:3000';
-    const res = await fetch(`${url}/api/marketplace/${name}/disable`, { method: 'POST' }).catch(
-      () => null,
-    );
-    if (!res?.ok) {
-      console.error(`Failed to disable ${name}`);
-      process.exit(1);
-    }
-    console.log(`${name} disabled.`);
-  });
+  .option('--email <email>', 'Account email (asked for otherwise)')
+  .action((opts) => loginCommand(opts));
+
+program
+  .command('logout')
+  .description('Sign out of an engine and forget the session')
+  .option('--url <url>', 'Engine URL', 'http://localhost:3000')
+  .action((opts) => logoutCommand(opts));
 
 // ── zveltio extension <subcommand> (legacy) ───────────────────────────────────
 const ext = program

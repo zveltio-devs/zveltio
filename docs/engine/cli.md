@@ -153,9 +153,24 @@ export interface Products {
 
 ---
 
+### `zveltio login` / `zveltio logout`
+
+Sign the CLI in to an engine as your user. The marketplace commands below need it.
+
+```bash
+zveltio login --url https://console.example.com
+zveltio logout --url https://console.example.com
+```
+
+`login` asks for your email, password and, when the account has one, the code from your authenticator app. The CLI keeps the session the engine issues, never the password, in `$XDG_CONFIG_HOME/zveltio/credentials.json` (default `~/.config`, mode 0600), one per engine. `logout` ends the session on the engine and removes it from the file.
+
+Every marketplace change (install, enable, disable, update) then asks for a fresh authenticator code, the same confirmation the Console asks for. One code confirms one change, so `install`, which installs and then enables, asks twice. Pass `--totp <code>` to give the first code on the command line. An account that confirms with a passkey only cannot use these commands: a terminal cannot use a passkey. Add an authenticator app to the account or use the Console.
+
+---
+
 ### `zveltio install <name>`
 
-Install an extension from the marketplace or a local path.
+Install an extension from the marketplace or a local path. The marketplace flow needs `zveltio login`.
 
 ```bash
 # Install from marketplace
@@ -173,6 +188,7 @@ zveltio install my-extension --path ./extensions/my-extension --force
 | `--path <path>` | — | Install from local directory (offline) |
 | `--url <url>` | `http://localhost:3000` | Engine URL |
 | `--force` | — | Overwrite existing extension |
+| `--totp <code>` | — | Authenticator code for the first confirmation (asked for otherwise) |
 
 ---
 
@@ -211,6 +227,18 @@ Disable an active extension.
 ```bash
 zveltio extensions disable ai
 ```
+
+---
+
+### `zveltio extensions update <name>`
+
+Update an installed extension to the version the registry serves. `extensions list` marks the ones with an update. Only an extension installed from the registry can be updated, and only forward.
+
+```bash
+zveltio extensions update crm
+```
+
+`enable`, `disable` and `update` take `--url <url>` and `--totp <code>`.
 
 ---
 

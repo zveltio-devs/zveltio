@@ -4,6 +4,8 @@
  * Lists all available extensions from the engine marketplace,
  * grouped by category with install status.
  */
+import { engineFetch, errorOf } from '../lib/engine-session.js';
+
 export async function extensionsListCommand(opts: {
   url?: string;
   category?: string;
@@ -13,21 +15,18 @@ export async function extensionsListCommand(opts: {
 
   let res: Response;
   try {
-    res = await fetch(`${engineUrl}/api/marketplace`);
-  } catch {
-    console.error(`❌ Cannot reach engine at ${engineUrl}`);
-    console.error(`   Is the engine running? Try: zveltio dev`);
-    process.exit(1);
-  }
-
-  if (res.status === 401) {
-    console.error('❌ Admin authentication required to view marketplace.');
-    console.error('   Set ENGINE_TOKEN env var or use --token option.');
+    res = await engineFetch({ url: engineUrl }, '/api/marketplace');
+  } catch (e) {
+    console.error(
+      e instanceof TypeError
+        ? `❌ Cannot reach engine at ${engineUrl}\n   Is the engine running? Try: zveltio dev`
+        : `❌ ${(e as Error).message}`,
+    );
     process.exit(1);
   }
 
   if (!res.ok) {
-    console.error(`❌ Marketplace error: ${res.status} ${res.statusText}`);
+    console.error(`❌ Marketplace error: ${await errorOf(res)}`);
     process.exit(1);
   }
 
@@ -78,9 +77,10 @@ export async function extensionsListCommand(opts: {
             : '⬜'; // not installed
 
       const needsRestart = ext.needs_restart ? ' ⚠️ restart needed' : '';
+      const update = ext.update_available ? ` ⬆️ ${ext.catalog_version} available` : '';
       const name = (ext.displayName || ext.name).padEnd(32);
       console.log(
-        `  ${status} ${name} v${ext.version || '?'}  ${ext.description || ''}${needsRestart}`,
+        `  ${status} ${name} v${ext.installed_version || ext.version || '?'}  ${ext.description || ''}${needsRestart}${update}`,
       );
     }
     console.log('');
@@ -89,5 +89,6 @@ export async function extensionsListCommand(opts: {
   console.log('Legend: ✅ active  🔄 needs restart  📥 installed (disabled)  ⬜ not installed');
   console.log('\nInstall:  zveltio install <extension-name>');
   console.log('Enable:   zveltio extensions enable <extension-name>');
+  console.log('Update:   zveltio extensions update <extension-name>');
   console.log('');
 }

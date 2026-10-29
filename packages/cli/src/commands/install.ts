@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import { readFile, mkdir, cp } from 'fs/promises';
 import { join } from 'path';
+import { type EngineTarget, engineFetch, errorOf } from '../lib/engine-session.js';
 
 /**
  * zveltio install <extension-name> [--path <path>] [--url <engine-url>] [--force]
@@ -18,6 +19,7 @@ export async function installCommand(
     force?: boolean;
     registry?: string;
     approveForwardCredentials?: boolean;
+    totp?: string;
   },
 ) {
   const engineUrl = opts.url || process.env.ENGINE_URL || 'http://localhost:3000';
@@ -31,7 +33,16 @@ export async function installCommand(
   }
 
   // ── Flow 2: engine marketplace catalog ──────────────────────────────────
-  await installFromCatalog(name, engineUrl, opts.approveForwardCredentials ?? false);
+  try {
+    await installFromCatalog(
+      name,
+      { url: engineUrl, totp: opts.totp },
+      opts.approveForwardCredentials ?? false,
+    );
+  } catch (e) {
+    console.error(`❌ ${(e as Error).message}`);
+    process.exit(1);
+  }
 }
 
 // ── Flow 1: local path ──────────────────────────────────────────────────────
@@ -119,27 +130,22 @@ async function installFromPath(
 
 // ── Flow 2: engine catalog ──────────────────────────────────────────────────
 
-async function installFromCatalog(name: string, engineUrl: string, approveForward: boolean) {
+async function installFromCatalog(name: string, target: EngineTarget, approveForward: boolean) {
   // Fetch catalog
-  console.log(`  Checking engine catalog at ${engineUrl}...`);
+  console.log(`  Checking engine catalog at ${target.url}...`);
 
   let catalogRes: Response;
   try {
-    catalogRes = await fetch(`${engineUrl}/api/marketplace`);
-  } catch {
-    console.error(`❌ Cannot reach engine at ${engineUrl}`);
+    catalogRes = await engineFetch(target, '/api/marketplace');
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+    console.error(`❌ Cannot reach engine at ${target.url}`);
     console.error(`   Is the engine running? Use --path for offline install.`);
     process.exit(1);
   }
 
-  if (catalogRes.status === 401) {
-    console.error('❌ Admin authentication required. Engine marketplace requires admin session.');
-    console.error('   Tip: use --path <local-path> for unauthenticated install.');
-    process.exit(1);
-  }
-
   if (!catalogRes.ok) {
-    console.error(`❌ Marketplace error: ${catalogRes.status} ${catalogRes.statusText}`);
+    console.error(`❌ Marketplace error: ${await errorOf(catalogRes)}`);
     process.exit(1);
   }
 
@@ -196,39 +202,42 @@ async function installFromCatalog(name: string, engineUrl: string, approveForwar
   if (entry.is_installed) {
     console.log(`  Already installed. Enabling...`);
     if (approval && forwardPairs.length > 0) {
-      const res = await fetch(
-        `${engineUrl}/api/marketplace/${entry.name}/approve-forward-credentials`,
+      const res = await engineFetch(
+        target,
+        `/api/marketplace/${encodeURIComponent(entry.name)}/approve-forward-credentials`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(approval),
         },
-      ).catch(() => null);
-      if (!res?.ok) {
-        console.error(
-          `❌ Credential forwarding approval failed: HTTP ${res?.status ?? 'unreachable'}`,
-        );
+        `extension.approve-forward-credentials:${entry.name}`,
+      );
+      if (!res.ok) {
+        console.error(`❌ Credential forwarding approval failed: ${await errorOf(res)}`);
         process.exit(1);
       }
       console.log(`  ✓ Credential forwarding approved (${forwardPairs.join(', ')})`);
     }
   } else {
     // Install first (marks as installed in DB)
-    const installRes = await fetch(`${engineUrl}/api/marketplace/${entry.name}/install`, {
-      method: 'POST',
-      ...(approval && {
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(approval),
-      }),
-    }).catch(() => null);
+    const installRes = await engineFetch(
+      target,
+      `/api/marketplace/${encodeURIComponent(entry.name)}/install`,
+      {
+        method: 'POST',
+        ...(approval && {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(approval),
+        }),
+      },
+      `extension.install:${entry.name}`,
+    );
 
-    if (!installRes?.ok) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const err = (await installRes?.json().catch(() => ({}))) as any;
-      if (installRes?.status === 501) {
+    if (!installRes.ok) {
+      if (installRes.status === 501) {
         console.log(`  ℹ️  Bundled extension — skipping install step, enabling directly...`);
       } else {
-        console.error(`❌ Install failed: ${err?.error || `HTTP ${installRes?.status}`}`);
+        console.error(`❌ Install failed: ${await errorOf(installRes)}`);
         process.exit(1);
       }
     } else {
@@ -243,14 +252,15 @@ async function installFromCatalog(name: string, engineUrl: string, approveForwar
   }
 
   // Enable (hot-load if engine supports it)
-  const enableRes = await fetch(`${engineUrl}/api/marketplace/${entry.name}/enable`, {
-    method: 'POST',
-  }).catch(() => null);
+  const enableRes = await engineFetch(
+    target,
+    `/api/marketplace/${encodeURIComponent(entry.name)}/enable`,
+    { method: 'POST' },
+    `extension.enable:${entry.name}`,
+  );
 
-  if (!enableRes?.ok) {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const err = (await enableRes?.json().catch(() => ({}))) as any;
-    console.error(`❌ Enable failed: ${err?.error || `HTTP ${enableRes?.status}`}`);
+  if (!enableRes.ok) {
+    console.error(`❌ Enable failed: ${await errorOf(enableRes)}`);
     process.exit(1);
   }
 
