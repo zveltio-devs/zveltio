@@ -871,6 +871,7 @@ export interface ZvdCollectionsTable {
   is_system: Generated<boolean>; // DEFAULT false
   schema_locked: Generated<boolean>; // DEFAULT false
   has_trgm: Generated<boolean>; // 059: DEFAULT false (pg_trgm full-text)
+  owner_extension: string | null; // 103: the declaring extension (ADR 0012)
 }
 
 export interface ZvdRelationsTable {

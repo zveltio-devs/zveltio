@@ -163,6 +163,32 @@ unknown types.
 - **`peerDependencies`** are **bundled into `engine/index.js`** at pack time, not installed on the target. Declare anything beyond the four core packages here — and expect the platform allow-list to be enforced: a package it does not carry fails validation with `PEERDEP_NOT_ALLOWED`. (The `bun add`-at-activation path still exists for unbundled extensions; see "How the engine resolves extensions at runtime".)
 - **`contributes.engine: false`** marks UI-only extensions — `register()` may be a no-op.
 
+## Collections — declared, created by the engine
+
+An extension's data lives in collections it declares; the engine creates them.
+List them in `manifest.json` and ship one file per name, in the
+[schema-as-code](../engine/rfc-schema-as-code.md) collection format (the format
+`zveltio schema pull` writes):
+
+```json
+"collections": ["tasks"]
+```
+
+```json
+// schema/collections/tasks.json
+{ "name": "tasks", "fields": [{ "name": "title", "type": "text", "required": true }] }
+```
+
+- The engine creates them when an instance administrator enables the extension
+  (or when it loads with them not yet applied), never at install, and records
+  the extension as their owner. Until then a firm cannot activate it.
+- A name that already belongs to a collection the extension does not own
+  refuses the whole set; nothing is created.
+- A later version's additions (a field, a rule, a relation) are applied when it
+  is enabled. A drop, a rename or a type change is refused for now.
+- The instance's own schema export leaves the extension's collections out: they
+  belong to its package.
+
 ## Actions and jobs — `extension-api v1`
 
 Business logic belongs in **actions** (synchronous, inside the caller's request

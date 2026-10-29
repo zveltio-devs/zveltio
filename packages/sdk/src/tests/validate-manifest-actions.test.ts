@@ -51,3 +51,16 @@ describe('manifest actions and jobs', () => {
     expect(errors({ actions: [gated], jobs: [job] })).toHaveLength(1);
   });
 });
+
+describe('manifest collections', () => {
+  const bad = (collections: unknown) =>
+    validateManifest({ manifest: { ...base, collections } }).filter(
+      (e) => e.code === 'MANIFEST_BAD_COLLECTIONS',
+    );
+  it('takes collection names, once each', () => {
+    expect(bad(['tasks', 'task_lists'])).toEqual([]);
+    expect(bad('tasks')).toHaveLength(1);
+    expect(bad(['Tasks'])).toHaveLength(1);
+    expect(bad(['tasks', 'tasks'])).toHaveLength(1);
+  });
+});

@@ -603,7 +603,12 @@ export class DDLManager {
 
   // ── createCollection ─────────────────────────────────────────────────────────
 
-  static async createCollection(db: Database, definition: CollectionInput): Promise<void> {
+  /** `owner`: the extension that declared it (ADR 0012), recorded with the create. */
+  static async createCollection(
+    db: Database,
+    definition: CollectionInput,
+    owner?: string,
+  ): Promise<void> {
     // It owns its transaction: the cache drop and the default grants (which
     // refuse a transaction) must follow the commit, and a caller's commit is
     // out of sight here.
@@ -776,6 +781,13 @@ export class DDLManager {
       );
       // Register metadata first so relation inserts can reference valid collection names
       await this.registerMetadata(h, validated);
+      if (owner) {
+        await h
+          .updateTable('zvd_collections')
+          .set({ owner_extension: owner })
+          .where('name', '=', validated.name)
+          .execute();
+      }
 
       await this.refreshSearchTrigger(h, validated.name, undefined, false);
 

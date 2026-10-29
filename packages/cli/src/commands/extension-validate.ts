@@ -405,6 +405,13 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   if (!isStudioOnly && !(paths['engine/index.ts'] || paths['engine/index.js'])) {
     required.push('engine/index.ts'); // surface as missing
   }
+  // Each declared collection ships its schema file (ADR 0012); the engine validates its content.
+  const declared = (manifest as { collections?: unknown } | null)?.collections;
+  for (const name of Array.isArray(declared) ? declared : []) {
+    const rel = `schema/collections/${String(name)}.json`;
+    paths[rel] = existsSync(join(dir, rel));
+    required.push(rel);
+  }
 
   const bundleBytes = recursiveSize(dir);
 

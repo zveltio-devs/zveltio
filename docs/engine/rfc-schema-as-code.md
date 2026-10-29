@@ -51,8 +51,11 @@ workflow.
 - Secrets are not exported.
 - Tenant-specific state is not exported: memberships, per-tenant roles and
   per-tenant permission rows.
-- Extension-owned schema is not exported. Extensions already ship their own
-  migrations. One exception: `developer/validation`'s rule groups (§4.1), which
+- Extension-owned schema is not exported. An extension declares its collections
+  in this format in its own package (`schema/collections/<name>.json`, see
+  [authoring](../extensions/authoring.md#collections--declared-created-by-the-engine));
+  the engine records it as their owner (`zvd_collections.owner_extension`) and
+  plans its files against what it owns only. One exception: `developer/validation`'s rule groups (§4.1), which
   decide how the engine's own validation rules combine.
 - BYOD (`is_managed = false`) tables are not exported in v1.
 

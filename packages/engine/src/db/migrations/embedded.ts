@@ -112,6 +112,7 @@ import m093 from './sql/099_extension_statement_mark.sql' with { type: 'text' };
 import m094 from './sql/100_extension_manifest_record.sql' with { type: 'text' };
 import m095 from './sql/101_seed_ssr_rate_limit_tier.sql' with { type: 'text' };
 import m096 from './sql/102_api_key_member_issued.sql' with { type: 'text' };
+import m097 from './sql/103_collection_owner_extension.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -212,4 +213,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '100_extension_manifest_record.sql': m094,
   '101_seed_ssr_rate_limit_tier.sql': m095,
   '102_api_key_member_issued.sql': m096,
+  '103_collection_owner_extension.sql': m097,
 };

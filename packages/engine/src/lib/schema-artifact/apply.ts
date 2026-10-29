@@ -122,6 +122,7 @@ async function prepare(
   step: PlanStep,
   op: ApplyOp,
   adoptRules: boolean,
+  owner: string | undefined,
 ): Promise<Prepared> {
   const target = `${step.target} ${step.action}`;
   switch (op.kind) {
@@ -137,7 +138,9 @@ async function prepare(
         .executeTakeFirst();
       if (taken || (await DDLManager.tableExists(db, definition.name))) {
         throw new SchemaFileError(
-          `${target}: a collection or table named ${definition.name} exists outside the schema files`,
+          owner
+            ? `${target}: a collection or table named ${definition.name} exists and extension "${owner}" does not own it`
+            : `${target}: a collection or table named ${definition.name} exists outside the schema files`,
         );
       }
       // The request decides, not the file: rules naming it would take effect
@@ -231,12 +234,13 @@ async function prepare(
         // schema-locked one is refused here as `DELETE /api/collections` does.
         const meta = await db
           .selectFrom('zvd_collections')
-          .select('is_system')
+          .select(['is_system', 'owner_extension'])
           .where('name', '=', c.collection)
           .executeTakeFirst();
-        const why = meta?.is_system
-          ? `Collection '${c.collection}' is an engine or extension collection.`
-          : await schemaChangeRefusal(db, c.collection, 'drop');
+        const why =
+          meta?.is_system || meta?.owner_extension
+            ? `Collection '${c.collection}' is an engine or extension collection.`
+            : await schemaChangeRefusal(db, c.collection, 'drop');
         if (why) throw new SchemaFileError(`${target}: ${why}`);
       }
       return op;
@@ -501,10 +505,16 @@ async function removeEntry(db: Database, collection: string, list: string, e: En
   }
 }
 
-async function run(db: Database, op: Prepared, userId: string | undefined): Promise<void> {
+async function run(
+  db: Database,
+  op: Prepared,
+  userId: string | undefined,
+  owner: string | undefined,
+): Promise<void> {
   switch (op.kind) {
     case 'createCollection':
-      return runCreateCollection(db, op.definition);
+      // The owner is written in the create's own transaction (ADR 0012).
+      return runCreateCollection(db, op.definition, owner);
     case 'addField':
       return runAddField(db, op.collection, op.field);
     case 'setCollection':
@@ -603,6 +613,44 @@ async function run(db: Database, op: Prepared, userId: string | undefined): Prom
 }
 
 /**
+ * The plan for an extension's declared collections (`collections/<name>.json`
+ * only, ADR 0012), made against what it owns: the instance's other collections
+ * are out of scope, so their absence from the files is not a drop, and its
+ * roles are the instance's, so no grant changes. A declared collection the
+ * extension no longer declares is a drop, which has no op here.
+ */
+export async function planExtensionSchema(
+  db: Database,
+  owner: string,
+  files: Record<string, unknown>,
+): Promise<PlanStep[]> {
+  const stray = Object.keys(files).filter((p) => !p.startsWith('collections/'));
+  if (stray.length) {
+    throw new SchemaFileError(`${owner}: an extension declares collections only, not ${stray[0]}`);
+  }
+  const current = await exportSchema(db, { owner });
+  const steps = planSchema(current, {
+    ...files,
+    'zveltio-schema.json': current['zveltio-schema.json'],
+    'roles.json': current['roles.json'],
+  });
+  // Read by the plan, so each file is a JSON object. An o2m puts its key on the
+  // target: on a collection this extension does not declare, that is a column
+  // in somebody else's table.
+  for (const [path, content] of Object.entries(files)) {
+    const { relations } = JSON.parse(String(content)) as { relations?: Entry[] };
+    for (const r of relations ?? []) {
+      if (r.type === 'o2m' && !(`collections/${r.target}.json` in files)) {
+        throw new SchemaFileError(
+          `${path}: relation ${r.name} would add a column to ${r.target}, which ${owner} does not declare`,
+        );
+      }
+    }
+  }
+  return steps;
+}
+
+/**
  * Makes the instance match `files` and returns the steps it ran. Throws
  * `SchemaFileError` for a malformed or invalid file, `SchemaApplyRefused`
  * for a plan with a step it cannot run and `ExistingRulesError` for a new
@@ -613,10 +661,13 @@ export async function applySchema(
   db: Database,
   files: Record<string, unknown>,
   userId: string | undefined,
-  opts: { allowDestructive?: boolean; adoptRules?: boolean } = {},
+  opts: { allowDestructive?: boolean; adoptRules?: boolean; owner?: string } = {},
 ): Promise<PlanStep[]> {
+  const { owner } = opts;
   return withAdvisoryLock(db, 'zveltio:schema-apply', async () => {
-    const steps = planSchema(await exportSchema(db), files, await appliedMigrations(db));
+    const steps = owner
+      ? await planExtensionSchema(db, owner, files)
+      : planSchema(await exportSchema(db), files, await appliedMigrations(db));
     const refused = steps.filter((s) => !s.op);
     if (refused.length) throw new SchemaApplyRefused(refused);
     // Every destructive step left has an op, so it comes from a migration
@@ -628,7 +679,7 @@ export async function applySchema(
 
     const ops: Prepared[] = [];
     for (const step of steps) {
-      ops.push(await prepare(db, step, step.op as ApplyOp, opts.adoptRules === true));
+      ops.push(await prepare(db, step, step.op as ApplyOp, opts.adoptRules === true, owner));
     }
     // Not one transaction: CREATE INDEX CONCURRENTLY refuses a transaction
     // block. A step that fails leaves the ones before it applied; the next
@@ -641,7 +692,7 @@ export async function applySchema(
     // the model to the table first, as the orphan prune route does.
     if (policies) await reconcilePolicies();
     try {
-      for (const op of ops) await run(db, op, userId);
+      for (const op of ops) await run(db, op, userId, owner);
     } catch (err) {
       // The collection routes' own refusals (a relation over an existing one,
       // a field that cannot be required) are a file problem, not a crash.
@@ -655,7 +706,10 @@ export async function applySchema(
         type: 'schema.applied',
         userId,
         resourceType: 'schema',
-        metadata: { steps: steps.map((s) => `${s.change} ${s.target} ${s.action}`) },
+        metadata: {
+          steps: steps.map((s) => `${s.change} ${s.target} ${s.action}`),
+          ...(owner ? { extension: owner } : {}),
+        },
       });
     }
     return steps;

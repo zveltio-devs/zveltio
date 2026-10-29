@@ -2901,6 +2901,7 @@ export interface ZvdCollectionsTable {
   is_system: Generated<boolean>;
   schema_locked: Generated<boolean>;
   has_trgm: Generated<boolean>;
+  owner_extension: string | null;
   ai_search_enabled: Generated<boolean>;
   ai_search_field: Generated<string | null>;
   ai_embed_excluded_fields: Generated<string[]>;

@@ -247,6 +247,20 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
       return true;
     });
   };
+  // Declared collections (ADR 0012): names; the CLI checks each one's schema file.
+  if (obj.collections !== undefined) {
+    const names = Array.isArray(obj.collections) ? obj.collections : [];
+    const ok =
+      Array.isArray(obj.collections) &&
+      names.every((n) => typeof n === 'string' && n.length <= 63 && /^[a-z][a-z0-9_]*$/.test(n));
+    if (!ok) {
+      out.push(
+        err('MANIFEST_BAD_COLLECTIONS', '"collections" must be an array of collection names'),
+      );
+    } else if (new Set(names).size !== names.length) {
+      out.push(err('MANIFEST_BAD_COLLECTIONS', 'a collection is declared twice in "collections"'));
+    }
+  }
   const jobs = entries('jobs', 'MANIFEST_BAD_JOB');
   const resources = Array.isArray(obj.resources) ? obj.resources : [];
   const actions = entries('actions', 'MANIFEST_BAD_ACTION');

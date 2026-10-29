@@ -291,6 +291,20 @@ export const ManifestSchema = z
         }),
       )
       .default([]),
+    /**
+     * The collections this extension declares (ADR 0012): each has
+     * `schema/collections/<name>.json` in the package, in the schema-as-code
+     * collection format. The engine creates them, and records itself as their
+     * owner, when a god enables the extension; never at install.
+     */
+    collections: z
+      .array(
+        z
+          .string()
+          .max(63)
+          .regex(/^[a-z][a-z0-9_]*$/),
+      )
+      .default([]),
     contributes: z
       .object({
         engine: z.boolean().default(true),
@@ -363,6 +377,13 @@ export const ManifestSchema = z
   })
   .passthrough()
   .superRefine((m, ctx) => {
+    if (new Set(m.collections).size !== m.collections.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['collections'],
+        message: 'a collection is declared twice',
+      });
+    }
     const names = new Set<string>();
     const collections = new Set(
       [...m.actions, ...m.jobs].flatMap((e) => [...e.reads, ...e.writes]),
