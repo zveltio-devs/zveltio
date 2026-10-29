@@ -311,7 +311,9 @@ async function update(ext: Extension) {
     );
     await loadCatalog();
     await refreshExtensions();
-    toast.success(m['mkt.updated']({ name: ext.displayName, version: res.version }));
+    // `updated: false`: the files already were that version; the reload shows it.
+    if (res.updated)
+      toast.success(m['mkt.updated']({ name: ext.displayName, version: res.version }));
   } catch (e) {
     if (stepUpAborted(e)) return;
     // A refused or failed update can still change what is installed and running.
