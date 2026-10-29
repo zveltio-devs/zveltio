@@ -162,8 +162,7 @@ d('sensitiveResources follow the extension data', () => {
     // Another extension still declares it.
     expect(isSensitiveResource('sensdata_both')).toBe(true);
     forgetSensitiveResources(b);
-    // A core name is never an extension's to forget.
-    forgetSensitiveResources('payroll');
-    expect(isSensitiveResource('payroll')).toBe(true);
+    // The engine names no business data itself: sensitivity is declared.
+    expect(isSensitiveResource('payroll')).toBe(false);
   });
 });
