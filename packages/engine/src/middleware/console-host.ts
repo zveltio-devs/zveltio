@@ -4,8 +4,9 @@
  * The Console and the App share an origin by default, so an XSS in the App
  * against a signed-in administrator can call the configuration API. With the
  * variable set, the Console (`/admin`), `/api/admin/*`, every configuration
- * mutation (`isConfigMutation`) and every extension mutation authorized against
- * `admin` (`fenceAdminGrant`) answer only on that host, 404 elsewhere; the rest
+ * mutation (`isConfigMutation`), the CLI's browser confirmation (`/api/auth/cli/*`)
+ * and every extension mutation authorized against `admin` (`fenceAdminGrant`)
+ * answer only on that host, 404 elsewhere; the rest
  * answers on every host. Unset, nothing changes.
  *
  * The session cookie is host-only already (better-auth sets no Domain), so a
@@ -60,6 +61,10 @@ function fenced(method: string, path: string): boolean {
     path.startsWith('/admin/') ||
     path === '/api/admin' ||
     path.startsWith('/api/admin/') ||
+    // The CLI's browser confirmation (routes/cli-sign-in.ts): its page is in the
+    // Console, and an approval yields a portable session, so a script on another
+    // host riding the Console's user must not reach it.
+    path.startsWith('/api/auth/cli/') ||
     isConfigMutation(method, path)
   );
 }
