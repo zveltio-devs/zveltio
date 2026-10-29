@@ -5,6 +5,7 @@ import { collectionsRoutes } from './collections.js';
 import { dataRoutes } from './data.js';
 import { authRoutes, invitationRoutes } from './auth.js';
 import { registerStepUpRoutes } from './step-up.js';
+import { registerCliSignInRoutes } from './cli-sign-in.js';
 import { revokeAllUserSessions } from '../lib/auth.js';
 import { usersRoutes } from './users.js';
 import { permissionsRoutes } from './permissions.js';
@@ -309,6 +310,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Step-up tokens, and the gates on adding or removing a sign-in factor
   // (routes/step-up.ts). Before the Better Auth catch-all below.
   registerStepUpRoutes(app, poolDb);
+  // The CLI's sign-in and step-up through the browser (routes/cli-sign-in.ts).
+  registerCliSignInRoutes(app, poolDb);
 
   // Changing a password ends every other session, and the client does not get
   // a say.

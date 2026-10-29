@@ -1619,5 +1619,19 @@
   "settings.theme.sample": "Exemplu",
   "settings.theme.save": "Salvează tema",
   "settings.theme.reset": "Revino la implicitele daisyUI",
-  "settings.theme.useInstance": "Folosește tema instanței"
+  "settings.theme.useInstance": "Folosește tema instanței",
+  "cli.title": "Confirmă o cerere din CLI",
+  "cli.subtitle": "Un terminal cere să acționeze în numele tău.",
+  "cli.codeLabel": "Cod",
+  "cli.lookup": "Arată cererea",
+  "cli.compare": "Verifică dacă acest cod este cel afișat în terminal. Dacă nu ai pornit tu cererea, refuz-o.",
+  "cli.kindLogin": "Autentifică CLI-ul cu contul tău",
+  "cli.kindStepUp": "Permite CLI-ului: {action}",
+  "cli.from": "De la {ip} · {agent}",
+  "cli.approve": "Aprobă",
+  "cli.deny": "Refuză",
+  "cli.approved": "Aprobat. Întoarce-te în terminal.",
+  "cli.denied": "Refuzat. Cererea din terminal s-a încheiat.",
+  "cli.notFound": "Cererea a expirat sau a fost deja folosită.",
+  "cli.notForYou": "Confirmarea este pentru alt cont. Autentifică-te cu acel utilizator ca să o aprobi."
 }

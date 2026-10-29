@@ -5,7 +5,7 @@
  * session cookies, the stored file is 0600 and keyed by origin, and an account
  * that steps up with a passkey only is told so instead of asked for a code.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -59,20 +59,46 @@ describe('engine session', () => {
     expect(statSync(credentialsPath()).mode & 0o777).toBe(0o600);
   });
 
-  it('sends a passkey-only account to the Console instead of asking for a code', async () => {
+  it('confirms in the browser for a passkey-only account', async () => {
+    process.env.ZVELTIO_NO_BROWSER = '1';
     saveSession('https://e.test:3000', 'one');
+    let sentStepUp = '';
+    let started: unknown;
     fakeEngine({
       '/api/auth/step-up/options': () =>
         new Response(JSON.stringify({ method: 'passkey', totp: false })),
+      '/api/auth/cli/start': (init) => {
+        started = JSON.parse(String(init.body));
+        return new Response(
+          JSON.stringify({
+            device_code: 'd'.repeat(43),
+            user_code: 'BCDF-GHJK',
+            verification_path: '/admin/cli-sign-in',
+            expires_in: 60,
+            interval: 0,
+          }),
+        );
+      },
+      '/api/auth/cli/poll': () =>
+        new Response(JSON.stringify({ status: 'approved', token: 'from-browser' })),
+      '/api/marketplace/crm/update': (init) => {
+        sentStepUp = new Headers(init.headers).get('x-zveltio-step-up') ?? '';
+        return new Response('{}');
+      },
     });
-    await expect(
-      engineFetch(
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await engineFetch(
         { url: 'https://e.test:3000' },
         '/api/marketplace/crm/update',
-        {},
+        { method: 'POST' },
         'extension.update:crm',
-      ),
-    ).rejects.toThrow(/passkey only/);
+      );
+    } finally {
+      log.mockRestore();
+    }
+    expect(started).toEqual({ kind: 'step-up', action: 'extension.update:crm' });
+    expect(sentStepUp).toBe('from-browser');
   });
 });
 

@@ -1619,5 +1619,19 @@
   "settings.theme.sample": "Beispiel",
   "settings.theme.save": "Design speichern",
   "settings.theme.reset": "Auf daisyUI-Standard zurücksetzen",
-  "settings.theme.useInstance": "Design der Instanz verwenden"
+  "settings.theme.useInstance": "Design der Instanz verwenden",
+  "cli.title": "CLI-Anfrage bestätigen",
+  "cli.subtitle": "Ein Terminal möchte in deinem Namen handeln.",
+  "cli.codeLabel": "Code",
+  "cli.lookup": "Anfrage anzeigen",
+  "cli.compare": "Prüfe, ob dieser Code der ist, den dein Terminal anzeigt. Wenn du das nicht gestartet hast, lehne ab.",
+  "cli.kindLogin": "CLI mit deinem Konto anmelden",
+  "cli.kindStepUp": "Der CLI erlauben: {action}",
+  "cli.from": "Von {ip} · {agent}",
+  "cli.approve": "Genehmigen",
+  "cli.deny": "Ablehnen",
+  "cli.approved": "Genehmigt. Kehre zu deinem Terminal zurück.",
+  "cli.denied": "Abgelehnt. Die Anfrage des Terminals ist beendet.",
+  "cli.notFound": "Diese Anfrage ist abgelaufen oder wurde bereits verwendet.",
+  "cli.notForYou": "Diese Bestätigung gilt für ein anderes Konto. Melde dich als dieser Benutzer an, um sie zu genehmigen."
 }

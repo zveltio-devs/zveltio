@@ -1619,5 +1619,19 @@
   "settings.theme.sample": "Voorbeeld",
   "settings.theme.save": "Thema opslaan",
   "settings.theme.reset": "Terug naar daisyUI-standaard",
-  "settings.theme.useInstance": "Het thema van de instantie gebruiken"
+  "settings.theme.useInstance": "Het thema van de instantie gebruiken",
+  "cli.title": "Een CLI-verzoek bevestigen",
+  "cli.subtitle": "Een terminal vraagt om namens jou te handelen.",
+  "cli.codeLabel": "Code",
+  "cli.lookup": "Verzoek tonen",
+  "cli.compare": "Controleer of deze code dezelfde is als in je terminal. Heb je dit niet zelf gestart, weiger het dan.",
+  "cli.kindLogin": "De CLI aanmelden met jouw account",
+  "cli.kindStepUp": "De CLI toestaan: {action}",
+  "cli.from": "Vanaf {ip} · {agent}",
+  "cli.approve": "Goedkeuren",
+  "cli.deny": "Weigeren",
+  "cli.approved": "Goedgekeurd. Ga terug naar je terminal.",
+  "cli.denied": "Geweigerd. Het verzoek van de terminal is beëindigd.",
+  "cli.notFound": "Dit verzoek is verlopen of al gebruikt.",
+  "cli.notForYou": "Deze bevestiging is voor een ander account. Meld je aan als die gebruiker om haar goed te keuren."
 }

@@ -1619,5 +1619,19 @@
   "settings.theme.sample": "Esempio",
   "settings.theme.save": "Salva tema",
   "settings.theme.reset": "Ripristina i valori daisyUI",
-  "settings.theme.useInstance": "Usa il tema dell'istanza"
+  "settings.theme.useInstance": "Usa il tema dell'istanza",
+  "cli.title": "Conferma una richiesta della CLI",
+  "cli.subtitle": "Un terminale chiede di agire a tuo nome.",
+  "cli.codeLabel": "Codice",
+  "cli.lookup": "Mostra richiesta",
+  "cli.compare": "Verifica che questo codice sia quello mostrato dal terminale. Se non l'hai avviata tu, rifiutala.",
+  "cli.kindLogin": "Accedi alla CLI con il tuo account",
+  "cli.kindStepUp": "Consenti alla CLI: {action}",
+  "cli.from": "Da {ip} · {agent}",
+  "cli.approve": "Approva",
+  "cli.deny": "Rifiuta",
+  "cli.approved": "Approvato. Torna al terminale.",
+  "cli.denied": "Rifiutato. La richiesta del terminale è terminata.",
+  "cli.notFound": "Questa richiesta è scaduta o è già stata usata.",
+  "cli.notForYou": "Questa conferma è per un altro account. Accedi con quell'utente per approvarla."
 }

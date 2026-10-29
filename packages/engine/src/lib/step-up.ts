@@ -50,7 +50,7 @@ const ACTION_RE = /^[a-z][a-z0-9._-]*(:[a-z0-9._@/-]+)?$/i;
 export const isStepUpAction = (a: unknown): a is string =>
   typeof a === 'string' && a.length <= 200 && ACTION_RE.test(a);
 
-const rowId = (kind: string, ...parts: string[]) =>
+export const rowId = (kind: string, ...parts: string[]) =>
   `step-up-${kind}:${createHash('sha256').update(parts.join('\n')).digest('base64url')}`;
 
 interface PasskeyRow {
@@ -136,7 +136,12 @@ export async function firstFactorRule(userId: string, sessionToken: string): Pro
 }
 
 /** Store a row; false when one with this id is already there (a replayed TOTP code). */
-async function put(id: string, kind: string, value: string, ttl = TTL_SECONDS): Promise<boolean> {
+export async function put(
+  id: string,
+  kind: string,
+  value: string,
+  ttl = TTL_SECONDS,
+): Promise<boolean> {
   const db = authPool();
   // Better Auth never reads these, so nothing else sweeps them.
   await sql`DELETE FROM verification
@@ -173,8 +178,15 @@ async function reserveTotpAttempt(userId: string): Promise<string | null> {
   return null;
 }
 
+/** A live row's value, left in place. */
+export async function peek(id: string): Promise<string | null> {
+  const r = await sql<{ value: string }>`
+    SELECT value FROM verification WHERE id = ${id} AND "expiresAt" > now()`.execute(authPool());
+  return r.rows[0]?.value ?? null;
+}
+
 /** Delete and return a live row: the one statement makes it single-use under concurrency. */
-async function take(id: string): Promise<string | null> {
+export async function take(id: string): Promise<string | null> {
   const r = await sql<{ value: string }>`
     DELETE FROM verification WHERE id = ${id} AND "expiresAt" > now() RETURNING value`.execute(
     authPool(),
@@ -333,10 +345,26 @@ export async function stepUpVerify(c: Context): Promise<Response> {
     return enrollmentRequired(c);
   }
 
+  const token = await mintStepUpToken(sessionId, userId, action, method);
+  return c.json({ token, method, action, expires_in: TTL_SECONDS });
+}
+
+/**
+ * A step-up token for `action` on session `sessionId`, earned with `method`; it
+ * opens that session's configuration window, as any step-up does. Callers have
+ * checked the factor: `stepUpVerify` here, a browser confirmation for the CLI
+ * (lib/cli-sign-in.ts).
+ */
+export async function mintStepUpToken(
+  sessionId: string,
+  userId: string,
+  action: string,
+  method: StepUpMethod,
+): Promise<string> {
   const token = randomBytes(32).toString('base64url');
   await put(rowId('token', token, sessionId, action), `token:${userId}`, method);
   await openConfigWindow(sessionId, userId, method);
-  return c.json({ token, method, action, expires_in: TTL_SECONDS });
+  return token;
 }
 
 /**
