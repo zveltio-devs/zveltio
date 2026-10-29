@@ -141,6 +141,33 @@ async function ruleGroups(db: Database): Promise<RuleGroupRow[]> {
 }
 
 /**
+ * Per collection, the column lists of its unique keys over two or more fields,
+ * read from the catalog, so a key built by hand or dropped out of band shows as
+ * drift. Each is `(tenant_id, …)`, as a field's own key is; a one-field key is
+ * that field's `unique` flag and not listed.
+ */
+async function compositeUniques(db: Database): Promise<Map<string, string[][]>> {
+  const { rows } = await sql<{ name: string; cols: string }>`
+    SELECT zc.name, array_to_string(ARRAY(
+             SELECT a.attname FROM unnest(i.indkey::int2[]) WITH ORDINALITY u(n, o)
+               JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = u.n
+              ORDER BY u.o), ',') AS cols
+      FROM zvd_collections zc
+      JOIN pg_index i ON i.indrelid = to_regclass(quote_ident('zvd_' || zc.name))
+     WHERE i.indisunique AND i.indisvalid AND NOT i.indisprimary
+       AND i.indexprs IS NULL AND i.indpred IS NULL AND i.indnatts >= 3`.execute(db);
+  const out = new Map<string, string[][]>();
+  for (const { name, cols } of rows) {
+    const [first, ...fields] = cols.split(',');
+    const had = out.get(name) ?? [];
+    // An index left beside the constraint it backs is the same key.
+    if (first !== 'tenant_id' || had.some((f) => f.join() === fields.join())) continue;
+    out.set(name, [...had, fields]);
+  }
+  return out;
+}
+
+/**
  * `owner` exports one extension's collections instead of the instance's: an
  * extension's declared collections belong to its package (ADR 0012), so the
  * instance artifact leaves them out, and its plan is made against them alone.
@@ -196,6 +223,7 @@ export async function exportSchema(
         .execute(),
     ]);
   const groups = await ruleGroups(db);
+  const uniques = await compositeUniques(db);
   // A member is named by its rule's key in the file, never by id. Only an
   // instance rule on the group's own field can be one (writeValidationRuleGroup);
   // any other id in rule_ids is one the evaluator ignores, so it is left out.
@@ -255,6 +283,11 @@ export async function exportSchema(
       defaultGrants: col.default_grants ? null : false,
       // Declared order: it is the order Studio shows.
       fields: fields.map(exportField),
+      // Left out when there is none, so the files pulled before it stay as they are.
+      indexes: uniques
+        .get(name)
+        ?.map((f) => ({ fields: f, unique: true }))
+        .sort(byKey((ix) => ix.fields.join(','))),
       relations: relations
         .filter((r) => r.source_collection === name)
         .map((r) => ({

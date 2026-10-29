@@ -255,6 +255,29 @@ describe('planSchema', () => {
       expect(plan(files([renamed()]))[0]).toBe('- posts drop field title !');
     });
 
+    it('carries a unique index through a rename, and drops it with its field', () => {
+      const indexed = (p: Obj, fields: string[]) => ({
+        ...p,
+        indexes: [{ fields, unique: true }],
+      });
+      const current = files([indexed(posts(), ['title', 'body'])]);
+      // Postgres renames the index's column with the field, and drops the index with it.
+      expect(
+        planSchema(current, {
+          ...files([indexed(renamed(), ['headline', 'body'])]),
+          ...rename,
+        }).map((s) => s.action),
+      ).toEqual([`rename field title → headline (migration ${ID})`]);
+      const noBody = posts();
+      noBody.fields = [{ name: 'title', type: 'text', required: true }];
+      expect(
+        planSchema(current, {
+          ...files([noBody]),
+          ...mig('20261005T110000-x', [{ op: 'dropField', collection: 'posts', field: 'body' }]),
+        }).map((s) => s.action),
+      ).toEqual(['drop field body (migration 20261005T110000-x)']);
+    });
+
     it('skips an applied migration, and refuses one whose file changed', () => {
       const desired = { ...files([renamed()]), ...rename };
       const once = planSchema(files([posts()]), desired);

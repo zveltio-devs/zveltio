@@ -10,26 +10,77 @@
  * plan has steps, as it refuses pending SQL migrations.
  */
 
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Database } from '../../db/index.js';
 import { CollectionSchema } from '../data/index.js';
 import { applySchema, planExtensionSchema, SchemaApplyRefused } from '../schema-artifact/apply.js';
 import { pendingMigrationsRefusal } from './migration-runner.js';
 
-/** `{ 'collections/<name>.json': content }` for each declared name; throws on a missing or invalid file. */
+/** Every `.json` under the package's `schema/`, by path relative to it. */
+export async function readSchemaDir(extDir: string): Promise<Map<string, Uint8Array>> {
+  const dir = join(extDir, 'schema');
+  const out = new Map<string, Uint8Array>();
+  if (!existsSync(dir)) return out;
+  for (const rel of new Bun.Glob('**/*.json').scanSync({ cwd: dir, onlyFiles: true })) {
+    out.set(rel.replace(/\\/g, '/'), await Bun.file(join(dir, rel)).bytes());
+  }
+  return out;
+}
+
+/**
+ * `integrity.schemaSha256`, as `zveltio extension pack` writes it (ADR 0012
+ * amendment 1 point 4): every `.json` under `schema/`, sorted by path, each
+ * path and its bytes — so a changed, added or renamed file, collection or
+ * migration alike, is a different digest.
+ */
+export function schemaDigest(files: Map<string, Uint8Array>): string {
+  const h = createHash('sha256');
+  for (const path of [...files.keys()].sort()) {
+    h.update(path);
+    h.update('\0');
+    h.update(files.get(path) as Uint8Array);
+    h.update('\0');
+  }
+  return h.digest('hex');
+}
+
+/**
+ * `{ 'collections/<name>.json': content }` for each declared name; throws on a
+ * missing or invalid file, and on files that are not the ones the extension was
+ * packed with (`schemaSha256`, the manifest's): those would be DDL nobody signed.
+ */
 export async function readDeclaredCollections(
   extName: string,
   extDir: string,
   names: string[],
+  schemaSha256: string | undefined,
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
+  if (names.length === 0) return files;
+  if (!schemaSha256) {
+    throw new Error(
+      `Extension "${extName}" declares collections but its manifest has no integrity.schemaSha256. ` +
+        'Run `zveltio extension pack`.',
+    );
+  }
+  // Hashed and parsed from the same bytes: a file swapped in between is neither.
+  const onDisk = await readSchemaDir(extDir);
+  const actual = schemaDigest(onDisk);
+  if (actual !== schemaSha256) {
+    throw new Error(
+      `Extension "${extName}" integrity check failed: manifest declares schemaSha256=${schemaSha256} ` +
+        `but its schema/ files hash to ${actual}. Re-pack and re-publish, or the files were changed after pack.`,
+    );
+  }
   for (const name of names) {
     const rel = `schema/collections/${name}.json`;
-    const file = Bun.file(join(extDir, rel));
-    if (!(await file.exists())) {
+    const bytes = onDisk.get(`collections/${name}.json`);
+    if (!bytes) {
       throw new Error(`Extension "${extName}" declares collection "${name}" but ships no ${rel}`);
     }
-    const content = await file.text();
+    const content = new TextDecoder().decode(bytes);
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);

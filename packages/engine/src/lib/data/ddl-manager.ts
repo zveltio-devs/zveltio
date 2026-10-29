@@ -1504,6 +1504,60 @@ export class DDLManager {
   }
 
   /**
+   * Adds (`on`) or drops the key `UNIQUE (tenant_id, …cols)` of an existing
+   * table: a field's `unique` flag, or a collection file's `indexes` entry. The
+   * index is built CONCURRENTLY, then attached as the constraint under a lock
+   * timeout — the way `unique-key-reconcile.ts` widens old keys. Rows that
+   * already repeat a value within a tenant fail the build with 23505, and the
+   * INVALID index it leaves behind is dropped before the error goes up.
+   */
+  static async setTenantUniqueKey(
+    db: Database,
+    tableName: string,
+    cols: readonly string[],
+    on: boolean,
+  ): Promise<void> {
+    const found = await findTenantUniqueIndex(db, tableName, cols);
+    if (on && !found?.constraint) {
+      let name = found?.index;
+      if (!name) {
+        // The usual name may belong to the key of a column renamed away.
+        const base = `${tableName}_tenant_id_${cols.join('_')}_key`;
+        for (let n = 0; !name; n++) {
+          const candidate = pgIdentifier(n ? `${base}_${n}` : base);
+          const taken = await sql`SELECT to_regclass(quote_ident(${candidate})) AS r`.execute(db);
+          if ((taken.rows[0] as { r: unknown }).r === null) name = candidate;
+        }
+      }
+      // Any failure — a duplicate in the build, a lock timeout in the
+      // attach — drops the index: left unattached, it would go on refusing
+      // duplicates while nothing says the key exists, out of reach of a removal.
+      try {
+        if (!found) await buildTenantUniqueIndex(db, tableName, cols, name);
+        await withLockTimeout(db, async (trx) => {
+          await sql`ALTER TABLE ${sql.id(tableName)} ADD CONSTRAINT ${sql.id(name)} UNIQUE USING INDEX ${sql.id(name)}`.execute(
+            trx,
+          );
+        });
+      } catch (err) {
+        await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(name)}`.execute(db);
+        throw err;
+      }
+    } else if (!on && found) {
+      if (found.constraint) {
+        const constraint = found.constraint;
+        await withLockTimeout(db, async (trx) => {
+          await sql`ALTER TABLE ${sql.id(tableName)} DROP CONSTRAINT ${sql.id(constraint)}`.execute(
+            trx,
+          );
+        });
+      } else {
+        await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(found.index)}`.execute(db);
+      }
+    }
+  }
+
+  /**
    * Brings an existing column's default, unique key and indexes to what
    * `field` says, as `createCollection` and `addField` would have built them.
    * Only the keys named in `keys` are touched; metadata is the caller's.
@@ -1539,45 +1593,7 @@ export class DDLManager {
     }
 
     if (keys.includes('unique')) {
-      const found = await findTenantUniqueIndex(db, tableName, field.name);
-      if (field.unique && !found?.constraint) {
-        let name = found?.index;
-        if (!name) {
-          // The usual name may belong to the key of a column renamed away.
-          const base = `${tableName}_tenant_id_${field.name}_key`;
-          for (let n = 0; !name; n++) {
-            const candidate = pgIdentifier(n ? `${base}_${n}` : base);
-            const taken = await sql`SELECT to_regclass(quote_ident(${candidate})) AS r`.execute(db);
-            if ((taken.rows[0] as { r: unknown }).r === null) name = candidate;
-          }
-        }
-        // Any failure — a duplicate in the build, a lock timeout in the
-        // attach — drops the index: left unattached, it would go on refusing
-        // duplicates while the field says it is not unique, out of reach of
-        // `unique: false`.
-        try {
-          if (!found) await buildTenantUniqueIndex(db, tableName, field.name, name);
-          await withLockTimeout(db, async (trx) => {
-            await sql`ALTER TABLE ${sql.id(tableName)} ADD CONSTRAINT ${sql.id(name)} UNIQUE USING INDEX ${sql.id(name)}`.execute(
-              trx,
-            );
-          });
-        } catch (err) {
-          await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(name)}`.execute(db);
-          throw err;
-        }
-      } else if (!field.unique && found) {
-        if (found.constraint) {
-          const constraint = found.constraint;
-          await withLockTimeout(db, async (trx) => {
-            await sql`ALTER TABLE ${sql.id(tableName)} DROP CONSTRAINT ${sql.id(constraint)}`.execute(
-              trx,
-            );
-          });
-        } else {
-          await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(found.index)}`.execute(db);
-        }
-      }
+      await this.setTenantUniqueKey(db, tableName, [field.name], field.unique === true);
     }
 
     if (keys.includes('indexed')) {

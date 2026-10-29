@@ -168,8 +168,8 @@ export async function loadExtensionFromDir(
     if (early?.contributes?.engine === false) {
       // ADR 0012: no engine code, but its declared collections are the engine's,
       // applied and refused on the same terms as below.
-      const collections =
-        early.collections === undefined ? [] : ManifestSchema.parse(early).collections;
+      const parsed = early.collections === undefined ? undefined : ManifestSchema.parse(early);
+      const collections = parsed?.collections ?? [];
       if (collections.length > 0) {
         await recordManifest(ctx.db, extName, extDir).catch((err: Error) => {
           console.warn(`[extensions] "${extName}": manifest not recorded:`, err.message);
@@ -177,7 +177,12 @@ export async function loadExtensionFromDir(
         const { applyDeclaredCollections, readDeclaredCollections } = await import(
           './declared-collections.js'
         );
-        const files = await readDeclaredCollections(extName, extDir, collections);
+        const files = await readDeclaredCollections(
+          extName,
+          extDir,
+          collections,
+          parsed?.integrity?.schemaSha256,
+        );
         await applyDeclaredCollections(ctx.db, extName, files, migrate);
       }
       loader.loaded.set(extName, {
@@ -492,7 +497,12 @@ export async function loadExtensionFromDir(
     const { applyDeclaredCollections, readDeclaredCollections } = await import(
       './declared-collections.js'
     );
-    const declaredFiles = await readDeclaredCollections(extName, extDir, declared);
+    const declaredFiles = await readDeclaredCollections(
+      extName,
+      extDir,
+      declared,
+      manifest?.integrity?.schemaSha256,
+    );
     if (!migrate && declared.length > 0) {
       await applyDeclaredCollections(ctx.db, extName, declaredFiles, false);
     }

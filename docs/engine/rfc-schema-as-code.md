@@ -95,7 +95,7 @@ The file holds everything that belongs to one collection:
     { "name": "title", "type": "text", "required": true },
     { "name": "author", "type": "m2o", "options": { "related": "users" } }
   ],
-  "indexes": [{ "fields": ["author", "title"], "unique": false }],
+  "indexes": [{ "fields": ["author", "title"], "unique": true }],
   "relations": [
     { "name": "posts_author", "type": "m2o", "field": "author",
       "target": "users", "onDelete": "SET NULL" }
@@ -272,8 +272,11 @@ The plan reads like `terraform plan`:
   `--allow-destructive`. A narrowed column permission is not on the list: it
   loses no data, narrowing is the point of the change, and the plan already
   shows it for review.
-- Indexes are not steps of their own: they follow from a field's `unique` and
-  `indexed` flags, so they show as `alter field`. Such an alter runs as
+- Single-field indexes are not steps of their own: they follow from a field's
+  `unique` and `indexed` flags, so they show as `alter field`. A composite
+  key (`indexes`, two or more fields, `unique: true` only, built as
+  `UNIQUE (tenant_id, …)`) is its own `add`/`remove unique index` step; a
+  non-unique composite index is refused. Such an alter runs as
   `PATCH /api/collections/:name/fields/:field` runs it (`alterField`): the
   index or key is built `CONCURRENTLY`, a unique key over rows that already
   repeat a value within a tenant is refused (409) and leaves no index behind,

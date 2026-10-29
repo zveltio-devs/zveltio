@@ -240,8 +240,11 @@ interface Manifest {
     bundlePeers?: boolean;
     isolation?: 'inline' | 'worker';
   };
+  collections?: string[];
   integrity?: {
     engineSha256?: string;
+    /** Hash of the declared schema files — see `hashSchemaFiles`. */
+    schemaSha256?: string;
     /** Hash of the TypeScript the bundle was built from — see `hashEngineSources`. */
     sourceSha256?: string;
     archiveSha256?: string;
@@ -300,6 +303,31 @@ export function hashEngineSources(dir: string): string {
   return h.digest('hex');
 }
 
+/**
+ * `integrity.schemaSha256`: every `.json` under `schema/` (declared collections,
+ * schema migrations), sorted by path, each path and its bytes. The engine
+ * recomputes it at load and refuses files changed after pack (ADR 0012) — the
+ * same computation as the engine's `schemaDigest`, which cannot import this.
+ */
+export function hashSchemaFiles(dir: string): string {
+  const schemaDir = join(dir, 'schema');
+  const h = createHash('sha256');
+  if (!existsSync(schemaDir)) return h.digest('hex');
+  const files = [...new Bun.Glob('**/*.json').scanSync({ cwd: schemaDir, onlyFiles: true })]
+    .map((rel) => rel.replace(/\\/g, '/'))
+    .sort();
+  for (const rel of files) {
+    h.update(rel);
+    h.update('\0');
+    h.update(readFileSync(join(schemaDir, rel)));
+    h.update('\0');
+  }
+  return h.digest('hex');
+}
+
+const declaresCollections = (m: Manifest) =>
+  Array.isArray(m.collections) && m.collections.length > 0;
+
 function readManifest(dir: string): Manifest {
   const path = join(dir, 'manifest.json');
   if (!existsSync(path)) {
@@ -336,10 +364,22 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
   const outfile = join(dir, 'engine', 'index.js');
 
   if (!existsSync(entry)) {
-    throw new Error(
-      `No engine/index.ts at ${entry}. ` +
-        `Run from the extension root or pass --dir. Extensions without an engine entry don't need pack.`,
-    );
+    // A Studio-only extension has no bundle; its declared collections still
+    // need their digest, or the engine refuses them at load.
+    const manifest = existsSync(join(dir, 'manifest.json')) ? readManifest(dir) : undefined;
+    if (!manifest || !declaresCollections(manifest)) {
+      throw new Error(
+        `No engine/index.ts at ${entry}. ` +
+          `Run from the extension root or pass --dir. Extensions without an engine entry or declared collections don't need pack.`,
+      );
+    }
+    if (!opts.noManifestUpdate) {
+      manifest.integrity = { ...manifest.integrity, schemaSha256: hashSchemaFiles(dir) };
+      writeManifest(dir, manifest);
+      console.log(`  ${c.green('✓')} manifest.json updated with integrity.schemaSha256`);
+    }
+    console.log(`${c.green('✓')} pack complete`);
+    return;
   }
 
   const manifest = readManifest(dir);
@@ -490,6 +530,7 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
     manifest.integrity = {
       engineSha256,
       sourceSha256: hashEngineSources(dir),
+      ...(declaresCollections(manifest) ? { schemaSha256: hashSchemaFiles(dir) } : {}),
       // Only carry archiveSha256 forward if a prior valid value exists —
       // never write an empty placeholder (the engine's manifest schema
       // rejects it). The registry computes archiveSha256 on upload.
