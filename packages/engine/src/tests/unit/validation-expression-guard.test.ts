@@ -98,6 +98,20 @@ describe('CEL specifics', () => {
     if (!verdict.ok) expect(verdict.reason).toContain('&&');
   });
 
+  // The strings extension: a check digit over an identifier with a prefix
+  // (a Romanian CUI, `RO` optional) is a rule, not code an extension writes.
+  test('defines the CEL strings extension', () => {
+    expect(evaluateExpressionRule('value.substring(0, 2) == "RO"', 'RO123', 'text')).toEqual({
+      status: 'passed',
+    });
+    expect(
+      evaluateExpressionRule('int(value.replace("RO", "")) % 10 == 3', 'RO123', 'text'),
+    ).toEqual({
+      status: 'passed',
+    });
+    expect(checkValidationExpression('value.charAt(0) == "R"').ok).toBe(true);
+  });
+
   // The column's declared type decides int versus double. Without it, a whole
   // number is a double and `value * 2` is a type error in CEL.
   test('binds a whole number as int on an integer field', () => {

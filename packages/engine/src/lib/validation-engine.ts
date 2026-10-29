@@ -9,6 +9,7 @@
 
 import { Script, createContext } from 'node:vm';
 import { celEnv, isCelError, parse, plan } from '@bufbuild/cel';
+import { strings } from '@bufbuild/cel/ext';
 import { RE2JS } from '@bufbuild/re2';
 import { sql } from 'kysely';
 import { withSavepoint } from './savepoint.js';
@@ -23,6 +24,9 @@ type CelProgram = ReturnType<typeof plan>;
 // linear-time, and it is also the dialect the CEL specification defines
 // `matches` in, so a rule behaves here as it does in any other CEL runtime.
 const env = celEnv({
+  // The CEL strings extension (`substring`, `charAt`, `replace`, `split`, …): a
+  // rule over an identifier's characters, such as a check digit, needs it.
+  funcs: strings,
   re2: {
     compile(pattern: string) {
       const re = new RE2JS(pattern);

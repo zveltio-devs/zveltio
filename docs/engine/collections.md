@@ -177,6 +177,11 @@ a boot warning.
 
 For complex business rules, use `POST /api/validation-rules` to create natural language rules (e.g. *"price must be greater than cost"*) that are enforced on every write.
 
+A rule's CEL expression has the standard functions, `matches` (RE2), and the
+CEL strings extension (`substring`, `charAt`, `indexOf`, `replace`, `split`,
+`trim`, `lowerAscii`, `upperAscii`, `join`, `format`), so a check digit over an
+identifier is a rule rather than code.
+
 A `transition` rule constrains how a field's value may change. Its CEL
 `expression` sees `value` (being written) and `previous` (stored before this
 write, `null` on create), for example a status that starts as `draft` and may
