@@ -29,7 +29,7 @@ import {
   reconcileFailures,
 } from '../tenancy/index.js';
 import { announcePoolRecycle } from '../runtime/index.js';
-import { DownMissingError } from './extension-errors.js';
+import { DownMissingError, OwnedCollectionsReferencedError } from './extension-errors.js';
 import { parseMigrationSql } from './extension-utils.js';
 
 /**
@@ -500,8 +500,11 @@ async function tenantIsolationPolicies(db: Database): Promise<Map<string, string
  * another replica recorded meanwhile.
  *
  * Without `only` (a purge: the extension is leaving), the same transaction
- * deletes the rules on its own objects — `$ext:<name>` and its v1 resources,
- * see `deleteExtensionObjectRules` — and its own manifest is not required.
+ * drops the collections it owns (`zvd_collections.owner_extension`, ADR 0012)
+ * with every rule naming them, and deletes the rules on its own objects —
+ * `$ext:<name>` and its v1 resources, see `deleteExtensionObjectRules`; its own
+ * manifest is not required. Throws `OwnedCollectionsReferencedError`, dropping
+ * nothing, while an operator's column holds a key into an owned collection.
  *
  * Throws DownMissingError listing the migrations that have no DOWN section.
  * In that case nothing is dropped — the operator can either run those DOWNs
@@ -560,6 +563,12 @@ export async function purgeExtensionData(
     for (const name of before.filter((n) => !after.has(n))) {
       out.push([name, await DDLManager.dropInTransaction(trx, name, { gone: true, leaving })]);
     }
+    // ADR 0012: the collections it owns go with it, after its DOWNs (which may
+    // have held a key into one), with every rule naming them.
+    // Forced: the only keys left into them are their own and their junctions'.
+    for (const name of leaving ? await ownedCollectionsToDrop(trx, leaving) : []) {
+      out.push([name, await DDLManager.dropInTransaction(trx, name, { force: true, leaving })]);
+    }
     // After the drops: a name is a collection's only while the collection stands.
     const own = leaving ? await deleteExtensionObjectRules(trx, leaving) : [];
     return { dropped: out, ownRules: own };
@@ -577,6 +586,47 @@ export async function purgeExtensionData(
   }
   // A DOWN reshapes what its UP did: see `runExtensionMigrations`.
   if (rows.length > 0) await dropStalePlans();
+}
+
+/**
+ * The collections `extension` owns; throws `OwnedCollectionsReferencedError`
+ * when a column outside them and their junctions holds a key into one. That
+ * column is the operator's data in the operator's table: a purge drops what the
+ * extension owns and never alters what it does not, so the operator removes it.
+ */
+async function ownedCollectionsToDrop(db: Database, extension: string): Promise<string[]> {
+  const owned = (
+    await db
+      .selectFrom('zvd_collections')
+      .select('name')
+      .where('owner_extension', '=', extension)
+      .orderBy('name')
+      .execute()
+  ).map((r) => r.name);
+  if (owned.length === 0) return owned;
+  const { DDLManager } = await import('../data/index.js');
+  // A junction holds keys into both sides; dropping either collection drops it.
+  const junctions = await db
+    .selectFrom('zvd_relations')
+    .select('junction_table')
+    .where('type', '=', 'm2m')
+    .where((eb) =>
+      eb.or([eb('source_collection', 'in', owned), eb('target_collection', 'in', owned)]),
+    )
+    .execute();
+  const theirs = new Set([
+    ...owned.map((n) => DDLManager.getTableName(n)),
+    ...junctions.map((j) => j.junction_table),
+  ]);
+  const references: string[] = [];
+  for (const name of owned) {
+    for (const dep of await DDLManager.getTableDependents(db, name)) {
+      if (theirs.has(dep.table)) continue;
+      references.push(`${dep.table.replace(/^zvd_/, '')}.${dep.column} -> ${name}`);
+    }
+  }
+  if (references.length > 0) throw new OwnedCollectionsReferencedError(extension, references);
+  return owned;
 }
 
 /** Registered collections whose table exists. */

@@ -47,7 +47,7 @@ import {
 } from './extension-license.js';
 import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
 import { resolvePublisherTier } from './extension-catalog.js';
-import { DownMissingError } from './extension-errors.js';
+import { DownMissingError, OwnedCollectionsReferencedError } from './extension-errors.js';
 import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
 import { toJsonb } from '../jsonb.js';
@@ -1226,7 +1226,9 @@ export function registerMarketplaceRoutes(
   // migration history. A future reinstall picks up where we left off.
   //
   // Purge (purgeData=true): run DOWN migrations in reverse, delete migration
-  // rows, remove files from disk, delete the registry row. Fully destructive.
+  // rows, drop the collections it owns with their rules (409 while an operator's
+  // column keys into one), remove files from disk, delete the registry row.
+  // Fully destructive.
   const uninstallExtension = async (c: Context, name: string) => {
     const gate = await requireGodStepUp(c, `extension.uninstall:${name}`);
     if (gate instanceof Response) return gate;
@@ -1279,6 +1281,17 @@ export function registerMarketplaceRoutes(
               message: err.message,
             },
             422,
+          );
+        }
+        if (err instanceof OwnedCollectionsReferencedError) {
+          return c.json(
+            {
+              success: false,
+              purged: false,
+              error: 'EXT_COLLECTIONS_REFERENCED',
+              message: err.message,
+            },
+            409,
           );
         }
         throw err;
