@@ -578,6 +578,39 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(body.history.length).toBe(1);
   });
 
+  it('GET /api/marketplace offers an update only for a registry install the catalog outruns', async () => {
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name); // manifest 1.0.0
+    fetchCatalogMock.mockImplementationOnce(async () => [{ ...CATALOG_ENTRY, version: '1.2.0' }]);
+    const listed = async (row: Record<string, unknown>) => {
+      db.when(/from "zv_extension_registry"/i, [
+        { name: CATALOG_ENTRY.name, is_installed: true, is_enabled: true, tenant_id: null, ...row },
+      ]);
+      const res = await mountRoutes(db, extBase).request('/api/marketplace', {
+        headers: adminHeaders,
+      });
+      const body = (await res.json()) as {
+        extensions: Array<{
+          name: string;
+          installed_version: string | null;
+          catalog_version: string;
+          update_available: boolean;
+        }>;
+      };
+      return body.extensions.find((e) => e.name === CATALOG_ENTRY.name);
+    };
+
+    expect(await listed({ installed_sha256: 'abc' })).toMatchObject({
+      installed_version: '1.0.0',
+      catalog_version: '1.2.0',
+      update_available: true,
+    });
+    // Same version in the catalog: nothing to update.
+    expect((await listed({ installed_sha256: 'abc' }))?.update_available).toBe(false);
+    // Files put there by hand (no download on record): the update route refuses them.
+    fetchCatalogMock.mockImplementationOnce(async () => [{ ...CATALOG_ENTRY, version: '1.2.0' }]);
+    expect((await listed({ installed_sha256: null }))?.update_available).toBe(false);
+  });
+
   it('catalog lists missing_dependencies from manifest', async () => {
     writeExtOnDisk(extBase, CATALOG_ENTRY.name, ['dep-a']);
     const app = mountRoutes(db, extBase);
