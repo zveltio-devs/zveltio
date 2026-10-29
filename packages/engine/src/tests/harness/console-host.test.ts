@@ -127,6 +127,7 @@ d('ZVELTIO_CONSOLE_HOST fences the Console and configuration by host', () => {
     expect((await req(`${MAIN}/admin/`)).status).toBe(404);
     expect((await req(`${MAIN}/admin`)).status).toBe(404);
     expect((await extMutation(MAIN)).status).toBe(404);
+    expect((await req(`${MAIN}/api/auth/cli/deny`, 'POST')).status).toBe(404);
   });
 
   it('set: what the App uses still answers on the main host', async () => {
@@ -144,6 +145,8 @@ d('ZVELTIO_CONSOLE_HOST fences the Console and configuration by host', () => {
     expect((await req(`${ADMIN}/api/admin/rls`)).status).not.toBe(404);
     expect((await req(`${ADMIN}/admin/`)).status).not.toBe(404);
     expect((await extMutation(ADMIN)).status).toBe(200);
+    // Past the fence, the route refuses a missing code itself.
+    expect((await req(`${ADMIN}/api/auth/cli/deny`, 'POST')).status).toBe(400);
     // Without a session the route's own guard answers, not the fence.
     expect((await app.request(`${ADMIN}/api/collections`, { method: 'POST' })).status).toBe(401);
   });

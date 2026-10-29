@@ -166,7 +166,7 @@ zveltio logout --url https://console.example.com
 
 Every marketplace change (install, enable, disable, update) then asks for a fresh authenticator code, the same confirmation the Console asks for. One code confirms one change, so `install`, which installs and then enables, asks twice. Pass `--totp <code>` to give the first code on the command line. A terminal cannot use a passkey, so an account that confirms with a passkey only confirms each change in the browser instead: the CLI prints a short code and a link to the Console (`/admin/cli-sign-in`), opens it, and waits. Check that the code matches, then approve with your passkey or authenticator app. Each request expires after ten minutes and is used once.
 
-`zveltio login --web` signs in the same way, through the Console, instead of asking for a password. Set `ZVELTIO_NO_BROWSER=1` to only print the link (on a server without a browser, open it on another machine).
+`zveltio login --web` signs in the same way, through the Console, instead of asking for a password. When `ZVELTIO_CONSOLE_HOST` is set, give the console host as `--url`: the marketplace and the browser confirmation answer only there. Set `ZVELTIO_NO_BROWSER=1` to only print the link (on a server without a browser, open it on another machine).
 
 ---
 
