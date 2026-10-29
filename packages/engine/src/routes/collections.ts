@@ -21,6 +21,7 @@ import {
   dropField,
   FieldChangeError,
   ownedStructureRefusal,
+  refuseRequiredKey,
   schemaChangeRefusal,
   authenticate,
   enqueueDDLJob,
@@ -685,6 +686,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       try {
+        if (body.required === true) {
+          await refuseRequiredKey(db, c.req.param('name'), c.req.param('field'));
+        }
         const result = await alterField(db, c.req.param('name'), c.req.param('field'), {
           newName: body.new_name,
           newType: body.new_type,

@@ -16,8 +16,9 @@
  */
 
 import { sql } from 'kysely';
-import { columnsNotNull } from '../../db/dynamic.js';
+import { columnsNotNull, foreignKeysOf } from '../../db/dynamic.js';
 import type { Database } from '../../db/index.js';
+import { relationKey } from '../data/index.js';
 import {
   ENGINE_SEEDED_ROLES,
   isDefaultGrant,
@@ -222,6 +223,16 @@ export async function exportSchema(
         .select(['role', 'resource', 'action'])
         .execute(),
     ]);
+  // A relation's actions are its foreign key's, read from the catalog, so a key
+  // changed out of band is drift the plan shows; `zvd_relations` only describes it.
+  const keyOf = (r: (typeof relations)[number]) => {
+    const k = relationKey(r);
+    return k && `zvd_${k.holder}.${k.column}`;
+  };
+  const fks = await foreignKeysOf(
+    db,
+    relations.map(keyOf).filter((k): k is string => !!k),
+  );
   const groups = await ruleGroups(db);
   const uniques = await compositeUniques(db);
   // A member is named by its rule's key in the file, never by id. Only an
@@ -296,8 +307,8 @@ export async function exportSchema(
           field: r.source_field,
           target: r.target_collection,
           targetField: r.target_field,
-          onDelete: r.on_delete,
-          onUpdate: r.on_update,
+          onDelete: fks.get(keyOf(r) ?? '')?.onDelete ?? r.on_delete,
+          onUpdate: fks.get(keyOf(r) ?? '')?.onUpdate ?? r.on_update,
           metadata: r.metadata,
         }))
         .sort(byKey((r) => r.name)),

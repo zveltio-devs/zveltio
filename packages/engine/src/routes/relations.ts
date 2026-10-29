@@ -17,6 +17,7 @@ import {
   relationTables,
   removeFieldFromCollection,
   sealColumns,
+  updateRelation,
 } from '../lib/data/index.js';
 import { dynamicDropColumn } from '../db/dynamic.js';
 import { toJsonb } from '../lib/jsonb.js';
@@ -95,7 +96,7 @@ export function relationsRoutes(db: Database, auth: any): Hono {
     }
   });
 
-  // PATCH /:id — Update relation metadata only
+  // PATCH /:id — Update a relation: its name, metadata and its foreign key's actions
   app.patch(
     '/:id',
     zValidator(
@@ -121,21 +122,14 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       const owned = await ownedStructureRefusal(db, relationTables(existing));
       if (owned) return c.json({ error: owned.message }, owned.status);
 
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const toUpdate: Record<string, any> = { updated_at: new Date() };
-      if (updates.name !== undefined) toUpdate.name = updates.name;
-      if (updates.on_delete !== undefined) toUpdate.on_delete = updates.on_delete;
-      if (updates.on_update !== undefined) toUpdate.on_update = updates.on_update;
-      if (updates.metadata !== undefined) toUpdate.metadata = updates.metadata;
-
-      const relation = await db
-        .updateTable('zvd_relations')
-        .set(toUpdate)
-        .where('id', '=', id)
-        .returningAll()
-        .executeTakeFirst();
-
-      return c.json({ relation: normalize(relation) });
+      try {
+        const relation = await updateRelation(db, existing, updates);
+        return c.json({ relation: normalize(relation) });
+      } catch (error) {
+        if (error instanceof FieldChangeError)
+          return c.json({ error: error.message }, error.status);
+        throw error;
+      }
     },
   );
 

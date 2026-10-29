@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
+import { dynamicSetForeignKeyActions } from '../../db/dynamic.js';
 import { toJsonb } from '../jsonb.js';
 import { DDLManager } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
@@ -47,6 +48,156 @@ export const relationTables = (r: {
   ...(isOperatorField(r.source_field) ? [] : [r.source_collection]),
   ...(r.type === 'o2m' ? [r.target_collection] : []),
 ];
+
+type RelationKeyed = {
+  name?: unknown;
+  type: string;
+  source_collection: string;
+  source_field: string;
+  target_collection: string;
+  target_field?: string | null;
+  on_delete?: string | null;
+  on_update?: string | null;
+};
+
+/**
+ * Where a m2o or o2m keeps its key: the collection holding the column, the
+ * column, and the collection it points at. A m2m or m2a has no single key.
+ */
+export function relationKey(r: RelationKeyed) {
+  if (r.type === 'm2o') {
+    return { holder: r.source_collection, column: r.source_field, parent: r.target_collection };
+  }
+  if (r.type === 'o2m') {
+    const column = r.target_field || `${r.source_collection}_id`;
+    return { holder: r.target_collection, column, parent: r.source_collection };
+  }
+  return undefined;
+}
+
+/**
+ * A required key whose relation sets it NULL when its parent goes: every such
+ * delete (or key update) fails with 23502. The one wording the plan, the
+ * relation routes and the field route refuse it with.
+ */
+export function requiredSetNull(r: RelationKeyed, required: boolean): string | undefined {
+  const k = relationKey(r);
+  if (!k || !required) return undefined;
+  for (const [col, key, verb] of [
+    ['on_delete', 'onDelete', 'deleting'],
+    ['on_update', 'onUpdate', 'changing the key of'],
+  ] as const) {
+    const action = r[col] ?? (col === 'on_delete' ? 'SET NULL' : 'CASCADE');
+    if (action.toUpperCase() !== 'SET NULL') continue;
+    const name = r.name == null ? '(unset)' : JSON.stringify(r.name);
+    return (
+      `relation ${name}: ${k.holder}.${k.column} is required, so ${key} cannot be SET NULL ` +
+      `(${verb} a ${k.parent} row would fail); use CASCADE, RESTRICT or NO ACTION`
+    );
+  }
+  return undefined;
+}
+
+/** Whether `collection`'s field `name` is required, as its definition says. */
+async function fieldRequired(db: Database, collection: string, name: string): Promise<boolean> {
+  const row = await db
+    .selectFrom('zvd_collections')
+    .select('fields')
+    .where('name', '=', collection)
+    .executeTakeFirst();
+  const fields = (typeof row?.fields === 'string' ? JSON.parse(row.fields) : row?.fields) as
+    | FieldDef[]
+    | null
+    | undefined;
+  return fields?.find((f) => f.name === name)?.required === true;
+}
+
+/** Refuses (422) a relation whose required key it would set NULL. */
+async function refuseRequiredSetNull(db: Database, r: RelationKeyed, def?: FieldDef) {
+  const k = relationKey(r);
+  if (!k) return;
+  const required = def ? def.required === true : await fieldRequired(db, k.holder, k.column);
+  const refusal = requiredSetNull(r, required);
+  if (refusal) throw new FieldChangeError(refusal, 422);
+}
+
+/**
+ * Refuses (422) making `collection.field` required while a relation keyed on it
+ * sets it NULL. The field route's check: a schema apply's file was checked whole
+ * by its plan, and its field steps run before its relation steps.
+ */
+export async function refuseRequiredKey(db: Database, collection: string, field: string) {
+  const relations = await db
+    .selectFrom('zvd_relations')
+    .selectAll()
+    .where((eb) =>
+      eb.or([
+        eb.and([
+          eb('type', '=', 'm2o'),
+          eb('source_collection', '=', collection),
+          eb('source_field', '=', field),
+        ]),
+        eb.and([
+          eb('type', '=', 'o2m'),
+          eb('target_collection', '=', collection),
+          eb('target_field', '=', field),
+        ]),
+      ]),
+    )
+    .execute();
+  for (const r of relations) {
+    const refusal = requiredSetNull(r, true);
+    if (refusal) throw new FieldChangeError(refusal, 422);
+  }
+}
+
+/**
+ * Sets what `PATCH /api/relations/:id` sets. A new action re-creates the key's
+ * foreign key in the transaction that writes the row, so `zvd_relations` never
+ * describes actions the database does not enforce.
+ */
+export async function updateRelation(
+  db: Database,
+  existing: RelationKeyed & { id: string },
+  change: {
+    name?: string;
+    on_delete?: string;
+    on_update?: string;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  const actions = change.on_delete !== undefined || change.on_update !== undefined;
+  const next = {
+    ...existing,
+    on_delete: change.on_delete ?? existing.on_delete ?? 'SET NULL',
+    on_update: change.on_update ?? existing.on_update ?? 'CASCADE',
+  };
+  if (actions) await refuseRequiredSetNull(db, { ...next, name: change.name ?? existing.name });
+  const k = relationKey(next);
+  return db.transaction().execute(async (trx) => {
+    if (actions && k) {
+      await dynamicSetForeignKeyActions(
+        trx,
+        DDLManager.getTableName(k.holder),
+        k.column,
+        DDLManager.getTableName(k.parent),
+        next.on_delete,
+        next.on_update,
+      );
+    }
+    return trx
+      .updateTable('zvd_relations')
+      .set({
+        ...(change.name !== undefined ? { name: change.name } : {}),
+        ...(actions ? { on_delete: next.on_delete, on_update: next.on_update } : {}),
+        ...(change.metadata !== undefined ? { metadata: toJsonb(change.metadata) } : {}),
+        updated_at: new Date(),
+      })
+      .where('id', '=', existing.id)
+      .returningAll()
+      .executeTakeFirst();
+  });
+}
 
 // The field helpers run on the CALLER's transaction, so a collection's fields and
 // the `zvd_relations` row describing them commit or roll back together. Each on
@@ -180,6 +331,7 @@ export async function createRelation(
       409,
     );
   }
+  await refuseRequiredSetNull(db, data, data.type === 'o2m' ? defs.target : defs.source);
 
   const sourceTable = DDLManager.getTableName(data.source_collection);
   const targetTable = DDLManager.getTableName(data.target_collection);
