@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Please select a target collection for this relation field",
   "fields.fasterQueries": "Faster queries on this field",
   "fields.fieldName": "Field name",
+  "fields.operatorPrefixHint": "This collection belongs to the extension {extension}; fields you add to it start with {prefix}.",
   "fields.fillNameToContinue": "Fill in the field name to continue",
   "fields.goToSchema": "Go to Schema to add fields →",
   "fields.hint.m2mTarget": "The other side of the junction table",

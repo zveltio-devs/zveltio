@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Sélectionnez une collection cible pour ce champ de relation",
   "fields.fasterQueries": "Requêtes plus rapides sur ce champ",
   "fields.fieldName": "Nom du champ",
+  "fields.operatorPrefixHint": "Cette collection appartient à l'extension {extension} ; les champs que vous y ajoutez commencent par {prefix}.",
   "fields.fillNameToContinue": "Renseignez le nom du champ pour continuer",
   "fields.goToSchema": "Aller au schéma pour ajouter des champs →",
   "fields.hint.m2mTarget": "L'autre côté de la table de jonction",

@@ -2012,6 +2012,7 @@
   "fields.noDuplicates": "Sin valores duplicados",
   "fields.none": "Aún sin campos propios",
   "fields.noneDefined": "Todavía no hay campos definidos.",
+  "fields.operatorPrefixHint": "Esta colección pertenece a la extensión {extension}; los campos que añadas empiezan por {prefix}.",
   "fields.selectCollection": "— Elegir colección —",
   "fields.shownInStudio": "Se muestra en Studio (opcional)",
   "fields.targetCollection": "Colección de destino",

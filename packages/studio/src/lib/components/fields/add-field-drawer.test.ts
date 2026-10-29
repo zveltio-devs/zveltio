@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { OPERATOR_FIELD_PREFIX } from '@zveltio/sdk/extension';
 
 /**
  * The drawer stays in the DOM when closed — it animates rather than unmounting.
@@ -78,5 +79,35 @@ describe('AddFieldDrawer as a modal dialog', () => {
     render(AddFieldDrawer, { props: props(false) });
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(document.activeElement).toBe(before);
+  });
+});
+
+/**
+ * A collection an extension owns takes only the operator's fields, named with
+ * the prefix (ADR 0012 amendment 2). The drawer shows it fixed in front of the
+ * name and sends it; the engine never adds it, so a client gets back its name.
+ */
+describe('AddFieldDrawer on an extension-owned collection', () => {
+  it('shows the prefix fixed and sends it in front of the typed name', async () => {
+    const onsave = vi.fn().mockResolvedValue(undefined);
+    const { container, getByText } = render(AddFieldDrawer, {
+      props: { ...props(true), ownerExtension: 'crm', onsave },
+    });
+    expect(getByText(OPERATOR_FIELD_PREFIX)).toBeTruthy();
+    const input = container.querySelector('#afd_name') as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'note' } });
+    await fireEvent.click(container.querySelector('.btn-primary') as HTMLElement);
+    await waitFor(() => expect(onsave).toHaveBeenCalled());
+    expect(onsave.mock.calls[0]![0]).toMatchObject({ name: `${OPERATOR_FIELD_PREFIX}note` });
+  });
+
+  it('adds nothing in front on a collection nobody owns', async () => {
+    const onsave = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(AddFieldDrawer, { props: { ...props(true), onsave } });
+    const input = container.querySelector('#afd_name') as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'note' } });
+    await fireEvent.click(container.querySelector('.btn-primary') as HTMLElement);
+    await waitFor(() => expect(onsave).toHaveBeenCalled());
+    expect(onsave.mock.calls[0]![0]).toMatchObject({ name: 'note' });
   });
 });

@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Wybierz kolekcję docelową dla tego pola relacji",
   "fields.fasterQueries": "Szybsze zapytania na tym polu",
   "fields.fieldName": "Nazwa pola",
+  "fields.operatorPrefixHint": "Ta kolekcja należy do rozszerzenia {extension}; dodawane pola zaczynają się od {prefix}.",
   "fields.fillNameToContinue": "Podaj nazwę pola, aby kontynuować",
   "fields.goToSchema": "Przejdź do schematu, aby dodać pola →",
   "fields.hint.m2mTarget": "Druga strona tabeli łączącej",

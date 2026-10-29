@@ -1,5 +1,6 @@
 <script lang="ts">
 import { m } from '#lib/i18n.svelte.js';
+import { OPERATOR_FIELD_PREFIX } from '@zveltio/sdk/extension';
 import { modalFocus } from '#lib/utils/modal-focus.js';
 import {
   X,
@@ -40,6 +41,7 @@ let {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   allCollections = [] as any[],
   collectionName = '',
+  ownerExtension = null,
   onsave,
 }: {
   open: boolean;
@@ -48,6 +50,8 @@ let {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   allCollections: any[];
   collectionName: string;
+  /** The extension that owns the collection: a field added to it carries the operator prefix. */
+  ownerExtension?: string | null;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   onsave: (field: any) => Promise<void>;
 } = $props();
@@ -128,6 +132,10 @@ let form = $state({
   enum_values_raw: '',
 });
 
+// Shown, never added silently: the engine refuses a name without it (ADR 0012 am. 2).
+const prefix = $derived(ownerExtension ? OPERATOR_FIELD_PREFIX : '');
+const fullName = $derived(prefix + form.name);
+
 const visibleTypes = $derived(fieldTypes.filter((t) => t.category === selectedCategory));
 
 const selectedTypeDef = $derived(fieldTypes.find((t) => t.type === form.type));
@@ -185,7 +193,7 @@ async function submit() {
     error = m['fields.err.nameRequired']();
     return;
   }
-  if (!/^[a-z][a-z0-9_]*$/.test(form.name)) {
+  if (!/^[a-z][a-z0-9_]*$/.test(fullName)) {
     error = m['fields.err.nameFormat']();
     return;
   }
@@ -206,9 +214,9 @@ async function submit() {
   try {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const body: Record<string, any> = {
-      name: form.name,
+      name: fullName,
       type: form.type,
-      label: form.label || form.name,
+      label: form.label || fullName,
       description: form.description || undefined,
       required: form.required,
       unique: form.unique,
@@ -374,16 +382,36 @@ async function submit() {
                   {m['fields.fieldName']()} <span class="text-error">*</span>
                 </span>
               </label>
-              <input
-                id="afd_name"
-                type="text"
-                bind:value={form.name}
-                placeholder={m['fields.egFieldName']()}
-                class="input input-sm font-mono"
-                autocomplete="off"
-              />
+              {#if prefix}
+                <label class="input input-sm font-mono flex items-center gap-0">
+                  <span class="text-base-content/65 select-none">{prefix}</span>
+                  <input
+                    id="afd_name"
+                    type="text"
+                    bind:value={form.name}
+                    placeholder={m['fields.egFieldName']()}
+                    class="grow"
+                    autocomplete="off"
+                  />
+                </label>
+              {:else}
+                <input
+                  id="afd_name"
+                  type="text"
+                  bind:value={form.name}
+                  placeholder={m['fields.egFieldName']()}
+                  class="input input-sm font-mono"
+                  autocomplete="off"
+                />
+              {/if}
               <div class="label py-0.5">
-                <span class="label-text-alt text-base-content/65 text-[11px]">lowercase_with_underscores</span>
+                <span class="label-text-alt text-base-content/65 text-[11px]">
+                  {#if ownerExtension}
+                    {m['fields.operatorPrefixHint']({ extension: ownerExtension, prefix })}
+                  {:else}
+                    lowercase_with_underscores
+                  {/if}
+                </span>
               </div>
             </div>
 
@@ -513,7 +541,7 @@ async function submit() {
     <div class="shrink-0 flex items-center justify-between px-6 py-4 border-t border-base-200 bg-base-100">
       <div class="text-xs text-base-content/65 hidden sm:block">
         {#if form.name}
-          <span class="font-mono text-base-content/70">{form.name}</span>
+          <span class="font-mono text-base-content/70">{fullName}</span>
           <span class="mx-1">·</span>
           <span class="badge badge-outline badge-xs font-mono">{form.type}</span>
           {#if form.required}<span class="badge badge-error badge-xs ml-1">required</span>{/if}

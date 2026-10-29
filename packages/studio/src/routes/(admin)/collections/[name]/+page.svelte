@@ -303,6 +303,7 @@ const m2oTargetMap = $derived.by(() => {
       {allCollections}
       {m2oTargetMap}
       {loading}
+      ownerExtension={collection?.owner_extension}
       onSchemaChanged={reloadSchema}
     />
 

@@ -9,7 +9,7 @@ import type { Database } from '../../db/index.js';
 import { toJsonb } from '../jsonb.js';
 import { DDLManager } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
-import { FieldChangeError, ownedStructureRefusal } from './field-changes.js';
+import { FieldChangeError, isOperatorField, ownedStructureRefusal } from './field-changes.js';
 
 const SAFE_IDENTIFIER = /^[a-z][a-z0-9_]*$/;
 
@@ -33,12 +33,20 @@ export const RelationSchema = z.object({
   metadata: z.record(z.string(), z.any()).default({}),
 });
 
-/** The collections whose structure a relation is part of: its source, and an o2m's target, which holds its key. */
+/**
+ * The collections whose structure a relation is part of: its source, unless its
+ * field is an operator's (ADR 0012 amendment 2), and an o2m's target, which
+ * holds its key.
+ */
 export const relationTables = (r: {
   type: string;
   source_collection: string;
+  source_field: string;
   target_collection: string;
-}) => (r.type === 'o2m' ? [r.source_collection, r.target_collection] : [r.source_collection]);
+}) => [
+  ...(isOperatorField(r.source_field) ? [] : [r.source_collection]),
+  ...(r.type === 'o2m' ? [r.target_collection] : []),
+];
 
 // The field helpers run on the CALLER's transaction, so a collection's fields and
 // the `zvd_relations` row describing them commit or roll back together. Each on

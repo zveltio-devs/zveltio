@@ -43,6 +43,8 @@ export interface CollectionSummary {
   name: string;
   display_name?: string;
   fields?: CollectionField[] | string;
+  /** The extension that declared it (ADR 0012); its fields are read-only here. */
+  owner_extension?: string | null;
   [key: string]: unknown;
 }
 

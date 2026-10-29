@@ -14,6 +14,7 @@ import {
   DDLManager,
   ExistingRulesError,
   FieldSchema,
+  isOperatorField,
   mirrorPublicProtections,
   ownedStructureRefusal,
   runAddField,
@@ -401,7 +402,11 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
               applied.push(`Add field: ${field.name} to ${collection}`);
             } else if (change.type === 'remove_field') {
               const { collection, field } = RemoveFieldPayload.parse(change.payload);
-              const owned = await ownedStructureRefusal(db, [collection]);
+              // An operator's own field on an extension's collection is theirs to remove.
+              const owned = await ownedStructureRefusal(
+                db,
+                isOperatorField(field) ? [] : [collection],
+              );
               if (owned) throw owned;
               // No Ghost DDL at any size: DROP COLUMN rewrites nothing, and a ghost
               // drop ran before removeField's rules — the swap then failed on the

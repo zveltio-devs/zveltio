@@ -415,8 +415,11 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   // ddl-queue.ts enforces the same rule for async DDL jobs; this keeps the sync HTTP
   // paths (add_field / remove_field / drop) from silently diverging.
   // `drop`-type ops additionally respect schema_locked for the core/system tables.
-  const assertMutable = (collectionName: string, op: 'add' | 'remove' | 'drop') =>
-    schemaChangeRefusal(db, collectionName, op);
+  const assertMutable = (
+    collectionName: string,
+    op: 'add' | 'drop',
+    field?: z.infer<typeof FieldSchema>,
+  ) => schemaChangeRefusal(db, collectionName, op, undefined, field);
 
   // POST /:name/fields — Add a field to existing collection
   app.post('/:name/fields', zValidator('json', FieldSchema), async (c) => {
@@ -434,7 +437,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     const collection = await DDLManager.getCollection(db, name);
     if (!collection) return c.json({ error: 'Collection not found' }, 404);
 
-    const refusal = await assertMutable(name, 'add');
+    const refusal = await assertMutable(name, 'add', field);
     if (refusal) return c.json({ error: refusal.message }, refusal.status);
 
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -479,6 +482,11 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
       if (!ON_DELETE_RE.test(onDelete) || !ON_DELETE_RE.test(onUpdate)) {
         return c.json({ error: 'Invalid on_delete/on_update value' }, 400);
+      }
+      // An o2m puts its key in the target, as `POST /api/relations` does.
+      if (RELATION_REVERSE_TYPES.has(field.type)) {
+        const owned = await ownedStructureRefusal(db, [relatedCollection]);
+        if (owned) return c.json({ error: owned.message }, owned.status);
       }
     }
 

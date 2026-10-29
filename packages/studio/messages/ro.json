@@ -2012,6 +2012,7 @@
   "fields.noDuplicates": "Fără valori duplicate",
   "fields.none": "Încă niciun câmp propriu",
   "fields.noneDefined": "Încă nu e definit niciun câmp.",
+  "fields.operatorPrefixHint": "Această colecție aparține extensiei {extension}; câmpurile pe care le adaugi încep cu {prefix}.",
   "fields.selectCollection": "— Alege colecția —",
   "fields.shownInStudio": "Afișat în Studio (opțional)",
   "fields.targetCollection": "Colecția țintă",

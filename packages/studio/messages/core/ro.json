@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Selectează o colecție țintă pentru acest câmp de relație",
   "fields.fasterQueries": "Interogări mai rapide pe acest câmp",
   "fields.fieldName": "Numele câmpului",
+  "fields.operatorPrefixHint": "Această colecție aparține extensiei {extension}; câmpurile pe care le adaugi încep cu {prefix}.",
   "fields.fillNameToContinue": "Completează numele câmpului ca să continui",
   "fields.goToSchema": "Mergi la Schemă ca să adaugi câmpuri →",
   "fields.hint.m2mTarget": "Cealaltă parte a tabelei de legătură",

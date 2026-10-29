@@ -29,6 +29,8 @@ import {
   DDLManager,
   FieldSchema,
   fieldTypeRegistry,
+  isOperatorField,
+  OPERATOR_FIELD_PREFIX,
   runAddField,
   runCreateCollection,
   schemaChangeRefusal,
@@ -681,7 +683,21 @@ export async function planExtensionSchema(
   // target: on a collection this extension does not declare, that is a column
   // in somebody else's table.
   for (const [path, content] of Object.entries(files)) {
-    const { relations } = JSON.parse(String(content)) as { relations?: Entry[] };
+    const { fields, relations } = JSON.parse(String(content)) as {
+      fields?: Entry[];
+      relations?: Entry[];
+    };
+    // The operator's names (amendment 2): the two sets never collide.
+    const named = [
+      ...(fields ?? []).map((f) => f.name),
+      ...(relations ?? []).flatMap((r) => [r.field, r.targetField]),
+    ];
+    const theirs = named.find((n) => typeof n === 'string' && isOperatorField(n));
+    if (theirs) {
+      throw new SchemaFileError(
+        `${path}: ${theirs} starts with "${OPERATOR_FIELD_PREFIX}", which names an operator's field; an extension may not declare one`,
+      );
+    }
     for (const r of relations ?? []) {
       if (r.type === 'o2m' && !(`collections/${r.target}.json` in files)) {
         throw new SchemaFileError(

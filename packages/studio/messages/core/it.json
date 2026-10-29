@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Selezioni una raccolta di destinazione per questo campo di relazione",
   "fields.fasterQueries": "Query più veloci su questo campo",
   "fields.fieldName": "Nome del campo",
+  "fields.operatorPrefixHint": "Questa collezione appartiene all'estensione {extension}; i campi che aggiungi iniziano con {prefix}.",
   "fields.fillNameToContinue": "Inserisci il nome del campo per continuare",
   "fields.goToSchema": "Vai allo schema per aggiungere campi →",
   "fields.hint.m2mTarget": "L'altro lato della tabella di collegamento",

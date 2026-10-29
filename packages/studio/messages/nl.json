@@ -2012,6 +2012,7 @@
   "fields.noDuplicates": "Geen dubbele waarden",
   "fields.none": "Nog geen eigen velden",
   "fields.noneDefined": "Nog geen velden gedefinieerd.",
+  "fields.operatorPrefixHint": "Deze collectie hoort bij de extensie {extension}; velden die je toevoegt beginnen met {prefix}.",
   "fields.selectCollection": "— Kies een collectie —",
   "fields.shownInStudio": "Getoond in Studio (optioneel)",
   "fields.targetCollection": "Doelcollectie",

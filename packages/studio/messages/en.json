@@ -2012,6 +2012,7 @@
   "fields.noDuplicates": "No duplicate values",
   "fields.none": "No custom fields yet",
   "fields.noneDefined": "No fields defined yet.",
+  "fields.operatorPrefixHint": "This collection belongs to the extension {extension}; fields you add to it start with {prefix}.",
   "fields.selectCollection": "— Select collection —",
   "fields.shownInStudio": "Shown in Studio (optional)",
   "fields.targetCollection": "Target collection",

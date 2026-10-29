@@ -686,6 +686,7 @@
   "fields.err.selectTarget": "Seleccione una colección de destino para este campo de relación",
   "fields.fasterQueries": "Consultas más rápidas en este campo",
   "fields.fieldName": "Nombre del campo",
+  "fields.operatorPrefixHint": "Esta colección pertenece a la extensión {extension}; los campos que añadas empiezan por {prefix}.",
   "fields.fillNameToContinue": "Rellena el nombre del campo para continuar",
   "fields.goToSchema": "Ir al esquema para añadir campos →",
   "fields.hint.m2mTarget": "El otro lado de la tabla de unión",

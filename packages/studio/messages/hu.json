@@ -2012,6 +2012,7 @@
   "fields.noDuplicates": "Nincsenek ismétlődő értékek",
   "fields.none": "Még nincs saját mező",
   "fields.noneDefined": "Még nincs meghatározott mező.",
+  "fields.operatorPrefixHint": "Ez a gyűjtemény a(z) {extension} bővítményhez tartozik; az általad hozzáadott mezők {prefix} előtaggal kezdődnek.",
   "fields.selectCollection": "— Válassz gyűjteményt —",
   "fields.shownInStudio": "A Studióban jelenik meg (nem kötelező)",
   "fields.targetCollection": "Cél gyűjtemény",
