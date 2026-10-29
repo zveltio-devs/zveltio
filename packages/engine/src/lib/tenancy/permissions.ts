@@ -756,36 +756,14 @@ export const ENGINE_CASBIN_OBJECTS: readonly string[] = ['admin', 'data'];
  * `materializeDefaultGrants` opens the ordinary business ones for the standard
  * roles so that installing an extension or creating a collection does not
  * require an administrator to go and click something before anyone can work.
- * The names below are excluded from that convenience: they stay closed until a
- * role is granted them explicitly, by name.
+ * Withheld resources are excluded from that convenience: they stay closed until
+ * a role is granted them explicitly, by name.
  *
- * The distinction is between data a colleague may see because you work together
- * and data an employer holds because the law says it must.
+ * The engine names no business data itself (owner, 2026-10-29: the hard-coded
+ * list of 2026-08-07 is gone). Only the extension knows it stores salaries or
+ * medical records, so it declares them: `defaultGrants: false` on a declared
+ * collection (ADR 0012), or v1 `sensitiveResources` until the extension wave.
  */
-const SENSITIVE_RESOURCES = new Set<string>([
-  // Personal data an employer holds because it must, not because colleagues
-  // should read it: national ID, bank account, salary, home address.
-  'employees',
-  'payroll',
-  'leave',
-  // Company banking. The same argument, one level up.
-  'banking',
-  // Added by owner decision (2026-08-07) after an audit measured what an
-  // ordinary member could actually reach. Expense reports carry amounts,
-  // merchants and receipts per person — where somebody was and who with — and
-  // time tracking is attendance. Both are closer to `leave`, already here, than
-  // to `crm`.
-  'expenses',
-  'time-tracking',
-  // The company's books and its invoices. The widest part of the decision and
-  // the one worth stating plainly: in many companies invoicing is daily work
-  // for ordinary staff, so this WILL take access away from people who had it.
-  // That is the intent — an operator grants the roles that need it by name,
-  // once, rather than everyone holding it because nobody chose.
-  'accounting',
-  'invoices',
-]);
-
 /**
  * Each extension's `manifest.sensitiveResources`, by extension. They follow its
  * data: registered for every extension with a registry row, installed or soft
@@ -830,14 +808,14 @@ export function setWithheldCollections(names: Iterable<string>): void {
 
 /** Test seam + introspection for the settings UI. */
 export function listSensitiveResources(): string[] {
-  const all = new Set([...SENSITIVE_RESOURCES, ...WITHHELD_COLLECTIONS]);
+  const all = new Set(WITHHELD_COLLECTIONS);
   for (const names of EXTENSION_SENSITIVE.values()) for (const n of names) all.add(n);
   return [...all].sort();
 }
 
 /** Whether a resource is withheld from default grants. */
 export function isSensitiveResource(name: string): boolean {
-  if (SENSITIVE_RESOURCES.has(name) || WITHHELD_COLLECTIONS.has(name)) return true;
+  if (WITHHELD_COLLECTIONS.has(name)) return true;
   for (const names of EXTENSION_SENSITIVE.values()) if (names.has(name)) return true;
   return false;
 }

@@ -15,7 +15,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
-import { DEFAULT_TENANT_ID, describeDenial, whoCanGrant } from '../../lib/tenancy/index.js';
+import {
+  DEFAULT_TENANT_ID,
+  describeDenial,
+  forgetSensitiveResources,
+  registerSensitiveResources,
+  whoCanGrant,
+} from '../../lib/tenancy/index.js';
 import { enrichDenial } from '../../middleware/enrich-denial.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 
@@ -114,8 +120,14 @@ d('who a refusal points at', () => {
 
   it('separates a confidential resource from a missing grant', async () => {
     const { db } = await getTestApp();
-    const secret = await describeDenial(db, 'payroll', 'read', TENANT);
-    expect(secret.confidential).toBe(true);
+    // The engine names no business data itself; an extension declares it.
+    registerSensitiveResources('denial-fixture', ['payroll']);
+    try {
+      const secret = await describeDenial(db, 'payroll', 'read', TENANT);
+      expect(secret.confidential).toBe(true);
+    } finally {
+      forgetSensitiveResources('denial-fixture');
+    }
 
     const ordinary = await describeDenial(db, 'contacts', 'read', TENANT);
     expect(ordinary.confidential).toBe(false);

@@ -129,7 +129,7 @@ d('sensitive resources', () => {
   });
 
   it('the four resources widened by owner decision are closed too', async () => {
-    // Migration 035. Naming them in `SENSITIVE_RESOURCES` only governs grants
+    // Migration 035. Naming them in the (since removed) engine list only governed grants
     // that have yet to be created — 034 had already written these, so without
     // the revoke the list would have looked right and changed nothing on any
     // running instance. This asserts the revoke happened, not the list.
