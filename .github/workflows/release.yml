@@ -458,6 +458,8 @@ jobs:
     needs: build-studio
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # A hang fails the job in an hour instead of GitHub's six (beta.91).
+    timeout-minutes: 60
     # The Docker image is an independent artifact (pushed to its own registry).
     # A QEMU/buildx infra flake must NOT block the binary + Studio release or the
     # downstream publish + extension-registry sync. beta.9 was lost exactly this
