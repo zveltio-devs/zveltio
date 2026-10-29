@@ -8,7 +8,8 @@
  *   POST /api/auth/cli/deny     {code}
  *
  * Mounted with the step-up routes, before the Better Auth catch-all, so the
- * per-IP auth limit covers them.
+ * per-IP auth limit covers them; all but /poll, which only the API limit
+ * meters (routes/index.ts).
  */
 import type { Context, Hono } from 'hono';
 import type { Database } from '../db/index.js';

@@ -123,15 +123,20 @@ export async function approveCliRequest(
   const req = JSON.parse(raw) as CliRequest;
 
   let result: string;
-  if (req.kind === 'login') {
-    // A new session, with the ban check every sign-in runs (the `session.create` hook).
-    const s = await createBetterAuthSession(db, db, approver.userId, {
-      ...(req.ip ? { ipAddress: req.ip } : {}),
-      ...(req.userAgent ? { userAgent: req.userAgent } : {}),
-    });
-    result = s.signed;
-  } else {
-    result = await mintStepUpToken(req.sessionId!, req.userId!, req.action!, method);
+  try {
+    if (req.kind === 'login') {
+      // A new session, with the ban check every sign-in runs (the `session.create` hook).
+      const s = await createBetterAuthSession(db, db, approver.userId, {
+        ...(req.ip ? { ipAddress: req.ip } : {}),
+        ...(req.userAgent ? { userAgent: req.userAgent } : {}),
+      });
+      result = s.signed;
+    } else {
+      result = await mintStepUpToken(req.sessionId!, req.userId!, req.action!, method);
+    }
+  } catch (err) {
+    await take(deviceRow(req.device)); // the CLI's next poll ends instead of waiting it out
+    throw err;
   }
   await put(resultRow(req.device), 'cli-done', result, CLI_REQUEST_SECONDS);
   return { ok: true, kind: req.kind };
@@ -139,7 +144,10 @@ export async function approveCliRequest(
 
 /** Refuse a pending request: the CLI's next poll sees it gone. */
 export async function denyCliRequest(userCode: string): Promise<boolean> {
-  return (await take(requestRow(userCode))) !== null;
+  const raw = await take(requestRow(userCode));
+  if (raw === null) return false;
+  await take(deviceRow((JSON.parse(raw) as CliRequest).device));
+  return true;
 }
 
 export type PollOutcome =
@@ -156,7 +164,8 @@ export async function pollCliRequest(deviceCode: string): Promise<PollOutcome> {
     await take(deviceRow(device));
     return { status: 'approved', token };
   }
-  const userCode = await peek(deviceRow(device));
-  if (userCode && (await peek(requestRow(userCode)))) return { status: 'pending' };
-  return { status: 'expired' };
+  // The device row, not the request, says whether to wait: approve takes the
+  // request before its result exists, and only deny, a failed approval, the
+  // result being taken, or time end the device row.
+  return (await peek(deviceRow(device))) ? { status: 'pending' } : { status: 'expired' };
 }

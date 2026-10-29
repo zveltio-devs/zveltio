@@ -176,6 +176,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     '/api/auth/jwks',
     '/api/auth/ok',
     '/api/auth/error',
+    // The CLI polls every few seconds from the address the person approves from,
+    // which drew the whole auth budget away from the approval. Its secret is a
+    // 256-bit device code: the general API limit is enough.
+    '/api/auth/cli/poll',
   ]);
   app.use('/api/auth/*', async (c, next) => {
     if (AUTH_RATE_LIMIT_EXEMPT.has(c.req.path)) return next();

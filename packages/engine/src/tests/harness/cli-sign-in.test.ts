@@ -126,4 +126,41 @@ d('CLI confirmation through the browser', () => {
     expect(((await deny.json()) as { denied: boolean }).denied).toBe(true);
     expect((await poll(device_code)).status).toBe(410);
   });
+
+  it('a poll racing the approval waits for its result, never reports it expired', async () => {
+    // Approve takes the request, mints the session, then stores the result: a
+    // poll in between found neither and told the CLI the request was gone.
+    for (let round = 0; round < 3; round++) {
+      const { device_code, user_code } = await start({ kind: 'login' });
+      const headers = { cookie: god.cookie, ...(await god.stepUp(`cli.approve:${user_code}`)) };
+      // The CLI polls until it gets an answer; here, back to back.
+      const answer = (async () => {
+        for (;;) {
+          const p = await poll(device_code);
+          if (p.body.status !== 'pending') return p.status;
+        }
+      })();
+      const res = await app.request('/api/auth/cli/approve', json({ code: user_code }, headers));
+      expect(res.status).toBe(200);
+      expect(await answer).toBe(200);
+    }
+  });
+
+  it('the CLI polling at its interval leaves the auth limit to the person approving', async () => {
+    // The limit is off under NODE_ENV=test; this test needs it on.
+    const env = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const { device_code, user_code } = await start({ kind: 'login' });
+      // One minute of polls at the advertised three-second interval, from the
+      // same address as the browser (the person's own machine).
+      for (let i = 0; i < 20; i++) await poll(device_code);
+      const shown = await app.request(`/api/auth/cli/request?code=${user_code}`, {
+        headers: { cookie: god.cookie },
+      });
+      expect(shown.status).toBe(200);
+    } finally {
+      process.env.NODE_ENV = env;
+    }
+  });
 });
