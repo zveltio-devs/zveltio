@@ -140,7 +140,7 @@ function openBrowser(url: string): void {
     process.platform === 'darwin'
       ? ['open', url]
       : process.platform === 'win32'
-        ? ['cmd', '/c', 'start', '', url]
+        ? ['rundll32', 'url.dll,FileProtocolHandler', url] // no shell parses the URL
         : ['xdg-open', url];
   try {
     Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore' });
@@ -175,7 +175,18 @@ export async function confirmInBrowser(
     expires_in: number;
     interval: number;
   };
-  const link = `${origin}${started.verification_path}?code=${started.user_code}`;
+  // The link goes to a browser opener: built from checked parts, on the engine's
+  // own origin, whatever the response says.
+  if (
+    !/^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/.test(started.user_code) ||
+    !/^\/[A-Za-z0-9_/-]*$/.test(started.verification_path)
+  ) {
+    throw new Error(`${origin} answered with a malformed confirmation request.`);
+  }
+  const u = new URL(started.verification_path, origin);
+  if (u.origin !== origin) throw new Error(`${origin} pointed the confirmation elsewhere.`);
+  u.searchParams.set('code', started.user_code);
+  const link = u.href;
   const what = request.kind === 'login' ? 'sign-in' : request.action;
   console.log(`\n  Confirm ${what} in your browser. Code: ${started.user_code}`);
   console.log(`  ${link}\n`);
