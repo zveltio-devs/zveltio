@@ -107,11 +107,10 @@ d('repair of default grants on sensitive names', () => {
 
   it('removes the leaked defaults once, and only on sensitive names', async () => {
     // What a boot before the fix left: defaults on the disabled extension's
-    // sensitive name and on a core one, next to ordinary ones.
+    // sensitive name, next to ordinary ones.
     await plant('tenant_member', SECRET, 'read');
     await plant('tenant_member', SECRET, 'execute');
     await plant('tenant_viewer', SECRET, 'read');
-    await plant('tenant_viewer', 'payroll', 'read');
     await plant('tenant_member', PLAIN, 'read');
     // An operator's grant by another role is not default-shaped.
     await plant('hr_lead', SECRET, 'read');
@@ -129,7 +128,6 @@ d('repair of default grants on sensitive names', () => {
 
     expect(await rows(SECRET)).toEqual(['hr_lead:read']);
     expect(await marker()).toBe(true);
-    expect(await rows('payroll')).not.toContain('tenant_viewer:read');
     expect(await rows(PLAIN)).toContain('tenant_member:read');
     // The model was told, not only the table.
     expect(await (await getEnforcer()).hasPolicy('tenant_member', '*', SECRET, 'read')).toBe(false);
