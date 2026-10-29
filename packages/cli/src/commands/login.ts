@@ -24,8 +24,10 @@ export async function loginCommand(opts: { url?: string; email?: string; web?: b
   if (opts.web) {
     // Approved in the Console, signed in there with a passkey or TOTP.
     try {
+      const token = await confirmInBrowser(url, { kind: 'login' });
+      // Only once the new one exists: a cancelled sign-in keeps the old session.
       if (sessionFor(url)) await endOnEngine(url);
-      saveSession(url, await confirmInBrowser(url, { kind: 'login' }));
+      saveSession(url, token);
     } catch (e) {
       console.error(`❌ ${(e as Error).message}`);
       process.exit(1);
