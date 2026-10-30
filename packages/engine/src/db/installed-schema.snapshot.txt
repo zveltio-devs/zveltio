@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 452
+# tables: 462
 
 table account
   col accessToken                    text
@@ -3218,22 +3218,33 @@ table zvd_accounts
   col code                           text NOT NULL
   col cost_center_id                 uuid
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
+  col created_by                     text
   col currency                       text NOT NULL DEFAULT 'RON'::text
   col description                    text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col is_active                      boolean NOT NULL DEFAULT true
   col name                           text NOT NULL
   col parent_id                      uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col type                           text NOT NULL
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  uq  zvd_accounts_code_key UNIQUE (tenant_id, code)
-  fk  zvd_accounts_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zvd_accounts(id) ON DELETE SET NULL
+  col updated_by                     text
+  fk  zvd_accounts_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES zvd_cost_centers(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_accounts_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_accounts_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zvd_accounts(id) ON UPDATE CASCADE ON DELETE SET NULL
   pk  zvd_accounts_pkey PRIMARY KEY (id)
-  ck  zvd_accounts_type_check CHECK ((type = ANY (ARRAY['asset'::text, 'liability'::text, 'equity'::text, 'revenue'::text, 'expense'::text])))
+  uq  zvd_accounts_tenant_id_code_key UNIQUE (tenant_id, code)
+  fk  zvd_accounts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_accounts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('accounts'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('accounts'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('accounts'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('accounts'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('accounts'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_active_timers
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -3757,17 +3768,26 @@ table zvd_budgets
   col created_by                     text
   col fiscal_year_id                 uuid NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col month                          integer
+  col month                          bigint
   col notes                          text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  zvd_budgets_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_accounts(id)
-  uq  zvd_budgets_fiscal_year_id_account_id_month_key UNIQUE (fiscal_year_id, account_id, month)
-  fk  zvd_budgets_fiscal_year_id_fkey FOREIGN KEY (fiscal_year_id) REFERENCES zvd_fiscal_years(id)
-  ck  zvd_budgets_month_check CHECK (((month >= 1) AND (month <= 12)))
+  col updated_by                     text
+  fk  zvd_budgets_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_accounts(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  fk  zvd_budgets_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_budgets_fiscal_year_id_fkey FOREIGN KEY (fiscal_year_id) REFERENCES zvd_fiscal_years(id) ON UPDATE CASCADE ON DELETE RESTRICT
   pk  zvd_budgets_pkey PRIMARY KEY (id)
+  uq  zvd_budgets_tenant_id_fiscal_year_id_account_id_month_key UNIQUE (tenant_id, fiscal_year_id, account_id, month)
+  fk  zvd_budgets_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_budgets FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('budgets'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('budgets'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('budgets'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('budgets'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('budgets'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_byod_scan_history
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -4079,12 +4099,24 @@ table zvd_cost_centers
   col is_active                      boolean NOT NULL DEFAULT true
   col name                           text NOT NULL
   col parent_id                      uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  uq  zvd_cost_centers_code_key UNIQUE (tenant_id, code)
-  fk  zvd_cost_centers_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zvd_cost_centers(id)
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_cost_centers_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_cost_centers_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zvd_cost_centers(id) ON UPDATE CASCADE ON DELETE SET NULL
   pk  zvd_cost_centers_pkey PRIMARY KEY (id)
+  uq  zvd_cost_centers_tenant_id_code_key UNIQUE (tenant_id, code)
+  fk  zvd_cost_centers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_cost_centers FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('cost_centers'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('cost_centers'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('cost_centers'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('cost_centers'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('cost_centers'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_credit_note_lines
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -4766,17 +4798,30 @@ table zvd_etransport_declarations
 
 table zvd_exchange_rates
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
   col date                           date NOT NULL
   col from_currency                  text NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col rate                           numeric NOT NULL
-  col source                         text DEFAULT 'manual'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text NOT NULL DEFAULT 'manual'::text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col to_currency                    text NOT NULL
-  uq  zvd_exchange_rates_from_currency_to_currency_date_key UNIQUE (tenant_id, from_currency, to_currency, date)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_exchange_rates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_exchange_rates_pkey PRIMARY KEY (id)
+  uq  zvd_exchange_rates_tenant_id_from_currency_to_currency_date_key UNIQUE (tenant_id, from_currency, to_currency, date)
+  fk  zvd_exchange_rates_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_exchange_rates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('exchange_rates'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('exchange_rates'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('exchange_rates'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('exchange_rates'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('exchange_rates'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_expense_reimbursements
   col amount                         numeric NOT NULL
@@ -4932,19 +4977,29 @@ table zvd_export_templates
 
 table zvd_fiscal_years
   col closed_at                      timestamp with time zone
-  col closed_by                      text
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
   col end_date                       date NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_vector                  tsvector
   col start_date                     date NOT NULL
   col status                         text NOT NULL DEFAULT 'open'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col year                           integer NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col year                           bigint NOT NULL
+  fk  zvd_fiscal_years_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_fiscal_years_pkey PRIMARY KEY (id)
-  ck  zvd_fiscal_years_status_check CHECK ((status = ANY (ARRAY['open'::text, 'closed'::text])))
-  uq  zvd_fiscal_years_year_key UNIQUE (tenant_id, year)
+  uq  zvd_fiscal_years_tenant_id_year_key UNIQUE (tenant_id, year)
+  fk  zvd_fiscal_years_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_fiscal_years FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('fiscal_years'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('fiscal_years'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('fiscal_years'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('fiscal_years'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('fiscal_years'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_gdpr_access_requests
   col assigned_to                    text
@@ -5333,40 +5388,63 @@ table zvd_job_positions
 
 table zvd_journal_entries
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
+  col created_by                     text
   col date                           date NOT NULL
   col description                    text NOT NULL
   col fiscal_year_id                 uuid
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col reference                      text
+  col search_text                    text
+  col search_vector                  tsvector
   col status                         text NOT NULL DEFAULT 'draft'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  zvd_journal_entries_fiscal_year_id_fkey FOREIGN KEY (fiscal_year_id) REFERENCES zvd_fiscal_years(id)
+  col updated_by                     text
+  fk  zvd_journal_entries_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_journal_entries_fiscal_year_id_fkey FOREIGN KEY (fiscal_year_id) REFERENCES zvd_fiscal_years(id) ON UPDATE CASCADE ON DELETE RESTRICT
   pk  zvd_journal_entries_pkey PRIMARY KEY (id)
-  ck  zvd_journal_entries_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'posted'::text, 'voided'::text])))
+  fk  zvd_journal_entries_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_journal_entries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('journal_entries'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('journal_entries'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('journal_entries'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('journal_entries'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('journal_entries'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_journal_lines
   col account_id                     uuid NOT NULL
   col amount_foreign                 numeric
   col cost_center_id                 uuid
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
   col credit                         numeric NOT NULL DEFAULT 0
-  col currency                       text DEFAULT 'RON'::text
+  col currency                       text NOT NULL DEFAULT 'RON'::text
   col debit                          numeric NOT NULL DEFAULT 0
   col description                    text
   col entry_id                       uuid NOT NULL
-  col exchange_rate                  numeric DEFAULT 1
+  col exchange_rate                  numeric NOT NULL DEFAULT 1
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zvd_journal_lines_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_accounts(id)
-  fk  zvd_journal_lines_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES zvd_cost_centers(id)
-  fk  zvd_journal_lines_entry_id_fkey FOREIGN KEY (entry_id) REFERENCES zvd_journal_entries(id) ON DELETE CASCADE
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_journal_lines_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_accounts(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  fk  zvd_journal_lines_cost_center_id_fkey FOREIGN KEY (cost_center_id) REFERENCES zvd_cost_centers(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_journal_lines_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_journal_lines_entry_id_fkey FOREIGN KEY (entry_id) REFERENCES zvd_journal_entries(id) ON UPDATE CASCADE ON DELETE CASCADE
   pk  zvd_journal_lines_pkey PRIMARY KEY (id)
+  fk  zvd_journal_lines_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_journal_lines FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('journal_lines'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('journal_lines'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('journal_lines'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('journal_lines'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('journal_lines'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_ldap_config
   col config                         jsonb NOT NULL
@@ -6616,17 +6694,31 @@ table zvd_quotes
 
 table zvd_recurring_journal_lines
   col account_id                     uuid NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
   col credit                         numeric NOT NULL DEFAULT 0
   col debit                          numeric NOT NULL DEFAULT 0
   col description                    text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col recurring_id                   uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zvd_recurring_journal_lines_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_accounts(id)
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_recurring_journal_lines_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_accounts(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  fk  zvd_recurring_journal_lines_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_recurring_journal_lines_pkey PRIMARY KEY (id)
-  fk  zvd_recurring_journal_lines_recurring_id_fkey FOREIGN KEY (recurring_id) REFERENCES zvd_recurring_journals(id) ON DELETE CASCADE
+  fk  zvd_recurring_journal_lines_recurring_id_fkey FOREIGN KEY (recurring_id) REFERENCES zvd_recurring_journals(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_recurring_journal_lines_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_recurring_journal_lines FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('recurring_journal_lines'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('recurring_journal_lines'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('recurring_journal_lines'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('recurring_journal_lines'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('recurring_journal_lines'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_recurring_journals
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -6639,12 +6731,22 @@ table zvd_recurring_journals
   col last_run_date                  date
   col next_run_date                  date NOT NULL
   col reference                      text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zvd_recurring_journals_frequency_check CHECK ((frequency = ANY (ARRAY['daily'::text, 'weekly'::text, 'monthly'::text, 'quarterly'::text, 'yearly'::text])))
+  col updated_by                     text
+  fk  zvd_recurring_journals_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_recurring_journals_pkey PRIMARY KEY (id)
+  fk  zvd_recurring_journals_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_recurring_journals FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('recurring_journals'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('recurring_journals'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('recurring_journals'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('recurring_journals'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('recurring_journals'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_relations
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -7114,16 +7216,26 @@ table zvd_tax_reports
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col period_from                    date NOT NULL
   col period_to                      date NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
   col status                         text NOT NULL DEFAULT 'draft'::text
   col submitted_at                   timestamp with time zone
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col type                           text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
   col xml_content                    text
+  fk  zvd_tax_reports_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_tax_reports_pkey PRIMARY KEY (id)
-  ck  zvd_tax_reports_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'submitted'::text, 'accepted'::text, 'rejected'::text])))
-  ck  zvd_tax_reports_type_check CHECK ((type = ANY (ARRAY['D300'::text, 'D394'::text, 'D390'::text])))
+  fk  zvd_tax_reports_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_tax_reports FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('tax_reports'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('tax_reports'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('tax_reports'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('tax_reports'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('tax_reports'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_ticket_categories
   col color                          text NOT NULL DEFAULT '#6366f1'::text
@@ -7625,6 +7737,24 @@ table zvv__revisions
   col tenant_id                      uuid
   col user_id                        text
 
+table zvv_accounts
+  col code                           text
+  col cost_center_id                 uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col currency                       text
+  col description                    text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col parent_id                      uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col type                           text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
 table zvv_active_timers
   col created_at                     timestamp with time zone
   col created_by                     text
@@ -7745,6 +7875,20 @@ table zvv_bank_transactions
   col updated_at                     timestamp with time zone
   col updated_by                     text
   col value_date                     date
+
+table zvv_budgets
+  col account_id                     uuid
+  col amount                         numeric
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col fiscal_year_id                 uuid
+  col id                             uuid
+  col month                          bigint
+  col notes                          text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
 
 table zvv_canned_responses
   col category_id                    uuid
@@ -7876,6 +8020,20 @@ table zvv_contract_suspensions
   col search_text                    text
   col search_vector                  tsvector
   col start_date                     date
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_cost_centers
+  col code                           text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col parent_id                      uuid
+  col search_text                    text
+  col search_vector                  tsvector
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
@@ -8104,6 +8262,21 @@ table zvv_etransport_declarations
   col updated_by                     text
   col vehicle_plate                  text
 
+table zvv_exchange_rates
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col date                           date
+  col from_currency                  text
+  col id                             uuid
+  col rate                           numeric
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text
+  col tenant_id                      uuid
+  col to_currency                    text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
 table zvv_expense_reimbursements
   col amount                         numeric
   col created_at                     timestamp with time zone
@@ -8163,6 +8336,20 @@ table zvv_expenses
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
+
+table zvv_fiscal_years
+  col closed_at                      timestamp with time zone
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col end_date                       date
+  col id                             uuid
+  col search_vector                  tsvector
+  col start_date                     date
+  col status                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col year                           bigint
 
 table zvv_invoice_lines
   col created_at                     timestamp with time zone
@@ -8274,6 +8461,40 @@ table zvv_job_positions
   col search_vector                  tsvector
   col tenant_id                      uuid
   col title                          text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_journal_entries
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col date                           date
+  col description                    text
+  col fiscal_year_id                 uuid
+  col id                             uuid
+  col reference                      text
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_journal_lines
+  col account_id                     uuid
+  col amount_foreign                 numeric
+  col cost_center_id                 uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col credit                         numeric
+  col currency                       text
+  col debit                          numeric
+  col description                    text
+  col entry_id                       uuid
+  col exchange_rate                  numeric
+  col id                             uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
 
@@ -8729,6 +8950,38 @@ table zvv_quotes
   col updated_by                     text
   col valid_until                    date
 
+table zvv_recurring_journal_lines
+  col account_id                     uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col credit                         numeric
+  col debit                          numeric
+  col description                    text
+  col id                             uuid
+  col recurring_id                   uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_recurring_journals
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col end_date                       date
+  col frequency                      text
+  col id                             uuid
+  col is_active                      boolean
+  col last_run_date                  date
+  col next_run_date                  date
+  col reference                      text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
 table zvv_salary_history
   col created_at                     timestamp with time zone
   col created_by                     text
@@ -8835,6 +9088,23 @@ table zvv_tasks
   col title                          text
   col updated_at                     timestamp with time zone
   col updated_by                     text
+
+table zvv_tax_reports
+  col anaf_ref                       text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col period_from                    date
+  col period_to                      date
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text
+  col submitted_at                   timestamp with time zone
+  col tenant_id                      uuid
+  col type                           text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col xml_content                    text
 
 table zvv_ticket_categories
   col color                          text
