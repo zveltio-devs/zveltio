@@ -1033,8 +1033,13 @@ jobs:
         # without complaint and then compares as LARGER than every number. The
         # leave module granted unlimited days this way, and the guard that should
         # have stopped it ran and agreed.
+        # It builds its own full install (engine + every extension's migrations)
+        # in a scratch database: the lane's own database holds only the six
+        # extensions the engine booted, which hid 13 of the 14 baselined sites.
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
         run: bun run sql:numeric-arith
       - name: Run integration tests
         env:
