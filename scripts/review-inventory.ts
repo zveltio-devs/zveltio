@@ -439,6 +439,7 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/lifecycle.ts`,
       `${E}lib/extensions/discovery.ts`,
       `${E}lib/extensions/extension-paths.ts`,
+      `${E}lib/extensions/declared-collections.ts`,
     ],
   },
   {
