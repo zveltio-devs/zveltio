@@ -954,9 +954,9 @@ export interface SduiValidationInput {
    * A schema may read a dependency's `/ext/<dep>/` routes (relation pickers),
    * which is otherwise treated as foreign. */
   dependencies?: string[];
-  /** The collections this extension declares (manifest `collections`, ADR 0012):
-   * a schema may name `/api/data/<collection>` and `/api/data/<collection>/<id>`
-   * for these, and for no other collection. */
+  /** The collections this extension and its dependencies declare (manifest
+   * `collections`, ADR 0012): a schema may name `/api/data/<collection>` and
+   * `/api/data/<collection>/<id>` for these, and for no other collection. */
   collections?: string[];
   /** Message keys this schema may resolve against: the extension's own
    * `studio/messages/en.json` keys, unioned with `SHARED_MESSAGE_KEYS`.
@@ -999,14 +999,14 @@ export function validateSduiSchema(input: SduiValidationInput): ValidationError[
     if (SDUI_SHARED_READ_ALLOWLIST.has(bare)) continue;
     // A dependency's namespace is allowed (relation pickers etc.).
     if (depMounts.some((m) => inMount(bare, m))) continue;
-    // Its own collections, through the data API, which authorizes the caller.
+    // Its own and its dependencies' collections, through the data API, which authorizes the caller.
     const data = SDUI_DATA_ENDPOINT.exec(bare);
     if (data && (input.collections ?? []).includes(data[1])) continue;
     if (!inMount(bare, mount)) {
       out.push(
         err(
           'SDUI_ENDPOINT_FOREIGN',
-          `endpoint "${raw}" is outside this extension's namespace "${mount}/" (or a declared dependency, the data API of a collection it declares, or the shared-read allowlist). Schemas may only call their own routes.`,
+          `endpoint "${raw}" is outside this extension's namespace "${mount}/" (or a declared dependency, the data API of a collection it or a dependency declares, or the shared-read allowlist). Schemas may only call their own routes.`,
           file,
         ),
       );

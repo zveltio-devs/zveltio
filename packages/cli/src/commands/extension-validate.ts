@@ -154,33 +154,43 @@ function readOwnMessageKeys(dir: string): Set<string> | undefined {
 }
 
 /**
- * Message keys a declared dependency ships.
+ * A file each declared dependency ships, parsed: its `studio/messages/en.json`
+ * or its `manifest.json`.
  *
- * The endpoint check already treats a dependency's namespace as legitimate;
- * keys follow the same rule. They have to be read from disk rather than derived
- * from the dependency's name, because the two don't correspond — `finance/
- * invoicing` owns `invoicing.*`, `operations/inventory` owns `inventory.*`.
+ * The endpoint check treats a dependency's namespace as legitimate; its message
+ * keys and the data API of the collections it declares follow the same rule.
+ * Keys have to be read from disk rather than derived from the dependency's
+ * name, because the two don't correspond — `finance/invoicing` owns
+ * `invoicing.*`, `operations/inventory` owns `inventory.*`.
  *
  * Only resolvable inside the extensions monorepo, where dependencies are
- * siblings. Elsewhere this returns nothing and the dependency's keys are
- * reported as unknown — the conservative direction.
+ * siblings. Elsewhere this returns nothing and the dependency's keys and
+ * collections are reported as unknown — the conservative direction.
  */
-function readDependencyMessageKeys(dir: string, extName: string, deps: string[]): Set<string> {
-  const out = new Set<string>();
+function readDependencyFiles(
+  dir: string,
+  extName: string,
+  deps: string[],
+  file: string,
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
   // `extName` is `<category>/<name>`, so the repo root is that many levels up.
   const depth = extName.split('/').length;
   const root = join(dir, ...Array(depth).fill('..'));
   for (const dep of deps) {
-    const path = join(root, dep, 'studio', 'messages', 'en.json');
+    const path = join(root, dep, file);
     if (!existsSync(path)) continue;
     try {
-      for (const k of Object.keys(JSON.parse(readFileSync(path, 'utf8')) as object)) out.add(k);
+      out.push(JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>);
     } catch {
-      /* a dependency with an unreadable catalogue is its own validation's problem */
+      /* a dependency with an unreadable file is its own validation's problem */
     }
   }
   return out;
 }
+
+const stringsOf = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((c): c is string => typeof c === 'string') : [];
 
 function inferExpectedName(dir: string): string {
   const norm = dir.replace(/\\/g, '/');
@@ -553,15 +563,23 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
             extName,
             providedRoutes: provided,
             dependencies,
-            collections: Array.isArray(manifestRecord?.collections)
-              ? manifestRecord.collections.filter((c): c is string => typeof c === 'string')
-              : [],
+            collections: [
+              ...stringsOf(manifestRecord?.collections),
+              ...readDependencyFiles(dir, extName, dependencies, 'manifest.json').flatMap((m) =>
+                stringsOf(m.collections),
+              ),
+            ],
             messageKeys:
               ownMessageKeys &&
               new Set([
                 ...ownMessageKeys,
                 ...SHARED_MESSAGE_KEYS,
-                ...readDependencyMessageKeys(dir, extName, dependencies),
+                ...readDependencyFiles(
+                  dir,
+                  extName,
+                  dependencies,
+                  'studio/messages/en.json',
+                ).flatMap(Object.keys),
               ]),
             file: rel,
           }),
