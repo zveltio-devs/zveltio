@@ -186,7 +186,14 @@ while (queue.length > 0) {
         body = undefined;
       }
       const resolved = getPath(body, primary.dataPath);
-      if (primary.dataPath && resolved === undefined) {
+      // `records.0` on an empty list is a settings page with nothing saved yet:
+      // the page opens on its defaults, so the contract holds.
+      const index = primary.dataPath?.match(/^(.*)\.\d+$/);
+      const list = index ? getPath(body, index[1]) : undefined;
+      const emptyList = Array.isArray(list) && list.length === 0;
+      if (emptyList) {
+        note = `dataPath "${primary.dataPath}" → empty list (defaults)`;
+      } else if (primary.dataPath && resolved === undefined) {
         sev = 'HARD';
         note = `dataPath "${primary.dataPath}" missing from payload (keys: ${Object.keys(
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
