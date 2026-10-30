@@ -24,6 +24,7 @@ import {
 const d = harnessAvailable() ? describe : describe.skip;
 const PARENT = 'cu_projects';
 const CHILD = 'cu_members';
+const OWNER = 'cu_owners';
 
 const parentFile = { name: PARENT, fields: [{ name: 'title', type: 'text' }] };
 const childFile = (extra: Record<string, unknown> = {}) => ({
@@ -75,11 +76,11 @@ d('a collection file declares a unique key over several fields', () => {
     };
     return body.detail ?? body.steps?.map((s) => `${s.change} ${s.target} ${s.action} ${!!s.op}`);
   };
-  const keys = async () =>
+  const keys = async (collection = CHILD) =>
     (
       await sql<{ def: string }>`
         SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
-         WHERE conrelid = ${`zvd_${CHILD}`}::regclass AND contype = 'u'`.execute(db)
+         WHERE conrelid = ${`zvd_${collection}`}::regclass AND contype = 'u'`.execute(db)
     ).rows.map((r) => r.def);
 
   beforeAll(async () => {
@@ -88,7 +89,10 @@ d('a collection file declares a unique key over several fields', () => {
   });
 
   afterAll(async () => {
-    await sql`DELETE FROM zvd_relations WHERE source_collection = ${CHILD}`.execute(db);
+    await sql`DELETE FROM zvd_relations WHERE source_collection IN (${CHILD}, ${OWNER})`.execute(
+      db,
+    );
+    await dropTestCollection(db, OWNER);
     await dropTestCollection(db, CHILD);
     await dropTestCollection(db, PARENT);
   });
@@ -186,5 +190,39 @@ d('a collection file declares a unique key over several fields', () => {
       `collections/${CHILD}.json: relation "${CHILD}_project_id": ${CHILD}.project_id is required, ` +
         `so onDelete cannot be SET NULL (deleting a ${PARENT} row would fail); use CASCADE, RESTRICT or NO ACTION`,
     );
+  }, 60_000);
+
+  // A relation creates its field, so the field's own `unique` was recorded and
+  // never built: the plan read the flag back, owed nothing, and repeats went in.
+  it("builds a relation field's own unique key with the collection", async () => {
+    const owner = {
+      name: OWNER,
+      fields: [
+        {
+          name: 'project_id',
+          type: 'm2o',
+          required: true,
+          unique: true,
+          options: { related_collection: PARENT },
+        },
+        { name: 'note', type: 'text' },
+      ],
+      relations: [
+        {
+          name: `${OWNER}_project_id`,
+          type: 'm2o',
+          field: 'project_id',
+          target: PARENT,
+          onDelete: 'CASCADE',
+        },
+      ],
+    };
+    const files = await withFiles(parentFile, childFile({ indexes: undefined }), owner);
+    const applied = await call('POST', '/api/admin/schema/apply', { files });
+    expect(applied.status, await applied.clone().text()).toBe(200);
+    expect(await keys(OWNER)).toEqual(['UNIQUE (tenant_id, project_id)']);
+    expect(
+      await plan(await withFiles(parentFile, childFile({ indexes: undefined }), owner)),
+    ).toEqual([]);
   }, 60_000);
 });

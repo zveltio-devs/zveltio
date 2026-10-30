@@ -287,6 +287,7 @@ type FieldDef = {
   name: string;
   type: string;
   required?: boolean;
+  unique?: boolean;
   options?: Record<string, unknown>;
 };
 
@@ -422,6 +423,13 @@ export async function createRelation(
     ]);
   }
   // m2a: virtual — no DDL needed, just metadata
+
+  // An m2o field's own `unique` flag (one CSAT per ticket) is its column's key,
+  // built here because the field is created here: recorded without it, the plan
+  // read the flag back, owed nothing, and duplicates went in.
+  if (data.type === 'm2o' && defs.source?.unique === true) {
+    await DDLManager.setTenantUniqueKey(db, sourceTable, [data.source_field], true);
+  }
 
   // The DDL above cannot join this transaction (CREATE INDEX CONCURRENTLY) and
   // is idempotent on retry; the metadata it is described by can, and does.
