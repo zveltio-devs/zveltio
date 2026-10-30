@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 311
+# tables: 306
 
 table account
   col accessToken                    text
@@ -3983,71 +3983,6 @@ table zvd_exchange_rates
   rls enabled forced
   pol tenant_isolation_zvd_exchange_rates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
-table zvd_expense_reimbursements
-  col amount                         numeric NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col notes                          text
-  col payment_date                   date NOT NULL
-  col payment_method                 text DEFAULT 'transfer'::text
-  col reference                      text
-  col report_id                      uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_expense_reimbursements_pkey PRIMARY KEY (id)
-  fk  zvd_expense_reimbursements_report_id_fkey FOREIGN KEY (report_id) REFERENCES zvd_expense_reports(id)
-  rls enabled forced
-  pol tenant_isolation_zvd_expense_reimbursements FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_expense_reports
-  col approved_at                    timestamp with time zone
-  col approved_by                    text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col employee_id                    text NOT NULL
-  col grand_total                    numeric NOT NULL DEFAULT 0
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col mileage_total                  numeric NOT NULL DEFAULT 0
-  col notes                          text
-  col per_diem_total                 numeric NOT NULL DEFAULT 0
-  col reimbursed_amount              numeric NOT NULL DEFAULT 0
-  col reimbursed_at                  timestamp with time zone
-  col rejection_reason               text
-  col status                         text NOT NULL DEFAULT 'draft'::text
-  col submitted_at                   timestamp with time zone
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text NOT NULL
-  col total_amount                   numeric NOT NULL DEFAULT 0
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zvd_expense_reports_pkey PRIMARY KEY (id)
-  ck  zvd_expense_reports_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'submitted'::text, 'approved'::text, 'rejected'::text, 'paid'::text, 'reimbursed'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_expense_reports FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_expenses
-  col amount                         numeric NOT NULL
-  col amount_local                   numeric
-  col category                       text NOT NULL DEFAULT 'other'::text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col date                           date NOT NULL
-  col description                    text NOT NULL
-  col exchange_rate                  numeric DEFAULT 1
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_reimbursable                boolean NOT NULL DEFAULT true
-  col receipt_url                    text
-  col report_id                      uuid NOT NULL
-  col tax_amount                     numeric DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zvd_expenses_category_check CHECK ((category = ANY (ARRAY['travel'::text, 'meals'::text, 'accommodation'::text, 'supplies'::text, 'software'::text, 'fuel'::text, 'entertainment'::text, 'other'::text])))
-  pk  zvd_expenses_pkey PRIMARY KEY (id)
-  fk  zvd_expenses_report_id_fkey FOREIGN KEY (report_id) REFERENCES zvd_expense_reports(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_expenses FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_export_audit_log
   col collection                     text NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -4451,27 +4386,6 @@ table zvd_mail_config
   rls enabled forced
   pol tenant_isolation_zvd_mail_config FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
-table zvd_mileage_entries
-  col amount                         numeric
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col date                           date NOT NULL
-  col distance_km                    numeric NOT NULL
-  col employee_id                    text NOT NULL
-  col from_location                  text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col purpose                        text
-  col rate_per_km                    numeric NOT NULL DEFAULT 0.25
-  col report_id                      uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col to_location                    text NOT NULL
-  col vehicle_type                   text DEFAULT 'personal'::text
-  pk  zvd_mileage_entries_pkey PRIMARY KEY (id)
-  fk  zvd_mileage_entries_report_id_fkey FOREIGN KEY (report_id) REFERENCES zvd_expense_reports(id) ON DELETE CASCADE
-  ck  zvd_mileage_entries_vehicle_type_check CHECK ((vehicle_type = ANY (ARRAY['personal'::text, 'company'::text, 'rental'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_mileage_entries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_panel_cache
   col executed_at                    timestamp with time zone NOT NULL DEFAULT now()
   col execution_ms                   integer NOT NULL DEFAULT 0
@@ -4483,25 +4397,6 @@ table zvd_panel_cache
   fk  zvd_panel_cache_panel_id_fkey FOREIGN KEY (panel_id) REFERENCES zv_panels(id) ON DELETE CASCADE
   uq  zvd_panel_cache_panel_id_key UNIQUE (panel_id)
   pk  zvd_panel_cache_pkey PRIMARY KEY (id)
-
-table zvd_per_diem_entries
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col date                           date NOT NULL
-  col destination                    text NOT NULL
-  col employee_id                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_domestic                    boolean NOT NULL DEFAULT true
-  col meals_deducted                 numeric NOT NULL DEFAULT 0
-  col partial_day                    boolean NOT NULL DEFAULT false
-  col rate                           numeric NOT NULL
-  col report_id                      uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_per_diem_entries_pkey PRIMARY KEY (id)
-  fk  zvd_per_diem_entries_report_id_fkey FOREIGN KEY (report_id) REFERENCES zvd_expense_reports(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_per_diem_entries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_permissions
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
