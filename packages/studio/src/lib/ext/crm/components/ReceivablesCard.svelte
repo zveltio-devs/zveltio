@@ -2,8 +2,8 @@
 /**
  * CRM receivables card — dashboard slot contribution.
  *
- * Session-only briefing (`GET /ext/crm/briefing`): intentionally not gated on
- * `crm:read` so admins see amounts before granting themselves the CRM resource.
+ * Reads open invoices through the data API, so it shows only what the caller
+ * may read on `transactions`; without that right the card stays empty.
  */
 import { resolve } from '$app/paths';
 import { AlertCircle } from '@lucide/svelte';
@@ -23,11 +23,38 @@ let owed = $state<{
   dueSoon: OverdueBucket[];
 } | null>(null);
 
+type Invoice = { currency: string; total_amount: number | string; due_date: string };
+
+const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+
+function buckets(rows: Invoice[]): OverdueBucket[] {
+  const by = new Map<string, OverdueBucket>();
+  for (const r of rows) {
+    const b = by.get(r.currency) ?? { currency: r.currency, count: 0, total: 0 };
+    b.count += 1;
+    b.total += Number(r.total_amount) || 0;
+    by.set(r.currency, b);
+  }
+  return [...by.values()].sort((x, y) => y.total - x.total);
+}
+
+// ponytail: one page of 500 open invoices due within a week; a firm with more
+// sees a partial sum. Upgrade path: an aggregate read in the data API.
 async function loadBriefing(): Promise<void> {
   loading = true;
   try {
-    const r = await api.get<{ receivables?: typeof owed }>('/ext/crm/briefing');
-    owed = r?.receivables ?? null;
+    const today = day(0);
+    const r = await api.get<{ records?: Invoice[] }>(
+      `/api/data/transactions?type[eq]=invoice&status[not_in]=completed,cancelled,refunded&due_date[lte]=${day(7)}&limit=500`,
+    );
+    const rows = r?.records ?? [];
+    const overdue = rows.filter((x) => x.due_date < today);
+    const oldest = overdue.reduce<string | null>((o, x) => (o === null || x.due_date < o ? x.due_date : o), null);
+    owed = {
+      overdue: buckets(overdue),
+      oldestOverdueDays: oldest ? Math.round((Date.parse(today) - Date.parse(oldest)) / 86_400_000) : null,
+      dueSoon: buckets(rows.filter((x) => x.due_date >= today)),
+    };
   } catch {
     owed = null;
   } finally {

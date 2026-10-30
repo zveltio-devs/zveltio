@@ -247,6 +247,84 @@ function matches(registered: Set<string> | undefined, wanted: string): boolean {
   return false;
 }
 
+type Accepted = { all: Set<string>; required: Set<string> } | null;
+type Manifest = {
+  collections?: string[];
+  actions?: Array<{
+    name: string;
+    input?: {
+      properties?: Record<string, unknown>;
+      required?: string[];
+      additionalProperties?: boolean;
+    };
+  }>;
+};
+type CollectionFile = {
+  fields?: Array<{ name: string; required?: boolean; defaultValue?: unknown }>;
+};
+
+/**
+ * An extension that declares collections talks to the data API for them
+ * (`/api/data/<collection>`) and to its manifest's actions
+ * (`POST /ext/<name>/actions/<action>`). Neither is a route in its engine
+ * source, so the promise is checked against what it declares instead: the
+ * collection file's fields, the action's `input` schema. `undefined` when the
+ * URL is neither shape; a string is the contradiction.
+ */
+async function declaredTarget(
+  url: string,
+  method: 'GET' | 'POST',
+  extName: string,
+): Promise<{ accepted: Accepted } | string | undefined> {
+  const manifest: Manifest = await Bun.file(`${EXT_DIR}/${extName}/manifest.json`)
+    .json()
+    .catch(() => ({}));
+  const path = url.split('?')[0];
+  const data = /^\/api\/data\/([a-z][a-z0-9_]*)(\/.*)?$/.exec(path);
+  if (data) {
+    const name = data[1];
+    if (!(manifest.collections ?? []).includes(name)) {
+      return `"${url}" reads /api/data/${name}, which is not a collection ${extName} declares`;
+    }
+    const file: CollectionFile = await Bun.file(
+      `${EXT_DIR}/${extName}/schema/collections/${name}.json`,
+    )
+      .json()
+      .catch(() => ({ fields: [] }));
+    const fields = (file.fields ?? []) as Array<{
+      name: string;
+      required?: boolean;
+      defaultValue?: unknown;
+    }>;
+    return {
+      accepted: {
+        all: new Set(fields.map((f) => f.name)),
+        required: new Set(
+          fields.filter((f) => f.required && f.defaultValue === undefined).map((f) => f.name),
+        ),
+      },
+    };
+  }
+  const action = new RegExp(
+    `^/ext/${extName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}/actions/([^/]+)$`,
+  ).exec(path);
+  if (!action) return undefined;
+  const decl = (manifest.actions ?? []).find((a) => a.name === action[1]);
+  if (!decl)
+    return `"${url}" names action "${action[1]}", which ${extName}'s manifest does not declare`;
+  if (method !== 'POST') return `"${url}" is an action: the engine serves it on POST only`;
+  const input = decl.input ?? {};
+  return {
+    accepted:
+      input.additionalProperties === false
+        ? {
+            all: new Set(Object.keys(input.properties ?? {})),
+            required: new Set(input.required ?? []),
+          }
+        : null,
+  };
+}
+
 const schemaGlob = new Bun.Glob('**/studio/schemas/*.json');
 let checked = 0;
 
@@ -309,7 +387,17 @@ for await (const rel of schemaGlob.scan({ cwd: EXT_DIR, onlyFiles: true })) {
     checked++;
     const rid = res.id ?? '(fără id)';
 
-    if (res.dataSource) {
+    const dataTarget = res.dataSource
+      ? await declaredTarget(res.dataSource, 'GET', extName)
+      : undefined;
+    if (typeof dataTarget === 'string') {
+      problems.push({
+        ext: extName,
+        resource: rid,
+        kind: 'dataSource-declared',
+        detail: dataTarget,
+      });
+    } else if (res.dataSource && !dataTarget) {
       const p = localPath(res.dataSource, extName);
       if (p === null) {
         problems.push({
@@ -329,50 +417,69 @@ for await (const rel of schemaGlob.scan({ cwd: EXT_DIR, onlyFiles: true })) {
     }
 
     const endpoint = res.form?.endpoint;
-    const fields: Array<{ name?: string }> = res.form?.fields ?? [];
+    // Everything the form submits: its fields, its sections' fields, the
+    // repeatable group and the computed values, each under its own name.
+    const fields: Array<{ name?: string }> = [
+      ...(res.form?.fields ?? []),
+      ...((res.form?.sections ?? []) as Array<{ fields?: Array<{ name?: string }> }>).flatMap(
+        (s) => s.fields ?? [],
+      ),
+      ...(res.form?.repeatable ? [res.form.repeatable] : []),
+      ...(res.form?.computed ?? []),
+    ];
     if (endpoint) {
-      const p = localPath(endpoint, extName);
-      if (p === null) {
-        problems.push({
-          ext: extName,
-          resource: rid,
-          kind: 'endpoint-prefix',
-          detail: `"${endpoint}" does not start with /ext/${extName}`,
-        });
-      } else if (!matches(routes.POST, p)) {
-        problems.push({
-          ext: extName,
-          resource: rid,
-          kind: 'endpoint-missing',
-          detail: `no POST ${p} on the engine (form.endpoint "${endpoint}")`,
-        });
+      const declared = await declaredTarget(endpoint, 'POST', extName);
+      let accepted: Accepted = null;
+      let target = `POST ${endpoint}`;
+      if (typeof declared === 'string') {
+        problems.push({ ext: extName, resource: rid, kind: 'endpoint-declared', detail: declared });
+      } else if (declared) {
+        accepted = declared.accepted;
       } else {
-        const accepted = bodyKeys(engineSrc, 'POST', p);
-        if (accepted) {
-          const sent = new Set(fields.map((f) => f.name).filter(Boolean) as string[]);
+        const p = localPath(endpoint, extName);
+        if (p === null) {
+          problems.push({
+            ext: extName,
+            resource: rid,
+            kind: 'endpoint-prefix',
+            detail: `"${endpoint}" does not start with /ext/${extName}`,
+          });
+        } else if (!matches(routes.POST, p)) {
+          problems.push({
+            ext: extName,
+            resource: rid,
+            kind: 'endpoint-missing',
+            detail: `no POST ${p} on the engine (form.endpoint "${endpoint}")`,
+          });
+        } else {
+          accepted = bodyKeys(engineSrc, 'POST', p);
+          target = `POST ${p}`;
+        }
+      }
+      if (accepted) {
+        const sent = new Set(fields.map((f) => f.name).filter(Boolean) as string[]);
 
-          // Required-but-never-sent: creating from this page cannot succeed.
-          for (const need of accepted.required) {
-            if (!sent.has(need)) {
-              problems.push({
-                ext: extName,
-                resource: rid,
-                kind: 'CREATE-BROKEN',
-                detail: `POST ${p} requires "${need}" and the form never sends it — every create answers 400`,
-              });
-            }
+        // Required-but-never-sent: creating from this page cannot succeed.
+        for (const need of accepted.required) {
+          if (!sent.has(need)) {
+            problems.push({
+              ext: extName,
+              resource: rid,
+              kind: 'CREATE-BROKEN',
+              detail: `${target} requires "${need}" and the form never sends it — every create answers 400`,
+            });
           }
+        }
 
-          // Sent-but-unknown: zod strips it, the record saves without it.
-          for (const f of sent) {
-            if (!accepted.all.has(f)) {
-              problems.push({
-                ext: extName,
-                resource: rid,
-                kind: 'field-dropped',
-                detail: `form sends "${f}", POST ${p} does not accept it — the value is discarded in silence`,
-              });
-            }
+        // Sent-but-unknown: stripped or refused, the record saves without it.
+        for (const f of sent) {
+          if (!accepted.all.has(f)) {
+            problems.push({
+              ext: extName,
+              resource: rid,
+              kind: 'field-dropped',
+              detail: `form sends "${f}", ${target} does not accept it — the value is discarded in silence`,
+            });
           }
         }
       }
