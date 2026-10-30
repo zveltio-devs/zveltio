@@ -40,6 +40,8 @@
     "RELEASE_GATE_SKIP_NETWORK",
     "REQUIRE_STUDIO_DIST",
     "SEAM_DATABASE_URL",
+    // scripts/lib/install-template.ts caps the scratch build's pool
+    "DB_POOL_MAX",
     "ZVELTIO_ALLOW_MISSING_DB",
     "ZVELTIO_ALLOW_MISSING_SIBLING",
     "EXTENSIONS_DIR",
