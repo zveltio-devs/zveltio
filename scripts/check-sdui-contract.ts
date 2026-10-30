@@ -363,6 +363,18 @@ for await (const rel of schemaGlob.scan({ cwd: EXT_DIR, onlyFiles: true })) {
     ];
     for (const [field, method, url] of want) {
       if (!url) continue;
+      // A declared collection or action is checked against its declaration, as a resource's is.
+      const declared = await declaredTarget(url, method, extName);
+      if (typeof declared === 'string') {
+        problems.push({
+          ext: extName,
+          resource: '(settings)',
+          kind: `${field}-declared`,
+          detail: declared,
+        });
+        continue;
+      }
+      if (declared) continue;
       const p = localPath(url, extName);
       if (p === null) {
         problems.push({
