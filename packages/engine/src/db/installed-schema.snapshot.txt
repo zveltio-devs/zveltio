@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 392
+# tables: 365
 
 table account
   col accessToken                    text
@@ -1457,31 +1457,6 @@ table zv_erd_layouts
   pk  zv_erd_layouts_pkey PRIMARY KEY (id)
   uq  zv_erd_layouts_user_id_collection_name_key UNIQUE (user_id, collection_name)
   fk  zv_erd_layouts_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-
-table zv_etransport_declarations
-  col anaf_response                  jsonb
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col departure_address              text NOT NULL
-  col departure_country              text NOT NULL DEFAULT 'RO'::text
-  col departure_county               text NOT NULL
-  col destination_address            text NOT NULL
-  col destination_country            text NOT NULL DEFAULT 'RO'::text
-  col destination_county             text NOT NULL
-  col driver_cnp                     text
-  col driver_name                    text NOT NULL
-  col goods                          jsonb NOT NULL DEFAULT '[]'::jsonb
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col purpose                        text NOT NULL DEFAULT 'commercial'::text
-  col status                         text NOT NULL DEFAULT 'draft'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total_weight_kg                numeric NOT NULL DEFAULT 0
-  col transport_date                 date NOT NULL
-  col uit                            text
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col vehicle_plate                  text NOT NULL
-  pk  zv_etransport_declarations_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_etransport_declarations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_extension_forward_approvals
   col approved                       jsonb NOT NULL
@@ -3761,21 +3736,6 @@ table zvd_byod_scan_profiles
   rls enabled forced
   pol tenant_isolation_zvd_byod_scan_profiles FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
-table zvd_canned_responses
-  col category_id                    uuid
-  col content                        text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col shortcut                       text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zvd_canned_responses_category_id_fkey FOREIGN KEY (category_id) REFERENCES zvd_ticket_categories(id) ON DELETE SET NULL
-  pk  zvd_canned_responses_pkey PRIMARY KEY (id)
-  uq  zvd_canned_responses_shortcut_key UNIQUE (tenant_id, shortcut)
-  rls enabled forced
-  pol tenant_isolation_zvd_canned_responses FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_cash_flow_entries
   col account_id                     uuid
   col actual_transaction_id          uuid
@@ -3887,50 +3847,6 @@ table zvd_company_profile
   rls enabled forced
   pol tenant_isolation_zvd_company_profile FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
-table zvd_contact_organizations
-  col contact_id                     uuid NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_primary                     boolean NOT NULL DEFAULT false
-  col organization_id                uuid NOT NULL
-  col role                           text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col updated_by                     text
-  fk  zvd_contact_organizations_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES zvd_contacts(id) ON DELETE CASCADE
-  fk  zvd_contact_organizations_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES zvd_organizations(id) ON DELETE CASCADE
-  uq  zvd_contact_organizations_pair_key UNIQUE (contact_id, organization_id)
-  pk  zvd_contact_organizations_pkey PRIMARY KEY (id)
-  idx idx_zvd_contact_organizations_one_primary UNIQUE (tenant_id, contact_id) WHERE is_primary
-  rls enabled forced
-  pol tenant_isolation_zvd_contact_organizations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_contacts
-  col avatar_url                     text
-  col company                        text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col email                          text
-  col first_name                     text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col job_title                      text
-  col last_name                      text
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col notes                          text
-  col organization_id                uuid
-  col owner_id                       text
-  col phone                          text
-  col source                         text
-  col tags                           ARRAY NOT NULL DEFAULT '{}'::text[]
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col updated_by                     text
-  fk  fk_crm_contact_org FOREIGN KEY (organization_id) REFERENCES zvd_organizations(id) ON DELETE SET NULL
-  pk  zvd_contacts_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_contacts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_contract_amendments
   col amendment_number               text NOT NULL
   col changes                        jsonb NOT NULL DEFAULT '{}'::jsonb
@@ -4017,88 +3933,6 @@ table zvd_credit_notes
   ck  zvd_credit_notes_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'issued'::text, 'applied'::text])))
   rls enabled forced
   pol tenant_isolation_zvd_credit_notes FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_crm_activities
-  col body                           text
-  col completed_at                   timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col duration_minutes               integer
-  col entity_id                      uuid NOT NULL
-  col entity_type                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col outcome                        text
-  col scheduled_at                   timestamp with time zone
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text NOT NULL
-  col type                           text NOT NULL
-  ck  zvd_crm_activities_entity_type_check CHECK ((entity_type = ANY (ARRAY['contact'::text, 'organization'::text, 'transaction'::text])))
-  pk  zvd_crm_activities_pkey PRIMARY KEY (id)
-  ck  zvd_crm_activities_type_check CHECK ((type = ANY (ARRAY['call'::text, 'email'::text, 'meeting'::text, 'note'::text, 'task'::text, 'stage_change'::text, 'deal_created'::text, 'deal_won'::text, 'deal_lost'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_crm_activities FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_crm_custom_fields
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col entity_type                    text NOT NULL
-  col field_type                     text NOT NULL DEFAULT 'text'::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col is_required                    boolean NOT NULL DEFAULT false
-  col label                          text NOT NULL
-  col name                           text NOT NULL
-  col options                        jsonb
-  col sort_order                     integer NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zvd_crm_custom_fields_entity_type_check CHECK ((entity_type = ANY (ARRAY['contact'::text, 'organization'::text, 'transaction'::text])))
-  uq  zvd_crm_custom_fields_entity_type_name_key UNIQUE (tenant_id, entity_type, name)
-  ck  zvd_crm_custom_fields_field_type_check CHECK ((field_type = ANY (ARRAY['text'::text, 'number'::text, 'date'::text, 'boolean'::text, 'select'::text, 'multiselect'::text, 'url'::text, 'email'::text, 'phone'::text])))
-  pk  zvd_crm_custom_fields_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_crm_custom_fields FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_crm_email_sequences
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col steps                          jsonb NOT NULL DEFAULT '[]'::jsonb
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_crm_email_sequences_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_crm_email_sequences FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_crm_lead_scores
-  col contact_id                     uuid NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col last_calculated_at             timestamp with time zone NOT NULL DEFAULT now()
-  col score                          integer NOT NULL DEFAULT 0
-  col score_breakdown                jsonb NOT NULL DEFAULT '{}'::jsonb
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  uq  zvd_crm_lead_scores_contact_id_key UNIQUE (contact_id)
-  pk  zvd_crm_lead_scores_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_crm_lead_scores FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_crm_pipeline_stages
-  col color                          text NOT NULL DEFAULT '#888888'::text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col is_lost                        boolean NOT NULL DEFAULT false
-  col is_won                         boolean NOT NULL DEFAULT false
-  col name                           text NOT NULL
-  col probability_pct                integer NOT NULL DEFAULT 0
-  col sort_order                     integer NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_crm_pipeline_stages_pkey PRIMARY KEY (id)
-  ck  zvd_crm_pipeline_stages_probability_pct_check CHECK (((probability_pct >= 0) AND (probability_pct <= 100)))
-  rls enabled forced
-  pol tenant_isolation_zvd_crm_pipeline_stages FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_dashboard_shares
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -4305,7 +4139,6 @@ table zvd_ec_orders
   col total                          numeric NOT NULL DEFAULT 0
   col tracking_number                text
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  ec_orders_canonical_fk FOREIGN KEY (canonical_contact_id) REFERENCES zvd_contacts(id) ON DELETE SET NULL
   fk  zvd_ec_orders_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES zvd_ec_customers(id) ON DELETE SET NULL
   uq  zvd_ec_orders_order_number_key UNIQUE (tenant_id, order_number)
   ck  zvd_ec_orders_payment_status_check CHECK ((payment_status = ANY (ARRAY['unpaid'::text, 'paid'::text, 'refunded'::text, 'partial'::text])))
@@ -4571,27 +4404,6 @@ table zvd_employment_contracts
   idx zvd_employment_contracts_number_key UNIQUE (tenant_id, contract_number)
   rls enabled forced
   pol tenant_isolation_zvd_employment_contracts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_escalation_rules
-  col action_assign_to               text
-  col action_notify_email            text
-  col action_priority                text
-  col category_id                    uuid
-  col condition_hours                integer NOT NULL DEFAULT 4
-  col condition_type                 text NOT NULL DEFAULT 'no_response'::text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col priority                       text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zvd_escalation_rules_action_priority_check CHECK ((action_priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text])))
-  fk  zvd_escalation_rules_category_id_fkey FOREIGN KEY (category_id) REFERENCES zvd_ticket_categories(id) ON DELETE SET NULL
-  ck  zvd_escalation_rules_condition_type_check CHECK ((condition_type = ANY (ARRAY['no_response'::text, 'no_resolution'::text, 'sla_breach'::text])))
-  pk  zvd_escalation_rules_pkey PRIMARY KEY (id)
-  ck  zvd_escalation_rules_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_escalation_rules FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_exchange_rates
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -5060,7 +4872,6 @@ table zvd_invoices
   col vat_breakdown                  jsonb NOT NULL DEFAULT '[]'::jsonb
   col vat_exemption_reason           text
   col vat_regime                     text NOT NULL DEFAULT 'standard'::text
-  fk  zvd_invoices_client_fk FOREIGN KEY (client_id) REFERENCES zvd_contacts(id) ON DELETE SET NULL
   ck  zvd_invoices_client_type_check CHECK ((client_type = ANY (ARRAY['contact'::text, 'organization'::text])))
   ck  zvd_invoices_doc_type_check CHECK ((doc_type = ANY (ARRAY['invoice'::text, 'proforma'::text, 'delivery_note'::text])))
   uq  zvd_invoices_number_key UNIQUE (tenant_id, number)
@@ -5307,23 +5118,6 @@ table zvd_mileage_entries
   rls enabled forced
   pol tenant_isolation_zvd_mileage_entries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
-table zvd_milestones
-  col completed_at                   timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col description                    text
-  col due_date                       date NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_completed                   boolean NOT NULL DEFAULT false
-  col name                           text NOT NULL
-  col project_id                     uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text
-  pk  zvd_milestones_pkey PRIMARY KEY (id)
-  fk  zvd_milestones_project_id_fkey FOREIGN KEY (project_id) REFERENCES zvd_projects(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_milestones FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_onboarding_tasks
   col assigned_to                    text
   col completed_at                   timestamp with time zone
@@ -5339,33 +5133,6 @@ table zvd_onboarding_tasks
   pk  zvd_onboarding_tasks_pkey PRIMARY KEY (id)
   rls enabled forced
   pol tenant_isolation_zvd_onboarding_tasks FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_organizations
-  col address                        text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col email                          text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col industry                       text
-  col is_active                      boolean NOT NULL DEFAULT true
-  col legal_name                     text
-  col logo_url                       text
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col name                           text NOT NULL
-  col notes                          text
-  col owner_id                       text
-  col phone                          text
-  col registration_no                text
-  col tags                           ARRAY NOT NULL DEFAULT '{}'::text[]
-  col tax_id                         text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col type                           text NOT NULL DEFAULT 'company'::text
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col updated_by                     text
-  col website                        text
-  pk  zvd_organizations_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_organizations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_panel_cache
   col executed_at                    timestamp with time zone NOT NULL DEFAULT now()
@@ -5703,7 +5470,6 @@ table zvd_pos_customers
   col total_spent                    numeric NOT NULL DEFAULT 0
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col visit_count                    integer NOT NULL DEFAULT 0
-  fk  pos_customers_canonical_fk FOREIGN KEY (canonical_contact_id) REFERENCES zvd_contacts(id) ON DELETE SET NULL
   pk  zvd_pos_customers_pkey PRIMARY KEY (id)
   uq  zvd_pos_customers_tenant_email_key UNIQUE (tenant_id, email)
   rls enabled forced
@@ -5788,7 +5554,6 @@ table zvd_pos_orders
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col total                          numeric NOT NULL DEFAULT 0
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  pos_orders_canonical_fk FOREIGN KEY (canonical_contact_id) REFERENCES zvd_contacts(id) ON DELETE SET NULL
   fk  zvd_pos_orders_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES zvd_pos_customers(id)
   uq  zvd_pos_orders_order_number_key UNIQUE (tenant_id, order_number)
   ck  zvd_pos_orders_payment_method_check CHECK ((payment_method = ANY (ARRAY['cash'::text, 'card'::text, 'transfer'::text, 'voucher'::text])))
@@ -5898,61 +5663,6 @@ table zvd_products
   ck  zvd_products_unit_check CHECK ((unit = ANY (ARRAY['piece'::text, 'kg'::text, 'liter'::text, 'box'::text, 'meter'::text, 'hour'::text, 'other'::text])))
   rls enabled forced
   pol tenant_isolation_zvd_products FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_project_custom_fields
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col field_type                     text NOT NULL DEFAULT 'text'::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_required                    boolean NOT NULL DEFAULT false
-  col name                           text NOT NULL
-  col options                        jsonb
-  col project_id                     uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zvd_project_custom_fields_field_type_check CHECK ((field_type = ANY (ARRAY['text'::text, 'number'::text, 'date'::text, 'select'::text, 'boolean'::text, 'url'::text])))
-  pk  zvd_project_custom_fields_pkey PRIMARY KEY (id)
-  fk  zvd_project_custom_fields_project_id_fkey FOREIGN KEY (project_id) REFERENCES zvd_projects(id) ON DELETE CASCADE
-  uq  zvd_project_custom_fields_project_id_name_key UNIQUE (project_id, name)
-  rls enabled forced
-  pol tenant_isolation_zvd_project_custom_fields FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_project_members
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col project_id                     uuid NOT NULL
-  col role                           text NOT NULL DEFAULT 'member'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text NOT NULL
-  pk  zvd_project_members_pkey PRIMARY KEY (id)
-  fk  zvd_project_members_project_id_fkey FOREIGN KEY (project_id) REFERENCES zvd_projects(id) ON DELETE CASCADE
-  uq  zvd_project_members_project_id_user_id_key UNIQUE (project_id, user_id)
-  ck  zvd_project_members_role_check CHECK ((role = ANY (ARRAY['owner'::text, 'manager'::text, 'member'::text, 'viewer'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_project_members FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_projects
-  col budget                         numeric
-  col client_id                      text
-  col client_type                    text
-  col color                          text DEFAULT '#069494'::text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col currency                       text DEFAULT 'RON'::text
-  col description                    text
-  col end_date                       date
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col owner_id                       text
-  col priority                       text NOT NULL DEFAULT 'medium'::text
-  col progress_percent               integer NOT NULL DEFAULT 0
-  col start_date                     date
-  col status                         text NOT NULL DEFAULT 'planning'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zvd_projects_pkey PRIMARY KEY (id)
-  ck  zvd_projects_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text])))
-  ck  zvd_projects_progress_percent_check CHECK (((progress_percent >= 0) AND (progress_percent <= 100)))
-  ck  zvd_projects_status_check CHECK ((status = ANY (ARRAY['planning'::text, 'active'::text, 'on_hold'::text, 'completed'::text, 'cancelled'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_projects FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_public_holidays
   col date                           date NOT NULL
@@ -6472,21 +6182,6 @@ table zvd_subscription_usage
   rls enabled forced
   pol tenant_isolation_zvd_subscription_usage FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
-table zvd_subtasks
-  col assignee_id                    text
-  col completed_at                   timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_completed                   boolean NOT NULL DEFAULT false
-  col task_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text NOT NULL
-  pk  zvd_subtasks_pkey PRIMARY KEY (id)
-  fk  zvd_subtasks_task_id_fkey FOREIGN KEY (task_id) REFERENCES zvd_tasks(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_subtasks FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_suppliers
   col address                        text
   col contact_name                   text
@@ -6507,95 +6202,6 @@ table zvd_suppliers
   rls enabled forced
   pol tenant_isolation_zvd_suppliers FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
-table zvd_task_attachments
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col file_size                      integer
-  col file_url                       text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col mime_type                      text
-  col name                           text NOT NULL
-  col project_id                     uuid
-  col task_id                        uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col uploaded_by                    text NOT NULL
-  pk  zvd_task_attachments_pkey PRIMARY KEY (id)
-  fk  zvd_task_attachments_project_id_fkey FOREIGN KEY (project_id) REFERENCES zvd_projects(id) ON DELETE CASCADE
-  fk  zvd_task_attachments_task_id_fkey FOREIGN KEY (task_id) REFERENCES zvd_tasks(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_task_attachments FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_task_comments
-  col author_id                      text NOT NULL
-  col content                        text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col task_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_task_comments_pkey PRIMARY KEY (id)
-  fk  zvd_task_comments_task_id_fkey FOREIGN KEY (task_id) REFERENCES zvd_tasks(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_task_comments FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_task_custom_values
-  col field_id                       uuid NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col task_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col value                          text
-  fk  zvd_task_custom_values_field_id_fkey FOREIGN KEY (field_id) REFERENCES zvd_project_custom_fields(id) ON DELETE CASCADE
-  pk  zvd_task_custom_values_pkey PRIMARY KEY (id)
-  uq  zvd_task_custom_values_task_id_field_id_key UNIQUE (task_id, field_id)
-  fk  zvd_task_custom_values_task_id_fkey FOREIGN KEY (task_id) REFERENCES zvd_tasks(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_task_custom_values FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_task_dependencies
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col depends_on_id                  uuid NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col task_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col type                           text NOT NULL DEFAULT 'finish_to_start'::text
-  ck  zvd_task_dependencies_check CHECK ((task_id <> depends_on_id))
-  fk  zvd_task_dependencies_depends_on_id_fkey FOREIGN KEY (depends_on_id) REFERENCES zvd_tasks(id) ON DELETE CASCADE
-  pk  zvd_task_dependencies_pkey PRIMARY KEY (id)
-  uq  zvd_task_dependencies_task_id_depends_on_id_key UNIQUE (task_id, depends_on_id)
-  fk  zvd_task_dependencies_task_id_fkey FOREIGN KEY (task_id) REFERENCES zvd_tasks(id) ON DELETE CASCADE
-  ck  zvd_task_dependencies_type_check CHECK ((type = ANY (ARRAY['finish_to_start'::text, 'start_to_start'::text, 'finish_to_finish'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_task_dependencies FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_tasks
-  col actual_hours                   numeric
-  col assignee_id                    text
-  col completed_at                   timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col description                    text
-  col due_date                       date
-  col estimated_hours                numeric
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col milestone_id                   uuid
-  col parent_task_id                 uuid
-  col priority                       text NOT NULL DEFAULT 'medium'::text
-  col project_id                     uuid NOT NULL
-  col sort_order                     integer NOT NULL DEFAULT 0
-  col start_date                     date
-  col status                         text NOT NULL DEFAULT 'todo'::text
-  col story_points                   integer
-  col tags                           ARRAY DEFAULT '{}'::text[]
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text NOT NULL
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  zvd_tasks_milestone_id_fkey FOREIGN KEY (milestone_id) REFERENCES zvd_milestones(id) ON DELETE SET NULL
-  fk  zvd_tasks_parent_task_id_fkey FOREIGN KEY (parent_task_id) REFERENCES zvd_tasks(id) ON DELETE SET NULL
-  pk  zvd_tasks_pkey PRIMARY KEY (id)
-  ck  zvd_tasks_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text])))
-  fk  zvd_tasks_project_id_fkey FOREIGN KEY (project_id) REFERENCES zvd_projects(id) ON DELETE CASCADE
-  ck  zvd_tasks_status_check CHECK ((status = ANY (ARRAY['todo'::text, 'in_progress'::text, 'in_review'::text, 'done'::text, 'blocked'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_tasks FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_tax_reports
   col anaf_ref                       text
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -6613,101 +6219,6 @@ table zvd_tax_reports
   ck  zvd_tax_reports_type_check CHECK ((type = ANY (ARRAY['D300'::text, 'D394'::text, 'D390'::text])))
   rls enabled forced
   pol tenant_isolation_zvd_tax_reports FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_ticket_categories
-  col color                          text NOT NULL DEFAULT '#6366f1'::text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col default_priority               text NOT NULL DEFAULT 'medium'::text
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col sla_hours                      integer NOT NULL DEFAULT 24
-  col sla_response_hours             integer NOT NULL DEFAULT 4
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zvd_ticket_categories_default_priority_check CHECK ((default_priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text])))
-  pk  zvd_ticket_categories_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_ticket_categories FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_ticket_csat
-  col comment                        text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col rating                         integer NOT NULL
-  col submitted_at                   timestamp with time zone NOT NULL DEFAULT now()
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col ticket_id                      uuid NOT NULL
-  pk  zvd_ticket_csat_pkey PRIMARY KEY (id)
-  ck  zvd_ticket_csat_rating_check CHECK (((rating >= 1) AND (rating <= 5)))
-  fk  zvd_ticket_csat_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES zvd_tickets(id) ON DELETE CASCADE
-  uq  zvd_ticket_csat_ticket_id_key UNIQUE (ticket_id)
-  rls enabled forced
-  pol tenant_isolation_zvd_ticket_csat FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_ticket_escalations
-  col escalated_at                   timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col reason                         text NOT NULL
-  col rule_id                        uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col ticket_id                      uuid NOT NULL
-  pk  zvd_ticket_escalations_pkey PRIMARY KEY (id)
-  fk  zvd_ticket_escalations_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES zvd_escalation_rules(id) ON DELETE SET NULL
-  fk  zvd_ticket_escalations_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES zvd_tickets(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_ticket_escalations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_ticket_messages
-  col attachments                    jsonb NOT NULL DEFAULT '[]'::jsonb
-  col author_email                   text NOT NULL
-  col author_id                      text
-  col author_name                    text NOT NULL
-  col content                        text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_internal                    boolean NOT NULL DEFAULT false
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col ticket_id                      uuid NOT NULL
-  pk  zvd_ticket_messages_pkey PRIMARY KEY (id)
-  fk  zvd_ticket_messages_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES zvd_tickets(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_ticket_messages FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_tickets
-  col assignee_id                    text
-  col category_id                    uuid
-  col channel                        text NOT NULL DEFAULT 'web'::text
-  col closed_at                      timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col description                    text NOT NULL
-  col first_response_at              timestamp with time zone
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_merged                      boolean NOT NULL DEFAULT false
-  col merged_into_id                 uuid
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col number                         text NOT NULL
-  col priority                       text NOT NULL DEFAULT 'medium'::text
-  col requester_email                text NOT NULL
-  col requester_id                   text
-  col requester_name                 text NOT NULL
-  col resolved_at                    timestamp with time zone
-  col sla_breached                   boolean NOT NULL DEFAULT false
-  col sla_due_at                     timestamp with time zone
-  col status                         text NOT NULL DEFAULT 'open'::text
-  col tags                           ARRAY DEFAULT '{}'::text[]
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text NOT NULL
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  zvd_tickets_category_id_fkey FOREIGN KEY (category_id) REFERENCES zvd_ticket_categories(id) ON DELETE SET NULL
-  ck  zvd_tickets_channel_check CHECK ((channel = ANY (ARRAY['email'::text, 'web'::text, 'phone'::text, 'api'::text])))
-  fk  zvd_tickets_merged_into_id_fkey FOREIGN KEY (merged_into_id) REFERENCES zvd_tickets(id)
-  uq  zvd_tickets_number_key UNIQUE (tenant_id, number)
-  pk  zvd_tickets_pkey PRIMARY KEY (id)
-  ck  zvd_tickets_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text])))
-  ck  zvd_tickets_status_check CHECK ((status = ANY (ARRAY['open'::text, 'in_progress'::text, 'pending_customer'::text, 'resolved'::text, 'closed'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_tickets FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_time_entries
   col amount                         numeric NOT NULL DEFAULT 0
@@ -6794,43 +6305,6 @@ table zvd_timesheets
   ck  zvd_timesheets_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'submitted'::text, 'approved'::text, 'rejected'::text])))
   rls enabled forced
   pol tenant_isolation_zvd_timesheets FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_transactions
-  col amount                         numeric NOT NULL DEFAULT 0
-  col contact_id                     uuid
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col due_date                       date
-  col expected_close_date            date
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col lead_score                     integer NOT NULL DEFAULT 0
-  col line_items                     jsonb NOT NULL DEFAULT '[]'::jsonb
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col name                           text
-  col notes                          text
-  col number                         text
-  col organization_id                uuid
-  col owner_id                       text
-  col paid_date                      date
-  col payment_status                 text
-  col pipeline_stage_id              uuid
-  col reference                      text
-  col stage_changed_at               timestamp with time zone
-  col status                         text NOT NULL DEFAULT 'open'::text
-  col tags                           ARRAY NOT NULL DEFAULT '{}'::text[]
-  col tax_amount                     numeric NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total_amount                   numeric NOT NULL DEFAULT 0
-  col type                           text NOT NULL DEFAULT 'invoice'::text
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col updated_by                     text
-  fk  fk_txn_pipeline_stage FOREIGN KEY (pipeline_stage_id) REFERENCES zvd_crm_pipeline_stages(id) ON DELETE SET NULL
-  fk  zvd_transactions_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES zvd_contacts(id) ON DELETE SET NULL
-  fk  zvd_transactions_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES zvd_organizations(id) ON DELETE SET NULL
-  pk  zvd_transactions_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_transactions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_translation_glossary
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()

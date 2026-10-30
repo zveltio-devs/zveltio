@@ -1,18 +1,25 @@
 <script lang="ts">
 /**
- * Kanban board over /ext/projects/management tasks (status columns + PATCH).
+ * Kanban board over the extension's `tasks` collection, through the data API.
  */
 import { api } from '#lib/api.js';
+import { m } from '#lib/i18n.svelte.js';
 import { toast } from '#lib/stores/toast.svelte.js';
 
-const API = '/ext/projects/management';
+const API = '/api/data';
 const COLUMNS = [
-  { id: 'todo', label: 'To do' },
-  { id: 'in_progress', label: 'In progress' },
-  { id: 'in_review', label: 'In review' },
-  { id: 'blocked', label: 'Blocked' },
-  { id: 'done', label: 'Done' },
+  { id: 'todo', label: m['projects.management.status.todo'] },
+  { id: 'in_progress', label: m['projects.management.status.in_progress'] },
+  { id: 'in_review', label: m['projects.management.status.in_review'] },
+  { id: 'blocked', label: m['projects.management.status.blocked'] },
+  { id: 'done', label: m['projects.management.status.done'] },
 ] as const;
+const PRIORITY: Record<string, () => string> = {
+  low: m['projects.management.priority.low'],
+  medium: m['projects.management.priority.medium'],
+  high: m['projects.management.priority.high'],
+  critical: m['projects.management.priority.critical'],
+};
 
 type Project = { id: string; name: string };
 type Task = {
@@ -39,11 +46,13 @@ const byStatus = $derived(
 async function loadProjects(): Promise<void> {
   loading = true;
   try {
-    const r = await api.get<{ projects?: Project[]; data?: Project[] }>(API);
-    projects = r.projects ?? r.data ?? [];
+    const r = await api.get<{ records: Project[] }>(
+      `${API}/projects?sort=created_at&order=desc&limit=500`,
+    );
+    projects = r.records;
     if (!projectId && projects[0]) projectId = projects[0].id;
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to load projects');
+    toast.error(err instanceof Error ? err.message : m['projects.management.kanban.loadFailed']());
   } finally {
     loading = false;
   }
@@ -55,10 +64,12 @@ async function loadTasks(): Promise<void> {
     return;
   }
   try {
-    const r = await api.get<{ tasks?: Task[]; data?: Task[] }>(`${API}/${projectId}/tasks`);
-    tasks = r.tasks ?? r.data ?? [];
+    const r = await api.get<{ records: Task[] }>(
+      `${API}/tasks?project_id[eq]=${projectId}&sort=sort_order&order=asc&limit=500`,
+    );
+    tasks = r.records;
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to load tasks');
+    toast.error(err instanceof Error ? err.message : m['projects.management.kanban.loadFailed']());
     tasks = [];
   }
 }
@@ -72,19 +83,24 @@ async function moveTask(taskId: string, status: string): Promise<void> {
     await api.patch(`${API}/tasks/${taskId}`, { status });
   } catch (err) {
     tasks = tasks.map((t) => (t.id === taskId ? { ...t, status: prev } : t));
-    toast.error(err instanceof Error ? err.message : 'Move failed');
+    toast.error(err instanceof Error ? err.message : m['projects.management.kanban.saveFailed']());
   }
 }
 
 async function addTask(status: string): Promise<void> {
   if (!projectId) return;
-  const title = prompt('Task title');
+  const title = prompt(m['projects.management.kanban.taskTitle']());
   if (!title?.trim()) return;
   try {
-    await api.post(`${API}/${projectId}/tasks`, { title: title.trim(), status });
+    await api.post(`${API}/tasks`, {
+      project_id: projectId,
+      title: title.trim(),
+      status,
+      priority: 'medium',
+    });
     await loadTasks();
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Create failed');
+    toast.error(err instanceof Error ? err.message : m['projects.management.kanban.saveFailed']());
   }
 }
 
@@ -107,11 +123,11 @@ $effect(() => {
 
 <div class="space-y-3">
   <div class="flex items-center gap-2 flex-wrap">
-    <h1 class="font-semibold text-lg flex-1">Kanban</h1>
+    <h1 class="font-semibold text-lg flex-1">{m['projects.management.kanban.title']()}</h1>
     {#if loading}
       <span class="loading loading-spinner loading-xs"></span>
     {:else if projects.length === 0}
-      <span class="text-sm opacity-50">No projects — create one in Projects first</span>
+      <span class="text-sm opacity-50">{m['projects.management.kanban.noProjects']()}</span>
     {:else}
       <select class="select select-bordered select-sm" bind:value={projectId}>
         {#each projects as p (p.id)}
@@ -130,7 +146,7 @@ $effect(() => {
         role="list"
       >
         <div class="px-3 py-2 border-b border-base-300 flex items-center justify-between">
-          <span class="text-sm font-medium">{col.label}</span>
+          <span class="text-sm font-medium">{col.label()}</span>
           <span class="badge badge-ghost badge-xs">{byStatus[col.id]?.length ?? 0}</span>
         </div>
         <div class="flex-1 p-2 space-y-2 overflow-y-auto max-h-[70vh]">
@@ -144,14 +160,14 @@ $effect(() => {
               <div class="card-body p-3 gap-1">
                 <div class="text-sm font-medium">{task.title}</div>
                 {#if task.priority}
-                  <div class="text-xs opacity-50">{task.priority}</div>
+                  <div class="text-xs opacity-50">{PRIORITY[task.priority]?.() ?? task.priority}</div>
                 {/if}
               </div>
             </div>
           {/each}
         </div>
         <button type="button" class="btn btn-ghost btn-xs m-2" onclick={() => void addTask(col.id)}>
-          + Add
+          + {m['common.add']()}
         </button>
       </div>
     {/each}
