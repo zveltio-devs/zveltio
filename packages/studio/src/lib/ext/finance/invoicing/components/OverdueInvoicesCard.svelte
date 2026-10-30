@@ -4,20 +4,35 @@
  */
 import { resolve } from '$app/paths';
 import { FileWarning } from '@lucide/svelte';
-import { api } from '#lib/api.js';
 import { m } from '#lib/i18n.svelte.js';
+import { api } from '#lib/api.js';
 
-type Stats = {
-  outstanding?: number | string;
-  overdue_count?: number | string;
-};
+type Stats = { overdue_count: number; outstanding: number };
 
 let stats = $state<Stats | null>(null);
 
+/**
+ * What is still owed on sent, overdue and partly paid invoices, read as the
+ * viewer, page by page, summed in cents so float drift never shows.
+ */
 async function loadStats(): Promise<void> {
   try {
-    const r = await api.get<{ data?: Stats }>('/ext/finance/invoicing/invoices/stats');
-    stats = r.data ?? null;
+    const filter = encodeURIComponent(JSON.stringify({ status: { in: ['sent', 'overdue', 'partially_paid'] } }));
+    const limit = 500;
+    let overdue = 0;
+    let cents = 0;
+    for (let page = 1; ; page++) {
+      const r = await api.get<{ records?: { status: string; total: unknown; amount_paid: unknown }[] }>(
+        `/api/data/invoices?filter=${filter}&sort=id&count=none&limit=${limit}&page=${page}`,
+      );
+      const rows = r.records ?? [];
+      for (const i of rows) {
+        if (i.status === 'overdue') overdue++;
+        cents += Math.round(Number(i.total ?? 0) * 100) - Math.round(Number(i.amount_paid ?? 0) * 100);
+      }
+      if (rows.length < limit) break;
+    }
+    stats = { overdue_count: overdue, outstanding: cents / 100 };
   } catch {
     stats = null;
   }
