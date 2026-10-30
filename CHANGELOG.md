@@ -4,6 +4,37 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.92] - 2026-10-30
+
+The engine release the extension migration wave needs: extensions now declare
+their collections as schema files, and the engine creates, owns and serves them.
+
+**Extensions declare collections (ADR 0012).** An extension lists collections in
+its manifest and ships each as `schema/collections/<name>.json`; the engine
+applies them on boot or activation, records the owner in
+`zvd_collections.owner_extension` (migrations 103, 104) and serves them through
+the data API. Their structure is read-only to operators, who can still add `my_`
+fields. Files carry composite unique keys (`indexes`), per tenant like a field's
+own `unique`; a required relation field whose relation sets it NULL is refused on
+every route. `integrity.schemaSha256` covers every schema file and the loader
+refuses a mismatch. An extension purge drops the collections it owns.
+
+**The engine names no business data.** The hard-coded list of sensitive
+business names is gone: sensitivity is declared by the extension that holds the
+data (`defaultGrants: false`, or v1 `sensitiveResources`). Migration 105 drops the
+seeded role rules on 33 v1 resource names that were never collections, unless a
+collection of that name exists.
+
+**Fixes.** A relation's `onDelete`/`onUpdate` change its real foreign key. A json
+field's object or array default renders as JSON (`[]` produced `DEFAULT ''`). An
+m2o field's own `unique` flag is built with its relation (it was recorded and
+never enforced).
+
+**Marketplace and CLI.** The marketplace shows the installed version, which
+extensions have an update, an Update button and what changed between versions.
+The CLI signs in as your user, confirms marketplace changes with TOTP, and can
+sign in and step up through the browser (answered only on the console host).
+
 ## [3.0.0-beta.91] - 2026-10-28
 
 The engine's review campaign is closed for this stage: every open engine finding
