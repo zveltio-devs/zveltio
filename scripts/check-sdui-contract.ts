@@ -248,6 +248,20 @@ function matches(registered: Set<string> | undefined, wanted: string): boolean {
 }
 
 type Accepted = { all: Set<string>; required: Set<string> } | null;
+type Manifest = {
+  collections?: string[];
+  actions?: Array<{
+    name: string;
+    input?: {
+      properties?: Record<string, unknown>;
+      required?: string[];
+      additionalProperties?: boolean;
+    };
+  }>;
+};
+type CollectionFile = {
+  fields?: Array<{ name: string; required?: boolean; defaultValue?: unknown }>;
+};
 
 /**
  * An extension that declares collections talks to the data API for them
@@ -262,8 +276,7 @@ async function declaredTarget(
   method: 'GET' | 'POST',
   extName: string,
 ): Promise<{ accepted: Accepted } | string | undefined> {
-  // biome-ignore lint/suspicious/noExplicitAny: manifest and collection files are plain JSON
-  const manifest: any = await Bun.file(`${EXT_DIR}/${extName}/manifest.json`)
+  const manifest: Manifest = await Bun.file(`${EXT_DIR}/${extName}/manifest.json`)
     .json()
     .catch(() => ({}));
   const path = url.split('?')[0];
@@ -273,8 +286,9 @@ async function declaredTarget(
     if (!(manifest.collections ?? []).includes(name)) {
       return `"${url}" reads /api/data/${name}, which is not a collection ${extName} declares`;
     }
-    // biome-ignore lint/suspicious/noExplicitAny: collection file
-    const file: any = await Bun.file(`${EXT_DIR}/${extName}/schema/collections/${name}.json`)
+    const file: CollectionFile = await Bun.file(
+      `${EXT_DIR}/${extName}/schema/collections/${name}.json`,
+    )
       .json()
       .catch(() => ({ fields: [] }));
     const fields = (file.fields ?? []) as Array<{
@@ -295,8 +309,7 @@ async function declaredTarget(
     `^/ext/${extName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}/actions/([^/]+)$`,
   ).exec(path);
   if (!action) return undefined;
-  // biome-ignore lint/suspicious/noExplicitAny: manifest action entry
-  const decl = (manifest.actions ?? []).find((a: any) => a.name === action[1]);
+  const decl = (manifest.actions ?? []).find((a) => a.name === action[1]);
   if (!decl)
     return `"${url}" names action "${action[1]}", which ${extName}'s manifest does not declare`;
   if (method !== 'POST') return `"${url}" is an action: the engine serves it on POST only`;
