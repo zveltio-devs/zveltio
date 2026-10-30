@@ -47,6 +47,11 @@ describe('renderSqlDefault — column DEFAULT escaping', () => {
     expect(renderSqlDefault('CURRENT_TIMESTAMP')).toBe('CURRENT_TIMESTAMP');
   });
 
+  it('renders an object or array as its JSON text, quoted', () => {
+    expect(renderSqlDefault([])).toBe("'[]'");
+    expect(renderSqlDefault({ a: "it's" })).toBe(`'{"a":"it''s"}'`);
+  });
+
   it('renders numbers and booleans without quotes', () => {
     expect(renderSqlDefault(42)).toBe('42');
     expect(renderSqlDefault(true)).toBe('true');
