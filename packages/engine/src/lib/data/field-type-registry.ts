@@ -131,12 +131,14 @@ const SQL_DEFAULT_EXPRESSIONS: ReadonlySet<string> = new Set([
  * statements per command.
  *
  * Numbers and booleans render as themselves; a known SQL expression renders
- * verbatim; everything else becomes a string literal with quotes doubled.
+ * verbatim; an object or array (a json field's default) is its JSON text, which
+ * `String()` turned into `''` or `[object Object]`; everything else becomes a
+ * string literal with quotes doubled.
  */
 export function renderSqlDefault(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 
-  const raw = String(value);
+  const raw = value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value);
   if (SQL_DEFAULT_EXPRESSIONS.has(raw.trim().toLowerCase())) return raw;
 
   return `'${raw.replace(/'/g, "''")}'`;
