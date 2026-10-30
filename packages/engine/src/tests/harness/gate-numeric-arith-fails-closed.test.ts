@@ -130,7 +130,7 @@ d('check-numeric-string-arithmetic fails closed', () => {
       );
       expect(code).toBe(1);
       expect(out).toContain('corpus this baseline was recorded against is missing');
-      expect(out).toContain('ext:finance/invoicing/engine/routes.ts');
+      expect(out).toContain('ext:finance/invoicing/engine/actions.ts');
     });
 
     it('does not fall back to reporting OK on an empty scan', async () => {

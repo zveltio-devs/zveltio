@@ -2650,103 +2650,6 @@ export interface ZvdAssetsTable {
   disposal_reason: string | null;
 }
 
-export interface ZvdBankAccountsTable {
-  id: Generated<string>;
-  name: string;
-  bank_name: string;
-  iban: string | null;
-  currency: Generated<string>;
-  balance: Generated<number>;
-  opening_balance: Generated<number>;
-  notes: string | null;
-  account_type: Generated<'checking' | 'savings' | 'credit' | 'cash'>;
-  is_active: Generated<boolean>;
-  color: Generated<string | null>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdBankBalanceHistoryTable {
-  id: Generated<string>;
-  account_id: string;
-  snapshot_date: Date;
-  balance: number;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdBankImportsTable {
-  id: Generated<string>;
-  account_id: string;
-  filename: string | null;
-  rows_imported: Generated<number>;
-  rows_skipped: Generated<number>;
-  imported_by: string;
-  imported_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-  source: string | null;
-}
-
-export interface ZvdBankReconciliationsTable {
-  id: Generated<string>;
-  transaction_id: string;
-  linked_type: 'invoice' | 'expense' | 'manual';
-  linked_id: string | null;
-  matched_amount: number;
-  notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdBankRulesTable {
-  id: Generated<string>;
-  account_id: string | null;
-  name: string;
-  match_field: Generated<'description' | 'counterparty_name' | 'reference' | 'amount'>;
-  match_operator: Generated<
-    'contains' | 'equals' | 'starts_with' | 'ends_with' | 'regex' | 'gt' | 'lt'
-  >;
-  match_value: string;
-  category: string;
-  type_override: 'credit' | 'debit' | null;
-  priority: Generated<number>;
-  is_active: Generated<boolean>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdBankTransactionsTable {
-  id: Generated<string>;
-  account_id: string;
-  date: Date;
-  value_date: Date | null;
-  description: string;
-  reference: string | null;
-  amount: number;
-  type: 'debit' | 'credit';
-  balance_after: number | null;
-  status: Generated<'unreconciled' | 'reconciled' | 'excluded'>;
-  reconciled_with_id: string | null;
-  reconciled_with_type: string | null;
-  category: string | null;
-  notes: string | null;
-  import_hash: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  matched_invoice_id: string | null;
-  matched_expense_id: string | null;
-  auto_categorized: Generated<boolean>;
-  is_reconciled: Generated<boolean>;
-  tenant_id: Generated<string | null>;
-  import_id: string | null;
-  counterparty_name: string | null;
-}
-
 export interface ZvdBranchReviewRequestsTable {
   id: Generated<string>;
   branch_id: string;
@@ -2805,38 +2708,6 @@ export interface ZvdByodScanProfilesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdCashFlowEntriesTable {
-  id: Generated<string>;
-  account_id: string | null;
-  expected_date: Date;
-  type: 'inflow' | 'outflow';
-  amount: number;
-  description: string;
-  category: string | null;
-  probability: Generated<number>;
-  actual_transaction_id: string | null;
-  is_realized: Generated<boolean>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdCatalogueItemsTable {
-  id: Generated<string>;
-  code: string | null;
-  name: string;
-  description: string | null;
-  kind: Generated<'product' | 'service'>;
-  unit: Generated<string>;
-  unit_price: Generated<number>;
-  currency: Generated<string>;
-  tax_rate: Generated<number>;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdCollectionsTable {
   id: Generated<string>;
   name: string;
@@ -2875,30 +2746,6 @@ export interface ZvdColumnPermissionsTable {
   updated_at: Generated<Date>;
 }
 
-export interface ZvdCompanyProfileTable {
-  id: Generated<string>;
-  name: string;
-  legal_name: string | null;
-  tax_id: string | null;
-  reg_no: string | null;
-  vat_payer: Generated<boolean>;
-  vat_on_collection: Generated<boolean>;
-  address: string | null;
-  city: string | null;
-  county: string | null;
-  country: Generated<string>;
-  iban: string | null;
-  bank: string | null;
-  share_capital: string | null;
-  email: string | null;
-  phone: string | null;
-  website: string | null;
-  logo_url: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdCostCentersTable {
   id: Generated<string>;
   code: string;
@@ -2907,38 +2754,6 @@ export interface ZvdCostCentersTable {
   is_active: Generated<boolean>;
   created_by: string | null;
   created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdCreditNoteLinesTable {
-  id: Generated<string>;
-  credit_note_id: string;
-  description: string;
-  quantity: Generated<number>;
-  unit_price: Generated<number>;
-  tax_rate: Generated<number>;
-  total: Generated<number>;
-  sort_order: Generated<number>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdCreditNotesTable {
-  id: Generated<string>;
-  number: string;
-  original_invoice_id: string | null;
-  client_id: string | null;
-  client_name: string;
-  client_email: string | null;
-  reason: string;
-  issue_date: Generated<Date>;
-  currency: Generated<string>;
-  subtotal: Generated<number>;
-  tax_amount: Generated<number>;
-  total: Generated<number>;
-  status: Generated<'draft' | 'issued' | 'applied'>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
   tenant_id: Generated<string | null>;
 }
 
@@ -2963,18 +2778,6 @@ export interface ZvdDashboardSubscriptionsTable {
   last_sent_at: Date | null;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
-}
-
-export interface ZvdDocumentSeriesTable {
-  id: Generated<string>;
-  doc_type: Generated<'invoice' | 'proforma' | 'credit_note' | 'receipt' | 'delivery_note'>;
-  series: string;
-  next_number: Generated<number>;
-  padding: Generated<number>;
-  is_default: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvdDunningAttemptsTable {
@@ -3535,95 +3338,6 @@ export interface ZvdInsightSavedQueriesTable {
   tenant_id: Generated<string>;
 }
 
-export interface ZvdInvoiceLinesTable {
-  id: Generated<string>;
-  invoice_id: string;
-  description: string;
-  quantity: Generated<number>;
-  unit_price: Generated<number>;
-  tax_rate: Generated<number>;
-  total: Generated<number>;
-  sort_order: Generated<number>;
-  metadata: Generated<unknown>;
-  unit: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdInvoicePaymentsTable {
-  id: Generated<string>;
-  invoice_id: string;
-  amount: number;
-  currency: Generated<string>;
-  payment_date: Date;
-  payment_method: Generated<'cash' | 'card' | 'transfer' | 'check' | 'other'>;
-  reference: string | null;
-  notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdInvoicesTable {
-  id: Generated<string>;
-  number: string;
-  client_id: string | null;
-  client_type: 'contact' | 'organization' | null;
-  client_name: string;
-  client_email: string | null;
-  client_address: string | null;
-  issue_date: Generated<Date>;
-  due_date: Date;
-  currency: Generated<string>;
-  subtotal: Generated<number>;
-  tax_rate: Generated<number>;
-  tax_amount: Generated<number>;
-  total: Generated<number>;
-  status: Generated<'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled'>;
-  notes: string | null;
-  recurring_interval: 'monthly' | 'quarterly' | 'yearly' | null;
-  next_issue_date: Date | null;
-  paid_at: Date | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  amount_paid: Generated<number>;
-  amount_due: number | null;
-  po_number: string | null;
-  footer_notes: string | null;
-  discount_amount: Generated<number>;
-  discount_percent: Generated<number>;
-  tenant_id: Generated<string | null>;
-  series: string | null;
-  client_tax_id: string | null;
-  client_reg_no: string | null;
-  client_country: string | null;
-  seller_name: string | null;
-  seller_tax_id: string | null;
-  seller_reg_no: string | null;
-  seller_address: string | null;
-  seller_iban: string | null;
-  seller_bank: string | null;
-  delivery_date: Date | null;
-  vat_breakdown: Generated<unknown>;
-  vat_regime: Generated<
-    'standard' | 'reverse_charge' | 'vat_on_collection' | 'exempt' | 'non_taxable'
-  >;
-  vat_exemption_reason: string | null;
-  exchange_rate: number | null;
-  exchange_date: Date | null;
-  tax_amount_ron: number | null;
-  doc_type: Generated<'invoice' | 'proforma' | 'delivery_note'>;
-  delegate_name: string | null;
-  delegate_id_card: string | null;
-  delegate_vehicle: string | null;
-  converted_from_id: string | null;
-  seller_city: string | null;
-  seller_country: string | null;
-  client_city: string | null;
-  seller_county: string | null;
-  client_county: string | null;
-}
-
 export interface ZvdJournalEntriesTable {
   id: Generated<string>;
   date: Date;
@@ -3733,16 +3447,6 @@ export interface ZvdPanelCacheTable {
   executed_at: Generated<Date>;
   expires_at: Generated<Date>;
   execution_ms: Generated<number>;
-}
-
-export interface ZvdPaymentRemindersTable {
-  id: Generated<string>;
-  invoice_id: string;
-  sent_at: Generated<Date>;
-  reminder_type: Generated<'gentle' | 'firm' | 'final'>;
-  channel: Generated<'email' | 'sms' | 'manual'>;
-  notes: string | null;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvdPerDiemEntriesTable {
@@ -4088,88 +3792,6 @@ export interface ZvdQualitySlaTargetsTable {
   is_active: Generated<boolean>;
   created_by: string;
   created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdQuoteApprovalsTable {
-  id: Generated<string>;
-  quote_id: string;
-  requested_by: string;
-  requested_at: Generated<Date>;
-  approved_by: string | null;
-  approved_at: Date | null;
-  rejected_by: string | null;
-  rejected_at: Date | null;
-  reason: string | null;
-  status: Generated<'pending' | 'approved' | 'rejected'>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdQuoteLinesTable {
-  id: Generated<string>;
-  quote_id: string;
-  description: string;
-  quantity: Generated<number>;
-  unit_price: Generated<number>;
-  tax_rate: Generated<number>;
-  discount: Generated<number>;
-  total: Generated<number>;
-  sort_order: Generated<number>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdQuoteRevisionsTable {
-  id: Generated<string>;
-  quote_id: string;
-  revision_number: Generated<number>;
-  snapshot: unknown;
-  change_note: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdQuoteTokensTable {
-  id: Generated<string>;
-  quote_id: string;
-  token: Generated<string>;
-  expires_at: Date | null;
-  viewed_at: Date | null;
-  view_count: Generated<number>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdQuotesTable {
-  id: Generated<string>;
-  number: string;
-  title: string;
-  contact_id: string | null;
-  organization_id: string | null;
-  client_name: string;
-  client_email: string | null;
-  issue_date: Generated<Date>;
-  valid_until: Date;
-  currency: Generated<string>;
-  subtotal: Generated<number>;
-  tax_rate: Generated<number>;
-  tax_amount: Generated<number>;
-  discount: Generated<number>;
-  total: Generated<number>;
-  status: Generated<'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'>;
-  notes: string | null;
-  terms: string | null;
-  converted_to_invoice_id: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  revision: Generated<number>;
-  approval_status: Generated<'pending' | 'approved' | 'rejected' | null>;
-  discount_percent: Generated<number>;
-  discount_amount: Generated<number>;
-  footer_notes: string | null;
-  po_number: string | null;
-  public_token: string | null;
   tenant_id: Generated<string | null>;
 }
 
@@ -4786,27 +4408,15 @@ export interface DbSchema {
   zvd_asset_revaluations: ZvdAssetRevaluationsTable;
   zvd_asset_transfers: ZvdAssetTransfersTable;
   zvd_assets: ZvdAssetsTable;
-  zvd_bank_accounts: ZvdBankAccountsTable;
-  zvd_bank_balance_history: ZvdBankBalanceHistoryTable;
-  zvd_bank_imports: ZvdBankImportsTable;
-  zvd_bank_reconciliations: ZvdBankReconciliationsTable;
-  zvd_bank_rules: ZvdBankRulesTable;
-  zvd_bank_transactions: ZvdBankTransactionsTable;
   zvd_branch_review_requests: ZvdBranchReviewRequestsTable;
   zvd_budgets: ZvdBudgetsTable;
   zvd_byod_scan_history: ZvdByodScanHistoryTable;
   zvd_byod_scan_profiles: ZvdByodScanProfilesTable;
-  zvd_cash_flow_entries: ZvdCashFlowEntriesTable;
-  zvd_catalogue_items: ZvdCatalogueItemsTable;
   zvd_collections: ZvdCollectionsTable;
   zvd_column_permissions: ZvdColumnPermissionsTable;
-  zvd_company_profile: ZvdCompanyProfileTable;
   zvd_cost_centers: ZvdCostCentersTable;
-  zvd_credit_note_lines: ZvdCreditNoteLinesTable;
-  zvd_credit_notes: ZvdCreditNotesTable;
   zvd_dashboard_shares: ZvdDashboardSharesTable;
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
-  zvd_document_series: ZvdDocumentSeriesTable;
   zvd_dunning_attempts: ZvdDunningAttemptsTable;
   zvd_ec_abandoned_carts: ZvdEcAbandonedCartsTable;
   zvd_ec_categories: ZvdEcCategoriesTable;
@@ -4840,9 +4450,6 @@ export interface DbSchema {
   zvd_import_rollbacks: ZvdImportRollbacksTable;
   zvd_incoming_webhooks: ZvdIncomingWebhooksTable;
   zvd_insight_saved_queries: ZvdInsightSavedQueriesTable;
-  zvd_invoice_lines: ZvdInvoiceLinesTable;
-  zvd_invoice_payments: ZvdInvoicePaymentsTable;
-  zvd_invoices: ZvdInvoicesTable;
   zvd_journal_entries: ZvdJournalEntriesTable;
   zvd_journal_lines: ZvdJournalLinesTable;
   zvd_ldap_config: ZvdLdapConfigTable;
@@ -4853,7 +4460,6 @@ export interface DbSchema {
   zvd_mail_config: ZvdMailConfigTable;
   zvd_mileage_entries: ZvdMileageEntriesTable;
   zvd_panel_cache: ZvdPanelCacheTable;
-  zvd_payment_reminders: ZvdPaymentRemindersTable;
   zvd_per_diem_entries: ZvdPerDiemEntriesTable;
   zvd_permissions: ZvdPermissionsTable;
   zvd_permissions_pruned_012: ZvdPermissionsPruned012Table;
@@ -4879,11 +4485,6 @@ export interface DbSchema {
   zvd_quality_remediations: ZvdQualityRemediationsTable;
   zvd_quality_rules: ZvdQualityRulesTable;
   zvd_quality_sla_targets: ZvdQualitySlaTargetsTable;
-  zvd_quote_approvals: ZvdQuoteApprovalsTable;
-  zvd_quote_lines: ZvdQuoteLinesTable;
-  zvd_quote_revisions: ZvdQuoteRevisionsTable;
-  zvd_quote_tokens: ZvdQuoteTokensTable;
-  zvd_quotes: ZvdQuotesTable;
   zvd_recurring_journal_lines: ZvdRecurringJournalLinesTable;
   zvd_recurring_journals: ZvdRecurringJournalsTable;
   zvd_relations: ZvdRelationsTable;

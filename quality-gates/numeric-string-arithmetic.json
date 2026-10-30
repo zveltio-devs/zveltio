@@ -8,8 +8,7 @@
   "ext:compliance/ro/efactura/engine/ubl-generator.ts": 1,
   "ext:finance/accounting/engine/routes.ts": 4,
   "ext:finance/expenses/engine/routes.ts": 1,
-  "ext:finance/invoicing/engine/routes.ts": 7,
-  "ext:finance/quotes/engine/routes.ts": 3,
+  "ext:finance/invoicing/engine/actions.ts": 2,
   "ext:operations/inventory/engine/routes.ts": 3,
   "ext:operations/pos/engine/routes.ts": 3
 }

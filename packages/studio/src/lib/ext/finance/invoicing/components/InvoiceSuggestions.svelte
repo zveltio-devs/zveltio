@@ -4,22 +4,17 @@
  */
 import { resolve } from '$app/paths';
 import { Lightbulb } from '@lucide/svelte';
-import { api } from '#lib/api.js';
 import { m } from '#lib/i18n.svelte.js';
+import { api } from '#lib/api.js';
 
-type Stats = {
-  overdue_count?: number | string;
-  outstanding?: number | string;
-};
-
-let stats = $state<Stats | null>(null);
+let overdueCount = $state(0);
 
 async function loadStats(): Promise<void> {
   try {
-    const r = await api.get<{ data?: Stats }>('/ext/finance/invoicing/invoices/stats');
-    stats = r.data ?? null;
+    const r = await api.get<{ records?: unknown[] }>('/api/data/invoices?status[eq]=overdue&limit=500');
+    overdueCount = r.records?.length ?? 0;
   } catch {
-    stats = null;
+    overdueCount = 0;
   }
 }
 
@@ -27,7 +22,6 @@ $effect(() => {
   void loadStats();
 });
 
-const overdueCount = $derived(Number(stats?.overdue_count ?? 0));
 </script>
 
 {#if overdueCount > 0}
