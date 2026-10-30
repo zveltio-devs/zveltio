@@ -3464,91 +3464,6 @@ export interface ZvdPosZReportsTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdProductBatchesTable {
-  id: Generated<string>;
-  product_id: string;
-  warehouse_id: string;
-  batch_number: string;
-  lot_number: string | null;
-  quantity: Generated<number>;
-  expiry_date: Date | null;
-  manufactured_date: Date | null;
-  unit_cost: number | null;
-  notes: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdProductVariantsTable {
-  id: Generated<string>;
-  product_id: string;
-  sku: string | null;
-  name: string;
-  attributes: Generated<unknown>;
-  unit_price: number | null;
-  unit_cost: number | null;
-  barcode: string | null;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdProductsTable {
-  id: Generated<string>;
-  sku: string;
-  barcode: string | null;
-  name: string;
-  description: string | null;
-  category: string | null;
-  unit: Generated<'piece' | 'kg' | 'liter' | 'box' | 'meter' | 'hour' | 'other'>;
-  cost_price: Generated<number>;
-  sale_price: Generated<number>;
-  tax_rate: Generated<number>;
-  reorder_point: Generated<number>;
-  reorder_qty: Generated<number>;
-  is_active: Generated<boolean>;
-  image_url: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  avg_cost: Generated<number | null>;
-  total_value: Generated<number | null>;
-  tenant_id: Generated<string | null>;
-  currency: Generated<string>;
-}
-
-export interface ZvdPurchaseOrderLinesTable {
-  id: Generated<string>;
-  po_id: string;
-  product_id: string;
-  quantity_ordered: number;
-  quantity_received: Generated<number>;
-  unit_cost: number;
-  tax_rate: Generated<number>;
-  total: number;
-  sort_order: Generated<number>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPurchaseOrdersTable {
-  id: Generated<string>;
-  number: string;
-  supplier_id: string;
-  warehouse_id: string | null;
-  status: Generated<'draft' | 'sent' | 'partial' | 'received' | 'cancelled'>;
-  expected_date: Date | null;
-  received_date: Date | null;
-  currency: Generated<string>;
-  subtotal: Generated<number>;
-  tax_amount: Generated<number>;
-  total: Generated<number>;
-  notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdPushTokensTable {
   id: Generated<string>;
   user_id: string;
@@ -3697,34 +3612,6 @@ export interface ZvdSamlLoginLogTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdStockLevelsTable {
-  id: Generated<string>;
-  product_id: string;
-  warehouse_id: string;
-  quantity: Generated<number>;
-  reserved_qty: Generated<number>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdStockMovementsTable {
-  id: Generated<string>;
-  product_id: string;
-  warehouse_id: string;
-  type: 'in' | 'out' | 'transfer' | 'adjustment';
-  quantity: number;
-  reference: string | null;
-  note: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  avg_cost_after: number | null;
-  batch_id: string | null;
-  po_line_id: string | null;
-  tenant_id: Generated<string | null>;
-  unit_cost: number | null;
-  destination_warehouse_id: string | null;
-}
-
 export interface ZvdSubscribersTable {
   id: Generated<string>;
   contact_id: string | null;
@@ -3805,24 +3692,6 @@ export interface ZvdSubscriptionUsageTable {
   billing_period_start: Date | null;
   billing_period_end: Date | null;
   is_billed: Generated<boolean>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdSuppliersTable {
-  id: Generated<string>;
-  name: string;
-  contact_name: string | null;
-  email: string | null;
-  phone: string | null;
-  address: string | null;
-  tax_id: string | null;
-  payment_terms: Generated<number | null>;
-  currency: Generated<string | null>;
-  notes: string | null;
-  is_active: Generated<boolean>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
   tenant_id: Generated<string | null>;
 }
 
@@ -3932,18 +3801,6 @@ export interface ZvdValidationTestCasesTable {
   created_at: Generated<Date>;
   tenant_id: Generated<string | null>;
   previous_value: string | null;
-}
-
-export interface ZvdWarehousesTable {
-  id: Generated<string>;
-  name: string;
-  location: string | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-  notes: string | null;
 }
 
 export interface ZvdWebhookDeliveriesTable {
@@ -4236,11 +4093,6 @@ export interface DbSchema {
   zvd_pos_orders: ZvdPosOrdersTable;
   zvd_pos_sessions: ZvdPosSessionsTable;
   zvd_pos_z_reports: ZvdPosZReportsTable;
-  zvd_product_batches: ZvdProductBatchesTable;
-  zvd_product_variants: ZvdProductVariantsTable;
-  zvd_products: ZvdProductsTable;
-  zvd_purchase_order_lines: ZvdPurchaseOrderLinesTable;
-  zvd_purchase_orders: ZvdPurchaseOrdersTable;
   zvd_push_tokens: ZvdPushTokensTable;
   zvd_push_tokens_superseded_013: ZvdPushTokensSuperseded013Table;
   zvd_quality_remediations: ZvdQualityRemediationsTable;
@@ -4254,13 +4106,10 @@ export interface DbSchema {
   zvd_saml_consumed_assertions: ZvdSamlConsumedAssertionsTable;
   zvd_saml_idp_metadata: ZvdSamlIdpMetadataTable;
   zvd_saml_login_log: ZvdSamlLoginLogTable;
-  zvd_stock_levels: ZvdStockLevelsTable;
-  zvd_stock_movements: ZvdStockMovementsTable;
   zvd_subscribers: ZvdSubscribersTable;
   zvd_subscription_invoices: ZvdSubscriptionInvoicesTable;
   zvd_subscription_plans: ZvdSubscriptionPlansTable;
   zvd_subscription_usage: ZvdSubscriptionUsageTable;
-  zvd_suppliers: ZvdSuppliersTable;
   zvd_translation_glossary: ZvdTranslationGlossaryTable;
   zvd_translation_import_jobs: ZvdTranslationImportJobsTable;
   zvd_translation_keys: ZvdTranslationKeysTable;
@@ -4269,7 +4118,6 @@ export interface DbSchema {
   zvd_validation_import_log: ZvdValidationImportLogTable;
   zvd_validation_rule_groups: ZvdValidationRuleGroupsTable;
   zvd_validation_test_cases: ZvdValidationTestCasesTable;
-  zvd_warehouses: ZvdWarehousesTable;
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;
   zvd_webhook_events: ZvdWebhookEventsTable;
   zvd_webhooks: ZvdWebhooksTable;
