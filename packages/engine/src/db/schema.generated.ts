@@ -3016,70 +3016,6 @@ export interface ZvdExchangeRatesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdExpenseReimbursementsTable {
-  id: Generated<string>;
-  report_id: string;
-  amount: number;
-  currency: Generated<string>;
-  payment_date: Date;
-  payment_method: Generated<string | null>;
-  reference: string | null;
-  notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdExpenseReportsTable {
-  id: Generated<string>;
-  title: string;
-  employee_id: string;
-  status: Generated<'draft' | 'submitted' | 'approved' | 'rejected' | 'paid' | 'reimbursed'>;
-  submitted_at: Date | null;
-  approved_by: string | null;
-  approved_at: Date | null;
-  rejection_reason: string | null;
-  total_amount: Generated<number>;
-  currency: Generated<string>;
-  notes: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  reimbursed_amount: Generated<number>;
-  reimbursed_at: Date | null;
-  mileage_total: Generated<number>;
-  per_diem_total: Generated<number>;
-  grand_total: Generated<number>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdExpensesTable {
-  id: Generated<string>;
-  report_id: string;
-  date: Date;
-  category: Generated<
-    | 'travel'
-    | 'meals'
-    | 'accommodation'
-    | 'supplies'
-    | 'software'
-    | 'fuel'
-    | 'entertainment'
-    | 'other'
-  >;
-  description: string;
-  amount: number;
-  currency: Generated<string>;
-  receipt_url: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  exchange_rate: Generated<number | null>;
-  amount_local: number | null;
-  tax_amount: Generated<number | null>;
-  is_reimbursable: Generated<boolean>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdExportAuditLogTable {
   id: Generated<string>;
   collection: string;
@@ -3422,23 +3358,6 @@ export interface ZvdMailConfigTable {
   updated_at: Generated<Date>;
 }
 
-export interface ZvdMileageEntriesTable {
-  id: Generated<string>;
-  report_id: string | null;
-  employee_id: string;
-  date: Date;
-  from_location: string;
-  to_location: string;
-  distance_km: number;
-  rate_per_km: Generated<number>;
-  amount: number | null;
-  purpose: string | null;
-  vehicle_type: Generated<'personal' | 'company' | 'rental' | null>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdPanelCacheTable {
   id: Generated<string>;
   panel_id: string;
@@ -3447,22 +3366,6 @@ export interface ZvdPanelCacheTable {
   executed_at: Generated<Date>;
   expires_at: Generated<Date>;
   execution_ms: Generated<number>;
-}
-
-export interface ZvdPerDiemEntriesTable {
-  id: Generated<string>;
-  report_id: string | null;
-  employee_id: string;
-  date: Date;
-  destination: string;
-  rate: number;
-  currency: Generated<string>;
-  is_domestic: Generated<boolean>;
-  partial_day: Generated<boolean>;
-  meals_deducted: Generated<number>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvdPermissionsTable {
@@ -4431,9 +4334,6 @@ export interface DbSchema {
   zvd_ec_shipping_zones: ZvdEcShippingZonesTable;
   zvd_ec_tax_rules: ZvdEcTaxRulesTable;
   zvd_exchange_rates: ZvdExchangeRatesTable;
-  zvd_expense_reimbursements: ZvdExpenseReimbursementsTable;
-  zvd_expense_reports: ZvdExpenseReportsTable;
-  zvd_expenses: ZvdExpensesTable;
   zvd_export_audit_log: ZvdExportAuditLogTable;
   zvd_export_jobs: ZvdExportJobsTable;
   zvd_export_templates: ZvdExportTemplatesTable;
@@ -4458,9 +4358,7 @@ export interface DbSchema {
   zvd_ldap_login_log: ZvdLdapLoginLogTable;
   zvd_locales: ZvdLocalesTable;
   zvd_mail_config: ZvdMailConfigTable;
-  zvd_mileage_entries: ZvdMileageEntriesTable;
   zvd_panel_cache: ZvdPanelCacheTable;
-  zvd_per_diem_entries: ZvdPerDiemEntriesTable;
   zvd_permissions: ZvdPermissionsTable;
   zvd_permissions_pruned_012: ZvdPermissionsPruned012Table;
   zvd_permissions_pruned_033: ZvdPermissionsPruned033Table;

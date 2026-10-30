@@ -1,7 +1,9 @@
 /**
  * `check-numeric-string-arithmetic` used to exit 0 in three different ways
  * without checking anything: no DATABASE_URL, an unreachable database, and a
- * schema with no numeric columns. A fourth way needed no exit at all — the
+ * schema with no numeric columns. It now builds its own column corpus — a full
+ * install in a scratch database — so the cases hand it a PostgreSQL server
+ * (`SEAM_DATABASE_URL`) instead of a database. A fourth way needed no exit at all — the
  * scan walks the extensions sibling, `tsFiles()` returns `[]` for a directory
  * that is not there, and the run ends `OK — 0 site(s), baseline allows 22`.
  *
@@ -10,8 +12,8 @@
  * gate was never decoration — its reach just tracked whatever happened to be
  * installed, and it said nothing when the reach went to zero.
  *
- * These tests pin the exit codes. The script has no local imports, so a copy of
- * it in a temporary root is a faithful subject.
+ * These tests pin the exit codes. A copy of the script and its two helpers in a
+ * temporary root, with the engine's migrations linked in, is a faithful subject.
  *
  * They live in the HARNESS suite, not the unit suite, and that placement is the
  * point: three of them hand the gate a DATABASE_URL and assert on what it says
@@ -24,13 +26,44 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const REPO = join(import.meta.dir, '..', '..', '..', '..', '..');
 const GATE = join(REPO, 'scripts', 'check-numeric-string-arithmetic.ts');
 const SIBLING_LIB = join(REPO, 'scripts', 'lib', 'require-sibling.ts');
+const INSTALL_LIB = join(REPO, 'scripts', 'lib', 'install-template.ts');
+const MIGRATIONS = join(REPO, 'packages', 'engine', 'src', 'db', 'migrations');
+/**
+ * A server the gate can create databases on. Not the harness's own URL: the
+ * non-superuser lane connects as an owner role that may not CREATE DATABASE.
+ */
+const SERVER =
+  process.env.SEAM_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/postgres';
+
+/** `root` holding the gate, its helpers and the engine's migrations, but no extensions. */
+function seed(root: string, baseline: unknown): void {
+  mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
+  mkdirSync(join(root, 'quality-gates'), { recursive: true });
+  mkdirSync(join(root, 'packages', 'engine', 'src', 'db'), { recursive: true });
+  copyFileSync(GATE, join(root, 'scripts', 'check-numeric-string-arithmetic.ts'));
+  copyFileSync(SIBLING_LIB, join(root, 'scripts', 'lib', 'require-sibling.ts'));
+  copyFileSync(INSTALL_LIB, join(root, 'scripts', 'lib', 'install-template.ts'));
+  symlinkSync(MIGRATIONS, join(root, 'packages', 'engine', 'src', 'db', 'migrations'));
+  writeFileSync(
+    join(root, 'quality-gates', 'numeric-string-arithmetic.json'),
+    JSON.stringify(baseline),
+  );
+}
 const BASELINE = join(REPO, 'quality-gates', 'numeric-string-arithmetic.json');
 
 /** Run the gate and report how it exited, without inheriting our own env. */
@@ -68,19 +101,13 @@ d('check-numeric-string-arithmetic fails closed', () => {
     await getTestApp();
   });
 
-  it('without DATABASE_URL it fails instead of passing', async () => {
-    const { code, out } = await runGate(GATE, { DATABASE_URL: undefined });
-    expect(code).toBe(1);
-    expect(out).toContain('no DATABASE_URL');
-  });
-
-  it('with an unreachable database it fails instead of passing', async () => {
+  it('with an unreachable server it fails instead of passing', async () => {
     const { code, out } = await runGate(GATE, {
       // Port 9 discards; nothing answers, so the connection cannot succeed.
-      DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:9/nothing',
+      SEAM_DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:9/postgres',
     });
     expect(code).toBe(1);
-    expect(out).toContain('cannot reach the database');
+    expect(out).toContain('cannot build the install schema');
   });
 
   describe('when the corpus it was calibrated against is absent', () => {
@@ -99,24 +126,13 @@ d('check-numeric-string-arithmetic fails closed', () => {
       // controls: absent unless it puts something there.
       parent = mkdtempSync(join(tmpdir(), 'numeric-gate-'));
       root = join(parent, 'repo');
-      mkdirSync(root, { recursive: true });
-      mkdirSync(join(root, 'scripts'), { recursive: true });
-      mkdirSync(join(root, 'quality-gates'), { recursive: true });
-      mkdirSync(join(root, 'packages'), { recursive: true });
-      copyFileSync(GATE, join(root, 'scripts', 'check-numeric-string-arithmetic.ts'));
-      mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
-      copyFileSync(SIBLING_LIB, join(root, 'scripts', 'lib', 'require-sibling.ts'));
       // The real baseline minus `_required_columns`. The gate checks the columns
-      // BEFORE the corpus, so on a database without the extension tables — which
-      // is what CI's harness has — the column check fires first and this case
-      // never reaches the behaviour it is here to pin. Dropping the key isolates
-      // the corpus check; the column check has its own test below.
+      // BEFORE the corpus, and an install without extensions lacks them, so the
+      // column check would fire first and this case would never reach the
+      // behaviour it is here to pin. The column check has its own test below.
       const baseline = JSON.parse(readFileSync(BASELINE, 'utf8')) as Record<string, unknown>;
       delete baseline._required_columns;
-      writeFileSync(
-        join(root, 'quality-gates', 'numeric-string-arithmetic.json'),
-        JSON.stringify(baseline),
-      );
+      seed(root, baseline);
     });
 
     afterAll(() => {
@@ -126,7 +142,7 @@ d('check-numeric-string-arithmetic fails closed', () => {
     it('fails, naming the files it could not have scanned', async () => {
       const { code, out } = await runGate(
         join(root, 'scripts', 'check-numeric-string-arithmetic.ts'),
-        { DATABASE_URL: process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL },
+        { SEAM_DATABASE_URL: SERVER },
       );
       expect(code).toBe(1);
       expect(out).toContain('corpus this baseline was recorded against is missing');
@@ -135,33 +151,23 @@ d('check-numeric-string-arithmetic fails closed', () => {
 
     it('does not fall back to reporting OK on an empty scan', async () => {
       const { out } = await runGate(join(root, 'scripts', 'check-numeric-string-arithmetic.ts'), {
-        DATABASE_URL: process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL,
+        SEAM_DATABASE_URL: SERVER,
       });
       expect(out).not.toContain('OK — 0 site(s)');
     });
   });
 
-  it('fails when the live schema lacks a column the baseline keys on', async () => {
-    // The core-only case: migrations ran, extensions never did, so none of the
-    // finance columns exist and every baselined site is invisible.
+  it('fails when the install schema lacks a column the baseline keys on', async () => {
+    // A migration that created the column failed or is gone, so every site
+    // keyed on it is invisible.
     const parent = mkdtempSync(join(tmpdir(), 'numeric-gate-cols-'));
     const root = join(parent, 'repo');
-    mkdirSync(root, { recursive: true });
     try {
-      mkdirSync(join(root, 'scripts'), { recursive: true });
-      mkdirSync(join(root, 'quality-gates'), { recursive: true });
-      mkdirSync(join(root, 'packages'), { recursive: true });
-      copyFileSync(GATE, join(root, 'scripts', 'check-numeric-string-arithmetic.ts'));
-      mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
-      copyFileSync(SIBLING_LIB, join(root, 'scripts', 'lib', 'require-sibling.ts'));
-      writeFileSync(
-        join(root, 'quality-gates', 'numeric-string-arithmetic.json'),
-        JSON.stringify({ _required_columns: ['zz_column_that_cannot_exist'] }),
-      );
+      seed(root, { _required_columns: ['zz_column_that_cannot_exist'] });
 
       const { code, out } = await runGate(
         join(root, 'scripts', 'check-numeric-string-arithmetic.ts'),
-        { DATABASE_URL: process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL },
+        { SEAM_DATABASE_URL: SERVER },
       );
       expect(code).toBe(1);
       expect(out).toContain('missing columns this gate keys on');
@@ -179,18 +185,11 @@ d('check-numeric-string-arithmetic fails closed', () => {
     const parent = mkdtempSync(join(tmpdir(), 'numeric-gate-empty-'));
     const root = join(parent, 'repo');
     try {
-      mkdirSync(root, { recursive: true });
-      mkdirSync(join(root, 'scripts'), { recursive: true });
-      mkdirSync(join(root, 'quality-gates'), { recursive: true });
-      mkdirSync(join(root, 'packages'), { recursive: true });
-      copyFileSync(GATE, join(root, 'scripts', 'check-numeric-string-arithmetic.ts'));
-      mkdirSync(join(root, 'scripts', 'lib'), { recursive: true });
-      copyFileSync(SIBLING_LIB, join(root, 'scripts', 'lib', 'require-sibling.ts'));
-      writeFileSync(join(root, 'quality-gates', 'numeric-string-arithmetic.json'), '{}');
+      seed(root, {});
 
       const { code, out } = await runGate(
         join(root, 'scripts', 'check-numeric-string-arithmetic.ts'),
-        { DATABASE_URL: process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL },
+        { SEAM_DATABASE_URL: SERVER },
       );
       expect(code).toBe(0);
       expect(out).toContain('baseline allows 0');

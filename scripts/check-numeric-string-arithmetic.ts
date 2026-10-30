@@ -22,14 +22,20 @@
  * the shape that has produced every instance found so far.
  *
  * Usage:
- *   DATABASE_URL=postgres://… bun run scripts/check-numeric-string-arithmetic.ts
+ *   bun run scripts/check-numeric-string-arithmetic.ts
  *
- * Without a database it exits 0 with a note — the lanes that have one run it.
+ * The column corpus is the database a real install produces — the engine's
+ * migrations and every extension's, built into a scratch database by the same
+ * helper `schema-snapshot` uses (`scripts/lib/install-template.ts`) and dropped
+ * afterwards. Needs a PostgreSQL it can create databases on: PGHOST/PGUSER/
+ * PGPASSWORD, or SEAM_DATABASE_URL. Without one it fails: a gate that cannot
+ * run has not passed.
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { SQL } from 'bun';
+import { ADMIN_URL, buildInstallTemplate, dbUrl } from './lib/install-template.js';
 import { SIBLING_ROOT } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
@@ -37,31 +43,44 @@ const BASELINE = join(ROOT, 'quality-gates', 'numeric-string-arithmetic.json');
 const EXT_DIR = SIBLING_ROOT;
 const DIRS = [join(ROOT, 'packages'), EXT_DIR];
 
-const url = process.env.DATABASE_URL;
-if (!url) {
-  console.error('[numeric-arith] FAIL — no DATABASE_URL; this gate needs a live schema.');
-  console.error('It used to exit 0 here. A gate that cannot run is not a gate that passed:');
-  console.error('green meant "checked nothing" in three different ways, and nothing said so.');
-  process.exit(1);
-}
-
+/**
+ * Read from a full install, not from `DATABASE_URL`. The integration lane's
+ * database is whatever its engine boot loaded — six extensions — so the columns
+ * of POS, inventory, accounting and e-Factura were absent, 13 of the 14
+ * baselined sites were invisible, and the gate passed on the one site left
+ * (expenses' `routes.ts`). When that file went with the expenses port, the scan
+ * found nothing and the gate said so.
+ */
+const DB = `zveltio_numeric_${process.pid}`;
 let columns: string[];
 try {
-  const sql = new SQL(url);
-  const rows = await sql<{ column_name: string }[]>`
-    SELECT DISTINCT column_name FROM information_schema.columns
-    WHERE table_schema = 'public' AND data_type IN ('bigint', 'numeric')`;
-  columns = rows.map((r) => r.column_name);
-  await sql.end();
+  const admin = new SQL(ADMIN_URL);
+  try {
+    const failed = await buildInstallTemplate(admin, DB);
+    if (failed.length > 0)
+      console.warn(
+        `[numeric-arith] ${failed.length} migration(s) did not apply; their columns are not in the corpus.`,
+      );
+    const sql = new SQL(dbUrl(DB));
+    const rows = await sql<{ column_name: string }[]>`
+      SELECT DISTINCT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND data_type IN ('bigint', 'numeric')`;
+    columns = rows.map((r) => r.column_name);
+    await sql.end();
+  } finally {
+    await admin.unsafe(`DROP DATABASE IF EXISTS ${DB}`);
+    await admin.end();
+  }
 } catch (err) {
-  console.error(`[numeric-arith] FAIL — cannot reach the database (${(err as Error).message}).`);
-  console.error('The column corpus comes from the live schema; without it nothing is checked.');
+  console.error(
+    `[numeric-arith] FAIL — cannot build the install schema (${(err as Error).message}).`,
+  );
+  console.error('The column corpus comes from a real install; without it nothing is checked.');
   process.exit(1);
 }
 
 if (columns.length === 0) {
-  console.error('[numeric-arith] FAIL — the schema has no bigint/numeric columns.');
-  console.error('Point DATABASE_URL at a migrated database with the extensions installed.');
+  console.error('[numeric-arith] FAIL — the install schema has no bigint/numeric columns.');
   process.exit(1);
 }
 
@@ -91,8 +110,7 @@ if (missingColumns.length > 0) {
   console.error('[numeric-arith] FAIL — the schema is missing columns this gate keys on:\n');
   for (const c of missingColumns) console.error(`  ${c}`);
   console.error('\nThe baselined sites reference these, so a pass here would prove nothing.');
-  console.error('Boot the engine against this database with ZVELTIO_EXTENSIONS_PATH set, so the');
-  console.error('extension tables exist before the gate runs.');
+  console.error('A migration that creates them failed or is gone; re-record the baseline if so.');
   process.exit(1);
 }
 
@@ -315,10 +333,8 @@ if (allowed > 0 && total === 0) {
   console.error(
     `[numeric-arith] FAIL — baseline records ${allowed} site(s) and the scan found none.`,
   );
-  console.error(
-    'The files are present, so the column corpus is the suspect: point DATABASE_URL at',
-  );
-  console.error('a schema with the extension tables. If the sites really are fixed, edit');
+  console.error('The files are present, so the column corpus is the suspect: the install schema');
+  console.error('lacks the columns they key on. If the sites really are fixed, edit');
   console.error('quality-gates/numeric-string-arithmetic.json down to the counts that remain.');
   process.exit(1);
 }
