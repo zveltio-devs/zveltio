@@ -43,12 +43,12 @@ const GATE = join(REPO, 'scripts', 'check-numeric-string-arithmetic.ts');
 const SIBLING_LIB = join(REPO, 'scripts', 'lib', 'require-sibling.ts');
 const INSTALL_LIB = join(REPO, 'scripts', 'lib', 'install-template.ts');
 const MIGRATIONS = join(REPO, 'packages', 'engine', 'src', 'db', 'migrations');
-/** The server the harness uses, as the gate's admin connection. */
-const SERVER = (
-  process.env.TEST_DATABASE_URL ??
-  process.env.DATABASE_URL ??
-  'postgresql://postgres:postgres@localhost:5432/zveltio_test'
-).replace(/\/[^/?]+(\?|$)/, '/postgres$1');
+/**
+ * A server the gate can create databases on. Not the harness's own URL: the
+ * non-superuser lane connects as an owner role that may not CREATE DATABASE.
+ */
+const SERVER =
+  process.env.SEAM_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/postgres';
 
 /** `root` holding the gate, its helpers and the engine's migrations, but no extensions. */
 function seed(root: string, baseline: unknown): void {
