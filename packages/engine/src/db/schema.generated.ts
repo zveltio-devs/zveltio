@@ -2410,17 +2410,6 @@ export interface ZvdAccountsTable {
   cost_center_id: string | null;
 }
 
-export interface ZvdActiveTimersTable {
-  id: Generated<string>;
-  employee_id: string;
-  project_id: string;
-  task_description: Generated<string>;
-  started_at: Generated<Date>;
-  is_billable: Generated<boolean>;
-  notes: string | null;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdAiEmbeddingsTable {
   id: Generated<string>;
   collection: string;
@@ -2910,31 +2899,6 @@ export interface ZvdCompanyProfileTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdContractAmendmentsTable {
-  id: Generated<string>;
-  contract_id: string;
-  amendment_number: string;
-  effective_date: Date;
-  changes: Generated<unknown>;
-  reason: string | null;
-  signed_at: Date | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string>;
-}
-
-export interface ZvdContractSuspensionsTable {
-  id: Generated<string>;
-  contract_id: string;
-  start_date: Date;
-  end_date: Date | null;
-  reason_code: string | null;
-  notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string>;
-}
-
 export interface ZvdCostCentersTable {
   id: Generated<string>;
   code: string;
@@ -2999,18 +2963,6 @@ export interface ZvdDashboardSubscriptionsTable {
   last_sent_at: Date | null;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
-}
-
-export interface ZvdDepartmentsTable {
-  id: Generated<string>;
-  name: string;
-  manager_id: string | null;
-  parent_id: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  description: string | null;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvdDocumentSeriesTable {
@@ -3248,103 +3200,6 @@ export interface ZvdEcTaxRulesTable {
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
   tenant_id: Generated<string | null>;
-}
-
-export interface ZvdEmployeeBenefitsTable {
-  id: Generated<string>;
-  employee_id: string;
-  type: string;
-  description: string | null;
-  value: number | null;
-  start_date: Date;
-  end_date: Date | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdEmployeeDocumentsTable {
-  id: Generated<string>;
-  employee_id: string;
-  type: Generated<'contract' | 'id_card' | 'diploma' | 'certificate' | 'other'>;
-  name: string;
-  file_url: string;
-  expires_at: Date | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdEmployeeEmergencyContactsTable {
-  id: Generated<string>;
-  employee_id: string;
-  name: string;
-  relationship: string;
-  phone: string;
-  email: string | null;
-  is_primary: Generated<boolean>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdEmployeesTable {
-  id: Generated<string>;
-  user_id: string | null;
-  employee_number: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string | null;
-  birth_date: Date | null;
-  gender: 'm' | 'f' | 'other' | null;
-  national_id: string | null;
-  address: string | null;
-  position_id: string | null;
-  department_id: string | null;
-  manager_id: string | null;
-  hire_date: Date;
-  end_date: Date | null;
-  employment_type: Generated<'full_time' | 'part_time' | 'contractor' | 'intern'>;
-  status: Generated<'active' | 'inactive' | 'on_leave' | 'terminated'>;
-  salary: number | null;
-  currency: Generated<string | null>;
-  iban: string | null;
-  bank_name: string | null;
-  emergency_contact_name: string | null;
-  emergency_contact_phone: string | null;
-  avatar_url: string | null;
-  notes: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  probation_end_date: Date | null;
-  work_email: string | null;
-  tax_id: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdEmploymentContractsTable {
-  id: Generated<string>;
-  employee_id: string;
-  contract_number: string;
-  contract_type: Generated<'indefinite' | 'fixed_term'>;
-  start_date: Date;
-  end_date: Date | null;
-  probation_end_date: Date | null;
-  weekly_hours: Generated<number>;
-  salary: number | null;
-  currency: Generated<string>;
-  salary_period: Generated<'hour' | 'day' | 'month' | 'year'>;
-  position_id: string | null;
-  department_id: string | null;
-  status: Generated<'draft' | 'active' | 'suspended' | 'ended'>;
-  signed_at: Date | null;
-  ended_at: Date | null;
-  end_reason_code: string | null;
-  end_notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string>;
 }
 
 export interface ZvdExchangeRatesTable {
@@ -3769,19 +3624,6 @@ export interface ZvdInvoicesTable {
   client_county: string | null;
 }
 
-export interface ZvdJobPositionsTable {
-  id: Generated<string>;
-  title: string;
-  department_id: string | null;
-  level: Generated<'junior' | 'mid' | 'senior' | 'lead' | 'manager' | 'director' | 'executive'>;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-  description: string | null;
-  min_salary: number | null;
-  max_salary: number | null;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdJournalEntriesTable {
   id: Generated<string>;
   date: Date;
@@ -3850,75 +3692,6 @@ export interface ZvdLdapLoginLogTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdLeaveBalancesTable {
-  id: Generated<string>;
-  employee_id: string;
-  leave_type_id: string;
-  year: number;
-  allocated_days: Generated<number>;
-  used_days: Generated<number>;
-  pending_days: Generated<number>;
-  updated_at: Generated<Date>;
-  carried_over_days: Generated<number>;
-  carryover_expires_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdLeaveCarryoverLogTable {
-  id: Generated<string>;
-  employee_id: string;
-  leave_type_id: string;
-  from_year: number;
-  to_year: number;
-  days_carried: number;
-  expires_at: Date | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdLeaveCarryoverRulesTable {
-  id: Generated<string>;
-  leave_type_id: string;
-  max_carry_days: Generated<number>;
-  expiry_months: Generated<number>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdLeaveRequestsTable {
-  id: Generated<string>;
-  employee_id: string;
-  leave_type_id: string;
-  start_date: Date;
-  end_date: Date;
-  working_days: Generated<number>;
-  status: Generated<'draft' | 'pending' | 'approved' | 'rejected' | 'cancelled'>;
-  reason: string | null;
-  approved_by: string | null;
-  approved_at: Date | null;
-  rejection_reason: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  is_half_day: Generated<boolean>;
-  half_day_period: 'am' | 'pm' | null;
-  cover_employee_id: string | null;
-  attachments: Generated<unknown>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdLeaveTypesTable {
-  id: Generated<string>;
-  name: string;
-  code: string;
-  days_per_year: Generated<number>;
-  is_paid: Generated<boolean>;
-  color: Generated<string | null>;
-  requires_approval: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdLocalesTable {
   code: Generated<string>;
   name: string;
@@ -3952,19 +3725,6 @@ export interface ZvdMileageEntriesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdOnboardingTasksTable {
-  id: Generated<string>;
-  employee_id: string;
-  title: string;
-  description: string | null;
-  due_date: Date | null;
-  completed_at: Date | null;
-  assigned_to: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdPanelCacheTable {
   id: Generated<string>;
   panel_id: string;
@@ -3985,126 +3745,6 @@ export interface ZvdPaymentRemindersTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdPayrollAdjustmentsTable {
-  id: Generated<string>;
-  entry_id: string;
-  type: 'bonus' | 'deduction' | 'advance' | 'meal_vouchers' | 'other';
-  description: string;
-  amount: number;
-  created_at: Generated<Date>;
-  taxable: Generated<boolean>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPayrollEntriesTable {
-  id: Generated<string>;
-  period_id: string;
-  employee_id: string;
-  employee_name: string;
-  gross_salary: Generated<number>;
-  meal_vouchers: Generated<number>;
-  other_benefits: Generated<number>;
-  cas_employee_rate: Generated<number>;
-  cass_employee_rate: Generated<number>;
-  income_tax_rate: Generated<number>;
-  cas_employee: Generated<number>;
-  cass_employee: Generated<number>;
-  personal_deduction: Generated<number>;
-  taxable_income: Generated<number>;
-  income_tax: Generated<number>;
-  net_salary: Generated<number>;
-  cas_employer_rate: Generated<number>;
-  cass_employer_rate: Generated<number>;
-  cam_rate: Generated<number>;
-  cas_employer: Generated<number>;
-  cass_employer: Generated<number>;
-  cam: Generated<number>;
-  total_employer_cost: Generated<number>;
-  notes: string | null;
-  status: Generated<'draft' | 'approved'>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  sick_leave_days: Generated<number>;
-  sick_leave_amount: Generated<number>;
-  meal_vouchers_amount: Generated<number>;
-  overtime_amount: Generated<number>;
-  night_shift_bonus: Generated<number>;
-  paid_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPayrollExportsTable {
-  id: Generated<string>;
-  period_id: string;
-  type: 'd112' | 'revisal' | 'payslips';
-  file_content: string | null;
-  generated_at: Generated<Date>;
-  generated_by: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPayrollMealVouchersTable {
-  id: Generated<string>;
-  period_id: string;
-  employee_id: string;
-  quantity: Generated<number>;
-  face_value: Generated<number>;
-  total_value: number | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPayrollOvertimeTable {
-  id: Generated<string>;
-  period_id: string;
-  employee_id: string;
-  hours: number;
-  rate_multiplier: Generated<number>;
-  amount: Generated<number>;
-  is_night_shift: Generated<boolean>;
-  description: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPayrollPeriodsTable {
-  id: Generated<string>;
-  year: number;
-  month: number;
-  status: Generated<'open' | 'calculated' | 'approved' | 'closed'>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  approved_by: string | null;
-  approved_at: Date | null;
-  paid_at: Date | null;
-  notes: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPayrollRatesTable {
-  tenant_id: Generated<string>;
-  cas_employee: Generated<number>;
-  cass_employee: Generated<number>;
-  income_tax: Generated<number>;
-  cas_employer: Generated<number>;
-  cam_employer: Generated<number>;
-  personal_deduction_base: Generated<number>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdPayrollSickLeaveTable {
-  id: Generated<string>;
-  period_id: string;
-  employee_id: string;
-  days: number;
-  amount: Generated<number>;
-  leave_request_id: string | null;
-  notes: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdPerDiemEntriesTable {
   id: Generated<string>;
   report_id: string | null;
@@ -4117,34 +3757,6 @@ export interface ZvdPerDiemEntriesTable {
   partial_day: Generated<boolean>;
   meals_deducted: Generated<number>;
   created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPerformanceCyclesTable {
-  id: Generated<string>;
-  name: string;
-  start_date: Date;
-  end_date: Date;
-  status: Generated<'open' | 'closed'>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdPerformanceReviewsTable {
-  id: Generated<string>;
-  cycle_id: string;
-  employee_id: string;
-  reviewer_id: string | null;
-  overall_rating: number | null;
-  goals_rating: number | null;
-  competency_rating: number | null;
-  strengths: string | null;
-  improvements: string | null;
-  comments: string | null;
-  status: Generated<'pending' | 'submitted' | 'acknowledged'>;
-  submitted_at: Date | null;
-  acknowledged_at: Date | null;
   created_at: Generated<Date>;
   tenant_id: Generated<string | null>;
 }
@@ -4389,14 +4001,6 @@ export interface ZvdProductsTable {
   currency: Generated<string>;
 }
 
-export interface ZvdPublicHolidaysTable {
-  id: Generated<string>;
-  date: Date;
-  name: string;
-  year: number;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdPurchaseOrderLinesTable {
   id: Generated<string>;
   po_id: string;
@@ -4633,19 +4237,6 @@ export interface ZvdRpcFunctionsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdSalaryHistoryTable {
-  id: Generated<string>;
-  employee_id: string;
-  effective_date: Date;
-  salary: number;
-  salary_type: Generated<'gross' | 'net'>;
-  currency: Generated<string>;
-  reason: string | null;
-  changed_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdSamlAttributeMappingsTable {
   id: Generated<string>;
   saml_attribute: string;
@@ -4837,75 +4428,6 @@ export interface ZvdTaxReportsTable {
   anaf_ref: string | null;
   created_by: string | null;
   created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTimeEntriesTable {
-  id: Generated<string>;
-  employee_id: string;
-  project_id: string;
-  task_description: string;
-  date: Date;
-  start_time: Date | null;
-  end_time: Date | null;
-  duration_minutes: Generated<number>;
-  is_billable: Generated<boolean>;
-  is_billed: Generated<boolean>;
-  hourly_rate: Generated<number>;
-  amount: Generated<number>;
-  notes: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tags: Generated<string[]>;
-  invoice_id: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTimeEntryTagMapTable {
-  entry_id: string;
-  tag_id: string;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTimeEntryTagsTable {
-  id: Generated<string>;
-  name: string;
-  color: Generated<string>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTimeProjectsTable {
-  id: Generated<string>;
-  name: string;
-  client_name: string | null;
-  client_id: string | null;
-  code: string | null;
-  is_billable: Generated<boolean>;
-  hourly_rate: Generated<number>;
-  currency: Generated<string>;
-  status: Generated<'active' | 'archived'>;
-  budget_hours: number | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  budget_amount: number | null;
-  description: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTimesheetsTable {
-  id: Generated<string>;
-  employee_id: string;
-  week_start: Date;
-  week_end: Date;
-  status: Generated<'draft' | 'submitted' | 'approved' | 'rejected'>;
-  total_hours: Generated<number>;
-  submitted_at: Date | null;
-  approved_by: string | null;
-  approved_at: Date | null;
-  rejection_reason: string | null;
   tenant_id: Generated<string | null>;
 }
 
@@ -5248,7 +4770,6 @@ export interface DbSchema {
   zv_usage_events: ZvUsageEventsTable;
   zv_validation_rules: ZvValidationRulesTable;
   zvd_accounts: ZvdAccountsTable;
-  zvd_active_timers: ZvdActiveTimersTable;
   zvd_ai_embeddings: ZvdAiEmbeddingsTable;
   zvd_ai_search_config: ZvdAiSearchConfigTable;
   zvd_api_access_tokens: ZvdApiAccessTokensTable;
@@ -5280,14 +4801,11 @@ export interface DbSchema {
   zvd_collections: ZvdCollectionsTable;
   zvd_column_permissions: ZvdColumnPermissionsTable;
   zvd_company_profile: ZvdCompanyProfileTable;
-  zvd_contract_amendments: ZvdContractAmendmentsTable;
-  zvd_contract_suspensions: ZvdContractSuspensionsTable;
   zvd_cost_centers: ZvdCostCentersTable;
   zvd_credit_note_lines: ZvdCreditNoteLinesTable;
   zvd_credit_notes: ZvdCreditNotesTable;
   zvd_dashboard_shares: ZvdDashboardSharesTable;
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
-  zvd_departments: ZvdDepartmentsTable;
   zvd_document_series: ZvdDocumentSeriesTable;
   zvd_dunning_attempts: ZvdDunningAttemptsTable;
   zvd_ec_abandoned_carts: ZvdEcAbandonedCartsTable;
@@ -5302,11 +4820,6 @@ export interface DbSchema {
   zvd_ec_shipping_rates: ZvdEcShippingRatesTable;
   zvd_ec_shipping_zones: ZvdEcShippingZonesTable;
   zvd_ec_tax_rules: ZvdEcTaxRulesTable;
-  zvd_employee_benefits: ZvdEmployeeBenefitsTable;
-  zvd_employee_documents: ZvdEmployeeDocumentsTable;
-  zvd_employee_emergency_contacts: ZvdEmployeeEmergencyContactsTable;
-  zvd_employees: ZvdEmployeesTable;
-  zvd_employment_contracts: ZvdEmploymentContractsTable;
   zvd_exchange_rates: ZvdExchangeRatesTable;
   zvd_expense_reimbursements: ZvdExpenseReimbursementsTable;
   zvd_expense_reports: ZvdExpenseReportsTable;
@@ -5330,35 +4843,18 @@ export interface DbSchema {
   zvd_invoice_lines: ZvdInvoiceLinesTable;
   zvd_invoice_payments: ZvdInvoicePaymentsTable;
   zvd_invoices: ZvdInvoicesTable;
-  zvd_job_positions: ZvdJobPositionsTable;
   zvd_journal_entries: ZvdJournalEntriesTable;
   zvd_journal_lines: ZvdJournalLinesTable;
   zvd_ldap_config: ZvdLdapConfigTable;
   zvd_ldap_group_mappings: ZvdLdapGroupMappingsTable;
   zvd_ldap_ip_allowlist: ZvdLdapIpAllowlistTable;
   zvd_ldap_login_log: ZvdLdapLoginLogTable;
-  zvd_leave_balances: ZvdLeaveBalancesTable;
-  zvd_leave_carryover_log: ZvdLeaveCarryoverLogTable;
-  zvd_leave_carryover_rules: ZvdLeaveCarryoverRulesTable;
-  zvd_leave_requests: ZvdLeaveRequestsTable;
-  zvd_leave_types: ZvdLeaveTypesTable;
   zvd_locales: ZvdLocalesTable;
   zvd_mail_config: ZvdMailConfigTable;
   zvd_mileage_entries: ZvdMileageEntriesTable;
-  zvd_onboarding_tasks: ZvdOnboardingTasksTable;
   zvd_panel_cache: ZvdPanelCacheTable;
   zvd_payment_reminders: ZvdPaymentRemindersTable;
-  zvd_payroll_adjustments: ZvdPayrollAdjustmentsTable;
-  zvd_payroll_entries: ZvdPayrollEntriesTable;
-  zvd_payroll_exports: ZvdPayrollExportsTable;
-  zvd_payroll_meal_vouchers: ZvdPayrollMealVouchersTable;
-  zvd_payroll_overtime: ZvdPayrollOvertimeTable;
-  zvd_payroll_periods: ZvdPayrollPeriodsTable;
-  zvd_payroll_rates: ZvdPayrollRatesTable;
-  zvd_payroll_sick_leave: ZvdPayrollSickLeaveTable;
   zvd_per_diem_entries: ZvdPerDiemEntriesTable;
-  zvd_performance_cycles: ZvdPerformanceCyclesTable;
-  zvd_performance_reviews: ZvdPerformanceReviewsTable;
   zvd_permissions: ZvdPermissionsTable;
   zvd_permissions_pruned_012: ZvdPermissionsPruned012Table;
   zvd_permissions_pruned_033: ZvdPermissionsPruned033Table;
@@ -5376,7 +4872,6 @@ export interface DbSchema {
   zvd_product_batches: ZvdProductBatchesTable;
   zvd_product_variants: ZvdProductVariantsTable;
   zvd_products: ZvdProductsTable;
-  zvd_public_holidays: ZvdPublicHolidaysTable;
   zvd_purchase_order_lines: ZvdPurchaseOrderLinesTable;
   zvd_purchase_orders: ZvdPurchaseOrdersTable;
   zvd_push_tokens: ZvdPushTokensTable;
@@ -5394,7 +4889,6 @@ export interface DbSchema {
   zvd_relations: ZvdRelationsTable;
   zvd_rls_policies: ZvdRlsPoliciesTable;
   zvd_rpc_functions: ZvdRpcFunctionsTable;
-  zvd_salary_history: ZvdSalaryHistoryTable;
   zvd_saml_attribute_mappings: ZvdSamlAttributeMappingsTable;
   zvd_saml_config: ZvdSamlConfigTable;
   zvd_saml_consumed_assertions: ZvdSamlConsumedAssertionsTable;
@@ -5408,11 +4902,6 @@ export interface DbSchema {
   zvd_subscription_usage: ZvdSubscriptionUsageTable;
   zvd_suppliers: ZvdSuppliersTable;
   zvd_tax_reports: ZvdTaxReportsTable;
-  zvd_time_entries: ZvdTimeEntriesTable;
-  zvd_time_entry_tag_map: ZvdTimeEntryTagMapTable;
-  zvd_time_entry_tags: ZvdTimeEntryTagsTable;
-  zvd_time_projects: ZvdTimeProjectsTable;
-  zvd_timesheets: ZvdTimesheetsTable;
   zvd_translation_glossary: ZvdTranslationGlossaryTable;
   zvd_translation_import_jobs: ZvdTranslationImportJobsTable;
   zvd_translation_keys: ZvdTranslationKeysTable;
