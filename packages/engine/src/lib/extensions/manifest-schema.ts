@@ -267,7 +267,8 @@ export const ManifestSchema = z
           enqueues: z.array(z.string()).default([]),
           /**
            * The actions of other extensions this one may run (`ActionHost.actions.run`),
-           * as `<extension>.<action>`; each extension must be in `dependencies` (ADR 0014).
+           * as `<extension>.<action>`; each extension must be in `dependencies` or
+           * `optionalDependencies` (ADR 0014) — an absent optional one answers 404.
            */
           calls: z.array(z.string()).default([]),
         }),
@@ -441,11 +442,11 @@ export const ManifestSchema = z
             path: ['actions', i, 'calls'],
             message: `action "${a.name}" calls "${call}", which is not "<extension>.<action>"`,
           });
-        } else if (!m.dependencies.some((d) => d.name === ext)) {
+        } else if (![...m.dependencies, ...m.optionalDependencies].some((d) => d.name === ext)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['actions', i, 'calls'],
-            message: `action "${a.name}" calls "${call}", but "${ext}" is not in dependencies`,
+            message: `action "${a.name}" calls "${call}", but "${ext}" is not in dependencies or optionalDependencies`,
           });
         }
       }

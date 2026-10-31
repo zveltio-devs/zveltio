@@ -49,8 +49,9 @@ describe('manifest actions and jobs', () => {
     const deps = [{ name: 'finance/invoicing' }];
     expect(errors({ actions: [calling], jobs: [job], dependencies: deps })).toEqual([]);
     expect(errors({ actions: [calling], jobs: [job] })).toEqual([
-      'action "convertLead" calls "finance/invoicing.recordPayment", but "finance/invoicing" is not in dependencies',
+      'action "convertLead" calls "finance/invoicing.recordPayment", but "finance/invoicing" is not in dependencies or optionalDependencies',
     ]);
+    expect(errors({ actions: [calling], jobs: [job], optionalDependencies: deps })).toEqual([]);
     const bad = (calls: unknown) =>
       errors({ actions: [{ ...action, calls }], jobs: [job], dependencies: deps });
     expect(bad(['finance/invoicing'])).toHaveLength(1);

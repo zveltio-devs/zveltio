@@ -555,6 +555,15 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
         actions: [{ ...actionEntry, calls: [`${EXT}.setStatus`] }],
       }),
     ).toThrow(/not in dependencies/);
+    // An optional dependency may be called; when it is absent the call answers 404.
+    expect(() =>
+      ManifestSchema.parse({
+        name: 'wba-probe',
+        resources: ['wba_probe'],
+        optionalDependencies: [{ name: EXT }],
+        actions: [{ ...actionEntry, calls: [`${EXT}.setStatus`] }],
+      }),
+    ).not.toThrow();
   });
 
   it('a called action that fails leaves none of its writes, even when its caller catches the failure (ADR 0014)', async () => {
