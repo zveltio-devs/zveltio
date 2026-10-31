@@ -3589,6 +3589,7 @@ table zvd_asset_transfers
 table zvd_assets
   col accumulated_dep_account_id     uuid
   col accumulated_depreciation       numeric NOT NULL DEFAULT 0
+  col asset_account_id               uuid
   col category                       text NOT NULL DEFAULT 'equipment'::text
   col code                           text NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -3597,6 +3598,8 @@ table zvd_assets
   col depreciation_account_id        uuid
   col depreciation_method            text NOT NULL DEFAULT 'straight_line'::text
   col description                    text
+  col disposal_entry_id              uuid
+  col disposal_loss_account_id       uuid
   col disposal_reason                text
   col disposal_value                 numeric
   col disposed_at                    date
@@ -8303,6 +8306,7 @@ table zvv_asset_transfers
 table zvv_assets
   col accumulated_dep_account_id     uuid
   col accumulated_depreciation       numeric
+  col asset_account_id               uuid
   col category                       text
   col code                           text
   col created_at                     timestamp with time zone
@@ -8311,6 +8315,8 @@ table zvv_assets
   col depreciation_account_id        uuid
   col depreciation_method            text
   col description                    text
+  col disposal_entry_id              uuid
+  col disposal_loss_account_id       uuid
   col disposal_reason                text
   col disposal_value                 numeric
   col disposed_at                    date
