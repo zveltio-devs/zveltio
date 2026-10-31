@@ -371,13 +371,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           undefined,
           op.operation === 'delete' ? null : Object.keys(op.payload ?? {}),
         ) ??
-        (op.operation === 'delete'
-          ? await cascadeRefusal(
-              (c.get('tenantTrx') as Database | null) ?? db,
-              collectionShortName,
-              undefined,
-            )
-          : null);
+        (op.operation === 'delete' ? await cascadeRefusal(collectionShortName, undefined) : null);
       if (refused) {
         results.push({ recordId: op.recordId, status: 'error', error: refused });
         continue;

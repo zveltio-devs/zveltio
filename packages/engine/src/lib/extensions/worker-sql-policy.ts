@@ -20,8 +20,6 @@
  * acceptance is a breach.
  */
 
-import type { Database } from '../../db/index.js';
-
 /**
  * The statements an extension may send: queries and DML, nothing else.
  *
@@ -434,29 +432,29 @@ export function collectionsWritten(sql: string): string[] {
  * Refuse extension SQL that writes a collection flagged `writtenBy: "actions"`
  * (the collection or any of its fields). Only its extension's actions and jobs
  * write one, through `host.collections` — the data API, which knows the field —
- * never an extension's own SQL, its owner's included. `read` is the handle the
- * collection's definition is read on, resolved only for a write: the engine's or
- * the request's, not the extension's role.
+ * never an extension's own SQL, its owner's included. The definitions are read
+ * on the engine's pool (`enginePool`), never on the statement's transaction.
  */
 export async function assertNoWrittenByActionsWrite(
   extName: string,
   sql: string,
-  read: () => Database,
   channel = 'the worker SQL bridge',
 ): Promise<void> {
   const names = collectionsWritten(sql);
   if (names.length === 0) return;
-  const { DDLManager, cascadeRefusal, hasWrittenBy } = await import('../data/index.js');
+  const { DDLManager, cascadeRefusal, enginePool, hasWrittenBy } = await import('../data/index.js');
+  const read = enginePool();
+  if (!read) return;
   // A delete also reaches what its foreign keys cascade or set null into.
   const deletes = /\b(?:delete|merge)\b/i.test(stripNonCode(sql));
   for (const name of names) {
-    if (hasWrittenBy(await DDLManager.getCollection(read(), name))) {
+    if (hasWrittenBy(await DDLManager.getCollection(read, name))) {
       throw new WorkerSqlPolicyError(
         `Extension "${extName}" attempted to write ${name} through ${channel}. It holds ` +
           "fields only its extension's actions and jobs write, through host.collections.",
       );
     }
-    const cascade = deletes ? await cascadeRefusal(read(), name, undefined) : null;
+    const cascade = deletes ? await cascadeRefusal(name, undefined) : null;
     if (cascade) throw new WorkerSqlPolicyError(`Extension "${extName}" (${channel}): ${cascade}`);
   }
 }

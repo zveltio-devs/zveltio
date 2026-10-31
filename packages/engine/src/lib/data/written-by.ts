@@ -8,7 +8,7 @@
  */
 
 import { sql } from 'kysely';
-import type { Database } from '../../db/index.js';
+import { type Database, getDb } from '../../db/index.js';
 import { normalizeFields } from './shape.js';
 import type { CollectionDef } from './types.js';
 
@@ -64,10 +64,11 @@ export function writtenByRefusal(
  * Asked of every delete path: the data API, bulk, sync, an extension's SQL.
  */
 export async function cascadeRefusal(
-  db: Database,
   collection: string,
   writer: string | undefined,
 ): Promise<string | null> {
+  const db = enginePool();
+  if (!db) return null;
   const { DDLManager } = await import('./ddl-manager.js');
   const seen = new Set([`zvd_${collection}`]);
   let frontier = [...seen];
@@ -107,6 +108,21 @@ export async function cascadeRefusal(
     frontier = next;
   }
   return null;
+}
+
+/**
+ * Where the flags are read: the engine's pool, never a request's transaction,
+ * whose role — an extension's window, a narrow request role — need not read
+ * `zvd_collections` or `zvd_relations` (a 42501 there aborts the request).
+ * Null before the engine opened a pool (a unit test, the CLI), where no
+ * request or extension runs.
+ */
+export function enginePool(): Database | null {
+  try {
+    return getDb();
+  } catch {
+    return null;
+  }
 }
 
 /** Why a definition that carries the flag is refused where no extension declares it (a 422). */

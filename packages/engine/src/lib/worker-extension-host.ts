@@ -2412,7 +2412,7 @@ async function runRawWithParams(
   at?: RunIn,
 ): Promise<unknown[]> {
   assertWorkerSqlAllowed(extName, sql, await workerSqlEngineTables());
-  await assertNoWrittenByActionsWrite(extName, sql, () => getCurrentTenantTrx() ?? getDb());
+  await assertNoWrittenByActionsWrite(extName, sql);
   const { encodeArrayParams } = await import('../db/bun-sql-dialect.js');
   const args = params.length > 0 ? encodeArrayParams(params) : undefined;
   const exec = (conn: Reserved) => conn.unsafe(sql, args) as Promise<unknown[]>;

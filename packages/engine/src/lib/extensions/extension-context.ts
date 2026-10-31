@@ -181,14 +181,8 @@ function checkedExecutor<T extends object>(
           run(on ? real.withConnectionProvider(on) : real),
         )
       : asExtensionDbRole(extName, scope.trx, real as never, () => run(real), scope.mirror);
-  // Read on the handle the statement runs on, between its role windows.
   const refuseActionsOnly = (text: string) =>
-    assertNoWrittenByActionsWrite(
-      extName,
-      text,
-      () => ('pool' in scope ? scope.pool : scope.trx) as Database,
-      'ctx.db',
-    ).catch((err) => {
+    assertNoWrittenByActionsWrite(extName, text, 'ctx.db').catch((err) => {
       throw err instanceof WorkerSqlPolicyError ? new ExtensionSecurityError(err.message) : err;
     });
   return new Proxy(executor, {

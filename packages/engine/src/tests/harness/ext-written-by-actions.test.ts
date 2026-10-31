@@ -30,6 +30,8 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
+import { getCurrentTenantTrx, runWithDomain, runWithTenantTrx } from '../../lib/tenancy/index.js';
+import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
@@ -621,5 +623,48 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
     const seed = await asGod('POST', '/api/templates/helpdesk/seed', { prefix: PREFIX });
     expect(seed.status).toBe(409);
     expect(await codeOf(seed)).toBe('written_by_actions');
+  });
+
+  it('reads the flags on the engine pool, never under the request transaction’s role', async () => {
+    // A request role that may write the collections and may not read the
+    // catalog the check needs: the flags must come from elsewhere.
+    const role = `wba_role_${STAMP}`;
+    await sql.raw(`CREATE ROLE "${role}" NOSUPERUSER`).execute(db);
+    await sql
+      .raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON "zvd_${P}", "zvd_${W}" TO "${role}"`)
+      .execute(db);
+    const ctxDb = createRestrictedDb(() => getCurrentTenantTrx() ?? db, 'wba-role', new Set());
+    const asRequest = <T>(fn: () => Promise<T>) =>
+      runWithDomain(DEFAULT_TENANT_ID, () =>
+        db.transaction().execute(async (trx) => {
+          await sql.raw(`SET LOCAL ROLE "${role}"`).execute(trx);
+          await sql`
+            SELECT set_config('zveltio.current_tenant', ${DEFAULT_TENANT_ID}, true),
+                   set_config('zveltio.actor', 'on', true),
+                   set_config('zveltio.collection_grants', ${`,${P}:*,${W}:*,`}, true)
+          `.execute(trx);
+          return runWithTenantTrx(trx as unknown as Database, DEFAULT_TENANT_ID, fn);
+        }),
+      );
+    try {
+      // Not from the cache: the definitions are read now.
+      DDLManager.invalidateCache();
+      await asRequest(() =>
+        sql`INSERT INTO ${sql.table(`zvd_${P}`)} (label) VALUES ('under role')`.execute(ctxDb),
+      );
+      DDLManager.invalidateCache();
+      await expect(
+        asRequest(() =>
+          sql`INSERT INTO ${sql.table(`zvd_${W}`)} (label) VALUES ('under role')`.execute(ctxDb),
+        ),
+      ).rejects.toThrow('attempted to write');
+      DDLManager.invalidateCache();
+      await asRequest(() =>
+        sql`DELETE FROM ${sql.table(`zvd_${P}`)} WHERE label = 'under role'`.execute(ctxDb),
+      );
+    } finally {
+      await sql.raw(`DROP OWNED BY "${role}"`).execute(db);
+      await sql.raw(`DROP ROLE "${role}"`).execute(db);
+    }
   });
 });
