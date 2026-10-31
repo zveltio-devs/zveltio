@@ -5,7 +5,8 @@
  * Every other path is refused, whoever asks: the data API (create, PATCH, PUT,
  * bulk, delete) for a member, god and an API key; sync; `ctx.internals` (the
  * path GraphQL mutations take); `ctx.db`, builder and raw; another extension's
- * action. The flag is owned structure: an operator cannot set it, the schema
+ * action — unless it runs the owner's action through `host.actions.run`
+ * (ADR 0014). The flag is owned structure: an operator cannot set it, the schema
  * digest covers it, and an extension's apply adds and removes it.
  */
 
@@ -61,6 +62,8 @@ const PREFIX = `wba${STAMP}`;
 const TPL = `${PREFIX}_hd_categories`;
 const RES = `wba_res_${STAMP}`;
 const RES2 = `wba_res2_${STAMP}`;
+/** Held by nobody: an action gated on it is refused to the member. */
+const RES3 = `wba_res3_${STAMP}`;
 const EXT = `wba-ext-${STAMP}`;
 const OTHER = `wba-other-${STAMP}`;
 
@@ -74,6 +77,11 @@ const text = (name: string, extra: Record<string, unknown> = {}) => ({
 });
 const F_FIELDS = [text('label'), text('status', { defaultValue: 'draft', writtenBy: 'actions' })];
 const any = { type: 'object' };
+const actionEntry = {
+  name: 'probe',
+  permission: { resource: 'wba_probe' },
+  input: any,
+};
 const m2o = (name: string, onDelete: string, extra: Record<string, unknown> = {}) =>
   text(name, { type: 'm2o', options: { related_collection: PAR, on_delete: onDelete }, ...extra });
 
@@ -254,7 +262,11 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
             host.collections.insert((input as Input).collection, (input as Input).data),
           delAny: (input, host) =>
             host.collections.delete((input as Input).collection, (input as Input).id),
-          queueStatus: async (input, host) => ({ job: await host.enqueue('jobStatus', input) }),
+          queueStatus: async (input, host) => ({
+            job: await host.enqueue('jobStatus', input),
+          }),
+          locked: async () => null,
+          chain: (input, host) => host.actions!.run(OTHER, 'poke', input),
         },
         jobs: {
           jobStatus: async (input, host) => {
@@ -317,10 +329,15 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
       },
       {
         permissions: ['data:write', 'data:system'],
-        resources: [RES],
-        actions: ['setStatus', 'addF', 'addW', 'delW', 'queueStatus', 'put', 'delAny'].map((n) =>
-          action(n),
-        ),
+        resources: [RES, RES3],
+        dependencies: [{ name: OTHER }],
+        actions: [
+          ...['setStatus', 'addF', 'addW', 'delW', 'queueStatus', 'put', 'delAny'].map((n) =>
+            action(n),
+          ),
+          action('locked', RES3),
+          { ...action('chain'), calls: [`${OTHER}.poke`] },
+        ],
         jobs: [{ name: 'jobStatus', input: any, writes: [F], retry: { limit: 0 } }],
       },
     );
@@ -335,13 +352,25 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
             host.collections.insert((input as Input).collection, (input as Input).data),
           delAny: (input, host) =>
             host.collections.delete((input as Input).collection, (input as Input).id),
+          // ADR 0014: through the owner's action, or not at all.
+          relay: (input, host) => host.actions!.run(EXT, 'setStatus', input),
+          relayUndeclared: (input, host) => host.actions!.run(EXT, 'addF', input),
+          relayLocked: (_input, host) => host.actions!.run(EXT, 'locked', {}),
+          relayChain: (input, host) => host.actions!.run(EXT, 'chain', input),
         },
         async register() {},
       },
       {
         permissions: ['data:write'],
         resources: [RES2],
-        actions: ['poke', 'put', 'delAny'].map((n) => action(n, RES2)),
+        dependencies: [{ name: EXT }],
+        actions: [
+          ...['poke', 'put', 'delAny'].map((n) => action(n, RES2)),
+          { ...action('relay', RES2), calls: [`${EXT}.setStatus`] },
+          { ...action('relayUndeclared', RES2), calls: [`${EXT}.setStatus`] },
+          { ...action('relayLocked', RES2), calls: [`${EXT}.locked`] },
+          { ...action('relayChain', RES2), calls: [`${EXT}.chain`] },
+        ],
       },
     );
     invalidateActivationCache();
@@ -424,7 +453,9 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
         },
       ],
     });
-    const { results } = (await pushed.json()) as { results: { status: string; error?: string }[] };
+    const { results } = (await pushed.json()) as {
+      results: { status: string; error?: string }[];
+    };
     expect(results.map((r) => r.status)).toEqual(['error', 'error']);
     expect(results[0]?.error).toContain('written only by the actions');
 
@@ -454,6 +485,28 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
     expect(after?.status).toBe('paid');
   });
 
+  it('another extension runs the owner’s action only as declared, permitted and one level deep (ADR 0014)', async () => {
+    const id = await idOf(await act(EXT, 'addF', { label: 'relayed', status: 'issued' }));
+
+    expect((await act(OTHER, 'relay', { id, status: 'sent' })).status).toBe(200);
+    expect((await row(F, id))?.status).toBe('sent');
+
+    expect((await act(OTHER, 'relayUndeclared', { label: 'x' })).status).toBe(500);
+    const locked = await act(OTHER, 'relayLocked', {});
+    expect(locked.status).toBe(403);
+    expect(await codeOf(locked)).toBe('permission_required');
+    expect((await act(OTHER, 'relayChain', { id })).status).toBe(500);
+    expect((await row(F, id))?.status).toBe('sent');
+
+    expect(() =>
+      ManifestSchema.parse({
+        name: 'wba-probe',
+        resources: ['wba_probe'],
+        actions: [{ ...actionEntry, calls: [`${EXT}.setStatus`] }],
+      }),
+    ).toThrow(/not in dependencies/);
+  });
+
   it('the extension’s own ctx.internals and ctx.db are refused; its reads and other tables are not', async () => {
     const id = await idOf(await asMember('POST', `/api/data/${F}`, { label: 'own' }));
     const own = async (how: string) => {
@@ -466,7 +519,11 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
           cookie: member.cookie,
         },
       );
-      return (await r.json()) as { out?: string; status?: number; code?: string };
+      return (await r.json()) as {
+        out?: string;
+        status?: number;
+        code?: string;
+      };
     };
     expect(await own('internals')).toEqual({ status: 409, code: 'written_by_actions' });
     expect((await own('builder')).out).toContain('attempted to write');

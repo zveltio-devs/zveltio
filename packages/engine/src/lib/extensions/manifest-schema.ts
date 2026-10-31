@@ -265,6 +265,11 @@ export const ManifestSchema = z
           writes: z.array(z.string()).default([]),
           /** The `jobs` this action may enqueue (`ActionHost.enqueue`). */
           enqueues: z.array(z.string()).default([]),
+          /**
+           * The actions of other extensions this one may run (`ActionHost.actions.run`),
+           * as `<extension>.<action>`; each extension must be in `dependencies` (ADR 0014).
+           */
+          calls: z.array(z.string()).default([]),
         }),
       )
       .default([]),
@@ -424,6 +429,23 @@ export const ManifestSchema = z
             code: z.ZodIssueCode.custom,
             path: ['actions', i, 'enqueues'],
             message: `action "${a.name}" enqueues "${job}", which is not in jobs`,
+          });
+        }
+      }
+      for (const call of a.calls) {
+        const dot = call.lastIndexOf('.');
+        const ext = call.slice(0, dot);
+        if (dot < 1 || !/^[a-z][a-zA-Z0-9]*$/.test(call.slice(dot + 1))) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['actions', i, 'calls'],
+            message: `action "${a.name}" calls "${call}", which is not "<extension>.<action>"`,
+          });
+        } else if (!m.dependencies.some((d) => d.name === ext)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['actions', i, 'calls'],
+            message: `action "${a.name}" calls "${call}", but "${ext}" is not in dependencies`,
           });
         }
       }

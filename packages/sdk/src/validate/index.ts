@@ -241,7 +241,7 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
       seen.add(e.name);
       if (!isObject(e.input))
         out.push(err(code, `"${e.name}": "input" must be a JSON Schema object`));
-      for (const k of ['reads', 'writes', 'enqueues']) {
+      for (const k of ['reads', 'writes', 'enqueues', 'calls']) {
         if (!strings(e[k])) out.push(err(code, `"${e.name}": "${k}" must be an array of names`));
       }
       return true;
@@ -290,6 +290,26 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
       if (!jobs.some((j) => j.name === job)) {
         out.push(
           err('MANIFEST_BAD_ACTION', `action "${a.name}" enqueues "${job}", which is not in jobs`),
+        );
+      }
+    }
+    // ADR 0014: `<extension>.<action>`, of a required dependency.
+    const deps = Array.isArray(obj.dependencies) ? (obj.dependencies as { name?: unknown }[]) : [];
+    for (const call of Array.isArray(a.calls) ? a.calls : []) {
+      const dot = typeof call === 'string' ? call.lastIndexOf('.') : -1;
+      if (dot < 1 || !/^[a-z][a-zA-Z0-9]*$/.test((call as string).slice(dot + 1))) {
+        out.push(
+          err(
+            'MANIFEST_BAD_ACTION',
+            `action "${a.name}" calls "${call}", which is not "<extension>.<action>"`,
+          ),
+        );
+      } else if (!deps.some((d) => d?.name === (call as string).slice(0, dot))) {
+        out.push(
+          err(
+            'MANIFEST_BAD_ACTION',
+            `action "${a.name}" calls "${call}", but "${(call as string).slice(0, dot)}" is not in dependencies`,
+          ),
         );
       }
     }

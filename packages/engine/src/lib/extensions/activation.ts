@@ -165,7 +165,11 @@ function tenantIdOf(c: Context): string | null {
   return typeof t?.id === 'string' ? t.id : null;
 }
 
-async function activeForRequest(c: Context, extName: string, db: Database): Promise<boolean> {
+export async function activeForRequest(
+  c: Context,
+  extName: string,
+  db: Database,
+): Promise<boolean> {
   const tenantId = tenantIdOf(c);
   return tenantId
     ? isExtensionActiveForTenant(db, extName, tenantId)

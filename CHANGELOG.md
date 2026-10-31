@@ -4,6 +4,15 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**An action may run an action of an extension it depends on (ADR 0014).**
+`ActionHost.actions.run(extension, action, input)` (optional, extension-api v1)
+runs the called extension's action in the same request transaction, after the
+same permission check and input validation as its HTTP route, with its writes
+marked as the called extension's — so a `writtenBy: "actions"` field accepts
+them. The calling action declares each call in the new manifest key `calls`
+(`<extension>.<action>`, of a required dependency), checked at load and by
+`zveltio extension validate`. One level deep: a called action cannot call again.
+
 ## [3.0.0-beta.93] - 2026-10-31
 
 **Fields written only by their extension's actions (ADR 0013).** A declared
