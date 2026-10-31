@@ -2532,108 +2532,6 @@ export interface ZvdApiOauthTokensTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdAssetDepreciationTable {
-  id: Generated<string>;
-  asset_id: string;
-  period: string;
-  amount: number;
-  book_value_after: number;
-  created_at: Generated<Date>;
-  journal_entry_id: string | null;
-  is_posted: Generated<boolean>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdAssetInsuranceTable {
-  id: Generated<string>;
-  asset_id: string;
-  policy_number: string;
-  insurer: string;
-  type: Generated<string>;
-  insured_value: number;
-  premium: number | null;
-  start_date: Date;
-  end_date: Date;
-  notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdAssetMaintenanceTable {
-  id: Generated<string>;
-  asset_id: string;
-  type: Generated<'scheduled' | 'repair' | 'inspection'>;
-  scheduled_date: Date;
-  completed_date: Date | null;
-  cost: number | null;
-  description: string;
-  performed_by: string | null;
-  status: Generated<'scheduled' | 'completed' | 'overdue'>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdAssetRevaluationsTable {
-  id: Generated<string>;
-  asset_id: string;
-  revaluation_date: Date;
-  previous_value: number;
-  new_value: number;
-  method: Generated<'market' | 'cost' | 'expert_opinion'>;
-  notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdAssetTransfersTable {
-  id: Generated<string>;
-  asset_id: string;
-  from_location: string | null;
-  to_location: string;
-  transfer_date: Date;
-  reason: string | null;
-  transferred_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdAssetsTable {
-  id: Generated<string>;
-  code: string;
-  name: string;
-  description: string | null;
-  category: Generated<
-    'building' | 'equipment' | 'vehicle' | 'furniture' | 'software' | 'land' | 'other'
-  >;
-  status: Generated<'active' | 'disposed' | 'in_maintenance'>;
-  purchase_date: Date;
-  purchase_cost: number;
-  residual_value: Generated<number>;
-  useful_life_years: Generated<number>;
-  depreciation_method: Generated<'straight_line' | 'declining_balance' | 'none'>;
-  accumulated_depreciation: Generated<number>;
-  current_value: Generated<number>;
-  location: string | null;
-  serial_number: string | null;
-  supplier: string | null;
-  warranty_expiry: Date | null;
-  image_url: string | null;
-  disposed_at: Date | null;
-  disposal_value: number | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  depreciation_account_id: string | null;
-  accumulated_dep_account_id: string | null;
-  next_maintenance_date: Date | null;
-  tenant_id: Generated<string | null>;
-  disposal_reason: string | null;
-}
-
 export interface ZvdBranchReviewRequestsTable {
   id: Generated<string>;
   branch_id: string;
@@ -3698,12 +3596,6 @@ export interface DbSchema {
   zvd_api_endpoints: ZvdApiEndpointsTable;
   zvd_api_logs: ZvdApiLogsTable;
   zvd_api_oauth_tokens: ZvdApiOauthTokensTable;
-  zvd_asset_depreciation: ZvdAssetDepreciationTable;
-  zvd_asset_insurance: ZvdAssetInsuranceTable;
-  zvd_asset_maintenance: ZvdAssetMaintenanceTable;
-  zvd_asset_revaluations: ZvdAssetRevaluationsTable;
-  zvd_asset_transfers: ZvdAssetTransfersTable;
-  zvd_assets: ZvdAssetsTable;
   zvd_branch_review_requests: ZvdBranchReviewRequestsTable;
   zvd_byod_scan_history: ZvdByodScanHistoryTable;
   zvd_byod_scan_profiles: ZvdByodScanProfilesTable;
