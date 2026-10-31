@@ -2639,18 +2639,6 @@ export interface ZvdDashboardSubscriptionsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdDunningAttemptsTable {
-  id: Generated<string>;
-  subscriber_id: string;
-  invoice_id: string | null;
-  attempt_number: Generated<number>;
-  attempted_at: Generated<Date>;
-  status: Generated<'pending' | 'success' | 'failed' | 'skipped'>;
-  next_attempt_at: Date | null;
-  notes: string | null;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdExportAuditLogTable {
   id: Generated<string>;
   collection: string;
@@ -3016,19 +3004,6 @@ export interface ZvdPermissionsPruned034Table {
   pruned_at: Generated<Date>;
 }
 
-export interface ZvdPlanChangesTable {
-  id: Generated<string>;
-  subscriber_id: string;
-  from_plan_id: string | null;
-  to_plan_id: string;
-  effective_date: Date;
-  proration_amount: Generated<number | null>;
-  reason: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdPushTokensTable {
   id: Generated<string>;
   user_id: string;
@@ -3174,89 +3149,6 @@ export interface ZvdSamlLoginLogTable {
   failure_reason: string | null;
   relay_state: string | null;
   created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdSubscribersTable {
-  id: Generated<string>;
-  contact_id: string | null;
-  organization_id: string | null;
-  email: string;
-  name: string;
-  plan_id: string;
-  status: Generated<
-    'trialing' | 'active' | 'past_due' | 'paused' | 'cancel_scheduled' | 'cancelled' | 'expired'
-  >;
-  current_period_start: Generated<Date>;
-  current_period_end: Date;
-  trial_end: Date | null;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  cancel_at_period_end: Generated<boolean>;
-  cancelled_at: Date | null;
-  metadata: Generated<unknown>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  paused_at: Date | null;
-  paused_until: Date | null;
-  dunning_count: Generated<number>;
-  payment_failure_at: Date | null;
-  tenant_id: Generated<string | null>;
-  cancellation_reason: string | null;
-}
-
-export interface ZvdSubscriptionInvoicesTable {
-  id: Generated<string>;
-  subscriber_id: string;
-  plan_id: string;
-  amount: number;
-  currency: Generated<string>;
-  status: Generated<'draft' | 'open' | 'paid' | 'void' | 'uncollectible'>;
-  period_start: Date;
-  period_end: Date;
-  stripe_invoice_id: string | null;
-  paid_at: Date | null;
-  created_at: Generated<Date>;
-  usage_amount: Generated<number>;
-  total_amount: number | null;
-  tenant_id: Generated<string | null>;
-  updated_at: Generated<Date>;
-  due_date: Date | null;
-  created_by: string | null;
-}
-
-export interface ZvdSubscriptionPlansTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  price: Generated<number>;
-  currency: Generated<string>;
-  interval: Generated<'monthly' | 'quarterly' | 'yearly'>;
-  trial_days: Generated<number>;
-  features: Generated<unknown>;
-  is_active: Generated<boolean>;
-  stripe_price_id: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  usage_billing: Generated<boolean>;
-  usage_metric: string | null;
-  usage_unit_price: Generated<number | null>;
-  max_usage: number | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdSubscriptionUsageTable {
-  id: Generated<string>;
-  subscriber_id: string;
-  metric_name: string;
-  quantity: number;
-  unit_price: Generated<number>;
-  recorded_at: Generated<Date>;
-  billing_period_start: Date | null;
-  billing_period_end: Date | null;
-  is_billed: Generated<boolean>;
   tenant_id: Generated<string | null>;
 }
 
@@ -3603,7 +3495,6 @@ export interface DbSchema {
   zvd_column_permissions: ZvdColumnPermissionsTable;
   zvd_dashboard_shares: ZvdDashboardSharesTable;
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
-  zvd_dunning_attempts: ZvdDunningAttemptsTable;
   zvd_export_audit_log: ZvdExportAuditLogTable;
   zvd_export_jobs: ZvdExportJobsTable;
   zvd_export_templates: ZvdExportTemplatesTable;
@@ -3630,7 +3521,6 @@ export interface DbSchema {
   zvd_permissions_pruned_012: ZvdPermissionsPruned012Table;
   zvd_permissions_pruned_033: ZvdPermissionsPruned033Table;
   zvd_permissions_pruned_034: ZvdPermissionsPruned034Table;
-  zvd_plan_changes: ZvdPlanChangesTable;
   zvd_push_tokens: ZvdPushTokensTable;
   zvd_push_tokens_superseded_013: ZvdPushTokensSuperseded013Table;
   zvd_quality_remediations: ZvdQualityRemediationsTable;
@@ -3644,10 +3534,6 @@ export interface DbSchema {
   zvd_saml_consumed_assertions: ZvdSamlConsumedAssertionsTable;
   zvd_saml_idp_metadata: ZvdSamlIdpMetadataTable;
   zvd_saml_login_log: ZvdSamlLoginLogTable;
-  zvd_subscribers: ZvdSubscribersTable;
-  zvd_subscription_invoices: ZvdSubscriptionInvoicesTable;
-  zvd_subscription_plans: ZvdSubscriptionPlansTable;
-  zvd_subscription_usage: ZvdSubscriptionUsageTable;
   zvd_translation_glossary: ZvdTranslationGlossaryTable;
   zvd_translation_import_jobs: ZvdTranslationImportJobsTable;
   zvd_translation_keys: ZvdTranslationKeysTable;
