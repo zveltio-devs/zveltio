@@ -59,6 +59,7 @@ import {
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
+import { cascadeRefusal, writtenByBody, writtenByRefusal } from '../written-by.js';
 import type { RequestUser } from '../types.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 
@@ -79,6 +80,12 @@ export interface WriteRequest {
   tenantId: string | null;
   /** An update's precondition (`HostCollections.update`); the HTTP route sets none. */
   expect?: UpdateExpect;
+  /**
+   * The extension whose action or job writes, through `host.collections`: set by
+   * the engine (`lib/extensions/actions.ts`, `jobs.ts`), never from a request.
+   * Only it may write what its collection files flag `writtenBy: "actions"`.
+   */
+  writtenBy?: string;
 }
 
 /**
@@ -314,7 +321,14 @@ export async function createRecord(
   const tableName = DDLManager.getTableName(collection);
   const body = await w.body();
 
-  const { errors, processed } = await processInput(body, collectionDef, false, null);
+  const { errors, processed, writtenBy } = await processInput(
+    body,
+    collectionDef,
+    false,
+    null,
+    w.writtenBy,
+  );
+  if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);
 
   const colAccessCreate = await getColumnAccess(db, collection, await resolveUserRole(user), user);
@@ -356,6 +370,9 @@ export async function createRecord(
     }
     throw err;
   }
+  // A `record.before*` hook that adds a field is held to the same rule.
+  const late = writtenByRefusal(collectionDef, w.writtenBy, Object.keys(finalInsert));
+  if (late) return c.json(writtenByBody(late), 409);
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.create`, async () =>
@@ -426,7 +443,8 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   const tableName = DDLManager.getTableName(collection);
   const body = await c.req.json();
 
-  const { errors, processed } = await processInput(body, collectionDef, false, 'later');
+  const { errors, processed, writtenBy } = await processInput(body, collectionDef, false, 'later');
+  if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);
   const transitions = await hasTransitionRules(collectionDef, processed);
 
@@ -499,6 +517,9 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
     }
     throw err;
   }
+  // A `record.before*` hook that adds a field is held to the same rule.
+  const late = writtenByRefusal(collectionDef, undefined, Object.keys(finalPatch));
+  if (late) return c.json(writtenByBody(late), 409);
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.update`, () =>
@@ -576,7 +597,14 @@ export async function patchRecord(
   const tableName = DDLManager.getTableName(collection);
   const body = await w.body();
 
-  const { errors, processed } = await processInput(body, collectionDef, true, 'later');
+  const { errors, processed, writtenBy } = await processInput(
+    body,
+    collectionDef,
+    true,
+    'later',
+    w.writtenBy,
+  );
+  if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);
   const transitions = await hasTransitionRules(collectionDef, processed);
 
@@ -696,6 +724,9 @@ export async function patchRecord(
     }
     throw err;
   }
+  // A `record.before*` hook that adds a field is held to the same rule.
+  const late = writtenByRefusal(collectionDef, w.writtenBy, Object.keys(finalPatch));
+  if (late) return c.json(writtenByBody(late), 409);
 
   const result = await handlePgErrors(c, async () => {
     const record = await engineRead(canRead, effectiveDb, collection, () =>
@@ -759,9 +790,12 @@ export async function deleteRecord(
     }
   }
 
-  if (!(await DDLManager.getCollection(db, collection))) {
-    return c.json({ error: 'Collection not found' }, 404);
-  }
+  const collectionDef = await DDLManager.getCollection(db, collection);
+  if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
+  const refused =
+    writtenByRefusal(collectionDef, w.writtenBy, null) ??
+    (await cascadeRefusal(w.trx ?? db, collection, w.writtenBy));
+  if (refused) return c.json(writtenByBody(refused), 409);
 
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = w.trx ?? db;

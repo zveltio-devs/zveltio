@@ -98,6 +98,8 @@ const ALTERABLE = new Set([
   'unique',
   'indexed',
   'defaultValue',
+  // Metadata the data API reads; set only by an extension's apply.
+  'writtenBy',
 ]);
 /** The alterable keys a relation field cannot change (its column is the relation's). */
 const NOT_ON_RELATION = ['options', 'unique', 'indexed', 'defaultValue'];
@@ -135,12 +137,14 @@ const CREATE_KEYS = [
   'aiSearchEnabled',
   'aiSearchField',
   'defaultGrants',
+  'writtenBy',
   'fields',
 ];
 
 /** Settings `DDLManager.updateCollectionMetadata` writes (it skips an empty name or icon). */
 const canSet = (key: string, value: unknown) =>
   key === 'description' ||
+  key === 'writtenBy' ||
   ((key === 'displayName' || key === 'icon') && typeof value === 'string' && value !== '');
 
 /**
@@ -164,6 +168,7 @@ const COLLECTION_KEYS = new Set([
   'aiSearchField',
   'aiEmbedExcludedFields',
   'defaultGrants',
+  'writtenBy',
   'fields',
   'indexes',
   'relations',
@@ -528,7 +533,10 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
     const want = key === 'virtualConfig' ? withoutAuthValue(des[key]) : des[key];
     // `defaultGrants` true is the default, which the export leaves out.
     const have = key === 'defaultGrants' ? (cur[key] ?? true) : cur[key];
-    if (want === undefined || want === null || same(have, want)) continue;
+    // Left out of the file, `writtenBy` is off: removing it is a change, not a gap.
+    if (key === 'writtenBy' ? same(have ?? null, want ?? null) : want == null || same(have, want)) {
+      continue;
+    }
     const op: ApplyOp | undefined = canSet(key, want)
       ? { kind: 'setCollection', collection: name, key, value: want ?? null }
       : undefined;

@@ -874,6 +874,7 @@ export interface ZvdCollectionsTable {
   owner_extension: string | null; // 103: the declaring extension (ADR 0012)
   declared_file: unknown; // 104: JSONB, the extension's file as its last apply wrote it
   default_grants: Generated<boolean>; // 104: DEFAULT true
+  written_by: string | null; // 106: 'actions' — written only by its extension's actions
 }
 
 export interface ZvdRelationsTable {

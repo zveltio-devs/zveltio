@@ -290,6 +290,10 @@ describe('WorkerExtensionHost — IPC message routing', () => {
 
   it('answers db:query as the inline driver does: arrays encoded, count and SQLSTATE carried', async () => {
     const bunSql = await import('../../db/bun-sql-dialect.js');
+    // A write reads the collection's definition first (`writtenBy`): none here.
+    const { DDLManager } = await import('../../lib/data/index.js');
+    const defSpy = spyOn(DDLManager, 'getCollection').mockResolvedValue(null);
+    const dbSpy = spyOn(await import('../../db/index.js'), 'getDb').mockReturnValue({} as never);
     const sent: unknown[][] = [];
     const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
       reserve: async () => ({
@@ -338,6 +342,8 @@ describe('WorkerExtensionHost — IPC message routing', () => {
       });
     } finally {
       poolSpy.mockRestore();
+      defSpy.mockRestore();
+      dbSpy.mockRestore();
     }
   });
 

@@ -29,7 +29,9 @@ import {
   processInput,
   readScope,
   rowAuthorId,
+  cascadeRefusal,
   serializeRecord,
+  writtenByRefusal,
 } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
@@ -361,6 +363,24 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       }
       if (!readable.has(op.collection)) {
         readable.set(op.collection, await checkPermission(user.id, collectionShortName, 'read'));
+      }
+      // What only an extension's actions write, sync does not: a delete included.
+      const refused =
+        writtenByRefusal(
+          await DDLManager.getCollection(db, collectionShortName),
+          undefined,
+          op.operation === 'delete' ? null : Object.keys(op.payload ?? {}),
+        ) ??
+        (op.operation === 'delete'
+          ? await cascadeRefusal(
+              (c.get('tenantTrx') as Database | null) ?? db,
+              collectionShortName,
+              undefined,
+            )
+          : null);
+      if (refused) {
+        results.push({ recordId: op.recordId, status: 'error', error: refused });
+        continue;
       }
 
       // Sanitize payload — strip system fields, validate known columns

@@ -7,8 +7,10 @@ import {
   dropMaskView,
   ExistingRulesError,
   FieldSchema,
+  hasWrittenBy,
   sealColumns,
   SYSTEM_COLUMNS,
+  writtenByNeedsOwner,
 } from '../lib/data/index.js';
 // requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema DDL — collections are shared across tenants and isolated by RLS, so creating or altering one is an instance-level operation.
 // The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
@@ -219,6 +221,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         );
       }
     }
+
+    // Here, not only in the queued job: that would fail after the 202.
+    if (hasWrittenBy(data)) return c.json({ error: writtenByNeedsOwner(data.name) }, 422);
 
     // Before the metadata row: the queued CREATE would refuse it and leave that
     // row behind as a ghost collection.

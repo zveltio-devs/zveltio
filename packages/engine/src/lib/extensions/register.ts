@@ -42,7 +42,11 @@ import {
   DDLManager,
   deferIndexBuilds,
   enqueueIndexBuilds,
+  hasWrittenBy,
   isolateTable,
+  ownedStructureRefusal,
+  WRITTEN_BY_ACTIONS,
+  writtenByNeedsOwner,
 } from '../data/index.js';
 import { createRestrictedDb, createDeniedAdminDb } from './extension-context.js';
 import { engineHandle } from '../engine-handle.js';
@@ -1223,6 +1227,109 @@ const POOL_ONLY_TOUCHES: Partial<Record<(typeof POOL_ONLY)[number], (a: unknown[
 };
 const collection = (name: string): Touches => ({ alters: [DDLManager.getTableName(name)] });
 
+/** `DDLManager` statics that change nothing: an extension calls them as they are. */
+const DDL_READS = new Set([
+  'getTableName',
+  'invalidateCache',
+  'tableExists',
+  'isEngineJunction',
+  'getTableDependents',
+  'reservedName',
+  'existingRules',
+  'refuseExistingRules',
+  'getRelations',
+  'getCollections',
+  'getCollection',
+  'previewCollection',
+  'columnNames',
+  'introspectTable',
+  // Rebuilds engine-owned search triggers from the fields each collection stores.
+  'reconcileSearchTriggers',
+]);
+
+const bare = (t: unknown) => String(t).replace(/^zvd_/, '');
+
+/**
+ * The collections each mutating static acts on, from its arguments. A mutator
+ * missing here is refused outright, so a static added later is closed until
+ * someone names what it touches.
+ */
+const DDL_TOUCHES: Record<string, (a: unknown[]) => Promise<string[]> | string[]> = {
+  createCollection: (a) => [(a[1] as { name: string }).name],
+  registerMetadata: (a) => [(a[1] as { name: string }).name],
+  updateCollectionMetadata: (a) => [String(a[1])],
+  addField: (a) => [String(a[1])],
+  removeField: (a) => [String(a[1])],
+  setFieldKeys: (a) => [String(a[1])],
+  dropFieldRules: (a) => [String(a[1])],
+  dropCollection: (a) => [String(a[1])],
+  dropInTransaction: (a) => [String(a[1])],
+  forgetDroppedCollection: (a) => [String(a[0])],
+  forgetFieldRules: (a) => [String(a[0])],
+  grantDefaults: (a) => [String(a[1])],
+  syncFieldsFromDB: (a) => [String(a[1])],
+  refreshSearchTrigger: (a) => [String(a[1])],
+  registerRelation: (a) => {
+    const r = a[1] as { source_collection: string; target_collection: string };
+    return [r.source_collection, r.target_collection];
+  },
+  applyRelationFK: (a) => [bare(a[1]), bare(a[3])],
+  createJunctionTable: (a) => [String(a[1]), String(a[2])],
+  dropJunctionTable: async (a) =>
+    (
+      await getDb()
+        .selectFrom('zvd_relations')
+        .select(['source_collection', 'target_collection'])
+        .where('junction_table', '=', String(a[1]))
+        .execute()
+    ).flatMap((r) => [r.source_collection, r.target_collection]),
+  addUniqueKey: (a) => [bare(a[1])],
+  setTenantUniqueKey: (a) => [bare(a[1])],
+};
+
+/**
+ * `ctx.DDLManager` never changes a collection an extension declares — those
+ * change only with the extension's files (owned structure) — nor sets or strips
+ * a `writtenBy` flag, which every write path reads. A refusal is the data
+ * API's problem: 409 `written_by_actions` for a flag, else 409 `owned_structure`.
+ */
+async function refuseDdl(method: string, args: unknown[]): Promise<void> {
+  const touches = DDL_TOUCHES[method];
+  if (!touches) throw problem('ddl_unavailable', 403, `ctx.DDLManager.${method} is not offered`);
+  // What the call would write: a definition, a field or a fields list.
+  const def = method === 'createCollection' || method === 'registerMetadata' ? args[1] : undefined;
+  const field = method === 'addField' ? (args[2] as { writtenBy?: unknown }) : undefined;
+  const meta = method === 'updateCollectionMetadata' ? (args[2] as object) : undefined;
+  if (
+    (def && hasWrittenBy(def)) ||
+    field?.writtenBy !== undefined ||
+    (meta && hasWrittenBy(meta))
+  ) {
+    throw problem(WRITTEN_BY_ACTIONS, 409, writtenByNeedsOwner(String(args[1])));
+  }
+  for (const name of await touches(args)) {
+    if (hasWrittenBy(await DDLManager.getCollection(getDb(), name))) {
+      throw problem(WRITTEN_BY_ACTIONS, 409, writtenByNeedsOwner(name));
+    }
+  }
+  const owned = await ownedStructureRefusal(getDb(), await touches(args));
+  if (owned) throw problem('owned_structure', 409, owned.message);
+}
+
+/** Every static of `base` but the reads, behind `refuseDdl`. */
+function guardDdl(base: typeof DDLManager): typeof DDLManager {
+  const guarded = Object.create(base) as Record<string, unknown>;
+  for (const name of Object.getOwnPropertyNames(DDLManager)) {
+    const fn = (base as unknown as Record<string, unknown>)[name];
+    if (typeof fn !== 'function' || DDL_READS.has(name)) continue;
+    guarded[name] = async (...args: unknown[]) => {
+      await refuseDdl(name, args);
+      return (fn as (...a: unknown[]) => unknown).apply(base, args);
+    };
+  }
+  return guarded as unknown as typeof DDLManager;
+}
+
 type AfterDb<F> = F extends (db: Database, ...rest: infer R) => unknown ? R : never;
 
 /** The mutations that need nothing beyond `onEnginePool`. */
@@ -1243,74 +1350,76 @@ const POOL_ONLY = [
  * watchers (`$schema`) as the host's own routes and the DDL queue do — after
  * the request's commit when there is one.
  */
-export const announcingDDLManager: typeof DDLManager = Object.assign(
-  Object.create(DDLManager),
-  Object.fromEntries(
-    POOL_ONLY.map((name) => [
-      name,
-      (_db: Database, ...rest: unknown[]) =>
-        onEnginePool(
+export const announcingDDLManager: typeof DDLManager = guardDdl(
+  Object.assign(
+    Object.create(DDLManager),
+    Object.fromEntries(
+      POOL_ONLY.map((name) => [
+        name,
+        (_db: Database, ...rest: unknown[]) =>
+          onEnginePool(
+            (pool) =>
+              (DDLManager[name] as (...a: unknown[]) => Promise<unknown>).call(
+                DDLManager,
+                pool,
+                ...rest,
+              ),
+            POOL_ONLY_TOUCHES[name]?.(rest),
+          ),
+      ]),
+    ),
+    {
+      async createCollection(_db: Database, ...[def]: AfterDb<typeof DDLManager.createCollection>) {
+        // Tenant RLS and the narrow roles' grants commit with the table, before
+        // the extension fills it; a table that cannot be isolated is not created.
+        await onEnginePool((pool) => DDLManager.createCollection(pool, def));
+        announceSchemaChange(def.name, 'create');
+      },
+      async registerMetadata(_db: Database, ...[def]: AfterDb<typeof DDLManager.registerMetadata>) {
+        // The registry row and what a created collection's table is under commit
+        // together: a `*` rule reaches a registered collection only, and a table
+        // the extension made has no tenant policy, grant check or seal of the
+        // engine's. Refused, the adoption is too.
+        await onEnginePool(
           (pool) =>
-            (DDLManager[name] as (...a: unknown[]) => Promise<unknown>).call(
-              DDLManager,
-              pool,
-              ...rest,
-            ),
-          POOL_ONLY_TOUCHES[name]?.(rest),
-        ),
-    ]),
+            pool.transaction().execute(async (trx) => {
+              // First: a rule writer listing the collections now would miss this one.
+              await lockRowRules(trx, 'shared');
+              await DDLManager.registerMetadata(trx, def);
+              if (await DDLManager.tableExists(trx, def.name)) {
+                await isolateTable(trx, DDLManager.getTableName(def.name), def.fields);
+              }
+              await applyRowRulePolicy(trx, def.name);
+            }),
+          collection(def.name),
+        );
+        DDLManager.invalidateCache(def.name);
+        // A table the extension adopts gets what `createCollection` gives one it
+        // creates, not nothing until the next boot's reconcile.
+        await DDLManager.grantDefaults(getDb(), def.name);
+      },
+      async dropCollection(_db: Database, ...rest: AfterDb<typeof DDLManager.dropCollection>) {
+        await onEnginePool((pool) => DDLManager.dropCollection(pool, ...rest), collection(rest[0]));
+        announceSchemaChange(rest[0], 'drop');
+      },
+      async updateCollectionMetadata(
+        _db: Database,
+        ...rest: AfterDb<typeof DDLManager.updateCollectionMetadata>
+      ) {
+        await onEnginePool(
+          (pool) => DDLManager.updateCollectionMetadata(pool, ...rest),
+          collection(rest[0]),
+        );
+        announceSchemaChange(rest[0], 'alter');
+      },
+      async addField(_db: Database, ...rest: AfterDb<typeof DDLManager.addField>) {
+        await onEnginePool((pool) => DDLManager.addField(pool, ...rest), collection(rest[0]));
+        announceSchemaChange(rest[0], 'alter');
+      },
+      async removeField(_db: Database, ...rest: AfterDb<typeof DDLManager.removeField>) {
+        await onEnginePool((pool) => DDLManager.removeField(pool, ...rest), collection(rest[0]));
+        announceSchemaChange(rest[0], 'alter');
+      },
+    },
   ),
-  {
-    async createCollection(_db: Database, ...[def]: AfterDb<typeof DDLManager.createCollection>) {
-      // Tenant RLS and the narrow roles' grants commit with the table, before
-      // the extension fills it; a table that cannot be isolated is not created.
-      await onEnginePool((pool) => DDLManager.createCollection(pool, def));
-      announceSchemaChange(def.name, 'create');
-    },
-    async registerMetadata(_db: Database, ...[def]: AfterDb<typeof DDLManager.registerMetadata>) {
-      // The registry row and what a created collection's table is under commit
-      // together: a `*` rule reaches a registered collection only, and a table
-      // the extension made has no tenant policy, grant check or seal of the
-      // engine's. Refused, the adoption is too.
-      await onEnginePool(
-        (pool) =>
-          pool.transaction().execute(async (trx) => {
-            // First: a rule writer listing the collections now would miss this one.
-            await lockRowRules(trx, 'shared');
-            await DDLManager.registerMetadata(trx, def);
-            if (await DDLManager.tableExists(trx, def.name)) {
-              await isolateTable(trx, DDLManager.getTableName(def.name), def.fields);
-            }
-            await applyRowRulePolicy(trx, def.name);
-          }),
-        collection(def.name),
-      );
-      DDLManager.invalidateCache(def.name);
-      // A table the extension adopts gets what `createCollection` gives one it
-      // creates, not nothing until the next boot's reconcile.
-      await DDLManager.grantDefaults(getDb(), def.name);
-    },
-    async dropCollection(_db: Database, ...rest: AfterDb<typeof DDLManager.dropCollection>) {
-      await onEnginePool((pool) => DDLManager.dropCollection(pool, ...rest), collection(rest[0]));
-      announceSchemaChange(rest[0], 'drop');
-    },
-    async updateCollectionMetadata(
-      _db: Database,
-      ...rest: AfterDb<typeof DDLManager.updateCollectionMetadata>
-    ) {
-      await onEnginePool(
-        (pool) => DDLManager.updateCollectionMetadata(pool, ...rest),
-        collection(rest[0]),
-      );
-      announceSchemaChange(rest[0], 'alter');
-    },
-    async addField(_db: Database, ...rest: AfterDb<typeof DDLManager.addField>) {
-      await onEnginePool((pool) => DDLManager.addField(pool, ...rest), collection(rest[0]));
-      announceSchemaChange(rest[0], 'alter');
-    },
-    async removeField(_db: Database, ...rest: AfterDb<typeof DDLManager.removeField>) {
-      await onEnginePool((pool) => DDLManager.removeField(pool, ...rest), collection(rest[0]));
-      announceSchemaChange(rest[0], 'alter');
-    },
-  },
 );

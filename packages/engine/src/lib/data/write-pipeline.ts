@@ -32,6 +32,7 @@ import { invalidateQueryCache } from './query-cache.js';
 import { DEFAULT_TENANT_ID } from '../route-db.js';
 import { normalizeFields, withheldColumns } from './shape.js';
 import type { CollectionDef } from './types.js';
+import { writtenByRefusal } from './written-by.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { columnGuardRefusal } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
@@ -140,9 +141,23 @@ export async function processInput(
    * what the field held, so the rule cannot be evaluated.
    */
   previous?: Record<string, unknown> | null | 'later',
-): Promise<{ errors: string[]; processed: Record<string, unknown> }> {
+  /**
+   * The extension whose action or job this write comes from (`WriteRequest.
+   * writtenBy`); undefined on every other path. A field or collection flagged
+   * `writtenBy: "actions"` refuses the write unless it is that collection's
+   * owner — here, because every create and update runs through this.
+   */
+  writer?: string,
+): Promise<{ errors: string[]; processed: Record<string, unknown>; writtenBy?: string }> {
   const errors: string[] = [];
   const processed: Record<string, unknown> = {};
+
+  const refused = writtenByRefusal(
+    collectionDef,
+    writer,
+    Object.keys(data ?? {}).filter((k) => data[k] !== undefined),
+  );
+  if (refused) return { errors: [refused], processed, writtenBy: refused };
 
   const fields = normalizeFields(collectionDef);
   if (fields.length === 0) return { errors, processed: data };

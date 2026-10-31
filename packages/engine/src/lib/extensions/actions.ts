@@ -27,7 +27,8 @@ import { problem } from '../problem.js';
 import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
 import { afterRequestSettles } from '../../middleware/tenant.js';
 import type { ExtensionManifest } from './manifest-schema.js';
-import type { ExtensionContext, ExtensionInternals } from './internals.js';
+import { CapabilityDeniedError, holdsCapability } from './capabilities.js';
+import { actionWrites, type ExtensionContext, type ExtensionInternals } from './internals.js';
 import { enqueueJob } from './jobs.js';
 import { effectiveTimeZone } from '../tenancy/index.js';
 
@@ -169,7 +170,11 @@ export function mountActions(
       // On the request's transaction, not the pool: a second connection taken
       // while this one is held is how the engine stands still at c = DB_POOL_MAX.
       timezone: await effectiveTimeZone(p.trx, p.tenantId),
-      collections: hostCollections(`action "${def.name}"`, def, callerData(c, ctx.internals)),
+      collections: hostCollections(
+        `action "${def.name}"`,
+        def,
+        callerData(c, ctx.internals, extName),
+      ),
       enqueue: (job, input) => enqueueJob(extName, p, def, job, input),
     };
     let result: unknown;
@@ -237,15 +242,34 @@ export interface DataIo {
   delete(collection: string, id: string): Promise<DataApiAnswer>;
 }
 
-/** The data API as the request's caller. */
-function callerData(c: Context, internals: ExtensionInternals): DataIo {
+/**
+ * The data API as the request's caller. Writes carry `extName` as the action's
+ * extension (`WriteRequest.writtenBy`), bound here in the closure, so a nested
+ * or concurrent action keeps its own mark; they need `data:write` as
+ * `ctx.internals.*Record` do.
+ */
+function callerData(c: Context, internals: ExtensionInternals, extName: string): DataIo {
+  const w = actionWrites(extName);
+  const may = (member: string) => {
+    if (!holdsCapability(extName, 'data:write')) {
+      throw new CapabilityDeniedError(extName, 'data:write', member);
+    }
+  };
   return {
     read: (collection, id) => internals.readRecord(c, collection, id),
     list: (collection, query) => internals.listRecords(c, collection, query),
-    create: (collection, data) => internals.createRecord(c, collection, data),
-    update: (collection, id, data, expect) =>
-      internals.updateRecord(c, collection, id, data, { expect }),
-    delete: (collection, id) => internals.deleteRecord(c, collection, id),
+    create: async (collection, data) => {
+      may('createRecord');
+      return w.create(c, collection, '', data);
+    },
+    update: async (collection, id, data, expect) => {
+      may('updateRecord');
+      return w.update(c, collection, id, data, expect);
+    },
+    delete: async (collection, id) => {
+      may('deleteRecord');
+      return w.delete(c, collection, id, {});
+    },
   };
 }
 

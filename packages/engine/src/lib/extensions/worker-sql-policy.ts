@@ -20,6 +20,8 @@
  * acceptance is a breach.
  */
 
+import type { Database } from '../../db/index.js';
+
 /**
  * The statements an extension may send: queries and DML, nothing else.
  *
@@ -409,6 +411,54 @@ export function assertWorkerSqlAllowed(
 export async function workerSqlEngineTables(): Promise<ReadonlySet<string>> {
   const { engineOwnedTables } = await import('./register.js');
   return engineOwnedTables();
+}
+
+/**
+ * The collections a statement could write: every `zvd_*` table it names, when it
+ * writes at all (`INSERT`, `UPDATE`, `DELETE`, `MERGE`; `FOR UPDATE` only locks).
+ * It over-reads on purpose (`INSERT INTO a SELECT … FROM b` names b too): a
+ * table missed here would be a write past the check below.
+ */
+export function collectionsWritten(sql: string): string[] {
+  const code = stripNonCode(sql);
+  if (!/\b(?:insert|delete|merge)\b|(?<!\bfor\s+(?:no\s+key\s+)?)\bupdate\b/i.test(code)) {
+    return [];
+  }
+  const names = tableReferences(code)
+    .filter((r) => (r.schema ?? 'public') === 'public' && r.table.startsWith('zvd_'))
+    .map((r) => r.table.slice(4));
+  return [...new Set(names)];
+}
+
+/**
+ * Refuse extension SQL that writes a collection flagged `writtenBy: "actions"`
+ * (the collection or any of its fields). Only its extension's actions and jobs
+ * write one, through `host.collections` — the data API, which knows the field —
+ * never an extension's own SQL, its owner's included. `read` is the handle the
+ * collection's definition is read on, resolved only for a write: the engine's or
+ * the request's, not the extension's role.
+ */
+export async function assertNoWrittenByActionsWrite(
+  extName: string,
+  sql: string,
+  read: () => Database,
+  channel = 'the worker SQL bridge',
+): Promise<void> {
+  const names = collectionsWritten(sql);
+  if (names.length === 0) return;
+  const { DDLManager, cascadeRefusal, hasWrittenBy } = await import('../data/index.js');
+  // A delete also reaches what its foreign keys cascade or set null into.
+  const deletes = /\b(?:delete|merge)\b/i.test(stripNonCode(sql));
+  for (const name of names) {
+    if (hasWrittenBy(await DDLManager.getCollection(read(), name))) {
+      throw new WorkerSqlPolicyError(
+        `Extension "${extName}" attempted to write ${name} through ${channel}. It holds ` +
+          "fields only its extension's actions and jobs write, through host.collections.",
+      );
+    }
+    const cascade = deletes ? await cascadeRefusal(read(), name, undefined) : null;
+    if (cascade) throw new WorkerSqlPolicyError(`Extension "${extName}" (${channel}): ${cascade}`);
+  }
 }
 
 /**
