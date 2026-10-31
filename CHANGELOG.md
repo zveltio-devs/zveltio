@@ -4,6 +4,24 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.93] - 2026-10-31
+
+**Fields written only by their extension's actions (ADR 0013).** A declared
+field, or a whole declared collection, may carry `"writtenBy": "actions"`. Only
+the owning extension's actions and jobs then write it, through
+`host.collections`; every other path — the data API (single, bulk, `PUT`,
+delete), sync, template seeding, GraphQL, another extension's action — answers
+409 `written_by_actions`, for god and API keys too. On create a flagged field
+takes its declared default. A delete whose foreign keys would cascade into a
+flagged collection, or clear a flagged field, answers the same 409. The flag is
+owned structure (migration 106, `zvd_collections.written_by`): operators cannot
+set or remove it, and `ctx.DDLManager` cannot change such a collection.
+
+**Fixes.** The install template applies declared collections, in load order. An
+SDUI schema may read the collections its dependencies declare, and the SDUI
+probe reads an empty settings list as the page's defaults.
+
+
 ## [3.0.0-beta.92] - 2026-10-30
 
 The engine release the extension migration wave needs: extensions now declare
