@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.94] - 2026-10-31
+
 **An action may run an action of an extension it depends on (ADR 0014).**
 `ActionHost.actions.run(extension, action, input)` (optional, extension-api v1)
 runs the called extension's action in the same request transaction, after the
