@@ -300,6 +300,15 @@ export default defineExtension(['data:write', 'data:system'], {
   data API's status and `code`, and the request fails with it.
 - `throw new ActionRefusal(status, code, message)` answers the caller with that
   4xx. Any other throw answers 500. Both roll back what the action wrote.
+- `host.actions.run(extension, action, input)` runs an action of an extension
+  this one depends on (ADR 0014), so its invariant stays in the owner's code
+  instead of a copy in another bundle. The calling action lists it in `calls`
+  (`"calls": ["finance/invoicing.recordPayment"]`), and that extension must be
+  in `dependencies`. The engine checks the caller holds the called action's
+  `permission`, validates `input`, and runs it in the same transaction; its
+  writes count as the called extension's, so a `writtenBy: "actions"` field of
+  that extension accepts them. A refusal it throws reaches the caller. An action
+  run this way cannot run another. Optional member: absent before 3.0.0-beta.94.
 - `host.timezone` is the tenant's IANA zone. Use `todayIn(host.timezone)` for
   "today", never `new Date().toISOString().slice(0, 10)`.
 

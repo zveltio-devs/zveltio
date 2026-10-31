@@ -1500,6 +1500,18 @@ export interface ActionHost {
    * Resolves to the job's id.
    */
   enqueue(job: string, input: unknown): Promise<string>;
+  /**
+   * Run an action of an extension this one depends on (ADR 0014). The calling
+   * action's manifest entry lists it in `calls` as `<extension>.<action>`; the
+   * engine checks the caller holds that action's permission, validates `input`
+   * against its schema, and runs it in the same request transaction, its writes
+   * carrying the called extension's name. Resolves to what the action returns; a
+   * refusal it throws reaches the caller unchanged. An action run this way cannot
+   * run another. Absent on engines before 3.0.0-beta.94.
+   */
+  actions?: {
+    run(extension: string, action: string, input: unknown): Promise<unknown>;
+  };
 }
 
 /** The data API, through `ActionHost` or `JobHost`, for the collections the manifest declares. */

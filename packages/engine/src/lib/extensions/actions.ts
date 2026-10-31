@@ -31,6 +31,9 @@ import { CapabilityDeniedError, holdsCapability } from './capabilities.js';
 import { actionWrites, type ExtensionContext, type ExtensionInternals } from './internals.js';
 import { enqueueJob } from './jobs.js';
 import { effectiveTimeZone } from '../tenancy/index.js';
+import { activeForRequest } from './activation.js';
+import { withSavepoint } from '../savepoint.js';
+import type { GatePrincipal } from '../../middleware/extension-auth-gate.js';
 
 export interface CompiledAction {
   name: string;
@@ -40,6 +43,8 @@ export interface CompiledAction {
   writes: ReadonlySet<string>;
   /** The jobs `ActionHost.enqueue` may queue. */
   enqueues: ReadonlySet<string>;
+  /** The other extensions' actions `ActionHost.actions.run` may run, as `<extension>.<action>`. */
+  calls: ReadonlySet<string>;
   run: ExtensionAction;
 }
 
@@ -111,6 +116,7 @@ export function compileActions(
       reads: new Set(a.reads),
       writes: new Set(a.writes),
       enqueues: new Set(a.enqueues),
+      calls: new Set(a.calls),
       run,
     });
   }
@@ -128,7 +134,9 @@ export function mountActions(
   actions: ReadonlyMap<string, CompiledAction>,
   ctx: ExtensionContext,
 ): void {
+  served.delete(extName);
   if (actions.size === 0) return;
+  served.set(extName, { actions, ctx });
   sub.post('/actions/:name', async (c) => {
     const def = actions.get(c.req.param('name'));
     if (!def) return c.json({ error: 'Not found' }, 404);
@@ -149,42 +157,130 @@ export function mountActions(
         400,
       );
     }
-    // After the transaction ends, on the pool: a failure rolls back the
-    // request's own writes, and the row recording it must survive that.
-    afterRequestSettles(c, () =>
-      auditLog(getDb(), {
-        type: 'extension.action.executed',
-        userId: p.user.id,
-        resourceType: 'extension_action',
-        resourceId: `${extName}:${def.name}`,
-        metadata: {
-          extension: extName,
-          action: def.name,
-          outcome: c.res.status < 400 ? 'success' : 'failure',
-          status: c.res.status,
-        },
-        tenantId: p.tenantId,
-      }),
-    );
-    const host: ActionHost = {
-      // On the request's transaction, not the pool: a second connection taken
-      // while this one is held is how the engine stands still at c = DB_POOL_MAX.
-      timezone: await effectiveTimeZone(p.trx, p.tenantId),
-      collections: hostCollections(
-        `action "${def.name}"`,
-        def,
-        callerData(c, ctx.internals, extName),
-      ),
-      enqueue: (job, input) => enqueueJob(extName, p, def, job, input),
-    };
+    auditAction(c, p, extName, def.name);
     let result: unknown;
     try {
-      result = await def.run(parsed.data, host);
+      result = await def.run(parsed.data, await actionHost(c, p, p.trx, extName, def, ctx, true));
     } catch (err) {
       throw refusalProblem(err) ?? err;
     }
     return c.json({ result: result ?? null });
   });
+}
+
+/**
+ * Each loaded extension's actions, with the context they run in, for
+ * `ActionHost.actions.run`. Kept by `mountActions`, dropped by `forgetActions` on unload.
+ */
+const served = new Map<
+  string,
+  { actions: ReadonlyMap<string, CompiledAction>; ctx: ExtensionContext }
+>();
+
+export function forgetActions(extName: string): void {
+  served.delete(extName);
+}
+
+/** After the transaction ends, on the pool: a failure rolls back the request's own writes, and the row recording it must survive that. */
+function auditAction(
+  c: Context,
+  p: GatePrincipal,
+  extName: string,
+  action: string,
+  /** A called action's own failure, which its caller may have caught. */
+  threw: () => boolean = () => false,
+): void {
+  afterRequestSettles(c, () =>
+    auditLog(getDb(), {
+      type: 'extension.action.executed',
+      userId: p.user.id,
+      resourceType: 'extension_action',
+      resourceId: `${extName}:${action}`,
+      metadata: {
+        extension: extName,
+        action,
+        outcome: c.res.status < 400 && !threw() ? 'success' : 'failure',
+        status: c.res.status,
+      },
+      tenantId: p.tenantId,
+    }),
+  );
+}
+
+/**
+ * The host `def` runs with. `mayCall`: the action was called over HTTP, so it may
+ * run the actions its manifest lists in `calls` — one level deep, which is all
+ * ADR 0014 needs; a called action that calls again throws.
+ */
+async function actionHost(
+  c: Context,
+  p: GatePrincipal,
+  trx: NonNullable<GatePrincipal['trx']>,
+  extName: string,
+  def: CompiledAction,
+  ctx: ExtensionContext,
+  mayCall: boolean,
+): Promise<ActionHost> {
+  return {
+    // On the request's transaction, not the pool: a second connection taken
+    // while this one is held is how the engine stands still at c = DB_POOL_MAX.
+    timezone: await effectiveTimeZone(trx, p.tenantId),
+    collections: hostCollections(
+      `action "${def.name}"`,
+      def,
+      callerData(c, ctx.internals, extName),
+    ),
+    enqueue: (job, input) => enqueueJob(extName, p, def, job, input),
+    actions: {
+      run: async (extension, action, input) => {
+        const call = `${extension}.${action}`;
+        if (!mayCall || !def.calls.has(call)) {
+          throw new Error(
+            mayCall
+              ? `action "${def.name}" ran "${call}", which its manifest does not list in calls`
+              : `action "${def.name}" was itself run by another action, and cannot run "${call}"`,
+          );
+        }
+        // An absent or switched-off extension answers as the HTTP route does: not found.
+        const target = served.get(extension);
+        const called = target?.actions.get(action);
+        if (!target || !called || !(await activeForRequest(c, extension, getDb()))) {
+          throw problem('not_found', 404, `No action "${call}" is available.`);
+        }
+        // The same checks as `POST /ext/<extension>/actions/<action>`, for the same
+        // caller, through the called extension's own context.
+        const { resource, action: verb } = called.permission;
+        if (!(await target.ctx.checkPermission(p.user.id, resource, verb))) {
+          throw problem(
+            'permission_required',
+            403,
+            `Running "${call}" needs "${verb}" on "${resource}".`,
+          );
+        }
+        const parsed = called.input.safeParse(input);
+        if (!parsed.success) {
+          throw problem('invalid_input', 400, `Invalid input for "${call}".`, parsed.error.issues);
+        }
+        let threw = false;
+        auditAction(c, p, extension, action, () => threw);
+        const host = await actionHost(c, p, trx, extension, called, target.ctx, false);
+        // Its writes carry `extension`'s mark, so a field ADR 0013 keeps for the
+        // called extension's actions accepts them. A refusal it throws reaches the
+        // caller unchanged, to catch or to let answer the request — and in a
+        // savepoint, so what it wrote before throwing goes with it, as over HTTP:
+        // a caller that catches must not keep half of the owner's invariant.
+        return withSavepoint(
+          trx,
+          'zv_called_action',
+          () => called.run(parsed.data, host),
+          (err) => {
+            threw = true;
+            throw err;
+          },
+        );
+      },
+    },
+  };
 }
 
 // The SDK's `ACTION_REFUSAL`, by its registered key: the engine imports only

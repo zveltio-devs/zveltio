@@ -44,6 +44,20 @@ describe('manifest actions and jobs', () => {
     expect(errors({ jobs: [{ ...job, retry: { backoff: 'yes' } }] })).toHaveLength(1);
   });
 
+  it('takes calls of a required dependency’s actions, as <extension>.<action> (ADR 0014)', () => {
+    const calling = { ...action, calls: ['finance/invoicing.recordPayment'] };
+    const deps = [{ name: 'finance/invoicing' }];
+    expect(errors({ actions: [calling], jobs: [job], dependencies: deps })).toEqual([]);
+    expect(errors({ actions: [calling], jobs: [job] })).toEqual([
+      'action "convertLead" calls "finance/invoicing.recordPayment", but "finance/invoicing" is not in dependencies',
+    ]);
+    const bad = (calls: unknown) =>
+      errors({ actions: [{ ...action, calls }], jobs: [job], dependencies: deps });
+    expect(bad(['finance/invoicing'])).toHaveLength(1);
+    expect(bad(['finance/invoicing.Pay'])).toHaveLength(1);
+    expect(bad('finance/invoicing.recordPayment')).toHaveLength(1);
+  });
+
   it('accepts an action gated on a collection the actions or jobs read or write', () => {
     const gated = { ...action, permission: { resource: 'leads' } };
     expect(errors({ actions: [{ ...gated, writes: ['leads'] }], jobs: [job] })).toEqual([]);
