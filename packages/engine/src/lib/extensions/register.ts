@@ -75,7 +75,7 @@ import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
-import { type CompiledAction, compileActions, mountActions } from './actions.js';
+import { type CompiledAction, compileActions, forgetActions, mountActions } from './actions.js';
 import { compileJobs, registerJobs } from './jobs.js';
 import { buildExtensionConfig } from './config.js';
 import {
@@ -769,10 +769,14 @@ async function registerExtensionRoutes(
     const restore = propagateErrorHandler(subApp);
     try {
       await extension.register(subApp, restrictedCtx);
+      app.route(`/ext/${extName}`, subApp);
+    } catch (err) {
+      // Not mounted, so not served to a dependent's `host.actions.run` either.
+      forgetActions(extName);
+      throw err;
     } finally {
       restore();
     }
-    app.route(`/ext/${extName}`, subApp);
   } else {
     // The engine's own app is the target here, so the patch is removed as soon
     // as this extension has registered — a later caller must not inherit it.

@@ -32,6 +32,7 @@ import { actionWrites, type ExtensionContext, type ExtensionInternals } from './
 import { enqueueJob } from './jobs.js';
 import { effectiveTimeZone } from '../tenancy/index.js';
 import { activeForRequest } from './activation.js';
+import { withSavepoint } from '../savepoint.js';
 import type { GatePrincipal } from '../../middleware/extension-auth-gate.js';
 
 export interface CompiledAction {
@@ -181,7 +182,14 @@ export function forgetActions(extName: string): void {
 }
 
 /** After the transaction ends, on the pool: a failure rolls back the request's own writes, and the row recording it must survive that. */
-function auditAction(c: Context, p: GatePrincipal, extName: string, action: string): void {
+function auditAction(
+  c: Context,
+  p: GatePrincipal,
+  extName: string,
+  action: string,
+  /** A called action's own failure, which its caller may have caught. */
+  threw: () => boolean = () => false,
+): void {
   afterRequestSettles(c, () =>
     auditLog(getDb(), {
       type: 'extension.action.executed',
@@ -191,7 +199,7 @@ function auditAction(c: Context, p: GatePrincipal, extName: string, action: stri
       metadata: {
         extension: extName,
         action,
-        outcome: c.res.status < 400 ? 'success' : 'failure',
+        outcome: c.res.status < 400 && !threw() ? 'success' : 'failure',
         status: c.res.status,
       },
       tenantId: p.tenantId,
@@ -253,13 +261,22 @@ async function actionHost(
         if (!parsed.success) {
           throw problem('invalid_input', 400, `Invalid input for "${call}".`, parsed.error.issues);
         }
-        auditAction(c, p, extension, action);
+        let threw = false;
+        auditAction(c, p, extension, action, () => threw);
+        const host = await actionHost(c, p, trx, extension, called, target.ctx, false);
         // Its writes carry `extension`'s mark, so a field ADR 0013 keeps for the
         // called extension's actions accepts them. A refusal it throws reaches the
-        // caller unchanged, to catch or to let answer the request.
-        return called.run(
-          parsed.data,
-          await actionHost(c, p, trx, extension, called, target.ctx, false),
+        // caller unchanged, to catch or to let answer the request — and in a
+        // savepoint, so what it wrote before throwing goes with it, as over HTTP:
+        // a caller that catches must not keep half of the owner's invariant.
+        return withSavepoint(
+          trx,
+          'zv_called_action',
+          () => called.run(parsed.data, host),
+          (err) => {
+            threw = true;
+            throw err;
+          },
         );
       },
     },

@@ -569,6 +569,7 @@ async function reloadUnlocked(
   queryAlterRegistry.unregisterAll(name);
   entityAccessRegistry.unregisterAll(name);
   cronRunner.unregisterAll(name);
+  forgetActions(name);
   try {
     await loadDynamic(loader, name, app);
   } catch (err) {

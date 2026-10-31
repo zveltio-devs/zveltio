@@ -66,6 +66,9 @@ const RES2 = `wba_res2_${STAMP}`;
 const RES3 = `wba_res3_${STAMP}`;
 const EXT = `wba-ext-${STAMP}`;
 const OTHER = `wba-other-${STAMP}`;
+/** Its register() throws, so it never loads; CALLER depends on it. */
+const BROKEN = `wba-broken-${STAMP}`;
+const CALLER = `wba-caller-${STAMP}`;
 
 const text = (name: string, extra: Record<string, unknown> = {}) => ({
   name,
@@ -93,6 +96,7 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
   let member: { cookie: string; userId: string };
   let keyRaw = '';
   let keyId = '';
+  let brokenLoad = '';
 
   function loader(ctx: ExtensionContext): ExtensionLoader {
     return {
@@ -267,6 +271,11 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
           }),
           locked: async () => null,
           chain: (input, host) => host.actions!.run(OTHER, 'poke', input),
+          // Writes, then fails: over HTTP the request rolls the write back.
+          halfDone: async (input, host) => {
+            await host.collections.insert(W, input as Input);
+            throw new Error('refused after its first write');
+          },
         },
         jobs: {
           jobStatus: async (input, host) => {
@@ -337,6 +346,7 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
           ),
           action('locked', RES3),
           { ...action('chain'), calls: [`${OTHER}.poke`] },
+          action('halfDone'),
         ],
         jobs: [{ name: 'jobStatus', input: any, writes: [F], retry: { limit: 0 } }],
       },
@@ -357,6 +367,13 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
           relayUndeclared: (input, host) => host.actions!.run(EXT, 'addF', input),
           relayLocked: (_input, host) => host.actions!.run(EXT, 'locked', {}),
           relayChain: (input, host) => host.actions!.run(EXT, 'chain', input),
+          relayCaught: async (input, host) => {
+            try {
+              await host.actions!.run(EXT, 'halfDone', input);
+            } catch {
+              return { caught: true };
+            }
+          },
         },
         async register() {},
       },
@@ -370,7 +387,38 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
           { ...action('relayUndeclared', RES2), calls: [`${EXT}.setStatus`] },
           { ...action('relayLocked', RES2), calls: [`${EXT}.locked`] },
           { ...action('relayChain', RES2), calls: [`${EXT}.chain`] },
+          { ...action('relayCaught', RES2), calls: [`${EXT}.halfDone`] },
         ],
+      },
+    );
+    // Before any request: a sub-app added after the first one is never mounted here.
+    brokenLoad = await load(
+      {
+        name: BROKEN,
+        category: 'custom',
+        mountStrategy: 'subapp',
+        actions: { ping: async () => 'pong' },
+        async register() {
+          throw new Error('register failed');
+        },
+      },
+      { resources: [RES2], actions: [action('ping', RES2)] },
+    ).then(
+      () => 'loaded',
+      (e: Error) => e.message,
+    );
+    await load(
+      {
+        name: CALLER,
+        category: 'custom',
+        mountStrategy: 'subapp',
+        actions: { relay: (_input, host) => host.actions!.run(BROKEN, 'ping', {}) },
+        async register() {},
+      },
+      {
+        resources: [RES2],
+        dependencies: [{ name: BROKEN }],
+        actions: [{ ...action('relay', RES2), calls: [`${BROKEN}.ping`] }],
       },
     );
     invalidateActivationCache();
@@ -380,7 +428,9 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
     invalidateActivationCache();
     await unregisterJobs(EXT);
     if (!db) return;
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${OTHER})`.execute(db);
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${OTHER}, ${BROKEN}, ${CALLER})`.execute(
+      db,
+    );
     await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`.execute(db).catch(() => {});
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_revisions WHERE collection IN (${sql.join([F, W, CC, CN, PAR])})`.execute(
@@ -505,6 +555,24 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
         actions: [{ ...actionEntry, calls: [`${EXT}.setStatus`] }],
       }),
     ).toThrow(/not in dependencies/);
+  });
+
+  it('a called action that fails leaves none of its writes, even when its caller catches the failure (ADR 0014)', async () => {
+    const label = `half-${STAMP}`;
+    const rows = async () =>
+      (await sql`SELECT id FROM ${sql.table(`zvd_${W}`)} WHERE label = ${label}`.execute(db)).rows;
+    expect((await act(EXT, 'halfDone', { label })).status).toBe(500);
+    expect(await rows()).toHaveLength(0);
+    // The owner refused this row; its dependent must not keep it by catching.
+    const caught = await act(OTHER, 'relayCaught', { label });
+    expect(caught.status).toBe(200);
+    expect(await rows()).toHaveLength(0);
+  });
+
+  it('an extension whose register() failed serves no action to a dependent, as it serves none over HTTP', async () => {
+    expect(brokenLoad).toContain('register failed');
+    expect((await act(BROKEN, 'ping', {})).status).toBe(404);
+    expect((await act(CALLER, 'relay', {})).status).toBe(404);
   });
 
   it('the extension’s own ctx.internals and ctx.db are refused; its reads and other tables are not', async () => {
