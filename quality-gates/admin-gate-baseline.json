@@ -28,7 +28,6 @@
     "integrations/migrators/engine/routes.ts": 1,
     "storage/cloud/engine/routes.ts": 2,
     "i18n/translations/engine/routes.ts": 1,
-    "operations/pos/engine/routes.ts": 1,
     "forms/engine/routes.ts": 1,
     "billing/engine/routes.ts": 1,
     "finance/quotes/engine/routes.ts": 1,
