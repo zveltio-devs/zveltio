@@ -66,8 +66,14 @@ export function writtenByRefusal(
 export async function cascadeRefusal(
   collection: string,
   writer: string | undefined,
+  /**
+   * The request's handle where there is one: a delete takes no connection
+   * beyond its transaction, and the request role reads these tables and the
+   * catalog. Left out (extension SQL, whose role may not): the engine's pool.
+   */
+  on?: Database,
 ): Promise<string | null> {
-  const db = enginePool();
+  const db = on ?? enginePool();
   if (!db) return null;
   const { DDLManager } = await import('./ddl-manager.js');
   const seen = new Set([`zvd_${collection}`]);
@@ -111,11 +117,12 @@ export async function cascadeRefusal(
 }
 
 /**
- * Where the flags are read: the engine's pool, never a request's transaction,
- * whose role — an extension's window, a narrow request role — need not read
- * `zvd_collections` or `zvd_relations` (a 42501 there aborts the request).
- * Null before the engine opened a pool (a unit test, the CLI), where no
- * request or extension runs.
+ * Where extension SQL's flags are read: the engine's pool, never the
+ * statement's transaction, whose role — an extension's window, a narrow
+ * request role — need not read `zvd_collections` or `zvd_relations` (a 42501
+ * there aborts the request). A data API delete reads on its own transaction
+ * instead (`cascadeRefusal`'s `on`). Null before the engine opened a pool (a
+ * unit test, the CLI), where no request or extension runs.
  */
 export function enginePool(): Database | null {
   try {

@@ -630,6 +630,8 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
     // catalog the check needs: the flags must come from elsewhere.
     const role = `wba_role_${STAMP}`;
     await sql.raw(`CREATE ROLE "${role}" NOSUPERUSER`).execute(db);
+    // A non-superuser owner holds ADMIN on a role it creates, not SET.
+    await sql.raw(`GRANT "${role}" TO CURRENT_USER WITH SET TRUE, INHERIT FALSE`).execute(db);
     await sql
       .raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON "zvd_${P}", "zvd_${W}" TO "${role}"`)
       .execute(db);
@@ -663,7 +665,8 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
         sql`DELETE FROM ${sql.table(`zvd_${P}`)} WHERE label = 'under role'`.execute(ctxDb),
       );
     } finally {
-      await sql.raw(`DROP OWNED BY "${role}"`).execute(db);
+      // Not DROP OWNED: a non-superuser owner lacks the role's privileges for it.
+      await sql.raw(`REVOKE ALL ON "zvd_${P}", "zvd_${W}" FROM "${role}"`).execute(db);
       await sql.raw(`DROP ROLE "${role}"`).execute(db);
     }
   });

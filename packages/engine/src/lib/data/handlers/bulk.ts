@@ -392,7 +392,7 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
   if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
   const refused =
     writtenByRefusal(collectionDef, undefined, null) ??
-    (await cascadeRefusal(collection, undefined));
+    (await cascadeRefusal(collection, undefined, getDb(c, db)));
   if (refused) return c.json(writtenByBody(refused), 409);
 
   const body = await c.req.json().catch(() => null);

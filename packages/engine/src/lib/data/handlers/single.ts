@@ -794,7 +794,7 @@ export async function deleteRecord(
   if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
   const refused =
     writtenByRefusal(collectionDef, w.writtenBy, null) ??
-    (await cascadeRefusal(collection, w.writtenBy));
+    (await cascadeRefusal(collection, w.writtenBy, w.trx ?? db));
   if (refused) return c.json(writtenByBody(refused), 409);
 
   const tableName = DDLManager.getTableName(collection);
