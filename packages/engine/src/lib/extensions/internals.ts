@@ -613,8 +613,12 @@ const unbound = (member: string) => () => {
   );
 };
 
-/** One data API write, as the caller the `/ext/*` gate admitted for `c`. */
-function writeAsCaller(op: 'create' | 'update' | 'delete') {
+/**
+ * One data API write, as the caller the `/ext/*` gate admitted for `c`.
+ * `writtenBy`: the extension whose action writes (`actionWrites`), never set on
+ * the members an extension calls.
+ */
+function writeAsCaller(op: 'create' | 'update' | 'delete', writtenBy?: string) {
   return async (
     c: unknown,
     collection: string,
@@ -639,10 +643,22 @@ function writeAsCaller(op: 'create' | 'update' | 'delete') {
       trx: p.trx,
       tenantId: p.tenantId,
       expect,
+      writtenBy,
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };
 }
+/**
+ * The writes of `host.collections` for an action of `extName`, marked as its:
+ * the one mark a field or collection flagged `writtenBy: "actions"` admits.
+ * Engine-only — `mountActions` closes over it; extension code never holds it.
+ */
+export const actionWrites = (extName: string) => ({
+  create: writeAsCaller('create', extName),
+  update: writeAsCaller('update', extName),
+  delete: writeAsCaller('delete', extName),
+});
+
 /** One data API read, as the caller the `/ext/*` gate admitted for `c`. */
 async function readAsCaller(
   c: unknown,

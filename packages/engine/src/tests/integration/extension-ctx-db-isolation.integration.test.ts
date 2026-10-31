@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
-import { createDb } from '../../db/index.js';
+import { _internalForTests, createDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
 import { applyTenantRLS } from '../../lib/tenancy/tenant-manager.js';
 import { runWithDomain, runWithTenantTrx, getCurrentTenantTrx } from '../../lib/tenancy/index.js';
@@ -33,6 +33,8 @@ const A = '00000000-0000-0000-0000-00000000aa0a';
 const B = '00000000-0000-0000-0000-00000000bb0b';
 
 let db: Database;
+/** The engine pool before this suite made `db` the engine's: put back after. */
+let enginePool: Database | null = null;
 // The exact handle H-12 hands an extension as `ctx.db`: resolves the current
 // ALS tenant transaction, else the global pool.
 let ctxDb: Database;
@@ -84,6 +86,9 @@ function asTenantRequest<T>(tenant: string, fn: () => Promise<T>): Promise<T> {
 beforeAll(async () => {
   if (skipAll) return;
   db = createDb(TEST_DB_URL!);
+  // `ctx.db`'s pool is the engine's: engine reads behind it (collection
+  // definitions) run there, not on a pool another suite already closed.
+  enginePool = _internalForTests.swapDbForTests(db);
   ctxDb = createRestrictedDb(() => getCurrentTenantTrx() ?? db, 'ctxdbtest', new Set([TABLE]));
   await sql.raw(`DROP TABLE IF EXISTS "${TABLE}"`).execute(db);
   await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
@@ -107,6 +112,7 @@ afterAll(async () => {
   if (skipAll || !db) return;
   await sql.raw(`DROP TABLE IF EXISTS "${TABLE}"`).execute(db);
   await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
+  _internalForTests.swapDbForTests(enginePool);
   await (db as any).destroy?.();
 });
 

@@ -28,6 +28,8 @@ export * from './field-type-registry.js';
 //   - `validateApiKey` so every route that accepts `X-API-Key` runs the same
 //     checks, including the tenant comparison edge functions had left out.
 export { processInput } from './write-pipeline.js';
+// Fields and collections only their extension's actions write: every write path asks.
+export * from './written-by.js';
 //   - `selectReadable` so a background reader (a flow's export) reads a
 //     collection through its masking view, as REST does.
 export { selectReadable } from './write-pipeline.js';

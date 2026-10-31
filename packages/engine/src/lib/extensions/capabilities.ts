@@ -273,6 +273,13 @@ export function bindsCaller<T extends object>(
   return bag;
 }
 
+/** What each extension's latest `gateInternals` granted: for host code acting for it. */
+const grantedTo = new Map<string, ReadonlySet<string>>();
+
+/** Does `extName` hold `capability`, as its gate enforces it? */
+export const holdsCapability = (extName: string, capability: string): boolean =>
+  grantedTo.get(extName)?.has(capability) === true;
+
 /**
  * Wrap an internals bag so each guarded member throws unless the extension
  * declared its capability.
@@ -300,6 +307,7 @@ export function gateInternals<T extends object>(
   if (internals === null || typeof internals !== 'object') return internals;
 
   const granted = new Set(capabilities);
+  grantedTo.set(extName, granted);
   const awaiting = new Set(pending);
   const bound: Record<string, unknown> =
     callerBound.get(internals)?.(`ext:${extName}`, granted) ?? {};

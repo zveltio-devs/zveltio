@@ -280,7 +280,11 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     // tenant, not one inherited from wherever pg-boss resumed.
     await withTenantIsolation(tenantId, async (trx) => {
       await publishApiKeyActor(user.id, false, user.scopes);
-      const collections = hostCollections(`job "${job}"`, def, jobData(user, trx, tenantId));
+      const collections = hostCollections(
+        `job "${job}"`,
+        def,
+        jobData(extName, user, trx, tenantId),
+      );
       await def.run(input, { collections, timezone });
     });
   } catch (err) {
@@ -335,8 +339,8 @@ async function auditRun(
   });
 }
 
-/** The data API as the job's principal, in its transaction. */
-function jobData(user: RequestUser, trx: Database, tenantId: string): DataIo {
+/** The data API as the job's principal, in its transaction, marked as `extName`'s job. */
+function jobData(extName: string, user: RequestUser, trx: Database, tenantId: string): DataIo {
   const db = createRequestScopedDb(getDb());
   const who = { user, authType: 'api_key' as const, trx, tenantId };
   const write = async (
@@ -352,6 +356,7 @@ function jobData(user: RequestUser, trx: Database, tenantId: string): DataIo {
       id,
       body: async () => data,
       expect,
+      writtenBy: extName,
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };

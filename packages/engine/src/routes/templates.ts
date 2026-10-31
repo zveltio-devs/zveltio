@@ -23,7 +23,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DDLManager, ExistingRulesError, SYSTEM_COLUMNS } from '../lib/data/index.js';
-import { fieldTypeRegistry } from '../lib/data/index.js';
+import { fieldTypeRegistry, writtenByBody, writtenByRefusal } from '../lib/data/index.js';
 import { enqueueDDLJob } from '../lib/data/index.js';
 import { dynamicInsert } from '../db/dynamic.js';
 import { auditLog } from '../lib/audit.js';
@@ -332,6 +332,18 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       const keyToId: Record<string, Record<string, string>> = {};
       let seeded = 0;
       let pending = 0;
+
+      // Sample rows are not an extension's action: a flagged collection or field refuses them.
+      for (const coll of ordered) {
+        const rows = t.sampleData?.[coll.name];
+        if (!Array.isArray(rows) || rows.length === 0) continue;
+        const refused = writtenByRefusal(
+          await DDLManager.getCollection(db, pfx(coll.name)),
+          undefined,
+          rows.flatMap((r) => Object.keys(r)),
+        );
+        if (refused) return c.json(writtenByBody(refused), 409);
+      }
 
       // One transaction with the tenant GUC set: collection tables have FORCE ROW
       // LEVEL SECURITY keyed on `zveltio.current_tenant`, so inserts on the bare

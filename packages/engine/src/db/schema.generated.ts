@@ -2701,6 +2701,7 @@ export interface ZvdCollectionsTable {
   owner_extension: string | null;
   declared_file: unknown | null;
   default_grants: Generated<boolean>;
+  written_by: string | null;
   ai_search_enabled: Generated<boolean>;
   ai_search_field: Generated<string | null>;
   ai_embed_excluded_fields: Generated<string[]>;

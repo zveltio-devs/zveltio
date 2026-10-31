@@ -3943,6 +3943,7 @@ table zvd_collections
   col source_type                    text NOT NULL DEFAULT 'table'::text
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col virtual_config                 jsonb
+  col written_by                     text
   uq  zvd_collections_name_key UNIQUE (name)
   pk  zvd_collections_pkey PRIMARY KEY (id)
   ck  zvd_collections_route_group_check CHECK ((route_group = ANY (ARRAY['public'::text, 'partners'::text, 'private'::text, 'admin'::text])))

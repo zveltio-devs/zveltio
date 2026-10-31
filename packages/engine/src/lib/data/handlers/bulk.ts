@@ -32,6 +32,7 @@ import {
 import { queryAlterRegistry } from '../query-alter.js';
 import { serializeRecord } from '../shape.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
+import { cascadeRefusal, writtenByBody, writtenByRefusal } from '../written-by.js';
 import {
   getColumnAccess,
   filterWritableFields,
@@ -40,6 +41,10 @@ import {
   applyRlsFilters,
   resolveUserRole,
 } from '../../tenancy/index.js';
+
+/** Every key some record of a batch sends. */
+const sentKeys = (records: unknown[]): string[] =>
+  records.flatMap((r) => (r && typeof r === 'object' ? Object.keys(r) : []));
 
 export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
@@ -60,6 +65,9 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   if (body.records.length > 500) {
     return c.json({ error: 'Bulk insert limited to 500 records per request' }, 400);
   }
+  // No action writes in bulk: a flagged collection, or a flagged field in any record, refuses all.
+  const refused = writtenByRefusal(collectionDef, undefined, sentKeys(body.records));
+  if (refused) return c.json(writtenByBody(refused), 409);
 
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = getDb(c, db);
@@ -124,6 +132,11 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
             continue;
           }
           throw err;
+        }
+        const late = writtenByRefusal(collectionDef, undefined, Object.keys(finalInsert));
+        if (late) {
+          errors.push({ index: i, errors: [late] });
+          continue;
         }
 
         const system = { created_by: author, updated_by: author };
@@ -203,6 +216,8 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   if (body.records.some((r: { id?: unknown }) => !isUuid(String(r?.id)))) {
     return c.json({ error: 'Every record must have a valid UUID id' }, 400);
   }
+  const refused = writtenByRefusal(collectionDef, undefined, sentKeys(body.records));
+  if (refused) return c.json(writtenByBody(refused), 409);
 
   const tableName = DDLManager.getTableName(collection);
   const effectiveDb = getDb(c, db);
@@ -318,6 +333,11 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           }
           throw err;
         }
+        const late = writtenByRefusal(collectionDef, undefined, Object.keys(finalPatch));
+        if (late) {
+          errors.push({ index: i, id, errors: [late] });
+          continue;
+        }
 
         const system = { updated_by: author };
         const record = await engineRead(canRead, trx, collection, () =>
@@ -368,9 +388,12 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
-  if (!(await DDLManager.getCollection(db, collection))) {
-    return c.json({ error: 'Collection not found' }, 404);
-  }
+  const collectionDef = await DDLManager.getCollection(db, collection);
+  if (!collectionDef) return c.json({ error: 'Collection not found' }, 404);
+  const refused =
+    writtenByRefusal(collectionDef, undefined, null) ??
+    (await cascadeRefusal(collection, undefined, getDb(c, db)));
+  if (refused) return c.json(writtenByBody(refused), 409);
 
   const body = await c.req.json().catch(() => null);
   if (!Array.isArray(body?.ids) || body.ids.length === 0) {

@@ -205,6 +205,25 @@ List them in `manifest.json` and ship one file per name, in the
   role grants, at creation and at every boot: an internal collection only the
   extension's actions and jobs reach. It replaces `sensitiveResources` for
   declared collections, and cannot change after creation yet.
+- `"writtenBy": "actions"` on a field, or on the collection (every field, create
+  and delete), makes the extension's own actions and jobs the only writers,
+  through `host.collections`. Any other write — the data API (single, bulk,
+  `PUT`, delete), sync, template seeding, `ctx.internals.*Record` (GraphQL),
+  another extension's action — answers 409 `written_by_actions`, for god and
+  API keys too. `ctx.db` and the worker SQL bridge may not write such a
+  collection at all, the owner's included. On create a flagged field takes its
+  declared default. A delete anywhere whose foreign keys would cascade into a
+  flagged collection, or set a flagged field to null, answers the same 409 —
+  decided on the key, so such a parent is deleted only by the owner's actions.
+  Declare `onDelete: "RESTRICT"` on a flagged key (an m2o defaults to
+  `SET NULL`) unless that is what you want.
+  A flag on fields only does not stop deleting a whole record: any caller with
+  `delete` on the collection still may. Flag the collection when deleting must
+  go through an action too. The key is owned structure: an operator cannot set
+  or remove it (422), `ctx.DDLManager` cannot change the collection (409), a
+  new version's file adds or removes it, and it is in `schemaSha256`. It
+  narrows; the action's write still runs as its caller, under the collection's
+  permissions, row and column rules.
 - A required m2o field's key column is NOT NULL. A relation entry may leave out
   what the engine fills in (`targetField`, `onDelete` `SET NULL`, `onUpdate`
   `CASCADE`, `metadata`) — but a required key cannot be `SET NULL`, written or

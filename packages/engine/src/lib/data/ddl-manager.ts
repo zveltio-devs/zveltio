@@ -9,6 +9,7 @@ import { buildTenantUniqueIndex, findTenantUniqueIndex } from './unique-key-reco
 import { toJsonb } from '../jsonb.js';
 import { invalidateRulesCache } from '../validation-engine.js';
 import { withSavepoint } from '../savepoint.js';
+import { hasWrittenBy, writtenByNeedsOwner } from './written-by.js';
 
 // ─── Relation type sets ───────────────────────────────────────────────────────
 /** FK column lives in the SOURCE table (the collection being modified). */
@@ -288,6 +289,8 @@ export const FieldSchema = z.object({
   label: z.string().max(200).optional(),
   description: z.string().max(1_000).optional(),
   encrypted: z.boolean().default(false).optional(),
+  /** Written only by its extension's actions and jobs (an extension's file only). */
+  writtenBy: z.literal('actions').optional(),
 });
 
 // Accept both camelCase (TS-style) and snake_case (REST-style) for client
@@ -349,6 +352,8 @@ export const CollectionSchema = z.preprocess(
     schemaLocked: z.boolean().optional(),
     /** Create even though Casbin rules already name it; they take effect on it (`ExistingRulesError`). */
     adoptRules: z.boolean().optional(),
+    /** Every field, create and delete written only by its extension's actions and jobs. */
+    writtenBy: z.literal('actions').optional(),
   }),
 );
 
@@ -636,6 +641,7 @@ export class DDLManager {
       );
     }
     const validated = CollectionSchema.parse(definition);
+    if (!owner && hasWrittenBy(validated)) throw new Error(writtenByNeedsOwner(validated.name));
     const reserved = await this.reservedName(db, validated.name);
     if (reserved) throw new Error(reserved);
     await this.refuseExistingRules(db, [validated.name], validated.adoptRules);
@@ -801,7 +807,11 @@ export class DDLManager {
       if (owner) {
         await h
           .updateTable('zvd_collections')
-          .set({ owner_extension: owner.extension, default_grants: owner.defaultGrants })
+          .set({
+            owner_extension: owner.extension,
+            default_grants: owner.defaultGrants,
+            written_by: validated.writtenBy ?? null,
+          })
           .where('name', '=', validated.name)
           .execute();
       }
@@ -1336,6 +1346,8 @@ export class DDLManager {
         ...(updates.icon ? { icon: updates.icon } : {}),
         ...(updates.description !== undefined ? { description: updates.description } : {}),
         ...(updates.fields ? { fields: toJsonb(updates.fields) } : {}),
+        // Only an extension's apply sets it (`setCollection`); null clears it.
+        ...('writtenBy' in updates ? { written_by: updates.writtenBy ?? null } : {}),
         updated_at: new Date(),
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       } as any)
@@ -1626,6 +1638,16 @@ export class DDLManager {
     field: z.input<typeof FieldSchema>,
   ): Promise<void> {
     const validated = FieldSchema.parse(field);
+    // An extension's apply reaches here through `runAddField`, which checks it is
+    // the owner; any other caller adds no flag to a collection nobody owns.
+    if (validated.writtenBy !== undefined) {
+      const meta = await db
+        .selectFrom('zvd_collections')
+        .select('owner_extension')
+        .where('name', '=', collectionName)
+        .executeTakeFirst();
+      if (!meta?.owner_extension) throw new Error(writtenByNeedsOwner(collectionName));
+    }
     // Here, not in each route: the schema-branch merge called this layer's
     // building blocks with a name no route had checked.
     if (SYSTEM_COLUMNS.has(validated.name)) {

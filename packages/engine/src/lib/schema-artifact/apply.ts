@@ -29,6 +29,7 @@ import {
   DDLManager,
   FieldSchema,
   fieldTypeRegistry,
+  hasWrittenBy,
   isOperatorField,
   OPERATOR_FIELD_PREFIX,
   runAddField,
@@ -36,6 +37,7 @@ import {
   schemaChangeRefusal,
   SYSTEM_COLUMNS,
   updateRelation,
+  writtenByNeedsOwner,
 } from '../data/index.js';
 import { toJsonb } from '../jsonb.js';
 import {
@@ -121,6 +123,25 @@ function parsed<T>(
   throw new SchemaFileError(`${target}: ${issue.path.join('.') || 'value'}: ${issue.message}`);
 }
 
+/** Does `op` add, change or remove a `writtenBy` flag? */
+function setsWrittenBy(op: ApplyOp): boolean {
+  const flagged = (f?: Record<string, unknown>) => f?.writtenBy !== undefined;
+  switch (op.kind) {
+    case 'createCollection':
+      return hasWrittenBy(op.definition);
+    case 'addField':
+      return flagged(op.field);
+    case 'alterField':
+      return op.keys.includes('writtenBy');
+    case 'setCollection':
+      return op.key === 'writtenBy';
+    case 'putRelation':
+      return flagged(op.fields.source) || flagged(op.fields.target);
+    default:
+      return false;
+  }
+}
+
 /** Validates one op before anything runs, and returns it in the shape the engine takes. */
 async function prepare(
   db: Database,
@@ -130,6 +151,8 @@ async function prepare(
   owner: string | undefined,
 ): Promise<Prepared> {
   const target = `${step.target} ${step.action}`;
+  // An extension's setting, from its own collection files only.
+  if (!owner && setsWrittenBy(op)) throw new SchemaFileError(writtenByNeedsOwner(target));
   switch (op.kind) {
     case 'createCollection': {
       const definition = parsed(target, CollectionSchema.safeParse(op.definition));

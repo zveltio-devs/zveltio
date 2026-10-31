@@ -292,6 +292,7 @@ export async function exportSchema(
       aiSearchField: col.ai_search_field,
       aiEmbedExcludedFields: sortedOrNull(col.ai_embed_excluded_fields),
       defaultGrants: col.default_grants ? null : false,
+      writtenBy: col.written_by,
       // Declared order: it is the order Studio shows.
       fields: fields.map(exportField),
       // Left out when there is none, so the files pulled before it stay as they are.

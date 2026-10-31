@@ -17,6 +17,7 @@ import {
   columnsNotNull,
 } from '../../db/dynamic.js';
 import { DDLManager, fieldRuleTables, SYSTEM_COLUMNS } from './ddl-manager.js';
+import { writtenByNeedsOwner } from './written-by.js';
 import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
 import { applyColumnGuard } from './column-guard.js';
@@ -76,7 +77,7 @@ export const OPERATOR_FIELD_PREFIX = 'my_';
 /** Whether a field of an extension's collection is an operator's: decided by its name alone. */
 export const isOperatorField = (name: string) => name.startsWith(OPERATOR_FIELD_PREFIX);
 
-type FieldShape = { name: string; required?: boolean };
+type FieldShape = { name: string; required?: boolean; writtenBy?: string };
 
 /**
  * Why an operator's field may not be on `collection`, which `extension` owns:
@@ -124,6 +125,10 @@ export async function schemaChangeRefusal(
     .where('name', '=', collectionName)
     .executeTakeFirst();
   if (!meta) return null; // collection-not-found is handled by caller
+  // The owner's own file sets it; an operator's field, or an unowned collection, never.
+  if (field?.writtenBy !== undefined && (!meta.owner_extension || meta.owner_extension !== by)) {
+    return new FieldChangeError(writtenByNeedsOwner(collectionName), 422);
+  }
   if (meta.owner_extension && meta.owner_extension !== by) {
     if (by !== undefined || !field) return ownedError(collectionName, meta.owner_extension);
     if (op === 'add') {
