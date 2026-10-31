@@ -304,7 +304,7 @@ export default defineExtension(['data:write', 'data:system'], {
   this one depends on (ADR 0014), so its invariant stays in the owner's code
   instead of a copy in another bundle. The calling action lists it in `calls`
   (`"calls": ["finance/invoicing.recordPayment"]`), and that extension must be
-  in `dependencies`. The engine checks the caller holds the called action's
+  in `dependencies` or `optionalDependencies` (absent, it answers 404). The engine checks the caller holds the called action's
   `permission`, validates `input`, and runs it in the same transaction; its
   writes count as the called extension's, so a `writtenBy: "actions"` field of
   that extension accepts them. A refusal it throws reaches the caller. An action

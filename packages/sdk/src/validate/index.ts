@@ -294,7 +294,10 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
       }
     }
     // ADR 0014: `<extension>.<action>`, of a required dependency.
-    const deps = Array.isArray(obj.dependencies) ? (obj.dependencies as { name?: unknown }[]) : [];
+    // An optional dependency counts: when it is absent the call answers 404, as its route would.
+    const deps = [obj.dependencies, obj.optionalDependencies].flatMap((d) =>
+      Array.isArray(d) ? (d as { name?: unknown }[]) : [],
+    );
     for (const call of Array.isArray(a.calls) ? a.calls : []) {
       const dot = typeof call === 'string' ? call.lastIndexOf('.') : -1;
       if (dot < 1 || !/^[a-z][a-zA-Z0-9]*$/.test((call as string).slice(dot + 1))) {
@@ -308,7 +311,7 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
         out.push(
           err(
             'MANIFEST_BAD_ACTION',
-            `action "${a.name}" calls "${call}", but "${(call as string).slice(0, dot)}" is not in dependencies`,
+            `action "${a.name}" calls "${call}", but "${(call as string).slice(0, dot)}" is not in dependencies or optionalDependencies`,
           ),
         );
       }

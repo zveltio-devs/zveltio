@@ -10,8 +10,10 @@ runs the called extension's action in the same request transaction, after the
 same permission check and input validation as its HTTP route, with its writes
 marked as the called extension's — so a `writtenBy: "actions"` field accepts
 them. The calling action declares each call in the new manifest key `calls`
-(`<extension>.<action>`, of a required dependency), checked at load and by
+(`<extension>.<action>`, of a dependency), checked at load and by
 `zveltio extension validate`. One level deep: a called action cannot call again.
+A call may name an `optionalDependencies` extension too: absent or switched off,
+it answers 404, as its HTTP route would.
 
 ## [3.0.0-beta.93] - 2026-10-31
 
