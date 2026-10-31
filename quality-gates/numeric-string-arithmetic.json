@@ -6,6 +6,5 @@
   "_required_columns": ["amount", "tax_amount", "total_amount"],
   "_why_required_columns": "The patterns key on column names taken from the live schema. Without these the finance and POS sites below are invisible and the gate passes having checked nothing — which is exactly what it did on a core-only database. Re-record only if a column is genuinely gone.",
   "ext:compliance/ro/efactura/engine/ubl-generator.ts": 1,
-  "ext:finance/invoicing/engine/actions.ts": 2,
-  "ext:operations/pos/engine/routes.ts": 3
+  "ext:finance/invoicing/engine/actions.ts": 2
 }
