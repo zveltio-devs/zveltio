@@ -153,7 +153,7 @@ describe('SchemaPage edit form', () => {
 describe('SchemaPage filters', () => {
   it('sends a data API filter as field[eq], joined to the source query', async () => {
     get.mockReset();
-    get.mockImplementation(async () => ({ records: [] }));
+    get.mockImplementation(async () => []);
     const filterSchema = {
       title: 'Requests',
       resources: [
@@ -161,7 +161,6 @@ describe('SchemaPage filters', () => {
           id: 'requests',
           label: 'requests',
           dataSource: '/api/data/requests?sort=created_at',
-          dataPath: 'records',
           filters: [
             {
               param: 'status',
