@@ -17,7 +17,7 @@ onMount(async () => {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     api.get<{ notifications: any[] }>('/api/notifications?unread_only=true'),
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    api.get<{ tasks: any[] }>('/ext/workflow/approvals?status=pending&assigned_to=me'),
+    api.get<{ records: any[] }>('/api/data/approval_requests?status[eq]=pending&limit=100'),
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     api.get<{ nav: any[] }>('/ext/content/pages/sites/intranet/render'),
   ]);
@@ -25,7 +25,7 @@ onMount(async () => {
     notifications = (notifRes.value.notifications ?? []).slice(0, 5);
     unreadCount = notifRes.value.notifications?.length ?? 0;
   }
-  if (tasksRes.status === 'fulfilled') pendingTasks = tasksRes.value.tasks?.length ?? 0;
+  if (tasksRes.status === 'fulfilled') pendingTasks = tasksRes.value.records?.length ?? 0;
   if (zoneRes.status === 'fulfilled') {
     zonePages = (zoneRes.value.nav ?? [])
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01

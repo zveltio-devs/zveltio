@@ -504,7 +504,9 @@ async function load() {
         if (v) qs.set(p, v);
       } else if (fl.param) {
         const v = filterValues[fl.param];
-        if (v && v !== 'all') qs.set(fl.param, v);
+        // The data API filters on `field[eq]`; a bare `field=` is no filter there.
+        const key = r.dataSource?.startsWith('/api/data/') ? `${fl.param}[eq]` : fl.param;
+        if (v && v !== 'all') qs.set(key, v);
       }
     }
     if (r.pagination) {
@@ -516,7 +518,8 @@ async function load() {
       total = 0;
       return;
     }
-    const url = qs.toString() ? `${r.dataSource}?${qs}` : r.dataSource;
+    const sep = r.dataSource.includes('?') ? '&' : '?';
+    const url = qs.toString() ? `${r.dataSource}${sep}${qs}` : r.dataSource;
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const res = await api.get<any>(url);
     rows = getPath(res, r.dataPath) ?? [];

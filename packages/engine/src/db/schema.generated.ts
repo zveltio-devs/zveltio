@@ -205,102 +205,6 @@ export interface ZvApiKeysTable {
   member_issued: Generated<boolean>;
 }
 
-export interface ZvApprovalDecisionsTable {
-  id: Generated<string>;
-  request_id: string;
-  step_id: string;
-  decision: 'approved' | 'rejected' | 'skipped';
-  decided_by: string | null;
-  comment: string | null;
-  decided_at: Generated<Date | null>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvApprovalDelegatesTable {
-  id: Generated<string>;
-  delegator_id: string;
-  delegate_id: string;
-  workflow_id: string | null;
-  valid_from: Generated<Date>;
-  valid_until: Date | null;
-  is_active: Generated<boolean>;
-  reason: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvApprovalRequestsTable {
-  id: Generated<string>;
-  workflow_id: string;
-  collection: string;
-  record_id: string;
-  current_step_id: string | null;
-  status: Generated<'pending' | 'approved' | 'rejected' | 'cancelled'>;
-  requested_by: string | null;
-  requested_at: Generated<Date | null>;
-  completed_at: Date | null;
-  metadata: Generated<unknown | null>;
-  priority: Generated<'low' | 'normal' | 'high' | 'urgent'>;
-  sla_due_at: Date | null;
-  sla_breached: Generated<boolean>;
-  reminder_sent_at: Date | null;
-  rejection_reason: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvApprovalSlaAlertsTable {
-  id: Generated<string>;
-  request_id: string;
-  step_id: string | null;
-  alert_type: Generated<'reminder' | 'overdue' | 'escalated'>;
-  sent_to: string;
-  sent_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvApprovalStepsTable {
-  id: Generated<string>;
-  workflow_id: string;
-  step_order: Generated<number>;
-  name: string;
-  approver_role: string | null;
-  approver_user_id: string | null;
-  deadline_hours: number | null;
-  is_required: Generated<boolean | null>;
-  created_at: Generated<Date | null>;
-  condition_field: string | null;
-  condition_value: string | null;
-  allow_parallel: Generated<boolean>;
-  escalation_user_id: string | null;
-  escalation_hours: number | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvApprovalTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  workflow_id: string;
-  default_metadata: Generated<unknown>;
-  description: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvApprovalWorkflowsTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  collection: string;
-  trigger_field: string | null;
-  trigger_value: string | null;
-  is_active: Generated<boolean | null>;
-  created_by: string | null;
-  created_at: Generated<Date | null>;
-  updated_at: Generated<Date | null>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvAuditLogTable {
   id: Generated<string>;
   event_type: string;
@@ -394,115 +298,6 @@ export interface ZvBillingSubscriptionsTable {
 export interface ZvBillingWebhookEventsTable {
   event_id: Generated<string>;
   received_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvChecklistItemsTable {
-  id: Generated<string>;
-  checklist_id: string;
-  label: string;
-  description: string | null;
-  required: Generated<boolean>;
-  order_idx: Generated<number>;
-  checked: Generated<boolean>;
-  checked_by: string | null;
-  checked_at: Date | null;
-  created_at: Generated<Date>;
-  time_spent_minutes: number | null;
-  due_at: Date | null;
-  assignee_user_id: string | null;
-  notes: string | null;
-  tenant_id: Generated<string | null>;
-  template_item_id: string | null;
-}
-
-export interface ZvChecklistRecurrenceTable {
-  id: Generated<string>;
-  template_id: string;
-  collection: string;
-  record_id: string;
-  frequency: Generated<'daily' | 'weekly' | 'monthly' | 'quarterly'>;
-  next_run_at: Date;
-  last_run_at: Date | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvChecklistSchemeWeightsTable {
-  id: Generated<string>;
-  scheme_id: string;
-  template_item_id: string;
-  weight: Generated<number>;
-  tenant_id: Generated<string>;
-}
-
-export interface ZvChecklistScoresTable {
-  id: Generated<string>;
-  checklist_id: string;
-  scheme_id: string | null;
-  scheme_name: string;
-  method: string;
-  score: number;
-  passed: boolean | null;
-  snapshot: Generated<unknown>;
-  computed_at: Generated<Date>;
-  tenant_id: Generated<string>;
-}
-
-export interface ZvChecklistScoringSchemesTable {
-  id: Generated<string>;
-  template_id: string;
-  name: string;
-  description: string | null;
-  method: Generated<'weighted_completion'>;
-  pass_threshold: number | null;
-  is_active: Generated<boolean>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string>;
-}
-
-export interface ZvChecklistTemplateItemsTable {
-  id: Generated<string>;
-  template_id: string;
-  label: string;
-  description: string | null;
-  required: Generated<boolean>;
-  order_idx: Generated<number>;
-  created_at: Generated<Date>;
-  condition_item_label: string | null;
-  condition_checked: boolean | null;
-  time_estimate_minutes: number | null;
-  assignee_role: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvChecklistTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  collection: string | null;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvChecklistsTable {
-  id: Generated<string>;
-  template_id: string | null;
-  collection: string;
-  record_id: string;
-  name: string;
-  created_by: string | null;
-  completed_at: Date | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  time_to_complete_minutes: number | null;
-  completed_by: string | null;
   tenant_id: Generated<string | null>;
 }
 
@@ -1049,29 +844,6 @@ export interface ZvFlowsTable {
   last_run_at: Date | null;
   next_run_at: Date | null;
   created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvFormSubmissionsTable {
-  id: Generated<string>;
-  form_id: string | null;
-  data: Generated<unknown>;
-  ip_address: string | null;
-  user_agent: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvFormsTable {
-  id: Generated<string>;
-  name: string;
-  slug: string;
-  description: string | null;
-  fields: Generated<unknown>;
-  target_collection: string | null;
-  active: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: Generated<string | null>;
@@ -3322,13 +3094,6 @@ export interface DbSchema {
   zv_ai_usage: ZvAiUsageTable;
   zv_api_key_access_log: ZvApiKeyAccessLogTable;
   zv_api_keys: ZvApiKeysTable;
-  zv_approval_decisions: ZvApprovalDecisionsTable;
-  zv_approval_delegates: ZvApprovalDelegatesTable;
-  zv_approval_requests: ZvApprovalRequestsTable;
-  zv_approval_sla_alerts: ZvApprovalSlaAlertsTable;
-  zv_approval_steps: ZvApprovalStepsTable;
-  zv_approval_templates: ZvApprovalTemplatesTable;
-  zv_approval_workflows: ZvApprovalWorkflowsTable;
   zv_audit_log: ZvAuditLogTable;
   zv_backup_integrity_checks: ZvBackupIntegrityChecksTable;
   zv_backup_schedules: ZvBackupSchedulesTable;
@@ -3337,14 +3102,6 @@ export interface DbSchema {
   zv_billing_plans: ZvBillingPlansTable;
   zv_billing_subscriptions: ZvBillingSubscriptionsTable;
   zv_billing_webhook_events: ZvBillingWebhookEventsTable;
-  zv_checklist_items: ZvChecklistItemsTable;
-  zv_checklist_recurrence: ZvChecklistRecurrenceTable;
-  zv_checklist_scheme_weights: ZvChecklistSchemeWeightsTable;
-  zv_checklist_scores: ZvChecklistScoresTable;
-  zv_checklist_scoring_schemes: ZvChecklistScoringSchemesTable;
-  zv_checklist_template_items: ZvChecklistTemplateItemsTable;
-  zv_checklist_templates: ZvChecklistTemplatesTable;
-  zv_checklists: ZvChecklistsTable;
   zv_cloud_access_logs: ZvCloudAccessLogsTable;
   zv_cloud_file_versions: ZvCloudFileVersionsTable;
   zv_cloud_retention_policies: ZvCloudRetentionPoliciesTable;
@@ -3383,8 +3140,6 @@ export interface DbSchema {
   zv_flow_runs: ZvFlowRunsTable;
   zv_flow_steps: ZvFlowStepsTable;
   zv_flows: ZvFlowsTable;
-  zv_form_submissions: ZvFormSubmissionsTable;
-  zv_forms: ZvFormsTable;
   zv_generated_docs: ZvGeneratedDocsTable;
   zv_geo_location_history: ZvGeoLocationHistoryTable;
   zv_geo_routes: ZvGeoRoutesTable;

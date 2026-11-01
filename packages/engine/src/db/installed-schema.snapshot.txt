@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 508
+# tables: 519
 
 table account
   col accessToken                    text
@@ -522,134 +522,6 @@ table zv_api_keys
   pol zv_api_keys_tenant_select FOR r USING ((tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) OR ( SELECT zveltio_engine_outside_tenant('zv_api_keys'::regclass) AS zveltio_engine_outside_tenant) OR (('apikey:'::text || (id)::text) = ( SELECT current_setting('zveltio.user_id'::text, true) AS current_setting))) CHECK -
   pol zv_api_keys_tenant_update FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_api_keys'::regclass) AS zveltio_engine_outside_tenant)) CHECK (zveltio_tenant_write_ok(tenant_id) OR ( SELECT zveltio_engine_outside_tenant('zv_api_keys'::regclass) AS zveltio_engine_outside_tenant))
 
-table zv_approval_decisions
-  col comment                        text
-  col decided_at                     timestamp with time zone DEFAULT now()
-  col decided_by                     text
-  col decision                       text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col request_id                     uuid NOT NULL
-  col step_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_approval_decisions_decided_by_fkey FOREIGN KEY (decided_by) REFERENCES "user"(id) ON DELETE SET NULL
-  ck  zv_approval_decisions_decision_check CHECK ((decision = ANY (ARRAY['approved'::text, 'rejected'::text, 'skipped'::text])))
-  pk  zv_approval_decisions_pkey PRIMARY KEY (id)
-  fk  zv_approval_decisions_request_id_fkey FOREIGN KEY (request_id) REFERENCES zv_approval_requests(id) ON DELETE CASCADE
-  fk  zv_approval_decisions_step_id_fkey FOREIGN KEY (step_id) REFERENCES zv_approval_steps(id)
-  rls enabled forced
-  pol tenant_isolation_zv_approval_decisions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_approval_delegates
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col delegate_id                    text NOT NULL
-  col delegator_id                   text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col reason                         text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col valid_from                     timestamp with time zone NOT NULL DEFAULT now()
-  col valid_until                    timestamp with time zone
-  col workflow_id                    uuid
-  uq  zv_approval_delegates_delegator_id_delegate_id_workflow_id_key UNIQUE (delegator_id, delegate_id, workflow_id)
-  pk  zv_approval_delegates_pkey PRIMARY KEY (id)
-  fk  zv_approval_delegates_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES zv_approval_workflows(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_approval_delegates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_approval_requests
-  col collection                     text NOT NULL
-  col completed_at                   timestamp with time zone
-  col current_step_id                uuid
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col metadata                       jsonb DEFAULT '{}'::jsonb
-  col priority                       text NOT NULL DEFAULT 'normal'::text
-  col record_id                      text NOT NULL
-  col rejection_reason               text
-  col reminder_sent_at               timestamp with time zone
-  col requested_at                   timestamp with time zone DEFAULT now()
-  col requested_by                   text
-  col sla_breached                   boolean NOT NULL DEFAULT false
-  col sla_due_at                     timestamp with time zone
-  col status                         text NOT NULL DEFAULT 'pending'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col workflow_id                    uuid NOT NULL
-  fk  zv_approval_requests_current_step_id_fkey FOREIGN KEY (current_step_id) REFERENCES zv_approval_steps(id) ON DELETE SET NULL
-  pk  zv_approval_requests_pkey PRIMARY KEY (id)
-  ck  zv_approval_requests_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text])))
-  fk  zv_approval_requests_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES "user"(id) ON DELETE SET NULL
-  ck  zv_approval_requests_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'cancelled'::text])))
-  fk  zv_approval_requests_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES zv_approval_workflows(id)
-  rls enabled forced
-  pol tenant_isolation_zv_approval_requests FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_approval_sla_alerts
-  col alert_type                     text NOT NULL DEFAULT 'overdue'::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col request_id                     uuid NOT NULL
-  col sent_at                        timestamp with time zone NOT NULL DEFAULT now()
-  col sent_to                        text NOT NULL
-  col step_id                        uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zv_approval_sla_alerts_alert_type_check CHECK ((alert_type = ANY (ARRAY['reminder'::text, 'overdue'::text, 'escalated'::text])))
-  pk  zv_approval_sla_alerts_pkey PRIMARY KEY (id)
-  fk  zv_approval_sla_alerts_request_id_fkey FOREIGN KEY (request_id) REFERENCES zv_approval_requests(id) ON DELETE CASCADE
-  fk  zv_approval_sla_alerts_step_id_fkey FOREIGN KEY (step_id) REFERENCES zv_approval_steps(id) ON DELETE SET NULL
-  rls enabled forced
-  pol tenant_isolation_zv_approval_sla_alerts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_approval_steps
-  col allow_parallel                 boolean NOT NULL DEFAULT false
-  col approver_role                  text
-  col approver_user_id               text
-  col condition_field                text
-  col condition_value                text
-  col created_at                     timestamp with time zone DEFAULT now()
-  col deadline_hours                 integer
-  col escalation_hours               integer
-  col escalation_user_id             text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_required                    boolean DEFAULT true
-  col name                           text NOT NULL
-  col step_order                     integer NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col workflow_id                    uuid NOT NULL
-  fk  zv_approval_steps_approver_user_id_fkey FOREIGN KEY (approver_user_id) REFERENCES "user"(id) ON DELETE SET NULL
-  pk  zv_approval_steps_pkey PRIMARY KEY (id)
-  fk  zv_approval_steps_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES zv_approval_workflows(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_approval_steps FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_approval_templates
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col default_metadata               jsonb NOT NULL DEFAULT '{}'::jsonb
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col workflow_id                    uuid NOT NULL
-  pk  zv_approval_templates_pkey PRIMARY KEY (id)
-  fk  zv_approval_templates_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES zv_approval_workflows(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_approval_templates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_approval_workflows
-  col collection                     text NOT NULL
-  col created_at                     timestamp with time zone DEFAULT now()
-  col created_by                     text
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean DEFAULT true
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col trigger_field                  text
-  col trigger_value                  text
-  col updated_at                     timestamp with time zone DEFAULT now()
-  fk  zv_approval_workflows_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  pk  zv_approval_workflows_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_approval_workflows FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zv_audit_log
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col event_type                     text NOT NULL
@@ -762,147 +634,6 @@ table zv_billing_webhook_events
   pk  zv_billing_webhook_events_pkey PRIMARY KEY (event_id)
   rls enabled forced
   pol tenant_isolation_zv_billing_webhook_events FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_checklist_items
-  col assignee_user_id               text
-  col checked                        boolean NOT NULL DEFAULT false
-  col checked_at                     timestamp with time zone
-  col checked_by                     text
-  col checklist_id                   uuid NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col description                    text
-  col due_at                         timestamp with time zone
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col label                          text NOT NULL
-  col notes                          text
-  col order_idx                      integer NOT NULL DEFAULT 0
-  col required                       boolean NOT NULL DEFAULT false
-  col template_item_id               uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col time_spent_minutes             integer
-  fk  zv_checklist_items_checklist_id_fkey FOREIGN KEY (checklist_id) REFERENCES zv_checklists(id) ON DELETE CASCADE
-  pk  zv_checklist_items_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_checklist_items FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_checklist_recurrence
-  col collection                     text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col frequency                      text NOT NULL DEFAULT 'weekly'::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col last_run_at                    timestamp with time zone
-  col next_run_at                    timestamp with time zone NOT NULL
-  col record_id                      uuid NOT NULL
-  col template_id                    uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zv_checklist_recurrence_frequency_check CHECK ((frequency = ANY (ARRAY['daily'::text, 'weekly'::text, 'monthly'::text, 'quarterly'::text])))
-  pk  zv_checklist_recurrence_pkey PRIMARY KEY (id)
-  fk  zv_checklist_recurrence_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_checklist_templates(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_checklist_recurrence FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_checklist_scheme_weights
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col scheme_id                      uuid NOT NULL
-  col template_item_id               uuid NOT NULL
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col weight                         numeric NOT NULL DEFAULT 1
-  pk  zv_checklist_scheme_weights_pkey PRIMARY KEY (id)
-  fk  zv_checklist_scheme_weights_scheme_id_fkey FOREIGN KEY (scheme_id) REFERENCES zv_checklist_scoring_schemes(id) ON DELETE CASCADE
-  uq  zv_checklist_scheme_weights_scheme_id_template_item_id_key UNIQUE (scheme_id, template_item_id)
-  fk  zv_checklist_scheme_weights_template_item_id_fkey FOREIGN KEY (template_item_id) REFERENCES zv_checklist_template_items(id) ON DELETE CASCADE
-  ck  zv_checklist_scheme_weights_weight_check CHECK ((weight >= (0)::numeric))
-  rls enabled forced
-  pol tenant_isolation_zv_checklist_scheme_weights FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_checklist_scores
-  col checklist_id                   uuid NOT NULL
-  col computed_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col method                         text NOT NULL
-  col passed                         boolean
-  col scheme_id                      uuid
-  col scheme_name                    text NOT NULL
-  col score                          numeric NOT NULL
-  col snapshot                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_checklist_scores_checklist_id_fkey FOREIGN KEY (checklist_id) REFERENCES zv_checklists(id) ON DELETE CASCADE
-  uq  zv_checklist_scores_checklist_id_scheme_id_key UNIQUE (checklist_id, scheme_id)
-  pk  zv_checklist_scores_pkey PRIMARY KEY (id)
-  fk  zv_checklist_scores_scheme_id_fkey FOREIGN KEY (scheme_id) REFERENCES zv_checklist_scoring_schemes(id) ON DELETE SET NULL
-  rls enabled forced
-  pol tenant_isolation_zv_checklist_scores FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_checklist_scoring_schemes
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col method                         text NOT NULL DEFAULT 'weighted_completion'::text
-  col name                           text NOT NULL
-  col pass_threshold                 numeric
-  col template_id                    uuid NOT NULL
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zv_checklist_scoring_schemes_method_check CHECK ((method = 'weighted_completion'::text))
-  ck  zv_checklist_scoring_schemes_pass_threshold_check CHECK (((pass_threshold IS NULL) OR ((pass_threshold >= (0)::numeric) AND (pass_threshold <= (100)::numeric))))
-  pk  zv_checklist_scoring_schemes_pkey PRIMARY KEY (id)
-  fk  zv_checklist_scoring_schemes_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_checklist_templates(id) ON DELETE CASCADE
-  idx uq_checklist_scheme_name UNIQUE (tenant_id, template_id, name)
-  rls enabled forced
-  pol tenant_isolation_zv_checklist_scoring_schemes FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_checklist_template_items
-  col assignee_role                  text
-  col condition_checked              boolean
-  col condition_item_label           text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col label                          text NOT NULL
-  col order_idx                      integer NOT NULL DEFAULT 0
-  col required                       boolean NOT NULL DEFAULT false
-  col template_id                    uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col time_estimate_minutes          integer
-  pk  zv_checklist_template_items_pkey PRIMARY KEY (id)
-  fk  zv_checklist_template_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_checklist_templates(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_checklist_template_items FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_checklist_templates
-  col collection                     text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zv_checklist_templates_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_checklist_templates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_checklists
-  col collection                     text NOT NULL
-  col completed_at                   timestamp with time zone
-  col completed_by                   text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col record_id                      uuid NOT NULL
-  col template_id                    uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col time_to_complete_minutes       integer
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zv_checklists_pkey PRIMARY KEY (id)
-  fk  zv_checklists_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_checklist_templates(id) ON DELETE SET NULL
-  rls enabled forced
-  pol tenant_isolation_zv_checklists FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_cloud_access_logs
   col action                         text NOT NULL
@@ -1557,35 +1288,6 @@ table zv_flows
   ck  zv_flows_trigger_type_check CHECK ((trigger_type = ANY (ARRAY['manual'::text, 'on_create'::text, 'on_update'::text, 'on_delete'::text, 'cron'::text, 'webhook'::text, 'ai_task'::text])))
   rls enabled forced
   pol tenant_isolation_zv_flows FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
-
-table zv_form_submissions
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col data                           jsonb NOT NULL DEFAULT '{}'::jsonb
-  col form_id                        uuid
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col ip_address                     text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_agent                     text
-  fk  zv_form_submissions_form_id_fkey FOREIGN KEY (form_id) REFERENCES zv_forms(id) ON DELETE CASCADE
-  pk  zv_form_submissions_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_form_submissions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_forms
-  col active                         boolean NOT NULL DEFAULT true
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col description                    text
-  col fields                         jsonb NOT NULL DEFAULT '[]'::jsonb
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col slug                           text NOT NULL
-  col target_collection              text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zv_forms_pkey PRIMARY KEY (id)
-  uq  zv_forms_slug_key UNIQUE (tenant_id, slug)
-  rls enabled forced
-  pol tenant_isolation_zv_forms FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_generated_docs
   col document_number                text
@@ -3443,6 +3145,123 @@ table zvd_api_oauth_tokens
   rls enabled forced
   pol tenant_isolation_zvd_api_oauth_tokens FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
+table zvd_approval_decisions
+  col comment                        text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col decision                       text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col request_id                     uuid NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col step_id                        uuid
+  col step_name                      text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_approval_decisions_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_approval_decisions_pkey PRIMARY KEY (id)
+  fk  zvd_approval_decisions_request_id_fkey FOREIGN KEY (request_id) REFERENCES zvd_approval_requests(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_approval_decisions_step_id_fkey FOREIGN KEY (step_id) REFERENCES zvd_approval_steps(id) ON UPDATE CASCADE ON DELETE SET NULL
+  uq  zvd_approval_decisions_tenant_id_request_id_step_id_key UNIQUE (tenant_id, request_id, step_id)
+  fk  zvd_approval_decisions_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('approval_decisions'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('approval_decisions'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('approval_decisions'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('approval_decisions'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('approval_decisions'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_approval_requests
+  col collection                     text NOT NULL
+  col completed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col current_step_id                uuid
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col metadata                       jsonb
+  col priority                       text NOT NULL DEFAULT 'normal'::text
+  col record_id                      text NOT NULL
+  col rejection_reason               text
+  col search_text                    text
+  col search_vector                  tsvector
+  col sla_breached                   boolean NOT NULL DEFAULT false
+  col sla_due_at                     timestamp with time zone
+  col status                         text NOT NULL DEFAULT 'pending'::text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col workflow_id                    uuid NOT NULL
+  fk  zvd_approval_requests_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_approval_requests_current_step_id_fkey FOREIGN KEY (current_step_id) REFERENCES zvd_approval_steps(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  pk  zvd_approval_requests_pkey PRIMARY KEY (id)
+  fk  zvd_approval_requests_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_approval_requests_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES zvd_approval_workflows(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('approval_requests'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('approval_requests'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('approval_requests'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('approval_requests'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('approval_requests'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_approval_steps
+  col approver_role                  text
+  col approver_user_id               text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col deadline_hours                 bigint
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col step_order                     bigint NOT NULL DEFAULT 0
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col workflow_id                    uuid NOT NULL
+  fk  zvd_approval_steps_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_approval_steps_pkey PRIMARY KEY (id)
+  uq  zvd_approval_steps_tenant_id_workflow_id_step_order_key UNIQUE (tenant_id, workflow_id, step_order)
+  fk  zvd_approval_steps_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_approval_steps_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES zvd_approval_workflows(id) ON UPDATE CASCADE ON DELETE CASCADE
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('approval_steps'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('approval_steps'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('approval_steps'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('approval_steps'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('approval_steps'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_approval_workflows
+  col collection                     text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_approval_workflows_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_approval_workflows_pkey PRIMARY KEY (id)
+  fk  zvd_approval_workflows_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('approval_workflows'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('approval_workflows'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('approval_workflows'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('approval_workflows'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('approval_workflows'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_asset_depreciation
   col amount                         numeric NOT NULL
   col asset_id                       uuid NOT NULL
@@ -3983,6 +3802,239 @@ table zvd_catalogue_items
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('catalogue_items'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('catalogue_items'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('catalogue_items'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('catalogue_items'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_checklist_items
+  col assignee_user_id               text
+  col checked                        boolean NOT NULL DEFAULT false
+  col checked_at                     timestamp with time zone
+  col checklist_id                   uuid NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col due_at                         timestamp with time zone
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col label                          text NOT NULL
+  col notes                          text
+  col order_idx                      bigint NOT NULL DEFAULT 0
+  col required                       boolean NOT NULL DEFAULT false
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_item_id               uuid
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col time_spent_minutes             bigint
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_checklist_items_checklist_id_fkey FOREIGN KEY (checklist_id) REFERENCES zvd_checklists(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_checklist_items_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_checklist_items_pkey PRIMARY KEY (id)
+  fk  zvd_checklist_items_template_item_id_fkey FOREIGN KEY (template_item_id) REFERENCES zvd_checklist_template_items(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_checklist_items_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('checklist_items'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklist_items'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklist_items'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklist_items'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklist_items'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_checklist_recurrences
+  col collection                     text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col frequency                      text NOT NULL DEFAULT 'weekly'::text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col last_run_at                    timestamp with time zone
+  col next_run_at                    timestamp with time zone NOT NULL
+  col record_id                      uuid NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_checklist_recurrences_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_checklist_recurrences_pkey PRIMARY KEY (id)
+  fk  zvd_checklist_recurrences_template_id_fkey FOREIGN KEY (template_id) REFERENCES zvd_checklist_templates(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_checklist_recurrences_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('checklist_recurrences'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklist_recurrences'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklist_recurrences'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklist_recurrences'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklist_recurrences'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_checklist_scheme_weights
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col scheme_id                      uuid NOT NULL
+  col search_vector                  tsvector
+  col template_item_id               uuid NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col weight                         numeric NOT NULL DEFAULT 1
+  fk  zvd_checklist_scheme_weights_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_checklist_scheme_weights_pkey PRIMARY KEY (id)
+  fk  zvd_checklist_scheme_weights_scheme_id_fkey FOREIGN KEY (scheme_id) REFERENCES zvd_checklist_scoring_schemes(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_checklist_scheme_weights_template_item_id_fkey FOREIGN KEY (template_item_id) REFERENCES zvd_checklist_template_items(id) ON UPDATE CASCADE ON DELETE CASCADE
+  uq  zvd_checklist_scheme_weights_tenant_id_scheme_id_templ_1fd1xgtb UNIQUE (tenant_id, scheme_id, template_item_id)
+  fk  zvd_checklist_scheme_weights_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('checklist_scheme_weights'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklist_scheme_weights'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklist_scheme_weights'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklist_scheme_weights'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklist_scheme_weights'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_checklist_scores
+  col checklist_id                   uuid NOT NULL
+  col computed_at                    timestamp with time zone NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col method                         text NOT NULL
+  col passed                         boolean DEFAULT false
+  col scheme_id                      uuid
+  col scheme_name                    text NOT NULL
+  col score                          numeric NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col snapshot                       jsonb
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_checklist_scores_checklist_id_fkey FOREIGN KEY (checklist_id) REFERENCES zvd_checklists(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_checklist_scores_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_checklist_scores_pkey PRIMARY KEY (id)
+  fk  zvd_checklist_scores_scheme_id_fkey FOREIGN KEY (scheme_id) REFERENCES zvd_checklist_scoring_schemes(id) ON UPDATE CASCADE ON DELETE SET NULL
+  uq  zvd_checklist_scores_tenant_id_checklist_id_scheme_id_key UNIQUE (tenant_id, checklist_id, scheme_id)
+  fk  zvd_checklist_scores_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('checklist_scores'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklist_scores'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklist_scores'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklist_scores'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklist_scores'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_checklist_scoring_schemes
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col method                         text NOT NULL DEFAULT 'weighted_completion'::text
+  col name                           text NOT NULL
+  col pass_threshold                 numeric
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_checklist_scoring_schemes_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_checklist_scoring_schemes_pkey PRIMARY KEY (id)
+  fk  zvd_checklist_scoring_schemes_template_id_fkey FOREIGN KEY (template_id) REFERENCES zvd_checklist_templates(id) ON UPDATE CASCADE ON DELETE CASCADE
+  uq  zvd_checklist_scoring_schemes_tenant_id_template_id_name_key UNIQUE (tenant_id, template_id, name)
+  fk  zvd_checklist_scoring_schemes_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('checklist_scoring_schemes'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklist_scoring_schemes'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklist_scoring_schemes'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklist_scoring_schemes'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklist_scoring_schemes'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_checklist_template_items
+  col assignee_role                  text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col label                          text NOT NULL
+  col order_idx                      bigint NOT NULL DEFAULT 0
+  col required                       boolean NOT NULL DEFAULT false
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col time_estimate_minutes          bigint
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_checklist_template_items_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_checklist_template_items_pkey PRIMARY KEY (id)
+  fk  zvd_checklist_template_items_template_id_fkey FOREIGN KEY (template_id) REFERENCES zvd_checklist_templates(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_checklist_template_items_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('checklist_template_items'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklist_template_items'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklist_template_items'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklist_template_items'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklist_template_items'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_checklist_templates
+  col collection                     text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_checklist_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_checklist_templates_pkey PRIMARY KEY (id)
+  fk  zvd_checklist_templates_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('checklist_templates'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklist_templates'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklist_templates'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklist_templates'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklist_templates'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_checklists
+  col collection                     text NOT NULL
+  col completed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col name                           text NOT NULL
+  col record_id                      uuid NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col time_to_complete_minutes       bigint
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_checklists_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_checklists_pkey PRIMARY KEY (id)
+  fk  zvd_checklists_template_id_fkey FOREIGN KEY (template_id) REFERENCES zvd_checklist_templates(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_checklists_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('checklists'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklists'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklists'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklists'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklists'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_collections
   col ai_embed_excluded_fields       ARRAY NOT NULL DEFAULT '{}'::text[]
@@ -5229,6 +5281,56 @@ table zvd_fiscal_years
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('fiscal_years'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('fiscal_years'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('fiscal_years'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('fiscal_years'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_form_submissions
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col data                           jsonb NOT NULL DEFAULT '{}'::jsonb
+  col form_id                        uuid NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_form_submissions_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_form_submissions_form_id_fkey FOREIGN KEY (form_id) REFERENCES zvd_forms(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_form_submissions_pkey PRIMARY KEY (id)
+  fk  zvd_form_submissions_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('form_submissions'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('form_submissions'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('form_submissions'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('form_submissions'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('form_submissions'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_forms
+  col active                         boolean NOT NULL DEFAULT true
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col fields                         jsonb NOT NULL DEFAULT '[]'::jsonb
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col slug                           text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_forms_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_forms_pkey PRIMARY KEY (id)
+  uq  zvd_forms_tenant_id_slug_key UNIQUE (tenant_id, slug)
+  fk  zvd_forms_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('forms'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('forms'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('forms'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('forms'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('forms'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_gdpr_access_requests
   col assigned_to                    text
@@ -8289,6 +8391,72 @@ table zvv_active_timers
   col updated_at                     timestamp with time zone
   col updated_by                     text
 
+table zvv_approval_decisions
+  col comment                        text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col decision                       text
+  col id                             uuid
+  col request_id                     uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col step_id                        uuid
+  col step_name                      text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_approval_requests
+  col collection                     text
+  col completed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col current_step_id                uuid
+  col id                             uuid
+  col metadata                       jsonb
+  col priority                       text
+  col record_id                      text
+  col rejection_reason               text
+  col search_text                    text
+  col search_vector                  tsvector
+  col sla_breached                   boolean
+  col sla_due_at                     timestamp with time zone
+  col status                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col workflow_id                    uuid
+
+table zvv_approval_steps
+  col approver_role                  text
+  col approver_user_id               text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col deadline_hours                 bigint
+  col id                             uuid
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col step_order                     bigint
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col workflow_id                    uuid
+
+table zvv_approval_workflows
+  col collection                     text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
 table zvv_asset_depreciation
   col amount                         numeric
   col asset_id                       uuid
@@ -8575,6 +8743,138 @@ table zvv_catalogue_items
   col tenant_id                      uuid
   col unit                           text
   col unit_price                     numeric
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_checklist_items
+  col assignee_user_id               text
+  col checked                        boolean
+  col checked_at                     timestamp with time zone
+  col checklist_id                   uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col due_at                         timestamp with time zone
+  col id                             uuid
+  col label                          text
+  col notes                          text
+  col order_idx                      bigint
+  col required                       boolean
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_item_id               uuid
+  col tenant_id                      uuid
+  col time_spent_minutes             bigint
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_checklist_recurrences
+  col collection                     text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col frequency                      text
+  col id                             uuid
+  col is_active                      boolean
+  col last_run_at                    timestamp with time zone
+  col next_run_at                    timestamp with time zone
+  col record_id                      uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_checklist_scheme_weights
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col scheme_id                      uuid
+  col search_vector                  tsvector
+  col template_item_id               uuid
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col weight                         numeric
+
+table zvv_checklist_scores
+  col checklist_id                   uuid
+  col computed_at                    timestamp with time zone
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col method                         text
+  col passed                         boolean
+  col scheme_id                      uuid
+  col scheme_name                    text
+  col score                          numeric
+  col search_text                    text
+  col search_vector                  tsvector
+  col snapshot                       jsonb
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_checklist_scoring_schemes
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col id                             uuid
+  col is_active                      boolean
+  col method                         text
+  col name                           text
+  col pass_threshold                 numeric
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_checklist_template_items
+  col assignee_role                  text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col id                             uuid
+  col label                          text
+  col order_idx                      bigint
+  col required                       boolean
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid
+  col tenant_id                      uuid
+  col time_estimate_minutes          bigint
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_checklist_templates
+  col collection                     text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_checklists
+  col collection                     text
+  col completed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col name                           text
+  col record_id                      uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid
+  col tenant_id                      uuid
+  col time_to_complete_minutes       bigint
   col updated_at                     timestamp with time zone
   col updated_by                     text
 
@@ -9256,6 +9556,32 @@ table zvv_fiscal_years
   col updated_at                     timestamp with time zone
   col updated_by                     text
   col year                           bigint
+
+table zvv_form_submissions
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col data                           jsonb
+  col form_id                        uuid
+  col id                             uuid
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_forms
+  col active                         boolean
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col fields                         jsonb
+  col id                             uuid
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col slug                           text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
 
 table zvv_invoice_lines
   col created_at                     timestamp with time zone

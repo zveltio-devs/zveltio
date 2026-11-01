@@ -12,13 +12,19 @@ let busy = $state<string | null>(null);
 async function load() {
   loading = true;
   try {
-    // The approvals extension exposes /ext/workflow/approvals; if not installed we
-    // fall back to empty so the page degrades gracefully.
+    // Pending requests of the approvals extension (its `approval_requests`
+    // collection); not installed, or not readable by this user, the list is empty.
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const res = await api.get<{ tasks?: any[]; approvals?: any[] }>(
-      '/ext/workflow/approvals?status=pending&assigned_to=me',
+    const res = await api.get<{ records?: any[] }>(
+      '/api/data/approval_requests?status[eq]=pending&expand=workflow_id,current_step_id&sort=created_at&order=desc&limit=100',
     );
-    tasks = res.tasks ?? res.approvals ?? [];
+    tasks = (res.records ?? []).map((r) => ({
+      ...r,
+      title: [r.workflow_id_expanded?.name, r.current_step_id_expanded?.name]
+        .filter(Boolean)
+        .join(' · '),
+      description: `${r.collection} ${r.record_id}`,
+    }));
   } catch {
     tasks = [];
   } finally {
@@ -29,7 +35,7 @@ async function load() {
 async function approve(id: string) {
   busy = id;
   try {
-    await api.post(`/ext/workflow/approvals/${id}/approve`, {});
+    await api.post('/ext/workflow/approvals/actions/decide', { id, decision: 'approved' });
     toast.success('Approved');
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -43,7 +49,7 @@ async function approve(id: string) {
 async function reject(id: string) {
   busy = id;
   try {
-    await api.post(`/ext/workflow/approvals/${id}/reject`, {});
+    await api.post('/ext/workflow/approvals/actions/decide', { id, decision: 'rejected' });
     toast.success('Rejected');
     await load();
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
