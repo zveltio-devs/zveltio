@@ -203,6 +203,16 @@ export async function processInput(
     // In partial mode (PATCH), only touch fields the caller actually sent.
     // Skipping validate here preserves required-field enforcement on create/replace.
     if (partial && value === undefined) continue;
+    // On create (`previous === null`), a field left out that has a default is
+    // the column's DEFAULT, not a missing value: a required `currency`
+    // defaulting to RON was refused here although the insert would have stored
+    // RON. A replace (PUT) still refuses it: an UPDATE applies no DEFAULT.
+    if (
+      previous === null &&
+      value === undefined &&
+      (field.defaultValue ?? typeDef.db.defaultValue) != null
+    )
+      continue;
 
     const error = fieldTypeRegistry.validate(field.type, value, field);
     if (error) errors.push(error);
