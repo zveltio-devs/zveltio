@@ -4,6 +4,19 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.96] - 2026-11-01
+
+**Fixed: a required field with a default was refused when a create left it
+out.** The data API answered 422 "<field> is required" although the INSERT
+would have stored the column default. The check now skips such a field on
+create only; an update that clears it is still refused (#1477). Extensions
+whose forms leave out defaulted required fields, starting with
+compliance/ro/procurement 2.0.x, need this version.
+
+**forms 3.0.0 and compliance/ro/procurement 2.0.0 declare their collections.**
+forms 3.0.0 absorbs checklists; the installed-schema snapshot and the
+generated schema follow both (#1476, #1477).
+
 ## [3.0.0-beta.95] - 2026-11-01
 
 **More first-party extensions declare their collections and actions.**
