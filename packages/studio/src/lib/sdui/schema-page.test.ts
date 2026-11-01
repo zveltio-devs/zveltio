@@ -143,3 +143,43 @@ describe('SchemaPage edit form', () => {
     });
   }, 60_000);
 });
+
+/**
+ * A filter on a data API source: the data API filters on `field[eq]` and
+ * ignores a bare `field=`, and the source already carries a query string, so
+ * the filter joins it with `&` (it was appended after a second `?`, landing
+ * inside the previous parameter's value).
+ */
+describe('SchemaPage filters', () => {
+  it('sends a data API filter as field[eq], joined to the source query', async () => {
+    get.mockReset();
+    get.mockImplementation(async () => []);
+    const filterSchema = {
+      title: 'Requests',
+      resources: [
+        {
+          id: 'requests',
+          label: 'requests',
+          dataSource: '/api/data/requests?sort=created_at',
+          filters: [
+            {
+              param: 'status',
+              options: [
+                { value: '', label: 'all' },
+                { value: 'pending', label: 'pending' },
+              ],
+            },
+          ],
+          columns: [{ key: 'name', label: 'name' }],
+        },
+      ],
+    };
+    const { default: SchemaPage } = await import('./SchemaPage.svelte');
+    const { getByText } = render(SchemaPage, { props: { schema: filterSchema, extName: 'x' } });
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await fireEvent.click(getByText('pending'));
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith('/api/data/requests?sort=created_at&status%5Beq%5D=pending'),
+    );
+  }, 60_000);
+});
