@@ -327,6 +327,7 @@ const SECTIONS: Section[] = [
       'transaction commits.',
     match: [
       `${E}lib/data/write-pipeline.ts`,
+      `${E}lib/data/written-by.ts`,
       `${E}lib/data/handlers/single.ts`,
       `${E}lib/data/handlers/bulk.ts`,
       `${E}lib/data/api-write.ts`,
