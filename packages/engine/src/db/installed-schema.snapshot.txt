@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 519
+# tables: 523
 
 table account
   col accessToken                    text
@@ -5282,14 +5282,83 @@ table zvd_fiscal_years
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('fiscal_years'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('fiscal_years'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('fiscal_years'::text, 'update'::text) AS zveltio_collection_allows)
 
+table zvd_form_answers
+  col answered_at                    timestamp with time zone
+  col assignee_user_id               text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col due_at                         timestamp with time zone
+  col field_id                       text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col notes                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col submission_id                  uuid NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col time_spent_minutes             bigint
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col value                          text
+  fk  zvd_form_answers_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_form_answers_pkey PRIMARY KEY (id)
+  fk  zvd_form_answers_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES zvd_form_submissions(id) ON UPDATE CASCADE ON DELETE CASCADE
+  uq  zvd_form_answers_tenant_id_submission_id_field_id_key UNIQUE (tenant_id, submission_id, field_id)
+  fk  zvd_form_answers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('form_answers'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('form_answers'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('form_answers'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('form_answers'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('form_answers'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_form_recurrences
+  col collection                     text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col form_id                        uuid NOT NULL
+  col frequency                      text NOT NULL DEFAULT 'weekly'::text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col last_run_at                    timestamp with time zone
+  col next_run_at                    timestamp with time zone NOT NULL
+  col record_id                      uuid NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_form_recurrences_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_form_recurrences_form_id_fkey FOREIGN KEY (form_id) REFERENCES zvd_forms(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_form_recurrences_pkey PRIMARY KEY (id)
+  fk  zvd_form_recurrences_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('form_recurrences'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('form_recurrences'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('form_recurrences'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('form_recurrences'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('form_recurrences'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_form_submissions
+  col collection                     text
+  col completed_at                   timestamp with time zone
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
   col data                           jsonb NOT NULL DEFAULT '{}'::jsonb
   col form_id                        uuid NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col name                           text
+  col passed                         boolean DEFAULT false
+  col record_id                      uuid
+  col score                          numeric
+  col score_snapshot                 jsonb
+  col search_text                    text
   col search_vector                  tsvector
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col time_to_complete_minutes       bigint
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col updated_by                     text
   fk  zvd_form_submissions_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
@@ -5307,12 +5376,14 @@ table zvd_form_submissions
 
 table zvd_forms
   col active                         boolean NOT NULL DEFAULT true
+  col collection                     text
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
   col description                    text
   col fields                         jsonb NOT NULL DEFAULT '[]'::jsonb
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col name                           text NOT NULL
+  col pass_threshold                 numeric
   col search_text                    text
   col search_vector                  tsvector
   col slug                           text NOT NULL
@@ -9557,25 +9628,71 @@ table zvv_fiscal_years
   col updated_by                     text
   col year                           bigint
 
-table zvv_form_submissions
+table zvv_form_answers
+  col answered_at                    timestamp with time zone
+  col assignee_user_id               text
   col created_at                     timestamp with time zone
   col created_by                     text
-  col data                           jsonb
-  col form_id                        uuid
+  col due_at                         timestamp with time zone
+  col field_id                       text
   col id                             uuid
+  col notes                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col submission_id                  uuid
+  col tenant_id                      uuid
+  col time_spent_minutes             bigint
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col value                          text
+
+table zvv_form_recurrences
+  col collection                     text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col form_id                        uuid
+  col frequency                      text
+  col id                             uuid
+  col is_active                      boolean
+  col last_run_at                    timestamp with time zone
+  col next_run_at                    timestamp with time zone
+  col record_id                      uuid
+  col search_text                    text
   col search_vector                  tsvector
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
 
+table zvv_form_submissions
+  col collection                     text
+  col completed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col data                           jsonb
+  col form_id                        uuid
+  col id                             uuid
+  col name                           text
+  col passed                         boolean
+  col record_id                      uuid
+  col score                          numeric
+  col score_snapshot                 jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col time_to_complete_minutes       bigint
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
 table zvv_forms
   col active                         boolean
+  col collection                     text
   col created_at                     timestamp with time zone
   col created_by                     text
   col description                    text
   col fields                         jsonb
   col id                             uuid
   col name                           text
+  col pass_threshold                 numeric
   col search_text                    text
   col search_vector                  tsvector
   col slug                           text
