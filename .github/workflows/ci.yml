@@ -667,7 +667,7 @@ jobs:
       # harness lcov) — the unit lane alone only loads ~76 files and flatters
       # the %. Publish this lcov for that job to merge.
       - name: Upload unit lcov (merged + gated in Handler Coverage)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unit-lcov
           path: packages/engine/coverage/lcov.info
@@ -1529,7 +1529,7 @@ jobs:
           tail -80 /tmp/engine.log || true
       - name: Upload bench result
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bench-result
           path: bench/results/ci.json
