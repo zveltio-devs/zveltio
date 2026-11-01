@@ -1716,40 +1716,6 @@ export interface ZvRevisionsTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvRoBudgetLinesTable {
-  id: Generated<string>;
-  code: string;
-  name: string;
-  year: number;
-  allocated: Generated<number>;
-  currency: Generated<string>;
-  notes: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvRoContractsTable {
-  id: Generated<string>;
-  number: string;
-  supplier_id: string | null;
-  supplier_name: string;
-  supplier_cui: string;
-  title: string;
-  type: Generated<'services' | 'goods' | 'works' | 'framework'>;
-  value: number | null;
-  currency: Generated<string>;
-  start_date: Date | null;
-  end_date: Date | null;
-  auto_renew: Generated<boolean>;
-  status: Generated<'draft' | 'active' | 'expired' | 'cancelled' | 'terminated'>;
-  file_url: string | null;
-  notes: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvRoDocNumberSequencesTable {
   type: Generated<string>;
   prefix: Generated<string>;
@@ -1818,89 +1784,6 @@ export interface ZvRoDocumentsTable {
   internal_notes: string | null;
   version_number: Generated<number>;
   archived_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvRoPurchaseOrdersTable {
-  id: Generated<string>;
-  number: string;
-  date: Date;
-  supplier_id: string | null;
-  supplier_name: string;
-  supplier_cui: string;
-  description: string;
-  category: string | null;
-  items: Generated<unknown>;
-  subtotal: Generated<number>;
-  vat_total: Generated<number>;
-  total: Generated<number>;
-  currency: Generated<string>;
-  budget_line: string | null;
-  status: Generated<string>;
-  approved_by: string | null;
-  approved_at: Date | null;
-  received_at: Date | null;
-  notes: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  contract_id: string | null;
-  priority: Generated<'low' | 'normal' | 'high' | 'urgent'>;
-  cancellation_reason: string | null;
-  cancelled_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvRoReceptionNotesTable {
-  id: Generated<string>;
-  number: string;
-  order_id: string | null;
-  supplier_id: string | null;
-  supplier_name: string;
-  date: Date;
-  items: Generated<unknown>;
-  total_value: Generated<number>;
-  currency: Generated<string>;
-  status: Generated<'draft' | 'confirmed' | 'disputed'>;
-  discrepancies: string | null;
-  confirmed_by: string | null;
-  confirmed_at: Date | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvRoSupplierEvaluationsTable {
-  id: Generated<string>;
-  supplier_id: string;
-  period: string;
-  quality_score: number;
-  delivery_score: number;
-  price_score: number;
-  overall_score: number | null;
-  notes: string | null;
-  evaluated_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvRoSuppliersTable {
-  id: Generated<string>;
-  name: string;
-  cui: string;
-  reg_com: string | null;
-  address: string | null;
-  county: string | null;
-  iban: string | null;
-  bank: string | null;
-  contact_name: string | null;
-  contact_email: string | null;
-  contact_phone: string | null;
-  category: string | null;
-  is_active: Generated<boolean>;
-  notes: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
   tenant_id: Generated<string | null>;
 }
 
@@ -3200,17 +3083,11 @@ export interface DbSchema {
   zv_record_comments: ZvRecordCommentsTable;
   zv_request_logs: ZvRequestLogsTable;
   zv_revisions: ZvRevisionsTable;
-  zv_ro_budget_lines: ZvRoBudgetLinesTable;
-  zv_ro_contracts: ZvRoContractsTable;
   zv_ro_doc_number_sequences: ZvRoDocNumberSequencesTable;
   zv_ro_document_signatories: ZvRoDocumentSignatoriesTable;
   zv_ro_document_templates: ZvRoDocumentTemplatesTable;
   zv_ro_document_versions: ZvRoDocumentVersionsTable;
   zv_ro_documents: ZvRoDocumentsTable;
-  zv_ro_purchase_orders: ZvRoPurchaseOrdersTable;
-  zv_ro_reception_notes: ZvRoReceptionNotesTable;
-  zv_ro_supplier_evaluations: ZvRoSupplierEvaluationsTable;
-  zv_ro_suppliers: ZvRoSuppliersTable;
   zv_roles: ZvRolesTable;
   zv_saft_accounts: ZvSaftAccountsTable;
   zv_saft_exports: ZvSaftExportsTable;

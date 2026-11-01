@@ -49,6 +49,19 @@ describe('processInput — branch coverage', () => {
     expect(processed).not.toHaveProperty('ghost');
   });
 
+  it('leaves a required field with a default to the column default when it is left out', async () => {
+    const def = {
+      name: 'items',
+      fields: [{ name: 'currency', type: 'text', required: true, defaultValue: 'RON' }],
+    } as never;
+    expect((await processInput({}, def, false, null)).errors).toEqual([]);
+    // A replace sets no DEFAULT, so it still names the field.
+    expect((await processInput({}, def, false, 'later')).errors).toEqual(['currency is required']);
+    expect((await processInput({ currency: '' }, def, false, null)).errors).toEqual([
+      'currency is required',
+    ]);
+  });
+
   it('collects validation errors for invalid values in full replace mode', async () => {
     const { errors, processed } = await processInput(
       { code: 'A', contact: 'not-an-email' },

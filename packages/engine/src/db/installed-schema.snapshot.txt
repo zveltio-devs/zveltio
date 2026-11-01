@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 523
+# tables: 529
 
 table account
   col accessToken                    text
@@ -2368,49 +2368,6 @@ table zv_revisions
   rls enabled forced
   pol tenant_isolation_zv_revisions FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
-table zv_ro_budget_lines
-  col allocated                      numeric NOT NULL DEFAULT 0
-  col code                           text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col notes                          text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col year                           integer NOT NULL
-  uq  zv_ro_budget_lines_code_key UNIQUE (tenant_id, code)
-  pk  zv_ro_budget_lines_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_ro_budget_lines FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ro_contracts
-  col auto_renew                     boolean NOT NULL DEFAULT false
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col end_date                       date
-  col file_url                       text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col notes                          text
-  col number                         text NOT NULL
-  col start_date                     date
-  col status                         text NOT NULL DEFAULT 'draft'::text
-  col supplier_cui                   text NOT NULL
-  col supplier_id                    uuid
-  col supplier_name                  text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text NOT NULL
-  col type                           text NOT NULL DEFAULT 'services'::text
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col value                          numeric
-  uq  zv_ro_contracts_number_key UNIQUE (tenant_id, number)
-  pk  zv_ro_contracts_pkey PRIMARY KEY (id)
-  ck  zv_ro_contracts_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'active'::text, 'expired'::text, 'cancelled'::text, 'terminated'::text])))
-  fk  zv_ro_contracts_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES zv_ro_suppliers(id)
-  ck  zv_ro_contracts_type_check CHECK ((type = ANY (ARRAY['services'::text, 'goods'::text, 'works'::text, 'framework'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_ro_contracts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zv_ro_doc_number_sequences
   col format                         text NOT NULL DEFAULT '{prefix}{year}-{seq:4d}'::text
   col last_seq                       integer NOT NULL DEFAULT 0
@@ -2491,111 +2448,6 @@ table zv_ro_documents
   pk  zv_ro_documents_pkey PRIMARY KEY (id)
   rls enabled forced
   pol tenant_isolation_zv_ro_documents FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ro_purchase_orders
-  col approved_at                    timestamp with time zone
-  col approved_by                    text
-  col budget_line                    text
-  col cancellation_reason            text
-  col cancelled_at                   timestamp with time zone
-  col category                       text
-  col contract_id                    uuid
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col date                           date NOT NULL
-  col description                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col items                          jsonb NOT NULL DEFAULT '[]'::jsonb
-  col notes                          text
-  col number                         text NOT NULL
-  col priority                       text NOT NULL DEFAULT 'normal'::text
-  col received_at                    timestamp with time zone
-  col status                         text NOT NULL DEFAULT 'draft'::text
-  col subtotal                       numeric NOT NULL DEFAULT 0
-  col supplier_cui                   text NOT NULL
-  col supplier_id                    uuid
-  col supplier_name                  text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total                          numeric NOT NULL DEFAULT 0
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col vat_total                      numeric NOT NULL DEFAULT 0
-  fk  zv_ro_purchase_orders_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES zv_ro_contracts(id) ON DELETE SET NULL
-  uq  zv_ro_purchase_orders_number_key UNIQUE (tenant_id, number)
-  pk  zv_ro_purchase_orders_pkey PRIMARY KEY (id)
-  ck  zv_ro_purchase_orders_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text])))
-  fk  zv_ro_purchase_orders_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES zv_ro_suppliers(id)
-  rls enabled forced
-  pol tenant_isolation_zv_ro_purchase_orders FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ro_reception_notes
-  col confirmed_at                   timestamp with time zone
-  col confirmed_by                   text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col date                           date NOT NULL
-  col discrepancies                  text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col items                          jsonb NOT NULL DEFAULT '[]'::jsonb
-  col number                         text NOT NULL
-  col order_id                       uuid
-  col status                         text NOT NULL DEFAULT 'draft'::text
-  col supplier_id                    uuid
-  col supplier_name                  text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total_value                    numeric NOT NULL DEFAULT 0
-  uq  zv_ro_reception_notes_number_key UNIQUE (tenant_id, number)
-  fk  zv_ro_reception_notes_order_id_fkey FOREIGN KEY (order_id) REFERENCES zv_ro_purchase_orders(id)
-  pk  zv_ro_reception_notes_pkey PRIMARY KEY (id)
-  ck  zv_ro_reception_notes_status_check CHECK ((status = ANY (ARRAY['draft'::text, 'confirmed'::text, 'disputed'::text])))
-  fk  zv_ro_reception_notes_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES zv_ro_suppliers(id)
-  rls enabled forced
-  pol tenant_isolation_zv_ro_reception_notes FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ro_supplier_evaluations
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col delivery_score                 integer NOT NULL
-  col evaluated_by                   text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col notes                          text
-  col overall_score                  numeric
-  col period                         text NOT NULL
-  col price_score                    integer NOT NULL
-  col quality_score                  integer NOT NULL
-  col supplier_id                    uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zv_ro_supplier_evaluations_delivery_score_check CHECK (((delivery_score >= 1) AND (delivery_score <= 5)))
-  pk  zv_ro_supplier_evaluations_pkey PRIMARY KEY (id)
-  ck  zv_ro_supplier_evaluations_price_score_check CHECK (((price_score >= 1) AND (price_score <= 5)))
-  ck  zv_ro_supplier_evaluations_quality_score_check CHECK (((quality_score >= 1) AND (quality_score <= 5)))
-  fk  zv_ro_supplier_evaluations_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES zv_ro_suppliers(id)
-  uq  zv_ro_supplier_evaluations_supplier_id_period_key UNIQUE (supplier_id, period)
-  rls enabled forced
-  pol tenant_isolation_zv_ro_supplier_evaluations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ro_suppliers
-  col address                        text
-  col bank                           text
-  col category                       text
-  col contact_email                  text
-  col contact_name                   text
-  col contact_phone                  text
-  col county                         text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col cui                            text NOT NULL
-  col iban                           text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col notes                          text
-  col reg_com                        text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  uq  zv_ro_suppliers_cui_key UNIQUE (tenant_id, cui)
-  pk  zv_ro_suppliers_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_ro_suppliers FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_roles
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -6847,6 +6699,217 @@ table zvd_pos_z_reports
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('pos_z_reports'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('pos_z_reports'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('pos_z_reports'::text, 'update'::text) AS zveltio_collection_allows)
 
+table zvd_procurement_budget_lines
+  col allocated                      numeric NOT NULL DEFAULT 0
+  col code                           text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col currency                       text NOT NULL DEFAULT 'RON'::text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col name                           text NOT NULL
+  col notes                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col year                           bigint NOT NULL
+  fk  zvd_procurement_budget_lines_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_procurement_budget_lines_pkey PRIMARY KEY (id)
+  uq  zvd_procurement_budget_lines_tenant_id_code_key UNIQUE (tenant_id, code)
+  fk  zvd_procurement_budget_lines_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('procurement_budget_lines'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('procurement_budget_lines'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('procurement_budget_lines'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('procurement_budget_lines'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('procurement_budget_lines'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_procurement_contracts
+  col auto_renew                     boolean NOT NULL DEFAULT false
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col currency                       text NOT NULL DEFAULT 'RON'::text
+  col end_date                       date
+  col file_url                       text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col notes                          text
+  col number                         text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col start_date                     date
+  col status                         text NOT NULL DEFAULT 'draft'::text
+  col supplier_cui                   text NOT NULL
+  col supplier_id                    uuid
+  col supplier_name                  text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col title                          text NOT NULL
+  col type                           text NOT NULL DEFAULT 'services'::text
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col value                          numeric
+  fk  zvd_procurement_contracts_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_procurement_contracts_pkey PRIMARY KEY (id)
+  fk  zvd_procurement_contracts_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES zvd_procurement_suppliers(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  uq  zvd_procurement_contracts_tenant_id_number_key UNIQUE (tenant_id, number)
+  fk  zvd_procurement_contracts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('procurement_contracts'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('procurement_contracts'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('procurement_contracts'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('procurement_contracts'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('procurement_contracts'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_procurement_orders
+  col approved_at                    timestamp with time zone
+  col budget_line_id                 uuid
+  col cancellation_reason            text
+  col cancelled_at                   timestamp with time zone
+  col category                       text
+  col contract_id                    uuid
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col currency                       text NOT NULL DEFAULT 'RON'::text
+  col date                           date NOT NULL
+  col description                    text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col items                          jsonb NOT NULL
+  col notes                          text
+  col number                         text NOT NULL
+  col priority                       text NOT NULL DEFAULT 'normal'::text
+  col received_at                    timestamp with time zone
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text NOT NULL DEFAULT 'draft'::text
+  col subtotal                       numeric NOT NULL DEFAULT 0
+  col supplier_cui                   text NOT NULL
+  col supplier_id                    uuid
+  col supplier_name                  text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col total                          numeric NOT NULL DEFAULT 0
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col vat_total                      numeric NOT NULL DEFAULT 0
+  fk  zvd_procurement_orders_budget_line_id_fkey FOREIGN KEY (budget_line_id) REFERENCES zvd_procurement_budget_lines(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  fk  zvd_procurement_orders_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES zvd_procurement_contracts(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  fk  zvd_procurement_orders_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_procurement_orders_pkey PRIMARY KEY (id)
+  fk  zvd_procurement_orders_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES zvd_procurement_suppliers(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  uq  zvd_procurement_orders_tenant_id_number_key UNIQUE (tenant_id, number)
+  fk  zvd_procurement_orders_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('procurement_orders'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('procurement_orders'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('procurement_orders'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('procurement_orders'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('procurement_orders'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_procurement_reception_notes
+  col confirmed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col currency                       text NOT NULL DEFAULT 'RON'::text
+  col date                           date NOT NULL
+  col discrepancies                  text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col items                          jsonb NOT NULL
+  col number                         text NOT NULL
+  col order_id                       uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text NOT NULL DEFAULT 'draft'::text
+  col supplier_id                    uuid
+  col supplier_name                  text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col total_value                    numeric NOT NULL DEFAULT 0
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_procurement_reception_notes_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_procurement_reception_notes_order_id_fkey FOREIGN KEY (order_id) REFERENCES zvd_procurement_orders(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  pk  zvd_procurement_reception_notes_pkey PRIMARY KEY (id)
+  fk  zvd_procurement_reception_notes_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES zvd_procurement_suppliers(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  uq  zvd_procurement_reception_notes_tenant_id_number_key UNIQUE (tenant_id, number)
+  fk  zvd_procurement_reception_notes_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('procurement_reception_notes'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('procurement_reception_notes'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('procurement_reception_notes'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('procurement_reception_notes'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('procurement_reception_notes'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_procurement_supplier_evaluations
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col delivery_score                 bigint NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col notes                          text
+  col overall_score                  numeric NOT NULL
+  col period                         text NOT NULL
+  col price_score                    bigint NOT NULL
+  col quality_score                  bigint NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col supplier_id                    uuid NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_procurement_supplier_evaluations_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_procurement_supplier_evaluations_pkey PRIMARY KEY (id)
+  fk  zvd_procurement_supplier_evaluations_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES zvd_procurement_suppliers(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  uq  zvd_procurement_supplier_evaluations_tenant_id_supplie_2sfmqf0b UNIQUE (tenant_id, supplier_id, period)
+  fk  zvd_procurement_supplier_evaluations_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('procurement_supplier_evaluations'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('procurement_supplier_evaluations'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('procurement_supplier_evaluations'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('procurement_supplier_evaluations'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('procurement_supplier_evaluations'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_procurement_suppliers
+  col address                        text
+  col bank                           text
+  col category                       text
+  col contact_email                  text
+  col contact_name                   text
+  col contact_phone                  text
+  col county                         text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col cui                            text NOT NULL
+  col iban                           text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col name                           text NOT NULL
+  col notes                          text
+  col reg_com                        text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_procurement_suppliers_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_procurement_suppliers_pkey PRIMARY KEY (id)
+  uq  zvd_procurement_suppliers_tenant_id_cui_key UNIQUE (tenant_id, cui)
+  fk  zvd_procurement_suppliers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('procurement_suppliers'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('procurement_suppliers'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('procurement_suppliers'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('procurement_suppliers'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('procurement_suppliers'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_product_batches
   col batch_number                   text NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -10350,6 +10413,138 @@ table zvv_pos_z_reports
   col tenant_id                      uuid
   col total_refunds                  numeric
   col total_sales                    numeric
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_procurement_budget_lines
+  col allocated                      numeric
+  col code                           text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col currency                       text
+  col id                             uuid
+  col name                           text
+  col notes                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col year                           bigint
+
+table zvv_procurement_contracts
+  col auto_renew                     boolean
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col currency                       text
+  col end_date                       date
+  col file_url                       text
+  col id                             uuid
+  col notes                          text
+  col number                         text
+  col search_text                    text
+  col search_vector                  tsvector
+  col start_date                     date
+  col status                         text
+  col supplier_cui                   text
+  col supplier_id                    uuid
+  col supplier_name                  text
+  col tenant_id                      uuid
+  col title                          text
+  col type                           text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col value                          numeric
+
+table zvv_procurement_orders
+  col approved_at                    timestamp with time zone
+  col budget_line_id                 uuid
+  col cancellation_reason            text
+  col cancelled_at                   timestamp with time zone
+  col category                       text
+  col contract_id                    uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col currency                       text
+  col date                           date
+  col description                    text
+  col id                             uuid
+  col items                          jsonb
+  col notes                          text
+  col number                         text
+  col priority                       text
+  col received_at                    timestamp with time zone
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text
+  col subtotal                       numeric
+  col supplier_cui                   text
+  col supplier_id                    uuid
+  col supplier_name                  text
+  col tenant_id                      uuid
+  col total                          numeric
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col vat_total                      numeric
+
+table zvv_procurement_reception_notes
+  col confirmed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col currency                       text
+  col date                           date
+  col discrepancies                  text
+  col id                             uuid
+  col items                          jsonb
+  col number                         text
+  col order_id                       uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text
+  col supplier_id                    uuid
+  col supplier_name                  text
+  col tenant_id                      uuid
+  col total_value                    numeric
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_procurement_supplier_evaluations
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col delivery_score                 bigint
+  col id                             uuid
+  col notes                          text
+  col overall_score                  numeric
+  col period                         text
+  col price_score                    bigint
+  col quality_score                  bigint
+  col search_text                    text
+  col search_vector                  tsvector
+  col supplier_id                    uuid
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_procurement_suppliers
+  col address                        text
+  col bank                           text
+  col category                       text
+  col contact_email                  text
+  col contact_name                   text
+  col contact_phone                  text
+  col county                         text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col cui                            text
+  col iban                           text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col notes                          text
+  col reg_com                        text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
 
