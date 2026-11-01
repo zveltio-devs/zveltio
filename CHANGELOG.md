@@ -4,6 +4,23 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.95] - 2026-11-01
+
+**More first-party extensions declare their collections and actions.**
+operations/pos, ecommerce/store, operations/assets, finance/subscriptions,
+workflow/checklists, forms and workflow/approvals now declare their tables
+instead of shipping SQL migrations; the installed-schema snapshot and the
+generated schema follow (#1469–#1474). The assets depreciation key is now
+(tenant_id, asset_id, period_date).
+
+**Fixed: SDUI list filters never filtered a data API source.** The filter was
+appended after a second `?` when the source already carried a query string,
+so it never reached the data API (#1474).
+
+**Fixed: Studio intranet tasks and home showed no pending approvals.** They
+called approval routes that never existed; they now read the approvals 2.0.0
+collection and decide through its `decide` action (#1474).
+
 ## [3.0.0-beta.94] - 2026-10-31
 
 **An action may run an action of an extension it depends on (ADR 0014).**
