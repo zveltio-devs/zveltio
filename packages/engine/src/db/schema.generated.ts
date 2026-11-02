@@ -2473,15 +2473,6 @@ export interface ZvdLdapLoginLogTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdLocalesTable {
-  code: Generated<string>;
-  name: string;
-  is_default: Generated<boolean>;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string>;
-}
-
 export interface ZvdMailConfigTable {
   tenant_id: Generated<string>;
   config: unknown;
@@ -2697,76 +2688,6 @@ export interface ZvdSamlLoginLogTable {
   failure_reason: string | null;
   relay_state: string | null;
   created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTranslationGlossaryTable {
-  id: Generated<string>;
-  term: string;
-  locale: string;
-  translation: string;
-  definition: string | null;
-  forbidden: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTranslationImportJobsTable {
-  id: Generated<string>;
-  format: Generated<'json' | 'csv' | 'po' | 'xliff'>;
-  locale: string;
-  status: Generated<'pending' | 'processing' | 'completed' | 'failed'>;
-  keys_total: Generated<number>;
-  keys_imported: Generated<number>;
-  keys_skipped: Generated<number>;
-  error: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTranslationKeysTable {
-  id: Generated<string>;
-  key: string;
-  context: string | null;
-  default_value: string | null;
-  description: string | null;
-  tags: Generated<string[]>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  max_length: number | null;
-  is_pluralized: Generated<boolean>;
-  screenshot_url: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTranslationMemoryTable {
-  id: Generated<string>;
-  source_text: string;
-  target_text: string;
-  locale: string;
-  context: string | null;
-  quality_score: Generated<number>;
-  usage_count: Generated<number>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdTranslationsTable {
-  id: Generated<string>;
-  key_id: string;
-  locale: string;
-  value: string;
-  is_machine_translated: Generated<boolean>;
-  reviewed: Generated<boolean>;
-  updated_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  char_count: number | null;
-  approved_by: string | null;
-  approved_at: Date | null;
   tenant_id: Generated<string | null>;
 }
 
@@ -3031,7 +2952,6 @@ export interface DbSchema {
   zvd_ldap_group_mappings: ZvdLdapGroupMappingsTable;
   zvd_ldap_ip_allowlist: ZvdLdapIpAllowlistTable;
   zvd_ldap_login_log: ZvdLdapLoginLogTable;
-  zvd_locales: ZvdLocalesTable;
   zvd_mail_config: ZvdMailConfigTable;
   zvd_panel_cache: ZvdPanelCacheTable;
   zvd_permissions: ZvdPermissionsTable;
@@ -3051,11 +2971,6 @@ export interface DbSchema {
   zvd_saml_consumed_assertions: ZvdSamlConsumedAssertionsTable;
   zvd_saml_idp_metadata: ZvdSamlIdpMetadataTable;
   zvd_saml_login_log: ZvdSamlLoginLogTable;
-  zvd_translation_glossary: ZvdTranslationGlossaryTable;
-  zvd_translation_import_jobs: ZvdTranslationImportJobsTable;
-  zvd_translation_keys: ZvdTranslationKeysTable;
-  zvd_translation_memory: ZvdTranslationMemoryTable;
-  zvd_translations: ZvdTranslationsTable;
   zvd_validation_import_log: ZvdValidationImportLogTable;
   zvd_validation_rule_groups: ZvdValidationRuleGroupsTable;
   zvd_validation_test_cases: ZvdValidationTestCasesTable;
