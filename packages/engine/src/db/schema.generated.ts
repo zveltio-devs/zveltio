@@ -1716,77 +1716,6 @@ export interface ZvRevisionsTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvRoDocNumberSequencesTable {
-  type: Generated<string>;
-  prefix: Generated<string>;
-  year: Generated<number>;
-  last_seq: Generated<number>;
-  format: Generated<string>;
-  updated_at: Generated<Date>;
-  id: Generated<string>;
-  tenant_id: Generated<string>;
-}
-
-export interface ZvRoDocumentSignatoriesTable {
-  id: Generated<string>;
-  document_id: string;
-  name: string;
-  role: Generated<string>;
-  email: string | null;
-  signed_at: Date | null;
-  sign_order: Generated<number>;
-  token: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvRoDocumentTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  type: string;
-  description: string | null;
-  template: string;
-  variables: Generated<unknown>;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvRoDocumentVersionsTable {
-  id: Generated<string>;
-  document_id: string;
-  version: number;
-  content: string | null;
-  changed_by: string | null;
-  change_note: string | null;
-  created_at: Generated<Date>;
-  metadata: Generated<unknown>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvRoDocumentsTable {
-  id: Generated<string>;
-  type: string;
-  number: string;
-  date: Date;
-  title: string;
-  parties: Generated<unknown>;
-  content: string | null;
-  template_id: string | null;
-  metadata: Generated<unknown>;
-  status: Generated<string>;
-  file_url: string | null;
-  signed_at: Date | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  category: string | null;
-  internal_notes: string | null;
-  version_number: Generated<number>;
-  archived_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvRolesTable {
   id: Generated<string>;
   name: string;
@@ -3047,11 +2976,6 @@ export interface DbSchema {
   zv_record_comments: ZvRecordCommentsTable;
   zv_request_logs: ZvRequestLogsTable;
   zv_revisions: ZvRevisionsTable;
-  zv_ro_doc_number_sequences: ZvRoDocNumberSequencesTable;
-  zv_ro_document_signatories: ZvRoDocumentSignatoriesTable;
-  zv_ro_document_templates: ZvRoDocumentTemplatesTable;
-  zv_ro_document_versions: ZvRoDocumentVersionsTable;
-  zv_ro_documents: ZvRoDocumentsTable;
   zv_roles: ZvRolesTable;
   zv_saved_queries: ZvSavedQueriesTable;
   zv_schema_branches: ZvSchemaBranchesTable;
