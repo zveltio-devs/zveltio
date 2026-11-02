@@ -198,7 +198,7 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
     process.exit(1);
   }
 
-  console.log(`  Name:          ${c.bold(manifest.name)} ${c.dim('v' + manifest.version)}`);
+  console.log(`  Name:          ${c.bold(manifest.name)} ${c.dim(`v${manifest.version}`)}`);
 
   // 2. Validate (composes S4-04 — silentExit so we control the flow).
   // Commander sets `--no-validate` → opts.validate === false.
