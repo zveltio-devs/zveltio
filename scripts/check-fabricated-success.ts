@@ -35,7 +35,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import ts from 'typescript';
 
 const ROOT = join(import.meta.dir, '..');
@@ -182,7 +182,7 @@ for (const dir of DIRS) {
   for (const file of tsFiles(dir)) {
     const key = file.startsWith(`${ROOT}/`)
       ? file.slice(ROOT.length + 1)
-      : `ext:${file.slice(file.indexOf('zveltio-extensions/') + 'zveltio-extensions/'.length)}`;
+      : `ext:${relative(SIBLING_ROOT, file)}`;
     const src = readFileSync(file, 'utf8');
     if (!src.includes('.catch')) continue;
     const lines = src.split('\n');
