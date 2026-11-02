@@ -372,16 +372,6 @@ export interface ZvContentDraftsTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvDashboardLayoutsTable {
-  id: Generated<string>;
-  scope: 'role' | 'user';
-  owner: string;
-  widgets: Generated<unknown>;
-  updated_by: string | null;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvDashboardsTable {
   id: Generated<string>;
   name: string;
@@ -2680,7 +2670,6 @@ export interface DbSchema {
   zv_cloud_trash: ZvCloudTrashTable;
   zv_collection_publish_settings: ZvCollectionPublishSettingsTable;
   zv_content_drafts: ZvContentDraftsTable;
-  zv_dashboard_layouts: ZvDashboardLayoutsTable;
   zv_dashboards: ZvDashboardsTable;
   zv_default_grant_revocations: ZvDefaultGrantRevocationsTable;
   zv_doc_templates: ZvDocTemplatesTable;
