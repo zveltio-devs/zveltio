@@ -88,7 +88,7 @@ export async function readScope(
   db: Database,
   collection: string,
   given: ReadUser,
-  authType: 'session' | 'api_key',
+  authType: 'session' | 'api_key' | 'anonymous',
 ): Promise<ReadScope> {
   const table = DDLManager.getTableName(collection);
   const role = await principalRole(given.id);
@@ -153,7 +153,7 @@ export async function recordReadable(
   collection: string,
   id: string,
   user: ReadUser,
-  authType: 'session' | 'api_key',
+  authType: 'session' | 'api_key' | 'anonymous',
 ): Promise<boolean> {
   if (!isUuid(id) || !(await DDLManager.getCollection(db, collection))) return false;
   const scope = await readScope(db, collection, user, authType);

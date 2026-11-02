@@ -127,7 +127,14 @@ function valueExpr(
   // with this helper defined and unused, so the value side stayed bare.
   const guc = (name: string) => `(SELECT current_setting('${name}', true))`;
   const cast = (inner: string) => (pgType === 'text' ? inner : `CAST(${inner} AS ${pgType})`);
-  if (source === 'user_id' || source === 'user_email' || source === 'user_role')
+  // An empty id or email is nobody's (`rulesFor` in rls.ts): NULL compares true
+  // on no operator, so no row is the caller's. `''` matched every blank column.
+  if (source === 'user_id' || source === 'user_email')
+    return {
+      sql: cast(`(SELECT nullif(current_setting('${prefix}${source}', true), ''))`),
+      guc: `${prefix}${source}`,
+    };
+  if (source === 'user_role')
     return { sql: cast(guc(`${prefix}${source}`)), guc: `${prefix}${source}` };
   if (source.startsWith('static:')) return { sql: cast(lit(source.slice('static:'.length))) };
   return null;
@@ -173,14 +180,15 @@ function applicable(rule: RowRule, condition: string, perActor: boolean): string
   //
   // The engine never skips a rule for an empty value:
   //
-  //     user_id     -> user.id            an empty string does NOT skip
-  //     user_email  -> user.email ?? ''   an empty string does NOT skip
+  //     user_id     -> user.id            an empty one owns NO row (valueExpr)
+  //     user_email  -> user.email ?? ''   an empty one owns NO row (valueExpr)
   //     user_role   -> user.role ?? ''    an empty string does NOT skip
   //
   // `user_email` used to be the exception — an absent email skipped, and this
   // guard skipped with it on an empty setting. Every API key publishes an empty
   // email, so a key with RLS enforced saw every row under an email rule, here
-  // and in the engine alike. It now compares against '' like the other two.
+  // and in the engine alike. It then compared against '', which still handed
+  // that key every row whose column was blank; now an empty id or email is NULL.
   //
   // This guard skipped on any EMPTY setting, so `bucket eq user_role` against
   // a session whose role is unset — which is every session, because

@@ -4,6 +4,25 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**The data API serves anonymous reads through the tenant's `public` role (ADR
+0017).** `GET /api/data`, `GET /api/data/:collection` and
+`GET /api/data/:collection/:id` with no session and no key used to answer 401,
+so a public site or public docs could not be served from an extension's
+collections. They now run as `public`, held to its Casbin grants, collection
+policies, row rules and column permissions like any role; `public` holds
+nothing until an operator grants it `read`, so a fresh instance still serves
+nothing (403, the granted-less role's answer). Writes, and any request that
+presents an API key the engine refuses, stay 401. Anonymous reads have their
+own per-address limit, `anon-read` (100/min, tunable).
+
+**Fixed: an empty id or email matched blank columns in a row rule.** A rule on
+`user_id` or `user_email` compared an absent value as `''`, so an API key (whose
+own email is empty) under `owner_email eq user_email` read every row whose
+`owner_email` was blank, and so would an anonymous caller. A caller with no id or
+email now owns no row through those sources, in the engine and in the database
+policy (`nullif`). An `Authorization: bearer zvk_…` with a lower-case scheme is
+now read as the API key it is.
+
 **Fixed: a row refused by a collection policy answered 500 outside the data
 API.** An extension route writing through `ctx.db` for a role without the
 write grant (a `tenant_viewer` saving a dashboard layout) surfaced Postgres'

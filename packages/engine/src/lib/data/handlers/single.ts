@@ -74,7 +74,7 @@ export interface WriteRequest {
   id: string;
   body: () => Promise<Record<string, unknown>>;
   user: RequestUser;
-  authType: 'session' | 'api_key';
+  authType: 'session' | 'api_key' | 'anonymous';
   /** The request's tenant transaction; the handler's `db` when there is none. */
   trx: Database | undefined;
   tenantId: string | null;

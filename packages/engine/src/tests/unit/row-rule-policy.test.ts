@@ -52,8 +52,12 @@ describe('row rules as a Postgres predicate', () => {
         );
         // The value side: right of `=`, inside `IN (`, or inside `CAST(`.
         expect(predicate).not.toMatch(/(= |IN \(|CAST\()current_setting\(/);
+        // `nullif` for the sources that name the caller: an empty one owns no row.
+        const setting = `current_setting('zveltio.${filter_value_source}', true)`;
         expect(predicate).toContain(
-          `(SELECT current_setting('zveltio.${filter_value_source}', true))`,
+          filter_value_source === 'user_role'
+            ? `(SELECT ${setting})`
+            : `(SELECT nullif(${setting}, ''))`,
         );
       }
     }
@@ -101,21 +105,26 @@ describe('row rules as a Postgres predicate', () => {
     // `zveltio.actor` is a setting of its own because absence cannot be
     // detected: after one SET LOCAL and COMMIT a custom GUC survives as '', so
     // `IS NULL` means "first request on a fresh pooled connection".
+    // An empty id is NULL in the comparison (see the next test) — a value that
+    // keeps no row, never a test that skips the rule.
     const { predicate } = buildRowRulePredicate([rule()], TYPES);
     expect(predicate).toContain("current_setting('zveltio.actor', true) IS DISTINCT FROM 'on'");
-    expect(predicate).not.toContain("nullif(current_setting('zveltio.user_id', true), '')");
+    expect(predicate).not.toContain('IS NULL');
   });
 
-  it('applies an email rule against an empty email instead of standing down', () => {
-    // It used to stand down, mirroring `resolveValue`'s `user.email ?? null`.
-    // Every API key publishes an empty email, so a key with RLS enforced saw
-    // every row under an email rule. Both sides now compare against ''.
-    const { predicate } = buildRowRulePredicate(
-      [rule({ filter_value_source: 'user_email' })],
-      TYPES,
-    );
-    expect(predicate).not.toContain("nullif(current_setting('zveltio.user_email'");
-    expect(predicate).toContain("current_setting('zveltio.user_email', true)");
+  it('an empty id or email owns no row: it neither stands down nor matches blanks', () => {
+    // It used to stand down, mirroring `resolveValue`'s `user.email ?? null`:
+    // every API key publishes an empty email, so a key with RLS enforced saw
+    // every row under an email rule. Then it compared against '', which still
+    // gave that key — and an anonymous caller, whose id is '' — every row whose
+    // column is blank. NULL compares true on no operator.
+    for (const source of ['user_id', 'user_email']) {
+      const { predicate } = buildRowRulePredicate([rule({ filter_value_source: source })], TYPES);
+      expect(predicate).toContain(
+        `(SELECT nullif(current_setting('zveltio.${source}', true), ''))`,
+      );
+      expect(predicate).not.toContain('IS NULL');
+    }
   });
 
   it("does not apply a rule the caller's roles do not match", () => {
@@ -129,7 +138,7 @@ describe('row rules as a Postgres predicate', () => {
     // the issuer's id. Off unless `issuer_rows` is `on`; `deny` keeps nothing.
     const { predicate } = buildRowRulePredicate([rule({ role: 'editor' })], TYPES);
     expect(predicate).toContain(
-      `(NOT ((SELECT 'editor' = ANY (string_to_array(coalesce(current_setting('zveltio.issuer_user_roles', true), ''), ',')))) OR "created_by" = (SELECT current_setting('zveltio.issuer_user_id', true)))`,
+      `(NOT ((SELECT 'editor' = ANY (string_to_array(coalesce(current_setting('zveltio.issuer_user_roles', true), ''), ',')))) OR "created_by" = (SELECT nullif(current_setting('zveltio.issuer_user_id', true), '')))`,
     );
     expect(predicate).toContain(
       "((SELECT coalesce(current_setting('zveltio.issuer_rows', true), '') = '') OR ((SELECT current_setting('zveltio.issuer_rows', true) = 'on') AND",
@@ -164,7 +173,7 @@ describe('row rules as a Postgres predicate', () => {
         TYPES,
       );
       expect(predicate).toContain(
-        `"created_by" IN ((SELECT current_setting('zveltio.user_id', true)))`,
+        `"created_by" IN ((SELECT nullif(current_setting('zveltio.user_id', true), '')))`,
       );
     });
 
