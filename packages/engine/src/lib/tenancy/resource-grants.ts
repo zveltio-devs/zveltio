@@ -363,10 +363,15 @@ export async function repairSensitiveDefaultGrants(
                 'Default grants on sensitive names removed once; see resource-grants.ts.')
         ON CONFLICT (key) DO NOTHING RETURNING key`.execute(trx);
       if (claimed.rows.length === 0) return [];
+      // No sensitive name, so nothing to repair: a fresh install, where the
+      // engine names none itself. Claimed all the same: a later one starts
+      // closed (registered before granting), and its operator grants stay.
+      const sensitive = listSensitiveResources();
+      if (sensitive.length === 0) return [];
       const { rows } = await sql<{ v0: string; v2: string; v3: string }>`
         DELETE FROM zvd_permissions
          WHERE ptype = 'p' AND v1 = '*'
-           AND v2 IN (${sql.join(listSensitiveResources())})
+           AND v2 IN (${sql.join(sensitive)})
            AND (v0, v3) IN (${sql.join(defaults)})
            AND COALESCE(v4, '') = '' AND COALESCE(v5, '') = ''
         RETURNING v0, v2, v3`.execute(trx);

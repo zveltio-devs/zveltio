@@ -10,7 +10,7 @@
  * default-shaped rows on every sensitive name, once per database.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,7 +21,11 @@ import {
   clearLocalPermissionCache,
   getEnforcer,
 } from '../../lib/tenancy/index.js';
-import { reconcileDefaultGrants } from '../../lib/tenancy/resource-grants.js';
+import * as permissions from '../../lib/tenancy/permissions.js';
+import {
+  reconcileDefaultGrants,
+  repairSensitiveDefaultGrants,
+} from '../../lib/tenancy/resource-grants.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -139,5 +143,20 @@ d('repair of default grants on sensitive names', () => {
     await reconcileDefaultGrants(db, extRoot);
     expect(await rows(SECRET)).toEqual(['hr_lead:read', 'tenant_member:read']);
     expect(await memberReads(SECRET)).toBe(true);
+  });
+
+  it('with no sensitive name anywhere, claims the marker and deletes nothing', async () => {
+    // A fresh install: the engine names no sensitive data itself, so the list
+    // is empty until an extension declares some. An `IN ()` failed every boot.
+    await plant('tenant_member', PLAIN, 'read');
+    await sql`DELETE FROM zv_settings WHERE key = ${MARKER}`.execute(db);
+    const none = spyOn(permissions, 'listSensitiveResources').mockReturnValue([]);
+    try {
+      expect(await repairSensitiveDefaultGrants(db, [])).toEqual([]);
+    } finally {
+      none.mockRestore();
+    }
+    expect(await marker()).toBe(true);
+    expect(await rows(PLAIN)).toContain('tenant_member:read');
   });
 });
