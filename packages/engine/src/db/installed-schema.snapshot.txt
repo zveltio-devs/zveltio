@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 533
+# tables: 534
 
 table account
   col accessToken                    text
@@ -2456,49 +2456,6 @@ table zv_roles
   col name                           text NOT NULL
   uq  zv_roles_name_key UNIQUE (name)
   pk  zv_roles_pkey PRIMARY KEY (id)
-
-table zv_saft_accounts
-  col account_type                   text NOT NULL DEFAULT 'balance'::text
-  col code                           text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col description                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  uq  zv_saft_accounts_code_key UNIQUE (tenant_id, code)
-  pk  zv_saft_accounts_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_saft_accounts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_saft_exports
-  col anaf_response                  jsonb
-  col company_address                text
-  col company_cui                    text NOT NULL
-  col company_name                   text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col period_end                     date NOT NULL
-  col period_start                   date NOT NULL
-  col status                         text NOT NULL DEFAULT 'draft'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col xml_content                    text
-  pk  zv_saft_exports_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_saft_exports FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_saft_journal_entries
-  col account_code                   text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col credit                         numeric NOT NULL DEFAULT 0
-  col debit                          numeric NOT NULL DEFAULT 0
-  col description                    text NOT NULL
-  col document_number                text
-  col entry_date                     date NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zv_saft_journal_entries_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_saft_journal_entries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_saved_queries
   col collection                     text NOT NULL
@@ -7483,6 +7440,58 @@ table zvd_rpc_functions
   uq  zvd_rpc_functions_function_name_key UNIQUE (function_name)
   pk  zvd_rpc_functions_pkey PRIMARY KEY (id)
 
+table zvd_saft_exports
+  col company_address                text
+  col company_cui                    text NOT NULL
+  col company_name                   text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col entries_count                  bigint
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col period_end                     date NOT NULL
+  col period_start                   date NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text NOT NULL DEFAULT 'draft'::text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_saft_exports_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_saft_exports_pkey PRIMARY KEY (id)
+  fk  zvd_saft_exports_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('saft_exports'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('saft_exports'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('saft_exports'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('saft_exports'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('saft_exports'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_saft_files
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col export_id                      uuid NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col xml                            text NOT NULL
+  fk  zvd_saft_files_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_saft_files_export_id_fkey FOREIGN KEY (export_id) REFERENCES zvd_saft_exports(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_saft_files_pkey PRIMARY KEY (id)
+  uq  zvd_saft_files_tenant_id_export_id_key UNIQUE (tenant_id, export_id)
+  fk  zvd_saft_files_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('saft_files'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('saft_files'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('saft_files'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('saft_files'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('saft_files'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_salary_history
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
@@ -10871,6 +10880,34 @@ table zvv_recurring_journals
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
+
+table zvv_saft_exports
+  col company_address                text
+  col company_cui                    text
+  col company_name                   text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col entries_count                  bigint
+  col id                             uuid
+  col period_end                     date
+  col period_start                   date
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_saft_files
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col export_id                      uuid
+  col id                             uuid
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col xml                            text
 
 table zvv_salary_history
   col created_at                     timestamp with time zone
