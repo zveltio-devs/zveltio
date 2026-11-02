@@ -1206,9 +1206,9 @@ Returns minimal health status. Does not require authentication.
 { "status": "ok" }
 ```
 
-### GET /api/docs
+### GET /ext/developer/api-docs/
 
-Swagger UI (if `api_docs_public` setting is enabled).
+Swagger UI from the `developer/api-docs` extension, built from `GET /api/data`: the collections the signed-in caller may read.
 
 ### GET /api/openapi.json
 
