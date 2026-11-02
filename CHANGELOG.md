@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: a row refused by a collection policy answered 500 outside the data
+API.** An extension route writing through `ctx.db` for a role without the
+write grant (a `tenant_viewer` saving a dashboard layout) surfaced Postgres'
+row-level security error as a server fault. It is now a 403 `forbidden`; a
+bare 42501 (a missing GRANT, the engine's fault) stays a 500.
+
 **Fixed: a data API filter with several operators on one field kept only
 the first.** `?filter={"price":{"gt":1,"lt":9}}` returned every row above 1
 with a 200, a wider result than asked; `?price[gt]=1&price[lt]=9` did the
