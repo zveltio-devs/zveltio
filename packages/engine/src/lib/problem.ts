@@ -208,6 +208,26 @@ export function problemOnError(err: Error, c: Context): Response {
     });
   }
 
+  // A row the collection policy refuses (`zv_coll_*` WITH CHECK): a role
+  // without the write grant, through an extension's `ctx.db`. Matched on the
+  // wording as well, since a bare 42501 is also a missing GRANT — ours.
+  if (
+    state === '42501' &&
+    /^new row violates row-level security policy/.test(
+      String((err as { message?: unknown } | null)?.message ?? ''),
+    )
+  ) {
+    return toResponse({
+      type: 'about:blank',
+      title: statusTitle(403),
+      status: 403,
+      code: 'forbidden',
+      detail: 'Your role may not write this row.',
+      instance,
+      traceId,
+    });
+  }
+
   // 55P03 (lock_not_available): a lock_timeout gave up on a table another
   // transaction holds — a schema change queued behind an index build, say.
   // Nothing is wrong with the request; the same one succeeds once the lock is free.

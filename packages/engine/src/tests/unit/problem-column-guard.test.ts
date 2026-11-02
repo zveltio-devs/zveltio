@@ -37,4 +37,14 @@ describe('column write guard refusals', () => {
     const r = await statusFor(bunSqlError('42501', 'permission denied for table zvd_staff'));
     expect(r.status).toBe(500);
   });
+
+  // A collection policy refusing the row (a tenant_viewer saving a dashboard
+  // layout through the extension's `ctx.db`) answered 500.
+  it('render a row-level security refusal as 403', async () => {
+    const r = await statusFor(
+      bunSqlError('42501', 'new row violates row-level security policy for table "zvd_layouts"'),
+    );
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('forbidden');
+  });
 });
