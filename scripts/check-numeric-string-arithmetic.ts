@@ -33,7 +33,7 @@
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { SQL } from 'bun';
 import { ADMIN_URL, buildInstallTemplate, dbUrl } from './lib/install-template.js';
 import { SIBLING_ROOT } from './lib/require-sibling.js';
@@ -236,7 +236,7 @@ for (const dir of DIRS) {
     // not carry anyone's home directory.
     const rel = file.startsWith(`${ROOT}/`)
       ? file.slice(ROOT.length + 1)
-      : `ext:${file.slice(file.indexOf('zveltio-extensions/') + 'zveltio-extensions/'.length)}`;
+      : `ext:${relative(EXT_DIR, file)}`;
     const src = readFileSync(file, 'utf8');
     const lines = src.split('\n');
     const inSql = sqlTemplateLines(src);
