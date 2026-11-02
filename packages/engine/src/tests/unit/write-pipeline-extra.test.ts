@@ -39,7 +39,8 @@ describe('runAtomic', () => {
 });
 
 describe('processInput', () => {
-  it('skips unknown fields in partial mode', async () => {
+  // Owner decision 2026-11-02: a key no field declares is refused, not dropped.
+  it('refuses unknown fields in partial mode', async () => {
     const { errors, processed } = await processInput(
       { nickname: 'bob' },
       {
@@ -48,7 +49,7 @@ describe('processInput', () => {
       } as never,
       true,
     );
-    expect(errors).toEqual([]);
+    expect(errors).toEqual(['nickname: unknown field']);
     expect(processed).toEqual({});
   });
 

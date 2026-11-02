@@ -86,6 +86,17 @@ d('data list/query (in-process)', () => {
     }
   });
 
+  it('refuses a key no field declares instead of dropping it', async () => {
+    // `amont` (a typo of `amount`) was dropped and the row stored with a 201.
+    const res = await app.request(`/api/data/${COLLECTION}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'typo', amont: 5 }),
+    });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(await res.json())).toContain('amont: unknown field');
+  });
+
   it('sorts by a column ascending', async () => {
     const res = await list('?sort=amount&order=asc');
     expect(res.status).toBe(200);

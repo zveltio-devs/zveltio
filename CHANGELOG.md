@@ -10,6 +10,13 @@ write grant (a `tenant_viewer` saving a dashboard layout) surfaced Postgres'
 row-level security error as a server fault. It is now a 403 `forbidden`; a
 bare 42501 (a missing GRANT, the engine's fault) stays a 500.
 
+**Changed (breaking): the data API refuses a key no field declares.** A
+create or update carrying a key that is neither a declared field nor a
+system column (`id`, `created_at`, `tenant_id`, …) now answers 422
+`<key>: unknown field`. It used to drop the key and answer 201/200, so
+`{"price": 49}` on a collection whose field is `price_cents` stored a free
+plan. A client that sends extra keys must stop sending them.
+
 **Fixed: a data API filter with several operators on one field kept only
 the first.** `?filter={"price":{"gt":1,"lt":9}}` returned every row above 1
 with a 200, a wider result than asked; `?price[gt]=1&price[lt]=9` did the
