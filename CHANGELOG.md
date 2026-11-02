@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: a data API filter with several operators on one field kept only
+the first.** `?filter={"price":{"gt":1,"lt":9}}` returned every row above 1
+with a 200, a wider result than asked; `?price[gt]=1&price[lt]=9` did the
+same. Every operator on a field now applies, ANDed, on the offset, cursor and
+virtual-collection paths.
+
 ## [3.0.0-beta.96] - 2026-11-01
 
 **Fixed: a required field with a default was refused when a create left it

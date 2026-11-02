@@ -296,7 +296,8 @@ export interface FilterCondition {
 }
 
 export interface QueryOptions {
-  filters?: Record<string, FilterCondition>;
+  /** Several conditions on one field are ANDed. */
+  filters?: Record<string, FilterCondition | FilterCondition[]>;
   sort?: { field: string; direction: 'asc' | 'desc' };
   limit?: number;
   offset?: number;
@@ -506,10 +507,12 @@ export async function dynamicSelect(
 
   // Filters — reuse buildCondition which already escapes identifiers + binds
   // values. Kysely's .where() accepts a raw sql expression as a guard.
-  for (const [field, cond] of Object.entries(filters)) {
-    const expr = buildCondition(field, cond);
-    qb = qb.where(expr);
-    countQb = countQb.where(expr);
+  for (const [field, conds] of Object.entries(filters)) {
+    for (const cond of [conds].flat()) {
+      const expr = buildCondition(field, cond);
+      qb = qb.where(expr);
+      countQb = countQb.where(expr);
+    }
   }
 
   if (fts) {

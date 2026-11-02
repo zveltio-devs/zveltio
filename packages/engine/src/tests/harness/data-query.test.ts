@@ -76,6 +76,16 @@ d('data list/query (in-process)', () => {
     expect(body.records.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('ANDs several operators on one field, in both filter formats', async () => {
+    // The parser once kept only the first operator: `gt` alone, a wider result.
+    const json = encodeURIComponent(JSON.stringify({ amount: { gt: 10, lt: 40 } }));
+    for (const qs of [`?filter=${json}`, '?amount[gt]=10&amount[lt]=40']) {
+      const res = await list(`${qs}&sort=amount&order=asc`);
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as ListBody).records.map((r) => r.amount)).toEqual([20, 30]);
+    }
+  });
+
   it('sorts by a column ascending', async () => {
     const res = await list('?sort=amount&order=asc');
     expect(res.status).toBe(200);

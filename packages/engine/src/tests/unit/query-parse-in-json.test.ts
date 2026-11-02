@@ -20,8 +20,8 @@ describe('parseFilters — in via JSON', () => {
     const r = parseFilters({}, JSON.stringify({ score: { not_in: [1, 2] } }), cols);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.filters.score?.op).toBe('not_in');
-      expect(r.filters.score?.value).toEqual([1, 2]);
+      expect([r.filters.score].flat()[0]?.op).toBe('not_in');
+      expect([r.filters.score].flat()[0]?.value).toEqual([1, 2]);
     }
   });
 });

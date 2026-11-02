@@ -57,11 +57,11 @@ describe('parseFilters — fuzz invariants', () => {
           expect(typeof r.error).toBe('string');
           return true;
         }
-        for (const [field, cond] of Object.entries(r.filters)) {
+        for (const [field, conds] of Object.entries(r.filters)) {
           // Column injection guard: every emitted field was allowlisted.
           expect(cols.has(field)).toBe(true);
           // Operator injection guard: never a raw client op.
-          expect(CANONICAL_OPS.has(cond.op)).toBe(true);
+          for (const cond of [conds].flat()) expect(CANONICAL_OPS.has(cond.op)).toBe(true);
         }
         return true;
       }),
@@ -81,7 +81,7 @@ describe('parseFilters — fuzz invariants', () => {
           expect(r.ok).toBe(true);
           if (r.ok) {
             expect(r.filters[field]).toBeDefined();
-            expect(CANONICAL_OPS.has(r.filters[field].op)).toBe(true);
+            expect(CANONICAL_OPS.has([r.filters[field]].flat()[0].op)).toBe(true);
           }
           return true;
         },
