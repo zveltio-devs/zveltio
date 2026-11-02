@@ -245,13 +245,11 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
           const raw = JSON.parse(query.filter) as Record<string, JsonValue>;
           for (const [key, value] of Object.entries(raw)) {
             if (typeof value === 'object' && value !== null) {
-              // An empty operator object is skipped, as parseFilters skips it.
-              // Destructured unguarded it threw into the catch below, which
-              // dropped every filter after it — a broader result with a 200.
-              const entry = Object.entries(value)[0];
-              if (!entry) continue;
-              const [op, val] = entry as [string, JsonValue];
-              vFilters.push({ field: key, op, value: val });
+              // Every operator on the field, not only the first; an empty
+              // operator object pushes nothing.
+              for (const [op, val] of Object.entries(value) as [string, JsonValue][]) {
+                vFilters.push({ field: key, op, value: val });
+              }
             } else {
               vFilters.push({ field: key, op: 'eq', value });
             }
@@ -372,8 +370,8 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       // The client's filters through `buildCondition`, the helper the offset
       // path uses via `dynamicSelect`. This branch once re-implemented it and
       // covered only six operators, so `in`/`not_in` silently did nothing here.
-      for (const [field, cond] of Object.entries(filters)) {
-        kQuery = kQuery.where(buildCondition(field, cond));
+      for (const [field, conds] of Object.entries(filters)) {
+        for (const cond of [conds].flat()) kQuery = kQuery.where(buildCondition(field, cond));
       }
 
       // Row rules and extension alters, as the offset path applies them through

@@ -91,13 +91,16 @@ export function buildAllowedCols(collectionDef: CollectionDef | null | undefined
 /** Result of `parseFilters`: either the parsed filter map, or a 400 error to
  * surface (unknown filter field). */
 export type ParseFiltersResult =
-  | { ok: true; filters: Record<string, FilterCondition> }
+  | { ok: true; filters: Record<string, FilterCondition | FilterCondition[]> }
   | { ok: false; error: string };
 
 /** Parse filters from the two supported formats (both can be used together):
  *
  *  1. JSON:    ?filter={"price":{"gt":50},"title":{"like":"pro"}}
  *  2. Bracket: ?price[gt]=50&title[like]=pro  (simpler for curl/browser)
+ *
+ * Several operators on one field (`?price[gt]=1&price[lt]=9`,
+ * `{"price":{"gt":1,"lt":9}}`) are ANDed; the field then maps to an array.
  *
  * When both are provided for the same field, JSON takes precedence. An unknown
  * field in the JSON format is a hard 400 (returned via `error`); an unknown
@@ -107,7 +110,11 @@ export function parseFilters(
   filterJson: string | undefined,
   allowedCols: Set<string>,
 ): ParseFiltersResult {
-  const filters: Record<string, FilterCondition> = {};
+  const filters: Record<string, FilterCondition | FilterCondition[]> = {};
+  const add = (field: string, cond: FilterCondition) => {
+    const prev = filters[field];
+    filters[field] = prev ? [prev, cond].flat() : cond;
+  };
 
   // Format 2: bracket syntax — parse before JSON so JSON can override
   for (const [paramKey, paramVal] of Object.entries(queryParams)) {
@@ -125,7 +132,7 @@ export function parseFilters(
         : NUMERIC_OPS.has(mappedOp) && paramVal !== '' && !Number.isNaN(Number(paramVal))
           ? Number(paramVal)
           : paramVal;
-    filters[field] = { op: mappedOp, value };
+    add(field, { op: mappedOp, value });
   }
 
   // Format 1: JSON (overrides bracket for same field)
@@ -142,14 +149,14 @@ export function parseFilters(
           return { ok: false, error: `Unknown filter field: '${key}'` };
         }
         if (typeof value === 'object' && value !== null) {
-          // `{field: {op: val}}` — but an EMPTY object/array (`{field: {}}`)
-          // has no first entry; guard before destructuring or it throws a
-          // TypeError (→ a 500 on a malformed-but-plausible filter).
-          const entry = Object.entries(value)[0];
-          if (!entry) continue; // empty operator object — ignore this field
-          const [op, val] = entry as [string, JsonValue];
-          const mappedOp = mapOp(op);
-          if (mappedOp) filters[key] = { op: mappedOp, value: val };
+          // `{field: {op: val, ...}}` — every operator applies, as in the
+          // bracket form; keeping only the first silently widened the result.
+          // No known operator (`{field: {}}`) leaves the field as it was.
+          const conds = (Object.entries(value) as [string, JsonValue][]).flatMap(([op, val]) => {
+            const mappedOp = mapOp(op);
+            return mappedOp ? [{ op: mappedOp, value: val }] : [];
+          });
+          if (conds.length) filters[key] = conds.length === 1 ? conds[0] : conds;
         } else {
           filters[key] = { op: 'eq', value };
         }

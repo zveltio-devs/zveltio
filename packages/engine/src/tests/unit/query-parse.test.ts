@@ -34,8 +34,8 @@ describe('parseFilters — JSON format', () => {
     const r = parseFilters({}, '{"a": {"gt": 5}}', cols);
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.filters.a?.value).toBe(5);
-      expect(typeof r.filters.a?.op).toBe('string');
+      expect([r.filters.a].flat()[0]?.value).toBe(5);
+      expect(typeof [r.filters.a].flat()[0]?.op).toBe('string');
     }
   });
 
@@ -62,7 +62,7 @@ describe('parseFilters — bracket format', () => {
   it('parses field[op]=value and coerces numeric comparison values', () => {
     const r = parseFilters({ 'a[gt]': '5' }, undefined, cols);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.filters.a?.value).toBe(5);
+    if (r.ok) expect([r.filters.a].flat()[0]?.value).toBe(5);
   });
 
   it('silently skips an unknown bracket field', () => {
