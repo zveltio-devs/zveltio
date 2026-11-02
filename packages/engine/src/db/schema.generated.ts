@@ -2236,90 +2236,6 @@ export interface ZvdExportTemplatesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdGdprAccessRequestsTable {
-  id: Generated<string>;
-  requester_email: string;
-  requester_name: string;
-  request_type:
-    | 'access'
-    | 'erasure'
-    | 'portability'
-    | 'rectification'
-    | 'restriction'
-    | 'objection';
-  description: string | null;
-  status: Generated<'pending' | 'in_progress' | 'completed' | 'rejected' | 'withdrawn'>;
-  due_date: Generated<Date>;
-  assigned_to: string | null;
-  resolution_notes: string | null;
-  completed_at: Date | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdGdprBreachIncidentsTable {
-  id: Generated<string>;
-  title: string;
-  description: string;
-  discovered_at: Date;
-  affected_records_estimate: number | null;
-  data_categories: Generated<string[]>;
-  severity: Generated<'low' | 'medium' | 'high' | 'critical'>;
-  status: Generated<'open' | 'investigating' | 'contained' | 'reported' | 'closed'>;
-  dpa_reported_at: Date | null;
-  affected_users_notified_at: Date | null;
-  root_cause: string | null;
-  remediation_steps: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdGdprConsentsTable {
-  id: Generated<string>;
-  user_id: string | null;
-  email: string | null;
-  purpose: string;
-  processing_record_id: string | null;
-  granted: boolean;
-  ip: string | null;
-  user_agent: string | null;
-  source: Generated<string>;
-  withdrawn_at: Date | null;
-  expires_at: Date | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdGdprProcessingRecordsTable {
-  id: Generated<string>;
-  name: string;
-  purpose: string;
-  legal_basis:
-    | 'consent'
-    | 'contract'
-    | 'legal_obligation'
-    | 'vital_interests'
-    | 'public_task'
-    | 'legitimate_interests';
-  data_categories: Generated<string[]>;
-  data_subjects: Generated<string[]>;
-  retention_period_days: number | null;
-  third_party_recipients: Generated<string[]>;
-  technical_measures: string | null;
-  organizational_measures: string | null;
-  dpia_required: Generated<boolean>;
-  dpia_completed_at: Date | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdGraphqlFieldPoliciesTable {
   id: Generated<string>;
   collection: string;
@@ -2936,10 +2852,6 @@ export interface DbSchema {
   zvd_export_audit_log: ZvdExportAuditLogTable;
   zvd_export_jobs: ZvdExportJobsTable;
   zvd_export_templates: ZvdExportTemplatesTable;
-  zvd_gdpr_access_requests: ZvdGdprAccessRequestsTable;
-  zvd_gdpr_breach_incidents: ZvdGdprBreachIncidentsTable;
-  zvd_gdpr_consents: ZvdGdprConsentsTable;
-  zvd_gdpr_processing_records: ZvdGdprProcessingRecordsTable;
   zvd_graphql_field_policies: ZvdGraphqlFieldPoliciesTable;
   zvd_graphql_operation_logs: ZvdGraphqlOperationLogsTable;
   zvd_graphql_persisted_queries: ZvdGraphqlPersistedQueriesTable;
