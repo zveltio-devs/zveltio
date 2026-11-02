@@ -183,3 +183,54 @@ describe('SchemaPage filters', () => {
     );
   }, 60_000);
 });
+
+describe('SchemaPage field download', () => {
+  it('reads the record through the data API and saves its field under the row-filled name', async () => {
+    get.mockReset();
+    get.mockImplementation((async (url: string) =>
+      url.startsWith('/api/data/files')
+        ? { records: [{ id: 'f-1', xml: '<a/>' }] }
+        : [{ id: 'x-1', cui: '18547290', from: '2026-01-01T00:00:00.000Z' }]) as never);
+    const saved: { name: string; blob: Blob }[] = [];
+    URL.createObjectURL = vi.fn((b: Blob) => {
+      saved.push({ name: '', blob: b });
+      return 'blob:x';
+    });
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      saved[saved.length - 1].name = this.download;
+    });
+    const dlSchema = {
+      title: 'Exports',
+      resources: [
+        {
+          id: 'exports',
+          label: 'exports',
+          dataSource: '/api/data/exports',
+          columns: [{ key: 'cui', label: 'cui' }],
+          rowActions: [
+            {
+              id: 'dl',
+              kind: 'download' as const,
+              label: 'dl',
+              endpoint: '/api/data/files?export_id[eq]={id}&limit=1',
+              field: 'xml',
+              filename: 'SAFT_{cui}_{from}.xml',
+            },
+          ],
+        },
+      ],
+    };
+    const { default: SchemaPage } = await import('./SchemaPage.svelte');
+    const { findByTitle } = render(SchemaPage, {
+      props: { schema: dlSchema, extName: 'x', collections: ['exports', 'files'] },
+    });
+    await fireEvent.click(await findByTitle('dl'));
+    await waitFor(() => expect(saved[0]?.name).toBe('SAFT_18547290_2026-01-01.xml'));
+    expect(get).toHaveBeenCalledWith('/api/data/files?export_id[eq]=x-1&limit=1');
+    expect(await saved[0].blob.text()).toBe('<a/>');
+    click.mockRestore();
+  }, 60_000);
+});

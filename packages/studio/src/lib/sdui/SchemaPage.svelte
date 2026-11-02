@@ -847,6 +847,36 @@ async function runBulkAction(a: ActionDef) {
   }
 }
 
+/** A text field of one record, read through the data API and saved as a file. */
+async function saveField(row: Record<string, unknown>, a: ActionDef, field: string) {
+  const url = fillEndpoint(a.endpoint ?? '', row);
+  // A GET, but the URL still comes from the schema and goes out with the admin's cookie.
+  if (!guardMutation(url)) return;
+  try {
+    // One record, or a list (`?<key>[eq]={id}&limit=1`) whose first row is the one.
+    const res = await api.get<Record<string, unknown>>(url);
+    const rec = Array.isArray(res.records) ? (res.records[0] ?? {}) : res;
+    const text = (rec as Record<string, unknown>)[field];
+    if (typeof text !== 'string' || !text) throw new Error(t('ext.saveFailed'));
+    const href = URL.createObjectURL(new Blob([text], { type: 'application/octet-stream' }));
+    const link = document.createElement('a');
+    link.href = href;
+    // A date column arrives as midnight UTC; a file name keeps the day, and no `:` or `/`.
+    link.download = (a.filename ?? field).replace(/\{([^}]+)\}/g, (_, k) =>
+      String(getPath(row, k.trim()) ?? '')
+        .replace(/T00:00:00(?:\.000)?Z$/, '')
+        .replace(/[\\/:*?"<>|]/g, '-'),
+    );
+    document.body.append(link);
+    link.click();
+    link.remove();
+    // Revoked a turn later: WebKit can lose a download whose URL is revoked during the click.
+    setTimeout(() => URL.revokeObjectURL(href), 0);
+  } catch (e: unknown) {
+    toast.error(e instanceof Error ? e.message : t('ext.saveFailed'));
+  }
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 function runAction(row: any, a: ActionDef) {
   if (a.kind === 'edit') return openEdit(row);
@@ -859,6 +889,13 @@ function runAction(row: any, a: ActionDef) {
   if (a.kind === 'open') {
     const path = fillEndpoint(a.endpoint ?? a.href ?? '', row);
     window.open(`${ENGINE_URL}${path.startsWith('/') ? path : `/${path}`}`, '_blank');
+    return;
+  }
+  if (a.kind === 'download' && a.field) {
+    const field = a.field;
+    const go = () => void saveField(row, a, field);
+    if (a.confirm) askConfirm(t(a.confirm), go);
+    else go();
     return;
   }
   if (a.kind === 'download') {
