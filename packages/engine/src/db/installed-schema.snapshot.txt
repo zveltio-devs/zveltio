@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 558
+# tables: 564
 
 table account
   col accessToken                    text
@@ -4906,75 +4906,72 @@ table zvd_forms
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('forms'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('forms'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('forms'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_gdpr_access_requests
-  col assigned_to                    text
-  col completed_at                   timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col description                    text
-  col due_date                       date NOT NULL DEFAULT (CURRENT_DATE + '30 days'::interval)
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col request_type                   text NOT NULL
-  col requester_email                text NOT NULL
-  col requester_name                 text NOT NULL
-  col resolution_notes               text
-  col status                         text NOT NULL DEFAULT 'pending'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zvd_gdpr_access_requests_pkey PRIMARY KEY (id)
-  ck  zvd_gdpr_access_requests_request_type_check CHECK ((request_type = ANY (ARRAY['access'::text, 'erasure'::text, 'portability'::text, 'rectification'::text, 'restriction'::text, 'objection'::text])))
-  ck  zvd_gdpr_access_requests_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'in_progress'::text, 'completed'::text, 'rejected'::text, 'withdrawn'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_gdpr_access_requests FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_gdpr_breach_incidents
-  col affected_records_estimate      integer
+table zvd_gdpr_breaches
+  col affected_records_estimate      bigint
   col affected_users_notified_at     timestamp with time zone
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col data_categories                ARRAY NOT NULL DEFAULT '{}'::text[]
+  col created_by                     text
+  col data_categories                ARRAY DEFAULT '{}'::text[]
   col description                    text NOT NULL
   col discovered_at                  timestamp with time zone NOT NULL
   col dpa_reported_at                timestamp with time zone
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col remediation_steps              text
   col root_cause                     text
+  col search_text                    text
+  col search_vector                  tsvector
   col severity                       text NOT NULL DEFAULT 'low'::text
   col status                         text NOT NULL DEFAULT 'open'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col title                          text NOT NULL
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zvd_gdpr_breach_incidents_pkey PRIMARY KEY (id)
-  ck  zvd_gdpr_breach_incidents_severity_check CHECK ((severity = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text])))
-  ck  zvd_gdpr_breach_incidents_status_check CHECK ((status = ANY (ARRAY['open'::text, 'investigating'::text, 'contained'::text, 'reported'::text, 'closed'::text])))
+  col updated_by                     text
+  fk  zvd_gdpr_breaches_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_gdpr_breaches_pkey PRIMARY KEY (id)
+  fk  zvd_gdpr_breaches_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_gdpr_breach_incidents FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('gdpr_breaches'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('gdpr_breaches'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('gdpr_breaches'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('gdpr_breaches'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('gdpr_breaches'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_gdpr_consents
+table zvd_gdpr_consent_records
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col email                          text
-  col expires_at                     timestamp with time zone
-  col granted                        boolean NOT NULL
+  col created_by                     text
+  col expires_at                     date
+  col granted                        boolean NOT NULL DEFAULT false
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col ip                             text
-  col processing_record_id           uuid
+  col processing_activity_id         uuid
   col purpose                        text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
   col source                         text NOT NULL DEFAULT 'web'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_agent                     text
-  col user_id                        text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
   col withdrawn_at                   timestamp with time zone
-  pk  zvd_gdpr_consents_pkey PRIMARY KEY (id)
-  fk  zvd_gdpr_consents_processing_record_id_fkey FOREIGN KEY (processing_record_id) REFERENCES zvd_gdpr_processing_records(id) ON DELETE SET NULL
+  fk  zvd_gdpr_consent_records_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_gdpr_consent_records_pkey PRIMARY KEY (id)
+  fk  zvd_gdpr_consent_records_processing_activity_id_fkey FOREIGN KEY (processing_activity_id) REFERENCES zvd_gdpr_processing_activities(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_gdpr_consent_records_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_gdpr_consents FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('gdpr_consent_records'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('gdpr_consent_records'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('gdpr_consent_records'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('gdpr_consent_records'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('gdpr_consent_records'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_gdpr_processing_records
+table zvd_gdpr_processing_activities
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col data_categories                ARRAY NOT NULL DEFAULT '{}'::text[]
-  col data_subjects                  ARRAY NOT NULL DEFAULT '{}'::text[]
-  col dpia_completed_at              timestamp with time zone
+  col created_by                     text
+  col data_categories                ARRAY DEFAULT '{}'::text[]
+  col data_subjects                  ARRAY DEFAULT '{}'::text[]
+  col dpia_completed_at              date
   col dpia_required                  boolean NOT NULL DEFAULT false
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col is_active                      boolean NOT NULL DEFAULT true
@@ -4982,15 +4979,75 @@ table zvd_gdpr_processing_records
   col name                           text NOT NULL
   col organizational_measures        text
   col purpose                        text NOT NULL
-  col retention_period_days          integer
+  col retention_period_days          bigint
+  col search_text                    text
+  col search_vector                  tsvector
   col technical_measures             text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col third_party_recipients         ARRAY NOT NULL DEFAULT '{}'::text[]
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col third_party_recipients         ARRAY DEFAULT '{}'::text[]
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zvd_gdpr_processing_records_legal_basis_check CHECK ((legal_basis = ANY (ARRAY['consent'::text, 'contract'::text, 'legal_obligation'::text, 'vital_interests'::text, 'public_task'::text, 'legitimate_interests'::text])))
-  pk  zvd_gdpr_processing_records_pkey PRIMARY KEY (id)
+  col updated_by                     text
+  fk  zvd_gdpr_processing_activities_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_gdpr_processing_activities_pkey PRIMARY KEY (id)
+  fk  zvd_gdpr_processing_activities_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_gdpr_processing_records FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('gdpr_processing_activities'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('gdpr_processing_activities'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('gdpr_processing_activities'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('gdpr_processing_activities'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('gdpr_processing_activities'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_gdpr_request_decisions
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col from_status                    text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col notes                          text
+  col request_id                     uuid NOT NULL
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col to_status                      text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_gdpr_request_decisions_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_gdpr_request_decisions_pkey PRIMARY KEY (id)
+  fk  zvd_gdpr_request_decisions_request_id_fkey FOREIGN KEY (request_id) REFERENCES zvd_gdpr_subject_requests(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  fk  zvd_gdpr_request_decisions_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('gdpr_request_decisions'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('gdpr_request_decisions'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('gdpr_request_decisions'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('gdpr_request_decisions'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('gdpr_request_decisions'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_gdpr_subject_requests
+  col completed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col due_date                       date NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col request_type                   text NOT NULL
+  col search_vector                  tsvector
+  col status                         text NOT NULL DEFAULT 'pending'::text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_gdpr_subject_requests_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_gdpr_subject_requests_pkey PRIMARY KEY (id)
+  fk  zvd_gdpr_subject_requests_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_graphql_field_policies
   col allowed_roles                  ARRAY NOT NULL DEFAULT '{}'::text[]
@@ -10091,6 +10148,92 @@ table zvv_forms
   col search_text                    text
   col search_vector                  tsvector
   col slug                           text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_gdpr_breaches
+  col affected_records_estimate      bigint
+  col affected_users_notified_at     timestamp with time zone
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col data_categories                ARRAY
+  col description                    text
+  col discovered_at                  timestamp with time zone
+  col dpa_reported_at                timestamp with time zone
+  col id                             uuid
+  col remediation_steps              text
+  col root_cause                     text
+  col search_text                    text
+  col search_vector                  tsvector
+  col severity                       text
+  col status                         text
+  col tenant_id                      uuid
+  col title                          text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_gdpr_consent_records
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col expires_at                     date
+  col granted                        boolean
+  col id                             uuid
+  col processing_activity_id         uuid
+  col purpose                        text
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col withdrawn_at                   timestamp with time zone
+
+table zvv_gdpr_processing_activities
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col data_categories                ARRAY
+  col data_subjects                  ARRAY
+  col dpia_completed_at              date
+  col dpia_required                  boolean
+  col id                             uuid
+  col is_active                      boolean
+  col legal_basis                    text
+  col name                           text
+  col organizational_measures        text
+  col purpose                        text
+  col retention_period_days          bigint
+  col search_text                    text
+  col search_vector                  tsvector
+  col technical_measures             text
+  col tenant_id                      uuid
+  col third_party_recipients         ARRAY
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_gdpr_request_decisions
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col from_status                    text
+  col id                             uuid
+  col notes                          text
+  col request_id                     uuid
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col to_status                      text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_gdpr_subject_requests
+  col completed_at                   timestamp with time zone
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col due_date                       date
+  col id                             uuid
+  col request_type                   text
+  col search_vector                  tsvector
+  col status                         text
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
