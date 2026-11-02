@@ -6769,8 +6769,10 @@ table zvd_procurement_order_decisions
   col created_by                     text
   col decision                       text NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col order_author                   text
   col order_id                       uuid NOT NULL
   col reason                         text
+  col search_text                    text
   col search_vector                  tsvector
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -7747,11 +7749,13 @@ table zvd_subscription_plans
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('subscription_plans'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('subscription_plans'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_subscription_settlements
+  col author                         text
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col invoice_id                     uuid
   col kind                           text NOT NULL
+  col search_text                    text
   col search_vector                  tsvector
   col subscriber_id                  uuid NOT NULL
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
@@ -10511,8 +10515,10 @@ table zvv_procurement_order_decisions
   col created_by                     text
   col decision                       text
   col id                             uuid
+  col order_author                   text
   col order_id                       uuid
   col reason                         text
+  col search_text                    text
   col search_vector                  tsvector
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
@@ -10990,11 +10996,13 @@ table zvv_subscription_plans
   col usage_unit_price               numeric
 
 table zvv_subscription_settlements
+  col author                         text
   col created_at                     timestamp with time zone
   col created_by                     text
   col id                             uuid
   col invoice_id                     uuid
   col kind                           text
+  col search_text                    text
   col search_vector                  tsvector
   col subscriber_id                  uuid
   col tenant_id                      uuid
