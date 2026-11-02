@@ -247,6 +247,14 @@ export interface ActionDef {
    * engine URL (e.g. extension PWA) in a new tab; "preview" POSTs then
    * shows the response before a confirm submit; otherwise call the endpoint. */
   kind?: 'edit' | 'call' | 'download' | 'navigate' | 'open' | 'preview';
+  /**
+   * For `kind: "download"` from the data API: GET the record at `endpoint`
+   * (`/api/data/<collection>/{id}`, or a list whose first row is the record), so
+   * the collection's rules decide, and save this text field of it as `filename`
+   * ("{field}" tokens from the row).
+   */
+  field?: string;
+  filename?: string;
   method?: 'POST' | 'PATCH' | 'DELETE';
   /** Endpoint template; "{id}" (and any other "{field}") is substituted from the row. */
   endpoint?: string;
