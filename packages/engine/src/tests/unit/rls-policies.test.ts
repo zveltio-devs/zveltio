@@ -247,8 +247,9 @@ describe('getRlsFilters — policy matching', () => {
       policy({ id: 'p-unknown', filter_field: 'x', filter_value_source: 'nonsense' }),
       policy({ id: 'p-noemail', filter_field: 'y', filter_value_source: 'user_email' }),
     ]);
-    // No email: the rule still applies, against '' — it used to be dropped,
-    // which showed every row to an API key and on both realtime doors.
+    // No email: the rule still applies — it used to be dropped, which showed
+    // every row to an API key and on both realtime doors — and owns no row: it
+    // compared against '' and so handed over every row whose column was blank.
     const noEmail = { id: 'u-2', role: 'editor' };
     const filters = await getRlsFilters('contacts', noEmail, 'session');
     expect(filters).toEqual([
@@ -257,7 +258,7 @@ describe('getRlsFilters — policy matching', () => {
       // Unknown source: it used to be skipped, so it hid nothing. `in []` is
       // the condition all four appliers read as "no row".
       { field: 'x', condition: { op: 'in', value: [] } },
-      { field: 'y', condition: { op: 'eq', value: '' }, caseless: true },
+      { field: 'y', condition: { op: 'in', value: [] } },
     ]);
   });
 

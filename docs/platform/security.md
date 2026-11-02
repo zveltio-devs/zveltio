@@ -251,6 +251,7 @@ Zveltio uses a sliding-window rate limiter backed by Valkey sorted sets. When Va
 | `share` | 10 req/min | Share links and their passwords |
 | `scim` | 100 req/min | SCIM provisioning (`/scim/v2/*`) |
 | `edge-public` | 60 req/min | Anonymous edge function invocations |
+| `anon-read` | 100 req/min | Anonymous data API reads, as the `public` role (per IP) |
 | `recovery-bootstrap` | 5 per 15 min | Emergency admin recovery (`/api/permissions/bootstrap`) |
 
 Limits are identified **per user ID** for authenticated requests, **per API key** for key requests, or **per IP** for unauthenticated ones (using the real TCP connection address; `X-Forwarded-For` is only trusted when `TRUSTED_PROXY=true`). The caller is the one verified before the limiters run: a valid session, else an active key that may act in the request's tenant. An invalid or foreign key or session is counted per IP, so rotating fake credentials does not buy a fresh bucket; a string that is not in the shape the engine mints keys in (`zvk_` + 32 hex characters) is refused without a database lookup.

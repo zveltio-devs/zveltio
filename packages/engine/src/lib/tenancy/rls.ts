@@ -58,6 +58,9 @@ export function initRls(db: Database): void {
 }
 
 /** Resolve a filter_value_source against the current user context. */
+/** The sources that name the caller: no value there owns nothing. */
+const OWNER_SOURCES = new Set(['user_id', 'user_email']);
+
 function resolveValue(
   source: string,
   user: { id: string; email?: string; role?: string },
@@ -72,7 +75,8 @@ function resolveValue(
   // paths built their session user without one, so `owner_email eq user_email`
   // held on `GET /api/data` and was dropped for every key and on both realtime
   // doors — which filter in memory, with no database policy behind them. `''`
-  // matches no real owner, which is what "a caller with no email" should see.
+  // is then read by `rulesFor` as "owns no row", which is what "a caller with no
+  // email" should see.
   if (source === 'user_email') return user.email ?? '';
   // For `user_role` the value is the role `getRlsFilters` resolved, never the
   // caller's `user.role`; `''` remains only for a caller with none. The
@@ -243,7 +247,7 @@ export async function getRlsFilters(
     rlsBypass?: boolean;
     authorUserId?: string | null;
   },
-  authType: 'session' | 'api_key',
+  authType: 'session' | 'api_key' | 'anonymous',
 ): Promise<RuleFilter[]> {
   // This used to read `user.role === 'god' || authType === 'api_key'`. Both
   // halves were wrong, in opposite directions.
@@ -302,9 +306,13 @@ export async function getRlsFilters(
   // which is no role, or `public`, which a signed-in user does not hold).
   const direct = await principalRole(user.id);
   const userRoles = new Set(await getUserRoles(user.id));
-  if (direct === 'api_key') userRoles.add(direct);
+  // An anonymous caller IS the `public` role (ADR 0017), and has no id: `''`, as
+  // the database policy is published (middleware/tenant.ts), so `user_id` owns
+  // nothing (see `rulesFor`) — not a row whose column happens to read `public`.
+  const anonymous = authType === 'anonymous';
+  if (direct === 'api_key' || anonymous) userRoles.add(direct);
   const result = rulesFor(policies, {
-    id: user.id,
+    id: anonymous ? '' : user.id,
     email: user.email,
     role: direct,
     roles: userRoles,
@@ -421,6 +429,13 @@ function rulesFor(
             `until it is fixed or disabled.`,
         );
       }
+      result.push({ field: policy.filter_field, condition: { op: 'in', value: [] } });
+      continue;
+    }
+    // No id or no email — an anonymous caller, a key — is nobody's: it owns no
+    // row, on any operator. `''` compared like a value handed it every row whose
+    // column is blank. `nullif` in the database policy gives the same answer.
+    if (value === '' && OWNER_SOURCES.has(policy.filter_value_source)) {
       result.push({ field: policy.filter_field, condition: { op: 'in', value: [] } });
       continue;
     }

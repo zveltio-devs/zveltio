@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
 import type { RequestUser } from '../lib/data/types.js';
-import { authenticate } from '../lib/data/auth.js';
+import { authenticate, requestApiKey } from '../lib/data/auth.js';
+import { ANONYMOUS_SUBJECT } from '../lib/tenancy/index.js';
+import { anonymousReadRateLimit } from '../middleware/rate-limit.js';
 import { QuerySchema } from '../lib/data/query-parse.js';
 import { listRecords } from '../lib/data/handlers/list.js';
 import { listReadableCollections } from '../lib/data/handlers/collections.js';
@@ -20,7 +22,7 @@ export type { RequestUser };
 declare module 'hono' {
   interface ContextVariableMap {
     user: RequestUser;
-    authType: 'session' | 'api_key';
+    authType: 'session' | 'api_key' | 'anonymous';
   }
 }
 
@@ -31,9 +33,25 @@ export function dataRoutes(db: Database, auth: any): Hono {
   // Auth middleware
   app.use('*', async (c, next) => {
     const result = await authenticate(c, auth, db);
-    if (!result) return c.json({ error: 'Unauthorized' }, 401);
-    c.set('user', result.user);
-    c.set('authType', result.authType as 'session' | 'api_key');
+    if (result) {
+      c.set('user', result.user);
+      c.set('authType', result.authType as 'session' | 'api_key');
+      return next();
+    }
+    // No caller: a read runs as the tenant's `public` role, held to its grants,
+    // row rules and column permissions like any role (ADR 0017); it has none
+    // until an operator grants them. Never a write, never without the tenant
+    // transaction that publishes that identity to the database, and never for a
+    // request that presented a key: a refused key is a 401, not a visitor.
+    const read = c.req.method === 'GET' || c.req.method === 'HEAD';
+    const keyPresented = !!c.req.header('x-api-key') || requestApiKey(c) !== null;
+    if (!read || keyPresented || !c.get('tenantTrx')) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    const limited = await anonymousReadRateLimit(c, async () => undefined);
+    if (limited) return limited;
+    c.set('user', { id: ANONYMOUS_SUBJECT, name: 'anonymous', role: ANONYMOUS_SUBJECT });
+    c.set('authType', 'anonymous');
     await next();
   });
 

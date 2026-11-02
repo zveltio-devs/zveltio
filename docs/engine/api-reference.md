@@ -215,6 +215,14 @@ Delete a collection and its data.
 
 ## Data CRUD
 
+Every route takes a session or an API key. The three read routes
+(`GET /api/data`, `GET /api/data/:collection`, `GET /api/data/:collection/:id`)
+also answer a request with neither, as the tenant's `public` role: its grants,
+row rules and column permissions decide, as for any role, and it holds none
+until an operator grants it `read` on a collection (403 until then). Writes
+without credentials, and any request carrying an API key the engine refuses,
+answer 401. Anonymous reads are limited per address (`anon-read` tier).
+
 ### GET /api/data/:collection
 
 List records with filtering and pagination.

@@ -230,7 +230,7 @@ export async function applyExpand(
   expandPlan: ExpandTarget[],
   role = 'public',
   user: RequestUser | null = null,
-  authType?: 'session' | 'api_key',
+  authType?: 'session' | 'api_key' | 'anonymous',
 ): Promise<void> {
   if (expandPlan.length === 0 || records.length === 0) return;
 

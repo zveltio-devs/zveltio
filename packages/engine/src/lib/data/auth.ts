@@ -153,7 +153,8 @@ export function apiKeyRowId(principalId: string): string {
 
 /** The request's `zvk_` key, from `X-API-Key` or a bearer header; null when none. */
 export function requestApiKey(c: Context): string | null {
-  const raw = c.req.header('X-API-Key') || c.req.header('Authorization')?.replace('Bearer ', '');
+  // The scheme is case-insensitive (RFC 9110): `bearer zvk_…` is a key too, not a visitor.
+  const raw = c.req.header('X-API-Key') || c.req.header('Authorization')?.replace(/^bearer /i, '');
   return raw?.startsWith('zvk_') ? raw : null;
 }
 

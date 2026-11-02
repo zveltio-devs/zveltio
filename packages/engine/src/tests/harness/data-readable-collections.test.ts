@@ -92,8 +92,12 @@ d('GET /api/data lists what the caller may read', () => {
     await dropTestCollection(db, BROKEN);
   });
 
-  it('refuses without a session', async () => {
-    expect((await app.request('/api/data')).status).toBe(401);
+  it('without a session lists only what the `public` role may read (ADR 0017)', async () => {
+    const res = await app.request('/api/data');
+    expect(res.status).toBe(200);
+    const names = ((await res.json()) as { collections: Listed[] }).collections.map((c) => c.name);
+    expect(names).not.toContain(OPEN);
+    expect(names).not.toContain(CLOSED);
   });
 
   it('lists the granted collection with only its visible fields', async () => {

@@ -994,7 +994,7 @@ function _decodeGodCache(userId: string, raw: string): boolean | null {
 export async function resolveUserRole(user: { id?: string; role?: string }): Promise<string> {
   if (user.role) return user.role;
   const userId = user.id;
-  if (!userId || userId.startsWith('apikey:')) return 'public';
+  if (!userId || userId === ANONYMOUS_SUBJECT || userId.startsWith('apikey:')) return 'public';
   if (await lookupGod(userId)) return 'god';
   const e = await getEnforcer();
   const domain = getCurrentDomain();
@@ -1005,6 +1005,12 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
   }
   return held.has(MEMBER_ROLE) ? MEMBER_ROLE : 'public';
 }
+
+/**
+ * The anonymous caller's Casbin subject: the tenant's `public` role itself, so
+ * its grants are exactly what an operator gave that role (R1, ADR 0017).
+ */
+export const ANONYMOUS_SUBJECT = 'public';
 
 /** The baseline Casbin role every account is given (`g <user> member *`). */
 export const MEMBER_ROLE = 'member';
@@ -1093,8 +1099,10 @@ export async function isGodUser(userId: string): Promise<boolean> {
 /** `isGodUser` without the fallback: a failed database read throws. */
 async function lookupGod(userId: string): Promise<boolean> {
   // A key is no row in "user" and never god. Asked anyway (god-audit asks it of
-  // every request's principal), it read the pool inside the transaction.
-  if (isApiKeySubject(userId)) return false;
+  // every request's principal), it read the pool inside the transaction. Nor is
+  // the anonymous caller: a "user" row that happened to be called `public`
+  // must not make every visitor god.
+  if (isApiKeySubject(userId) || userId === ANONYMOUS_SUBJECT) return false;
   // Checked before the remote cache: the point is to touch neither the pool nor
   // the network while a request holds its tenant transaction.
   const local = _localGod.get(userId);

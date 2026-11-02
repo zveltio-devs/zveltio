@@ -413,6 +413,10 @@ The database policy (`zv_row_rules`) applies the same two halves.
 | `user_role` | The authenticated user's role string |
 | `static:VALUE` | A literal value (e.g. `static:published`) |
 
+A caller with no id or no email (an anonymous request, an API key's own
+`user_email`) owns no row through `user_id` / `user_email`: the rule hides every
+row it covers, on every operator, in the engine and in the database policy.
+
 ### Common examples
 
 **Users see only their own records:**

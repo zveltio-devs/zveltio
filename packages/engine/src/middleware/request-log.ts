@@ -81,7 +81,8 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
           path: loggablePath(c),
           status: c.res.status,
           duration_ms: duration,
-          user_id: user?.id ?? null,
+          // An anonymous read runs as the `public` role (ADR 0017): no user.
+          user_id: c.get('authType') === 'anonymous' ? null : (user?.id ?? null),
           // Resolved rather than copied: the whole X-Forwarded-For chain used
           // to be stored verbatim, unvalidated, from any caller.
           ip: clientIpForAudit(c),

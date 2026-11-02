@@ -263,7 +263,7 @@ async function executeQueryConfig(
   collection: string,
   config: QueryConfig,
   user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
-  authType: 'session' | 'api_key',
+  authType: 'session' | 'api_key' | 'anonymous',
 ): Promise<{
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   records: any[];

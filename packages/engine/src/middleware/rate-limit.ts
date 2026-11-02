@@ -762,6 +762,16 @@ export const scimRateLimit = rateLimit({
   perIp: true,
 });
 
+// Anonymous reads of the data API (ADR 0017), on top of `api`: a public site's
+// visitors share no account, so the address is the only budget there is, and it
+// is half a signed-in caller's. Applied by the route once it knows nobody signed in.
+export const anonymousReadRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 100,
+  keyPrefix: 'anon-read',
+  perIp: true,
+});
+
 export const extRateLimit = rateLimit({
   windowMs: 60_000,
   max: 600,
