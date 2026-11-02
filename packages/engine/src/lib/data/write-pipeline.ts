@@ -18,7 +18,7 @@ import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from './ddl-manager.js';
+import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { getValidationDb, getValidationRules, validateRecord } from '../validation-engine.js';
 import { maybeEncrypt } from './field-crypto.js';
@@ -161,6 +161,16 @@ export async function processInput(
 
   const fields = normalizeFields(collectionDef);
   if (fields.length === 0) return { errors, processed: data };
+
+  // A key no field declares is refused, not dropped: `{"price": 49}` on a
+  // collection whose field is `price_cents` stored a free plan with a 201.
+  // System columns stay ignored here; their own paths own them.
+  const declared = new Set(fields.map((f) => f.name));
+  for (const key of Object.keys(data)) {
+    if (data[key] !== undefined && !declared.has(key) && !SYSTEM_COLUMNS.has(key)) {
+      errors.push(`${key}: unknown field`);
+    }
+  }
 
   for (const field of fields) {
     const typeDef = fieldTypeRegistry.get(field.type);
