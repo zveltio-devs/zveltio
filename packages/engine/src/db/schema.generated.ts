@@ -272,35 +272,6 @@ export interface ZvBackupsTable {
   schedule_id: string | null;
 }
 
-export interface ZvBillingPlansTable {
-  id: Generated<string>;
-  name: string;
-  stripe_price_id: string | null;
-  limits: Generated<unknown>;
-  price_cents: Generated<number>;
-  interval: Generated<string>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvBillingSubscriptionsTable {
-  id: Generated<string>;
-  tenant_id: Generated<string | null>;
-  plan_id: string | null;
-  stripe_subscription_id: string | null;
-  status: Generated<string>;
-  current_period_start: Date | null;
-  current_period_end: Date | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvBillingWebhookEventsTable {
-  event_id: Generated<string>;
-  received_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvCloudAccessLogsTable {
   id: Generated<string>;
   file_id: string;
@@ -1917,16 +1888,6 @@ export interface ZvTenantsTable {
   merged_into: string | null;
 }
 
-export interface ZvUsageEventsTable {
-  id: Generated<string>;
-  tenant_id: Generated<string | null>;
-  event_type: string;
-  collection: string | null;
-  quantity: Generated<number>;
-  metadata: Generated<unknown | null>;
-  created_at: Generated<Date>;
-}
-
 export interface ZvValidationRulesTable {
   id: Generated<string>;
   collection: string;
@@ -2712,9 +2673,6 @@ export interface DbSchema {
   zv_backup_schedules: ZvBackupSchedulesTable;
   zv_backup_uploads: ZvBackupUploadsTable;
   zv_backups: ZvBackupsTable;
-  zv_billing_plans: ZvBillingPlansTable;
-  zv_billing_subscriptions: ZvBillingSubscriptionsTable;
-  zv_billing_webhook_events: ZvBillingWebhookEventsTable;
   zv_cloud_access_logs: ZvCloudAccessLogsTable;
   zv_cloud_file_versions: ZvCloudFileVersionsTable;
   zv_cloud_retention_policies: ZvCloudRetentionPoliciesTable;
@@ -2830,7 +2788,6 @@ export interface DbSchema {
   zv_tenant_transfers: ZvTenantTransfersTable;
   zv_tenant_users: ZvTenantUsersTable;
   zv_tenants: ZvTenantsTable;
-  zv_usage_events: ZvUsageEventsTable;
   zv_validation_rules: ZvValidationRulesTable;
   zvd_ai_embeddings: ZvdAiEmbeddingsTable;
   zvd_ai_search_config: ZvdAiSearchConfigTable;
