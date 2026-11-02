@@ -1916,35 +1916,6 @@ export interface ZvdAiSearchConfigTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdApiAccessTokensTable {
-  id: Generated<string>;
-  name: string;
-  token_hash: string;
-  token_prefix: string;
-  scopes: Generated<string[]>;
-  expires_at: Date | null;
-  last_used_at: Date | null;
-  use_count: Generated<number>;
-  created_by: string;
-  created_at: Generated<Date>;
-  revoked_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdApiChangelogsTable {
-  id: Generated<string>;
-  version: string;
-  title: string;
-  changes: string;
-  breaking_changes: string | null;
-  migration_guide: string | null;
-  published_at: Date | null;
-  is_published: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdApiConnectionsTable {
   id: Generated<string>;
   name: string;
@@ -1960,26 +1931,6 @@ export interface ZvdApiConnectionsTable {
   retry_count: Generated<number>;
   timeout_ms: Generated<number>;
   tenant_id: Generated<string | null>;
-}
-
-export interface ZvdApiCustomDocsTable {
-  id: Generated<string>;
-  title: string;
-  slug: string;
-  body: string;
-  sort_order: Generated<number>;
-  is_published: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdApiDocsConfigTable {
-  tenant_id: Generated<string>;
-  is_public: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
 }
 
 export interface ZvdApiEndpointsTable {
@@ -2780,11 +2731,7 @@ export interface DbSchema {
   zv_validation_rules: ZvValidationRulesTable;
   zvd_ai_embeddings: ZvdAiEmbeddingsTable;
   zvd_ai_search_config: ZvdAiSearchConfigTable;
-  zvd_api_access_tokens: ZvdApiAccessTokensTable;
-  zvd_api_changelogs: ZvdApiChangelogsTable;
   zvd_api_connections: ZvdApiConnectionsTable;
-  zvd_api_custom_docs: ZvdApiCustomDocsTable;
-  zvd_api_docs_config: ZvdApiDocsConfigTable;
   zvd_api_endpoints: ZvdApiEndpointsTable;
   zvd_api_logs: ZvdApiLogsTable;
   zvd_api_oauth_tokens: ZvdApiOauthTokensTable;

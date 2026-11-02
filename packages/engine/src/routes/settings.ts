@@ -74,7 +74,6 @@ const WRITABLE_SETTINGS_KEYS = new Set([
   // Feature toggles (non-security)
   'maintenance_mode',
   'registration_enabled',
-  'api_docs_public',
   'max_upload_size_mb',
   'allowed_file_types',
   'default_collection_permissions',
@@ -179,7 +178,6 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     'support_email',
     'contact_email',
     'registration_enabled',
-    'api_docs_public',
     'maintenance_mode',
     'ai_enabled',
     'ai_default_model',
