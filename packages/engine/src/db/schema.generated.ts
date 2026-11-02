@@ -1794,42 +1794,6 @@ export interface ZvRolesTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvSaftAccountsTable {
-  id: Generated<string>;
-  code: string;
-  description: string;
-  account_type: Generated<string>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvSaftExportsTable {
-  id: Generated<string>;
-  period_start: Date;
-  period_end: Date;
-  company_name: string;
-  company_cui: string;
-  company_address: string | null;
-  status: Generated<string>;
-  xml_content: string | null;
-  anaf_response: unknown | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvSaftJournalEntriesTable {
-  id: Generated<string>;
-  account_code: string;
-  entry_date: Date;
-  description: string;
-  debit: Generated<number>;
-  credit: Generated<number>;
-  document_number: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvSavedQueriesTable {
   id: Generated<string>;
   name: string;
@@ -3089,9 +3053,6 @@ export interface DbSchema {
   zv_ro_document_versions: ZvRoDocumentVersionsTable;
   zv_ro_documents: ZvRoDocumentsTable;
   zv_roles: ZvRolesTable;
-  zv_saft_accounts: ZvSaftAccountsTable;
-  zv_saft_exports: ZvSaftExportsTable;
-  zv_saft_journal_entries: ZvSaftJournalEntriesTable;
   zv_saved_queries: ZvSavedQueriesTable;
   zv_schema_branches: ZvSchemaBranchesTable;
   zv_schema_migrations: ZvSchemaMigrationsTable;
