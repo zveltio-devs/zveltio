@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 537
+# tables: 543
 
 table account
   col accessToken                    text
@@ -5268,6 +5268,167 @@ table zvd_graphql_persisted_queries
   rls enabled forced
   pol tenant_isolation_zvd_graphql_persisted_queries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
+table zvd_i18n_approvals
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col translation_author             text
+  col translation_id                 uuid NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col value                          text NOT NULL
+  fk  zvd_i18n_approvals_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_i18n_approvals_pkey PRIMARY KEY (id)
+  fk  zvd_i18n_approvals_translation_id_fkey FOREIGN KEY (translation_id) REFERENCES zvd_i18n_translations(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_i18n_approvals_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('i18n_approvals'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('i18n_approvals'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('i18n_approvals'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('i18n_approvals'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('i18n_approvals'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_i18n_glossary
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col definition                     text
+  col forbidden                      boolean DEFAULT false
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col locale_id                      uuid NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col term                           text NOT NULL
+  col translation                    text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_i18n_glossary_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_i18n_glossary_locale_id_fkey FOREIGN KEY (locale_id) REFERENCES zvd_i18n_locales(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_i18n_glossary_pkey PRIMARY KEY (id)
+  uq  zvd_i18n_glossary_tenant_id_term_locale_id_key UNIQUE (tenant_id, term, locale_id)
+  fk  zvd_i18n_glossary_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('i18n_glossary'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('i18n_glossary'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('i18n_glossary'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('i18n_glossary'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('i18n_glossary'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_i18n_keys
+  col context                        text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col default_value                  text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_pluralized                  boolean DEFAULT false
+  col key                            text NOT NULL
+  col max_length                     bigint
+  col screenshot_url                 text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tags                           jsonb
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_i18n_keys_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_i18n_keys_pkey PRIMARY KEY (id)
+  uq  zvd_i18n_keys_tenant_id_key_key UNIQUE (tenant_id, key)
+  fk  zvd_i18n_keys_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('i18n_keys'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('i18n_keys'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('i18n_keys'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('i18n_keys'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('i18n_keys'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_i18n_locales
+  col code                           text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean DEFAULT true
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_i18n_locales_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_i18n_locales_pkey PRIMARY KEY (id)
+  uq  zvd_i18n_locales_tenant_id_code_key UNIQUE (tenant_id, code)
+  fk  zvd_i18n_locales_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('i18n_locales'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('i18n_locales'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('i18n_locales'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('i18n_locales'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('i18n_locales'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_i18n_settings
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col default_locale                 uuid NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col scope                          text NOT NULL DEFAULT 'instance'::text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_i18n_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_i18n_settings_default_locale_fkey FOREIGN KEY (default_locale) REFERENCES zvd_i18n_locales(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  pk  zvd_i18n_settings_pkey PRIMARY KEY (id)
+  uq  zvd_i18n_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
+  fk  zvd_i18n_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('i18n_settings'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('i18n_settings'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('i18n_settings'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('i18n_settings'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('i18n_settings'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_i18n_translations
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_machine_translated          boolean DEFAULT false
+  col key_id                         uuid NOT NULL
+  col locale_id                      uuid NOT NULL
+  col reviewed                       boolean DEFAULT false
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col value                          text NOT NULL
+  fk  zvd_i18n_translations_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_i18n_translations_key_id_fkey FOREIGN KEY (key_id) REFERENCES zvd_i18n_keys(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_i18n_translations_locale_id_fkey FOREIGN KEY (locale_id) REFERENCES zvd_i18n_locales(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_i18n_translations_pkey PRIMARY KEY (id)
+  uq  zvd_i18n_translations_tenant_id_key_id_locale_id_key UNIQUE (tenant_id, key_id, locale_id)
+  fk  zvd_i18n_translations_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('i18n_translations'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('i18n_translations'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_import_mappings
   col collection                     text NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -5720,17 +5881,6 @@ table zvd_leave_types
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('leave_types'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('leave_types'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('leave_types'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('leave_types'::text, 'update'::text) AS zveltio_collection_allows)
-
-table zvd_locales
-  col code                           text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col is_default                     boolean NOT NULL DEFAULT false
-  col name                           text NOT NULL
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_locales_pkey PRIMARY KEY (tenant_id, code)
-  rls enabled forced
-  pol tenant_isolation_zvd_locales FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_mail_config
   col config                         jsonb NOT NULL
@@ -8357,95 +8507,6 @@ table zvd_transactions
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('transactions'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('transactions'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('transactions'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_translation_glossary
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col definition                     text
-  col forbidden                      boolean NOT NULL DEFAULT false
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col locale                         text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col term                           text NOT NULL
-  col translation                    text NOT NULL
-  pk  zvd_translation_glossary_pkey PRIMARY KEY (id)
-  uq  zvd_translation_glossary_term_locale_key UNIQUE (tenant_id, term, locale)
-  rls enabled forced
-  pol tenant_isolation_zvd_translation_glossary FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_translation_import_jobs
-  col completed_at                   timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col error                          text
-  col format                         text NOT NULL DEFAULT 'json'::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col keys_imported                  integer NOT NULL DEFAULT 0
-  col keys_skipped                   integer NOT NULL DEFAULT 0
-  col keys_total                     integer NOT NULL DEFAULT 0
-  col locale                         text NOT NULL
-  col status                         text NOT NULL DEFAULT 'pending'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zvd_translation_import_jobs_format_check CHECK ((format = ANY (ARRAY['json'::text, 'csv'::text, 'po'::text, 'xliff'::text])))
-  pk  zvd_translation_import_jobs_pkey PRIMARY KEY (id)
-  ck  zvd_translation_import_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'completed'::text, 'failed'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_translation_import_jobs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_translation_keys
-  col context                        text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col default_value                  text
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_pluralized                  boolean NOT NULL DEFAULT false
-  col key                            text NOT NULL
-  col max_length                     integer
-  col screenshot_url                 text
-  col tags                           ARRAY NOT NULL DEFAULT '{}'::text[]
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  uq  zvd_translation_keys_key_key UNIQUE (tenant_id, key)
-  pk  zvd_translation_keys_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_translation_keys FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_translation_memory
-  col context                        text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col locale                         text NOT NULL
-  col quality_score                  integer NOT NULL DEFAULT 100
-  col source_text                    text NOT NULL
-  col target_text                    text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col usage_count                    integer NOT NULL DEFAULT 0
-  pk  zvd_translation_memory_pkey PRIMARY KEY (id)
-  ck  zvd_translation_memory_quality_score_check CHECK (((quality_score >= 0) AND (quality_score <= 100)))
-  uq  zvd_translation_memory_source_text_locale_key UNIQUE (tenant_id, source_text, locale)
-  rls enabled forced
-  pol tenant_isolation_zvd_translation_memory FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_translations
-  col approved_at                    timestamp with time zone
-  col approved_by                    text
-  col char_count                     integer
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_machine_translated          boolean NOT NULL DEFAULT false
-  col key_id                         uuid NOT NULL
-  col locale                         text NOT NULL
-  col reviewed                       boolean NOT NULL DEFAULT false
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col updated_by                     text
-  col value                          text NOT NULL
-  fk  zvd_translations_key_id_fkey FOREIGN KEY (key_id) REFERENCES zvd_translation_keys(id) ON DELETE CASCADE
-  uq  zvd_translations_key_id_locale_key UNIQUE (key_id, locale)
-  fk  zvd_translations_locale_fkey FOREIGN KEY (tenant_id, locale) REFERENCES zvd_locales(tenant_id, code) ON DELETE CASCADE NOT VALID
-  pk  zvd_translations_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_translations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_validation_import_log
   col collection                     text NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -9857,6 +9918,91 @@ table zvv_forms
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
+
+table zvv_i18n_approvals
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col translation_author             text
+  col translation_id                 uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col value                          text
+
+table zvv_i18n_glossary
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col definition                     text
+  col forbidden                      boolean
+  col id                             uuid
+  col locale_id                      uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col term                           text
+  col translation                    text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_i18n_keys
+  col context                        text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col default_value                  text
+  col description                    text
+  col id                             uuid
+  col is_pluralized                  boolean
+  col key                            text
+  col max_length                     bigint
+  col screenshot_url                 text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tags                           jsonb
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_i18n_locales
+  col code                           text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_i18n_settings
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col default_locale                 uuid
+  col id                             uuid
+  col scope                          text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_i18n_translations
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col is_machine_translated          boolean
+  col key_id                         uuid
+  col locale_id                      uuid
+  col reviewed                       boolean
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col value                          text
 
 table zvv_invoice_lines
   col created_at                     timestamp with time zone

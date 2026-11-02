@@ -816,26 +816,26 @@ Export collection data to PDF, Excel, or CSV.
 
 ## Translations
 
-> Served by the `i18n/translations` extension under `/ext/i18n/translations`,
-> not by the engine. The engine used to serve the same fifteen routes at
-> `/api/translations`; that duplicate was removed. As with every other
-> extension, the paths answer 404 when the extension is not enabled.
+> The `i18n/translations` extension (2.0.0) declares its register as
+> collections the engine serves through the data API: `i18n_locales`,
+> `i18n_settings` (one row: the default locale), `i18n_keys`,
+> `i18n_translations` (unique per key and locale), `i18n_glossary` and
+> `i18n_approvals`. Who may read or write them is the engine's rules; a public
+> site reads under an anonymous read rule the operator grants. The paths answer
+> 404 when the extension is not enabled.
 
-### GET /ext/i18n/translations/:key
+### GET /api/data/i18n_translations?expand=key_id,locale_id
 
-Get translation for a key in all languages.
+A locale's strings: add `locale_id[eq]=<id>`. Each record carries
+`key_id_expanded.key` and `value`; a key without a translation falls back to
+its `default_value` (`GET /api/data/i18n_keys`), on the reader's side.
 
-### POST /ext/i18n/translations
+### POST /ext/i18n/translations/actions/approve
 
-Create or update a translation entry.
-
-```json
-{
-  "key": "welcome_message",
-  "locale": "ro",
-  "value": "Bun venit!"
-}
-```
+Approve a translation as it reads now: `{ "id": "<translation id>" }`. Writes a
+row of `i18n_approvals` with the value approved and the translation's last
+writer (`translation_author`), so the row rule `translation_author neq user_id`
+keeps anyone from approving their own wording.
 
 ---
 
