@@ -11,6 +11,7 @@
  */
 
 import type { Context } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import { sql } from 'kysely';
 import type { ExtensionBroadcast, ExtensionConfig, ServiceRegistry } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
@@ -38,9 +39,9 @@ import {
   isTenantAdmin,
   ANONYMOUS_SUBJECT,
   getCurrentTenantTrx,
-  getRequestActor,
+  asIdentityOn,
+  beforeRequestTransactionEnds,
   publicRlsIdentity,
-  requestTransactionState,
   requireInstanceAdmin,
   resolveUserRole,
 } from '../tenancy/index.js';
@@ -717,12 +718,16 @@ async function readAsCaller(
   return answerOf(await readAsPublic(c as Context, pub, member, collection, id, query));
 }
 
+/** Each public route request's one charge of the anonymous read rate limit. */
+const charged = new WeakMap<PublicRouteRequest, Promise<Response | undefined>>();
+
 /**
  * A public route's read: `GET /api/data` as an anonymous visitor (ADR 0017) —
  * the `public` role's grants, collection policies, row rules and column
- * permissions, and the anonymous read rate limit — whoever the visitor is. The
- * gate admitted the request without asking, so a session it carries is not who
- * reads.
+ * permissions — whoever the visitor is. The gate admitted the request without
+ * asking, so a session it carries is not who reads. The request is charged
+ * once to the anonymous read rate limit, however many reads it makes; refused,
+ * every read throws the limiter's 429.
  */
 async function readAsPublic(
   c: Context,
@@ -732,37 +737,51 @@ async function readAsPublic(
   id: string | null,
   query?: ReadQuery,
 ): Promise<Response> {
-  // Work the handler left running after its answer: the transaction is gone.
-  if (requestTransactionState() !== 'open' || !req.trx || !req.tenantId) {
+  const { trx, tenantId } = req;
+  // Held open until the read is done: a read the handler left running past its
+  // answer would otherwise send its statements after the COMMIT.
+  let done = () => {};
+  const held = new Promise<void>((resolve) => {
+    done = resolve;
+  });
+  if (
+    !trx ||
+    !tenantId ||
+    getCurrentTenantTrx() !== trx ||
+    !beforeRequestTransactionEnds(() => held)
+  ) {
     throw new Error(
       `ctx.internals.${member}: its public route request is over, so there is no read`,
     );
   }
-  const limited = await anonymousReadRateLimit(c, async () => undefined);
-  if (limited) return limited;
-  const tenantId = req.tenantId;
-  const read = (trx: Database) =>
-    dataApiRead(
-      createRequestScopedDb(getDb()),
-      {
-        user: { id: ANONYMOUS_SUBJECT, name: 'anonymous', role: ANONYMOUS_SUBJECT },
-        authType: 'anonymous',
-        trx,
-        tenantId,
-      },
-      collection,
-      id,
-      query,
-    );
-  // The request transaction publishes the visitor the tenant middleware saw:
-  // `public` for an anonymous one, read on it as `GET /api/data` is.
-  if (getRequestActor()?.identity?.anonymous === true && getCurrentTenantTrx() === req.trx) {
-    return read(req.trx);
+  try {
+    let charge = charged.get(req);
+    if (!charge) {
+      charge = anonymousReadRateLimit(c, async () => undefined).then((r) => r || undefined);
+      charged.set(req, charge);
+    }
+    const limited = await charge;
+    if (limited) throw new HTTPException(429, { res: limited.clone() });
+    const read = () =>
+      dataApiRead(
+        createRequestScopedDb(getDb()),
+        {
+          user: { id: ANONYMOUS_SUBJECT, name: 'anonymous', role: ANONYMOUS_SUBJECT },
+          authType: 'anonymous',
+          trx,
+          tenantId,
+        },
+        collection,
+        id,
+        query,
+      );
+    // `public` published on the request's transaction for the read, whoever it
+    // was opened for — a signed-in visitor's publishes them. Always, not only
+    // then: a sibling read's window would make the actor look anonymous.
+    return await asIdentityOn(trx, await publicRlsIdentity(), read);
+  } finally {
+    done();
   }
-  // A signed-in visitor's publishes them, and the database would answer for
-  // them: the read gets a transaction of its own, published as `public`.
-  // ponytail: a second pool connection, for signed-in visitors of a public route only.
-  return withTenantIsolation(tenantId, read, { identity: await publicRlsIdentity() });
 }
 
 /**

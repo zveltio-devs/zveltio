@@ -744,8 +744,9 @@ export interface ExtensionInternals<DB = unknown> {
    *
    * In one of the extension's `publicRoutes` the caller is the anonymous
    * visitor: the tenant's `public` role, as `GET /api/data` serves it, whatever
-   * session the request carries; it holds no grant until an operator gives one
-   * (ADR 0020, 3.0.0-beta.99; it threw there before).
+   * session the request carries; it holds no grant until an operator gives one.
+   * The request is charged once to the anonymous read rate limit; over it, the
+   * read throws the 429 (ADR 0020, 3.0.0-beta.99; it threw there before).
    */
   readRecord: (c: Context, collection: string, id: string) => Promise<DataApiAnswer>;
   /** `GET /api/data/:collection` with the route's own query parameters, as `readRecord`. */

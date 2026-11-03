@@ -359,7 +359,9 @@ app.post('/webhooks/stripe', async (c) => {
 A public route (a sitemap, a published page) reads with the same members a
 session route uses, and reads as the anonymous visitor of `GET /api/data`
 (ADR 0017, ADR 0020): the tenant's `public` role, its grants, row rules and
-column permissions, under the anonymous read rate limit.
+column permissions. The request is charged once to the anonymous read rate
+limit; refused, the read throws the 429, which is the route's answer unless
+the handler catches it.
 
 ```ts
 app.get('/sitemap.xml', async (c) => {
@@ -374,7 +376,7 @@ app.get('/sitemap.xml', async (c) => {
 - `public` holds nothing until an operator grants it `read` on the collection:
   until then the read answers 403, never rows. The extension cannot grant it.
 - It is the visitor's read whoever the visitor is: a signed-in one reads as
-  `public` too, never as themselves.
+  `public` too, never as themselves, and a stale cookie does not refuse it.
 - Reads only: `createRecord`, `updateRecord` and `deleteRecord` still throw in
   a public route. Another extension's public route, a context kept from another
   request, or a read left running after the answer throws.

@@ -27,11 +27,14 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
+  getCurrentTenantTrx,
   getEnforcer,
   invalidateAllPermissionCaches,
   invalidateRlsCache,
 } from '../../lib/tenancy/index.js';
+import { clearLocalRateLimitCache } from '../../middleware/rate-limit.js';
 import {
+  asTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -46,6 +49,7 @@ const STAMP = String(Date.now()).slice(-7);
 const COLL = `prr_${STAMP}`;
 const EXT = `prr-ext-${STAMP}`;
 const OTHER = `prr-other-${STAMP}`;
+const B = { id: crypto.randomUUID(), slug: `prr-b-${STAMP}` };
 
 type Rec = Record<string, unknown>;
 type Answer = { status: number; body: Rec };
@@ -62,6 +66,9 @@ d('a public route reads as the public role (ADR 0020)', () => {
   let ruleId = '';
   let kept: Context | undefined;
   let late: Promise<Answer> | undefined;
+  /** A read the handler did not await, and when it settled. */
+  let inflight: Promise<Answer> | undefined;
+  let inflightSettled = false;
   let otherInternals: SdkContext['internals'];
 
   function loader(ctx: ExtensionContext): ExtensionLoader {
@@ -123,6 +130,31 @@ d('a public route reads as the public role (ADR 0020)', () => {
       late.catch(() => {});
       return c.json({});
     });
+    r.get('/pub/inflight', (c) => {
+      inflightSettled = false;
+      inflight = i.listRecords(c, COLL).finally(() => {
+        inflightSettled = true;
+      });
+      inflight.catch(() => {});
+      return c.json({});
+    });
+    // Two reads at once, then what the request's transaction publishes after.
+    r.get('/pub/both', async (c) => {
+      const [a, b] = await Promise.all([i.listRecords(c, COLL), i.listRecords(c, COLL)]);
+      const trx = getCurrentTenantTrx()!;
+      const { rows } = await sql<{ u: string; bypass: string }>`
+        SELECT current_setting('zveltio.user_id', true) AS u,
+               current_setting('zveltio.rls_bypass', true) AS bypass`.execute(trx);
+      return c.json({ a: a.body, b: b.body, after: rows[0] });
+    });
+    // Several reads, uncaught: the rate limit's refusal is the handler's throw.
+    r.get('/pub/many', async (c) => {
+      for (let n = 0; n < 3; n++) {
+        const a = await i.listRecords(c, COLL);
+        if (a.status !== 200) return c.json(a.body, 500);
+      }
+      return c.json({});
+    });
     // Another extension's member, handed this extension's public request.
     r.get('/pub/foreign', (c) => answering(() => otherInternals!.listRecords(c, COLL))(c));
   };
@@ -160,6 +192,13 @@ d('a public route reads as the public role (ADR 0020)', () => {
     };
     published = await create({ title: 'pub', status: 'published', secret: 's1' });
     draft = await create({ title: 'draft', status: 'draft', secret: 's2' });
+    // Another tenant's published row: no visitor of tenant A reads it, god or not.
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${B.id}::uuid, ${B.slug}, 'prrb', 'active')`.execute(db);
+    await asTenant(db, B.id, (trx) =>
+      sql`INSERT INTO ${sql.table(`zvd_${COLL}`)} (title, status, tenant_id)
+          VALUES ('other-firm', 'published', ${B.id}::uuid)`.execute(trx),
+    );
 
     app = new Hono();
     app.use('/ext/*', sessionPrefetch(getAuth(), db));
@@ -205,7 +244,15 @@ d('a public route reads as the public role (ADR 0020)', () => {
       .execute(db)
       .catch(() => {});
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${OTHER})`.execute(db);
+    await asTenant(db, B.id, (trx) =>
+      sql`DELETE FROM ${sql.table(`zvd_${COLL}`)} WHERE tenant_id = ${B.id}::uuid`.execute(trx),
+    ).catch(() => {});
     await dropTestCollection(db, COLL).catch(() => {});
+    await sql`DELETE FROM zv_tenants WHERE id = ${B.id}::uuid`.execute(db).catch(() => {});
+    await sql`DELETE FROM zv_rate_limit_configs WHERE key_prefix = 'anon-read'`
+      .execute(db)
+      .catch(() => {});
+    clearLocalRateLimitCache('anon-read');
   });
 
   it('with no grant, public reads nothing: 403 on both members, no rows', async () => {
@@ -274,7 +321,8 @@ d('a public route reads as the public role (ADR 0020)', () => {
   it('a session route still reads as its principal', async () => {
     const res = await get('/priv/list', god);
     expect(res.status).toBe(200);
-    expect(await titles(res)).toEqual(['draft', 'pub']);
+    // God's read bypass is instance-wide, so every firm's rows.
+    expect(await titles(res)).toEqual(['draft', 'other-firm', 'pub']);
     // Anonymous, the session route is the gate's 401, as before.
     expect((await get('/priv/list')).status).toBe(401);
   });
@@ -289,7 +337,59 @@ d('a public route reads as the public role (ADR 0020)', () => {
       await grant(false, 'create');
     }
     const all = await engine.request(`/api/data/${COLL}`, { headers: { cookie: god } });
-    expect(await titles(all)).toEqual(['draft', 'pub']);
+    expect(await titles(all)).toEqual(['draft', 'other-firm', 'pub']);
+  });
+
+  it('two reads at once both read as public; the visitor is published again after', async () => {
+    const res = await get('/pub/both', god);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { a: Rec; b: Rec; after: { u: string; bypass: string } };
+    for (const side of [body.a, body.b]) {
+      expect((side.records as Rec[]).map((r) => r.title)).toEqual(['pub']);
+    }
+    // The request's transaction is god's again: their id and their read bypass.
+    expect(body.after.u).not.toBe('');
+    expect(body.after.bypass).toBe('on');
+  });
+
+  it('a read the handler did not await holds the transaction until it is done', async () => {
+    const res = await get('/pub/inflight', god);
+    expect(res.status).toBe(200);
+    // Settled before the answer: the request's COMMIT waited for it, so none of
+    // its statements ran on a finished transaction.
+    expect(inflightSettled).toBe(true);
+    const a = await inflight!;
+    expect(a.status).toBe(200);
+    expect((a.body.records as Rec[]).map((r) => r.title)).toEqual(['pub']);
+  });
+
+  it('charges the anonymous read rate limit once per request, and its refusal throws', async () => {
+    await sql`INSERT INTO zv_rate_limit_configs (key_prefix, window_ms, max_requests)
+              VALUES ('anon-read', 60000, 2)
+              ON CONFLICT (key_prefix) DO UPDATE SET window_ms = 60000, max_requests = 2`.execute(
+      db,
+    );
+    clearLocalRateLimitCache('anon-read');
+    // The limiter stands down under NODE_ENV=test; the address is the bucket.
+    const env = { NODE_ENV: process.env.NODE_ENV, TRUSTED_PROXY: process.env.TRUSTED_PROXY };
+    process.env.NODE_ENV = 'production';
+    process.env.TRUSTED_PROXY = 'true';
+    const ip = `198.51.100.${(Number(STAMP) % 250) + 1}`;
+    try {
+      const many = () => app.request(`/ext/${EXT}/pub/many`, { headers: { 'x-real-ip': ip } });
+      // Three reads each, one unit each: the budget of two admits two requests.
+      expect((await many()).status).toBe(200);
+      expect((await many()).status).toBe(200);
+      const refused = await many();
+      expect(refused.status).toBe(429);
+      expect(refused.headers.get('retry-after')).toBeTruthy();
+    } finally {
+      process.env.NODE_ENV = env.NODE_ENV;
+      if (env.TRUSTED_PROXY === undefined) delete process.env.TRUSTED_PROXY;
+      else process.env.TRUSTED_PROXY = env.TRUSTED_PROXY;
+      await sql`DELETE FROM zv_rate_limit_configs WHERE key_prefix = 'anon-read'`.execute(db);
+      clearLocalRateLimitCache('anon-read');
+    }
   });
 
   it('refuses a kept context, work left running, and another extension', async () => {

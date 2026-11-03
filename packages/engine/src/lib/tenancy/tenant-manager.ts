@@ -11,9 +11,11 @@ import { withAdvisoryLock } from '../../db/advisory-lock.js';
 import { withLockWaitBound } from '../../db/dynamic.js';
 import { getCache } from '../runtime/index.js';
 import { withSavepoint } from '../savepoint.js';
+import { exclusive } from '../../db/trx-sequencer.js';
 import {
   currentAfterCommitQueue,
   getCurrentTenantTrx,
+  getRequestActor,
   runAfterCommitJob,
   runWithTenantTrx,
   setRequestActor,
@@ -1537,6 +1539,73 @@ export async function withTenantIsolation<T>(
     await runAfterCommitJob(job);
   }
   return result as T;
+}
+
+/**
+ * Run `fn` on `trx`, the running transaction, as `identity`, held to the
+ * running tenant alone — the identity and reach `withTenantIsolation` publishes
+ * for a transaction opened without a user — then put the caller's back: the
+ * settings the policies read and the actor (`getRequestActor`). For a read that
+ * must answer as someone other than whom the transaction was opened for (ADR
+ * 0020) without a second connection while the request holds one.
+ *
+ * Alone on the transaction (`exclusive`): a sibling's statement waits, so none
+ * of the caller's runs as `identity` and none of `fn`'s as the caller. JavaScript
+ * that reads the actor meanwhile sees `identity`. A failed statement aborted the
+ * transaction (or its savepoint), whose rollback restores the settings.
+ */
+export async function asIdentityOn<T>(
+  trx: Database,
+  identity: RlsIdentity,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const issuer = issuerSettings(identity.issuer);
+  const settings = JSON.stringify({
+    'zveltio.visible_tenants': '',
+    'zveltio.user_id': identity.userId,
+    'zveltio.user_email': identity.email,
+    'zveltio.user_role': identity.role,
+    'zveltio.user_roles': identity.roles.join(','),
+    'zveltio.issuer_role': identity.issuerRole ?? '',
+    'zveltio.issuer_rows': issuer.mode,
+    'zveltio.issuer_user_id': issuer.userId,
+    'zveltio.issuer_user_email': issuer.email,
+    'zveltio.issuer_user_role': issuer.role,
+    'zveltio.issuer_user_roles': issuer.roles,
+    'zveltio.actor': identity.userId !== '' || identity.anonymous === true ? 'on' : 'off',
+    'zveltio.rls_bypass': identity.bypass ? 'on' : 'off',
+    'zveltio.collection_grants': identity.collectionGrants ?? '',
+    'zveltio.collection_all': identity.collectionAll ? 'on' : 'off',
+    'zveltio.columns_all': identity.columnsAll ? 'on' : 'off',
+    'zveltio.system_collections': '',
+  });
+  return exclusive(trx, async () => {
+    // Read, then written, in one statement: the select list runs left to right
+    // (`asEngineRole` relies on the same).
+    const applied = await sql<{ saved: string }>`
+      SELECT (SELECT json_object_agg(n, coalesce(current_setting(n, true), ''))
+                FROM json_object_keys(${settings}::text::json) AS n)::text AS saved,
+             (SELECT count(set_config(k, v, true))
+                FROM json_each_text(${settings}::text::json) AS t(k, v)) AS applied
+    `.execute(trx);
+    const saved = applied.rows[0]?.saved ?? '{}';
+    const actor = getRequestActor();
+    if (actor) setRequestActor({ userId: null, identity });
+    const restore = async () => {
+      if (actor) setRequestActor(actor);
+      await sql`SELECT set_config(k, v, true) FROM json_each_text(${saved}::text::json) AS t(k, v)`.execute(
+        trx,
+      );
+    };
+    try {
+      const out = await fn();
+      await restore();
+      return out;
+    } catch (err) {
+      await restore().catch(() => undefined);
+      throw err;
+    }
+  });
 }
 
 /**
