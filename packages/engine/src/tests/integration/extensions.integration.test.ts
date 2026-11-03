@@ -74,7 +74,7 @@ describe.skipIf(skipAll)('/ext/* — closed without a session, loaded or not', (
 const GONE_DOORS = [
   { path: '/api/export/posts', method: 'GET', replacement: '/ext/data/export' },
   { path: '/api/import/jobs', method: 'GET', replacement: '/ext/data/import' },
-  { path: '/api/media/folders', method: 'GET', replacement: '/ext/content/media' },
+  { path: '/api/media/folders', method: 'GET', replacement: '/api/storage' },
   { path: '/api/approvals', method: 'GET', replacement: '/ext/workflow/approvals' },
   { path: '/api/briefing', method: 'GET', replacement: '/ext/crm/briefing' },
 ];

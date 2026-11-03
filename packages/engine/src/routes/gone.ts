@@ -12,12 +12,9 @@ import { problem } from '../lib/problem.js';
 export function goneRoutes(replacement: string, feature: string): Hono {
   const app = new Hono();
   app.all('*', () => {
-    throw problem(
-      'gone',
-      410,
-      `${feature} moved to an extension. Use ${replacement} instead of this /api path.`,
-      { replacement },
-    );
+    throw problem('gone', 410, `${feature} moved. Use ${replacement} instead of this /api path.`, {
+      replacement,
+    });
   });
   return app;
 }

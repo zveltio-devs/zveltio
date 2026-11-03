@@ -19,12 +19,12 @@ d('gone dual doors (media + approvals + briefing + export/import + edge CRUD)', 
     ({ app } = await getTestApp());
   });
 
-  it('GET /api/media returns 410 with extension replacement', async () => {
+  it('GET /api/media returns 410 with the storage replacement', async () => {
     const res = await app.request('/api/media/folders');
     expect(res.status).toBe(410);
     const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
-    expect(body.errors?.replacement ?? '').toBe('/ext/content/media');
-    expect(body.detail ?? '').toMatch(/content\/media/);
+    expect(body.errors?.replacement ?? '').toBe('/api/storage');
+    expect(body.detail ?? '').toMatch(/\/api\/storage/);
   });
 
   it('GET /api/approvals returns 410 with extension replacement', async () => {

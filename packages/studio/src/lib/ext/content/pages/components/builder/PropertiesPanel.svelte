@@ -45,12 +45,11 @@
     if (mediaFiles.length > 0 || mediaState === 'unavailable') return;
     mediaState = 'loading';
     try {
-      const res = await fetch('/ext/content/media/files?mime_type=image&limit=60', {
-        credentials: 'include',
-      });
+      // The engine's storage (content/media 2.0.0 no longer serves files).
+      const res = await fetch('/api/storage?limit=200', { credentials: 'include' });
       if (!res.ok) throw new Error(String(res.status));
       const json = await res.json();
-      mediaFiles = (json.files ?? []) as MediaFile[];
+      mediaFiles = ((json.files ?? []) as MediaFile[]).filter((f) => f.mimetype?.startsWith('image/')).slice(0, 60);
       mediaState = 'idle';
     } catch {
       // Not installed, or not permitted. Either way the URL field still works.
@@ -60,7 +59,7 @@
 
   /** A file's public address — `url` when storage exposes one, else the path. */
   function mediaUrl(f: MediaFile): string {
-    return f.url ?? `/ext/content/media/files/${f.id}/raw`;
+    return f.url ?? `/files/${f.storage_path}`;
   }
 
   function chooseMedia(f: MediaFile) {

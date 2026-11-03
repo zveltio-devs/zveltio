@@ -71,7 +71,7 @@ of date — capabilities that used to live in core and moved out keep their old
 | `/api/approvals` | `/ext/workflow/approvals` |
 | `/api/export` | `/ext/data/export` |
 | `/api/import` | `/ext/data/import` |
-| `/api/media` | `/ext/content/media` |
+| `/api/media` | `/api/storage` (engine); tags, favorites and collections: `/api/data/media_*` (content/media) |
 | `/api/edge-functions` | `/ext/developer/edge-functions` |
 
 ---

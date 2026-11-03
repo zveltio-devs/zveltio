@@ -439,10 +439,13 @@ for await (const rel of schemaGlob.scan({ cwd: EXT_DIR, onlyFiles: true })) {
       ...(res.form?.repeatable ? [res.form.repeatable] : []),
       ...(res.form?.computed ?? []),
     ];
+    // A download form opens its endpoint as a GET (fields become the query
+    // string); every other form POSTs its fields as the body.
+    const method = res.form?.submit?.kind === 'download' ? 'GET' : 'POST';
     if (endpoint) {
-      const declared = await declaredTarget(endpoint, 'POST', extName);
+      const declared = await declaredTarget(endpoint, method, extName);
       let accepted: Accepted = null;
-      let target = `POST ${endpoint}`;
+      let target = `${method} ${endpoint}`;
       if (typeof declared === 'string') {
         problems.push({ ext: extName, resource: rid, kind: 'endpoint-declared', detail: declared });
       } else if (declared) {
@@ -456,14 +459,14 @@ for await (const rel of schemaGlob.scan({ cwd: EXT_DIR, onlyFiles: true })) {
             kind: 'endpoint-prefix',
             detail: `"${endpoint}" does not start with /ext/${extName}`,
           });
-        } else if (!matches(routes.POST, p)) {
+        } else if (!matches(routes[method], p)) {
           problems.push({
             ext: extName,
             resource: rid,
             kind: 'endpoint-missing',
-            detail: `no POST ${p} on the engine (form.endpoint "${endpoint}")`,
+            detail: `no ${method} ${p} on the engine (form.endpoint "${endpoint}")`,
           });
-        } else {
+        } else if (method === 'POST') {
           accepted = bodyKeys(engineSrc, 'POST', p);
           target = `POST ${p}`;
         }

@@ -340,38 +340,6 @@ export interface ZvCloudTrashTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvCollectionPublishSettingsTable {
-  id: Generated<string>;
-  collection: string;
-  require_review: Generated<boolean>;
-  allow_self_publish: Generated<boolean>;
-  notify_roles: Generated<string[]>;
-  reviewer_roles: Generated<string[]>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvContentDraftsTable {
-  id: Generated<string>;
-  collection: string;
-  record_id: string;
-  draft_data: Generated<unknown>;
-  base_version: Generated<number>;
-  status: Generated<'draft' | 'review' | 'approved' | 'rejected' | 'published'>;
-  notes: string | null;
-  scheduled_at: Date | null;
-  created_by: string;
-  reviewed_by: string | null;
-  reviewed_at: Date | null;
-  published_at: Date | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  word_count: number | null;
-  content_hash: string | null;
-  reviewer_note: string | null;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvDashboardsTable {
   id: Generated<string>;
   name: string;
@@ -527,44 +495,6 @@ export interface ZvDocumentTemplatesTable {
   tenant_id: Generated<string | null>;
   template_type: Generated<string>;
   output_format: Generated<string>;
-}
-
-export interface ZvDraftPublishJobsTable {
-  id: Generated<string>;
-  draft_ids: string[];
-  collection: string;
-  status: Generated<'pending' | 'running' | 'completed' | 'failed'>;
-  published_count: Generated<number>;
-  failed_count: Generated<number>;
-  errors: Generated<unknown>;
-  created_by: string;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDraftReviewCommentsTable {
-  id: Generated<string>;
-  draft_id: string;
-  field_path: string | null;
-  comment: string;
-  type: Generated<'suggestion' | 'required' | 'info'>;
-  resolved_at: Date | null;
-  resolved_by: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDraftSnapshotsTable {
-  id: Generated<string>;
-  draft_id: string;
-  snapshot_data: Generated<unknown>;
-  version: number;
-  description: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvEdgeFunctionLogsTable {
@@ -1079,54 +1009,6 @@ export interface ZvMailSignaturesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvMediaAiMetadataTable {
-  id: Generated<string>;
-  file_id: string;
-  ai_labels: Generated<string[]>;
-  ai_description: string | null;
-  dominant_color: string | null;
-  ocr_text: string | null;
-  nsfw_score: number | null;
-  is_nsfw: Generated<boolean>;
-  analyzed_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMediaCdnInvalidationsTable {
-  id: Generated<string>;
-  file_ids: Generated<string[]>;
-  paths: Generated<string[]>;
-  status: Generated<'pending' | 'completed' | 'failed'>;
-  provider: Generated<string>;
-  invalidation_id: string | null;
-  error: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMediaCollectionFilesTable {
-  collection_id: string;
-  file_id: string;
-  sort_order: Generated<number>;
-  added_by: string;
-  added_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMediaCollectionsTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  cover_file_id: string | null;
-  is_public: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvMediaFavoritesTable {
   user_id: string;
   file_id: string;
@@ -1177,8 +1059,6 @@ export interface ZvMediaFoldersTable {
   deleted_at: Generated<Date | null>;
   tenant_id: Generated<string | null>;
   updated_at: Generated<Date>;
-  description: string | null;
-  cover_image_id: string | null;
 }
 
 export interface ZvMediaSharesTable {
@@ -1320,16 +1200,6 @@ export interface ZvPromptTemplatesTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvPublishScheduleTable {
-  id: Generated<string>;
-  draft_id: string;
-  scheduled_at: Date;
-  published_at: Date | null;
-  status: Generated<'pending' | 'published' | 'failed' | 'cancelled'>;
-  created_at: Generated<Date>;
   tenant_id: Generated<string | null>;
 }
 
@@ -1855,55 +1725,6 @@ export interface ZvdDashboardSubscriptionsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdExportAuditLogTable {
-  id: Generated<string>;
-  collection: string;
-  format: string;
-  record_count: Generated<number>;
-  fields_exported: Generated<string[]>;
-  filters_used: Generated<unknown>;
-  exported_by: string;
-  ip: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdExportJobsTable {
-  id: Generated<string>;
-  collection: string;
-  format: Generated<'json' | 'csv' | 'ndjson' | 'xlsx' | 'parquet'>;
-  filters: Generated<unknown>;
-  fields: Generated<string[]>;
-  status: Generated<'pending' | 'running' | 'completed' | 'failed'>;
-  total_records: number | null;
-  exported_records: Generated<number>;
-  file_key: string | null;
-  file_size_bytes: number | null;
-  error: string | null;
-  expires_at: Generated<Date>;
-  created_by: string;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdExportTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  collection: string;
-  format: Generated<string>;
-  fields: Generated<string[]>;
-  filters: Generated<unknown>;
-  sort_field: string | null;
-  sort_order: Generated<string>;
-  description: string | null;
-  is_public: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdIncomingWebhooksTable {
   id: Generated<string>;
   connection_id: string | null;
@@ -2300,8 +2121,6 @@ export interface DbSchema {
   zv_cloud_retention_policies: ZvCloudRetentionPoliciesTable;
   zv_cloud_shares: ZvCloudSharesTable;
   zv_cloud_trash: ZvCloudTrashTable;
-  zv_collection_publish_settings: ZvCollectionPublishSettingsTable;
-  zv_content_drafts: ZvContentDraftsTable;
   zv_dashboards: ZvDashboardsTable;
   zv_default_grant_revocations: ZvDefaultGrantRevocationsTable;
   zv_doc_templates: ZvDocTemplatesTable;
@@ -2313,9 +2132,6 @@ export interface DbSchema {
   zv_document_template_access: ZvDocumentTemplateAccessTable;
   zv_document_template_versions: ZvDocumentTemplateVersionsTable;
   zv_document_templates: ZvDocumentTemplatesTable;
-  zv_draft_publish_jobs: ZvDraftPublishJobsTable;
-  zv_draft_review_comments: ZvDraftReviewCommentsTable;
-  zv_draft_snapshots: ZvDraftSnapshotsTable;
   zv_edge_function_logs: ZvEdgeFunctionLogsTable;
   zv_edge_functions: ZvEdgeFunctionsTable;
   zv_efactura_daily_stats: ZvEfacturaDailyStatsTable;
@@ -2348,10 +2164,6 @@ export interface DbSchema {
   zv_mail_oauth_states: ZvMailOauthStatesTable;
   zv_mail_pgp_keys: ZvMailPgpKeysTable;
   zv_mail_signatures: ZvMailSignaturesTable;
-  zv_media_ai_metadata: ZvMediaAiMetadataTable;
-  zv_media_cdn_invalidations: ZvMediaCdnInvalidationsTable;
-  zv_media_collection_files: ZvMediaCollectionFilesTable;
-  zv_media_collections: ZvMediaCollectionsTable;
   zv_media_favorites: ZvMediaFavoritesTable;
   zv_media_file_tags: ZvMediaFileTagsTable;
   zv_media_files: ZvMediaFilesTable;
@@ -2367,7 +2179,6 @@ export interface DbSchema {
   zv_pitr_config: ZvPitrConfigTable;
   zv_pitr_restore_points: ZvPitrRestorePointsTable;
   zv_prompt_templates: ZvPromptTemplatesTable;
-  zv_publish_schedule: ZvPublishScheduleTable;
   zv_push_subscriptions: ZvPushSubscriptionsTable;
   zv_quality_issues: ZvQualityIssuesTable;
   zv_quality_scans: ZvQualityScansTable;
@@ -2407,9 +2218,6 @@ export interface DbSchema {
   zvd_column_permissions: ZvdColumnPermissionsTable;
   zvd_dashboard_shares: ZvdDashboardSharesTable;
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
-  zvd_export_audit_log: ZvdExportAuditLogTable;
-  zvd_export_jobs: ZvdExportJobsTable;
-  zvd_export_templates: ZvdExportTemplatesTable;
   zvd_incoming_webhooks: ZvdIncomingWebhooksTable;
   zvd_insight_saved_queries: ZvdInsightSavedQueriesTable;
   zvd_ldap_config: ZvdLdapConfigTable;
