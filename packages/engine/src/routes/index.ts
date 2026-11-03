@@ -460,8 +460,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // API documentation portal — moved to extensions/developer/api-docs
 
-  // Media library — owned by extensions/content/media (Studio uses /ext/…).
-  app.route('/api/media', goneRoutes('/ext/content/media', 'Media library'));
+  // Media library — files, folders and uploads are the engine's /api/storage;
+  // content/media 2.0.0 adds tags, favorites and collections through the data API.
+  app.route('/api/media', goneRoutes('/api/storage', 'Media library'));
 
   // Database backups — moved to extensions/operations/backup
 

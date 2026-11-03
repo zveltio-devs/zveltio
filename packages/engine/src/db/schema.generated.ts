@@ -1009,54 +1009,6 @@ export interface ZvMailSignaturesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvMediaAiMetadataTable {
-  id: Generated<string>;
-  file_id: string;
-  ai_labels: Generated<string[]>;
-  ai_description: string | null;
-  dominant_color: string | null;
-  ocr_text: string | null;
-  nsfw_score: number | null;
-  is_nsfw: Generated<boolean>;
-  analyzed_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMediaCdnInvalidationsTable {
-  id: Generated<string>;
-  file_ids: Generated<string[]>;
-  paths: Generated<string[]>;
-  status: Generated<'pending' | 'completed' | 'failed'>;
-  provider: Generated<string>;
-  invalidation_id: string | null;
-  error: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMediaCollectionFilesTable {
-  collection_id: string;
-  file_id: string;
-  sort_order: Generated<number>;
-  added_by: string;
-  added_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMediaCollectionsTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  cover_file_id: string | null;
-  is_public: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvMediaFavoritesTable {
   user_id: string;
   file_id: string;
@@ -1107,8 +1059,6 @@ export interface ZvMediaFoldersTable {
   deleted_at: Generated<Date | null>;
   tenant_id: Generated<string | null>;
   updated_at: Generated<Date>;
-  description: string | null;
-  cover_image_id: string | null;
 }
 
 export interface ZvMediaSharesTable {
@@ -2214,10 +2164,6 @@ export interface DbSchema {
   zv_mail_oauth_states: ZvMailOauthStatesTable;
   zv_mail_pgp_keys: ZvMailPgpKeysTable;
   zv_mail_signatures: ZvMailSignaturesTable;
-  zv_media_ai_metadata: ZvMediaAiMetadataTable;
-  zv_media_cdn_invalidations: ZvMediaCdnInvalidationsTable;
-  zv_media_collection_files: ZvMediaCollectionFilesTable;
-  zv_media_collections: ZvMediaCollectionsTable;
   zv_media_favorites: ZvMediaFavoritesTable;
   zv_media_file_tags: ZvMediaFileTagsTable;
   zv_media_files: ZvMediaFilesTable;

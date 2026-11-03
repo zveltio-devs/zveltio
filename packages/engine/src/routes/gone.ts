@@ -15,7 +15,7 @@ export function goneRoutes(replacement: string, feature: string): Hono {
     throw problem(
       'gone',
       410,
-      `${feature} moved to an extension. Use ${replacement} instead of this /api path.`,
+      `${feature} moved. Use ${replacement} instead of this /api path.`,
       { replacement },
     );
   });
