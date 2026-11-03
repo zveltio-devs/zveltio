@@ -1907,48 +1907,6 @@ export interface ZvdExportTemplatesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdGraphqlFieldPoliciesTable {
-  id: Generated<string>;
-  collection: string;
-  field: string;
-  allowed_roles: Generated<string[]>;
-  deny_roles: Generated<string[]>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdGraphqlOperationLogsTable {
-  id: Generated<string>;
-  operation_name: string | null;
-  operation_type: Generated<'query' | 'mutation' | 'subscription'>;
-  query_hash: string;
-  variables: unknown | null;
-  duration_ms: number | null;
-  result_size_bytes: number | null;
-  error_count: Generated<number>;
-  user_id: string | null;
-  ip: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdGraphqlPersistedQueriesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  query: string;
-  variables_schema: unknown | null;
-  is_public: Generated<boolean>;
-  allowed_roles: Generated<string[]>;
-  use_count: Generated<number>;
-  last_used_at: Date | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdImportMappingsTable {
   id: Generated<string>;
   name: string;
@@ -2498,9 +2456,6 @@ export interface DbSchema {
   zvd_export_audit_log: ZvdExportAuditLogTable;
   zvd_export_jobs: ZvdExportJobsTable;
   zvd_export_templates: ZvdExportTemplatesTable;
-  zvd_graphql_field_policies: ZvdGraphqlFieldPoliciesTable;
-  zvd_graphql_operation_logs: ZvdGraphqlOperationLogsTable;
-  zvd_graphql_persisted_queries: ZvdGraphqlPersistedQueriesTable;
   zvd_import_mappings: ZvdImportMappingsTable;
   zvd_import_profiles: ZvdImportProfilesTable;
   zvd_import_rollbacks: ZvdImportRollbacksTable;
