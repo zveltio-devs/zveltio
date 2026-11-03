@@ -181,6 +181,20 @@ describe('ManifestSchema — extension-api v1 actions and jobs', () => {
     };
     expect(ManifestSchema.safeParse(invented).success).toBe(false);
   });
+
+  it('takes fromPublicRoutes naming publicRoutes entries only (ADR 0018)', () => {
+    const hooked = (route: string) => ({
+      ...v1,
+      jobs: [{ ...v1.jobs[0], fromPublicRoutes: [route] }],
+    });
+    expect(ManifestSchema.parse(v1).jobs[0].fromPublicRoutes).toEqual([]);
+    const parse = (route: string, publicRoutes: string[]) =>
+      ManifestSchema.safeParse({ ...hooked(route), publicRoutes }).success;
+    expect(parse('/webhooks/in', ['/webhooks/in'])).toBe(true);
+    expect(parse('/webhooks/in', [])).toBe(false);
+    // A family is refused even when it is a publicRoutes entry.
+    expect(parse('/webhooks/*', ['/webhooks/*'])).toBe(false);
+  });
 });
 
 describe('ManifestSchema — studio page surface (ADR 0006)', () => {

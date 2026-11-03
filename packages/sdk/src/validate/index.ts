@@ -241,7 +241,7 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
       seen.add(e.name);
       if (!isObject(e.input))
         out.push(err(code, `"${e.name}": "input" must be a JSON Schema object`));
-      for (const k of ['reads', 'writes', 'enqueues', 'calls']) {
+      for (const k of ['reads', 'writes', 'enqueues', 'calls', 'fromPublicRoutes']) {
         if (!strings(e[k])) out.push(err(code, `"${e.name}": "${k}" must be an array of names`));
       }
       return true;
@@ -318,6 +318,25 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
     }
   }
   for (const j of jobs) {
+    // ADR 0018: a route that enqueues it is one the manifest declares public.
+    const publicRoutes = Array.isArray(obj.publicRoutes) ? obj.publicRoutes : [];
+    for (const route of Array.isArray(j.fromPublicRoutes) ? j.fromPublicRoutes : []) {
+      if (typeof route === 'string' && route.includes('*')) {
+        out.push(
+          err(
+            'MANIFEST_BAD_JOB',
+            `job "${j.name}" names "${route}" in fromPublicRoutes; name one route, without "*"`,
+          ),
+        );
+      } else if (!publicRoutes.includes(route)) {
+        out.push(
+          err(
+            'MANIFEST_BAD_JOB',
+            `job "${j.name}" names "${route}" in fromPublicRoutes, which is not a publicRoutes entry`,
+          ),
+        );
+      }
+    }
     const r = j.retry;
     const limit = isObject(r) ? r.limit : undefined;
     if (

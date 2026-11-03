@@ -46,6 +46,7 @@ const job: CompiledJob = {
   input: z.object({}),
   reads: new Set(),
   writes: new Set(),
+  fromPublicRoutes: [],
   retry: { limit: 0, backoff: false },
   run: async () => {},
 };

@@ -76,6 +76,7 @@ export const CAPABILITY_MEMBERS = {
   updateRecord: 'data:write',
   deleteRecord: 'data:write',
   asSystem: 'data:system',
+  enqueue: 'data:system',
   sendNotification: 'notifications',
   moveToTrash: 'files',
   generatePDFAsync: 'documents',

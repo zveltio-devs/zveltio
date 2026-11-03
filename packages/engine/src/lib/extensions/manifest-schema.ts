@@ -288,6 +288,12 @@ export const ManifestSchema = z
           input: z.record(z.string(), z.unknown()),
           reads: z.array(z.string()).default([]),
           writes: z.array(z.string()).default([]),
+          /**
+           * `publicRoutes` entries (each one route, no `*`) whose handler may enqueue this job with
+           * `ctx.internals.enqueue` (ADR 0018): a signed inbound webhook stores
+           * the event and leaves the writes to the job.
+           */
+          fromPublicRoutes: z.array(z.string()).default([]),
           retry: z
             .object({
               limit: z.number().int().min(0).max(10).default(2),
@@ -462,6 +468,22 @@ export const ManifestSchema = z
       }
       jobNames.add(j.name);
       inputSchemaIssue(ctx, ['jobs', i, 'input'], `job "${j.name}"`, j.input);
+      for (const route of j.fromPublicRoutes) {
+        // One route, not a family: a `*` would let every public handler under it queue the job.
+        if (route.includes('*')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['jobs', i, 'fromPublicRoutes'],
+            message: `job "${j.name}" names "${route}" in fromPublicRoutes; name one route, without "*"`,
+          });
+        } else if (!m.publicRoutes.includes(route)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['jobs', i, 'fromPublicRoutes'],
+            message: `job "${j.name}" names "${route}" in fromPublicRoutes, which is not a publicRoutes entry`,
+          });
+        }
+      }
     });
     for (const route of Object.keys(m.forwardCredentials)) {
       if (!m.publicRoutes.includes(route)) {

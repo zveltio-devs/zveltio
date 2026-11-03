@@ -806,6 +806,17 @@ export interface ExtensionInternals<DB = unknown> {
     opts?: { reason?: string },
   ) => Promise<T>;
   /**
+   * Queue one of this extension's jobs from a handler of one of its
+   * `publicRoutes` — an inbound signed webhook verifies the signature, stores
+   * the raw event, enqueues, and the job does the writes through
+   * `host.collections` (ADR 0018). `c` is the handler's request context. The job
+   * lists the route in its manifest `fromPublicRoutes`; `input` must match its
+   * schema. The enqueue joins the request transaction: it rolls back with the
+   * request. The job has no author. Needs `data:system`; audited. Throws
+   * anywhere else. Absent before 3.0.0-beta.97.
+   */
+  enqueue?: (c: Context, job: string, input: unknown) => Promise<string>;
+  /**
    * The running tenant's recent audit rows, newest first — never another
    * tenant's, never instance-level events. `limit` defaults to 20, capped at
    * 100. No `metadata` or `ip`. Needs the `audit:read` capability.
