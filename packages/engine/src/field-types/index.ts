@@ -255,8 +255,12 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     // radius and box questions need no PostGIS (ADR 0019 tier 1).
     db: { columnType: 'point', indexType: 'gist' },
     api: {
-      // PostgreSQL returns a point as its text form, `(lng,lat)`.
+      // Bun.SQL returns a point as its text form, `(lng,lat)`; the pg driver
+      // parses it to `{x, y}`.
       serialize: (v) => {
+        if (typeof v === 'object' && v !== null && 'x' in v && 'y' in v) {
+          return { lat: Number(v.y), lng: Number(v.x) };
+        }
         const m = typeof v === 'string' ? /^\(([^,]+),([^)]+)\)$/.exec(v) : null;
         return m ? { lat: Number(m[2]), lng: Number(m[1]) } : v;
       },
