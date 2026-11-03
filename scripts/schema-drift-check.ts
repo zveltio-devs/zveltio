@@ -19,10 +19,14 @@
  *   - COLUMN_MISSING — code references a column not declared on that
  *                       table by any migration.
  *   - SCHEMA_TS_DRIFT — DbSchema.ts is missing a table or column that
- *                       the migration declares, OR has a column the
- *                       migration doesn't.
+ *                       the migration declares. The reverse (a table or
+ *                       column DbSchema.ts declares and no migration
+ *                       creates) is NOT reported: Kysely then certifies a
+ *                       query against something that is not there, and
+ *                       only COLUMN_MISSING on the query itself catches it.
  *
- * Exits non-zero on any drift so CI fails.
+ * Exits non-zero on TABLE_MISSING or COLUMN_MISSING only. SCHEMA_TS_DRIFT
+ * is printed as a warning and exits 0 (see the exit-code policy below).
  *
  * Foundation for the eventual full codegen (`schema.generated.ts`) —
  * once this report is empty for an extended period, we know the
