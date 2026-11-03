@@ -574,24 +574,46 @@ export function broadcastSSE(
   }
 }
 
-/** Parse ?filter={"status":"published"} or ?filter={"price":{"gt":50}} into SubscriptionFilter[] */
-function parseSubFilters(raw: string | undefined): SubscriptionFilter[] {
-  if (!raw) return [];
+/**
+ * Parse ?filter={"status":"published"} or ?filter={"status":{"neq":"draft"}}
+ * into SubscriptionFilter[]; every operator on a field applies. A filter the
+ * stream cannot evaluate is an error, never dropped (ADR 0019 decision 6):
+ * malformed JSON was read as "no filter" and delivered every event, and
+ * `{"price":{"gt":50}}` was read as `eq` 50.
+ */
+export function parseSubFilters(
+  raw: string | undefined,
+): { ok: true; filters: SubscriptionFilter[] } | { ok: false; error: string } {
+  if (!raw) return { ok: true, filters: [] };
+  let obj: unknown;
   try {
-    const obj = JSON.parse(raw);
-    if (typeof obj !== 'object' || Array.isArray(obj)) return [];
-    return Object.entries(obj).map(([field, value]) => {
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        const [op, val] = Object.entries(value)[0] as [string, any];
-        const mappedOp = op === 'neq' ? 'neq' : op === 'in' ? 'in' : 'eq';
-        return { field, op: mappedOp, value: val };
-      }
-      return { field, op: 'eq' as const, value };
-    });
+    obj = JSON.parse(raw);
   } catch {
-    return [];
+    obj = undefined;
   }
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    return { ok: false, error: "Malformed filter: 'filter' must be a JSON object" };
+  }
+  const filters: SubscriptionFilter[] = [];
+  for (const [field, value] of Object.entries(obj)) {
+    if (typeof value !== 'object' || value === null) {
+      filters.push({ field, op: 'eq', value });
+      continue;
+    }
+    if (Array.isArray(value)) {
+      return { ok: false, error: `Filter on '${field}' is a list; use {"in": [...]}` };
+    }
+    for (const [op, val] of Object.entries(value)) {
+      if (op !== 'eq' && op !== 'neq' && op !== 'in') {
+        return {
+          ok: false,
+          error: `Filter operator '${op}' on '${field}' is not supported on a stream (eq, neq, in)`,
+        };
+      }
+      filters.push({ field, op, value: val });
+    }
+  }
+  return { ok: true, filters };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -631,7 +653,9 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
         .filter(Boolean)
         .map((ch) => (ch.startsWith('zveltio:') ? ch : `zveltio:${ch}`)) ?? [];
     const recordId = c.req.query('record_id') || undefined;
-    const filters = parseSubFilters(c.req.query('filter'));
+    const parsedFilters = parseSubFilters(c.req.query('filter'));
+    if (!parsedFilters.ok) return c.json({ error: parsedFilters.error }, 400);
+    const filters = parsedFilters.filters;
 
     // Permission gate — caller must have data:<collection>:read for every
     // collection they want to stream. Without this, a curl with the

@@ -238,35 +238,28 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   const virtualConfig = await getVirtualConfig(getDb(c, db), collection);
   if (virtualConfig) {
     try {
-      // Parse query.filter into VirtualQuery.filters — translated to API URL params (no fetch-all)
-      const vFilters: Array<{ field: string; op: string; value: unknown }> = [];
-      if (query.filter) {
-        try {
-          const raw = JSON.parse(query.filter) as Record<string, JsonValue>;
-          for (const [key, value] of Object.entries(raw)) {
-            if (typeof value === 'object' && value !== null) {
-              // Every operator on the field, not only the first; an empty
-              // operator object pushes nothing.
-              for (const [op, val] of Object.entries(value) as [string, JsonValue][]) {
-                vFilters.push({ field: key, op, value: val });
-              }
-            } else {
-              vFilters.push({ field: key, op: 'eq', value });
-            }
-          }
-        } catch {
-          /* invalid JSON — skip */
-        }
-      }
+      // The same parser as a managed collection, so a filter it cannot apply
+      // is a 400 here too (ADR 0019 decision 6) and both forms are read; the
+      // upstream receives canonical operators. A hidden column is not among
+      // the allowed ones: the upstream filters on what it is sent.
+      const virtualDef = (await DDLManager.getCollection(
+        getDb(c, db),
+        collection,
+      )) as CollectionDef | null;
+      const parsedV = parseFilters(
+        c.req.query(),
+        query.filter,
+        new Set([...buildAllowedCols(virtualDef)].filter(scope.readable)),
+      );
+      if (!parsedV.ok) return c.json({ error: parsedV.error }, 400);
+      const vFilters = Object.entries(parsedV.filters).flatMap(([field, conds]) =>
+        [conds].flat().map((f) => ({ field, op: f.op, value: f.value })),
+      );
 
       // Upstream filters, sorts and searches on what it is sent, so a hidden
       // column must not be sent. Refused as the managed path refuses an unknown
       // field. The upstream's search covers columns we cannot name, so a caller
       // with any hidden column cannot search it.
-      const hiddenFilter = vFilters.find((f) => !scope.readable(f.field));
-      if (hiddenFilter) {
-        return c.json({ error: `Unknown filter field: '${hiddenFilter.field}'` }, 400);
-      }
       if (query.sort && !scope.readable(query.sort)) {
         return c.json({ error: `Unknown sort field: '${query.sort}'` }, 400);
       }

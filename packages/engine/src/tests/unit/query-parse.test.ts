@@ -16,10 +16,9 @@ describe('parseFilters — empty operator regression', () => {
     if (r.ok) expect(r.filters).toEqual({});
   });
 
-  it('an empty-array filter value is ignored, never throws', () => {
+  it('an empty-array filter value is a typed error, never throws', () => {
     const r = parseFilters({}, '{"a": []}', cols);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.filters).toEqual({});
+    expect(r.ok).toBe(false);
   });
 });
 
@@ -45,16 +44,26 @@ describe('parseFilters — JSON format', () => {
     if (!r.ok) expect(r.error).toContain('Unknown filter field');
   });
 
-  it('malformed JSON is ignored (no filters, no throw)', () => {
-    const r = parseFilters({}, '{not json', cols);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.filters).toEqual({});
+  // ADR 0019 decision 6: a filter that cannot be applied is refused, never
+  // skipped — a skipped filter answered with every readable row.
+  it('malformed or non-object JSON is a typed error', () => {
+    for (const f of ['{not json', '5', 'null', '[1]']) {
+      const r = parseFilters({}, f, cols);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain('Malformed filter');
+    }
   });
 
-  it('an unknown operator key is skipped', () => {
-    const r = parseFilters({}, '{"a": {"bogus": 1}}', cols);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.filters).toEqual({});
+  it('an unknown operator key is a typed error', () => {
+    const r = parseFilters({}, '{"a": {"near": 1}}', cols);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe("Unknown filter operator: 'near' on 'a'");
+  });
+
+  it('a list value is a typed error, not an operator map', () => {
+    const r = parseFilters({}, '{"a": [1, 2]}', cols);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('"in"');
   });
 });
 
@@ -65,10 +74,18 @@ describe('parseFilters — bracket format', () => {
     if (r.ok) expect([r.filters.a].flat()[0]?.value).toBe(5);
   });
 
-  it('silently skips an unknown bracket field', () => {
+  it('an unknown bracket field is a typed error', () => {
     const r = parseFilters({ 'zzz[gt]': '5' }, undefined, cols);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.filters).toEqual({});
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe("Unknown filter field: 'zzz'");
+  });
+
+  it('an unknown bracket operator is a typed error', () => {
+    for (const op of ['near', 'foo', 'constructor']) {
+      const r = parseFilters({ [`a[${op}]`]: '1' }, undefined, cols);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toBe(`Unknown filter operator: '${op}' on 'a'`);
+    }
   });
 
   it('JSON overrides bracket for the same field', () => {

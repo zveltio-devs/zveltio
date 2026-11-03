@@ -287,7 +287,13 @@ Both formats can be combined — JSON takes precedence for the same field.
 
 Supported operators: `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `contains` (alias
 `like`, `ilike`), `not_contains`, `starts_with`, `ends_with`, `in`, `not_in`,
-`null`, `not_null`. An unknown operator in the bracket form is ignored.
+`null`, `not_null` (aliases `is_null`, `is_not_null`).
+
+A filter the API cannot apply answers `400`, in either format: an unknown
+field, an unknown operator, a list value (`{"tag":[1,2]}` — write
+`{"tag":{"in":[1,2]}}`), or a `filter` that is not a JSON object. Before
+beta.98 such a filter was dropped and the request listed every row the caller
+could read.
 
 The four text operators are case-insensitive and literal — `%` and `_` match
 themselves, not any run or any character. `not_contains` keeps rows where the
