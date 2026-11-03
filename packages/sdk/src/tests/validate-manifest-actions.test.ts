@@ -44,6 +44,23 @@ describe('manifest actions and jobs', () => {
     expect(errors({ jobs: [{ ...job, retry: { backoff: 'yes' } }] })).toHaveLength(1);
   });
 
+  it('takes fromPublicRoutes naming publicRoutes entries only (ADR 0018)', () => {
+    const hooked = { ...job, fromPublicRoutes: ['/webhooks/stripe'] };
+    expect(errors({ jobs: [hooked], publicRoutes: ['/webhooks/stripe'] })).toEqual([]);
+    expect(errors({ jobs: [hooked] })).toEqual([
+      'job "notify" names "/webhooks/stripe" in fromPublicRoutes, which is not a publicRoutes entry',
+    ]);
+    expect(errors({ jobs: [{ ...job, fromPublicRoutes: '/webhooks/stripe' }] })).toHaveLength(1);
+    expect(
+      errors({
+        jobs: [{ ...job, fromPublicRoutes: ['/webhooks/*'] }],
+        publicRoutes: ['/webhooks/*'],
+      }),
+    ).toEqual([
+      'job "notify" names "/webhooks/*" in fromPublicRoutes; name one route, without "*"',
+    ]);
+  });
+
   it('takes calls of a required dependency’s actions, as <extension>.<action> (ADR 0014)', () => {
     const calling = { ...action, calls: ['finance/invoicing.recordPayment'] };
     const deps = [{ name: 'finance/invoicing' }];

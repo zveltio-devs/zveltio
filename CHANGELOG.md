@@ -4,6 +4,20 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**A public route can enqueue a job (ADR 0018).** An inbound signed webhook has
+no user, so it could not run an action, and a `writtenBy: "actions"`
+collection refuses every other path: a webhook could not record what it was
+told. `ctx.internals.enqueue(c, job, input)` now queues one of the extension's
+jobs from the handler of one of its `publicRoutes`, on the request transaction
+(it rolls back with the request) and in the request's tenant; the job writes
+through `host.collections`. The job names the route in its manifest
+`fromPublicRoutes` (each entry one `publicRoutes` route, no `*`), the input must
+match its schema, and the extension needs `data:system`. The job has no author,
+its runs record `enqueuedBy: "ext:<name>:route"`, and every enqueue is audited
+(`extension.job.enqueued`) on the request transaction. Anywhere else — a session route, another request's
+context, work left running after the answer — it throws. Additive to
+extension-api v1.
+
 **The data API serves anonymous reads through the tenant's `public` role (ADR
 0017).** `GET /api/data`, `GET /api/data/:collection` and
 `GET /api/data/:collection/:id` with no session and no key used to answer 401,

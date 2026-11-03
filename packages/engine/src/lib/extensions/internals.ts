@@ -106,6 +106,7 @@ import {
   setUserActive,
 } from '../users.js';
 import { type AsSystemOptions, asSystemAs, markSystemJob } from './as-system.js';
+import { enqueueFromPublicRoute } from './jobs.js';
 import { bindsCaller } from './capabilities.js';
 import { runFieldPipeline } from './extension-context.js';
 import { asEngineRole } from '../role-window.js';
@@ -438,6 +439,12 @@ export interface ExtensionInternals {
     fn: () => Promise<T>,
     opts?: AsSystemOptions,
   ) => Promise<T>;
+  /**
+   * Queue one of this extension's jobs from a request to one of its
+   * `publicRoutes`, in that request's transaction — see `jobs.ts` and ADR 0018.
+   * The job names the route in `fromPublicRoutes`. Gated `data:system`; audited.
+   */
+  enqueue: (c: unknown, job: string, input: unknown) => Promise<string>;
   /** The running tenant's recent audit rows. Gated `audit:read`. */
   readAuditActivity: typeof readAuditActivity;
   /** How many of the running tenant's audit rows match, since an instant. Ungated. */
@@ -987,6 +994,7 @@ export function buildExtensionInternals(): ExtensionInternals {
     liftOwnBan: (db: unknown, userId: string) => liftOwnBan(db as Database, userId, caller),
     audit: (event: ExtensionAuditEvent) => auditAs(caller, event),
     asSystem: (collections, fn, opts) => asSystemAs(caller, collections, fn, opts),
+    enqueue: (c, job, input) => enqueueFromPublicRoute(caller.replace(/^ext:/, ''), c, job, input),
   }));
 }
 
@@ -1065,6 +1073,7 @@ function buildUnboundInternals(): ExtensionInternals {
     getPublicSetting: (key: string) => getPublicSetting(key),
     audit: unbound('audit'),
     asSystem: unbound('asSystem'),
+    enqueue: unbound('enqueue'),
     // Arity fixed, as for the facts above: the tenant is the host's.
     readAuditActivity: (query) => readAuditActivity(query),
     countAuditActivity: (query) => countAuditActivity(query),

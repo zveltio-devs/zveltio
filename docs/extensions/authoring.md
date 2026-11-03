@@ -312,6 +312,48 @@ export default defineExtension(['data:write', 'data:system'], {
 - `host.timezone` is the tenant's IANA zone. Use `todayIn(host.timezone)` for
   "today", never `new Date().toISOString().slice(0, 10)`.
 
+### Inbound webhooks: a public route enqueues, a job writes
+
+A webhook from a payment provider has no user, so it cannot run an action, and
+a collection flagged `writtenBy: "actions"` refuses a route's own write. The
+route verifies the signature, stores the raw event, and enqueues a job; the job
+writes through `host.collections` (ADR 0018).
+
+```json
+"publicRoutes": ["/webhooks/stripe"],
+"jobs": [{
+  "name": "applyEvent", "input": { "type": "object" },
+  "writes": ["payments"], "fromPublicRoutes": ["/webhooks/stripe"]
+}]
+```
+
+```ts
+app.post('/webhooks/stripe', async (c) => {
+  const raw = await c.req.text();
+  if (!verifySignature(raw, c.req.header('stripe-signature'))) return c.json({}, 401);
+  await ctx.internals.enqueue!(c, 'applyEvent', JSON.parse(raw));
+  return c.json({ received: true });
+});
+```
+
+- `c` is the handler's own request context, and the route must be one the
+  job names in `fromPublicRoutes`: each entry is a `publicRoutes` entry naming
+  one route, without `*`, so another public handler cannot queue the job. A
+  session route, a context kept from another request, or a call left running
+  after the answer throws.
+- The enqueue joins the request transaction: a handler that throws afterwards
+  leaves no job. The job runs in the request's tenant.
+- Needs `data:system`, as every job does; `input` must match the job's schema.
+  The job has no author (`created_by` stays null); its run records
+  `enqueuedBy: "ext:<name>:route"`, and each enqueue is audited as
+  `extension.job.enqueued` on the same transaction.
+- A provider retries and an attacker replays: store the event id, and skip an
+  id already stored, before enqueueing.
+- The tenant is the request's: `X-Tenant-Slug`, the tenant's subdomain, or the
+  default tenant. A provider that calls one URL for every tenant lands in the
+  default tenant.
+- Optional member: absent before 3.0.0-beta.97.
+
 ### The v1 contract is frozen
 
 These exports of `@zveltio/sdk/extension` are `extension-api v1`, frozen on
@@ -465,6 +507,7 @@ ctx.internals.writeValidationRuleGroup // Write a validation rule group (same ru
 ctx.internals.runEdgeFunction         // Sandbox-execute edge function code
 ctx.internals.extensionRegistry       // Cross-extension hook registry
 ctx.internals.generatePDFAsync        // Queue HTML→PDF render
+ctx.internals.enqueue                 // Queue a job from a public route (data:system, ADR 0018)
 ctx.internals.renderTemplate          // Synchronous {{var}} interpolation
 ctx.internals.generatePDF             // Inline HTML→PDF render
 ctx.internals.moveToTrash             // Soft-delete a file with TTL

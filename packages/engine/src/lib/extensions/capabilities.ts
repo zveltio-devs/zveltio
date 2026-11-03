@@ -241,6 +241,7 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   deleteRecord: 'data:write',
   // Beyond the caller, inside the tenant
   asSystem: 'data:system',
+  enqueue: 'data:system',
   // Messaging
   sendNotification: 'notifications',
   // Files

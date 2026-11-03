@@ -14,6 +14,10 @@
  * That is authority no user handed it, so it needs `data:system` (owner
  * decision 2026-10-04). It runs in the tenant it was enqueued in, in a
  * transaction of its own; rows it writes are authored by the enqueuing user.
+ *
+ * A public route (an inbound signed webhook) enqueues too, through
+ * `ctx.internals.enqueue`, for the jobs that name it in `fromPublicRoutes`
+ * (ADR 0018): same outbox, same transaction, no user, so no author.
  */
 
 import { CompiledQuery } from 'kysely';
@@ -37,14 +41,20 @@ import {
   rowAuthorId,
 } from '../data/index.js';
 import { asEngineRole } from '../role-window.js';
+import { withSavepoint } from '../savepoint.js';
 import {
   createRequestScopedDb,
   effectiveTimeZone,
   publishApiKeyActor,
+  requestTransactionState,
   runOutsideTenantContext,
   withTenantIsolation,
 } from '../tenancy/index.js';
-import type { GatePrincipal } from '../../middleware/extension-auth-gate.js';
+import {
+  compilePattern,
+  type GatePrincipal,
+  publicRouteRequest,
+} from '../../middleware/extension-auth-gate.js';
 import { type DataIo, hostCollections, pairImplementations } from './actions.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 
@@ -53,6 +63,8 @@ export interface CompiledJob {
   input: z.ZodType;
   reads: ReadonlySet<string>;
   writes: ReadonlySet<string>;
+  /** The `publicRoutes` entries that may enqueue it (`fromPublicRoutes`), compiled as the gate's. */
+  fromPublicRoutes: readonly RegExp[];
   retry: { limit: number; backoff: boolean };
   run: ExtensionJob;
 }
@@ -60,7 +72,7 @@ export interface CompiledJob {
 /** What a queued job carries: everything it runs as, recorded at enqueue. */
 interface JobPayload {
   tenantId: string;
-  /** The enqueuing principal — a user id or `apikey:<uuid>`. */
+  /** The enqueuing principal — a user id, `apikey:<uuid>`, or `ext:<name>:route` (ADR 0018). */
   enqueuedBy: string;
   /** The `"user"` row the job's writes are authored by (`rowAuthorId` of the enqueuer). */
   author: string | null;
@@ -105,6 +117,7 @@ export function compileJobs(
       input,
       reads: new Set(j.reads),
       writes: new Set(j.writes),
+      fromPublicRoutes: (j.fromPublicRoutes ?? []).map(compilePattern),
       retry: j.retry,
       run,
     });
@@ -192,6 +205,71 @@ export async function enqueueJob(
     throw new Error(`action "${action.name}" could not enqueue job "${job}": ${why}`);
   };
   if (!action.enqueues.has(job)) refuse('its manifest does not list it in enqueues');
+  return sendJob(extName, job, input, refuse, p.trx, p.tenantId, p.user.id, rowAuthorId(p.user));
+}
+
+/**
+ * `ctx.internals.enqueue`: queue `job` for `extName` from a request to one of
+ * its `publicRoutes`, in that request's transaction and tenant (ADR 0018).
+ * Refused unless `c` is that request, the job names the route in
+ * `fromPublicRoutes`, and as `enqueueJob` otherwise. No user enqueued it, so
+ * its writes have no author. Audited on the same transaction, so the row
+ * exists exactly when the job does.
+ */
+export async function enqueueFromPublicRoute(
+  extName: string,
+  c: unknown,
+  job: string,
+  input: unknown,
+): Promise<string> {
+  const refuse = (why: string): never => {
+    throw new Error(`ext:${extName}: ctx.internals.enqueue could not enqueue "${job}": ${why}`);
+  };
+  const req = publicRouteRequest(c);
+  if (!req || req.extName !== extName) {
+    return refuse(
+      "pass the request context `c` of a request to one of this extension's publicRoutes; " +
+        'only such a request enqueues from a route (an action enqueues with host.enqueue)',
+    );
+  }
+  // Work the handler left running after its answer: the transaction is gone.
+  if (requestTransactionState() !== 'open') refuse('its request is over');
+  const def = registered.get(extName)?.jobs.get(job);
+  if (def && !def.fromPublicRoutes.some((re) => re.test(req.sub))) {
+    refuse(`its manifest does not name this route (${req.sub}) in the job's fromPublicRoutes`);
+  }
+  const enqueuedBy = `ext:${extName}:route`;
+  const id = await sendJob(extName, job, input, refuse, req.trx, req.tenantId, enqueuedBy, null);
+  const { trx } = req;
+  // `sendJob` refused a request without one; a failed audit INSERT must not abort the request.
+  if (trx) {
+    await withSavepoint(
+      trx,
+      'route_enqueue_audit',
+      () =>
+        auditLog(trx, {
+          type: 'extension.job.enqueued',
+          resourceType: 'extension_job',
+          resourceId: `${extName}:${job}`,
+          metadata: { extension: `ext:${extName}`, job, jobId: id, enqueuedBy, route: req.sub },
+        }),
+      () => undefined,
+    );
+  }
+  return id;
+}
+
+/** The enqueue both doors share: the job, its capability, its input, then pg-boss's INSERT on `trx`. */
+async function sendJob(
+  extName: string,
+  job: string,
+  input: unknown,
+  refuse: (why: string) => never,
+  trx: Database | undefined,
+  tenantId: string | null,
+  enqueuedBy: string,
+  author: string | null,
+): Promise<string> {
   const reg = registered.get(extName);
   const def = reg?.jobs.get(job);
   if (!reg || !def) return refuse(`${extName} declares no such job`);
@@ -200,21 +278,15 @@ export async function enqueueJob(
   if (!parsed.success) {
     refuse(`its input does not match the job's schema (${JSON.stringify(parsed.error.issues)})`);
   }
-  const trx = p.trx;
   if (!trx) return refuse('this request holds no transaction');
-  if (!p.tenantId) return refuse('this request runs in no tenant');
+  if (!tenantId) return refuse('this request runs in no tenant');
   const boss = jobQueue();
   if (!boss) return refuse('the job queue is not running');
   // Loaded a moment ago, its queue may still be being created.
   const queue = working.get(jobQueueName(extName, job));
   if (!queue) return refuse('its queue is not being worked');
   await queue.ready;
-  const payload: JobPayload = {
-    tenantId: p.tenantId,
-    enqueuedBy: p.user.id,
-    author: rowAuthorId(p.user),
-    input: parsed.data,
-  };
+  const payload: JobPayload = { tenantId, enqueuedBy, author, input: parsed.data };
   // pg-boss's own INSERT, on the request transaction: committed or rolled back
   // with it. As the engine's role — `zveltio_rls` holds nothing on `pgboss`, and
   // granting it would let any tenant statement queue the engine's DDL jobs.

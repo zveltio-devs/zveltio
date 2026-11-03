@@ -152,6 +152,27 @@ export function gatePrincipal(c: unknown): GatePrincipal | undefined {
 }
 
 /**
+ * A request the gate let through as one of an extension's `publicRoutes`: who
+ * owns the route, the sub-path it matched, and the request's transaction and
+ * tenant, copied before extension code runs (as `GatePrincipal`).
+ * `ctx.internals.enqueue` acts only inside one (ADR 0018).
+ */
+export interface PublicRouteRequest {
+  extName: string;
+  sub: string;
+  trx: Database | undefined;
+  tenantId: string | null;
+}
+
+const publicServed = new AsyncLocalStorage<{ c: Context; req: PublicRouteRequest }>();
+
+/** The public-route request being served for `c`, as `gatePrincipal`: `undefined` for any other `c`. */
+export function publicRouteRequest(c: unknown): PublicRouteRequest | undefined {
+  const store = publicServed.getStore();
+  return store && store.c === c ? store.req : undefined;
+}
+
+/**
  * An extension's `ctx.checkPermission`, answering an API key from its scope.
  *
  * Casbin holds no policy for `apikey:<uuid>`, so asking it refused every key
@@ -346,7 +367,13 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
     const owner = resolveOwner(rest);
     if (owner && isDeclaredPublic(owner.name, owner.sub)) {
       // Explicitly declared public — anonymous access allowed.
-      return next();
+      const req: PublicRouteRequest = {
+        extName: owner.name,
+        sub: owner.sub,
+        trx: c.get('tenantTrx') ?? undefined,
+        tenantId: c.get('tenant')?.id ?? null,
+      };
+      return publicServed.run({ c, req }, next);
     }
 
     // A route declared for keys, and a key presented: the key model of every
