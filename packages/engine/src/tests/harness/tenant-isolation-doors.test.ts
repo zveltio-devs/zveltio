@@ -495,7 +495,7 @@ d('tenant isolation, door by door', () => {
     for (const q of [
       '',
       `?search=${MARK}`,
-      `?filter[title][_eq]=${MARK}`,
+      `?title[eq]=${MARK}`,
       `?as_of=${encodeURIComponent(new Date().toISOString())}`,
     ]) {
       const res = await app.request(`/api/data/${P}${q}`, { headers: asA() });
