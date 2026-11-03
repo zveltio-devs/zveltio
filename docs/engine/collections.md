@@ -68,7 +68,7 @@ collection.
 | `o2m` | — | One-to-many (virtual) | `collection`, `foreignKey` |
 | `m2m` | — | Many-to-many (junction table) | `collection` |
 | `m2a` | — | Many-to-any (polymorphic) | |
-| `location` | `POINT` | Lat/lng point (PostGIS) | `required` |
+| `location` | `point` | `{lat, lng}` point, GiST-indexed; no PostGIS | `required` |
 | `geometry` | `GEOMETRY` | PostGIS geometry | `required` |
 | `vector` | `vector(N)` | pgvector embedding | `dimensions` |
 | `computed` | — | Formula field (not stored) | `expression` |
@@ -118,6 +118,8 @@ Supported filter operators:
 | `not_contains` | Does not contain the text (empty fields included) |
 | `starts_with` / `ends_with` | Starts / ends with the text |
 | `null` / `not_null` | Is empty / is not empty |
+| `near` | `location` only: within `radius` metres of `{lat, lng}` |
+| `within` | `location` only: inside `{minLat, minLng, maxLat, maxLng}` |
 
 Text operators are case-insensitive and literal: `%` and `_` are plain characters.
 

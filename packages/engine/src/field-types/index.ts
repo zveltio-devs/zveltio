@@ -251,22 +251,35 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     type: 'location',
     label: 'Location (Point)',
     category: 'location',
-    db: {
-      columnType: 'GEOGRAPHY(POINT, 4326)',
-      indexType: 'gist',
-      requiresExtensions: ['postgis'],
-    },
+    // A built-in `point` (x = longitude, y = latitude, WGS 84), GiST-indexed:
+    // radius and box questions need no PostGIS (ADR 0019 tier 1).
+    db: { columnType: 'point', indexType: 'gist' },
     api: {
+      // PostgreSQL returns a point as its text form, `(lng,lat)`.
       serialize: (v) => {
-        if (!v) return null;
-        // PostGIS returns WKB hex — parse to {lat, lng}
-        // In practice the data.ts route handles this specially
-        return v;
+        const m = typeof v === 'string' ? /^\(([^,]+),([^)]+)\)$/.exec(v) : null;
+        return m ? { lat: Number(m[2]), lng: Number(m[1]) } : v;
       },
-      // Spatial operators arrive with ADR 0019 tier 1 (`near`, box `within`);
-      // advertising them before the data API compiles them was a promise
-      // the parser kept by dropping the filter.
-      filterOperators: ['is_null', 'is_not_null'],
+      deserialize: (v) => {
+        if (v === null || v === undefined) return v;
+        const { lat, lng } = v as { lat: number; lng: number };
+        return `(${lng},${lat})`;
+      },
+      validate: (v, f) => {
+        if (v === null || v === undefined) {
+          return f.required ? `${f.label || f.name} is required` : null;
+        }
+        const { lat, lng } = (typeof v === 'object' ? v : {}) as Record<string, unknown>;
+        const ok =
+          typeof lat === 'number' &&
+          typeof lng === 'number' &&
+          lat >= -90 &&
+          lat <= 90 &&
+          lng >= -180 &&
+          lng <= 180;
+        return ok ? null : `${f.label || f.name} must be { lat: -90..90, lng: -180..180 }`;
+      },
+      filterOperators: ['near', 'within', 'is_null', 'is_not_null'],
     },
     typescript: {
       inputType: '{ lat: number; lng: number }',
@@ -524,9 +537,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       requiresExtensions: ['postgis'],
     },
     api: {
-      // Spatial operators arrive with ADR 0019 tier 1 (`near`, box `within`);
-      // advertising them before the data API compiles them was a promise
-      // the parser kept by dropping the filter.
+      // Polygon `within`/`intersects` are ADR 0019 tier 2 (PostGIS), not built.
       filterOperators: ['is_null', 'is_not_null'],
     },
     typescript: {

@@ -299,6 +299,20 @@ The four text operators are case-insensitive and literal — `%` and `_` match
 themselves, not any run or any character. `not_contains` keeps rows where the
 field is empty (NULL): an empty value does not contain the text.
 
+A `location` field (a point, read and written as `{"lat": …, "lng": …}`) takes
+`near`, `within`, `null` and `not_null`, and no other operator; `near` and
+`within` apply to nothing else. Since beta.98, no PostGIS needed:
+
+```
+GET /api/data/shops?loc[near]=44.4268,26.1025,500        # lat,lng,radius in metres
+GET /api/data/shops?loc[within]=44,26,45,27              # minLat,minLng,maxLat,maxLng
+GET /api/data/shops?filter={"loc":{"near":{"lat":44.4268,"lng":26.1025,"radius":500}}}
+```
+
+Distance is haversine on a sphere (up to ~0.5 % off the ellipsoid). A `within`
+box crossing the antimeridian (`minLng > maxLng`) is a `400`. Results keep the
+requested sort; there is no ordering by distance.
+
 ### POST /api/data/:collection
 
 Create a new record.

@@ -37,7 +37,7 @@ import {
   computeEtag,
   normalizeFields,
 } from '../shape.js';
-import { buildAllowedCols, parseFilters, decodeCursor } from '../query-parse.js';
+import { buildAllowedCols, buildLocationCols, parseFilters, decodeCursor } from '../query-parse.js';
 import type { ParsedQuery } from '../query-parse.js';
 import { getDb, getTenantId, selectReadable, getVirtualConfig } from '../write-pipeline.js';
 import { checkAccess } from '../auth.js';
@@ -322,7 +322,12 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     : searchable.filter(scope.readable);
 
   // Parse filters — bracket + JSON formats (JSON wins on the same field).
-  const parsed = parseFilters(c.req.query(), query.filter, allowedCols);
+  const parsed = parseFilters(
+    c.req.query(),
+    query.filter,
+    allowedCols,
+    buildLocationCols(collectionDef),
+  );
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
   const filters = parsed.filters;
 

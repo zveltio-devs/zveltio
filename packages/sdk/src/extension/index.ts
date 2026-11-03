@@ -153,7 +153,11 @@ export type FilterOp =
   | 'in'
   | 'not_in'
   | 'null'
-  | 'not_null';
+  | 'not_null'
+  /** `location` only: `{ lat, lng, radius }`, radius in metres (ADR 0019). */
+  | 'near'
+  /** `location` only: `{ minLat, minLng, maxLat, maxLng }` (ADR 0019). */
+  | 'within';
 
 /**
  * The actor a data-path call is made on behalf of.

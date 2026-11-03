@@ -446,6 +446,24 @@ export function buildCondition(key: string, condition: FilterCondition): RawBuil
       return sql`${col} IS NULL`;
     case 'not_null':
       return sql`${col} IS NOT NULL`;
+    // `location` is a native `point` (x = longitude, y = latitude), ADR 0019.
+    // The box uses the GiST index; the haversine keeps only the circle.
+    case 'near': {
+      const n = toNear(value);
+      if (!n) throw new Error(`Malformed "near" on "${key}"`);
+      const b = nearBox(n);
+      const lat = sql`radians(${col}[1])`;
+      const dLat = sql`radians(${col}[1] - ${n.lat}::float8)`;
+      const dLng = sql`radians(${col}[0] - ${n.lng}::float8)`;
+      return sql`(${col} <@ ${box(b)} AND 2 * ${EARTH_RADIUS_M}::float8 * asin(sqrt(
+        power(sin(${dLat} / 2), 2) + cos(radians(${n.lat}::float8)) * cos(${lat}) * power(sin(${dLng} / 2), 2)
+      )) <= ${n.radius}::float8)`;
+    }
+    case 'within': {
+      const b = toBox(value);
+      if (!b) throw new Error(`Malformed "within" on "${key}"`);
+      return sql`${col} <@ ${box(b)}`;
+    }
     default:
       // Fail CLOSED. Falling through to `=` meant an operator this function
       // does not know silently became equality — which turns a restrictive
@@ -458,6 +476,65 @@ export function buildCondition(key: string, condition: FilterCondition): RawBuil
           `build a condition rather than guess one.`,
       );
   }
+}
+
+// ─── Geo (ADR 0019 tier 1) ────────────────────────────────────────────────────
+
+/** Mean Earth radius (IUGG), metres. A sphere: up to ~0.5 % off the ellipsoid. */
+const EARTH_RADIUS_M = 6371008.8;
+
+export interface GeoNear {
+  lat: number;
+  lng: number;
+  radius: number;
+}
+export interface GeoBox {
+  minLat: number;
+  minLng: number;
+  maxLat: number;
+  maxLng: number;
+}
+
+const isLat = (v: unknown): v is number => typeof v === 'number' && v >= -90 && v <= 90;
+const isLng = (v: unknown): v is number => typeof v === 'number' && v >= -180 && v <= 180;
+
+/** A `near` value (`{lat, lng, radius}`, radius in metres) or null. Also the
+ * check `buildCondition` runs: a row policy or an extension reaches it too. */
+export function toNear(v: unknown): GeoNear | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const { lat, lng, radius } = v as Record<string, unknown>;
+  if (!isLat(lat) || !isLng(lng)) return null;
+  if (typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) return null;
+  return { lat, lng, radius };
+}
+
+/** A `within` box or null. A box crossing the antimeridian (minLng > maxLng)
+ * is null: tier 1 does not split it. */
+export function toBox(v: unknown): GeoBox | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const { minLat, minLng, maxLat, maxLng } = v as Record<string, unknown>;
+  if (!isLat(minLat) || !isLat(maxLat) || !isLng(minLng) || !isLng(maxLng)) return null;
+  if (minLat > maxLat || minLng > maxLng) return null;
+  return { minLat, minLng, maxLat, maxLng };
+}
+
+/** The bounding box of a `near` circle, for the index. Near a pole, or where
+ * the circle crosses the antimeridian, it widens to every longitude: still a
+ * superset, only less selective. */
+function nearBox({ lat, lng, radius }: GeoNear): GeoBox {
+  const dLat = (radius / EARTH_RADIUS_M) * (180 / Math.PI);
+  const minLat = Math.max(-90, lat - dLat);
+  const maxLat = Math.min(90, lat + dLat);
+  const cos = Math.cos((Math.max(Math.abs(minLat), Math.abs(maxLat)) * Math.PI) / 180);
+  const dLng = cos > 1e-9 ? dLat / cos : 360;
+  if (dLng >= 180 || lng - dLng < -180 || lng + dLng > 180) {
+    return { minLat, maxLat, minLng: -180, maxLng: 180 };
+  }
+  return { minLat, maxLat, minLng: lng - dLng, maxLng: lng + dLng };
+}
+
+function box(b: GeoBox): RawBuilder<unknown> {
+  return sql`box(point(${b.minLng}::float8, ${b.minLat}::float8), point(${b.maxLng}::float8, ${b.maxLat}::float8))`;
 }
 
 // ─── SELECT ───────────────────────────────────────────────────────────────────

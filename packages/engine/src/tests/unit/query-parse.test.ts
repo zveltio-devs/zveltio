@@ -55,9 +55,9 @@ describe('parseFilters — JSON format', () => {
   });
 
   it('an unknown operator key is a typed error', () => {
-    const r = parseFilters({}, '{"a": {"near": 1}}', cols);
+    const r = parseFilters({}, '{"a": {"intersects": 1}}', cols);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe("Unknown filter operator: 'near' on 'a'");
+    if (!r.ok) expect(r.error).toBe("Unknown filter operator: 'intersects' on 'a'");
   });
 
   it('a list value is a typed error, not an operator map', () => {
@@ -81,7 +81,7 @@ describe('parseFilters — bracket format', () => {
   });
 
   it('an unknown bracket operator is a typed error', () => {
-    for (const op of ['near', 'foo', 'constructor']) {
+    for (const op of ['foo', 'constructor']) {
       const r = parseFilters({ [`a[${op}]`]: '1' }, undefined, cols);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.error).toBe(`Unknown filter operator: '${op}' on 'a'`);
