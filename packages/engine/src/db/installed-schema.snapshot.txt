@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 563
+# tables: 564
 
 table account
   col accessToken                    text
@@ -1016,7 +1016,6 @@ table zv_import_logs
   col completed_at                   timestamp with time zone
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
-  col dry_run                        boolean NOT NULL DEFAULT false
   col error_rows                     integer NOT NULL DEFAULT 0
   col errors                         jsonb DEFAULT '[]'::jsonb
   col failed_rows                    integer NOT NULL DEFAULT 0
@@ -1025,10 +1024,8 @@ table zv_import_logs
   col format                         text NOT NULL DEFAULT 'csv'::text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col imported_rows                  integer NOT NULL DEFAULT 0
-  col on_duplicate                   text NOT NULL DEFAULT 'skip'::text
   col options                        jsonb DEFAULT '{}'::jsonb
   col processed_rows                 integer NOT NULL DEFAULT 0
-  col profile_id                     uuid
   col status                         text NOT NULL DEFAULT 'pending'::text
   col success_rows                   integer NOT NULL DEFAULT 0
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
@@ -1037,10 +1034,9 @@ table zv_import_logs
   ck  zv_import_logs_file_format_check CHECK ((file_format = ANY (ARRAY['csv'::text, 'xlsx'::text, 'json'::text, 'ndjson'::text])))
   ck  zv_import_logs_format_check CHECK ((format = ANY (ARRAY['csv'::text, 'json'::text, 'ndjson'::text]))) NOT VALID
   pk  zv_import_logs_pkey PRIMARY KEY (id)
-  fk  zv_import_logs_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES zvd_import_profiles(id) ON DELETE SET NULL
-  ck  zv_import_logs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'processing'::text, 'completed'::text, 'failed'::text, 'partial'::text])))
+  ck  zv_import_logs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'completed'::text, 'failed'::text, 'partial'::text])))
   rls enabled forced
-  pol tenant_isolation_zv_import_logs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation_zv_import_logs FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_instances
   col instance_id                    uuid NOT NULL
@@ -3607,6 +3603,58 @@ table zvd_dashboard_subscriptions
   ck  zvd_dashboard_subscriptions_frequency_check CHECK ((frequency = ANY (ARRAY['daily'::text, 'weekly'::text, 'monthly'::text])))
   pk  zvd_dashboard_subscriptions_pkey PRIMARY KEY (id)
 
+table zvd_data_import_jobs
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col filename                       text
+  col format                         text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col imported_rows                  bigint NOT NULL
+  col record_ids                     jsonb
+  col rolled_back_at                 timestamp with time zone
+  col search_text                    text
+  col search_vector                  tsvector
+  col target_collection              text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_data_import_jobs_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_data_import_jobs_pkey PRIMARY KEY (id)
+  fk  zvd_data_import_jobs_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('data_import_jobs'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('data_import_jobs'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('data_import_jobs'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('data_import_jobs'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('data_import_jobs'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_data_import_profiles
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col mappings                       jsonb
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col target_collection              text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_data_import_profiles_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_data_import_profiles_pkey PRIMARY KEY (id)
+  fk  zvd_data_import_profiles_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('data_import_profiles'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('data_import_profiles'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('data_import_profiles'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('data_import_profiles'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('data_import_profiles'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_departments
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
@@ -5038,58 +5086,6 @@ table zvd_i18n_translations
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('i18n_translations'::text, 'update'::text) AS zveltio_collection_allows)
-
-table zvd_import_mappings
-  col collection                     text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col default_value                  text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_required                    boolean NOT NULL DEFAULT false
-  col name                           text NOT NULL
-  col source_field                   text NOT NULL
-  col target_field                   text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col transform                      text
-  pk  zvd_import_mappings_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_import_mappings FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_import_profiles
-  col collection                     text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col delimiter                      text NOT NULL DEFAULT ','::text
-  col description                    text
-  col encoding                       text NOT NULL DEFAULT 'UTF-8'::text
-  col format                         text NOT NULL DEFAULT 'csv'::text
-  col has_header                     boolean NOT NULL DEFAULT true
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col mappings                       jsonb NOT NULL DEFAULT '[]'::jsonb
-  col name                           text NOT NULL
-  col on_duplicate                   text NOT NULL DEFAULT 'skip'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zvd_import_profiles_on_duplicate_check CHECK ((on_duplicate = ANY (ARRAY['skip'::text, 'update'::text, 'error'::text])))
-  pk  zvd_import_profiles_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_import_profiles FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_import_rollbacks
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col expires_at                     timestamp with time zone NOT NULL DEFAULT (now() + '7 days'::interval)
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col job_id                         uuid NOT NULL
-  col record_ids                     ARRAY NOT NULL DEFAULT '{}'::uuid[]
-  col rolled_back_at                 timestamp with time zone
-  col rolled_back_by                 text
-  col status                         text NOT NULL DEFAULT 'available'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zvd_import_rollbacks_job_id_fkey FOREIGN KEY (job_id) REFERENCES zv_import_logs(id) ON DELETE CASCADE
-  pk  zvd_import_rollbacks_pkey PRIMARY KEY (id)
-  ck  zvd_import_rollbacks_status_check CHECK ((status = ANY (ARRAY['available'::text, 'rolled_back'::text, 'expired'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_import_rollbacks FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_incoming_webhooks
   col connection_id                  uuid
@@ -9592,6 +9588,36 @@ table zvv_dashboard_layouts
   col updated_at                     timestamp with time zone
   col updated_by                     text
   col widgets                        jsonb
+
+table zvv_data_import_jobs
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col filename                       text
+  col format                         text
+  col id                             uuid
+  col imported_rows                  bigint
+  col record_ids                     jsonb
+  col rolled_back_at                 timestamp with time zone
+  col search_text                    text
+  col search_vector                  tsvector
+  col target_collection              text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_data_import_profiles
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col id                             uuid
+  col mappings                       jsonb
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col target_collection              text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
 
 table zvv_departments
   col created_at                     timestamp with time zone
