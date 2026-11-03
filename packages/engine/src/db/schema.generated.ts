@@ -830,74 +830,6 @@ export interface ZvGeneratedDocsTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvGeoLocationHistoryTable {
-  id: Generated<string>;
-  entity_type: string;
-  entity_id: string;
-  location: unknown;
-  accuracy_m: number | null;
-  altitude_m: number | null;
-  speed_kmh: number | null;
-  heading_deg: number | null;
-  source: Generated<string>;
-  metadata: Generated<unknown>;
-  recorded_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvGeoRoutesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  waypoints: Generated<unknown>;
-  path: unknown | null;
-  distance_m: number | null;
-  metadata: Generated<unknown>;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvGeofenceEventsTable {
-  id: Generated<string>;
-  geofence_id: string;
-  entity_type: string;
-  entity_id: string;
-  event_type: 'enter' | 'exit' | 'dwell';
-  location: unknown | null;
-  metadata: Generated<unknown>;
-  occurred_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvGeofenceRulesTable {
-  id: Generated<string>;
-  geofence_id: string;
-  name: string;
-  trigger_on: 'enter' | 'exit' | 'both';
-  entity_type: string | null;
-  action_type: Generated<'webhook' | 'notification' | 'email'>;
-  action_config: Generated<unknown>;
-  is_active: Generated<boolean>;
-  triggered_count: Generated<number>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvGeofencesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  zone: unknown;
-  metadata: Generated<unknown>;
-  is_active: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvImportLogsTable {
   id: Generated<string>;
   collection: string;
@@ -2489,11 +2421,6 @@ export interface DbSchema {
   zv_flow_steps: ZvFlowStepsTable;
   zv_flows: ZvFlowsTable;
   zv_generated_docs: ZvGeneratedDocsTable;
-  zv_geo_location_history: ZvGeoLocationHistoryTable;
-  zv_geo_routes: ZvGeoRoutesTable;
-  zv_geofence_events: ZvGeofenceEventsTable;
-  zv_geofence_rules: ZvGeofenceRulesTable;
-  zv_geofences: ZvGeofencesTable;
   zv_import_logs: ZvImportLogsTable;
   zv_instances: ZvInstancesTable;
   zv_invitations: ZvInvitationsTable;

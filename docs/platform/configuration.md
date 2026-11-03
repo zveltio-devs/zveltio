@@ -351,7 +351,7 @@ EXTENSIONS_DIR=/app/extensions
 | `workflow/checklists` | Reusable checklists attached to records |
 | `content/page-builder` | Block-based CMS page editor |
 | `developer/edge-functions` | Deploy TypeScript functions inside the engine |
-| `geospatial/postgis` | PostGIS proximity search, bbox, clustering, geofences |
+| `geospatial/postgis` | Location history and map components; proximity and bbox search through the data API |
 | `compliance/ro/efactura` | Romanian e-Factura (UBL 2.1 XML + ANAF submission) |
 | `compliance/ro/documents` | Romanian documents: contracts, PV, NIR, dispozitii |
 | `compliance/ro/procurement` | Romanian procurement: PO, supplier registry, budget |

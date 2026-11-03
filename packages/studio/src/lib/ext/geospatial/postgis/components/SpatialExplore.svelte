@@ -1,23 +1,22 @@
 <script lang="ts">
 /**
- * PostGIS explore — near / cluster / bbox against /ext/geospatial/postgis.
+ * Spatial explore — `near` and bounding-box (`within`) filters on a collection's
+ * `location` field, through the data API (ADR 0019). The engine answers them
+ * under the caller's own rules; this page only builds the filter.
  */
 import MapView from '#lib/ext/geospatial/postgis/components/MapView.svelte';
 import { api } from '#lib/api.js';
 import { toast } from '#lib/stores/toast.svelte.js';
 
-const API = '/ext/geospatial/postgis';
-
-type Mode = 'near' | 'cluster' | 'bbox';
+type Mode = 'near' | 'bbox';
 
 let mode = $state<Mode>('near');
 let collection = $state('');
 let collections = $state<string[]>([]);
+let field = $state('location');
 let lat = $state(45.94);
 let lng = $state(24.97);
 let radius = $state(5000);
-let eps = $state(1000);
-let minPoints = $state(2);
 let minLat = $state(45.9);
 let maxLat = $state(46.0);
 let minLng = $state(24.9);
@@ -36,52 +35,27 @@ async function loadCollections(): Promise<void> {
   }
 }
 
-function clusterToItems(clusters: Array<{ centroid?: unknown; point_count?: number; cluster_id?: unknown }>) {
-  return clusters.map((c, i) => {
-    const g = c.centroid as { type?: string; coordinates?: number[] } | null;
-    const coords = g?.coordinates;
-    return {
-      id: String(c.cluster_id ?? i),
-      name: `Cluster ${c.cluster_id ?? i} (${c.point_count ?? 0})`,
-      lat: Array.isArray(coords) ? coords[1] : null,
-      lng: Array.isArray(coords) ? coords[0] : null,
-      geometry: c.centroid,
-    };
-  });
-}
-
 async function run(): Promise<void> {
   if (!collection) {
     toast.warning('Pick a collection');
     return;
   }
+  // A field name goes into the query key `${field}[op]`; anything but an
+  // identifier would build a different filter than the one asked for.
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) {
+    toast.error('The location field must be a field name (letters, digits, underscore)');
+    return;
+  }
   running = true;
   try {
-    let path = '';
-    let body: Record<string, unknown> = { collection, location_field: 'location' };
-    if (mode === 'near') {
-      path = `${API}/near`;
-      body = { ...body, lat, lng, radius_meters: radius };
-    } else if (mode === 'cluster') {
-      path = `${API}/cluster`;
-      body = { ...body, eps_meters: eps, min_points: minPoints };
-    } else {
-      path = `${API}/within-bbox`;
-      body = { ...body, min_lat: minLat, max_lat: maxLat, min_lng: minLng, max_lng: maxLng };
-    }
-    const r = await api.post<Record<string, unknown>>(path, body);
+    const [op, value] =
+      mode === 'near' ? ['near', `${lat},${lng},${radius}`] : ['within', `${minLat},${minLng},${maxLat},${maxLng}`];
+    const qs = new URLSearchParams({ [`${field}[${op}]`]: value, limit: '500' });
+    const r = await api.get<{ records?: Record<string, unknown>[] }>(
+      `/api/data/${encodeURIComponent(collection)}?${qs}`,
+    );
     raw = JSON.stringify(r, null, 2);
-    if (mode === 'cluster' && Array.isArray(r.clusters)) {
-      items = clusterToItems(r.clusters as never[]);
-    } else if (Array.isArray(r.records)) {
-      items = r.records as Record<string, unknown>[];
-    } else if (Array.isArray(r.results)) {
-      items = r.results as Record<string, unknown>[];
-    } else if (Array.isArray(r.data)) {
-      items = r.data as Record<string, unknown>[];
-    } else {
-      items = [];
-    }
+    items = Array.isArray(r.records) ? r.records : [];
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Query failed');
     items = [];
@@ -99,7 +73,7 @@ $effect(() => {
   <div class="flex items-center gap-2 flex-wrap">
     <h1 class="font-semibold text-lg flex-1">Spatial explore</h1>
     <div class="join">
-      {#each ['near', 'cluster', 'bbox'] as m}
+      {#each ['near', 'bbox'] as m}
         <button
           type="button"
           class="btn btn-sm join-item {mode === m ? 'btn-active' : ''}"
@@ -122,13 +96,12 @@ $effect(() => {
         </select>
       </label>
 
+      <label class="form-control"><span class="label-text text-xs">Location field</span><input class="input input-bordered input-sm" bind:value={field} /></label>
+
       {#if mode === 'near'}
         <label class="form-control"><span class="label-text text-xs">Lat</span><input type="number" step="any" class="input input-bordered input-sm" bind:value={lat} /></label>
         <label class="form-control"><span class="label-text text-xs">Lng</span><input type="number" step="any" class="input input-bordered input-sm" bind:value={lng} /></label>
         <label class="form-control"><span class="label-text text-xs">Radius (m)</span><input type="number" class="input input-bordered input-sm" bind:value={radius} /></label>
-      {:else if mode === 'cluster'}
-        <label class="form-control"><span class="label-text text-xs">EPS (m)</span><input type="number" class="input input-bordered input-sm" bind:value={eps} /></label>
-        <label class="form-control"><span class="label-text text-xs">Min points</span><input type="number" class="input input-bordered input-sm" bind:value={minPoints} /></label>
       {:else}
         <div class="grid grid-cols-2 gap-2">
           <label class="form-control"><span class="label-text text-xs">min lat</span><input type="number" step="any" class="input input-bordered input-sm" bind:value={minLat} /></label>
