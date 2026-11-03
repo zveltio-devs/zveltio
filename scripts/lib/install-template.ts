@@ -52,7 +52,11 @@ export function upHalf(sql: string): string {
   return m ? sql.slice(0, m.index) : sql;
 }
 
-/** Every directory holding a `manifest.json` and an `engine/`, sorted. */
+/**
+ * Every extension directory the engine applies schema for, sorted: a
+ * `manifest.json` beside an `engine/`, or beside declared collections only —
+ * `loadExtension` applies those for a `contributes.engine: false` extension too.
+ */
 export function extensionDirs(root: string): string[] {
   const out: string[] = [];
   const walk = (d: string, depth: number): void => {
@@ -61,7 +65,11 @@ export function extensionDirs(root: string): string[] {
       if (e === 'node_modules' || e.startsWith('.')) continue;
       const p = join(d, e);
       if (!statSync(p).isDirectory()) continue;
-      if (existsSync(join(p, 'manifest.json')) && existsSync(join(p, 'engine'))) out.push(p);
+      if (
+        existsSync(join(p, 'manifest.json')) &&
+        (existsSync(join(p, 'engine')) || existsSync(join(p, 'schema', 'collections')))
+      )
+        out.push(p);
       else walk(p, depth + 1);
     }
   };

@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { harnessAvailable } from '../../testing/app-harness.js';
@@ -59,4 +59,27 @@ d('install template', () => {
     // Not vacuous: the sibling declares collections (the wave ports more).
     expect(declared).toBeGreaterThan(0);
   }, 120_000);
+});
+
+describe('extensionDirs', () => {
+  it('includes an extension that declares collections and ships no engine', async () => {
+    const { extensionDirs } = await import(join(REPO, 'scripts', 'lib', 'install-template.ts'));
+    const root = mkdtempSync(join(tmpdir(), 'zv-extdirs-'));
+    try {
+      for (const [name, sub] of [
+        ['with-engine', 'engine'],
+        ['schema-only', join('schema', 'collections')],
+        ['ui-only', 'client'],
+      ] as const) {
+        mkdirSync(join(root, 'g', name, sub), { recursive: true });
+        writeFileSync(join(root, 'g', name, 'manifest.json'), '{}');
+      }
+      expect(extensionDirs(root)).toEqual([
+        join(root, 'g', 'schema-only'),
+        join(root, 'g', 'with-engine'),
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
