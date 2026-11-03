@@ -118,23 +118,25 @@ export function sessionCookieName(options: SessionReader['options']): string {
   return getCookies(options).sessionToken.name.replace(/^__Secure-/, '');
 }
 
+/** Does the request carry the session cookie `sessionCookieName` names, either prefix? */
+export function hasSessionCookie(headers: Headers, cookieName: string): boolean {
+  const cookies = parseCookies(headers.get('cookie') ?? '');
+  return Boolean(cookies.get(cookieName) || cookies.get(`__Secure-${cookieName}`));
+}
+
 export function sessionPrefetch(
   auth: SessionReader,
   db: Database,
   opts: { onlyWithCredentials?: boolean } = {},
 ) {
   const cookieName = sessionCookieName(auth.options);
-  const hasSessionCookie = (headers: Headers) => {
-    const cookies = parseCookies(headers.get('cookie') ?? '');
-    return Boolean(cookies.get(cookieName) || cookies.get(`__Secure-${cookieName}`));
-  };
   return createMiddleware(async (c, next) => {
     // For public surfaces (`/files/*`): a request with no session cookie and no
     // key header has no caller to find, and a gallery's Range bursts must not
     // pay a lookup each to learn that.
     if (
       opts.onlyWithCredentials &&
-      !hasSessionCookie(c.req.raw.headers) &&
+      !hasSessionCookie(c.req.raw.headers, cookieName) &&
       !c.req.header('authorization') &&
       !c.req.header('x-api-key')
     ) {
