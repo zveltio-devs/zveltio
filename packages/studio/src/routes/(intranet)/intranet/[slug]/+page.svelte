@@ -1,6 +1,7 @@
 <script lang="ts">
 import { page } from '$app/state';
 import { api } from '#lib/api.js';
+import { loadPage } from '#lib/ext/content/pages/client/load.js';
 import { resolve } from '$app/paths';
 import { auth } from '#lib/auth.svelte.js';
 import { FileX, ShieldCheck, ArrowLeft } from '@lucide/svelte';
@@ -26,25 +27,17 @@ $effect(() => {
   error = null;
   pageData = null;
 
-  // `api.fetch` rather than the typed helpers: the wrapper throws on non-ok and
-  // loses the status code, and 404 vs 403 vs 500 each get distinct UX below.
-  // Bare `fetch` went to the Studio's own origin and carried no `x-tenant-slug`,
-  // so a remote engine answered nothing and a hierarchical unit answered the
-  // wrong page.
-  api
-    .fetch(`/ext/content/pages/sites/${ZONE_SLUG}/render/${encodeURIComponent(s ?? '')}`)
-    .then(async (res) => {
-      if (res.ok) {
-        const body = await res.json();
-        if (mine === seq) pageData = body;
-        return;
-      }
-      const body = await res.json().catch(() => ({}));
-      if (mine === seq)
-        error = {
-          status: res.status,
-          message: body?.error ?? body?.message ?? `HTTP ${res.status}`,
-        };
+  // Through `api.fetch`: a bare `fetch` went to the Studio's own origin and
+  // carried no `x-tenant-slug`, so a remote engine answered nothing and a
+  // hierarchical unit answered the wrong page. A page the member may not read
+  // is not found, as for any visitor.
+  loadPage((path: string, init?: RequestInit) => api.fetch(path, init), s ?? '', {
+    site: ZONE_SLUG,
+  })
+    .then((res) => {
+      if (mine !== seq) return;
+      if (res) pageData = res;
+      else error = { status: 404, message: 'Page not found' };
     })
     .catch((e) => {
       if (mine === seq) error = { status: 0, message: e?.message ?? 'Network error' };
@@ -121,7 +114,6 @@ const isAdmin = $derived(auth.user?.role === 'admin' || auth.user?.role === 'own
     <BlockRenderer
       blocks={pageData.blocks ?? []}
       record={pageData.record ?? null}
-      blocksBaseUrl={`/ext/content/pages/sites/${ZONE_SLUG}/render/${slug}/blocks`}
     />
 
     {#if (pageData.blocks ?? []).length === 0}

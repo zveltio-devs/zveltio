@@ -1,6 +1,9 @@
 import { browser } from '$app/env';
 import { initZveltio } from '#lib/zveltio.js';
 import type { Theme } from '@zveltio/ui/theme';
+import { loadSite } from '#lib/ext/content/pages/load.js';
+import { useDataFetch } from '#lib/ext/content/pages/query.js';
+import { engineFetch } from '#lib/engine-fetch.js';
 
 export const ssr = false;
 export const prerender = false;
@@ -12,23 +15,18 @@ const ENGINE_URL: string =
 export async function load({ fetch }) {
   if (browser) {
     initZveltio().catch(() => {});
+    // Data blocks read the data API from the browser, at the engine's origin.
+    useDataFetch(engineFetch(window.fetch.bind(window)));
   }
 
   // Branding and navigation for the `client` site.
   //
-  // This called `/api/zones/client/render` and read `zone`/`pages`. The engine
-  // stopped mounting `/api/zones` when zones became sites in `content/pages`,
-  // so the request 404'd on every install and the failure fell into the catch
-  // below: the host has been rendering its own defaults — no logo, no site
-  // name, no navigation — and looking like it had simply not been configured.
-  //
-  // The site row carries its own column names, which are not the zone's. They
-  // are mapped here rather than at every reader, so the layout and the landing
-  // page keep the one shape they already use.
+  // Its `page_sites` row and published pages (content/pages `loadSite`), read
+  // as the visitor; the row's column names are mapped here, once.
   // The theme as data (ADR 0007): the tenant's, else the instance's, from the
   // public settings. A site's own two colours sit on top of it.
   const [siteRes, settingsRes] = await Promise.allSettled([
-    fetch(`${ENGINE_URL}/ext/content/pages/sites/client/render`, { credentials: 'include' }),
+    loadSite(engineFetch(fetch), 'client'),
     fetch(`${ENGINE_URL}/api/settings/public`, { credentials: 'include' }),
   ]);
   let base: Theme | null = null;
@@ -42,8 +40,8 @@ export async function load({ fetch }) {
 
   try {
     const res = siteRes.status === 'fulfilled' ? siteRes.value : null;
-    if (res?.ok) {
-      const { site, nav } = await res.json();
+    if (res) {
+      const { site, nav } = res;
       return {
         tokens: site ? siteTokens(base, site) : base,
         theme: site

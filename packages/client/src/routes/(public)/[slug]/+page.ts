@@ -1,31 +1,16 @@
 import type { PageLoad } from './$types';
+import { loadPage } from '#lib/ext/content/pages/load.js';
+import { engineFetch } from '#lib/engine-fetch.js';
 
-// Universal load — runs in the browser (the host ships as a static SPA served by
-// the engine, so there is no server runtime; `+page.server.ts` would never run
-// in production). Fetches the published page from the page-builder public
-// contract (ADR 0001). Multi-tenant installs resolve the tenant by Host header
-// server-side, so no tenant plumbing is needed here.
-const ENGINE_URL: string =
-  import.meta.env.PUBLIC_ENGINE_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : '');
-
+// Universal load. The published page is read from the data API as the visitor
+// (`loadPage`, content/pages): an anonymous visitor is the tenant's `public`
+// role, which reads only what the operator granted it (ADR 0017). Multi-tenant
+// installs resolve the tenant by Host header server-side.
 export const load: PageLoad = async ({ params, fetch }) => {
   try {
-    // `content/pages`, not `content/page-builder`: that extension was merged
-    // away, and this loader kept calling it — every public page 404'd.
-    const res = await fetch(
-      `${ENGINE_URL}/ext/content/pages/cms/${encodeURIComponent(params.slug)}`,
-    );
-    if (!res.ok) return { page: null, blocks: [], popups: [], record: null, status: res.status };
-    const data = await res.json();
-    return {
-      page: data.page ?? null,
-      blocks: data.blocks ?? [],
-      popups: data.popups ?? [],
-      record: data.record ?? null,
-      blocksBaseUrl: `${ENGINE_URL}/ext/content/pages/cms/${encodeURIComponent(params.slug)}/blocks`,
-      status: 200,
-    };
+    const data = await loadPage(engineFetch(fetch), params.slug);
+    if (!data) return { page: null, blocks: [], popups: [], record: null, status: 404 };
+    return { ...data, status: 200 };
   } catch {
     return { page: null, blocks: [], popups: [], record: null, status: 502 };
   }

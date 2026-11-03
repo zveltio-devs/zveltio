@@ -43,6 +43,5 @@ let { data } = $props();
   <BlockRenderer
     blocks={data.blocks}
     record={data.record ?? null}
-    blocksBaseUrl={data.blocksBaseUrl ?? ''}
   />
 {/if}

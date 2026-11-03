@@ -17,7 +17,7 @@
   // biome-ignore lint/suspicious/noExplicitAny: popup payloads are untyped JSON
   type Any = any;
 
-  let { popup, blocksBaseUrl = '' }: { popup: Any; blocksBaseUrl?: string } = $props();
+  let { popup }: { popup: Any } = $props();
 
   const cfg = $derived(popup?.config ?? {});
   const key = $derived(`zv-popup:${popup?.id}`);
@@ -145,7 +145,7 @@
         aria-label="Close"
       >×</button>
 
-      <Self blocks={popup?.blocks ?? []} {blocksBaseUrl} nested gap="none" />
+      <Self blocks={popup?.blocks ?? []} nested gap="none" />
     </div>
   </div>
 {/if}

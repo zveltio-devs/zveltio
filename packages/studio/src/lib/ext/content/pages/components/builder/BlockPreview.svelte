@@ -47,7 +47,7 @@
   {:else if block.type === 'richtext'}
     <div class="prose prose-sm max-w-none px-4 py-3">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-      {@html p.content ?? `<p>${m['content.pages.b.richTextPh']()}</p>`}
+      {@html p.content ? safeHtml(p.content) : `<p>${m['content.pages.b.richTextPh']()}</p>`}
     </div>
 
   {:else if block.type === 'cta'}
@@ -81,7 +81,7 @@
       {#each (p.items ?? []) as col}
         <div class="min-h-[60px] bg-base-200 rounded-lg p-3 text-sm prose prose-sm max-w-none">
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          {@html col}
+          {@html safeHtml(col)}
         </div>
       {/each}
     </div>
@@ -145,7 +145,7 @@
     {#if p.html}
       <div class="p-3">
         <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-        {@html p.html}
+        {@html safeHtml(p.html)}
       </div>
     {:else}
       <div class="flex items-center justify-center h-16 bg-base-200 rounded text-base-content/55 text-xs gap-1.5 font-mono">

@@ -1,6 +1,7 @@
 <script lang="ts">
 import { page } from '$app/state';
 import { api } from '#lib/api.js';
+import { loadPage } from '#lib/ext/content/pages/client/load.js';
 import BlockRenderer from '#lib/ext/content/pages/client/BlockRenderer.svelte';
 
 const ZONE_SLUG = 'client';
@@ -27,13 +28,13 @@ $effect(() => {
   error = null;
   pageData = null;
 
-  api
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    .get<{ page: any; site: any; blocks: any[]; record: any }>(
-      `/ext/content/pages/sites/${ZONE_SLUG}/render/${encodeURIComponent(s ?? '')}`,
-    )
+  loadPage((path: string, init?: RequestInit) => api.fetch(path, init), s ?? '', {
+    site: ZONE_SLUG,
+  })
     .then((res) => {
-      if (mine === seq) pageData = res;
+      if (mine !== seq) return;
+      if (res) pageData = res;
+      else error = 'Page not found';
     })
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     .catch((e: any) => {
@@ -77,7 +78,6 @@ $effect(() => {
     <BlockRenderer
       blocks={pageData.blocks ?? []}
       record={pageData.record ?? null}
-      blocksBaseUrl={`/ext/content/pages/sites/${ZONE_SLUG}/render/${slug}/blocks`}
     />
 
     {#if (pageData.blocks ?? []).length === 0}

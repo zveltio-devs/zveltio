@@ -1,4 +1,6 @@
 import type { PageLoad } from './$types';
+import { loadPage, type PagePayload } from '#lib/ext/content/pages/load.js';
+import { engineFetch } from '#lib/engine-fetch.js';
 
 // The root `/` is the app entry: a login/sign-up landing by DEFAULT (ADR 0001 —
 // Zveltio is app/intranet-first, not public-first). It only shows a public page
@@ -13,38 +15,12 @@ const ENGINE_URL: string =
 export const ssr = true;
 
 export const load: PageLoad = async ({ fetch }) => {
-  // Optional public homepage (only present if content/pages is installed AND a
-  // page is flagged as the homepage on a PUBLIC site). Any failure just means "no public homepage".
-  let homepage: {
-    page: {
-      slug?: string;
-      title?: string;
-      meta_title?: string;
-      meta_description?: string;
-    };
-    blocks: unknown[];
-    popups: { id: string }[];
-    record: Record<string, unknown> | null;
-    blocksBaseUrl: string;
-  } | null = null;
+  // Optional public homepage: the publication a site flags as its homepage,
+  // if content/pages is installed and the visitor may read it. Any failure just
+  // means "no public homepage".
+  let homepage: PagePayload | null = null;
   try {
-    const res = await fetch(`${ENGINE_URL}/ext/content/pages/cms/_home`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.page) {
-        homepage = {
-          page: data.page,
-          blocks: data.blocks ?? [],
-          popups: data.popups ?? [],
-          record: data.record ?? null,
-          // Where a data block asks for its next window. Built here because this
-          // is where the engine's base URL is resolved.
-          // Built from the slug the server resolved, not from a guess: the
-          // homepage is whichever page the site flags, not the one called `home`.
-          blocksBaseUrl: `${ENGINE_URL}/ext/content/pages/cms/${data.page?.slug ?? 'home'}/blocks`,
-        };
-      }
-    }
+    homepage = await loadPage(engineFetch(fetch), '');
   } catch {
     /* no public homepage — login landing is the default */
   }

@@ -5,6 +5,11 @@ import { resolve } from '$app/paths';
 import { page } from '$app/state';
 import { auth } from '#lib/auth.svelte.js';
 import { api } from '#lib/api.js';
+import { loadSite } from '#lib/ext/content/pages/client/load.js';
+import { useDataFetch } from '#lib/ext/content/pages/client/query.js';
+
+// Data blocks read through `api.fetch`: the engine's base and the tenant header.
+useDataFetch((path, init) => api.fetch(String(path), init));
 import { LogOut, Sun, Moon, Menu, X } from '@lucide/svelte';
 import ToastContainer from '#lib/components/common/ToastContainer.svelte';
 
@@ -12,7 +17,7 @@ let { children } = $props();
 let mobileOpen = $state(false);
 let dark = $state(false);
 
-// Site resolved dynamically from /ext/content/pages/sites/:slug/render
+// Site and navigation: the `client` site of content/pages, read as the member
 let zone = $state<{ name: string; primary_color: string; site_name: string | null } | null>(null);
 let navPages = $state<{ slug: string; title: string; icon: string | null }[]>([]);
 
@@ -51,14 +56,13 @@ onMount(async () => {
   }
 
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const res = await api.get<{ site: any; nav: any[] }>(
-      `/ext/content/pages/sites/${ZONE_SLUG}/render`,
+    // The site row and its published pages, read with the member's session.
+    const res = await loadSite(
+      (path: string, init?: RequestInit) => api.fetch(path, init),
+      ZONE_SLUG,
     );
-    // The render endpoint answers `site` since zones became sites.
-    zone = res.site;
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    navPages = (res.nav ?? []).filter((p: any) => p.is_active !== false);
+    zone = (res?.site as typeof zone) ?? null;
+    navPages = res?.nav ?? [];
   } catch {
     // Zone not configured yet — show empty nav
   }

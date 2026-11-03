@@ -1,16 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * The root loader fetched `/api/zones/client/render` and read `zone`/`pages`.
- * The engine stopped mounting `/api/zones` when zones became sites inside
- * `content/pages`, so the request 404'd on every install, the failure fell into
- * the loader's catch, and the host rendered its own defaults — no site name, no
- * logo, no navigation — looking merely unconfigured.
- *
- * The site row also uses different column names from the zone row it replaced,
- * so the endpoint alone is not the fix: `site_name`, `site_logo_url`,
- * `primary_color` and a `sidebar | topbar | both` nav position have to reach
- * the layout in the vocabulary it reads.
+ * The root loader reads the `client` site of content/pages from the data API
+ * (`loadSite`) and maps the site row onto the vocabulary the layout reads:
+ * `site_name`, `site_logo_url`, `primary_color` and a `sidebar | topbar | both`
+ * nav position.
  */
 vi.mock('$app/env', () => ({ browser: false }));
 vi.mock('#lib/zveltio.js', () => ({ initZveltio: async () => {} }));
@@ -29,14 +23,16 @@ const site = {
 };
 
 let seen: string[];
-function stub(status: number, body: unknown, settings: unknown = {}) {
+/** A data API stand-in: `page_sites` answers `sites`, `page_publications` answers `pubs`. */
+function stub(status: number, sites: unknown[], pubs: unknown[] = [], settings: unknown = {}) {
   seen = [];
   return (async (url: string) => {
     seen.push(String(url));
     if (String(url).includes('/api/settings/public')) {
       return { ok: true, status: 200, json: async () => settings } as Response;
     }
-    return { ok: status === 200, status, json: async () => body } as Response;
+    const records = String(url).includes('/page_sites') ? sites : pubs;
+    return { ok: status === 200, status, json: async () => ({ records }) } as Response;
   }) as unknown as typeof fetch;
 }
 
@@ -49,14 +45,19 @@ describe('root layout load', () => {
     seen = [];
   });
 
-  it('asks the sites endpoint, not the removed zones one', async () => {
-    await run(stub(200, { site, nav: [] }));
-    expect(seen).toContainEqual(expect.stringContaining('/ext/content/pages/sites/client/render'));
-    expect(seen.some((u) => u.includes('/api/zones'))).toBe(false);
+  it('reads the client site through the data API', async () => {
+    await run(stub(200, [site]));
+    expect(seen).toContainEqual(expect.stringContaining('/api/data/page_sites'));
   });
 
   it('maps the site row onto the vocabulary the layout reads', async () => {
-    const data = await run(stub(200, { site, nav: [{ slug: 'about', title: 'About' }] }));
+    const data = await run(
+      stub(
+        200,
+        [{ ...site, id: 's1' }],
+        [{ page_id: 'p1', slug: 'about', title: 'About', sort_order: 0 }],
+      ),
+    );
     expect(data.theme).toEqual({
       app_name: 'Acme Portal',
       logo_url: '/logo.svg',
@@ -65,11 +66,21 @@ describe('root layout load', () => {
       custom_css: '.x{color:red}',
       nav_position: 'top',
     });
-    expect(data.nav).toEqual([{ slug: 'about', title: 'About' }]);
+    expect(data.nav).toEqual([
+      {
+        id: 'p1',
+        slug: 'about',
+        title: 'About',
+        icon: null,
+        sort_order: 0,
+        is_homepage: false,
+        children: [],
+      },
+    ]);
   });
 
   it('degrades to defaults when the site is not there', async () => {
-    const data = await run(stub(404, {}));
+    const data = await run(stub(404, []));
     expect(data).toEqual({ tokens: null, theme: null, nav: [] });
   });
 });
@@ -88,12 +99,12 @@ describe('theme as data', () => {
   };
 
   it('lays the site colours over the tenant theme', async () => {
-    const data = await run(stub(200, { site, nav: [] }, { theme: tenant }));
+    const data = await run(stub(200, [site], [], { theme: tenant }));
     expect(data.tokens).toEqual({ ...tenant, colors: { primary: '#069494', accent: '#222222' } });
   });
 
   it('uses the tenant theme alone when there is no site', async () => {
-    const data = await run(stub(404, {}, { theme: tenant }));
+    const data = await run(stub(404, [], [], { theme: tenant }));
     expect(data.tokens).toEqual(tenant);
   });
 

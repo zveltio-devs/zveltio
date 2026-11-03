@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 571
+# tables: 570
 
 table account
   col accessToken                    text
@@ -1680,212 +1680,6 @@ table zv_notifications
   pk  zv_notifications_pkey PRIMARY KEY (id)
   ck  zv_notifications_type_check CHECK ((type = ANY (ARRAY['info'::text, 'success'::text, 'warning'::text, 'error'::text])))
   fk  zv_notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-
-table zv_page_ab_variants
-  col blocks                         jsonb NOT NULL DEFAULT '[]'::jsonb
-  col conversions                    integer NOT NULL DEFAULT 0
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col page_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col traffic_pct                    integer NOT NULL DEFAULT 50
-  col views                          integer NOT NULL DEFAULT 0
-  fk  zv_page_ab_variants_page_id_fkey FOREIGN KEY (page_id) REFERENCES zv_pages(id) ON DELETE CASCADE
-  pk  zv_page_ab_variants_pkey PRIMARY KEY (id)
-  ck  zv_page_ab_variants_traffic_pct_check CHECK (((traffic_pct >= 1) AND (traffic_pct <= 99)))
-  rls enabled forced
-  pol tenant_isolation_zv_page_ab_variants FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_page_block_types
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col default_props                  jsonb NOT NULL DEFAULT '{}'::jsonb
-  col description                    text
-  col display_name                   text NOT NULL
-  col icon                           text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col schema                         jsonb NOT NULL DEFAULT '{}'::jsonb
-  uq  zv_page_block_types_name_key UNIQUE (name)
-  pk  zv_page_block_types_pkey PRIMARY KEY (id)
-
-table zv_page_menus
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col items                          jsonb NOT NULL DEFAULT '[]'::jsonb
-  col menu_key                       text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col updated_by                     text
-  pk  zv_page_menus_pkey PRIMARY KEY (id)
-  idx uq_zv_page_menus_tenant UNIQUE (tenant_id, menu_key)
-  rls enabled forced
-  pol tenant_isolation_zv_page_menus FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_page_metrics
-  col avg_time_on_page_seconds       integer NOT NULL DEFAULT 0
-  col bounce_rate                    numeric NOT NULL DEFAULT 0
-  col date                           date NOT NULL
-  col page_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col unique_visitors                integer NOT NULL DEFAULT 0
-  col views                          integer NOT NULL DEFAULT 0
-  fk  zv_page_metrics_page_id_fkey FOREIGN KEY (page_id) REFERENCES zv_pages(id) ON DELETE CASCADE
-  pk  zv_page_metrics_pkey PRIMARY KEY (page_id, date)
-  rls enabled forced
-  pol tenant_isolation_zv_page_metrics FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_page_redirects
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col from_path                      text NOT NULL
-  col hit_count                      integer NOT NULL DEFAULT 0
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col redirect_type                  integer NOT NULL DEFAULT 301
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col to_path                        text NOT NULL
-  uq  zv_page_redirects_from_path_key UNIQUE (tenant_id, from_path)
-  pk  zv_page_redirects_pkey PRIMARY KEY (id)
-  ck  zv_page_redirects_redirect_type_check CHECK ((redirect_type = ANY (ARRAY[301, 302])))
-  rls enabled forced
-  pol tenant_isolation_zv_page_redirects FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_page_revisions
-  col blocks                         jsonb NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col meta                           jsonb NOT NULL DEFAULT '{}'::jsonb
-  col page_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_page_revisions_page_id_fkey FOREIGN KEY (page_id) REFERENCES zv_pages(id) ON DELETE CASCADE
-  pk  zv_page_revisions_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_page_revisions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_page_seo_scores
-  col analyzed_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col heading_score                  integer NOT NULL DEFAULT 0
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col image_alt_score                integer NOT NULL DEFAULT 0
-  col issues                         jsonb NOT NULL DEFAULT '[]'::jsonb
-  col meta_description_score         integer NOT NULL DEFAULT 0
-  col overall_score                  integer NOT NULL DEFAULT 0
-  col page_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title_score                    integer NOT NULL DEFAULT 0
-  ck  zv_page_seo_scores_overall_score_check CHECK (((overall_score >= 0) AND (overall_score <= 100)))
-  fk  zv_page_seo_scores_page_id_fkey FOREIGN KEY (page_id) REFERENCES zv_pages(id) ON DELETE CASCADE
-  pk  zv_page_seo_scores_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_page_seo_scores FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_page_sitemap_config
-  col change_freq                    text NOT NULL DEFAULT 'weekly'::text
-  col include_in_sitemap             boolean NOT NULL DEFAULT true
-  col page_id                        uuid NOT NULL
-  col priority                       numeric NOT NULL DEFAULT 0.5
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zv_page_sitemap_config_change_freq_check CHECK ((change_freq = ANY (ARRAY['always'::text, 'hourly'::text, 'daily'::text, 'weekly'::text, 'monthly'::text, 'yearly'::text, 'never'::text])))
-  fk  zv_page_sitemap_config_page_id_fkey FOREIGN KEY (page_id) REFERENCES zv_pages(id) ON DELETE CASCADE
-  uq  zv_page_sitemap_config_page_id_key UNIQUE (page_id)
-  ck  zv_page_sitemap_config_priority_check CHECK (((priority >= (0)::numeric) AND (priority <= (1)::numeric)))
-  rls enabled forced
-  pol tenant_isolation_zv_page_sitemap_config FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_page_sites
-  col access_roles                   ARRAY NOT NULL DEFAULT '{}'::text[]
-  col base_path                      text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col custom_css                     text
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT false
-  col is_public                      boolean NOT NULL DEFAULT false
-  col legacy_zone_id                 uuid
-  col name                           text NOT NULL
-  col nav_position                   text DEFAULT 'sidebar'::text
-  col primary_color                  text DEFAULT '#069494'::text
-  col public_collections             ARRAY NOT NULL DEFAULT '{}'::text[]
-  col secondary_color                text
-  col show_breadcrumbs               boolean NOT NULL DEFAULT true
-  col site_logo_url                  text
-  col site_name                      text
-  col slug                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zv_page_sites_nav_position_check CHECK ((nav_position = ANY (ARRAY['sidebar'::text, 'topbar'::text, 'both'::text])))
-  pk  zv_page_sites_pkey PRIMARY KEY (id)
-  idx uq_zv_page_sites_tenant_slug UNIQUE (tenant_id, slug)
-  rls enabled forced
-  pol tenant_isolation_zv_page_sites FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_page_templates
-  col blocks                         jsonb NOT NULL DEFAULT '[]'::jsonb
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col kind                           text NOT NULL DEFAULT 'block'::text
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zv_page_templates_kind_check CHECK ((kind = ANY (ARRAY['block'::text, 'page'::text])))
-  pk  zv_page_templates_pkey PRIMARY KEY (id)
-  idx uq_zv_page_templates_name UNIQUE (tenant_id, name)
-  rls enabled forced
-  pol tenant_isolation_zv_page_templates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_pages
-  col allowed_roles                  ARRAY NOT NULL DEFAULT '{}'::text[]
-  col auth_required                  boolean NOT NULL DEFAULT false
-  col blocks                         jsonb NOT NULL DEFAULT '[]'::jsonb
-  col canonical_page_id              uuid
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col description                    text
-  col icon                           text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col is_homepage                    boolean NOT NULL DEFAULT false
-  col is_noindex                     boolean NOT NULL DEFAULT false
-  col kind                           text NOT NULL DEFAULT 'page'::text
-  col layout                         text NOT NULL DEFAULT 'default'::text
-  col legacy_zone_page_id            uuid
-  col locale                         text NOT NULL DEFAULT 'ro'::text
-  col meta                           jsonb NOT NULL DEFAULT '{}'::jsonb
-  col meta_description               text
-  col meta_title                     text
-  col og_image                       text
-  col parent_id                      uuid
-  col popup_config                   jsonb NOT NULL DEFAULT '{}'::jsonb
-  col published_at                   timestamp with time zone
-  col reading_time_minutes           integer
-  col record_collection              text
-  col record_field                   text
-  col record_filter                  jsonb NOT NULL DEFAULT '[]'::jsonb
-  col site_id                        uuid
-  col slug                           text NOT NULL
-  col sort_order                     integer NOT NULL DEFAULT 0
-  col status                         text NOT NULL DEFAULT 'draft'::text
-  col template                       text NOT NULL DEFAULT 'default'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text NOT NULL
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col updated_by                     text
-  fk  zv_pages_canonical_page_id_fkey FOREIGN KEY (canonical_page_id) REFERENCES zv_pages(id) ON DELETE SET NULL
-  ck  zv_pages_kind_check CHECK ((kind = ANY (ARRAY['page'::text, 'popup'::text])))
-  fk  zv_pages_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zv_pages(id) ON DELETE SET NULL
-  pk  zv_pages_pkey PRIMARY KEY (id)
-  fk  zv_pages_site_id_fkey FOREIGN KEY (site_id) REFERENCES zv_page_sites(id) ON DELETE CASCADE
-  idx uq_zv_pages_site_homepage UNIQUE (tenant_id, site_id) NULLS NOT DISTINCT WHERE (is_homepage = true)
-  idx uq_zv_pages_site_slug UNIQUE (tenant_id, site_id, slug) NULLS NOT DISTINCT
-  rls enabled forced
-  pol tenant_isolation_zv_pages FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_panels
   col avg_execution_ms               integer
@@ -5932,6 +5726,169 @@ table zvd_organizations
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('organizations'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('organizations'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('organizations'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('organizations'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_page_menus
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col items                          jsonb NOT NULL DEFAULT '[]'::jsonb
+  col menu_key                       text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_page_menus_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_page_menus_pkey PRIMARY KEY (id)
+  uq  zvd_page_menus_tenant_id_menu_key_key UNIQUE (tenant_id, menu_key)
+  fk  zvd_page_menus_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('page_menus'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('page_menus'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('page_menus'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('page_menus'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('page_menus'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_page_publications
+  col content                        jsonb NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col icon                           text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_homepage                    boolean NOT NULL DEFAULT false
+  col is_noindex                     boolean NOT NULL DEFAULT false
+  col kind                           text NOT NULL
+  col page_id                        uuid NOT NULL
+  col parent_slug                    text
+  col published_at                   timestamp with time zone NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col site_id                        uuid NOT NULL
+  col slug                           text NOT NULL
+  col sort_order                     bigint NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col title                          text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_page_publications_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_page_publications_page_id_fkey FOREIGN KEY (page_id) REFERENCES zvd_pages(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_page_publications_pkey PRIMARY KEY (id)
+  fk  zvd_page_publications_site_id_fkey FOREIGN KEY (site_id) REFERENCES zvd_page_sites(id) ON UPDATE CASCADE ON DELETE CASCADE
+  uq  zvd_page_publications_tenant_id_page_id_key UNIQUE (tenant_id, page_id)
+  uq  zvd_page_publications_tenant_id_site_id_slug_key UNIQUE (tenant_id, site_id, slug)
+  fk  zvd_page_publications_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('page_publications'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('page_publications'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('page_publications'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('page_publications'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('page_publications'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_page_revisions
+  col content                        jsonb NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col page_id                        uuid NOT NULL
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_page_revisions_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_page_revisions_page_id_fkey FOREIGN KEY (page_id) REFERENCES zvd_pages(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_page_revisions_pkey PRIMARY KEY (id)
+  fk  zvd_page_revisions_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('page_revisions'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('page_revisions'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('page_revisions'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('page_revisions'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('page_revisions'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_page_sites
+  col base_path                      text NOT NULL DEFAULT '/'::text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col custom_css                     text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT false
+  col name                           text NOT NULL
+  col nav_position                   text NOT NULL DEFAULT 'sidebar'::text
+  col primary_color                  text
+  col search_text                    text
+  col search_vector                  tsvector
+  col secondary_color                text
+  col show_breadcrumbs               boolean NOT NULL DEFAULT true
+  col site_logo_url                  text
+  col site_name                      text
+  col slug                           text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_page_sites_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_page_sites_pkey PRIMARY KEY (id)
+  uq  zvd_page_sites_tenant_id_slug_key UNIQUE (tenant_id, slug)
+  fk  zvd_page_sites_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('page_sites'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('page_sites'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('page_sites'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('page_sites'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('page_sites'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_pages
+  col blocks                         jsonb NOT NULL DEFAULT '[]'::jsonb
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col icon                           text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_homepage                    boolean NOT NULL DEFAULT false
+  col is_noindex                     boolean NOT NULL DEFAULT false
+  col kind                           text NOT NULL DEFAULT 'page'::text
+  col layout                         text NOT NULL DEFAULT 'default'::text
+  col locale                         text NOT NULL DEFAULT 'ro'::text
+  col meta                           jsonb NOT NULL DEFAULT '{}'::jsonb
+  col meta_description               text
+  col meta_title                     text
+  col og_image                       text
+  col parent_id                      uuid
+  col popup_config                   jsonb NOT NULL DEFAULT '{}'::jsonb
+  col record_collection              text
+  col record_field                   text
+  col record_filter                  jsonb NOT NULL DEFAULT '[]'::jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col site_id                        uuid NOT NULL
+  col slug                           text NOT NULL
+  col sort_order                     bigint NOT NULL DEFAULT 0
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col title                          text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_pages_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_pages_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES zvd_pages(id) ON UPDATE CASCADE ON DELETE SET NULL
+  pk  zvd_pages_pkey PRIMARY KEY (id)
+  fk  zvd_pages_site_id_fkey FOREIGN KEY (site_id) REFERENCES zvd_page_sites(id) ON UPDATE CASCADE ON DELETE CASCADE
+  uq  zvd_pages_tenant_id_site_id_slug_key UNIQUE (tenant_id, site_id, slug)
+  fk  zvd_pages_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('pages'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('pages'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('pages'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('pages'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('pages'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_panel_cache
   col executed_at                    timestamp with time zone NOT NULL DEFAULT now()
@@ -10805,6 +10762,104 @@ table zvv_organizations
   col updated_by                     text
   col vat_payer                      boolean
   col website                        text
+
+table zvv_page_menus
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col items                          jsonb
+  col menu_key                       text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_page_publications
+  col content                        jsonb
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col icon                           text
+  col id                             uuid
+  col is_homepage                    boolean
+  col is_noindex                     boolean
+  col kind                           text
+  col page_id                        uuid
+  col parent_slug                    text
+  col published_at                   timestamp with time zone
+  col search_text                    text
+  col search_vector                  tsvector
+  col site_id                        uuid
+  col slug                           text
+  col sort_order                     bigint
+  col tenant_id                      uuid
+  col title                          text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_page_revisions
+  col content                        jsonb
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col page_id                        uuid
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_page_sites
+  col base_path                      text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col custom_css                     text
+  col description                    text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col nav_position                   text
+  col primary_color                  text
+  col search_text                    text
+  col search_vector                  tsvector
+  col secondary_color                text
+  col show_breadcrumbs               boolean
+  col site_logo_url                  text
+  col site_name                      text
+  col slug                           text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_pages
+  col blocks                         jsonb
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col icon                           text
+  col id                             uuid
+  col is_homepage                    boolean
+  col is_noindex                     boolean
+  col kind                           text
+  col layout                         text
+  col locale                         text
+  col meta                           jsonb
+  col meta_description               text
+  col meta_title                     text
+  col og_image                       text
+  col parent_id                      uuid
+  col popup_config                   jsonb
+  col record_collection              text
+  col record_field                   text
+  col record_filter                  jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col site_id                        uuid
+  col slug                           text
+  col sort_order                     bigint
+  col tenant_id                      uuid
+  col title                          text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
 
 table zvv_payment_reminders
   col channel                        text
