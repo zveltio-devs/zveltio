@@ -636,6 +636,17 @@ const CASES: Case[] = [
       '  return sql`SELECT 1`.execute(db as never).catch(noRows);\n}\n',
   },
   {
+    // An empty collection built by a constructor: `new Map()` says "there are
+    // none" as plainly as `[]`, and the literal-only check let it through (E02).
+    gate: 'check-fabricated-success (empty Map)',
+    cmd: 'bun run scripts/check-fabricated-success.ts',
+    file: 'packages/engine/src/lib/__gate_probe.ts',
+    body:
+      "import { sql } from 'kysely';\n" +
+      'export async function probe(db: unknown) {\n' +
+      '  return sql`SELECT 1`.execute(db as never).catch(() => new Map());\n}\n',
+  },
+  {
     // A route handler reaching for a tenant table on `poolDb` — the handle with
     // no tenant binding, where the route's own `db` is the request-scoped proxy.
     // Planted under `routes/` because that is the only tree the gate walks.
