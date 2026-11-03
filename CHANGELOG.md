@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.97] - 2026-11-03
+
 **A public route can enqueue a job (ADR 0018).** An inbound signed webhook has
 no user, so it could not run an action, and a `writtenBy: "actions"`
 collection refuses every other path: a webhook could not record what it was
