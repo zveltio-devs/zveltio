@@ -37,7 +37,13 @@ import {
   computeEtag,
   normalizeFields,
 } from '../shape.js';
-import { buildAllowedCols, buildLocationCols, parseFilters, decodeCursor } from '../query-parse.js';
+import {
+  buildAllowedCols,
+  buildLocationCols,
+  parseFilters,
+  decodeCursor,
+  START_CURSOR,
+} from '../query-parse.js';
 import type { ParsedQuery } from '../query-parse.js';
 import { getDb, getTenantId, selectReadable, getVirtualConfig } from '../write-pipeline.js';
 import { checkAccess } from '../auth.js';
@@ -353,48 +359,111 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // Avoids OFFSET cost on large tables.
   const useCursor = !!query.cursor && query.page === 1;
   let result: { records: DynamicRecord[]; total: number };
+  // The row the next page starts after, or 'start'; null when nothing follows.
+  let resumeAfter: DynamicRecord | 'start' | null = null;
+  let keyset = false;
+  const desc = query.order !== 'asc';
+  const col = sql.ref(sortField);
+
+  // A row's position as the keyset compares it. A JS Date holds milliseconds
+  // and a timestamp column microseconds: the truncated value sorts BEFORE the
+  // row, so ascending it came back as the first row of the next page — and,
+  // with only hidden rows after it, as the only one, forever.
+  const positionOf = async (row: DynamicRecord): Promise<{ id: string; val: JsonValue }> => {
+    const v = row[sortField];
+    if (!(v instanceof Date)) return { id: String(row.id), val: (v ?? null) as JsonValue };
+    const exact = (await (
+      await selectReadable(effectiveDb, tableName)
+    )
+      .clearSelect()
+      .select(sql<string>`to_jsonb(${col}) #>> '{}'`.as('v'))
+      .where('id', '=', row.id)
+      .executeTakeFirst()) as { v: string } | undefined;
+    return { id: String(row.id), val: exact?.v ?? v.toISOString() };
+  };
+
+  // A cursor carries the row's id and sort value, so it exists only where the
+  // caller may read both — and is refused, so must not be issued, elsewhere.
+  const cursorable = allowedCols.has(sortField) && allowedCols.has('id');
 
   if (useCursor) {
     // The client writes the cursor's value, and the keyset compares it with the
     // sort column: on a hidden `created_at` (the default) that is a comparison
     // oracle. Such a cursor is treated as malformed.
-    const decoded = allowedCols.has(sortField) ? decodeCursor(query.cursor) : null;
+    const decoded = cursorable ? decodeCursor(query.cursor) : null;
 
     if (decoded) {
-      // Build keyset query directly with Kysely for proper compound pagination
-      // Dynamic user-created table — tableName is resolved at runtime, cannot be statically typed
-      let kQuery = await selectReadable(effectiveDb, tableName);
-
-      // The client's filters through `buildCondition`, the helper the offset
-      // path uses via `dynamicSelect`. This branch once re-implemented it and
-      // covered only six operators, so `in`/`not_in` silently did nothing here.
-      for (const [field, conds] of Object.entries(filters)) {
-        for (const cond of [conds].flat()) kQuery = kQuery.where(buildCondition(field, cond));
-      }
-
-      // Row rules and extension alters, as the offset path applies them through
-      // `dynamicSelect`. Both were once bypassed by paginating with a cursor.
-      kQuery = applyAlters(kQuery);
-
-      // Keyset condition (sort col + tiebreak by id) as a ROW comparison. The
-      // equivalent OR form cannot seek an index: at offset 100 000 it filtered
-      // 100 001 rows, 11 449 ms against 0.069 ms for this form on the same index.
-      if (query.order === 'asc') {
-        kQuery = kQuery.where(sql`(${sql.ref(sortField)}, id) > (${decoded.val}, ${decoded.id})`);
-        kQuery = kQuery.orderBy(sortField, 'asc').orderBy('id', 'asc');
-      } else {
-        kQuery = kQuery.where(sql`(${sql.ref(sortField)}, id) < (${decoded.val}, ${decoded.id})`);
-        kQuery = kQuery.orderBy(sortField, 'desc').orderBy('id', 'desc');
-      }
-
-      // Fetch limit+1 to detect whether a next page exists without a count query
-      kQuery = kQuery.limit(query.limit + 1);
-      const rows: DynamicRecord[] = await kQuery.execute();
-      const hasMore = rows.length > query.limit;
-      result = {
-        records: hasMore ? rows.slice(0, query.limit) : rows,
-        total: hasMore ? -1 : rows.length,
+      // Up to `n` rows after `from` (null: from the start), in the order the
+      // offset path sorts: NULLs last ascending, first descending, `id` breaking
+      // ties. A row comparison `(col, id) > (v, i)` is NULL on a NULL `col`, so
+      // the NULL rows are a second run keyed on `id` alone. Each run seeks an
+      // index; one OR across both, like the OR form of a row comparison, cannot: at
+      // offset 100 000 it filtered 100 001 rows, 11 449 ms against 0.069 ms.
+      const after = async (from: { id: string; val: JsonValue } | null, n: number) => {
+        const cmp = sql.raw(desc ? '<' : '>');
+        const runs = desc ? [true, false] : [false, true]; // NULL run?
+        const first = from === null ? 0 : runs.indexOf(from.val === null);
+        const rows: DynamicRecord[] = [];
+        for (let i = first; i < runs.length && rows.length < n; i++) {
+          const anchor = i === first ? from : null;
+          // Dynamic user-created table — tableName is resolved at runtime.
+          let q = await selectReadable(effectiveDb, tableName);
+          // The client's filters through `buildCondition`, the helper the offset
+          // path uses via `dynamicSelect`. This branch once re-implemented it
+          // and covered only six operators, so `in`/`not_in` did nothing here.
+          for (const [field, conds] of Object.entries(filters)) {
+            for (const cond of [conds].flat()) q = q.where(buildCondition(field, cond));
+          }
+          // Row rules and extension alters, as the offset path applies them
+          // through `dynamicSelect`. Both were once bypassed by a cursor.
+          q = applyAlters(q);
+          if (runs[i]) {
+            q = q.where(
+              anchor ? sql`${col} IS NULL AND id ${cmp} ${anchor.id}` : sql`${col} IS NULL`,
+            );
+          } else {
+            q = q
+              .where(
+                anchor
+                  ? sql`(${col}, id) ${cmp} (${anchor.val}, ${anchor.id})`
+                  : sql`${col} IS NOT NULL`,
+              )
+              .orderBy(sortField, desc ? 'desc' : 'asc');
+          }
+          rows.push(
+            ...((await q
+              .orderBy('id', desc ? 'desc' : 'asc')
+              .limit(n - rows.length)
+              .execute()) as DynamicRecord[]),
+          );
+        }
+        return rows;
       };
+
+      // A page is `limit` rows the caller may SEE. Entity access judges rows in
+      // code after the query, so reading one batch and filtering it left pages
+      // short — and a page it emptied carried no cursor, ending the walk
+      // although later rows were visible. So batches are read until the page is
+      // full or the rows run out, and the cursor is the last row SERVED: one
+      // the caller may see, so the cursor does not hand out the id and sort
+      // value of a row entity access withheld.
+      // ponytail: a caller who sees few rows of a large table reads them all in
+      // one request; a sealed cursor could stop at a hidden row instead.
+      const seen: DynamicRecord[] = [];
+      let from = decoded === 'start' ? null : decoded;
+      let more = true;
+      while (more && seen.length < query.limit) {
+        const batch = await after(from, query.limit + 1);
+        more = batch.length > query.limit;
+        const read = more ? batch.slice(0, query.limit) : batch;
+        seen.push(...(await scope.keep(read)));
+        if (read.length > 0) from = await positionOf(read[read.length - 1]!);
+      }
+      const hasMore = more || seen.length > query.limit;
+      const records = seen.slice(0, query.limit);
+      result = { records, total: hasMore ? -1 : records.length };
+      keyset = true;
+      if (hasMore) resumeAfter = records[records.length - 1]!;
     } else {
       // Malformed cursor — fall back to offset
       const offset = (query.page - 1) * query.limit;
@@ -446,7 +515,19 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // filter, so a caller can still infer how many records exist that they may not
   // see. A count is not the rows, and counting through the callback is a query
   // per row.
-  result.records = await scope.keep(result.records);
+  //
+  // The keyset branch ran it per batch. An offset page is the rows at its
+  // offset, so it is not refilled; its cursor is its last row the caller may
+  // see, and when there is none on page 1, the start — the cursor walk then
+  // reads past the hidden rows. It used to come from nowhere, so the walk ended.
+  if (!keyset) {
+    const read = result.records.length;
+    result.records = await scope.keep(result.records);
+    const more =
+      result.total === -1 ||
+      (result.total >= 0 && (query.page - 1) * query.limit + read < result.total);
+    if (more) resumeAfter = result.records.at(-1) ?? (query.page === 1 ? 'start' : null);
+  }
 
   const serialized = await Promise.all(
     result.records.map((r) => serializeRecord(r, collectionDef, scope.columns)),
@@ -475,20 +556,16 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   }
 
   // ── Build next_cursor ─────────────────────────────────────────
-  // Cursor mode: result.total === -1 means hasMore (limit+1 trick returned extra row)
-  // Offset mode: compare offset+returned vs total count
-  let next_cursor: string | null = null;
-  const offsetHasMore =
-    result.total >= 0 ? (query.page - 1) * query.limit + serialized.length < result.total : false;
-  const cursorHasMore = result.total === -1; // set by limit+1 trick above
-  if (serialized.length > 0 && (cursorHasMore || offsetHasMore)) {
-    const lastRow = serialized[serialized.length - 1];
-    if (lastRow?.id !== undefined) {
-      next_cursor = Buffer.from(
-        JSON.stringify({ id: lastRow.id, val: lastRow[sortField] ?? lastRow.created_at }),
-      ).toString('base64url');
-    }
-  }
+  // From the stored row, not the serialized one: the keyset compares what the
+  // column holds. A NULL sort value stays null — it used to become `created_at`,
+  // compared with the sort column (a 400 on an integer one).
+  const next_cursor = !cursorable
+    ? null
+    : resumeAfter === 'start'
+      ? START_CURSOR
+      : resumeAfter
+        ? Buffer.from(JSON.stringify(await positionOf(resumeAfter))).toString('base64url')
+        : null;
 
   // Response shape matches the rest of the list endpoints (time-travel, virtual)
   // and the contract consumed by Studio + SDK: { records, pagination, next_cursor? }.

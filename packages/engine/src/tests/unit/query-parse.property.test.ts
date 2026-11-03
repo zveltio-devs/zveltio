@@ -142,7 +142,7 @@ describe('decodeCursor — fuzz invariants', () => {
     fc.assert(
       fc.property(arbCursor, (s) => {
         const r = decodeCursor(s);
-        if (r !== null) {
+        if (r !== null && r !== 'start') {
           expect(typeof r.id).toBe('string');
           expect(r.id).toBeTruthy();
           expect(r.val).not.toBeUndefined();
@@ -162,7 +162,7 @@ describe('decodeCursor — fuzz invariants', () => {
           const cursor = Buffer.from(JSON.stringify({ id, val })).toString('base64url');
           const r = decodeCursor(cursor);
           expect(r).not.toBeNull();
-          if (r) {
+          if (r && r !== 'start') {
             expect(r.id).toBe(id);
             expect(r.val).toBe(val);
           }
