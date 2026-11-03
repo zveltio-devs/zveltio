@@ -43,9 +43,11 @@ jobs:
       # EXTENSIONS_ROOT default in both scripts (../zveltio-extensions
       # relative to the engine repo root).
       - name: Clone zveltio-extensions sibling (for drift checker + codegen)
+        env:
+          # Branch names are attacker-chosen on a fork PR: data, never script text.
+          REF: ${{ github.head_ref || github.ref_name }}
         run: |
-          REF="${{ github.head_ref || github.ref_name }}"
-          if [ -n "$REF" ] && git ls-remote --heads https://github.com/zveltio-devs/zveltio-extensions.git "$REF" | grep -q "$REF"; then
+          if [ -n "$REF" ] && git ls-remote --exit-code --heads https://github.com/zveltio-devs/zveltio-extensions.git "refs/heads/$REF" >/dev/null; then
             echo "Cloning zveltio-extensions@$REF (paired branch)"
             git clone --depth=1 --branch "$REF" https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
           else
@@ -261,9 +263,11 @@ jobs:
         # It surfaced when `ext:ambient` landed here: that script exits 1 rather than
         # report a pass over zero extensions, so it failed loudly where the other two
         # had been quiet.
+        env:
+          # Branch names are attacker-chosen on a fork PR: data, never script text.
+          REF: ${{ github.head_ref || github.ref_name }}
         run: |
-          REF="${{ github.head_ref || github.ref_name }}"
-          if [ -n "$REF" ] && git ls-remote --heads https://github.com/zveltio-devs/zveltio-extensions.git "$REF" | grep -q "$REF"; then
+          if [ -n "$REF" ] && git ls-remote --exit-code --heads https://github.com/zveltio-devs/zveltio-extensions.git "refs/heads/$REF" >/dev/null; then
             echo "Cloning zveltio-extensions@$REF (paired branch)"
             git clone --depth=1 --branch "$REF" https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
           else
@@ -727,9 +731,11 @@ jobs:
         # Same paired-branch rule as the Lint job. Both checks below need the
         # catalogue; without it they skip, and a skipped gate looks exactly like
         # a passing one in the summary.
+        env:
+          # Branch names are attacker-chosen on a fork PR: data, never script text.
+          REF: ${{ github.head_ref || github.ref_name }}
         run: |
-          REF="${{ github.head_ref || github.ref_name }}"
-          if [ -n "$REF" ] && git ls-remote --heads https://github.com/zveltio-devs/zveltio-extensions.git "$REF" | grep -q "$REF"; then
+          if [ -n "$REF" ] && git ls-remote --exit-code --heads https://github.com/zveltio-devs/zveltio-extensions.git "refs/heads/$REF" >/dev/null; then
             echo "Cloning zveltio-extensions@$REF (paired branch)"
             git clone --depth=1 --branch "$REF" https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
           else
@@ -847,9 +853,11 @@ jobs:
       # and the loader skips a path that is missing without a word. So the gates
       # ran against a core-only schema and passed having seen none of it.
       - name: Clone zveltio-extensions sibling (the gates below read it)
+        env:
+          # Branch names are attacker-chosen on a fork PR: data, never script text.
+          REF: ${{ github.head_ref || github.ref_name }}
         run: |
-          REF="${{ github.head_ref || github.ref_name }}"
-          if [ -n "$REF" ] && git ls-remote --heads https://github.com/zveltio-devs/zveltio-extensions.git "$REF" | grep -q "$REF"; then
+          if [ -n "$REF" ] && git ls-remote --exit-code --heads https://github.com/zveltio-devs/zveltio-extensions.git "refs/heads/$REF" >/dev/null; then
             echo "Cloning zveltio-extensions@$REF (paired branch)"
             git clone --depth=1 --branch "$REF" https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
           else
@@ -1574,9 +1582,11 @@ jobs:
       # The checkout sits at <work>/zveltio/zveltio, so a sibling clone resolves
       # the extensions' `../zveltio` to this very engine.
       - name: Clone zveltio-extensions sibling
+        env:
+          # Branch names are attacker-chosen on a fork PR: data, never script text.
+          REF: ${{ github.head_ref || github.ref_name }}
         run: |
-          REF="${{ github.head_ref || github.ref_name }}"
-          if [ -n "$REF" ] && git ls-remote --heads https://github.com/zveltio-devs/zveltio-extensions.git "$REF" | grep -q "$REF"; then
+          if [ -n "$REF" ] && git ls-remote --exit-code --heads https://github.com/zveltio-devs/zveltio-extensions.git "refs/heads/$REF" >/dev/null; then
             echo "Cloning zveltio-extensions@$REF (paired branch)"
             git clone --depth=1 --branch "$REF" https://github.com/zveltio-devs/zveltio-extensions.git ../zveltio-extensions
           else

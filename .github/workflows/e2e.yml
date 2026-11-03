@@ -50,6 +50,7 @@ jobs:
         # Studio prebuild syncs slot widgets (ReceivablesCard) from the sibling
         # repo. Without it, vite build alone ships no CRM dashboard contribution.
         env:
+          REF: ${{ github.head_ref || github.ref_name }}
           GH_TOKEN: ${{ secrets.EXTENSIONS_REPO_TOKEN }}
         run: |
           EXT_DIR="${{ github.workspace }}/../zveltio-extensions"
@@ -57,8 +58,7 @@ jobs:
           URL="https://x-access-token:${TOKEN}@github.com/zveltio-devs/zveltio-extensions.git"
           # Same paired-branch rule as ci.yml: a change that spans both repos is
           # built against its own extensions branch, not master.
-          REF="${{ github.head_ref || github.ref_name }}"
-          if [ -n "$REF" ] && git ls-remote --heads "$URL" "$REF" | grep -q "$REF"; then
+          if [ -n "$REF" ] && git ls-remote --exit-code --heads "$URL" "refs/heads/$REF" >/dev/null; then
             echo "Cloning zveltio-extensions@$REF (paired branch)"
             git clone --depth 1 --branch "$REF" "$URL" "$EXT_DIR"
           else
