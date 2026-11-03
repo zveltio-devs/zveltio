@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Câmpuri — clic pentru a copia",
   "content.pages.b.fieldsList": "Câmpuri (separate prin virgulă, gol = toate)",
   "content.pages.b.filters": "Filtre",
-  "content.pages.b.filtersAll": "Toate filtrele trebuie să se potrivească. Un filtru care numește o coloană inexistentă e ignorat.",
+  "content.pages.b.filtersAll": "Toate filtrele trebuie să se potrivească. Un filtru care numește o coloană inexistentă face ca blocul să afișeze o eroare.",
   "content.pages.b.gapBetween": "Spațiu între blocuri",
   "content.pages.b.heading": "Titlu secțiune",
   "content.pages.b.heightPx": "Înălțime (px)",

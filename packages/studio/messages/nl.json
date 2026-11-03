@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Velden — klik om te kopiëren",
   "content.pages.b.fieldsList": "Velden (kommagescheiden, leeg = alle)",
   "content.pages.b.filters": "Filters",
-  "content.pages.b.filtersAll": "Alle filters moeten kloppen. Een filter op een niet-bestaande kolom wordt genegeerd.",
+  "content.pages.b.filtersAll": "Alle filters moeten kloppen. Een filter op een niet-bestaande kolom laat het blok een fout tonen.",
   "content.pages.b.gapBetween": "Ruimte tussen blokken",
   "content.pages.b.heading": "Kop",
   "content.pages.b.heightPx": "Hoogte (px)",

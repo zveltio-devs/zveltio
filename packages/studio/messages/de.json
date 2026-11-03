@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Felder — zum Kopieren klicken",
   "content.pages.b.fieldsList": "Felder (kommagetrennt, leer = alle)",
   "content.pages.b.filters": "Filter",
-  "content.pages.b.filtersAll": "Alle Filter müssen zutreffen. Ein Filter auf eine nicht vorhandene Spalte wird ignoriert.",
+  "content.pages.b.filtersAll": "Alle Filter müssen zutreffen. Ein Filter auf eine nicht vorhandene Spalte lässt den Block einen Fehler anzeigen.",
   "content.pages.b.gapBetween": "Abstand zwischen Blöcken",
   "content.pages.b.heading": "Überschrift",
   "content.pages.b.heightPx": "Höhe (px)",

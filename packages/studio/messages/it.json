@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Campi — clicca per copiare",
   "content.pages.b.fieldsList": "Campi (separati da virgole, vuoto = tutti)",
   "content.pages.b.filters": "Filtri",
-  "content.pages.b.filtersAll": "Tutti i filtri devono corrispondere. Un filtro su una colonna inesistente viene ignorato.",
+  "content.pages.b.filtersAll": "Tutti i filtri devono corrispondere. Un filtro su una colonna inesistente fa mostrare un errore al blocco.",
   "content.pages.b.gapBetween": "Spazio tra i blocchi",
   "content.pages.b.heading": "Intestazione",
   "content.pages.b.heightPx": "Altezza (px)",

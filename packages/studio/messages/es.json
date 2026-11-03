@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Campos — haz clic para copiar",
   "content.pages.b.fieldsList": "Campos (separados por comas, vacío = todos)",
   "content.pages.b.filters": "Filtros",
-  "content.pages.b.filtersAll": "Todos los filtros deben coincidir. Un filtro que nombra una columna inexistente se ignora.",
+  "content.pages.b.filtersAll": "Todos los filtros deben coincidir. Un filtro que nombra una columna inexistente hace que el bloque muestre un error.",
   "content.pages.b.gapBetween": "Espacio entre bloques",
   "content.pages.b.heading": "Encabezado",
   "content.pages.b.heightPx": "Altura (px)",

@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Champs — cliquez pour copier",
   "content.pages.b.fieldsList": "Champs (séparés par des virgules, vide = tous)",
   "content.pages.b.filters": "Filtres",
-  "content.pages.b.filtersAll": "Tous les filtres doivent correspondre. Un filtre nommant une colonne inexistante est ignoré.",
+  "content.pages.b.filtersAll": "Tous les filtres doivent correspondre. Un filtre nommant une colonne inexistante fait afficher une erreur au bloc.",
   "content.pages.b.gapBetween": "Espace entre les blocs",
   "content.pages.b.heading": "Titre",
   "content.pages.b.heightPx": "Hauteur (px)",

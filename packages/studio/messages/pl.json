@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Pola — kliknij, aby skopiować",
   "content.pages.b.fieldsList": "Pola (rozdzielone przecinkami, puste = wszystkie)",
   "content.pages.b.filters": "Filtry",
-  "content.pages.b.filtersAll": "Wszystkie filtry muszą pasować. Filtr wskazujący nieistniejącą kolumnę jest ignorowany.",
+  "content.pages.b.filtersAll": "Wszystkie filtry muszą pasować. Filtr wskazujący nieistniejącą kolumnę sprawia, że blok pokazuje błąd.",
   "content.pages.b.gapBetween": "Odstęp między blokami",
   "content.pages.b.heading": "Nagłówek",
   "content.pages.b.heightPx": "Wysokość (px)",
