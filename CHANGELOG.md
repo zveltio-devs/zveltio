@@ -4,6 +4,49 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.98] - 2026-11-03
+
+**`location` is a native point, with `near` and `within` (ADR 0019 tier 1).**
+A `location` field needed PostGIS, stored `GEOGRAPHY(POINT, 4326)` and could
+not be filtered spatially. It is now a built-in `point` with a GiST index, read
+and written as `{"lat": …, "lng": …}` (any other value, or one out of range, is
+a 422), and it takes `near` (`loc[near]=lat,lng,radius`, radius in metres;
+bounding box on the index plus haversine) and `within`
+(`loc[within]=minLat,minLng,maxLat,maxLng`; a box crossing the antimeridian is
+a 400), in the bracket and the JSON filter form. Only a `location` field takes
+them, and it takes nothing else but `null`/`not_null`; sorting by it is a 400.
+Migration 108 converts an existing GEOGRAPHY `location` column where PostGIS
+is installed; a column another view depends on stops the migration with a
+message naming it. `geometry` still has no spatial operators (tier 2).
+`FilterOp` gains `near` and `within` (additive to extension-api v1).
+
+**Breaking: a filter the data API cannot apply is a 400, not every row (ADR
+0019 decision 6).** An unknown field or operator, a list value
+(`{"tag":[1,2]}` — write `{"tag":{"in":[1,2]}}`) or a `filter` that is not a
+JSON object used to be dropped, and the list answered every row the caller
+could read. It is now a 400 naming what was refused, on managed and virtual
+collections and on the realtime stream (which also stopped reading `gt` as
+`eq` and malformed JSON as no filter).
+
+**Fixed: a refused session read as an anonymous visitor.** Since ADR 0017 a
+read with a signed-out or forged session cookie, or an Authorization header
+the engine refuses, ran as the `public` role (403 or public rows) instead of
+answering 401, so the SDK never sent the client to sign in. Any presented
+credential that is refused is now a 401; only a request with none reads as
+`public`.
+
+**content/pages 2.0.0: hosts read pages through the data API.** The client
+app and the Studio portals load sites, pages and menus through the
+extension's loaders, as the visitor; the `/ext/content/pages` routes are gone.
+`/sitemap.xml` and `/robots.txt` are gone with them until a public route can
+read as `public`.
+
+**Fixed (tooling):** the install template now applies the declared collections
+of an extension without an `engine/` folder; the fabricated-success gate also
+flags `new Map()`/`Promise.resolve([])`/all-data conditionals; the CI
+paired-branch clone reads the branch name through `env:` and matches it
+exactly (it was substituted into the script text).
+
 ## [3.0.0-beta.97] - 2026-11-03
 
 **A public route can enqueue a job (ADR 0018).** An inbound signed webhook has
