@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Mezők — kattintson a másoláshoz",
   "content.pages.b.fieldsList": "Mezők (vesszővel elválasztva, üres = mind)",
   "content.pages.b.filters": "Szűrők",
-  "content.pages.b.filtersAll": "Minden szűrőnek illeszkednie kell. A nem létező oszlopra hivatkozó szűrő figyelmen kívül marad.",
+  "content.pages.b.filtersAll": "Minden szűrőnek illeszkednie kell. A nem létező oszlopra hivatkozó szűrő miatt a blokk hibát jelez.",
   "content.pages.b.gapBetween": "Blokok közötti térköz",
   "content.pages.b.heading": "Címsor",
   "content.pages.b.heightPx": "Magasság (px)",

@@ -1217,7 +1217,7 @@
   "content.pages.b.fieldsCopy": "Fields — click to copy",
   "content.pages.b.fieldsList": "Fields (comma-separated, blank = all)",
   "content.pages.b.filters": "Filters",
-  "content.pages.b.filtersAll": "All filters must match. A filter naming a column the collection does not have is ignored.",
+  "content.pages.b.filtersAll": "All filters must match. A filter naming a column the collection does not have makes the block show an error.",
   "content.pages.b.gapBetween": "Gap between blocks",
   "content.pages.b.heading": "Heading",
   "content.pages.b.heightPx": "Height (px)",
