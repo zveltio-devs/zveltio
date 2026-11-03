@@ -177,7 +177,8 @@ export function parseFilters(
     const m = BRACKET_RE.exec(paramKey);
     if (!m) {
       // `my-field[near]`, `a[b][c]`: shaped like a filter but unparseable.
-      if (paramKey.includes('[')) return { ok: false, error: `Malformed filter key: '${paramKey}'` };
+      if (paramKey.includes('['))
+        return { ok: false, error: `Malformed filter key: '${paramKey}'` };
       continue;
     }
     const [, field, op] = m;
