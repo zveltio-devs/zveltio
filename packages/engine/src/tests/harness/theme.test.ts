@@ -116,7 +116,9 @@ d('theme as data', () => {
   });
 
   it('refuses a caller who is not the tenant’s admin', async () => {
-    const { cookie, userId } = await createMemberSession(app, db);
+    // Stepped up, so the refusal is the admin check and not the step-up gate,
+    // which refuses a member without a factor before the route runs.
+    const { cookie, userId } = await createMemberSession(app, db, { configWindow: true });
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id) VALUES (${id}::uuid, ${userId})`.execute(
       db,
     );
