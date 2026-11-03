@@ -741,6 +741,11 @@ export interface ExtensionInternals<DB = unknown> {
    * Read one record exactly as `GET /api/data/:collection/:id` does — permission,
    * RLS, column rules — as the same caller as `createRecord`. 200 and the record,
    * 404 for one the caller cannot see. Throws outside the request.
+   *
+   * In one of the extension's `publicRoutes` the caller is the anonymous
+   * visitor: the tenant's `public` role, as `GET /api/data` serves it, whatever
+   * session the request carries; it holds no grant until an operator gives one
+   * (ADR 0020, 3.0.0-beta.99; it threw there before).
    */
   readRecord: (c: Context, collection: string, id: string) => Promise<DataApiAnswer>;
   /** `GET /api/data/:collection` with the route's own query parameters, as `readRecord`. */

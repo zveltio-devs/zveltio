@@ -30,6 +30,7 @@ import {
   checkPermission,
   collectionGrantsFor,
   getUserRoles,
+  publicRlsIdentity,
   resolveUserRole,
   type RlsIdentity,
   runAfterCommitJob,
@@ -330,17 +331,7 @@ export const tenantMiddleware = createMiddleware(async (c, next) => {
             // to that role's grants (R1, owner decision 2026-10-04). Bound to the
             // tenant resolved for this request, like everything else here. A key
             // presented to the handler replaces this with its own identity.
-            const collections = await collectionGrantsFor('public');
-            identity = {
-              userId: '',
-              email: '',
-              role: 'public',
-              roles: ['public'],
-              bypass: false,
-              collectionGrants: collections.grants,
-              collectionAll: collections.all,
-              anonymous: true,
-            };
+            identity = await publicRlsIdentity();
           }
 
           c.set('afterRequestSettles', settleJobs);

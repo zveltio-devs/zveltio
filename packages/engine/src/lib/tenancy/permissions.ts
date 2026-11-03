@@ -16,7 +16,7 @@ import {
   onAfterCommit,
   runWithoutTenantTrx,
 } from './tenant-context.js';
-import { DEFAULT_TENANT_ID } from './tenant-manager.js';
+import { DEFAULT_TENANT_ID, type RlsIdentity } from './tenant-manager.js';
 import { withSavepoint } from '../savepoint.js';
 
 // Cache TTLs
@@ -1011,6 +1011,26 @@ export async function resolveUserRole(user: { id?: string; role?: string }): Pro
  * its grants are exactly what an operator gave that role (R1, ADR 0017).
  */
 export const ANONYMOUS_SUBJECT = 'public';
+
+/**
+ * The anonymous visitor as the database policies read it: no user, but an actor
+ * all the same, the running tenant's `public` role and that role's grants (R1).
+ * Published by the tenant middleware for a request without a session, and by a
+ * public route's read for a visitor who has one (ADR 0020).
+ */
+export async function publicRlsIdentity(): Promise<RlsIdentity> {
+  const collections = await collectionGrantsFor(ANONYMOUS_SUBJECT);
+  return {
+    userId: '',
+    email: '',
+    role: ANONYMOUS_SUBJECT,
+    roles: [ANONYMOUS_SUBJECT],
+    bypass: false,
+    collectionGrants: collections.grants,
+    collectionAll: collections.all,
+    anonymous: true,
+  };
+}
 
 /** The baseline Casbin role every account is given (`g <user> member *`). */
 export const MEMBER_ROLE = 'member';

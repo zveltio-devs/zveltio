@@ -36,6 +36,11 @@ import {
   getSingleTenantId,
   getUserNames,
   isTenantAdmin,
+  ANONYMOUS_SUBJECT,
+  getCurrentTenantTrx,
+  getRequestActor,
+  publicRlsIdentity,
+  requestTransactionState,
   requireInstanceAdmin,
   resolveUserRole,
 } from '../tenancy/index.js';
@@ -64,7 +69,13 @@ import { getCurrentDomainOrNull, runWithDomain, withTenantIsolation } from '../t
 import { applyColumnAccess } from '../tenancy/index.js';
 import { checkAccess, dataApiRead, dataApiWrite, readScope } from '../data/index.js';
 import type { ReadQuery } from '../data/index.js';
-import { fenceAdminGrant, gatePrincipal } from '../../middleware/extension-auth-gate.js';
+import {
+  fenceAdminGrant,
+  gatePrincipal,
+  type PublicRouteRequest,
+  publicRouteRequest,
+} from '../../middleware/extension-auth-gate.js';
+import { anonymousReadRateLimit } from '../../middleware/rate-limit.js';
 import {
   addTenantMember,
   type IdentityMember,
@@ -378,6 +389,12 @@ export interface ExtensionInternals {
    * caller as the writes above and with the route's own checks: permission, RLS,
    * column rules, query alters. Ungated, like `readScope`: it reads only what the
    * caller could read through the API itself.
+   *
+   * In one of the calling extension's `publicRoutes`, where the gate admitted no
+   * caller, the caller is the anonymous visitor: the tenant's `public` role, as
+   * `GET /api/data` serves it (ADR 0017), whatever session the request carries
+   * (ADR 0020). It holds nothing until an operator grants it; the writes above
+   * still refuse a public route.
    */
   readRecord: (c: unknown, collection: string, id: string) => Promise<DataApiAnswer>;
   listRecords: (c: unknown, collection: string, query?: ReadQuery) => Promise<DataApiAnswer>;
@@ -666,23 +683,86 @@ export const actionWrites = (extName: string) => ({
   delete: writeAsCaller('delete', extName),
 });
 
-/** One data API read, as the caller the `/ext/*` gate admitted for `c`. */
+const answerOf = async (res: Response): Promise<DataApiAnswer> => ({
+  status: res.status,
+  body: (await res.json()) as Record<string, unknown>,
+});
+
+/**
+ * One data API read, as the caller the `/ext/*` gate admitted for `c` — or, in
+ * a request the gate admitted as one of `extName`'s `publicRoutes`, as the
+ * tenant's `public` role (ADR 0020). `extName` is the calling extension's, bound
+ * by `buildExtensionInternals`; without it there is no public read.
+ */
 async function readAsCaller(
   c: unknown,
   collection: string,
   id: string | null,
   query?: ReadQuery,
+  extName?: string,
 ): Promise<DataApiAnswer> {
+  const member = id === null ? 'listRecords' : 'readRecord';
   const p = gatePrincipal(c);
-  if (!p) {
+  if (p)
+    return answerOf(await dataApiRead(createRequestScopedDb(getDb()), p, collection, id, query));
+  const pub = extName === undefined ? undefined : publicRouteRequest(c);
+  if (!pub || pub.extName !== extName) {
     throw new Error(
-      `ctx.internals.${id === null ? 'listRecords' : 'readRecord'}: pass the request context ` +
-        '`c` of the /ext/* request being handled. Reads act as the caller that request ' +
-        'authenticated; outside one there is no caller, so there is no read.',
+      `ctx.internals.${member}: pass the request context \`c\` of the /ext/* request being ` +
+        'handled. Reads act as the caller that request authenticated, or as the public ' +
+        "role in one of this extension's publicRoutes; outside one there is no caller, so " +
+        'there is no read.',
     );
   }
-  const res = await dataApiRead(createRequestScopedDb(getDb()), p, collection, id, query);
-  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  return answerOf(await readAsPublic(c as Context, pub, member, collection, id, query));
+}
+
+/**
+ * A public route's read: `GET /api/data` as an anonymous visitor (ADR 0017) —
+ * the `public` role's grants, collection policies, row rules and column
+ * permissions, and the anonymous read rate limit — whoever the visitor is. The
+ * gate admitted the request without asking, so a session it carries is not who
+ * reads.
+ */
+async function readAsPublic(
+  c: Context,
+  req: PublicRouteRequest,
+  member: string,
+  collection: string,
+  id: string | null,
+  query?: ReadQuery,
+): Promise<Response> {
+  // Work the handler left running after its answer: the transaction is gone.
+  if (requestTransactionState() !== 'open' || !req.trx || !req.tenantId) {
+    throw new Error(
+      `ctx.internals.${member}: its public route request is over, so there is no read`,
+    );
+  }
+  const limited = await anonymousReadRateLimit(c, async () => undefined);
+  if (limited) return limited;
+  const tenantId = req.tenantId;
+  const read = (trx: Database) =>
+    dataApiRead(
+      createRequestScopedDb(getDb()),
+      {
+        user: { id: ANONYMOUS_SUBJECT, name: 'anonymous', role: ANONYMOUS_SUBJECT },
+        authType: 'anonymous',
+        trx,
+        tenantId,
+      },
+      collection,
+      id,
+      query,
+    );
+  // The request transaction publishes the visitor the tenant middleware saw:
+  // `public` for an anonymous one, read on it as `GET /api/data` is.
+  if (getRequestActor()?.identity?.anonymous === true && getCurrentTenantTrx() === req.trx) {
+    return read(req.trx);
+  }
+  // A signed-in visitor's publishes them, and the database would answer for
+  // them: the read gets a transaction of its own, published as `public`.
+  // ponytail: a second pool connection, for signed-in visitors of a public route only.
+  return withTenantIsolation(tenantId, read, { identity: await publicRlsIdentity() });
 }
 
 /**
@@ -995,6 +1075,10 @@ export function buildExtensionInternals(): ExtensionInternals {
     audit: (event: ExtensionAuditEvent) => auditAs(caller, event),
     asSystem: (collections, fn, opts) => asSystemAs(caller, collections, fn, opts),
     enqueue: (c, job, input) => enqueueFromPublicRoute(caller.replace(/^ext:/, ''), c, job, input),
+    readRecord: (c, collection, id) =>
+      readAsCaller(c, collection, id, undefined, caller.replace(/^ext:/, '')),
+    listRecords: (c, collection, query) =>
+      readAsCaller(c, collection, null, query, caller.replace(/^ext:/, '')),
   }));
 }
 
