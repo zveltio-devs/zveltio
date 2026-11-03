@@ -7,9 +7,9 @@
    * extension demonstrably did maps, just not this one.
    *
    * Coordinates are discovered rather than declared. A record may carry
-   * `lat`/`lng`, `latitude`/`longitude`, a GeoJSON `geometry`, or a PostGIS
-   * `location` column that arrives as `{ x, y }` or as GeoJSON depending on how
-   * it was selected. Demanding one shape would mean every caller configures a
+   * `lat`/`lng`, `latitude`/`longitude`, a GeoJSON `geometry`, the engine's
+   * `location` field (`{ lat, lng }`), or a point that arrives as `{ x, y }` or
+   * as GeoJSON. Demanding one shape would mean every caller configures a
    * field before seeing anything, and the collections this renders were not
    * built to a single convention.
    */
@@ -68,6 +68,10 @@
         const latV = numeric(geo.coordinates[1]);
         if (latV !== null && lngV !== null) return [latV, lngV];
       }
+      // The engine's `location` field: { lat, lng }.
+      const latO = numeric((g as { lat?: unknown }).lat);
+      const lngO = numeric((g as { lng?: unknown }).lng);
+      if (latO !== null && lngO !== null) return [latO, lngO];
       // PostGIS selected as a plain point: x is longitude, y is latitude.
       const x = numeric(geo.x);
       const y = numeric(geo.y);

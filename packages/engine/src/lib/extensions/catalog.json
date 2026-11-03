@@ -425,7 +425,7 @@
     {
       "name": "geospatial/postgis",
       "displayName": "Geospatial",
-      "description": "Location field type, map views in Studio, proximity search, bbox queries, clustering, and geofences",
+      "description": "Location history, map views in Studio, and proximity and bounding-box search through the data API",
       "category": "geospatial",
       "version": "1.0.0",
       "author": "Zveltio",

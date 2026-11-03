@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 570
+# tables: 564
 
 table account
   col accessToken                    text
@@ -24,24 +24,6 @@ table account
   pk  account_pkey PRIMARY KEY (id)
   fk  account_userId_fkey FOREIGN KEY ("userId") REFERENCES "user"(id) ON DELETE CASCADE
   rls enabled
-
-table geography_columns
-  col coord_dimension                integer
-  col f_geography_column             name
-  col f_table_catalog                name
-  col f_table_name                   name
-  col f_table_schema                 name
-  col srid                           integer
-  col type                           text
-
-table geometry_columns
-  col coord_dimension                integer
-  col f_geometry_column              name
-  col f_table_catalog                character varying
-  col f_table_name                   name
-  col f_table_schema                 name
-  col srid                           integer
-  col type                           character varying
 
 table passkey
   col aaguid                         text
@@ -71,15 +53,6 @@ table session
   uq  session_token_key UNIQUE (token)
   fk  session_userId_fkey FOREIGN KEY ("userId") REFERENCES "user"(id) ON DELETE CASCADE
   rls enabled
-
-table spatial_ref_sys
-  col auth_name                      character varying
-  col auth_srid                      integer
-  col proj4text                      character varying
-  col srid                           integer NOT NULL
-  col srtext                         character varying
-  pk  spatial_ref_sys_pkey PRIMARY KEY (srid)
-  ck  spatial_ref_sys_srid_check CHECK (((srid > 0) AND (srid <= 998999)))
 
 table twoFactor
   col backupCodes                    text NOT NULL
@@ -1037,89 +1010,6 @@ table zv_generated_docs
   ck  zv_generated_docs_status_check CHECK ((status = ANY (ARRAY['active'::text, 'expired'::text, 'revoked'::text])))
   rls enabled forced
   pol tenant_isolation_zv_generated_docs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_geo_location_history
-  col accuracy_m                     numeric
-  col altitude_m                     numeric
-  col entity_id                      text NOT NULL
-  col entity_type                    text NOT NULL
-  col heading_deg                    numeric
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col location                       USER-DEFINED NOT NULL
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col recorded_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col source                         text NOT NULL DEFAULT 'api'::text
-  col speed_kmh                      numeric
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zv_geo_location_history_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_geo_location_history FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_geo_routes
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col description                    text
-  col distance_m                     numeric
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col name                           text NOT NULL
-  col path                           USER-DEFINED
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col waypoints                      jsonb NOT NULL DEFAULT '[]'::jsonb
-  pk  zv_geo_routes_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_geo_routes FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_geofence_events
-  col entity_id                      text NOT NULL
-  col entity_type                    text NOT NULL
-  col event_type                     text NOT NULL
-  col geofence_id                    uuid NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col location                       USER-DEFINED
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col occurred_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zv_geofence_events_event_type_check CHECK ((event_type = ANY (ARRAY['enter'::text, 'exit'::text, 'dwell'::text])))
-  fk  zv_geofence_events_geofence_id_fkey FOREIGN KEY (geofence_id) REFERENCES zv_geofences(id) ON DELETE CASCADE
-  pk  zv_geofence_events_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_geofence_events FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_geofence_rules
-  col action_config                  jsonb NOT NULL DEFAULT '{}'::jsonb
-  col action_type                    text NOT NULL DEFAULT 'webhook'::text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col entity_type                    text
-  col geofence_id                    uuid NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col trigger_on                     text NOT NULL
-  col triggered_count                integer NOT NULL DEFAULT 0
-  ck  zv_geofence_rules_action_type_check CHECK ((action_type = ANY (ARRAY['webhook'::text, 'notification'::text, 'email'::text])))
-  fk  zv_geofence_rules_geofence_id_fkey FOREIGN KEY (geofence_id) REFERENCES zv_geofences(id) ON DELETE CASCADE
-  pk  zv_geofence_rules_pkey PRIMARY KEY (id)
-  ck  zv_geofence_rules_trigger_on_check CHECK ((trigger_on = ANY (ARRAY['enter'::text, 'exit'::text, 'both'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_geofence_rules FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_geofences
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col zone                           USER-DEFINED NOT NULL
-  pk  zv_geofences_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_geofences FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_import_logs
   col collection                     text NOT NULL
@@ -4930,6 +4820,37 @@ table zvd_gdpr_subject_requests
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_geo_location_history
+  col accuracy_m                     numeric
+  col altitude_m                     numeric
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col entity_id                      text NOT NULL
+  col entity_type                    text NOT NULL
+  col heading_deg                    numeric
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col location                       point NOT NULL
+  col metadata                       jsonb
+  col recorded_at                    timestamp with time zone
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text NOT NULL DEFAULT 'api'::text
+  col speed_kmh                      numeric
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_geo_location_history_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_geo_location_history_pkey PRIMARY KEY (id)
+  fk  zvd_geo_location_history_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('geo_location_history'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('geo_location_history'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('geo_location_history'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('geo_location_history'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('geo_location_history'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_graphql_field_policies
   col allowed_roles                  ARRAY NOT NULL DEFAULT '{}'::text[]
@@ -10394,6 +10315,26 @@ table zvv_gdpr_subject_requests
   col request_type                   text
   col search_vector                  tsvector
   col status                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_geo_location_history
+  col accuracy_m                     numeric
+  col altitude_m                     numeric
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col entity_id                      text
+  col entity_type                    text
+  col heading_deg                    numeric
+  col id                             uuid
+  col location                       point
+  col metadata                       jsonb
+  col recorded_at                    timestamp with time zone
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text
+  col speed_kmh                      numeric
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text

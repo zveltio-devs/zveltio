@@ -126,7 +126,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `geospatial/postgis` | PostGIS | 1.0.4 | Proximity search, bounding box, polygon containment |
+| `geospatial/postgis` | PostGIS | 2.0.0 | Location history and map components; proximity and bounding-box search through the data API |
 
 ## hr
 

@@ -410,7 +410,6 @@ NOT applied to (intentional — finer-grained protection in place):
 |---|---|
 | `ai` | Each `/embed` and `/search` route does `checkPermission(user.id, body.collection, 'read'/'update')` — finer than a single resource gate. AI touches arbitrary user collections, so per-collection authorization is the correct shape. |
 | `developer/graphql` | Per-resolver RBAC (~21 inline checkPermission calls). Mirrors AI's per-collection pattern at the resolver level. |
-| `geospatial/postgis` | Per-collection `checkPermission(userId, 'data:${shortName}', 'read')` for each PostGIS-backed collection. |
 | `content/{drafts,documents}`, `workflow/approvals`, `developer/{api-docs,validation}`, `analytics/quality` | Rich per-route checkPermission already in place (8-13 calls per file). |
 | `auth/{ldap,saml}` | Routes are IdP callbacks; the caller is not an end user with a session. |
 | `developer/edge-functions` | Engine-level admin gate on `/api/edge-functions` already covers it. |
