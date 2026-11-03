@@ -4,6 +4,33 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.99] - 2026-11-03
+
+**A public extension route reads as the tenant's `public` role (ADR 0020).**
+Inside a request the `/ext/*` gate admitted as one of the calling extension's
+`publicRoutes`, `ctx.internals.listRecords` and `readRecord` now read as the
+`public` role, with its collection grants, row rules and column permissions,
+on the request transaction (they used to throw there). A signed-in visitor
+reads as `public` too, and the credentials a public route receives are not
+looked at. Reads only: writes still throw. The anonymous read limit (ADR 0017)
+is charged once per public request; a refusal throws a 429. Unblocks a
+server-side sitemap for content/pages.
+
+**Fixed: an unawaited public-route read or enqueue could run after the
+request committed.** Both now hold the request transaction until they settle,
+and throw once the request is over (ADR 0018, ADR 0020).
+
+**Breaking: a filter key the data API cannot parse is a 400.** A query key
+shaped like a filter that does not match `field[op]` (`my-field[near]`,
+`a[gt][x]`, `filter[title][_eq]`) was skipped and the list answered every row
+the caller could read. It is now a 400, `Malformed filter key`.
+
+**geospatial/postgis 2.0.0.** The extension declares one collection,
+`geo_location_history` (a `location` field, no default grants), and queries
+through the data API's `near`/`within`. Its `/near`, `/within-bbox` and
+`/cluster` routes, geofences and saved routes are gone (polygons wait for ADR
+0019 tier 2). The installed-schema snapshot drops the five `zv_geo*` tables.
+
 ## [3.0.0-beta.98] - 2026-11-03
 
 **`location` is a native point, with `near` and `within` (ADR 0019 tier 1).**
