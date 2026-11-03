@@ -455,9 +455,9 @@ export function buildCondition(key: string, condition: FilterCondition): RawBuil
       const lat = sql`radians(${col}[1])`;
       const dLat = sql`radians(${col}[1] - ${n.lat}::float8)`;
       const dLng = sql`radians(${col}[0] - ${n.lng}::float8)`;
-      return sql`(${col} <@ ${box(b)} AND 2 * ${EARTH_RADIUS_M}::float8 * asin(sqrt(
+      return sql`(${col} <@ ${box(b)} AND 2 * ${EARTH_RADIUS_M}::float8 * asin(LEAST(1, sqrt(
         power(sin(${dLat} / 2), 2) + cos(radians(${n.lat}::float8)) * cos(${lat}) * power(sin(${dLng} / 2), 2)
-      )) <= ${n.radius}::float8)`;
+      ))) <= ${n.radius}::float8)`;
     }
     case 'within': {
       const b = toBox(value);
@@ -499,7 +499,8 @@ const isLat = (v: unknown): v is number => typeof v === 'number' && v >= -90 && 
 const isLng = (v: unknown): v is number => typeof v === 'number' && v >= -180 && v <= 180;
 
 /** A `near` value (`{lat, lng, radius}`, radius in metres) or null. Also the
- * check `buildCondition` runs: a row policy or an extension reaches it too. */
+ * check `buildCondition` runs: an extension reaches it through
+ * `ctx.internals.buildCondition`, past the parser. */
 export function toNear(v: unknown): GeoNear | null {
   if (typeof v !== 'object' || v === null) return null;
   const { lat, lng, radius } = v as Record<string, unknown>;

@@ -11,8 +11,13 @@
 DO $$
 DECLARE
   r RECORD;
+  gis TEXT;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') THEN
+  -- PostGIS's schema, which need not be on the search_path.
+  SELECT n.nspname INTO gis
+    FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+   WHERE e.extname = 'postgis';
+  IF gis IS NULL THEN
     RETURN;
   END IF;
   FOR r IN
@@ -30,16 +35,17 @@ BEGIN
   LOOP
     -- The column-masking view (zvv_<name>, migration 075) depends on every
     -- column; the boot reconcile builds it again. Any other dependent view
-    -- refuses the ALTER: the column is then left as it was, with a warning,
-    -- rather than the engine refusing to boot.
+    -- fails the migration, and the engine with it: a column left GEOGRAPHY
+    -- would 500 on every write and every geo filter of this build.
+    EXECUTE format('DROP VIEW IF EXISTS %I', 'zvv_' || substr(r.table_name, 5));
     BEGIN
-      EXECUTE format('DROP VIEW IF EXISTS %I', 'zvv_' || substr(r.table_name, 5));
       EXECUTE format(
-        'ALTER TABLE %I ALTER COLUMN %I TYPE point USING point(ST_X(%I::geometry), ST_Y(%I::geometry))',
-        r.table_name, r.column_name, r.column_name, r.column_name
+        'ALTER TABLE %I ALTER COLUMN %I TYPE point USING point(%I.ST_X(%I::%I.geometry), %I.ST_Y(%I::%I.geometry))',
+        r.table_name, r.column_name, gis, r.column_name, gis, gis, r.column_name, gis
       );
     EXCEPTION WHEN OTHERS THEN
-      RAISE WARNING 'location %.% not converted to point: %', r.table_name, r.column_name, SQLERRM;
+      RAISE EXCEPTION 'location %.% could not be converted to point (ADR 0019): %. Drop what depends on it and run the migration again.',
+        r.table_name, r.column_name, SQLERRM;
     END;
   END LOOP;
 END $$;

@@ -139,6 +139,7 @@ d('location filters (in-process)', () => {
       { 'loc[within]': '44,27,45,26' },
       { 'name[near]': '44,26,5' },
       { 'loc[eq]': 'x' },
+      { sort: 'loc' },
     ]) {
       expect((await list(qs)).status).toBe(400);
     }
