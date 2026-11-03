@@ -13,6 +13,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { readScope } from '../../lib/data/read-scope.js';
 import { engineEvents, realtimeBus } from '../../lib/runtime/index.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import { websocketHandler } from '../../routes/ws.js';
@@ -58,6 +59,7 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   let ws: unknown;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let flowId = '';
+  let memberId = '';
   const events: unknown[] = [];
   const busSent: unknown[] = [];
   let unsubscribe: (() => void) | undefined;
@@ -110,6 +112,7 @@ d('password and encrypted fields leave through no door (in-process)', () => {
     const member = await createMemberSession(app, db, {
       grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
     });
+    memberId = member.userId;
     const data = await wsUpgradeData(app, { cookie: member.cookie });
     ws = { data: { ...data, id: `withheld_${Date.now()}` }, send: (p: string) => wsSent.push(p) };
     websocketHandler.open(ws as never);
@@ -215,6 +218,17 @@ d('password and encrypted fields leave through no door (in-process)', () => {
       SELECT pw, secret FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`.execute(db);
     expect(row.rows[0]!.pw.startsWith('$argon2')).toBe(true);
     expect(row.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
+  });
+
+  // The gate's own share, not only the write path's: a virtual collection's
+  // upstream row and a saved query's `selectAll()` reach a reader through
+  // `ReadScope` alone. With this branch removed every other test here passed.
+  it('the read gate hides the password column and shapes the stored row', async () => {
+    const scope = await readScope(db, COLLECTION, { id: memberId } as never, 'session');
+    expect(scope.readable('pw')).toBe(false);
+    const stored = await sql<Record<string, unknown>>`
+      SELECT * FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`.execute(db);
+    expectWithheld(scope.shape(stored.rows[0]!));
   });
 
   it('REST GET serves neither, and decrypts the encrypted field', async () => {

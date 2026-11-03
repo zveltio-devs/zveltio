@@ -164,6 +164,14 @@ export async function recordReadable(
 }
 
 /**
+ * How long a queued verdict may take before it counts as a refusal. Without a
+ * bound, one entity-access check that never settles held every later event
+ * for that subscriber forever — the socket stayed open and silent, and the
+ * queue grew with each write.
+ */
+export const VERDICT_TIMEOUT_MS = 5_000;
+
+/**
  * Deliver in the order events arrived, even when some verdicts are async.
  *
  * A realtime fan-out is synchronous and per subscriber; an entity-access check
@@ -173,14 +181,6 @@ export async function recordReadable(
  * that rejects, or does not settle within `timeoutMs`, drops the event: a check
  * that cannot answer does not admit.
  */
-/**
- * How long a queued verdict may take before it counts as a refusal. Without a
- * bound, one entity-access check that never settles held every later event
- * for that subscriber forever — the socket stayed open and silent, and the
- * queue grew with each write.
- */
-export const VERDICT_TIMEOUT_MS = 5_000;
-
 export function inOrder(
   queue: { pending?: Promise<void> },
   verdict: boolean | Promise<boolean>,
