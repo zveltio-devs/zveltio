@@ -1,7 +1,9 @@
 import type { LayoutLoad } from './$types';
+import { loadMenus, type MenuItem } from '#lib/ext/content/pages/load.js';
+import { engineFetch } from '#lib/engine-fetch.js';
 
 // SPA host (no server runtime in production) — fetch the public site chrome:
-// navigation menus from the page-builder CMS contract + public settings
+// navigation menus (content/pages `page_menus`) + public settings
 // (site name, optional theme color). Everything is best-effort: a bare
 // install without menus still renders pages, just without a nav bar.
 const ENGINE_URL: string =
@@ -10,18 +12,13 @@ const ENGINE_URL: string =
 
 export const ssr = true;
 
-type MenuItem = { label: string; slug?: string; url?: string; external?: boolean };
-
 export const load: LayoutLoad = async ({ fetch }) => {
   const [menus, settings] = await Promise.all([
-    // `content/pages`, not `content/page-builder`: that extension was merged
-    // away. The sibling loader `(public)/[slug]/+page.ts` was moved at the time
-    // and this one was not, so the public site has had no navigation since —
-    // silently, because every failure here degrades to an empty menu.
-    fetch(`${ENGINE_URL}/ext/content/pages/cms/nav`)
-      .then((r) => (r.ok ? r.json() : { menus: { main: [], footer: [] } }))
-      .then((d) => d.menus as { main: MenuItem[]; footer: MenuItem[] })
-      .catch(() => ({ main: [] as MenuItem[], footer: [] as MenuItem[] })),
+    // The `main` and `footer` rows of `page_menus` (content/pages), read as the visitor.
+    loadMenus(engineFetch(fetch)).catch(() => ({
+      main: [] as MenuItem[],
+      footer: [] as MenuItem[],
+    })),
     fetch(`${ENGINE_URL}/api/settings/public`)
       .then((r) => (r.ok ? r.json() : {}))
       .catch(() => ({}) as Record<string, unknown>),

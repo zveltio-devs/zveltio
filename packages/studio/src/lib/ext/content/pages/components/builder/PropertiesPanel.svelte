@@ -9,7 +9,7 @@
   // goes around the Studio's api wrapper (base path, credentials, error
   // envelope) and loaded the same list a second time.
   let {
-    block, onPatch, collections = [], sitePublic = false, publicCollections = [],
+    block, onPatch, collections = [],
     collectionFields = {},
     device = 'base',
     iconNames = [],
@@ -25,10 +25,6 @@
     /** Served by the engine from the renderer's own lists — see /vocabulary. */
     iconNames?: string[];
     motionTypes?: string[];
-    /** Is the site this page belongs to served to anonymous visitors? */
-    sitePublic?: boolean;
-    /** Collections that site publishes anonymously — see engine/hydrate.ts. */
-    publicCollections?: string[];
   } = $props();
 
   let tab = $state<'content' | 'style'>('content');
@@ -434,18 +430,6 @@
             <input class="input input-xs w-full font-mono" value={p.collection ?? ''} oninput={(e) => patchContent('collection', e.currentTarget.value)} />
           {/if}
         </div>
-
-        <!--
-          A data block on a PUBLIC page reads only what the site publishes, and
-          nothing is published by default. Saying so here is the difference
-          between "the block is empty" and "the block is empty and I can see
-          why" — the refusal itself is server-side, in engine/hydrate.ts.
-        -->
-        {#if sitePublic && p.collection && !publicCollections.includes(p.collection)}
-          <p class="text-[10px] text-warning leading-snug">
-            {m['content.pages.b.notPublished']()}
-          </p>
-        {/if}
 
         <div>{@render label(m['content.pages.b.title']())}
           <input class="input input-xs w-full" value={p.title ?? ''} oninput={(e) => patchContent('title', e.currentTarget.value)} /></div>

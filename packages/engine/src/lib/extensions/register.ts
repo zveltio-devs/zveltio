@@ -172,9 +172,6 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     // guard read that as another extension's table and refused the install.
     'zv_media_favorites',
   ],
-  // `content/page-builder` and `content/portals` merged into `content/pages`.
-  // The four `zvd_*` tables from portals are migrated into this set by the
-  // extension's own migrations; what it owns now is the `zv_page*` family.
   // Edge functions are the ENGINE's: it owns the table, the sandbox, and the
   // `/api/fn` invoke route (which is why `/api/fn` was given back to it in
   // DEV-EF-1). This extension is the administration surface the Studio actually

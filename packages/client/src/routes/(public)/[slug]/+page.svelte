@@ -35,10 +35,9 @@ if (untrack(() => data.status === 404 || !data.page)) {
 <BlockRenderer
   blocks={data.blocks}
   record={data.record ?? null}
-  blocksBaseUrl={data.blocksBaseUrl ?? ''}
 />
 
 <!-- Popups the server decided belong on this page. -->
 {#each data.popups ?? [] as popup (popup.id)}
-  <Popup {popup} blocksBaseUrl={data.blocksBaseUrl ?? ''} />
+  <Popup {popup} />
 {/each}

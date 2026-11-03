@@ -46,16 +46,6 @@
   let {
     blocks = [] as any[],
     /**
-     * Where a data block asks for its next window, e.g.
-     * `/ext/content/pages/cms/home/blocks`. The block's id is appended.
-     *
-     * Optional: without it a data block shows the first window and no paging
-     * controls, which is what a consumer embedding blocks outside a Zveltio host
-     * gets. The route it points at re-reads the block from the stored page, so
-     * handing this over grants no query the page did not already contain.
-     */
-    blocksBaseUrl = '',
-    /**
      * Set when this instance is drawing a container's children rather than a
      * whole page: the page wrapper's padding and max-width belong to the page,
      * not to every nesting level inside it.
@@ -306,7 +296,6 @@
         -->
         <Self
           blocks={Array.isArray(c.children) ? c.children : []}
-          {blocksBaseUrl}
           nested
           gap={c.gap ?? 'md'}
         />
@@ -320,12 +309,11 @@
             escapes every one of them: the template is authored markup and was
             sanitised on the way in, the values are data and never were.
           -->
-          <Self blocks={[bindBlock(c.item_template, row, i)]} {blocksBaseUrl} nested gap="none" />
+          <Self blocks={[bindBlock(c.item_template, row, i)]} nested gap="none" />
         {/snippet}
 
         <CollectionList
           {...c}
-          rowsUrl={blocksBaseUrl && block.id ? `${blocksBaseUrl}/${block.id}/rows` : ''}
           renderItem={c.view_type === 'template' && c.item_template ? item : undefined}
         />
 

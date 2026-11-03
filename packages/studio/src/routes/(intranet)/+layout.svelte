@@ -5,6 +5,11 @@ import { resolve } from '$app/paths';
 import { page } from '$app/state';
 import { auth } from '#lib/auth.svelte.js';
 import { api } from '#lib/api.js';
+import { loadSite } from '#lib/ext/content/pages/client/load.js';
+import { useDataFetch } from '#lib/ext/content/pages/client/query.js';
+
+// Data blocks read through `api.fetch`: the engine's base and the tenant header.
+useDataFetch((path, init) => api.fetch(String(path), init));
 import {
   LogOut,
   Sun,
@@ -67,15 +72,14 @@ onMount(async () => {
   }
 
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const res = await api.get<{ site: any; nav: NavPage[] }>(
-      `/ext/content/pages/sites/${ZONE_SLUG}/render`,
+    const res = await loadSite(
+      (path: string, init?: RequestInit) => api.fetch(path, init),
+      ZONE_SLUG,
     );
-    // The render endpoint answers `site` since zones became sites.
-    zone = res.site;
+    zone = (res?.site as typeof zone) ?? null;
     // Filter out the homepage entry — the user clicks the title/logo to get
     // there, so showing "Home" twice (once built-in, once from zone) is noise.
-    navPages = (res.nav ?? []).filter((p) => !p.is_homepage);
+    navPages = (res?.nav ?? []).filter((p) => !p.is_homepage);
   } catch {
     // Zone not configured / forbidden — built-in nav still works.
     navPages = [];

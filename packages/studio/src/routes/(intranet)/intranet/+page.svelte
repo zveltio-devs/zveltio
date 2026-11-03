@@ -3,6 +3,7 @@ import { onMount } from 'svelte';
 import { resolve } from '$app/paths';
 import { auth } from '#lib/auth.svelte.js';
 import { api } from '#lib/api.js';
+import { loadSite } from '#lib/ext/content/pages/client/load.js';
 import { SquareCheck, Bell, Clock, ArrowRight, User as UserIcon, FileText } from '@lucide/svelte';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -18,8 +19,9 @@ onMount(async () => {
     api.get<{ notifications: any[] }>('/api/notifications?unread_only=true'),
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     api.get<{ records: any[] }>('/api/data/approval_requests?status[eq]=pending&limit=100'),
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    api.get<{ nav: any[] }>('/ext/content/pages/sites/intranet/render'),
+    loadSite((path: string, init?: RequestInit) => api.fetch(path, init), 'intranet').then((r) => ({
+      nav: r?.nav ?? [],
+    })),
   ]);
   if (notifRes.status === 'fulfilled') {
     notifications = (notifRes.value.notifications ?? []).slice(0, 5);
@@ -103,7 +105,7 @@ const quickLinks = [
     {/each}
   </div>
 
-  <!-- Site pages — admin-configured, from /ext/content/pages/sites/intranet/render -->
+  <!-- Site pages — admin-configured, the published pages of the `intranet` site -->
   {#if zonePages.length > 0}
     <div class="card bg-base-200 border border-base-300">
       <div class="card-body p-5">

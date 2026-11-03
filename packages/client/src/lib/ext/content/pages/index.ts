@@ -10,12 +10,10 @@
  * four names the older textarea editor wrote, and honours `col_span` on a
  * twelve-column grid.
  *
- * `collection_list` blocks arrive with their rows already resolved by the server
- * in `content._data` — or `content._error` when the caller may not read them,
- * which on a public site means the collection is not in that site's
- * `public_collections`. `CollectionList` never queries: the server already
- * decided what this caller may see, and a second authorisation path is the shape
- * that produced the leak this area was repaired for.
+ * A host loads a page with `loadPage` (`load.ts`) and the menus with
+ * `loadMenus`: both read the data API as the visitor. `collection_list` blocks
+ * ask the data API for their own rows the same way (`query.ts`), so what a
+ * visitor sees is what the engine's rules give them.
  *
  * The section components below are the ORIGINAL public API, kept so existing
  * imports keep working. They cover four block types out of sixteen and know
@@ -32,6 +30,8 @@ export { default as CollectionList } from './CollectionList.svelte';
 export { default as Popup } from './Popup.svelte';
 export { ICONS, ICON_NAMES, type IconName } from './icons.js';
 export { motionAttrs, MOTION_TYPES, type MotionType } from './motion.js';
+export { loadPage, loadMenus, loadSite, type PagePayload, type PageInfo, type Site, type MenuItem, type NavItem } from './load.js';
+export { listUrl, filterJson, useDataFetch } from './query.js';
 export { BLOCK_TYPES, LEGACY_BLOCK_TYPES, ALL_BLOCK_TYPES, type BlockType } from './block-types.js';
 
 // Superseded by BlockRenderer — kept for compatibility.

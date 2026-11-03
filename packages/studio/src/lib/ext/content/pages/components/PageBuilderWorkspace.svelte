@@ -23,13 +23,13 @@ import BlockLibrary from '#lib/ext/content/pages/components/builder/BlockLibrary
 import Canvas from '#lib/ext/content/pages/components/builder/Canvas.svelte';
 import PropertiesPanel from '#lib/ext/content/pages/components/builder/PropertiesPanel.svelte';
 
-const BASE = '/ext/content/pages/pages';
+const PAGES = '/api/data/pages';
+const EXT = '/ext/content/pages';
 
 type PageMeta = {
   id: string;
   title: string;
   slug: string;
-  status: string;
   blocks?: Block[] | string;
 };
 
@@ -90,8 +90,7 @@ async function loadPage(): Promise<void> {
   if (!pageId) return;
   loading = true;
   try {
-    const r = await api.get<{ page?: PageMeta }>(`${BASE}/${pageId}`);
-    meta = r.page ?? null;
+    meta = await api.get<PageMeta>(`${PAGES}/${pageId}`);
     if (!meta) throw new Error('Page not found');
     const raw = typeof meta.blocks === 'string' ? JSON.parse(meta.blocks || '[]') : (meta.blocks ?? []);
     blocks = ensureIds(Array.isArray(raw) ? raw : []);
@@ -113,7 +112,7 @@ async function loadExtras(): Promise<void> {
       // to `{…} | {}`, and neither `icons` nor `motion` exists on `{}` — so the
       // two reads below were type errors that nothing ran.
       api
-        .get<{ icons?: string[]; motion?: string[] }>(`${BASE}/vocabulary`)
+        .get<{ icons?: string[]; motion?: string[] }>(`${EXT}/vocabulary`)
         .catch((): { icons?: string[]; motion?: string[] } => ({})),
       api.get<{ collections?: Array<{ name: string; fields?: Array<{ name: string }> }> }>(
         '/api/collections',
@@ -133,17 +132,13 @@ async function loadExtras(): Promise<void> {
   }
 }
 
-async function savePage(status?: string): Promise<void> {
+/** Save the draft; `publish` then snapshots it for the site (the `publish` action). */
+async function savePage(publish = false): Promise<void> {
   if (!meta || saving) return;
   saving = true;
   try {
-    const r = await api.put<{ page?: PageMeta }>(`${BASE}/${meta.id}`, {
-      title: meta.title,
-      slug: meta.slug,
-      blocks,
-      status: status ?? meta.status,
-    });
-    if (r.page) meta = { ...meta, ...r.page };
+    await api.patch(`${PAGES}/${meta.id}`, { blocks });
+    if (publish) await api.post(`${EXT}/actions/publish`, { id: meta.id });
     toast.success(m['common.saved']?.() ?? 'Saved');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Save failed');
@@ -203,7 +198,7 @@ onDestroy(() => window.removeEventListener('keydown', onKeydown));
     <div class="min-w-0 flex-1">
       {#if meta}
         <div class="font-medium text-sm truncate">{meta.title}</div>
-        <div class="text-xs opacity-50 font-mono truncate">/{meta.slug} · {meta.status}</div>
+        <div class="text-xs opacity-50 font-mono truncate">/{meta.slug}</div>
       {:else}
         <div class="text-sm opacity-50">…</div>
       {/if}
@@ -232,11 +227,9 @@ onDestroy(() => window.removeEventListener('keydown', onKeydown));
       <Save size={14} />
       {saving ? '…' : (m['common.save']?.() ?? 'Save')}
     </button>
-    {#if meta?.status !== 'published'}
-      <button type="button" class="btn btn-success btn-sm" disabled={saving || !meta} onclick={() => void savePage('published')}>
-        Publish
-      </button>
-    {/if}
+    <button type="button" class="btn btn-success btn-sm" disabled={saving || !meta} onclick={() => void savePage(true)}>
+      {m['common.publish']?.() ?? 'Publish'}
+    </button>
   </header>
 
   {#if loading}

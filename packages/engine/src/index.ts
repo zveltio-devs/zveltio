@@ -558,7 +558,7 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
       name: 'content/pages',
       display_name: 'Pages',
       description:
-        'Public sites and authenticated portals: pages built from blocks, live collection data, SEO, revisions and publish workflow',
+        'Pages built from blocks, grouped into sites: drafts, published snapshots and revisions, read through the data API',
       category: 'content',
     },
     {

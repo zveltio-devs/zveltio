@@ -2,30 +2,20 @@
   /**
    * The data block, drawn.
    *
-   * `collection_list` was resolved by the server and rendered by nobody. The
-   * engine looked up the collection, checked the caller's permission, applied
-   * row policies and the column mask, and handed back the rows in
-   * `content._data` — where they sat, because every public host answered
-   * "Unsupported block: collection_list". Measured, not guessed: a page built
-   * from the twelve library blocks came out of the reference renderer with ten
-   * placeholders and one `<hr>`.
-   *
    * Four layouts, matching `view_type`. `table` and `list` are the two a saved
    * view most often was; `card` and `calendar` are what portals' own renderers
    * drew, and they came across in the merge.
    *
-   * This component never CHOOSES a query. It receives what the server decided
-   * the caller may see — `_data` when allowed, `_error` when not — and paging
-   * asks the server for the next window of the SAME block, by id, through a
-   * route that reads the block back out of the stored page. The request carries
-   * an offset and nothing else, so there is still exactly one place that decides
-   * who may read what. A renderer that composed its own query would be a second
-   * authorisation path, which is the shape that produced the leak this area was
-   * repaired for.
+   * The block asks the data API for its window itself, as the visitor
+   * (`query.ts`). The engine's rules decide what comes back: a refusal is shown
+   * as one, not as an empty list.
    */
 
   // biome-ignore lint/suspicious/noExplicitAny: rows are untyped collection data
   import type { Snippet } from 'svelte';
+
+  import { onMount } from 'svelte';
+  import { fetchRows, listUrl } from './query.js';
 
   type Row = Record<string, any>;
 
@@ -35,18 +25,16 @@
     title = '',
     fields = [] as unknown,
     display_fields = '',
-    _data = [] as Row[],
-    _error = '',
-    _offset = 0,
-    _limit = 0,
-    _has_more = false,
+    filters = [] as unknown,
     /**
-     * Where to ask for the next window, given by the host that rendered the
-     * page: `/…/blocks/<id>/rows`. Absent means no paging controls — a consumer
-     * embedding blocks without a route to page against gets the first window and
-     * no buttons, which is what it had before.
+     * A first window a host already has (server-side, or a test): drawn as is,
+     * with no request. Without it the block asks the data API itself.
      */
-    rowsUrl = '',
+    _data = undefined as Row[] | undefined,
+    _error = '',
+    sort_field = '',
+    sort_dir = 'desc',
+    limit = 20,
     /**
      * How to draw one record when `view_type` is `template`.
      *
@@ -63,44 +51,39 @@
     renderItem = undefined as Snippet<[Row, number]> | undefined,
   } = $props();
 
-  /**
-   * What the server sent with the page is the source until the visitor pages;
-   * after that, the fetched window is. Derived rather than copied into state, so
-   * a re-render with fresh props is not shadowed by a stale snapshot — the shape
-   * `$state(_data)` would silently give, capturing only the first value.
-   */
-  let paged = $state<{ rows: Row[]; offset: number; hasMore: boolean } | null>(null);
-  let paging = $state(false);
-  let pageError = $state('');
+  // svelte-ignore state_referenced_locally — the first window only; paging replaces it.
+  let rows = $state<Row[]>(_data ?? []);
+  let page = $state(1);
+  let pages = $state(1);
+  let loading = $state(false);
+  // svelte-ignore state_referenced_locally
+  let error = $state(_error);
 
-  const rows = $derived(paged?.rows ?? _data);
-  const offset = $derived(paged?.offset ?? _offset);
-  const hasMore = $derived(paged?.hasMore ?? _has_more);
-
-  const pageSize = $derived(_limit || rows.length || 20);
-
-  async function goto(nextOffset: number) {
-    if (!rowsUrl || paging) return;
-    paging = true;
-    pageError = '';
+  async function load(next: number) {
+    const url = listUrl({ collection, filters, sort_field, sort_dir, limit }, next);
+    if (!url || loading) return;
+    loading = true;
+    error = '';
     try {
-      const url = `${rowsUrl}${rowsUrl.includes('?') ? '&' : '?'}offset=${Math.max(0, nextOffset)}`;
-      const res = await fetch(url, { credentials: 'include' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      // A refusal is reported, not rendered as an empty page.
-      if (json.error) { pageError = json.error; return; }
-      paged = {
-        rows: json.data ?? [],
-        offset: json.offset ?? nextOffset,
-        hasMore: json.has_more === true,
-      };
+      const res = await fetchRows(url);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        error = json.error ?? `HTTP ${res.status}`;
+        return;
+      }
+      rows = json.records ?? [];
+      page = json.pagination?.page ?? next;
+      pages = json.pagination?.pages ?? 1;
     } catch {
-      pageError = 'Could not load more rows.';
+      error = 'Could not load the rows.';
     } finally {
-      paging = false;
+      loading = false;
     }
   }
+
+  onMount(() => {
+    if (_data === undefined && !_error) void load(1);
+  });
 
   /** Bookkeeping columns nobody asked to see when no field list was given. */
   const NOISE = new Set([
@@ -203,13 +186,13 @@
     <h3 class="text-lg font-semibold mb-3">{title}</h3>
   {/if}
 
-  {#if _error}
+  {#if error}
     <!--
       The server's refusal, shown rather than swallowed. An empty table reads as
       "no data", which is a different and misleading statement from "this is not
       yours to see" or "this collection is not published on this site".
     -->
-    <p class="text-sm opacity-60 border border-dashed rounded-lg p-4">{_error}</p>
+    <p class="text-sm opacity-60 border border-dashed rounded-lg p-4">{error}</p>
 
   {:else if rows.length === 0}
     <p class="text-sm opacity-50 border border-dashed rounded-lg p-4">
@@ -301,23 +284,18 @@
   {/if}
 
   <!--
-    Paging. Shown only when the host gave a `rowsUrl` and there is more than one
+    Paging. Shown only when there is more than one
     window — a block whose whole result fits in one page has no controls, which
     is most of them.
   -->
-  {#if rowsUrl && !_error && (hasMore || offset > 0)}
-    <nav class="flex items-center gap-2 mt-3 text-sm" aria-label="Pagination">
-      <button class="btn btn-sm btn-ghost" disabled={offset === 0 || paging}
-        onclick={() => goto(offset - pageSize)}>← Previous</button>
-      <span class="opacity-60">
-        {offset + 1}–{offset + rows.length}
-      </span>
-      <button class="btn btn-sm btn-ghost" disabled={!hasMore || paging}
-        onclick={() => goto(offset + pageSize)}>Next →</button>
-      {#if paging}<span class="opacity-50">…</span>{/if}
-    </nav>
-  {/if}
-  {#if pageError}
-    <p class="text-sm text-warning mt-2">{pageError}</p>
+  {#if !error && pages > 1}
+    <div class="flex items-center gap-2 mt-3 text-sm">
+      <button class="btn btn-sm btn-ghost" disabled={page <= 1 || loading}
+        onclick={() => load(page - 1)}>← Previous</button>
+      <span class="opacity-60">{page} / {pages}</span>
+      <button class="btn btn-sm btn-ghost" disabled={page >= pages || loading}
+        onclick={() => load(page + 1)}>Next →</button>
+      {#if loading}<span class="opacity-50">…</span>{/if}
+    </div>
   {/if}
 </section>
