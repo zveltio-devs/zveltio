@@ -15,11 +15,61 @@ import { NAME, filterJson } from './query.js';
 
 /** Any `fetch` for a path: the browser's, SvelteKit's `load` fetch, or a host wrapper. */
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
-// biome-ignore lint/suspicious/noExplicitAny: data API rows are untyped JSON
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+
+/** What `publish` puts in a publication's `content`. */
+type Content = {
+  blocks?: unknown;
+  meta?: { title?: string; description?: string; og_image?: string };
+  description?: string | null;
+  locale?: string | null;
+  popup_config?: Row;
+  record_collection?: string | null;
+  record_field?: string | null;
+  record_filter?: unknown;
+  meta_title?: string | null;
+  meta_description?: string | null;
+  og_image?: string | null;
+};
+
+type Publication = {
+  id: string;
+  page_id: string;
+  site_id: string;
+  slug: string;
+  title: string;
+  icon?: string | null;
+  parent_slug?: string | null;
+  is_homepage?: boolean;
+  is_noindex?: boolean;
+  sort_order?: number;
+  content?: Content;
+};
+
+export type Site = Row & {
+  id: string;
+  name: string;
+  site_name?: string | null;
+  site_logo_url?: string | null;
+  primary_color?: string | null;
+  custom_css?: string | null;
+};
+
+export type PageInfo = {
+  id: string;
+  title: string;
+  slug: string;
+  is_homepage: boolean;
+  description: string | null;
+  meta_title: string;
+  meta_description: string | null;
+  og_image: string | null;
+  noindex: boolean;
+  locale: string | null;
+};
 
 export type PagePayload = {
-  page: Row;
+  page: PageInfo;
   record: Row | null;
   site: { name: string; logo_url: string | null; primary_color: string | null; custom_css: string | null };
   blocks: unknown[];
@@ -38,7 +88,7 @@ export type NavItem = {
   children: NavItem[];
 };
 
-async function rows(f: Fetch, collection: string, filter: Row, extra = ''): Promise<Row[]> {
+async function rows<T = Row>(f: Fetch, collection: string, filter: Row, extra = ''): Promise<T[]> {
   const res = await f(`/api/data/${collection}?filter=${encodeURIComponent(JSON.stringify(filter))}${extra}`, {
     credentials: 'include',
   });
@@ -50,7 +100,7 @@ async function rows(f: Fetch, collection: string, filter: Row, extra = ''): Prom
 /** The id of the site named by `siteSlug`, `undefined` when none is named, `null` when it is not readable. */
 async function siteId(f: Fetch, siteSlug?: string): Promise<string | null | undefined> {
   if (!siteSlug) return undefined;
-  return (await rows(f, 'page_sites', { slug: siteSlug, is_active: true }, '&limit=1'))[0]?.id ?? null;
+  return (await rows<Site>(f, 'page_sites', { slug: siteSlug, is_active: true }, '&limit=1'))[0]?.id ?? null;
 }
 
 /**
@@ -68,11 +118,11 @@ export async function loadPage(
 
   // ponytail: without a site named, the first readable publication with the slug wins; name the site when one tenant runs several public sites.
   const pub = slug
-    ? (await rows(f, 'page_publications', { ...scope, slug }, '&limit=1'))[0]
-    : ((await rows(f, 'page_publications', { ...scope, is_homepage: true }, '&limit=1'))[0] ??
-      (await rows(f, 'page_publications', { ...scope, slug: 'home' }, '&limit=1'))[0]);
+    ? (await rows<Publication>(f, 'page_publications', { ...scope, slug }, '&limit=1'))[0]
+    : ((await rows<Publication>(f, 'page_publications', { ...scope, is_homepage: true }, '&limit=1'))[0] ??
+      (await rows<Publication>(f, 'page_publications', { ...scope, slug: 'home' }, '&limit=1'))[0]);
   if (!pub) return null;
-  const content: Row = pub.content ?? {};
+  const content: Content = pub.content ?? {};
 
   let record: Row | null = null;
   if (content.record_collection) {
@@ -88,10 +138,10 @@ export async function loadPage(
   }
 
   // A site switched off is not drawn; the visitor needs `read` on `page_sites` too.
-  const [siteRow] = await rows(f, 'page_sites', { id: pub.site_id, is_active: true }, '&limit=1');
+  const [siteRow] = await rows<Site>(f, 'page_sites', { id: pub.site_id, is_active: true }, '&limit=1');
   if (!siteRow) return null;
-  const popups = (await rows(f, 'page_publications', { site_id: pub.site_id, kind: 'popup' }, '&limit=50'))
-    .map((p) => ({ id: p.id, title: p.title, config: p.content?.popup_config ?? {}, blocks: p.content?.blocks ?? [] }))
+  const popups = (await rows<Publication>(f, 'page_publications', { site_id: pub.site_id, kind: 'popup' }, '&limit=50'))
+    .map((p) => ({ id: p.id, title: p.title, config: p.content?.popup_config ?? {}, blocks: Array.isArray(p.content?.blocks) ? p.content.blocks : [] }))
     .filter((p) => {
       const targets: unknown = p.config.targets;
       return !Array.isArray(targets) || targets.length === 0 || targets.includes(pub.slug);
@@ -124,7 +174,7 @@ export async function loadPage(
 
 /** The `main` and `footer` menus, empty when they are missing or not readable. */
 export async function loadMenus(f: Fetch): Promise<{ main: MenuItem[]; footer: MenuItem[] }> {
-  const list = await rows(f, 'page_menus', {}, '&limit=50');
+  const list = await rows<{ menu_key: string; items?: unknown }>(f, 'page_menus', {}, '&limit=50');
   const items = (key: string) => {
     const v = list.find((m) => m.menu_key === key)?.items;
     return Array.isArray(v) ? (v as MenuItem[]) : [];
@@ -137,11 +187,11 @@ export async function loadMenus(f: Fetch): Promise<{ main: MenuItem[]; footer: M
  * `sort_order`, children under their parent. `null` when the site is missing
  * or not readable.
  */
-export async function loadSite(f: Fetch, siteSlug: string): Promise<{ site: Row; nav: NavItem[] } | null> {
-  const [site] = await rows(f, 'page_sites', { slug: siteSlug, is_active: true }, '&limit=1');
+export async function loadSite(f: Fetch, siteSlug: string): Promise<{ site: Site; nav: NavItem[] } | null> {
+  const [site] = await rows<Site>(f, 'page_sites', { slug: siteSlug, is_active: true }, '&limit=1');
   if (!site) return null;
-  const pubs = await rows(f, 'page_publications', { site_id: site.id, kind: 'page' }, '&limit=500&sort=sort_order&order=asc');
-  const item = (p: Row): NavItem => ({
+  const pubs = await rows<Publication>(f, 'page_publications', { site_id: site.id, kind: 'page' }, '&limit=500&sort=sort_order&order=asc');
+  const item = (p: Publication): NavItem => ({
     id: p.page_id,
     title: p.title,
     slug: p.slug,

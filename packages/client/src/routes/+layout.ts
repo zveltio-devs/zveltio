@@ -68,7 +68,7 @@ export async function load({ fetch }) {
 
 function siteTokens(
   base: Theme | null,
-  site: { primary_color?: string; secondary_color?: string },
+  site: { primary_color?: string | null; secondary_color?: string | null },
 ): Theme {
   const colors = { ...base?.colors };
   if (site.primary_color) colors.primary = site.primary_color;
