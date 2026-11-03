@@ -835,7 +835,7 @@ export interface ZvImportLogsTable {
   collection: string;
   filename: string;
   file_format: Generated<'csv' | 'xlsx' | 'json' | 'ndjson'>;
-  status: Generated<'pending' | 'running' | 'processing' | 'completed' | 'failed' | 'partial'>;
+  status: Generated<'pending' | 'processing' | 'completed' | 'failed' | 'partial'>;
   total_rows: Generated<number>;
   processed_rows: Generated<number>;
   success_rows: Generated<number>;
@@ -849,9 +849,6 @@ export interface ZvImportLogsTable {
   format: Generated<'csv' | 'json' | 'ndjson'>;
   failed_rows: Generated<number>;
   imported_rows: Generated<number>;
-  profile_id: string | null;
-  on_duplicate: Generated<string>;
-  dry_run: Generated<boolean>;
 }
 
 export interface ZvInstancesTable {
@@ -1907,49 +1904,6 @@ export interface ZvdExportTemplatesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdImportMappingsTable {
-  id: Generated<string>;
-  name: string;
-  collection: string;
-  source_field: string;
-  target_field: string;
-  transform: string | null;
-  default_value: string | null;
-  is_required: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdImportProfilesTable {
-  id: Generated<string>;
-  name: string;
-  collection: string;
-  format: Generated<string>;
-  delimiter: Generated<string>;
-  has_header: Generated<boolean>;
-  encoding: Generated<string>;
-  on_duplicate: Generated<'skip' | 'update' | 'error'>;
-  mappings: Generated<unknown>;
-  description: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdImportRollbacksTable {
-  id: Generated<string>;
-  job_id: string;
-  record_ids: Generated<string[]>;
-  rolled_back_at: Date | null;
-  rolled_back_by: string | null;
-  status: Generated<'available' | 'rolled_back' | 'expired'>;
-  expires_at: Generated<Date>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdIncomingWebhooksTable {
   id: Generated<string>;
   connection_id: string | null;
@@ -2456,9 +2410,6 @@ export interface DbSchema {
   zvd_export_audit_log: ZvdExportAuditLogTable;
   zvd_export_jobs: ZvdExportJobsTable;
   zvd_export_templates: ZvdExportTemplatesTable;
-  zvd_import_mappings: ZvdImportMappingsTable;
-  zvd_import_profiles: ZvdImportProfilesTable;
-  zvd_import_rollbacks: ZvdImportRollbacksTable;
   zvd_incoming_webhooks: ZvdIncomingWebhooksTable;
   zvd_insight_saved_queries: ZvdInsightSavedQueriesTable;
   zvd_ldap_config: ZvdLdapConfigTable;
