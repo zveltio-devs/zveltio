@@ -49,6 +49,7 @@ d('data virtual list search and filters (in-process)', () => {
         fields: toJsonb([
           { name: 'title', type: 'text', required: false, unique: false, indexed: false },
           { name: 'score', type: 'number', required: false, unique: false, indexed: false },
+          { name: 'bucket', type: 'text', required: false, unique: false, indexed: false },
         ]),
       })
       .execute();
@@ -125,18 +126,36 @@ d('data virtual list search and filters (in-process)', () => {
     expect(body.records[0]?.title).toBe('filtered-row');
   });
 
+  // ADR 0019 decision 6: the bracket form was never read on a virtual list, so
+  // every filter in it was dropped and the upstream answered unfiltered.
+  it('reads the bracket form and refuses what it cannot apply', async () => {
+    originalFetch = globalThis.fetch;
+    let url = '';
+    globalThis.fetch = (async (u: string | URL) => {
+      url = String(u);
+      return { ok: true, status: 200, json: async () => ({ items: [], total: 0 }) };
+    }) as unknown as typeof fetch;
+    const ok = await app.request(`/api/data/${COLLECTION}?score[gt]=10`, { headers: { cookie } });
+    expect(ok.status).toBe(200);
+    expect(decodeURIComponent(url)).toContain('score[gt]=10');
+    for (const q of ['score[near]=1', 'ghost[eq]=1']) {
+      const res = await app.request(`/api/data/${COLLECTION}?${q}`, { headers: { cookie } });
+      expect(res.status).toBe(400);
+    }
+  });
+
   it('returns 502 when virtual source rejects an unsupported filter operator', async () => {
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
       throw new Error('should not fetch');
     }) as unknown as typeof fetch;
 
-    const filter = encodeURIComponent(JSON.stringify({ title: { like: 'x' } }));
+    const filter = encodeURIComponent(JSON.stringify({ title: { starts_with: 'x' } }));
     const res = await app.request(`/api/data/${COLLECTION}?filter=${filter}`, {
       headers: { cookie },
     });
     expect(res.status).toBe(502);
     const body = (await res.json()) as { detail?: string };
-    expect(body.detail).toContain('does not support operator "like"');
+    expect(body.detail).toContain('does not support operator "starts_with"');
   });
 });

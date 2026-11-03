@@ -162,11 +162,10 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
     await sameAsUnknown(COLLECTION, (f) => `${json({ [f]: { like: 'class' } })}&cursor=${cursor}`);
   });
 
-  it('bracket filter on a hidden column does not change the result', async () => {
-    const hit = await list(COLLECTION, 'secret[like]=class');
-    const miss = await list(COLLECTION, 'secret[like]=zebra');
-    expect(hit.status).toBe(200);
-    expect(hit.count).toBe(miss.count);
+  // The bracket form skipped it (count unchanged); since ADR 0019 decision 6 it
+  // is refused, with the answer an unknown column gets.
+  it('bracket filter on a hidden column is refused like an unknown column', async () => {
+    await sameAsUnknown(COLLECTION, (f) => `${f}[like]=class`);
   });
 
   it('sort on a hidden column is refused like an unknown column, offset and cursor', async () => {

@@ -1,5 +1,5 @@
 /**
- * Phase C — list handler ignores malformed ?filter JSON (handlers/list.ts virtual branch
+ * Phase C — list handler refuses malformed ?filter JSON (handlers/list.ts virtual branch
  * and physical collections via parseFilters).
  */
 
@@ -49,13 +49,23 @@ d('data list malformed filter JSON (in-process)', () => {
       .catch(() => {});
   });
 
-  it('still lists records when ?filter is not valid JSON', async () => {
+  // ADR 0019 decision 6: an unappliable filter is a 400, not every row.
+  it('refuses ?filter that is not valid JSON', async () => {
     const res = await app.request(
       `/api/data/${COLLECTION}?filter=${encodeURIComponent('{ not json')}`,
       { headers: { cookie } },
     );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { records: unknown[] };
-    expect(body.records.length).toBeGreaterThanOrEqual(1);
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses an unknown operator in either form instead of listing every row', async () => {
+    for (const q of [
+      'label[near]=1',
+      `filter=${encodeURIComponent('{"label":{"near":1}}')}`,
+      'ghost[eq]=1',
+    ]) {
+      const res = await app.request(`/api/data/${COLLECTION}?${q}`, { headers: { cookie } });
+      expect(res.status).toBe(400);
+    }
   });
 });

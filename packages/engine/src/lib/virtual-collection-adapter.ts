@@ -156,7 +156,10 @@ export function translateQuery(config: VirtualConfig, query: VirtualQuery): stri
 
   // Translate filters
   for (const filter of query.filters ?? []) {
-    if (supportedOps && !supportedOps.includes(filter.op)) {
+    // The list parser hands canonical operators: `like` arrives as `ilike`,
+    // and both translate the same below, so a config naming either admits both.
+    const named = filter.op === 'ilike' || filter.op === 'like' ? ['like', 'ilike'] : [filter.op];
+    if (supportedOps && !named.some((op) => supportedOps.includes(op))) {
       throw new Error(
         `Virtual source "${config.source_url}" does not support operator "${filter.op}" ` +
           `on field "${filter.field}". Supported operators: ${supportedOps.join(', ')}`,

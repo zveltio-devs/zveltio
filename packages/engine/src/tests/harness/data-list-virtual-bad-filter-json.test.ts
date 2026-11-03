@@ -1,5 +1,5 @@
 /**
- * Phase C — virtual list skips malformed filter JSON (handlers/list.ts catch branch).
+ * Phase C — virtual list refuses malformed filter JSON (handlers/list.ts catch branch).
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
@@ -67,7 +67,8 @@ d('data virtual list malformed filter JSON (in-process)', () => {
     DDLManager.invalidateCache(COLLECTION);
   });
 
-  it('returns 200 and lists upstream data when filter JSON is invalid', async () => {
+  // ADR 0019 decision 6: an unappliable filter is a 400, not the whole upstream list.
+  it('refuses filter JSON that is invalid', async () => {
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => ({
       ok: true,
@@ -79,9 +80,7 @@ d('data virtual list malformed filter JSON (in-process)', () => {
       `/api/data/${COLLECTION}?filter=${encodeURIComponent('{not-json')}`,
       { headers: { cookie } },
     );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { records: Array<{ title?: string }> };
-    expect(body.records[0]?.title).toBe('ok');
+    expect(res.status).toBe(400);
   });
   // An empty operator object (`{"id":{}}`) threw on the destructure into the
   // catch above, which dropped every filter after it: a BROADER result with a 200.

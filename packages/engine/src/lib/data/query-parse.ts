@@ -73,6 +73,12 @@ function mapOp(op: string): FilterCondition['op'] | undefined {
   return Object.hasOwn(OP_ALIAS, op) ? OP_ALIAS[op] : undefined;
 }
 
+const MALFORMED_FILTER = "Malformed filter: 'filter' must be a JSON object";
+const unknownOp = (field: string, op: string): ParseFiltersResult => ({
+  ok: false,
+  error: `Unknown filter operator: '${op}' on '${field}'`,
+});
+
 const BRACKET_RE = /^([a-zA-Z_][a-zA-Z0-9_]*)\[([a-zA-Z_]+)\]$/;
 const NUMERIC_OPS = new Set<FilterCondition['op']>(['gt', 'gte', 'lt', 'lte']);
 
@@ -102,9 +108,12 @@ export type ParseFiltersResult =
  * Several operators on one field (`?price[gt]=1&price[lt]=9`,
  * `{"price":{"gt":1,"lt":9}}`) are ANDed; the field then maps to an array.
  *
- * When both are provided for the same field, JSON takes precedence. An unknown
- * field in the JSON format is a hard 400 (returned via `error`); an unknown
- * field in the bracket format is silently skipped (legacy behaviour). */
+ * When both are provided for the same field, JSON takes precedence. A filter
+ * this function cannot apply — an unknown field or operator in either format,
+ * or a `filter` that is not a JSON object — is a 400 (returned via `error`),
+ * never skipped: a skipped filter answered with every row the caller may read,
+ * as if it had matched (ADR 0019 decision 6). An empty operator object
+ * (`{field: {}}`) asks for no condition and adds none. */
 export function parseFilters(
   queryParams: Record<string, string>,
   filterJson: string | undefined,
@@ -121,9 +130,9 @@ export function parseFilters(
     const m = BRACKET_RE.exec(paramKey);
     if (!m) continue;
     const [, field, op] = m;
-    if (!allowedCols.has(field)) continue; // silently skip unknown fields
+    if (!allowedCols.has(field)) return { ok: false, error: `Unknown filter field: '${field}'` };
     const mappedOp = mapOp(op);
-    if (!mappedOp) continue;
+    if (!mappedOp) return unknownOp(field, op);
     // Coerce numeric-looking values to numbers for comparison operators
     // A query string has no arrays, so `tag[in]=a,b` is the list a,b.
     const value =
@@ -137,29 +146,35 @@ export function parseFilters(
 
   // Format 1: JSON (overrides bracket for same field)
   if (filterJson) {
-    let raw: Record<string, JsonValue> | null = null;
+    let raw: unknown;
     try {
       raw = JSON.parse(filterJson);
     } catch {
-      /* malformed JSON — ignore */
+      return { ok: false, error: MALFORMED_FILTER };
     }
-    if (raw && typeof raw === 'object') {
-      for (const [key, value] of Object.entries(raw)) {
-        if (!allowedCols.has(key)) {
-          return { ok: false, error: `Unknown filter field: '${key}'` };
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      return { ok: false, error: MALFORMED_FILTER };
+    }
+    for (const [key, value] of Object.entries(raw as Record<string, JsonValue>)) {
+      if (!allowedCols.has(key)) {
+        return { ok: false, error: `Unknown filter field: '${key}'` };
+      }
+      if (typeof value === 'object' && value !== null) {
+        // `{field: {op: val, ...}}` — every operator applies, as in the
+        // bracket form; keeping only the first silently widened the result.
+        // No operator (`{field: {}}`) leaves the field as it was.
+        if (Array.isArray(value)) {
+          return { ok: false, error: `Filter on '${key}' is a list; use {"in": [...]}` };
         }
-        if (typeof value === 'object' && value !== null) {
-          // `{field: {op: val, ...}}` — every operator applies, as in the
-          // bracket form; keeping only the first silently widened the result.
-          // No known operator (`{field: {}}`) leaves the field as it was.
-          const conds = (Object.entries(value) as [string, JsonValue][]).flatMap(([op, val]) => {
-            const mappedOp = mapOp(op);
-            return mappedOp ? [{ op: mappedOp, value: val }] : [];
-          });
-          if (conds.length) filters[key] = conds.length === 1 ? conds[0] : conds;
-        } else {
-          filters[key] = { op: 'eq', value };
+        const conds: FilterCondition[] = [];
+        for (const [op, val] of Object.entries(value) as [string, JsonValue][]) {
+          const mappedOp = mapOp(op);
+          if (!mappedOp) return unknownOp(key, op);
+          conds.push({ op: mappedOp, value: val });
         }
+        if (conds.length) filters[key] = conds.length === 1 ? conds[0] : conds;
+      } else {
+        filters[key] = { op: 'eq', value };
       }
     }
   }

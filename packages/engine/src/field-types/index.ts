@@ -263,7 +263,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
         // In practice the data.ts route handles this specially
         return v;
       },
-      filterOperators: ['near', 'within', 'is_null', 'is_not_null'],
+      // Spatial operators arrive with ADR 0019 tier 1 (`near`, box `within`);
+      // advertising them before the data API compiles them was a promise
+      // the parser kept by dropping the filter.
+      filterOperators: ['is_null', 'is_not_null'],
     },
     typescript: {
       inputType: '{ lat: number; lng: number }',
@@ -521,7 +524,10 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       requiresExtensions: ['postgis'],
     },
     api: {
-      filterOperators: ['near', 'within', 'intersects', 'is_null', 'is_not_null'],
+      // Spatial operators arrive with ADR 0019 tier 1 (`near`, box `within`);
+      // advertising them before the data API compiles them was a promise
+      // the parser kept by dropping the filter.
+      filterOperators: ['is_null', 'is_not_null'],
     },
     typescript: {
       inputType: '{ type: string; coordinates: any }',

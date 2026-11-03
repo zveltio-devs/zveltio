@@ -317,7 +317,8 @@ d('data virtual collection (in-process)', () => {
     expect(body.success).toBe(true);
   });
 
-  it('ignores invalid virtual list filter JSON and still proxies', async () => {
+  // ADR 0019 decision 6: an unappliable filter is a 400, never an unfiltered proxy.
+  it('refuses invalid virtual list filter JSON', async () => {
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => ({
       ok: true,
@@ -331,8 +332,6 @@ d('data virtual collection (in-process)', () => {
     const res = await app.request(`/api/data/${COLLECTION}?filter=not-json`, {
       headers: { cookie },
     });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { records: Array<{ title?: string }> };
-    expect(body.records[0]?.title).toBe('ok');
+    expect(res.status).toBe(400);
   });
 });

@@ -27,10 +27,8 @@ describe('parseFilters — bracket null operators', () => {
     expect(r.filters.code).toEqual({ op: 'not_null', value: '1' });
   });
 
-  it('silently skips unknown fields in bracket syntax', () => {
+  it('refuses unknown fields in bracket syntax', () => {
     const r = parseFilters({ 'ghost[is_null]': 'true' }, undefined, cols);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.filters).toEqual({});
+    expect(r.ok).toBe(false);
   });
 });
