@@ -85,6 +85,8 @@ const QUERY_CALL =
  */
 type Decls = Map<string, ts.Node>;
 
+const EMPTY_CTORS = new Set(['Map', 'Set', 'Array', 'Object']);
+
 /** The value a handler hands back — data-shaped means invented. */
 function fabricated(e: ts.Expression, decls: Decls, depth = 0): boolean {
   while (
@@ -109,6 +111,22 @@ function fabricated(e: ts.Expression, decls: Decls, depth = 0): boolean {
   const k = e.kind;
   if (k === ts.SyntaxKind.NullKeyword || k === ts.SyntaxKind.TrueKeyword) return true;
   if (k === ts.SyntaxKind.FalseKeyword) return true;
+  // `new Map()`, `new Set()`: "there are none", the same claim as `[]`.
+  if (ts.isNewExpression(e) && ts.isIdentifier(e.expression) && !e.arguments?.length) {
+    return EMPTY_CTORS.has(e.expression.text);
+  }
+  // `Promise.resolve([])` from an async-looking handler is still `[]`.
+  if (
+    ts.isCallExpression(e) &&
+    e.arguments.length === 1 &&
+    e.expression.getText() === 'Promise.resolve'
+  ) {
+    return fabricated(e.arguments[0]!, decls, depth);
+  }
+  // `(err) => (missingTable(err) ? [] : [])`: every branch invents.
+  if (ts.isConditionalExpression(e)) {
+    return fabricated(e.whenTrue, decls, depth) && fabricated(e.whenFalse, decls, depth);
+  }
   // `() => EMPTY` where `const EMPTY = { rows: [] }` — the same value, one name away.
   if (ts.isIdentifier(e) && depth < 3) {
     const d = decls.get(e.text);
