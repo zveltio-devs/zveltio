@@ -45,8 +45,8 @@ import { withSavepoint } from '../savepoint.js';
 import {
   createRequestScopedDb,
   effectiveTimeZone,
+  beforeRequestTransactionEnds,
   publishApiKeyActor,
-  requestTransactionState,
   runOutsideTenantContext,
   withTenantIsolation,
 } from '../tenancy/index.js';
@@ -232,31 +232,41 @@ export async function enqueueFromPublicRoute(
         'only such a request enqueues from a route (an action enqueues with host.enqueue)',
     );
   }
-  // Work the handler left running after its answer: the transaction is gone.
-  if (requestTransactionState() !== 'open') refuse('its request is over');
   const def = registered.get(extName)?.jobs.get(job);
   if (def && !def.fromPublicRoutes.some((re) => re.test(req.sub))) {
     refuse(`its manifest does not name this route (${req.sub}) in the job's fromPublicRoutes`);
   }
-  const enqueuedBy = `ext:${extName}:route`;
-  const id = await sendJob(extName, job, input, refuse, req.trx, req.tenantId, enqueuedBy, null);
-  const { trx } = req;
-  // `sendJob` refused a request without one; a failed audit INSERT must not abort the request.
-  if (trx) {
-    await withSavepoint(
-      trx,
-      'route_enqueue_audit',
-      () =>
-        auditLog(trx, {
-          type: 'extension.job.enqueued',
-          resourceType: 'extension_job',
-          resourceId: `${extName}:${job}`,
-          metadata: { extension: `ext:${extName}`, job, jobId: id, enqueuedBy, route: req.sub },
-        }),
-      () => undefined,
-    );
+  // Held open until the enqueue is done, before its first await: one the
+  // handler did not await would otherwise send its INSERT after the COMMIT.
+  // Refused once the request is ending (work left running after its answer).
+  let done = () => {};
+  const held = new Promise<void>((resolve) => {
+    done = resolve;
+  });
+  if (!beforeRequestTransactionEnds(() => held)) refuse('its request is over');
+  try {
+    const enqueuedBy = `ext:${extName}:route`;
+    const id = await sendJob(extName, job, input, refuse, req.trx, req.tenantId, enqueuedBy, null);
+    const { trx } = req;
+    // `sendJob` refused a request without one; a failed audit INSERT must not abort the request.
+    if (trx) {
+      await withSavepoint(
+        trx,
+        'route_enqueue_audit',
+        () =>
+          auditLog(trx, {
+            type: 'extension.job.enqueued',
+            resourceType: 'extension_job',
+            resourceId: `${extName}:${job}`,
+            metadata: { extension: `ext:${extName}`, job, jobId: id, enqueuedBy, route: req.sub },
+          }),
+        () => undefined,
+      );
+    }
+    return id;
+  } finally {
+    done();
   }
-  return id;
 }
 
 /** The enqueue both doors share: the job, its capability, its input, then pg-boss's INSERT on `trx`. */

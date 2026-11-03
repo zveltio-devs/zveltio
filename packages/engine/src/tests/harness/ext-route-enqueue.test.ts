@@ -62,6 +62,9 @@ d('a public route enqueues a job that writes a writtenBy collection (ADR 0018)',
   let kept: Context | undefined;
   /** An enqueue the handler left running after its answer. */
   let late: Promise<string> | undefined;
+  /** An enqueue the handler did not await, and whether it settled. */
+  let inflight: Promise<string> | undefined;
+  let inflightSettled = false;
 
   function loader(ctx: ExtensionContext): ExtensionLoader {
     return {
@@ -128,6 +131,15 @@ d('a public route enqueues a job that writes a writtenBy collection (ADR 0018)',
     r.post('/webhooks/late', (c) => {
       late = Bun.sleep(300).then(() => ctx.internals!.enqueue!(c, 'ingest', { label: 'late' }));
       late.catch(() => {});
+      return c.json({});
+    });
+    r.post('/webhooks/inflight', async (c) => {
+      const body = await c.req.json();
+      inflightSettled = false;
+      inflight = ctx.internals!.enqueue!(c, 'ingest', body).finally(() => {
+        inflightSettled = true;
+      });
+      inflight.catch(() => {});
       return c.json({});
     });
     r.post('/webhooks/stale', async (c) => {
@@ -217,13 +229,25 @@ d('a public route enqueues a job that writes a writtenBy collection (ADR 0018)',
     };
     const manifest = (permissions: string[]) => ({
       permissions,
-      publicRoutes: ['/webhooks/*', '/webhooks/in', '/webhooks/throw', '/webhooks/late', '/open'],
+      publicRoutes: [
+        '/webhooks/*',
+        '/webhooks/in',
+        '/webhooks/throw',
+        '/webhooks/late',
+        '/webhooks/inflight',
+        '/open',
+      ],
       jobs: [
         {
           name: 'ingest',
           input: labelInput,
           writes: [W],
-          fromPublicRoutes: ['/webhooks/in', '/webhooks/throw', '/webhooks/late'],
+          fromPublicRoutes: [
+            '/webhooks/in',
+            '/webhooks/throw',
+            '/webhooks/late',
+            '/webhooks/inflight',
+          ],
           retry: { limit: 0 },
         },
         { name: 'internal', input: labelInput, writes: [W], retry: { limit: 0 } },
@@ -346,6 +370,16 @@ d('a public route enqueues a job that writes a writtenBy collection (ADR 0018)',
     expect((await post(EXT, '/webhooks/late', {})).status).toBe(200);
     await expect(late!).rejects.toThrow('its request is over');
     expect(await queued(EXT, 'ingest', 'late')).toBe(0);
+  });
+
+  it('an enqueue the handler did not await holds the transaction until it is done', async () => {
+    expect((await post(EXT, '/webhooks/inflight', { label: 'hook-inflight' })).status).toBe(200);
+    // Settled before the answer: the request's COMMIT waited for it, so its
+    // INSERT and its audit row landed on the open transaction, not after it.
+    expect(inflightSettled).toBe(true);
+    const id = await inflight!;
+    expect(await queued(EXT, 'ingest', 'hook-inflight')).toBe(1);
+    expect(await audit('extension.job.enqueued', id)).toHaveLength(1);
   });
 
   it('refuses an extension without data:system', async () => {
