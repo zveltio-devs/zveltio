@@ -88,6 +88,15 @@ describe('parseFilters — bracket format', () => {
     }
   });
 
+  it('a bracket key it cannot parse is a typed error, not skipped', () => {
+    for (const key of ['my-field[near]', 'a[gt][x]', '1a[eq]', 'a[]']) {
+      const r = parseFilters({ [key]: '1' }, undefined, cols);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toBe(`Malformed filter key: '${key}'`);
+    }
+    expect(parseFilters({ limit: '5' }, undefined, cols).ok).toBe(true);
+  });
+
   it('JSON overrides bracket for the same field', () => {
     const r = parseFilters({ 'a[gt]': '5' }, '{"a": "json"}', cols);
     expect(r.ok).toBe(true);

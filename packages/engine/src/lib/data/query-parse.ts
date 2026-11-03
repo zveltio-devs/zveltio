@@ -175,7 +175,11 @@ export function parseFilters(
   // Format 2: bracket syntax — parse before JSON so JSON can override
   for (const [paramKey, paramVal] of Object.entries(queryParams)) {
     const m = BRACKET_RE.exec(paramKey);
-    if (!m) continue;
+    if (!m) {
+      // `my-field[near]`, `a[b][c]`: shaped like a filter but unparseable.
+      if (paramKey.includes('[')) return { ok: false, error: `Malformed filter key: '${paramKey}'` };
+      continue;
+    }
     const [, field, op] = m;
     if (!allowedCols.has(field)) return { ok: false, error: `Unknown filter field: '${field}'` };
     const mappedOp = mapOp(op);
