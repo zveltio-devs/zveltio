@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 564
+# tables: 563
 
 table account
   col accessToken                    text
@@ -4852,56 +4852,31 @@ table zvd_geo_location_history
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('geo_location_history'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('geo_location_history'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('geo_location_history'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_graphql_field_policies
-  col allowed_roles                  ARRAY NOT NULL DEFAULT '{}'::text[]
-  col collection                     text NOT NULL
+table zvd_graphql_queries
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col deny_roles                     ARRAY NOT NULL DEFAULT '{}'::text[]
-  col field                          text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  uq  zvd_graphql_field_policies_collection_field_key UNIQUE (tenant_id, collection, field)
-  pk  zvd_graphql_field_policies_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_graphql_field_policies FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_graphql_operation_logs
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col duration_ms                    integer
-  col error_count                    integer NOT NULL DEFAULT 0
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col ip                             text
-  col operation_name                 text
-  col operation_type                 text NOT NULL DEFAULT 'query'::text
-  col query_hash                     text NOT NULL
-  col result_size_bytes              integer
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text
-  col variables                      jsonb
-  ck  zvd_graphql_operation_logs_operation_type_check CHECK ((operation_type = ANY (ARRAY['query'::text, 'mutation'::text, 'subscription'::text])))
-  pk  zvd_graphql_operation_logs_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_graphql_operation_logs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_graphql_persisted_queries
-  col allowed_roles                  ARRAY NOT NULL DEFAULT '{}'::text[]
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
+  col created_by                     text
   col description                    text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_public                      boolean NOT NULL DEFAULT false
-  col last_used_at                   timestamp with time zone
   col name                           text NOT NULL
   col query                          text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col use_count                      integer NOT NULL DEFAULT 0
+  col updated_by                     text
   col variables_schema               jsonb
-  uq  zvd_graphql_persisted_queries_name_key UNIQUE (tenant_id, name)
-  pk  zvd_graphql_persisted_queries_pkey PRIMARY KEY (id)
+  fk  zvd_graphql_queries_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_graphql_queries_pkey PRIMARY KEY (id)
+  uq  zvd_graphql_queries_tenant_id_name_key UNIQUE (tenant_id, name)
+  fk  zvd_graphql_queries_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_graphql_persisted_queries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('graphql_queries'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('graphql_queries'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('graphql_queries'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('graphql_queries'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('graphql_queries'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_i18n_approvals
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -10338,6 +10313,20 @@ table zvv_geo_location_history
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
+
+table zvv_graphql_queries
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col id                             uuid
+  col name                           text
+  col query                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col variables_schema               jsonb
 
 table zvv_i18n_approvals
   col created_at                     timestamp with time zone
