@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import type { Database } from '../db/index.js';
 import type { RequestUser } from '../lib/data/types.js';
-import { authenticate, requestApiKey } from '../lib/data/auth.js';
+import { authenticate } from '../lib/data/auth.js';
+import { hasSessionCookie, sessionCookieName } from '../middleware/session-prefetch.js';
 import { ANONYMOUS_SUBJECT } from '../lib/tenancy/index.js';
 import { anonymousReadRateLimit } from '../middleware/rate-limit.js';
 import { QuerySchema } from '../lib/data/query-parse.js';
@@ -29,6 +30,7 @@ declare module 'hono' {
 // biome-ignore lint/suspicious/noExplicitAny: better-auth instance — no exported type, mirrors the loader's documented survivor; tracked in hardening plan item H-05
 export function dataRoutes(db: Database, auth: any): Hono {
   const app = new Hono();
+  const cookieName = sessionCookieName(auth?.options);
 
   // Auth middleware
   app.use('*', async (c, next) => {
@@ -42,10 +44,15 @@ export function dataRoutes(db: Database, auth: any): Hono {
     // row rules and column permissions like any role (ADR 0017); it has none
     // until an operator grants them. Never a write, never without the tenant
     // transaction that publishes that identity to the database, and never for a
-    // request that presented a key: a refused key is a 401, not a visitor.
+    // request that presented a credential: a refused key, a signed-out or forged
+    // session cookie, or any Authorization header is a 401, not a visitor — the
+    // SDK sends its client to sign in only on a 401.
     const read = c.req.method === 'GET' || c.req.method === 'HEAD';
-    const keyPresented = !!c.req.header('x-api-key') || requestApiKey(c) !== null;
-    if (!read || keyPresented || !c.get('tenantTrx')) {
+    const credentialPresented =
+      !!c.req.header('authorization') ||
+      !!c.req.header('x-api-key') ||
+      hasSessionCookie(c.req.raw.headers, cookieName);
+    if (!read || credentialPresented || !c.get('tenantTrx')) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     const limited = await anonymousReadRateLimit(c, async () => undefined);
