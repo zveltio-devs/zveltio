@@ -105,19 +105,21 @@ d('text filter operators (in-process)', () => {
     });
   }
 
-  // An operator the API does not know is skipped. The operator table is an
+  // An operator the API does not know is refused (400). It was skipped, which
+  // listed every row, until ADR 0019 decision 6. The operator table is an
   // object literal, so a name it inherits from Object.prototype used to look
   // known: the filter carried a function as its operator and the list answered 500.
   for (const op of ['bogus', 'constructor', 'toString', '__proto__', 'hasOwnProperty']) {
-    it(`data API: an unknown operator ${op} is skipped, bracket and JSON`, async () => {
-      const all = [...LABELS, null].sort();
-      expect(await viaApi(op, 'x')).toEqual(all);
-      const qs = new URLSearchParams({
+    it(`data API: an unknown operator ${op} is refused, bracket and JSON`, async () => {
+      const bracket = new URLSearchParams({ [`label[${op}]`]: 'x', limit: '100' });
+      const json = new URLSearchParams({
         filter: JSON.stringify({ label: { [op]: 'x' } }),
         limit: '100',
       });
-      const res = await app.request(`/api/data/${COLLECTION}?${qs}`, { headers: { cookie } });
-      expect(await labels(res)).toEqual(all);
+      for (const qs of [bracket, json]) {
+        const res = await app.request(`/api/data/${COLLECTION}?${qs}`, { headers: { cookie } });
+        expect(res.status).toBe(400);
+      }
     });
   }
 
