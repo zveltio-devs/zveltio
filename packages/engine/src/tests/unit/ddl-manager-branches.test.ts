@@ -30,14 +30,20 @@ beforeEach(() => {
 });
 
 describe('createCollection — relation + extension branches', () => {
-  it('creates postgis extension for location fields', async () => {
+  it('creates postgis extension for geometry fields, not for location', async () => {
     const db = setup();
     await DDLManager.createCollection(asDb(db), {
       name: 'places',
       fields: [TEXT, { name: 'coords', type: 'location', required: false }],
     } as never);
-    expect(db.executed(/CREATE EXTENSION IF NOT EXISTS "postgis"/)).toHaveLength(1);
+    // ADR 0019 tier 1: `location` is a native point.
+    expect(db.executed(/CREATE EXTENSION/)).toHaveLength(0);
     expect(db.executed(/CREATE TABLE zvd_places/)).toHaveLength(1);
+    await DDLManager.createCollection(asDb(db), {
+      name: 'shapes',
+      fields: [TEXT, { name: 'area', type: 'geometry', required: false }],
+    } as never);
+    expect(db.executed(/CREATE EXTENSION IF NOT EXISTS "postgis"/)).toHaveLength(1);
   });
 
   it('skips m2o when target collection name is unsafe', async () => {

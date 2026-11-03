@@ -16,7 +16,9 @@ it('every advertised operator of a core field type parses', () => {
   const refused: string[] = [];
   for (const t of registry.getAll()) {
     for (const op of t.api.filterOperators ?? []) {
-      if (!parseFilters({ [`f[${op}]`]: 'x' }, undefined, new Set(['f'])).ok) {
+      const value = op === 'near' ? '44.4,26.1,500' : op === 'within' ? '44,26,45,27' : 'x';
+      const geo = new Set(t.type === 'location' ? ['f'] : []);
+      if (!parseFilters({ [`f[${op}]`]: value }, undefined, new Set(['f']), geo).ok) {
         refused.push(`${t.type}:${op}`);
       }
     }

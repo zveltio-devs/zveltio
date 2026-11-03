@@ -10,7 +10,7 @@
  */
 
 import { z } from 'zod';
-import type { FilterCondition } from '../../db/dynamic.js';
+import { type FilterCondition, toBox, toNear } from '../../db/dynamic.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { normalizeFields } from './shape.js';
 import type { CollectionDef, JsonValue } from './types.js';
@@ -63,6 +63,8 @@ const OP_ALIAS: Record<string, FilterCondition['op']> = {
   is_null: 'null',
   not_null: 'not_null',
   is_not_null: 'not_null',
+  near: 'near',
+  within: 'within',
 };
 
 /** The canonical op for a client-facing name, or undefined. Own keys only: a
@@ -78,6 +80,39 @@ const unknownOp = (field: string, op: string): ParseFiltersResult => ({
   ok: false,
   error: `Unknown filter operator: '${op}' on '${field}'`,
 });
+
+/** The operators a `location` column answers, and the only place `near` and
+ * `within` apply: comparing a point with `=` or `LIKE` is a 500. */
+const GEO_OPS = new Set<FilterCondition['op']>(['near', 'within']);
+const LOCATION_OPS = new Set<FilterCondition['op']>(['near', 'within', 'null', 'not_null']);
+
+/** `near`/`within` from the bracket string (`lat,lng,radius`,
+ * `minLat,minLng,maxLat,maxLng`) or the JSON object, checked; null if bad. */
+function geoValue(op: FilterCondition['op'], raw: unknown): unknown {
+  if (typeof raw === 'string') {
+    const n = raw.split(',').map((p) => (p.trim() === '' ? Number.NaN : Number(p)));
+    raw =
+      op === 'near'
+        ? n.length === 3 && { lat: n[0], lng: n[1], radius: n[2] }
+        : n.length === 4 && { minLat: n[0], minLng: n[1], maxLat: n[2], maxLng: n[3] };
+  }
+  return op === 'near' ? toNear(raw) : toBox(raw);
+}
+
+const GEO_FORMAT: Record<string, string> = {
+  near: '{"lat","lng","radius"} (metres) or lat,lng,radius',
+  within:
+    '{"minLat","minLng","maxLat","maxLng"} or minLat,minLng,maxLat,maxLng, not crossing the antimeridian',
+};
+
+/** The `location` columns of a collection: the ones `near`/`within` apply to. */
+export function buildLocationCols(collectionDef: CollectionDef | null | undefined): Set<string> {
+  return new Set(
+    normalizeFields(collectionDef)
+      .filter((f) => f.name && f.type === 'location')
+      .map((f) => f.name),
+  );
+}
 
 const BRACKET_RE = /^([a-zA-Z_][a-zA-Z0-9_]*)\[([a-zA-Z_]+)\]$/;
 const NUMERIC_OPS = new Set<FilterCondition['op']>(['gt', 'gte', 'lt', 'lte']);
@@ -118,11 +153,23 @@ export function parseFilters(
   queryParams: Record<string, string>,
   filterJson: string | undefined,
   allowedCols: Set<string>,
+  locationCols: Set<string> = new Set(),
 ): ParseFiltersResult {
   const filters: Record<string, FilterCondition | FilterCondition[]> = {};
   const add = (field: string, cond: FilterCondition) => {
     const prev = filters[field];
     filters[field] = prev ? [prev, cond].flat() : cond;
+  };
+  /** A geo operator on a non-`location` field, a non-geo one on a `location`
+   * field, or a malformed geo value: the error, else null. */
+  const geoError = (field: string, op: string, mapped: FilterCondition['op'], value: unknown) => {
+    if (locationCols.has(field) ? !LOCATION_OPS.has(mapped) : GEO_OPS.has(mapped)) {
+      return `Filter operator '${op}' does not apply to '${field}'`;
+    }
+    if (GEO_OPS.has(mapped) && value === null) {
+      return `Malformed '${op}' on '${field}': ${GEO_FORMAT[mapped]}`;
+    }
+    return null;
   };
 
   // Format 2: bracket syntax — parse before JSON so JSON can override
@@ -135,12 +182,15 @@ export function parseFilters(
     if (!mappedOp) return unknownOp(field, op);
     // Coerce numeric-looking values to numbers for comparison operators
     // A query string has no arrays, so `tag[in]=a,b` is the list a,b.
-    const value =
-      mappedOp === 'in' || mappedOp === 'not_in'
+    const value = GEO_OPS.has(mappedOp)
+      ? geoValue(mappedOp, paramVal)
+      : mappedOp === 'in' || mappedOp === 'not_in'
         ? paramVal.split(',')
         : NUMERIC_OPS.has(mappedOp) && paramVal !== '' && !Number.isNaN(Number(paramVal))
           ? Number(paramVal)
           : paramVal;
+    const bad = geoError(field, op, mappedOp, value);
+    if (bad) return { ok: false, error: bad };
     add(field, { op: mappedOp, value });
   }
 
@@ -170,10 +220,15 @@ export function parseFilters(
         for (const [op, val] of Object.entries(value) as [string, JsonValue][]) {
           const mappedOp = mapOp(op);
           if (!mappedOp) return unknownOp(key, op);
-          conds.push({ op: mappedOp, value: val });
+          const value = GEO_OPS.has(mappedOp) ? geoValue(mappedOp, val) : val;
+          const bad = geoError(key, op, mappedOp, value);
+          if (bad) return { ok: false, error: bad };
+          conds.push({ op: mappedOp, value });
         }
         if (conds.length) filters[key] = conds.length === 1 ? conds[0] : conds;
       } else {
+        const bad = geoError(key, 'eq', 'eq', value);
+        if (bad) return { ok: false, error: bad };
         filters[key] = { op: 'eq', value };
       }
     }

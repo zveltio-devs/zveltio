@@ -37,7 +37,7 @@ import {
   computeEtag,
   normalizeFields,
 } from '../shape.js';
-import { buildAllowedCols, parseFilters, decodeCursor } from '../query-parse.js';
+import { buildAllowedCols, buildLocationCols, parseFilters, decodeCursor } from '../query-parse.js';
 import type { ParsedQuery } from '../query-parse.js';
 import { getDb, getTenantId, selectReadable, getVirtualConfig } from '../write-pipeline.js';
 import { checkAccess } from '../auth.js';
@@ -322,12 +322,17 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     : searchable.filter(scope.readable);
 
   // Parse filters — bracket + JSON formats (JSON wins on the same field).
-  const parsed = parseFilters(c.req.query(), query.filter, allowedCols);
+  const locationCols = buildLocationCols(collectionDef);
+  const parsed = parseFilters(c.req.query(), query.filter, allowedCols, locationCols);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
   const filters = parsed.filters;
 
   if (query.sort && !allowedCols.has(query.sort)) {
     return c.json({ error: `Unknown sort field: '${query.sort}'` }, 400);
+  }
+  // A point has no ordering operator: `ORDER BY loc` was a 500.
+  if (query.sort && locationCols.has(query.sort)) {
+    return c.json({ error: `Cannot sort by '${query.sort}': a location has no order` }, 400);
   }
 
   // ── RLS injection ──────────────────────────────────────────────
