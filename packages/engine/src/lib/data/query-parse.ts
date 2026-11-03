@@ -249,10 +249,17 @@ export interface DecodedCursor {
   val: JsonValue;
 }
 
-/** Decode a base64url cursor into `{ id, val }`. Returns null when the cursor
- * is missing, malformed, or lacks a usable id/val (caller falls back to
- * offset pagination). */
-export function decodeCursor(cursor: string | undefined): DecodedCursor | null {
+/**
+ * The cursor of a first page on which entity access left no row: the walk
+ * resumes from the start, since the only position after that page is a row the
+ * caller may not see. `{"start":true}`, base64url.
+ */
+export const START_CURSOR = Buffer.from('{"start":true}').toString('base64url');
+
+/** Decode a base64url cursor into `{ id, val }`, or `'start'` for
+ * `START_CURSOR`. Returns null when the cursor is missing, malformed, or lacks
+ * a usable id/val (caller falls back to offset pagination). */
+export function decodeCursor(cursor: string | undefined): DecodedCursor | 'start' | null {
   if (!cursor) return null;
   let decoded: unknown;
   try {
@@ -270,7 +277,8 @@ export function decodeCursor(cursor: string | undefined): DecodedCursor | null {
   // malformed cursor by this function's contract, so all of them take the same
   // offset fallback.
   if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) return null;
-  const { id, val } = decoded as { id?: unknown; val?: JsonValue };
+  const { id, val, start } = decoded as { id?: unknown; val?: JsonValue; start?: unknown };
+  if (start === true) return 'start';
   if (typeof id === 'string' && id && val !== undefined) return { id, val };
   return null;
 }

@@ -627,7 +627,11 @@ export async function dynamicSelect(
 
   // Sort + pagination apply only to the rows query.
   const sortField = sanitizeIdentifier(sort?.field ?? 'created_at');
-  qb = qb.orderBy(sortField, sort?.direction === 'asc' ? 'asc' : 'desc');
+  const direction = sort?.direction === 'asc' ? 'asc' : 'desc';
+  // `id` breaks ties as the list's keyset cursor does, or a cursor taken from
+  // this page skipped or repeated the rows tied with its last one.
+  qb = qb.orderBy(sortField, direction);
+  if (sortField !== 'id') qb = qb.orderBy('id', direction);
   // One extra row when the count is skipped — that row IS the "has more" answer.
   qb = qb.limit(skipCount ? limit + 1 : limit).offset(offset);
 
