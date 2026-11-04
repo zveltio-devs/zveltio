@@ -49,7 +49,7 @@ The engine ships with everything every business application needs. Activate plug
 | **Real-time** | WebSocket + Postgres LISTEN/NOTIFY. Live updates without polling. |
 | **File storage** | Local filesystem by default, zero dependencies. Any S3-compatible backend optional (AWS, MinIO, R2, or the bundled SeaweedFS). |
 | **Audit trail** | Every write logged (who, what, when, where). GDPR-ready right-to-erasure. |
-| **Edge functions** | The engine runs them; authoring them is the `developer/edge-functions` extension. TypeScript for custom serverless logic, written by instance admins. Runs in a **separate process per invocation** by default, with a minimal environment (`NODE_ENV` only) so engine credentials are never visible to it, plus SSRF-filtered network access and a hard wall-clock kill. There is no in-process mode: the Worker runner was removed once measurement showed it could not be given a memory ceiling and was slower than a pre-spawned process. |
+| **Edge functions** | The engine runs them and administers them (`/api/edge-functions`, Studio **Developer → Edge Functions**). TypeScript for custom serverless logic, written by instance admins. Runs in a **separate process per invocation** by default, with a minimal environment (`NODE_ENV` only) so engine credentials are never visible to it, plus SSRF-filtered network access and a hard wall-clock kill. There is no in-process mode: the Worker runner was removed once measurement showed it could not be given a memory ceiling and was slower than a pre-spawned process. |
 | **Automation flows** | Visual trigger → step builder with DLQ retry and idempotency. |
 | **Webhooks** | HMAC-signed outbound webhooks on data changes. |
 | **Multi-tenancy** | Isolated tenants with environment branching. |
@@ -82,7 +82,6 @@ Activate the bundled plugins for the SaaS subscriptions you'd rather not pay for
 | Cloud point of sale | `operations/pos` — point of sale + inventory + procurement |
 | Work-management approvals | `workflow/approvals` — multi-step approval chains, SLA tracking |
 | Document template tools | `content/document-templates` — HTML/PDF template engine |
-| Serverless functions | `developer/edge-functions` — admin-authored TypeScript functions |
 | Headless CMS / site builder | `content/pages` — block-based pages and sites with headless API |
 | Hosted AI assistants | `ai` — multi-provider, native to your data |
 
@@ -143,7 +142,7 @@ See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extens
 
 **Communications & HR** · `communications/mail` · `sms` · `hr/employees` · `hr/time-tracking` · `hr/leave` · `hr/payroll`
 
-**Developer & Integrations** · `developer/edge-functions` · `developer/graphql` · `developer/api-docs` · `developer/byod` (import tables from an existing database) · `developer/validation` · `integrations/api-connector` · `integrations/migrators` (HubSpot, Notion, Airtable)
+**Developer & Integrations** · `developer/graphql` · `developer/api-docs` · `developer/byod` (import tables from an existing database) · `developer/validation` · `integrations/api-connector` · `integrations/migrators` (HubSpot, Notion, Airtable)
 
 **Intelligence** · `ai` (multi-provider) · `analytics/dashboard` (per-role home dashboards) · `analytics/quality`
 

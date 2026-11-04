@@ -733,10 +733,10 @@ export interface ZvEdgeFunctionsTable {
   display_name: string | null;
   description: string | null;
   code: string;
-  runtime: string;
+  runtime: Generated<string>;
   http_method: string;
   path: string;
-  is_active: boolean;
+  is_active: Generated<boolean>;
   timeout_ms: number;
   env_vars: unknown; // JSONB
   /** Hosts the function may reach (061); NULL declares nothing. */
@@ -750,7 +750,7 @@ export interface ZvEdgeFunctionLogsTable {
   id: Generated<string>;
   tenant_id: Generated<string>;
   function_id: string;
-  status: string;
+  status: number;
   duration_ms: number | null;
   request_body: unknown; // JSONB
   response_body: unknown; // JSONB

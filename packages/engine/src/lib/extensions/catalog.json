@@ -303,16 +303,6 @@
       "permissions": ["database"]
     },
     {
-      "name": "developer/edge-functions",
-      "displayName": "Edge Functions",
-      "description": "Write and deploy TypeScript serverless functions directly inside the engine with a sandboxed runtime",
-      "category": "developer",
-      "version": "1.0.0",
-      "author": "Zveltio",
-      "tags": ["functions", "serverless", "typescript"],
-      "permissions": ["database"]
-    },
-    {
       "name": "developer/graphql",
       "displayName": "GraphQL API",
       "description": "Auto-generated GraphQL API with playground for all collections",

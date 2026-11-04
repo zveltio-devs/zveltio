@@ -42,6 +42,10 @@ export type AuditEventType =
   // authenticated invocations are attributable by their user and these are not
   // attributable by anything but time and address.
   | 'edge_function.invoked_anonymously'
+  // Saving a function's `egress` approves what it may reach; deleting it
+  // removes a deployed endpoint. Both name who did it.
+  | 'edge_function.egress_changed'
+  | 'edge_function.deleted'
   | 'sql.executed'
   // Its own event, not a field on `sql.executed`. Someone asking who changed
   // the data should be able to filter for it, rather than read every ad-hoc

@@ -1,15 +1,17 @@
 <script lang="ts">
 /**
- * Edge function IDE — list, edit source, save, invoke.
+ * Edge functions — list, edit source and network access, save, test-run,
+ * delete. The engine's `/api/edge-functions` (tenant admins); a saved function
+ * is served at `/api/fn/:name`.
  */
-import { Play, Save, Plus } from '@lucide/svelte';
+import { Play, Save, Plus, Trash2 } from '@lucide/svelte';
 import { api } from '#lib/api.js';
 import { toast } from '#lib/stores/toast.svelte.js';
 
-const API = '/ext/developer/edge-functions';
+const API = '/api/edge-functions';
 
 type FnMeta = { id: string; name: string; is_active?: boolean; description?: string | null };
-type FnFull = FnMeta & { code?: string | null; egress?: string[] | null };
+type FnFull = FnMeta & { code?: string | null; egress?: string[] | null; path?: string };
 
 /**
  * What the function may reach — its `egress`. Saving it is the approval, so the
@@ -23,6 +25,8 @@ let list = $state<FnMeta[]>([]);
 let activeId = $state<string | null>(null);
 let code = $state('export default async function handler(ctx) {\n  return { ok: true };\n}\n');
 let name = $state('');
+let path = $state('');
+let isActive = $state(true);
 let egressMode = $state<EgressMode>('undeclared');
 let egressHosts = $state('');
 let invokeBody = $state('{}');
@@ -39,8 +43,7 @@ const egressPayload = $derived(
 async function loadList(): Promise<void> {
   loading = true;
   try {
-    const r = await api.get<{ functions?: FnMeta[]; data?: FnMeta[] }>(API);
-    list = r.functions ?? r.data ?? (Array.isArray(r) ? (r as FnMeta[]) : []);
+    list = (await api.get<{ functions: FnMeta[] }>(API)).functions;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to load');
     list = [];
@@ -50,11 +53,14 @@ async function loadList(): Promise<void> {
 }
 
 async function openFn(id: string): Promise<void> {
-  activeId = id;
   try {
-    const r = await api.get<{ function?: FnFull } | FnFull>(`${API}/${id}`);
-    const fn = (r as { function?: FnFull }).function ?? (r as FnFull);
-    name = fn.name ?? '';
+    const fn = (await api.get<{ function: FnFull }>(`${API}/${id}`)).function;
+    // Only now: a failed fetch must not leave another function's code and
+    // egress in the form under this id, where Save would write them.
+    activeId = id;
+    name = fn.name;
+    path = fn.path ?? '';
+    isActive = fn.is_active !== false;
     code = fn.code ?? '';
     egressMode = fn.egress == null ? 'undeclared' : fn.egress.length ? 'hosts' : 'none';
     egressHosts = (fn.egress ?? []).join(', ');
@@ -68,13 +74,12 @@ async function createFn(): Promise<void> {
   const n = prompt('Function name (slug)');
   if (!n?.trim()) return;
   try {
-    const r = await api.post<{ function?: FnFull }>(API, {
+    const r = await api.post<{ function: FnFull }>(API, {
       name: n.trim(),
       code: 'export default async function handler(ctx) {\n  return { ok: true };\n}\n',
     });
     await loadList();
-    const id = r.function?.id;
-    if (id) await openFn(id);
+    await openFn(r.function.id);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Create failed');
   }
@@ -84,13 +89,24 @@ async function save(): Promise<void> {
   if (!activeId || saving) return;
   saving = true;
   try {
-    await api.patch(`${API}/${activeId}`, { code, name, egress: egressPayload });
+    await api.patch(`${API}/${activeId}`, { code, is_active: isActive, egress: egressPayload });
     toast.success('Saved');
     await loadList();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Save failed');
   } finally {
     saving = false;
+  }
+}
+
+async function remove(): Promise<void> {
+  if (!activeId || !confirm(`Delete ${name}? Its endpoint ${path} stops answering.`)) return;
+  try {
+    await api.delete(`${API}/${activeId}`);
+    activeId = null;
+    await loadList();
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Delete failed');
   }
 }
 
@@ -125,6 +141,10 @@ $effect(() => {
 });
 </script>
 
+<svelte:head><title>Edge Functions</title></svelte:head>
+
+<div class="p-4 md:p-6 max-w-6xl mx-auto w-full">
+
 <div class="flex h-[calc(100vh-8rem)] min-h-[28rem] border border-base-300 rounded-xl overflow-hidden">
   <aside class="w-56 shrink-0 border-r border-base-300 flex flex-col bg-base-200/40">
     <div class="p-2 border-b border-base-300 flex items-center justify-between">
@@ -155,12 +175,18 @@ $effect(() => {
       <div class="flex-1 flex items-center justify-center text-sm opacity-50">Select or create a function</div>
     {:else}
       <header class="px-3 py-2 border-b border-base-300 flex gap-2 items-center">
-        <input class="input input-bordered input-sm font-mono flex-1" bind:value={name} />
+        <span class="font-mono text-sm flex-1 truncate" title={path}>{name} <span class="opacity-50">{path}</span></span>
+        <label class="flex items-center gap-1 text-xs">
+          <input type="checkbox" class="toggle toggle-xs" bind:checked={isActive} /> Active
+        </label>
         <button type="button" class="btn btn-primary btn-sm gap-1" disabled={saving} onclick={() => void save()}>
           <Save size={14} /> Save
         </button>
         <button type="button" class="btn btn-secondary btn-sm gap-1" disabled={invoking} onclick={() => void invoke()}>
           <Play size={14} /> Invoke
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm text-error" onclick={() => void remove()} aria-label="Delete">
+          <Trash2 size={14} />
         </button>
       </header>
       <div class="px-3 py-2 border-b border-base-300 flex flex-wrap gap-2 items-center text-xs">
@@ -203,4 +229,5 @@ $effect(() => {
       </div>
     {/if}
   </section>
+</div>
 </div>

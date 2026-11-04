@@ -95,7 +95,6 @@ accurate counts.
 |---|---|---|---|
 | `developer/api-docs` | API Documentation | 1.0.2 | Swagger UI + OpenAPI generated from collections |
 | `developer/byod` | BYOD Import | 1.0.4 | Introspect and import an external database schema |
-| `developer/edge-functions` | Edge Functions | 1.0.4 | Serverless functions running inside the engine |
 | `developer/graphql` | GraphQL API | 1.0.2 | Auto-generated GraphQL with playground |
 | `developer/validation` | Data Validation | 1.0.3 | Field-level rules with AI-assisted natural-language authoring |
 
@@ -203,7 +202,9 @@ branches**, **tenants**, **collections**, **storage**, **webhooks**,
 Some capabilities moved the other way and their old core routes now return
 **410 Gone** with a forwarding address: approvals → `workflow/approvals`,
 export → `data/export`, import → `data/import`, media → `content/media`,
-edge functions → `developer/edge-functions`, briefing → `crm`.
+briefing → `crm`. Edge function administration went back to the engine
+(`/api/edge-functions`, Studio **Developer → Edge Functions**) and the
+`developer/edge-functions` extension was retired.
 
 `developer/views` and `content/page-builder` were **merged into
 `content/pages`** and no longer exist.
