@@ -382,121 +382,6 @@ export interface ZvDocTemplatesTable {
   updated_at: Generated<Date>;
 }
 
-export interface ZvDocumentAccessLogTable {
-  id: Generated<string>;
-  document_id: string;
-  user_id: string | null;
-  ip: string | null;
-  action: 'view' | 'download' | 'sign' | 'share';
-  accessed_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDocumentNumberSequencesTable {
-  id: Generated<string>;
-  template_id: string;
-  prefix: Generated<string>;
-  next_number: Generated<number>;
-  year_reset: Generated<boolean>;
-  reset_year: number | null;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDocumentRenderJobsTable {
-  id: Generated<string>;
-  template_id: string;
-  job_name: string;
-  data_source: string;
-  filter_config: Generated<unknown>;
-  output_format: Generated<'pdf' | 'html' | 'zip'>;
-  status: Generated<'pending' | 'running' | 'completed' | 'failed'>;
-  total_records: number | null;
-  processed_count: Generated<number>;
-  failed_count: Generated<number>;
-  output_zip_key: string | null;
-  error: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDocumentRendersTable {
-  id: Generated<string>;
-  template_id: string;
-  variables: Generated<unknown>;
-  output_format: Generated<'pdf' | 'html'>;
-  file_key: string | null;
-  file_size: number | null;
-  rendered_by: string | null;
-  rendered_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDocumentSignRequestsTable {
-  id: Generated<string>;
-  document_id: string;
-  signer_email: string;
-  signer_name: string;
-  sign_token: Generated<string>;
-  signed_at: Date | null;
-  ip_address: string | null;
-  status: Generated<'pending' | 'signed' | 'declined' | 'expired'>;
-  expires_at: Generated<Date>;
-  message: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDocumentTemplateAccessTable {
-  id: Generated<string>;
-  template_id: string;
-  user_id: string | null;
-  role_name: string | null;
-  permission: Generated<'use' | 'edit' | 'admin'>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDocumentTemplateVersionsTable {
-  id: Generated<string>;
-  template_id: string;
-  version_number: number;
-  html_body: string;
-  css_styles: string | null;
-  variables: Generated<unknown>;
-  change_notes: string | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvDocumentTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  slug: string | null;
-  description: string | null;
-  category: string | null;
-  html_body: Generated<string>;
-  css_styles: string | null;
-  variables: Generated<unknown>;
-  pdf_options: Generated<unknown | null>;
-  is_active: Generated<boolean>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  version_number: Generated<number>;
-  tags: Generated<string[]>;
-  usage_count: Generated<number>;
-  last_used_at: Date | null;
-  tenant_id: Generated<string | null>;
-  template_type: Generated<string>;
-  output_format: Generated<string>;
-}
-
 export interface ZvEdgeFunctionLogsTable {
   id: Generated<string>;
   function_id: string;
@@ -737,26 +622,6 @@ export interface ZvFlowsTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvGeneratedDocsTable {
-  id: Generated<string>;
-  template_id: string | null;
-  template_name: string;
-  source_collection: string | null;
-  source_record_id: string | null;
-  variables_used: Generated<unknown>;
-  output_format: Generated<'pdf' | 'html'>;
-  file_key: string | null;
-  file_size: number | null;
-  document_number: string | null;
-  generated_by: string;
-  generated_at: Generated<Date>;
-  is_signed: Generated<boolean>;
-  expires_at: Date | null;
-  share_token: Generated<string | null>;
-  status: Generated<'active' | 'expired' | 'revoked'>;
   tenant_id: Generated<string | null>;
 }
 
@@ -2049,14 +1914,6 @@ export interface DbSchema {
   zv_dashboards: ZvDashboardsTable;
   zv_default_grant_revocations: ZvDefaultGrantRevocationsTable;
   zv_doc_templates: ZvDocTemplatesTable;
-  zv_document_access_log: ZvDocumentAccessLogTable;
-  zv_document_number_sequences: ZvDocumentNumberSequencesTable;
-  zv_document_render_jobs: ZvDocumentRenderJobsTable;
-  zv_document_renders: ZvDocumentRendersTable;
-  zv_document_sign_requests: ZvDocumentSignRequestsTable;
-  zv_document_template_access: ZvDocumentTemplateAccessTable;
-  zv_document_template_versions: ZvDocumentTemplateVersionsTable;
-  zv_document_templates: ZvDocumentTemplatesTable;
   zv_edge_function_logs: ZvEdgeFunctionLogsTable;
   zv_edge_functions: ZvEdgeFunctionsTable;
   zv_efactura_daily_stats: ZvEfacturaDailyStatsTable;
@@ -2073,7 +1930,6 @@ export interface DbSchema {
   zv_flow_runs: ZvFlowRunsTable;
   zv_flow_steps: ZvFlowStepsTable;
   zv_flows: ZvFlowsTable;
-  zv_generated_docs: ZvGeneratedDocsTable;
   zv_import_logs: ZvImportLogsTable;
   zv_instances: ZvInstancesTable;
   zv_invitations: ZvInvitationsTable;
