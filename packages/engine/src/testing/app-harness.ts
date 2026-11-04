@@ -569,6 +569,32 @@ export const ALL_COLLECTIONS_ACTOR = {
 };
 
 /**
+ * A sync cursor as the pull seals it (ADR 0021), from its clear form
+ * `d<deletes-from us>:<updated_at us>:<id>`, so a suite can place a client at a
+ * position; `openSyncCursor` reads one back. Same key and binding as the route.
+ */
+export async function syncCursor(collection: string, plain: string): Promise<string> {
+  const [, del, us, id] = /^d(\d+):(\d+):(.+)$/s.exec(plain) ?? [];
+  if (!del || !us || !id) throw new Error(`not a clear sync cursor: ${plain}`);
+  const { sealToken } = await import('../lib/data/index.js');
+  const { syncCursorAad } = await import('../routes/sync.js');
+  return sealToken({ del, us, id }, syncCursorAad(collection));
+}
+
+export async function openSyncCursor(
+  collection: string,
+  token?: string,
+): Promise<string | undefined> {
+  if (!token) return undefined;
+  const { openToken } = await import('../lib/data/index.js');
+  const { syncCursorAad } = await import('../routes/sync.js');
+  const p = openToken(token, syncCursorAad(collection)) as
+    | { del: string; us: string; id: string }
+    | undefined;
+  return p ? `d${p.del}:${p.us}:${p.id}` : undefined;
+}
+
+/**
  * `POST /api/sync/pull`, waiting out the watermark fail-safe (#738).
  *
  * While a session the engine's role cannot inspect is inside a transaction

@@ -198,6 +198,7 @@ sync; a collection without one is read from its start. Cursors are opaque: there
 position, because a timestamp cannot page through rows sharing one `updated_at` (a bulk import).
 
 A row deleted on the server comes back as `{ operation: 'delete', data: null }`; drop your copy. Deletes are
-kept for 30 days: a cursor last caught up longer ago than that gets `resync[collection] === true`, and the collection restarts
+kept for 30 days: a cursor last caught up longer ago than that, or one the engine cannot open (an older engine's, or sealed
+under a rotated `BETTER_AUTH_SECRET`), gets `resync[collection] === true`, and the collection restarts
 from the first row — drop your synced copies of it before applying the page. A first pull (no cursor) gets
 no deletes, so start it from an empty copy.

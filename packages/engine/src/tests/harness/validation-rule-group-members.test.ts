@@ -28,6 +28,8 @@ const migration = (file: string) =>
 const M096 = migration('096_validation_rule_group_members');
 // 097 renames 096's trigger, so 096 is rolled back and re-applied under it.
 const M097 = migration('097_validation_test_case_orphans');
+// 112 replaces 097's trigger function; put back after 097 runs again.
+const M112 = migration('112_validation_rule_forget_every_tenant');
 
 d('validation rule group members', () => {
   let db: Database;
@@ -120,6 +122,7 @@ d('validation rule group members', () => {
     expect(await members('after_down')).toEqual([b]);
     await runMigration(M096, 'up');
     await runMigration(M097, 'up');
+    await runMigration(M112, 'up');
     expect(await members('after_down')).toEqual([]);
   });
 });
