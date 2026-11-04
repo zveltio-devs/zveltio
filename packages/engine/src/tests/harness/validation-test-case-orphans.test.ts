@@ -9,6 +9,13 @@
  * tenant: a plain DELETE in the trigger would remove that tenant's and skip the
  * rest. The cross-tenant case only bites where RLS binds the engine, the
  * non-superuser owner lane (scripts/bootstrap-db-role.sh).
+ *
+ * Since 111 the table is the engine's, and boot gives it the restrictive
+ * `tenant_own_node_delete` (a DELETE in a tenant's request removes only that
+ * tenant's rows); 097's trigger kept the request's tenant set and left every
+ * other firm's test cases behind again. 112's trigger clears it for its DELETE.
+ * Applied here as boot applies it, so the result does not depend on whether an
+ * earlier file booted the reconcile.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
@@ -16,7 +23,7 @@ import type { Database } from '../../db/index.js';
 import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { asEngineRole } from '../../lib/role-window.js';
-import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import { reconcileExtensionTenantRLS, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   asEveryTenant,
   asTenant,
@@ -31,6 +38,10 @@ const A = { id: crypto.randomUUID(), slug: `vtco-a-${STAMP}` };
 const B = { id: crypto.randomUUID(), slug: `vtco-b-${STAMP}` };
 const M097 = new URL(
   '../../db/migrations/sql/097_validation_test_case_orphans.sql',
+  import.meta.url,
+).pathname;
+const M112 = new URL(
+  '../../db/migrations/sql/112_validation_rule_forget_every_tenant.sql',
   import.meta.url,
 ).pathname;
 
@@ -71,8 +82,8 @@ d('validation test cases follow their rule', () => {
         trx.deleteFrom('zv_validation_rules').where('id', '=', ruleId).execute(),
       ),
     );
-  const runMigration = async (half: 'up' | 'down') => {
-    const parsed = parseMigrationFile(await Bun.file(M097).text());
+  const runMigration = async (half: 'up' | 'down', file = M097) => {
+    const parsed = parseMigrationFile(await Bun.file(file).text());
     await db.transaction().execute(async (trx) => {
       for (const stmt of splitSqlStatements(parsed[half] ?? '')) await sql.raw(stmt).execute(trx);
     });
@@ -80,6 +91,7 @@ d('validation test cases follow their rule', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await reconcileExtensionTenantRLS(db, ['zvd_validation_test_cases']);
     for (const t of [A, B]) {
       await sql`INSERT INTO zv_tenants (id, slug, name, status)
                 VALUES (${t.id}::uuid, ${t.slug}, 'vtco', 'active')`.execute(db);
@@ -123,5 +135,7 @@ d('validation test cases follow their rule', () => {
     expect(await casesOf(r)).toEqual([B.id]);
     await runMigration('up');
     expect(await casesOf(r)).toEqual([]);
+    // 097 replaced the trigger function; put back the one the engine runs.
+    await runMigration('up', M112);
   });
 });

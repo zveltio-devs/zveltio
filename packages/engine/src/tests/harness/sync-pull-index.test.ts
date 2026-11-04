@@ -24,6 +24,8 @@ import {
   createGodSession,
   getTestApp,
   harnessAvailable,
+  openSyncCursor,
+  syncCursor,
   syncPull,
 } from '../../testing/app-harness.js';
 
@@ -121,7 +123,7 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
     // A client that is caught up: its position is a minute ago, its deletes
     // complete from the same moment — well inside the tombstone retention.
     const us = `${(Date.now() - 60_000) * 1000}`;
-    const cursor = `d${us}:${us}:00000000-0000-0000-0000-000000000000`;
+    const cursor = await syncCursor(TABLE, `d${us}:${us}:00000000-0000-0000-0000-000000000000`);
     const before = { table: await tableStats(), index: await indexStats() };
     expect(before.index).toBeDefined();
 
@@ -163,11 +165,13 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
     const del = `${(Date.now() - 60_000) * 1000}`;
     const body = await pull({
       collections: [TABLE],
-      cursors: { [TABLE]: `d${del}:${at.us}:${at.id}` },
+      cursors: { [TABLE]: await syncCursor(TABLE, `d${del}:${at.us}:${at.id}`) },
     });
     expect(body.hasMore).toBe(false);
     expect(body.changes.map((ch) => ch.id)).toEqual(order.rows.slice(4000).map((r) => r.id));
     const last = order.rows.at(-1)!;
-    expect(body.cursors?.[TABLE]).toMatch(new RegExp(`^d\\d+:${last.us}:${last.id}$`));
+    expect(await openSyncCursor(TABLE, body.cursors?.[TABLE])).toMatch(
+      new RegExp(`^d\\d+:${last.us}:${last.id}$`),
+    );
   });
 });

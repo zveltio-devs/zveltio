@@ -4,6 +4,19 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**The sync pull cursor is sealed (ADR 0021, amended).** `POST /api/sync/pull`
+handed out, in the clear, the `updated_at` and id of the last row it read —
+which entity access may hide — and took any position a client wrote. Its
+cursor is now sealed like the list cursor; one that does not open (from before
+the upgrade, tampered, another collection) restarts that collection with
+`resync` instead of answering 400, so every client re-pulls once after the
+upgrade. Cursors are deterministic: one position, one token.
+
+**Fixed: deleting an instance validation rule left other tenants' test cases
+behind** on an engine running as a non-superuser owner. Since migration 111
+the test cases carry the engine's own-node delete policy, which the trigger
+from 097 met; migration 112 runs its delete outside the request's tenant.
+
 **A list cursor is sealed, and a page has a read ceiling (ADR 0021).**
 `next_cursor` is AES-256-GCM (key derived from `BETTER_AUTH_SECRET`), bound to
 the collection, sort field and order: a client can neither read the position
