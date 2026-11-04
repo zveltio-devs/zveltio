@@ -248,7 +248,7 @@ services:
       # Webhook signing secrets and every encrypted field are refused without it.
       FIELD_ENCRYPTION_KEY: \${FIELD_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
-      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/pages,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
+      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/pages,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
 ${ENGINE_RUNNER_ENV}
 ${ENGINE_RUNNER_VOLUMES}
     depends_on:
@@ -448,7 +448,7 @@ services:
       # Webhook signing secrets and every encrypted field are refused without it.
       FIELD_ENCRYPTION_KEY: \${FIELD_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
-      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/pages,developer/edge-functions,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
+      ZVELTIO_EXTENSIONS: \${ZVELTIO_EXTENSIONS:-ai,workflow/approvals,workflow/checklists,content/pages,developer/graphql,data/export,data/import,i18n/translations,crm,communications/mail}
 ${ENGINE_RUNNER_ENV}
 ${ENGINE_RUNNER_VOLUMES}
     healthcheck:

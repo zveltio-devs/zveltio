@@ -1,11 +1,15 @@
+import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
+import { sql } from 'kysely';
+import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { guardSessionOrKey } from '../lib/admin-guard.js';
+import { guardAdmin, guardSessionOrKey, type SessionSource } from '../lib/admin-guard.js';
 import { auditLog } from '../lib/audit.js';
 import { authenticate, EDGE_SCOPE, isApiKeyPrincipal } from '../lib/data/index.js';
 import { runEdgeFunction, type EdgeRequest } from '../lib/edge-function-runner.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
-import { checkPermission, keyIssuerAllows } from '../lib/tenancy/index.js';
+import { toJsonb } from '../lib/jsonb.js';
+import { checkPermission, isTenantAdmin, keyIssuerAllows } from '../lib/tenancy/index.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 
 /**
@@ -196,6 +200,298 @@ export function edgeFunctionInvokeRoutes(db: Database, auth: any): Hono {
       honoRes.headers.set(k, v);
     }
     return honoRes;
+  });
+
+  return app;
+}
+
+/**
+ * A host the function may reach: `host` or `host:port`, lower case, no scheme,
+ * path or wildcard. The runner compares hostnames as the URL parser writes
+ * them, so an entry the parser spells differently (an IPv4 shorthand, a
+ * trailing dot) is refused here rather than silently never matching.
+ */
+const EGRESS_HOST =
+  /^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:\d{1,5})?$/;
+
+function urlSpelling(entry: string): string | null {
+  try {
+    return new URL(`http://${entry}`).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/** `null` = undeclared (engine network); `[]` = no network; hosts = only those. */
+const egressSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .toLowerCase()
+      .refine((h) => EGRESS_HOST.test(h), {
+        abort: true,
+        error: (issue) =>
+          `"${String(issue.input)}" is not a host — write host or host:port, no scheme, path or wildcard`,
+      })
+      .refine((h) => urlSpelling(h) === h.replace(/:\d{1,5}$/, ''), {
+        error: (issue) => {
+          const h = String(issue.input).trim().toLowerCase();
+          const spelled = urlSpelling(h);
+          return spelled
+            ? `"${h}" is written "${spelled}" by the URL parser — list it that way`
+            : `"${h}" is not a valid host:port`;
+        },
+      }),
+  )
+  .max(64)
+  .transform((hosts) => [...new Set(hosts)])
+  .nullable();
+
+const envVarsSchema = z
+  .record(z.string(), z.string())
+  .refine((env) => !Object.hasOwn(env, 'ZVELTIO_EGRESS'), {
+    error: 'ZVELTIO_EGRESS is no longer read — list the hosts in `egress`',
+  });
+
+const httpMethod = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'ANY']);
+
+const CreateSchema = z.object({
+  name: z
+    .string()
+    .regex(/^[a-z0-9-]+$/)
+    .min(1),
+  display_name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  code: z.string().default(''),
+  http_method: httpMethod.default('POST'),
+  timeout_ms: z.number().int().min(100).max(300000).default(30000),
+  env_vars: envVarsSchema.default({}),
+  egress: egressSchema.default(null),
+});
+
+const UpdateSchema = z.object({
+  display_name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  code: z.string().optional(),
+  http_method: httpMethod.optional(),
+  is_active: z.boolean().optional(),
+  timeout_ms: z.number().int().min(100).max(300000).optional(),
+  env_vars: envVarsSchema.optional(),
+  egress: egressSchema.optional(),
+});
+
+const idParam = zValidator('param', z.object({ id: z.string().uuid() }));
+
+const sameHosts = (a: string[] | null, b: string[] | null) =>
+  a === b || (a !== null && b !== null && a.length === b.length && a.every((h, i) => h === b[i]));
+
+const DEFAULT_CODE = `// Edge function — runs inside the Zveltio engine
+
+export default async function handler(ctx) {
+  const body = await ctx.request.json().catch(() => ({}));
+  return Response.json({ message: "Hello from edge!", input: body });
+}
+`;
+
+const envOf = (v: unknown): Record<string, string> =>
+  (typeof v === 'string' ? JSON.parse(v) : (v ?? {})) as Record<string, string>;
+
+/**
+ * Edge function administration, `/api/edge-functions`: list, read, create,
+ * update, delete, recent invocation logs, and a test run. Tenant admins only
+ * (`admin` on `*`), every row the running tenant's. A function is served at
+ * `/api/fn/:name` by {@link edgeFunctionInvokeRoutes}.
+ *
+ * Who changed what a function may reach, or deleted it, is written to the audit
+ * log: saving `egress` is the approval of that network access.
+ */
+export function edgeFunctionAdminRoutes(
+  db: Database,
+  auth: SessionSource,
+): Hono<{ Variables: { userId: string } }> {
+  const app = new Hono<{ Variables: { userId: string } }>();
+
+  app.use('*', async (c, next) => {
+    const user = await guardAdmin(c, auth, isTenantAdmin);
+    if (user instanceof Response) return user;
+    c.set('userId', user.id);
+    await next();
+  });
+
+  const audit = (
+    type: 'edge_function.egress_changed' | 'edge_function.deleted',
+    userId: string,
+    fn: { id: string; name: string },
+    metadata: Record<string, unknown>,
+  ) =>
+    auditLog(db, {
+      type,
+      userId,
+      resourceType: 'edge_function',
+      resourceId: fn.id,
+      metadata: { name: fn.name, ...metadata },
+    }).catch((err: Error) => {
+      console.warn(`[edge-functions] ${type} audit write failed:`, err.message);
+    });
+
+  app.get('/', async (c) => {
+    const functions = await reqDb(c, db)
+      .selectFrom('zv_edge_functions')
+      .select([
+        'id',
+        'name',
+        'display_name',
+        'description',
+        'http_method',
+        'path',
+        'is_active',
+        'runtime',
+        'egress',
+        'created_at',
+      ])
+      .where('tenant_id', '=', tenantId(c))
+      .orderBy('name', 'asc')
+      .execute();
+    return c.json({ functions });
+  });
+
+  app.get('/:id', idParam, async (c) => {
+    const fn = await reqDb(c, db)
+      .selectFrom('zv_edge_functions')
+      .selectAll()
+      .where('id', '=', c.req.valid('param').id)
+      .where('tenant_id', '=', tenantId(c))
+      .executeTakeFirst();
+    if (!fn) return c.json({ error: 'Function not found' }, 404);
+    return c.json({ function: fn });
+  });
+
+  app.post('/', zValidator('json', CreateSchema), async (c) => {
+    const body = c.req.valid('json');
+    const userId = c.get('userId');
+    const fn = await reqDb(c, db)
+      .insertInto('zv_edge_functions')
+      .values({
+        tenant_id: tenantId(c),
+        name: body.name,
+        display_name: body.display_name ?? body.name,
+        description: body.description,
+        code: body.code || DEFAULT_CODE,
+        http_method: body.http_method,
+        path: `/api/fn/${body.name}`,
+        timeout_ms: body.timeout_ms,
+        env_vars: toJsonb(body.env_vars),
+        egress: body.egress,
+        created_by: userId,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    if (body.egress !== null)
+      await audit('edge_function.egress_changed', userId, fn, { before: null, after: body.egress });
+    return c.json({ function: fn }, 201);
+  });
+
+  app.patch('/:id', idParam, zValidator('json', UpdateSchema), async (c) => {
+    const body = c.req.valid('json');
+    const { env_vars, ...rest } = body;
+    const row = await reqDb(c, db)
+      .updateTable('zv_edge_functions')
+      .set({
+        ...rest,
+        ...(env_vars === undefined ? {} : { env_vars: toJsonb(env_vars) }),
+        updated_at: new Date(),
+      })
+      .where('id', '=', c.req.valid('param').id)
+      .where('tenant_id', '=', tenantId(c))
+      .returningAll()
+      .returning(sql<string[] | null>`old.egress`.as('egress_before'))
+      .executeTakeFirst();
+    if (!row) return c.json({ error: 'Function not found' }, 404);
+    const { egress_before: before, ...fn } = row;
+    if (body.egress !== undefined && !sameHosts(before ?? null, body.egress)) {
+      await audit('edge_function.egress_changed', c.get('userId'), fn, {
+        before: before ?? null,
+        after: body.egress,
+      });
+    }
+    return c.json({ function: fn });
+  });
+
+  app.delete('/:id', idParam, async (c) => {
+    const fn = await reqDb(c, db)
+      .deleteFrom('zv_edge_functions')
+      .where('id', '=', c.req.valid('param').id)
+      .where('tenant_id', '=', tenantId(c))
+      .returning(['id', 'name', 'path', 'egress'])
+      .executeTakeFirst();
+    if (!fn) return c.json({ error: 'Function not found' }, 404);
+    await audit('edge_function.deleted', c.get('userId'), fn, { path: fn.path, egress: fn.egress });
+    return c.json({ success: true });
+  });
+
+  app.get('/:id/logs', idParam, async (c) => {
+    const logs = await reqDb(c, db)
+      .selectFrom('zv_edge_function_logs')
+      .select(['id', 'status', 'duration_ms', 'error', 'created_at'])
+      .where('function_id', '=', c.req.valid('param').id)
+      .where('tenant_id', '=', tenantId(c))
+      .orderBy('created_at', 'desc')
+      .limit(50)
+      .execute();
+    return c.json({ logs });
+  });
+
+  /** A test run from the Studio: the function as saved, with the posted body. */
+  app.post('/:id/invoke', idParam, async (c) => {
+    const fn = await reqDb(c, db)
+      .selectFrom('zv_edge_functions')
+      .selectAll()
+      .where('id', '=', c.req.valid('param').id)
+      .where('tenant_id', '=', tenantId(c))
+      .executeTakeFirst();
+    if (!fn) return c.json({ error: 'Function not found' }, 404);
+
+    const bodyText = await c.req.text();
+    let body: unknown = null;
+    if (bodyText) {
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        body = bodyText;
+      }
+    }
+    const result = await runEdgeFunction(
+      fn.code,
+      {
+        method: fn.http_method === 'ANY' ? 'POST' : fn.http_method,
+        headers: { 'content-type': 'application/json' },
+        query: Object.fromEntries(new URL(c.req.url).searchParams),
+        body,
+        path: fn.path,
+      },
+      envOf(fn.env_vars),
+      fn.timeout_ms,
+      fn.egress ?? null,
+    );
+
+    await reqDb(c, db)
+      .insertInto('zv_edge_function_logs')
+      .values({
+        tenant_id: tenantId(c),
+        function_id: fn.id,
+        status: result.ok ? (result.response?.status ?? 200) : 500,
+        duration_ms: result.duration_ms,
+        request_body: bodyText.slice(0, 4000),
+        response_body: result.ok ? JSON.stringify(result.response?.body)?.slice(0, 4000) : null,
+        error: result.error?.slice(0, 1000) ?? null,
+      })
+      .execute()
+      .catch((err: Error) => {
+        console.warn('[edge-functions] invocation log failed:', err.message);
+      });
+
+    return c.json({ result });
   });
 
   return app;

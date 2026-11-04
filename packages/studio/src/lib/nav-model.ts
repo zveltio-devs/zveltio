@@ -226,7 +226,6 @@ const RAW_NAV: NavGroup[] = [
         href: resolve(`developer/edge-functions`),
         icon: Code,
         labelKey: 'nav.edgeFunctions',
-        ext: 'developer/edge-functions',
       },
 
       {

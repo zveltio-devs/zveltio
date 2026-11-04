@@ -351,7 +351,7 @@ when ALL of the following are true:
 |---|---|---|
 | `ai` | ✅ tenant-safe | `001_initial.sql` (folded `009_embeddings_tenant_isolation.sql`) |
 | All other DB-bearing extensions (51 total) | ✅ tenant-safe | `002_tenant_rls.sql` |
-| `content/pdf-viewer`, `developer/edge-functions`, `developer/views` | n/a — no DB tables | — |
+| `content/pdf-viewer`, `developer/views` | n/a — no DB tables | — |
 
 Rollout completed in zveltio-extensions commit `14b0dd0`; the
 `002_tenant_rls.sql` template adds `tenant_id` to every public table
@@ -412,7 +412,6 @@ NOT applied to (intentional — finer-grained protection in place):
 | `developer/graphql` | Per-resolver RBAC (~21 inline checkPermission calls). Mirrors AI's per-collection pattern at the resolver level. |
 | `content/{drafts,documents}`, `workflow/approvals`, `developer/{api-docs,validation}`, `analytics/quality` | Rich per-route checkPermission already in place (8-13 calls per file). |
 | `auth/{ldap,saml}` | Routes are IdP callbacks; the caller is not an end user with a session. |
-| `developer/edge-functions` | Engine-level admin gate on `/api/edge-functions` already covers it. |
 | `compliance/gdpr`, `billing`, `developer/{byod,database}`, `content/document-templates`, `forms`, `search` | Admin-only via inline `checkPermission(user.id, 'admin', '*')` or a `requireAdmin` helper. Adding `permissionGate` on top would only allow operators to grant access to non-admin roles via Casbin — useful but not security-critical; deferred. |
 | `communications/mail` | Mailbox routes are identity-scoped (operate on the calling user's own mailbox). Broad resource gate would change semantics. |
 | `content/page-builder`, `i18n/translations`, `sms`, `storage/cloud` | Per-handler or prefix-scoped guards that would require surgical insertion, not a single `app.use`. Deferred to a structural follow-up. |

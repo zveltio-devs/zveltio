@@ -40,11 +40,9 @@ d('public edge function invoke (in-process)', () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
 
-    // Seeded straight into the table rather than through `/api/edge-functions`,
-    // which this engine no longer serves: CRUD belongs to
-    // extensions/developer/edge-functions and the engine's copy is a 410 shim.
-    // The subject here is `/api/fn`, which IS the engine's, so the fixture is
-    // set up by the shortest honest route rather than by a second product.
+    // Seeded straight into the table: the subject here is `/api/fn`, not the
+    // administration routes (edge-function-admin.test.ts), so the fixture is
+    // set up by the shortest honest route.
     const row = await db
       .insertInto('zv_edge_functions')
       .values({
