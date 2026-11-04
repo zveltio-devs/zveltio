@@ -1,4 +1,5 @@
 <script lang="ts">
+import { fillUrl } from './fill-url.js';
 import { fmtDate, localToday } from '#lib/stores/format.svelte.js';
 import { copyText } from '#lib/clipboard.js';
 import Modal from '#lib/components/common/Modal.svelte';
@@ -661,9 +662,7 @@ async function loadRelationColumns(r: ResourceView) {
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 async function inlineEdit(row: any, col: ColumnDef, value: string) {
   const e = col.editable!;
-  const url = (e.endpoint ?? '').replace(/\{([^}]+)\}/g, (_, k) =>
-    String(getPath(row, k.trim()) ?? ''),
-  );
+  const url = fillUrl(e.endpoint ?? '', (k) => getPath(row, k));
   const body = { [e.field ?? col.key]: value };
   if (!guardMutation(url)) return;
   try {
@@ -797,7 +796,7 @@ function openEdit(row: any) {
 // Substitute "{id}" and any other "{field}" token in an endpoint from the row.
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 function fillEndpoint(tmpl: string, row: any): string {
-  return tmpl.replace(/\{([^}]+)\}/g, (_, k) => String(getPath(row, k.trim()) ?? ''));
+  return fillUrl(tmpl, (k) => getPath(row, k));
 }
 /** The call itself. `extra` carries whatever an action prompt collected. */
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -829,7 +828,7 @@ async function runBulkAction(a: ActionDef) {
   if (selectedIds.size === 0) return;
   const ids = [...selectedIds];
   const fakeRow = { id: ids[0], ids: ids.join(',') };
-  const url = fillEndpoint(a.endpoint ?? '', fakeRow).replace('{ids}', ids.join(','));
+  const url = fillEndpoint(a.endpoint ?? '', fakeRow);
   if (!guardMutation(url)) return;
   busyRowKey = '__bulk__';
   try {

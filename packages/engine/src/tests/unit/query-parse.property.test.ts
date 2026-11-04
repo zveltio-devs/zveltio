@@ -1,7 +1,7 @@
 /**
  * Property/fuzz tests for the CRUD list query parser (H-10).
  *
- * parseFilters + decodeCursor turn hostile, user-shaped query strings into the
+ * parseFilters + openCursor turn hostile, user-shaped query strings into the
  * primitives the SQL builder consumes. The bug classes that live here are
  * operator injection (a client op that isn't in the canonical set reaching the
  * builder), column injection (a filter field outside the allowlist), and
@@ -11,7 +11,10 @@
 
 import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
-import { decodeCursor, parseFilters } from '../../lib/data/query-parse.js';
+import { openCursor, parseFilters, sealCursor } from '../../lib/data/query-parse.js';
+
+process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-long';
+const BIND = { collection: 'zvd_t', sort: 'created_at', desc: true };
 
 // The only ops parseFilters may ever emit — the values of OP_ALIAS. If a raw
 // client op ever leaks through, it would appear here as something else.
@@ -112,7 +115,7 @@ describe('parseFilters — fuzz invariants', () => {
  * that DECODE to valid JSON — and `fc.string()` / `fc.base64String()` produce
  * those only by accident. They never produced the six bytes that encode the
  * literal `null`, which is why this suite stayed green for 600 runs while
- * `decodeCursor` threw a TypeError on it and the list route answered 500.
+ * the cursor decoder threw a TypeError on it and the list route answered 500.
  *
  * Encoding the payload here puts the JSON literals inside the generator, so
  * "never throws" is an invariant the suite can actually falsify.
@@ -127,45 +130,45 @@ const arbCursor = fc.oneof(
   fc.jsonValue().map((v) => b64(JSON.stringify(v))),
 );
 
-describe('decodeCursor — fuzz invariants', () => {
+describe('openCursor — fuzz invariants', () => {
   test('never throws on arbitrary strings', () => {
     fc.assert(
       fc.property(fc.oneof(arbCursor, fc.constant(undefined)), (s) => {
-        decodeCursor(s);
+        openCursor(s, BIND);
         return true;
       }),
       RUNS,
     );
   });
 
-  test('output is null or a well-formed { id, val }', () => {
+  test('a cursor the engine did not seal never opens to a position', () => {
     fc.assert(
       fc.property(arbCursor, (s) => {
-        const r = decodeCursor(s);
-        if (r !== null && r !== 'start') {
-          expect(typeof r.id).toBe('string');
-          expect(r.id).toBeTruthy();
-          expect(r.val).not.toBeUndefined();
-        }
+        // None of these was sealed by the engine: every one is refused (the
+        // start cursor names no row).
+        const r = openCursor(s, BIND);
+        expect(r === null || r === 'start').toBe(true);
         return true;
       }),
       RUNS,
     );
   });
 
-  test('round-trips a valid { id, val } through base64url', () => {
+  test('round-trips a sealed { id, val }, and only for the walk it was sealed for', () => {
     fc.assert(
       fc.property(
         fc.string({ minLength: 1 }).filter((s) => s.length > 0),
         fc.oneof(fc.string(), fc.integer(), fc.boolean()),
         (id, val) => {
-          const cursor = Buffer.from(JSON.stringify({ id, val })).toString('base64url');
-          const r = decodeCursor(cursor);
-          expect(r).not.toBeNull();
-          if (r && r !== 'start') {
-            expect(r.id).toBe(id);
-            expect(r.val).toBe(val);
-          }
+          const cursor = sealCursor({ id, val }, BIND);
+          expect(openCursor(cursor, BIND)).toEqual({ id, val });
+          expect(openCursor(cursor, { ...BIND, desc: false })).toBeNull();
+          expect(openCursor(cursor, { ...BIND, sort: 'id' })).toBeNull();
+          expect(openCursor(cursor, { ...BIND, collection: 'zvd_u' })).toBeNull();
+          // A plaintext cursor of the same position, as before ADR 0021.
+          expect(
+            openCursor(Buffer.from(JSON.stringify({ id, val })).toString('base64url'), BIND),
+          ).toBeNull();
           return true;
         },
       ),

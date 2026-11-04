@@ -1,7 +1,7 @@
 /**
  * A12 — a cursor that decodes to a JSON `null` must fall back to offset paging.
  *
- * `decodeCursor` documents that a malformed cursor returns null so the caller
+ * `openCursor` (once `decodeCursor`) documents that a malformed cursor returns null so the caller
  * falls back to the offset path, and every other malformed shape does. A cursor
  * whose payload is the JSON literal `null` parses successfully, so it never
  * reaches the `catch`, and the guard below it reads `.id` off `null` — a

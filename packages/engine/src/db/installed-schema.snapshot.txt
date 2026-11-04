@@ -3114,6 +3114,7 @@ table zvd_content_drafts
   col scheduled_at                   timestamp with time zone
   col search_text                    text
   col search_vector                  tsvector
+  col snapshot_count                 bigint DEFAULT 0
   col target_collection              text NOT NULL
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -9561,6 +9562,7 @@ table zvv_content_drafts
   col scheduled_at                   timestamp with time zone
   col search_text                    text
   col search_vector                  tsvector
+  col snapshot_count                 bigint
   col target_collection              text
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone

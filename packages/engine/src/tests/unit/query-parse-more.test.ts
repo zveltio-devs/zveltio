@@ -1,10 +1,17 @@
 /**
  * More pure query-parse helpers (lib/data/query-parse.ts): buildAllowedCols +
- * decodeCursor, example-based (complements the fuzz suite).
+ * openCursor, example-based (complements the fuzz suite).
  */
 
 import { describe, it, expect } from 'bun:test';
-import { buildAllowedCols, decodeCursor } from '../../lib/data/query-parse.js';
+import {
+  buildAllowedCols,
+  openCursor,
+  sealCursor,
+  START_CURSOR,
+} from '../../lib/data/query-parse.js';
+
+process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-long';
 type Any = any;
 
 describe('buildAllowedCols', () => {
@@ -27,20 +34,44 @@ describe('buildAllowedCols', () => {
   });
 });
 
-describe('decodeCursor', () => {
-  const encode = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+describe('openCursor', () => {
+  const bind = { collection: 'zvd_t', sort: 'created_at', desc: true };
+  const plain = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
 
   it('returns null for an undefined or malformed cursor', () => {
-    expect(decodeCursor(undefined)).toBeNull();
-    expect(decodeCursor('!!!not-base64-json')).toBeNull();
+    expect(openCursor(undefined, bind)).toBeNull();
+    expect(openCursor('!!!not-base64-json', bind)).toBeNull();
   });
 
-  it('decodes a well-formed { id, val } cursor', () => {
-    expect(decodeCursor(encode({ id: 'abc', val: 5 }))).toEqual({ id: 'abc', val: 5 });
+  it('opens a sealed { id, val } and the start cursor', () => {
+    expect(openCursor(sealCursor({ id: 'abc', val: 5 }, bind), bind)).toEqual({
+      id: 'abc',
+      val: 5,
+    });
+    expect(openCursor(START_CURSOR, bind)).toBe('start');
   });
 
-  it('returns null when id is empty or val is missing', () => {
-    expect(decodeCursor(encode({ id: '', val: 5 }))).toBeNull();
-    expect(decodeCursor(encode({ id: 'abc' }))).toBeNull();
+  it('refuses a cursor the client wrote, or one tampered with', () => {
+    expect(openCursor(plain({ id: 'abc', val: 5 }), bind)).toBeNull();
+    const sealed = Buffer.from(sealCursor({ id: 'abc', val: 5 }, bind), 'base64url');
+    sealed[sealed.length - 1] ^= 1;
+    expect(openCursor(sealed.toString('base64url'), bind)).toBeNull();
+  });
+
+  it('refuses a cursor sealed under a secret the process no longer holds', () => {
+    const before = process.env.BETTER_AUTH_SECRET;
+    const c = sealCursor({ id: 'abc', val: 5 }, bind);
+    process.env.BETTER_AUTH_SECRET = 'rotated-secret-minimum-32-characters-long!!';
+    try {
+      expect(openCursor(c, bind)).toBeNull();
+    } finally {
+      process.env.BETTER_AUTH_SECRET = before;
+    }
+    expect(openCursor(c, bind)).toEqual({ id: 'abc', val: 5 });
+  });
+
+  it('does not show the position it carries', () => {
+    const c = sealCursor({ id: 'row-7', val: '2026-01-01T00:00:00Z' }, bind);
+    expect(Buffer.from(c, 'base64url').toString('latin1')).not.toContain('row-7');
   });
 });

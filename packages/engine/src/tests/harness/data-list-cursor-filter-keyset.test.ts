@@ -1,7 +1,7 @@
 /**
  * Phase C — list cursor keyset pagination combined with filters (handlers/list.ts).
  *
- * Exercises the useCursor branch where decodeCursor succeeds and filters are
+ * Exercises the useCursor branch where openCursor succeeds and filters are
  * applied inside the keyset Kysely query (neq/gte paths).
  */
 

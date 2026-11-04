@@ -343,7 +343,7 @@ function buildSpec() {
               name: 'cursor',
               in: 'query',
               schema: { type: 'string' },
-              description: 'Cursor for keyset pagination (base64url from next_cursor)',
+              description: 'Keyset pagination: the opaque next_cursor of the previous page',
             },
             {
               name: 'as_of',

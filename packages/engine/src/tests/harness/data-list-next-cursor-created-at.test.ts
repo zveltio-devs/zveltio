@@ -7,6 +7,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { openCursor } from '../../lib/data/query-parse.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -61,10 +62,12 @@ d('data list next_cursor created_at fallback (in-process)', () => {
     expect(body.next_cursor).toBeTruthy();
     expect(body.pagination.total).toBeGreaterThanOrEqual(4);
 
-    const decoded = JSON.parse(Buffer.from(body.next_cursor!, 'base64url').toString('utf8')) as {
-      id: string;
-      val: string;
-    };
+    // Sealed (ADR 0021): opened as the engine opens it, for this walk.
+    const decoded = openCursor(body.next_cursor!, {
+      collection: `zvd_${COLLECTION}`,
+      sort: 'created_at',
+      desc: true,
+    }) as { id: string; val: string };
     expect(decoded.id).toBe(body.records[1]!.id);
     expect(decoded.val).toBeTruthy();
   });

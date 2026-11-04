@@ -393,6 +393,36 @@ export function escapeLike(s: string): string {
 }
 
 /**
+ * The `?search=` condition, as the offset list and the cursor walk both apply
+ * it: `ftsColumns` for a caller with a hidden text column, else the stored
+ * vector (and `search_text` on a trigram collection).
+ */
+export function ftsCondition(
+  fts: string,
+  hasTrgm: boolean | undefined,
+  ftsColumns: string[] | undefined,
+): RawBuilder<boolean> {
+  if (ftsColumns) {
+    // ponytail: computed per row, no index — only for a caller with a hidden
+    // text column. A per-visibility stored vector is the upgrade if it matters.
+    const cols = ftsColumns.map((c) => sql`${sql.ref(c)}::text`);
+    const text = sql`concat_ws(' ', ${sql.join(cols.length > 0 ? cols : [sql`NULL`])})`;
+    const likePattern = `%${escapeLike(fts)}%`;
+    const match = sql<boolean>`to_tsvector('english', ${text}) @@ websearch_to_tsquery('english', ${fts})`;
+    return hasTrgm ? sql<boolean>`(${match} OR ${text} ILIKE ${likePattern})` : match;
+  } else if (hasTrgm) {
+    // Combined: FTS via tsvector OR trgm similarity on search_text (fuzzy/prefix matching).
+    // search_text is maintained by the DDL trigger, and only exists on collections
+    // carrying has_trgm — see the field's doc comment above.
+    const likePattern = `%${escapeLike(fts)}%`;
+    return sql<boolean>`(search_vector @@ websearch_to_tsquery('english', ${fts}) OR search_text ILIKE ${likePattern})`;
+  } else {
+    // websearch_to_tsquery() tolerates arbitrary user input without syntax errors
+    return sql<boolean>`search_vector @@ websearch_to_tsquery('english', ${fts})`;
+  }
+}
+
+/**
  * One filter condition → SQL. Exported because the cursor-pagination branch in
  * the list handler used to re-implement a SUBSET of this switch — it covered
  * the six comparison operators and silently dropped everything else, including
@@ -594,25 +624,7 @@ export async function dynamicSelect(
   }
 
   if (fts) {
-    let ftsExpr;
-    if (ftsColumns) {
-      // ponytail: computed per row, no index — only for a caller with a hidden
-      // text column. A per-visibility stored vector is the upgrade if it matters.
-      const cols = ftsColumns.map((c) => sql`${sql.ref(c)}::text`);
-      const text = sql`concat_ws(' ', ${sql.join(cols.length > 0 ? cols : [sql`NULL`])})`;
-      const likePattern = `%${escapeLike(fts)}%`;
-      const match = sql`to_tsvector('english', ${text}) @@ websearch_to_tsquery('english', ${fts})`;
-      ftsExpr = hasTrgm ? sql`(${match} OR ${text} ILIKE ${likePattern})` : match;
-    } else if (hasTrgm) {
-      // Combined: FTS via tsvector OR trgm similarity on search_text (fuzzy/prefix matching).
-      // search_text is maintained by the DDL trigger, and only exists on collections
-      // carrying has_trgm — see the field's doc comment above.
-      const likePattern = `%${escapeLike(fts)}%`;
-      ftsExpr = sql`(search_vector @@ websearch_to_tsquery('english', ${fts}) OR search_text ILIKE ${likePattern})`;
-    } else {
-      // websearch_to_tsquery() tolerates arbitrary user input without syntax errors
-      ftsExpr = sql`search_vector @@ websearch_to_tsquery('english', ${fts})`;
-    }
+    const ftsExpr = ftsCondition(fts, hasTrgm, ftsColumns);
     qb = qb.where(ftsExpr);
     countQb = countQb.where(ftsExpr);
   }
