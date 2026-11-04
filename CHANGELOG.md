@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.100] - 2026-11-04
+
 **The sync pull cursor is sealed (ADR 0021, amended).** `POST /api/sync/pull`
 handed out, in the clear, the `updated_at` and id of the last row it read —
 which entity access may hide — and took any position a client wrote. Its
@@ -54,6 +56,21 @@ marketplace answers 410 to installing one.
 
 **SDK:** `ctx.internals.updateRecord` accepts `{ expect }`, which the engine
 already implemented (409 `precondition_failed` when unmet). Additive (v1).
+
+**Edge functions are administered by the engine again.** `/api/edge-functions`
+(tenant admins, configuration step-up; egress changes and deletes audited) and
+Studio **Developer → Edge Functions** replace the retired
+`developer/edge-functions` extension; migration 110 removes its registry rows.
+Functions, the runner and `/api/fn/:name` were always the engine's.
+
+**Migration 109 drops `zv_quality_scans` and `zv_quality_issues`.**
+`analytics/quality` 2.0.0 keeps scans and issues in its declared collections;
+1.x rows are scan output and are not carried over.
+
+**Fixed: a `next_cursor` walk reads every visible row exactly once.** A page
+entity access emptied ended the walk, a NULL sort key skipped or repeated rows,
+a `created_at` cursor lost its microseconds, and the first page had no `id`
+tie-break.
 
 ## [3.0.0-beta.99] - 2026-11-03
 
