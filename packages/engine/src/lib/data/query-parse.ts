@@ -9,6 +9,7 @@
  * and error string is byte-identical to the pre-split inline code.
  */
 
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { type FilterCondition, toBox, toNear } from '../../db/dynamic.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
@@ -24,7 +25,7 @@ export const QuerySchema = z.object({
   filter: z.string().optional(),
   search: z.string().optional(),
   as_of: z.string().optional(),
-  cursor: z.string().optional(), // base64url-encoded {id, val}
+  cursor: z.string().optional(), // opaque: sealed by sealCursor (ADR 0021)
   /**
    * `exact` (default) keeps `pagination.total`; `none` drops it.
    *
@@ -242,8 +243,7 @@ export function parseFilters(
   return { ok: true, filters };
 }
 
-/** A decoded keyset cursor: the id and sort-column value of the last row on
- * the previous page. */
+/** A keyset position: the id and sort-column value of a row the walk read. */
 export interface DecodedCursor {
   id: string;
   val: JsonValue;
@@ -251,34 +251,68 @@ export interface DecodedCursor {
 
 /**
  * The cursor of a first page on which entity access left no row: the walk
- * resumes from the start, since the only position after that page is a row the
- * caller may not see. `{"start":true}`, base64url.
+ * resumes from the start. It names no row, so it is not sealed.
  */
 export const START_CURSOR = Buffer.from('{"start":true}').toString('base64url');
 
-/** Decode a base64url cursor into `{ id, val }`, or `'start'` for
- * `START_CURSOR`. Returns null when the cursor is missing, malformed, or lacks
- * a usable id/val (caller falls back to offset pagination). */
-export function decodeCursor(cursor: string | undefined): DecodedCursor | 'start' | null {
+/** What a cursor is bound to: a cursor opens only for the walk it was issued in. */
+export interface CursorBinding {
+  collection: string;
+  sort: string;
+  desc: boolean;
+}
+
+/**
+ * AES-256-GCM key, HKDF-SHA256 from BETTER_AUTH_SECRET (ADR 0021). Derived per
+ * call (microseconds), not cached: a cached key kept opening cursors sealed
+ * under a secret the process no longer held.
+ */
+function key(): Buffer {
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) throw new Error('BETTER_AUTH_SECRET is required to seal list cursors');
+  return Buffer.from(hkdfSync('sha256', secret, '', 'zveltio:list-cursor:v1', 32));
+}
+const aad = (b: CursorBinding) => Buffer.from(`${b.collection}\0${b.sort}\0${b.desc ? 'd' : 'a'}`);
+
+/**
+ * Seal a position (ADR 0021). The position may be a row the caller may not see
+ * (the walk stopped at its read ceiling), so the caller can neither read it nor
+ * write one: `iv | tag | ciphertext`, base64url.
+ */
+export function sealCursor(pos: DecodedCursor, bind: CursorBinding): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key(), iv);
+  cipher.setAAD(aad(bind));
+  const body = Buffer.concat([cipher.update(JSON.stringify(pos), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
+}
+
+/**
+ * Open a cursor: `'start'` for START_CURSOR, the position for one this engine
+ * sealed for the same walk, null for anything else — missing, tampered, from
+ * before ADR 0021, under a rotated secret, bound to another collection or sort.
+ * The caller treats null as a malformed cursor (offset from page 1).
+ */
+export function openCursor(
+  cursor: string | undefined,
+  bind: CursorBinding,
+): DecodedCursor | 'start' | null {
   if (!cursor) return null;
+  if (cursor === START_CURSOR) return 'start';
   let decoded: unknown;
   try {
-    decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+    const raw = Buffer.from(cursor, 'base64url');
+    if (raw.length < 29) return null;
+    const decipher = createDecipheriv('aes-256-gcm', key(), raw.subarray(0, 12));
+    decipher.setAAD(aad(bind));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    const text = Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]);
+    decoded = JSON.parse(text.toString('utf8'));
   } catch {
-    /* malformed cursor — fall through to offset path */
     return null;
   }
-  // `JSON.parse` succeeds on every JSON literal, not only on objects, so the
-  // parse landing in the `try` says nothing about the shape. A string, a number,
-  // an array and a boolean all reach the property read below harmlessly — but
-  // `null` does not: reading `.id` off it throws a TypeError out of a pure
-  // parsing function, and the list route answers 500 on a cursor the client
-  // fully controls (`?cursor=bnVsbA`). Every one of those payloads is a
-  // malformed cursor by this function's contract, so all of them take the same
-  // offset fallback.
   if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) return null;
-  const { id, val, start } = decoded as { id?: unknown; val?: JsonValue; start?: unknown };
-  if (start === true) return 'start';
+  const { id, val } = decoded as { id?: unknown; val?: JsonValue };
   if (typeof id === 'string' && id && val !== undefined) return { id, val };
   return null;
 }

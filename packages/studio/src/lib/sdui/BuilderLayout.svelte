@@ -4,6 +4,7 @@
  * secondary panel). Driven entirely by ResourceView.builder; no per-extension
  * code. Ported from the forms field editor / responses screens.
  */
+import { fillUrl } from './fill-url.js';
 import { onMount } from 'svelte';
 import { resolve } from '$app/paths';
 import { page } from '$app/state';
@@ -53,7 +54,7 @@ function getPath(obj: any, path?: string): any {
 }
 
 function fill(tmpl: string): string {
-  return tmpl.replace(/\{([^}]+)\}/g, (_, k) => String(routeParams[k.trim()] ?? ''));
+  return fillUrl(tmpl, (k) => routeParams[k]);
 }
 
 function guardMutation(url: string): boolean {

@@ -4,6 +4,23 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**A list cursor is sealed, and a page has a read ceiling (ADR 0021).**
+`next_cursor` is AES-256-GCM (key derived from `BETTER_AUTH_SECRET`), bound to
+the collection, sort field and order: a client can neither read the position
+nor write one. The keyset walk reads at most 10 batches to fill a page; at the
+ceiling it answers what it found (possibly nothing) with a cursor at the last
+row read, so a caller who sees few rows of a large table no longer reads it
+all in one request. A cursor that does not open (from before the upgrade,
+tampered, another collection or sort, a rotated secret) falls back to page 1,
+as a malformed one did. Clients must stop on `next_cursor === null`, not on
+an empty page.
+
+**Fixed: a cursor walk dropped `?search=`** after the first page.
+
+**Studio:** a declarative page URI-encodes the row values it puts into an
+endpoint (`{id}`, `{masterId}`), so a value with `&`, `#`, `?` or `/` stays
+one segment or query value.
+
 **Validation rules are administered by the engine.** `/api/validation` (tenant
 admins; rule groups and AI drafting for instance admins, configuration step-up)
 and Studio **Developer → Validation Rules** replace the retired

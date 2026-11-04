@@ -255,9 +255,12 @@ describe('S2-02 follow-up: updateTable interception', () => {
       console.warn = originalWarn;
     }
     expect(writes(/^update "zvd_items"/)).toHaveLength(2);
-    expect(warned).toHaveLength(1);
-    expect(String(warned[0]![0])).toContain('bulk update');
-    expect(String(warned[0]![0])).toContain('ext-bulk-upd');
+    // Only this hook's warnings: an unrelated one another file's async work
+    // printed meanwhile (an audit write, a cache refresh) is not this.
+    const bulk = warned.filter((a) => String(a[0]).includes('bulk'));
+    expect(bulk).toHaveLength(1);
+    expect(String(bulk[0]![0])).toContain('bulk update');
+    expect(String(bulk[0]![0])).toContain('ext-bulk-upd');
   });
 });
 
@@ -322,8 +325,11 @@ describe('S2-02 follow-up: deleteFrom interception', () => {
       console.warn = originalWarn;
     }
     expect(writes(/^delete from "zvd_items"/)).toHaveLength(2);
-    expect(warned).toHaveLength(1);
-    expect(String(warned[0]![0])).toContain('bulk delete');
-    expect(String(warned[0]![0])).toContain('ext-bulk-del');
+    // Only this hook's warnings: an unrelated one another file's async work
+    // printed meanwhile (an audit write, a cache refresh) is not this.
+    const bulk = warned.filter((a) => String(a[0]).includes('bulk'));
+    expect(bulk).toHaveLength(1);
+    expect(String(bulk[0]![0])).toContain('bulk delete');
+    expect(String(bulk[0]![0])).toContain('ext-bulk-del');
   });
 });

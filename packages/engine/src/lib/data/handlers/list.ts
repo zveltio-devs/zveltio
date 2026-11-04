@@ -15,7 +15,7 @@ import type { Database } from '../../../db/index.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 import { DDLManager, SEARCH_FIELD_TYPES } from '../ddl-manager.js';
 import { TIME_TRAVEL_ALTERED } from '../query-alter.js';
-import { buildCondition, dynamicSelect } from '../../../db/dynamic.js';
+import { buildCondition, dynamicSelect, ftsCondition } from '../../../db/dynamic.js';
 import { tracedQuery } from '../../runtime/index.js';
 import { getSingleTenantId, resolveUserRole, rlsJsonConditions } from '../../tenancy/index.js';
 import { readScope } from '../read-scope.js';
@@ -41,13 +41,16 @@ import {
   buildAllowedCols,
   buildLocationCols,
   parseFilters,
-  decodeCursor,
+  openCursor,
+  sealCursor,
   START_CURSOR,
 } from '../query-parse.js';
 import type { ParsedQuery } from '../query-parse.js';
 import { getDb, getTenantId, selectReadable, getVirtualConfig } from '../write-pipeline.js';
 import { checkAccess } from '../auth.js';
 
+/** Batches the keyset walk reads to fill one page (ADR 0021). */
+export const LIST_REFILL_ROUNDS = 10;
 export async function listRecords(c: Context, db: Database, query: ParsedQuery): Promise<Response> {
   const collection = c.req.param('collection')!;
   const user = c.get('user');
@@ -358,6 +361,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // Used when `cursor` is provided and page is still default (1).
   // Avoids OFFSET cost on large tables.
   const useCursor = !!query.cursor && query.page === 1;
+  const search = query.search ? query.search.trim().substring(0, 500) : undefined;
   let result: { records: DynamicRecord[]; total: number };
   // The row the next page starts after, or 'start'; null when nothing follows.
   let resumeAfter: DynamicRecord | 'start' | null = null;
@@ -385,12 +389,16 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // A cursor carries the row's id and sort value, so it exists only where the
   // caller may read both — and is refused, so must not be issued, elsewhere.
   const cursorable = allowedCols.has(sortField) && allowedCols.has('id');
+  // Sealed (ADR 0021), and opens only for this collection, sort and order.
+  const binding = { collection: tableName, sort: sortField, desc };
+  // A resume position the walk READ but did not serve: set at the read ceiling.
+  let resumeAt: { id: string; val: JsonValue } | null = null;
 
   if (useCursor) {
-    // The client writes the cursor's value, and the keyset compares it with the
-    // sort column: on a hidden `created_at` (the default) that is a comparison
-    // oracle. Such a cursor is treated as malformed.
-    const decoded = cursorable ? decodeCursor(query.cursor) : null;
+    // The keyset compares the cursor's value with the sort column: one the
+    // client wrote would be a comparison oracle on it. A cursor this engine did
+    // not seal for this walk is treated as malformed.
+    const decoded = cursorable ? openCursor(query.cursor, binding) : null;
 
     if (decoded) {
       // Up to `n` rows after `from` (null: from the start), in the order the
@@ -414,6 +422,9 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
           for (const [field, conds] of Object.entries(filters)) {
             for (const cond of [conds].flat()) q = q.where(buildCondition(field, cond));
           }
+          // `?search=` too, as the offset path applies it: the walk used to drop
+          // it, so every page after the first answered unsearched rows.
+          if (search) q = q.where(ftsCondition(search, !!collectionDef.has_trgm, ftsColumns));
           // Row rules and extension alters, as the offset path applies them
           // through `dynamicSelect`. Both were once bypassed by a cursor.
           q = applyAlters(q);
@@ -447,23 +458,29 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       // full or the rows run out, and the cursor is the last row SERVED: one
       // the caller may see, so the cursor does not hand out the id and sort
       // value of a row entity access withheld.
-      // ponytail: a caller who sees few rows of a large table reads them all in
-      // one request; a sealed cursor could stop at a hidden row instead.
+      // At most LIST_REFILL_ROUNDS batches (ADR 0021): a caller who sees few
+      // rows of a large table read it all in one request. Stopped there with
+      // the page short, the page is what was found and the cursor the last row
+      // READ — maybe one the caller may not see, which the seal keeps unread.
       const seen: DynamicRecord[] = [];
       let from = decoded === 'start' ? null : decoded;
       let more = true;
-      while (more && seen.length < query.limit) {
+      let rounds = 0;
+      while (more && seen.length < query.limit && rounds < LIST_REFILL_ROUNDS) {
+        rounds++;
         const batch = await after(from, query.limit + 1);
         more = batch.length > query.limit;
         const read = more ? batch.slice(0, query.limit) : batch;
         seen.push(...(await scope.keep(read)));
         if (read.length > 0) from = await positionOf(read[read.length - 1]!);
       }
+      const short = more && seen.length < query.limit;
       const hasMore = more || seen.length > query.limit;
       const records = seen.slice(0, query.limit);
       result = { records, total: hasMore ? -1 : records.length };
       keyset = true;
-      if (hasMore) resumeAfter = records[records.length - 1]!;
+      if (short) resumeAt = from;
+      else if (hasMore) resumeAfter = records[records.length - 1]!;
     } else {
       // Malformed cursor — fall back to offset
       const offset = (query.page - 1) * query.limit;
@@ -473,7 +490,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
           sort: { field: sortField, direction: query.order },
           limit: query.limit,
           offset,
-          fts: query.search ? query.search.trim().substring(0, 500) : undefined,
+          fts: search,
           hasTrgm: !!collectionDef.has_trgm,
           ftsColumns,
           tenantScopeId: getSingleTenantId(),
@@ -491,7 +508,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
       sort: { field: sortField, direction: query.order },
       limit: query.limit,
       offset,
-      fts: query.search ? query.search.trim().substring(0, 500) : undefined,
+      fts: search,
       hasTrgm: !!collectionDef.has_trgm,
       ftsColumns,
       countMode: query.count,
@@ -561,11 +578,13 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // compared with the sort column (a 400 on an integer one).
   const next_cursor = !cursorable
     ? null
-    : resumeAfter === 'start'
-      ? START_CURSOR
-      : resumeAfter
-        ? Buffer.from(JSON.stringify(await positionOf(resumeAfter))).toString('base64url')
-        : null;
+    : resumeAt
+      ? sealCursor(resumeAt, binding)
+      : resumeAfter === 'start'
+        ? START_CURSOR
+        : resumeAfter
+          ? sealCursor(await positionOf(resumeAfter), binding)
+          : null;
 
   // Response shape matches the rest of the list endpoints (time-travel, virtual)
   // and the contract consumed by Studio + SDK: { records, pagination, next_cursor? }.

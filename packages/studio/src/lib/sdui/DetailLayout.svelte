@@ -3,6 +3,7 @@
  * SDUI detail layout — one record by route param, with tabs for field cards,
  * genealogy trees, nested tables, and inline forms (consume / HACCP).
  */
+import { fillUrl } from './fill-url.js';
 import { onMount } from 'svelte';
 import { resolve } from '$app/paths';
 import { api } from '#lib/api.js';
@@ -46,7 +47,7 @@ function getPath(obj: any, path?: string): any {
 }
 
 function fill(tmpl: string, row: Record<string, unknown> = routeParams): string {
-  return tmpl.replace(/\{([^}]+)\}/g, (_, k) => String(getPath(row, k.trim()) ?? ''));
+  return fillUrl(tmpl, (k) => getPath(row, k));
 }
 
 function guardMutation(url: string): boolean {
