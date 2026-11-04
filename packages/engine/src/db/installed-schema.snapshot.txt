@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 573
+# tables: 574
 
 table account
   col accessToken                    text
@@ -1493,46 +1493,6 @@ table zv_push_subscriptions
   uq  zv_push_subscriptions_endpoint_key UNIQUE (endpoint)
   pk  zv_push_subscriptions_pkey PRIMARY KEY (id)
   fk  zv_push_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-
-table zv_quality_issues
-  col auto_fixable                   boolean NOT NULL DEFAULT false
-  col collection                     text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col description                    text NOT NULL
-  col dismissed                      boolean NOT NULL DEFAULT false
-  col dismissed_at                   timestamp with time zone
-  col dismissed_by                   text
-  col field_name                     text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col issue_type                     text NOT NULL
-  col record_ids                     ARRAY NOT NULL DEFAULT '{}'::text[]
-  col scan_id                        uuid NOT NULL
-  col severity                       text NOT NULL DEFAULT 'warning'::text
-  col suggestion                     text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zv_quality_issues_pkey PRIMARY KEY (id)
-  fk  zv_quality_issues_scan_id_fkey FOREIGN KEY (scan_id) REFERENCES zv_quality_scans(id) ON DELETE CASCADE
-  ck  zv_quality_issues_severity_check CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'error'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_quality_issues FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_quality_scans
-  col collection                     text NOT NULL
-  col completed_at                   timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col issues_found                   integer NOT NULL DEFAULT 0
-  col records_scanned                integer NOT NULL DEFAULT 0
-  col scan_type                      text NOT NULL DEFAULT 'full'::text
-  col started_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col status                         text NOT NULL DEFAULT 'running'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col triggered_by                   text
-  pk  zv_quality_scans_pkey PRIMARY KEY (id)
-  ck  zv_quality_scans_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text])))
-  fk  zv_quality_scans_triggered_by_fkey FOREIGN KEY (triggered_by) REFERENCES "user"(id) ON DELETE SET NULL
-  rls enabled forced
-  pol tenant_isolation_zv_quality_scans FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_rag_documents
   col chunk_index                    integer NOT NULL DEFAULT 0
@@ -7116,54 +7076,90 @@ table zvd_push_tokens_superseded_013
   col user_id                        text NOT NULL
   pk  zvd_push_tokens_superseded_013_pkey PRIMARY KEY (id)
 
-table zvd_quality_remediations
-  col action_type                    text NOT NULL
-  col applied_at                     timestamp with time zone
-  col applied_by                     text
+table zvd_quality_issues
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
   col description                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col issue_id                       uuid NOT NULL
-  col result                         text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  ck  zvd_quality_remediations_action_type_check CHECK ((action_type = ANY (ARRAY['set_default'::text, 'delete_record'::text, 'manual_review'::text, 'auto_fix'::text])))
-  fk  zvd_quality_remediations_issue_id_fkey FOREIGN KEY (issue_id) REFERENCES zv_quality_issues(id) ON DELETE CASCADE
-  pk  zvd_quality_remediations_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_quality_remediations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_quality_rules
-  col collection                     text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
+  col dismissed                      boolean NOT NULL DEFAULT false
+  col dismissed_at                   timestamp with time zone
   col field_name                     text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col rule_config                    jsonb NOT NULL DEFAULT '{}'::jsonb
-  col rule_type                      text NOT NULL
+  col issue_type                     text NOT NULL
+  col record_ids                     jsonb
+  col scan_id                        uuid NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
   col severity                       text NOT NULL DEFAULT 'warning'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_quality_rules_pkey PRIMARY KEY (id)
-  ck  zvd_quality_rules_rule_type_check CHECK ((rule_type = ANY (ARRAY['not_null'::text, 'unique'::text, 'pattern'::text, 'range'::text, 'reference'::text, 'custom'::text])))
-  ck  zvd_quality_rules_severity_check CHECK ((severity = ANY (ARRAY['info'::text, 'warning'::text, 'error'::text, 'critical'::text])))
+  col suggestion                     text
+  col target_collection              text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_quality_issues_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_quality_issues_pkey PRIMARY KEY (id)
+  fk  zvd_quality_issues_scan_id_fkey FOREIGN KEY (scan_id) REFERENCES zvd_quality_scans(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_quality_issues_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_quality_rules FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('quality_issues'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('quality_issues'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('quality_issues'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('quality_issues'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('quality_issues'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_quality_sla_targets
-  col alert_email                    text
-  col collection                     text NOT NULL
+table zvd_quality_scans
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col issues_found                   bigint NOT NULL
+  col records_scanned                bigint NOT NULL
+  col scan_type                      text NOT NULL DEFAULT 'full'::text
+  col search_text                    text
+  col search_vector                  tsvector
+  col skipped_checks                 jsonb
+  col target_collection              text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col truncated                      boolean NOT NULL DEFAULT false
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_quality_scans_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_quality_scans_pkey PRIMARY KEY (id)
+  fk  zvd_quality_scans_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('quality_scans'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('quality_scans'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('quality_scans'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('quality_scans'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('quality_scans'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_quality_targets
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col is_active                      boolean NOT NULL DEFAULT true
-  col max_critical_issues            integer NOT NULL DEFAULT 0
-  col max_error_issues               integer NOT NULL DEFAULT 5
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  uq  zvd_quality_sla_targets_collection_key UNIQUE (tenant_id, collection)
-  pk  zvd_quality_sla_targets_pkey PRIMARY KEY (id)
+  col max_error_issues               bigint NOT NULL DEFAULT 5
+  col max_warning_issues             bigint
+  col search_text                    text
+  col search_vector                  tsvector
+  col target_collection              text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_quality_targets_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_quality_targets_pkey PRIMARY KEY (id)
+  uq  zvd_quality_targets_tenant_id_target_collection_key UNIQUE (tenant_id, target_collection)
+  fk  zvd_quality_targets_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_quality_sla_targets FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('quality_targets'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('quality_targets'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('quality_targets'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('quality_targets'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('quality_targets'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_quote_lines
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -11722,6 +11718,56 @@ table zvv_purchase_orders
   col updated_at                     timestamp with time zone
   col updated_by                     text
   col warehouse_id                   uuid
+
+table zvv_quality_issues
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col dismissed                      boolean
+  col dismissed_at                   timestamp with time zone
+  col field_name                     text
+  col id                             uuid
+  col issue_type                     text
+  col record_ids                     jsonb
+  col scan_id                        uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col severity                       text
+  col suggestion                     text
+  col target_collection              text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_quality_scans
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col issues_found                   bigint
+  col records_scanned                bigint
+  col scan_type                      text
+  col search_text                    text
+  col search_vector                  tsvector
+  col skipped_checks                 jsonb
+  col target_collection              text
+  col tenant_id                      uuid
+  col truncated                      boolean
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_quality_targets
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col is_active                      boolean
+  col max_error_issues               bigint
+  col max_warning_issues             bigint
+  col search_text                    text
+  col search_vector                  tsvector
+  col target_collection              text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
 
 table zvv_quote_lines
   col created_at                     timestamp with time zone

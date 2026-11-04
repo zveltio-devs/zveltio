@@ -138,7 +138,6 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   // trigger types. Measured, not assumed — it is the only extension that
   // reshapes an engine table it does not otherwise own.
   ai: ['zv_flows'],
-  'analytics/quality': ['zv_quality_issues', 'zv_quality_scans'],
   // `zv_document_templates` is created by `content/document-templates`, NOT by
   // the engine — measured against `engineOwnedTables()`, which reads the
   // engine's own migration files; the note that used to say "engine-declared"
