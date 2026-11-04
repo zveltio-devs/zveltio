@@ -41,7 +41,6 @@
       "!packages/studio/src/routes/(admin)/crm",
       "!packages/studio/src/routes/(admin)/developer/api-docs",
       "!packages/studio/src/routes/(admin)/developer/graphql",
-      "!packages/studio/src/routes/(admin)/developer/validation",
       "!packages/studio/src/routes/(admin)/developer/views",
       "!packages/studio/src/routes/(admin)/finance/banking",
       "!packages/studio/src/routes/(admin)/forms",

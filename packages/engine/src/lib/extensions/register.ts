@@ -110,8 +110,6 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
     // Owned by this extension, but still present in the engine's 001_initial
     // from before the feature moved out. See the note below.
   ],
-  // Read only (READ_ONLY_TABLE_GRANTS): writes go through writeValidationRule.
-  'developer/validation': ['zv_validation_rules'],
   // ── Tables an extension owns that the engine also declares ──────────────
   //
   // Every case where an extension's migrations and the engine's create the same
@@ -203,7 +201,7 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
  */
 export const READ_ONLY_TABLE_GRANTS: readonly string[] = [
   'zv_validation_rules',
-  // developer/validation's own table, instance-wide since 091: writeValidationRuleGroup.
+  // Instance-wide since 091: writeValidationRuleGroup.
   'zvd_validation_rule_groups',
 ];
 

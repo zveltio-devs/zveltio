@@ -130,8 +130,8 @@ Read [multi-tenancy.md](multi-tenancy.md) before changing anything in this path.
 
 Several `/api/*` paths now return **410 Gone** with a pointer to the extension
 that replaced them — `registerCoreRoutes` mounts `goneRoutes(...)` for
-`/api/approvals`, `/api/export`, `/api/import`, `/api/media`, `/api/briefing`,
-and `/api/edge-functions`. A 410 with a forwarding address is deliberate: it
+`/api/approvals`, `/api/export`, `/api/import`, `/api/media` and `/api/briefing`.
+A 410 with a forwarding address is deliberate: it
 tells an old client what happened instead of a bare 404.
 
 ---

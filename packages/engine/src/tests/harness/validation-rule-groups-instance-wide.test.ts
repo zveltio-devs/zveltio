@@ -31,6 +31,7 @@ import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
   DEFAULT_TENANT_ID,
+  ensureRlsEnforcementRole,
   getEnforcer,
   invalidateUserPermCache,
   withTenantIsolation,
@@ -57,6 +58,9 @@ const MIGRATION = new URL(
   '../../db/migrations/sql/091_validation_rule_groups_instance_wide.sql',
   import.meta.url,
 ).pathname;
+// The engine's own table since 111: put back after the extension's shape is tried.
+const ADOPT = new URL('../../db/migrations/sql/111_adopt_validation_tables.sql', import.meta.url)
+  .pathname;
 
 // The table as developer/validation's 001 creates it and its 002 polices it.
 const EXT_001 = `CREATE TABLE IF NOT EXISTS ${T} (
@@ -88,8 +92,8 @@ d('validation rule groups are instance-wide', () => {
   let firmAdmin = { cookie: '', userId: '' };
   const tmp = `/tmp/${PROBE}`;
 
-  const runMigration = async (half: 'up' | 'down') => {
-    const parsed = parseMigrationFile(await Bun.file(MIGRATION).text());
+  const runMigration = async (half: 'up' | 'down', file = MIGRATION) => {
+    const parsed = parseMigrationFile(await Bun.file(file).text());
     await db.transaction().execute(async (trx) => {
       for (const stmt of splitSqlStatements(parsed[half] ?? '')) await sql.raw(stmt).execute(trx);
     });
@@ -141,7 +145,7 @@ d('validation rule groups are instance-wide', () => {
     await invalidateUserPermCache(m.userId);
     firmAdmin = m;
 
-    // A test database: the extension is not installed here, its table is ours.
+    // The table as a 1.x install of the extension had it, before 091 and 111.
     await sql`DROP TABLE IF EXISTS zvd_validation_rule_groups`.execute(db);
     await Bun.write(`${tmp}/001_initial.sql`, EXT_001);
     await Bun.write(`${tmp}/002_tenant_rls.sql`, EXT_002);
@@ -204,6 +208,8 @@ d('validation rule groups are instance-wide', () => {
     invalidateActivationCache();
     if (!db) return;
     await sql`DROP TABLE IF EXISTS zvd_validation_rule_groups`.execute(db);
+    await runMigration('up', ADOPT);
+    await ensureRlsEnforcementRole(db);
     await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${PROBE}:%`}`.execute(db);
     await sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule_group'
                 AND metadata->>'collection' IN (${C1}, ${C2})`.execute(db);
@@ -377,5 +383,22 @@ d('validation rule groups are instance-wide', () => {
     expect(tenants.rows).toEqual([{ t: DEFAULT_TENANT_ID }]);
     await runMigration('up');
     expect(await groups()).toHaveLength(3);
+  });
+
+  it('111 converts a table an extension older than its 004 gave a tenant column again', async () => {
+    const before = await groups();
+    await runMigration('down');
+    // A second firm's group of a name the default tenant already holds: the
+    // unique index 111 creates would refuse it, and the boot with it.
+    await db.transaction().execute(async (trx) => {
+      await sql`ALTER TABLE zvd_validation_rule_groups NO FORCE ROW LEVEL SECURITY`.execute(trx);
+      await sql`INSERT INTO zvd_validation_rule_groups (name, collection, field_name, tenant_id, created_by)
+                VALUES ('dup', ${C1}, 'code', ${OTHER_FIRM}::uuid, 'seed')`.execute(trx);
+      await sql`ALTER TABLE zvd_validation_rule_groups FORCE ROW LEVEL SECURITY`.execute(trx);
+    });
+    await runMigration('up', ADOPT);
+    expect(await hasColumn('tenant_id')).toBe(false);
+    expect(await rls()).toEqual({ on: false, forced: false, policies: 0 });
+    expect(await groups()).toEqual(before);
   });
 });

@@ -64,7 +64,6 @@ describe('buildAllowedTables', () => {
 describe('EXTENSION_TABLE_GRANTS', () => {
   it('declares explicit table grants for known extensions', () => {
     expect(EXTENSION_TABLE_GRANTS['content/drafts']).toContain('zv_revisions');
-    expect(EXTENSION_TABLE_GRANTS['developer/validation']).toContain('zv_validation_rules');
   });
 });
 

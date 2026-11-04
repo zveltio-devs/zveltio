@@ -96,7 +96,6 @@ accurate counts.
 | `developer/api-docs` | API Documentation | 1.0.2 | Swagger UI + OpenAPI generated from collections |
 | `developer/byod` | BYOD Import | 1.0.4 | Introspect and import an external database schema |
 | `developer/graphql` | GraphQL API | 1.0.2 | Auto-generated GraphQL with playground |
-| `developer/validation` | Data Validation | 1.0.3 | Field-level rules with AI-assisted natural-language authoring |
 
 ## ecommerce
 

@@ -655,7 +655,11 @@ export function invalidateRulesCache(collection: string): void {
  * Falls back to a direct (unprotected) test in non-Bun environments where
  * the Worker constructor is unavailable.
  */
-async function safeRegexTest(pattern: string, value: string, timeoutMs = 200): Promise<boolean> {
+export async function safeRegexTest(
+  pattern: string,
+  value: string,
+  timeoutMs = 200,
+): Promise<boolean> {
   let regex: RegExp;
   try {
     regex = new RegExp(pattern);

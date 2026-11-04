@@ -12,7 +12,6 @@
     "search/engine/routes.ts": 1,
     "developer/api-docs/engine/routes.ts": 11,
     "developer/graphql/engine/routes.ts": 10,
-    "developer/validation/engine/routes.ts": 2,
     "developer/byod/engine/routes.ts": 1,
     "ai/engine/routes/ai-schema-gen.ts": 1,
     "ai/engine/routes/ai-chats.ts": 1,

@@ -36,6 +36,7 @@ import { syncRoutes } from './sync.js';
 import { electricRoutes } from './electric.js';
 import { openApiRoutes } from './openapi.js';
 import { edgeFunctionAdminRoutes, edgeFunctionInvokeRoutes } from './edge-functions.js';
+import { validationRoutes } from './validation.js';
 // Promoted-to-core (was extensions/) — these power admin UI pages that should
 // work out of the box on a fresh install instead of requiring marketplace install.
 import { backupRoutes } from './backup.js';
@@ -86,7 +87,6 @@ import { configStepUp } from '../middleware/config-step-up.js';
 // /api/insights         → extensions/analytics/insights
 // /api/quality          → extensions/analytics/quality
 // /api/saved-queries    → extensions/developer/saved-queries
-// /api/validation       → extensions/developer/validation
 // /api/export           → extensions/data/export
 // /api/import           → extensions/data/import
 //
@@ -475,7 +475,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Saved Queries — promoted to core (used to live in extensions/developer/saved-queries)
   app.route('/api/saved-queries', savedQueriesRoutes(db, auth));
 
-  // Data Validation Rules — moved to extensions/developer/validation
+  // Data Validation Rules — administration (tenant admins); the engine evaluates
+  // them on every write. The developer/validation extension that held it was retired.
+  app.route('/api/validation', validationRoutes(db, auth));
 
   // Data Quality Dashboard — moved to extensions/analytics/quality
 

@@ -177,7 +177,12 @@ older tenant-wide key is widened by the engine in the background at every boot.
 The exception is a key that a foreign key references, which is kept and named in
 a boot warning.
 
-For complex business rules, use `POST /api/validation-rules` to create natural language rules (e.g. *"price must be greater than cost"*) that are enforced on every write.
+For complex business rules, create rules in Studio (**Developer → Validation
+Rules**) or with `POST /api/validation/rules` — tenant admins; an instance
+admin's rules bind every tenant, a tenant admin's only their own. They are
+enforced on every write, and each rule can carry test cases
+(`/api/validation/rules/:id/test-cases`). An instance admin with an AI provider
+configured can draft one from a description (`POST /api/validation/generate`).
 
 A `transition` rule constrains how a field's value may change. Its CEL
 `expression` sees `value` (being written) and `previous` (stored before this
