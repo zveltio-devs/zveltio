@@ -8,6 +8,7 @@ const CONFIG_PREFIXES = [
   '/api/api-keys',
   '/api/backup',
   '/api/collections',
+  '/api/edge-functions', // deploying code and approving what it may reach
   '/api/flows',
   '/api/marketplace',
   '/api/permissions',
