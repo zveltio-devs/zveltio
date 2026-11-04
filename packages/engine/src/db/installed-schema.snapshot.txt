@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 574
+# tables: 575
 
 table account
   col accessToken                    text
@@ -477,155 +477,6 @@ table zv_doc_templates
   fk  zv_doc_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_doc_templates_pkey PRIMARY KEY (id)
 
-table zv_document_access_log
-  col accessed_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col action                         text NOT NULL
-  col document_id                    uuid NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col ip                             text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text
-  ck  zv_document_access_log_action_check CHECK ((action = ANY (ARRAY['view'::text, 'download'::text, 'sign'::text, 'share'::text])))
-  fk  zv_document_access_log_document_id_fkey FOREIGN KEY (document_id) REFERENCES zv_generated_docs(id) ON DELETE CASCADE
-  pk  zv_document_access_log_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_document_access_log FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_document_number_sequences
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col next_number                    integer NOT NULL DEFAULT 1
-  col prefix                         text NOT NULL DEFAULT 'DOC'::text
-  col reset_year                     integer
-  col template_id                    uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col year_reset                     boolean NOT NULL DEFAULT true
-  pk  zv_document_number_sequences_pkey PRIMARY KEY (id)
-  uq  zv_document_number_sequences_template_id_key UNIQUE (template_id)
-  rls enabled forced
-  pol tenant_isolation_zv_document_number_sequences FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_document_render_jobs
-  col completed_at                   timestamp with time zone
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col data_source                    text NOT NULL
-  col error                          text
-  col failed_count                   integer NOT NULL DEFAULT 0
-  col filter_config                  jsonb NOT NULL DEFAULT '{}'::jsonb
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col job_name                       text NOT NULL
-  col output_format                  text NOT NULL DEFAULT 'pdf'::text
-  col output_zip_key                 text
-  col processed_count                integer NOT NULL DEFAULT 0
-  col status                         text NOT NULL DEFAULT 'pending'::text
-  col template_id                    uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total_records                  integer
-  ck  zv_document_render_jobs_output_format_check CHECK ((output_format = ANY (ARRAY['pdf'::text, 'html'::text, 'zip'::text])))
-  pk  zv_document_render_jobs_pkey PRIMARY KEY (id)
-  ck  zv_document_render_jobs_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text])))
-  fk  zv_document_render_jobs_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_document_templates(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_document_render_jobs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_document_renders
-  col file_key                       text
-  col file_size                      integer
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col output_format                  text NOT NULL DEFAULT 'pdf'::text
-  col rendered_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col rendered_by                    text
-  col template_id                    uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col variables                      jsonb NOT NULL DEFAULT '{}'::jsonb
-  ck  zv_document_renders_output_format_check CHECK ((output_format = ANY (ARRAY['pdf'::text, 'html'::text])))
-  pk  zv_document_renders_pkey PRIMARY KEY (id)
-  fk  zv_document_renders_rendered_by_fkey FOREIGN KEY (rendered_by) REFERENCES "user"(id) ON DELETE SET NULL
-  fk  zv_document_renders_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_document_templates(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_document_renders FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_document_sign_requests
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col document_id                    uuid NOT NULL
-  col expires_at                     timestamp with time zone NOT NULL DEFAULT (now() + '7 days'::interval)
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col ip_address                     text
-  col message                        text
-  col sign_token                     text NOT NULL DEFAULT encode(gen_random_bytes(24), 'hex'::text)
-  col signed_at                      timestamp with time zone
-  col signer_email                   text NOT NULL
-  col signer_name                    text NOT NULL
-  col status                         text NOT NULL DEFAULT 'pending'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_document_sign_requests_document_id_fkey FOREIGN KEY (document_id) REFERENCES zv_generated_docs(id) ON DELETE CASCADE
-  pk  zv_document_sign_requests_pkey PRIMARY KEY (id)
-  uq  zv_document_sign_requests_sign_token_key UNIQUE (sign_token)
-  ck  zv_document_sign_requests_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'signed'::text, 'declined'::text, 'expired'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_document_sign_requests FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_document_template_access
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col permission                     text NOT NULL DEFAULT 'use'::text
-  col role_name                      text
-  col template_id                    uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text
-  ck  zv_document_template_access_check CHECK (((user_id IS NOT NULL) OR (role_name IS NOT NULL)))
-  ck  zv_document_template_access_permission_check CHECK ((permission = ANY (ARRAY['use'::text, 'edit'::text, 'admin'::text])))
-  pk  zv_document_template_access_pkey PRIMARY KEY (id)
-  fk  zv_document_template_access_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_document_templates(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_document_template_access FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_document_template_versions
-  col change_notes                   text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col css_styles                     text
-  col html_body                      text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col template_id                    uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col variables                      jsonb NOT NULL DEFAULT '{}'::jsonb
-  col version_number                 integer NOT NULL
-  pk  zv_document_template_versions_pkey PRIMARY KEY (id)
-  fk  zv_document_template_versions_template_id_fkey FOREIGN KEY (template_id) REFERENCES zv_document_templates(id) ON DELETE CASCADE
-  uq  zv_document_template_versions_template_id_version_number_key UNIQUE (template_id, version_number)
-  rls enabled forced
-  pol tenant_isolation_zv_document_template_versions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_document_templates
-  col category                       text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col css_styles                     text
-  col description                    text
-  col html_body                      text NOT NULL DEFAULT ''::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col last_used_at                   timestamp with time zone
-  col name                           text NOT NULL
-  col output_format                  text NOT NULL DEFAULT 'pdf'::text
-  col pdf_options                    jsonb DEFAULT '{"format": "A4", "margin": {"top": "20mm", "left": "20mm", "right": "20mm", "bottom": "20mm"}}'::jsonb
-  col slug                           text
-  col tags                           ARRAY NOT NULL DEFAULT '{}'::text[]
-  col template_type                  text NOT NULL DEFAULT 'html'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col usage_count                    integer NOT NULL DEFAULT 0
-  col variables                      jsonb NOT NULL DEFAULT '[]'::jsonb
-  col version_number                 integer NOT NULL DEFAULT 1
-  fk  zv_document_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  pk  zv_document_templates_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_document_templates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zv_edge_function_logs
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col duration_ms                    integer
@@ -898,31 +749,6 @@ table zv_flows
   ck  zv_flows_trigger_type_check CHECK ((trigger_type = ANY (ARRAY['manual'::text, 'on_create'::text, 'on_update'::text, 'on_delete'::text, 'cron'::text, 'webhook'::text, 'ai_task'::text])))
   rls enabled forced
   pol tenant_isolation_zv_flows FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
-
-table zv_generated_docs
-  col document_number                text
-  col expires_at                     timestamp with time zone
-  col file_key                       text
-  col file_size                      bigint
-  col generated_at                   timestamp with time zone NOT NULL DEFAULT now()
-  col generated_by                   text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_signed                      boolean NOT NULL DEFAULT false
-  col output_format                  text NOT NULL DEFAULT 'pdf'::text
-  col share_token                    text DEFAULT encode(gen_random_bytes(16), 'hex'::text)
-  col source_collection              text
-  col source_record_id               uuid
-  col status                         text NOT NULL DEFAULT 'active'::text
-  col template_id                    uuid
-  col template_name                  text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col variables_used                 jsonb NOT NULL DEFAULT '{}'::jsonb
-  ck  zv_generated_docs_output_format_check CHECK ((output_format = ANY (ARRAY['pdf'::text, 'html'::text])))
-  pk  zv_generated_docs_pkey PRIMARY KEY (id)
-  uq  zv_generated_docs_share_token_key UNIQUE (share_token)
-  ck  zv_generated_docs_status_check CHECK ((status = ANY (ARRAY['active'::text, 'expired'::text, 'revoked'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_generated_docs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_import_logs
   col collection                     text NOT NULL
@@ -3612,6 +3438,56 @@ table zvd_departments
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('departments'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('departments'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('departments'::text, 'update'::text) AS zveltio_collection_allows)
 
+table zvd_document_number_sequences
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col next_number                    bigint NOT NULL DEFAULT 1
+  col prefix                         text NOT NULL DEFAULT 'DOC'::text
+  col reset_year                     bigint
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col year_reset                     boolean NOT NULL DEFAULT true
+  fk  zvd_document_number_sequences_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_document_number_sequences_pkey PRIMARY KEY (id)
+  uq  zvd_document_number_sequences_tenant_id_template_id_key UNIQUE (tenant_id, template_id)
+  fk  zvd_document_number_sequences_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('document_number_sequences'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('document_number_sequences'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('document_number_sequences'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('document_number_sequences'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('document_number_sequences'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_document_renders
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_vector                  tsvector
+  col template_id                    uuid
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col variables                      jsonb
+  fk  zvd_document_renders_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_document_renders_pkey PRIMARY KEY (id)
+  fk  zvd_document_renders_template_id_fkey FOREIGN KEY (template_id) REFERENCES zvd_document_templates(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_document_renders_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('document_renders'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('document_renders'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('document_renders'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('document_renders'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('document_renders'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_document_series
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
@@ -3638,6 +3514,57 @@ table zvd_document_series
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('document_series'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('document_series'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('document_series'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('document_series'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_document_signatures
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col document_id                    uuid NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_vector                  tsvector
+  col statement                      text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_document_signatures_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_document_signatures_document_id_fkey FOREIGN KEY (document_id) REFERENCES zvd_generated_documents(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  pk  zvd_document_signatures_pkey PRIMARY KEY (id)
+  fk  zvd_document_signatures_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('document_signatures'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('document_signatures'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('document_signatures'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('document_signatures'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('document_signatures'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_document_templates
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col html_body                      text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col name                           text NOT NULL
+  col pdf_options                    jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col tags                           ARRAY DEFAULT '{}'::text[]
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col variables                      jsonb
+  fk  zvd_document_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_document_templates_pkey PRIMARY KEY (id)
+  fk  zvd_document_templates_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('document_templates'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('document_templates'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('document_templates'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('document_templates'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('document_templates'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_dunning_attempts
   col attempt_number                 bigint NOT NULL
@@ -4741,6 +4668,36 @@ table zvd_gdpr_subject_requests
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('gdpr_subject_requests'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_generated_documents
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col document_number                text NOT NULL
+  col expires_at                     timestamp with time zone
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_text                    text
+  col search_vector                  tsvector
+  col source_collection              text
+  col source_record_id               text
+  col status                         text NOT NULL DEFAULT 'active'::text
+  col template_id                    uuid
+  col template_name                  text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col variables_used                 jsonb
+  fk  zvd_generated_documents_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_generated_documents_pkey PRIMARY KEY (id)
+  uq  zvd_generated_documents_tenant_id_document_number_key UNIQUE (tenant_id, document_number)
+  fk  zvd_generated_documents_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('generated_documents'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('generated_documents'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('generated_documents'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('generated_documents'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('generated_documents'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_geo_location_history
   col accuracy_m                     numeric
@@ -9766,6 +9723,32 @@ table zvv_departments
   col updated_at                     timestamp with time zone
   col updated_by                     text
 
+table zvv_document_number_sequences
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col next_number                    bigint
+  col prefix                         text
+  col reset_year                     bigint
+  col search_text                    text
+  col search_vector                  tsvector
+  col template_id                    uuid
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col year_reset                     boolean
+
+table zvv_document_renders
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col search_vector                  tsvector
+  col template_id                    uuid
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col variables                      jsonb
+
 table zvv_document_series
   col created_at                     timestamp with time zone
   col created_by                     text
@@ -9780,6 +9763,34 @@ table zvv_document_series
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
+
+table zvv_document_signatures
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col document_id                    uuid
+  col id                             uuid
+  col search_vector                  tsvector
+  col statement                      text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_document_templates
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col html_body                      text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col pdf_options                    jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col tags                           ARRAY
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col variables                      jsonb
 
 table zvv_dunning_attempts
   col attempt_number                 bigint
@@ -10452,6 +10463,24 @@ table zvv_gdpr_subject_requests
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
+
+table zvv_generated_documents
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col document_number                text
+  col expires_at                     timestamp with time zone
+  col id                             uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col source_collection              text
+  col source_record_id               text
+  col status                         text
+  col template_id                    uuid
+  col template_name                  text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col variables_used                 jsonb
 
 table zvv_geo_location_history
   col accuracy_m                     numeric
