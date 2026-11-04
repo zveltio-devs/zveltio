@@ -9,7 +9,7 @@
  * and error string is byte-identical to the pre-split inline code.
  */
 
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, hkdfSync } from 'node:crypto';
 import { z } from 'zod';
 import { type FilterCondition, toBox, toNear } from '../../db/dynamic.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
@@ -263,28 +263,62 @@ export interface CursorBinding {
 }
 
 /**
- * AES-256-GCM key, HKDF-SHA256 from BETTER_AUTH_SECRET (ADR 0021). Derived per
- * call (microseconds), not cached: a cached key kept opening cursors sealed
- * under a secret the process no longer held.
+ * Keys for sealed tokens (ADR 0021), derived on every call by HKDF-SHA256 from
+ * BETTER_AUTH_SECRET, so a rotated secret refuses what the old one sealed.
  */
-function key(): Buffer {
+function keys(): { enc: Buffer; iv: Buffer } {
   const secret = process.env.BETTER_AUTH_SECRET;
-  if (!secret) throw new Error('BETTER_AUTH_SECRET is required to seal list cursors');
-  return Buffer.from(hkdfSync('sha256', secret, '', 'zveltio:list-cursor:v1', 32));
+  if (!secret) throw new Error('BETTER_AUTH_SECRET is required to seal cursors');
+  const derive = (info: string) => Buffer.from(hkdfSync('sha256', secret, '', info, 32));
+  return { enc: derive('zveltio:list-cursor:v1'), iv: derive('zveltio:cursor-iv:v1') };
 }
-const aad = (b: CursorBinding) => Buffer.from(`${b.collection}\0${b.sort}\0${b.desc ? 'd' : 'a'}`);
 
 /**
- * Seal a position (ADR 0021). The position may be a row the caller may not see
- * (the walk stopped at its read ceiling), so the caller can neither read it nor
- * write one: `iv | tag | ciphertext`, base64url.
+ * Seal `value` for `aad` (ADR 0021): AES-256-GCM, `iv | tag | ciphertext`,
+ * base64url. The IV is synthetic — an HMAC of the AAD and the plaintext — so
+ * one position always seals to one token: a client (and the sync fail-safe)
+ * can tell an unchanged cursor, and only identical plaintexts share an IV.
+ */
+export function sealToken(value: unknown, aad: string): string {
+  const { enc, iv: ivKey } = keys();
+  const plain = Buffer.from(JSON.stringify(value), 'utf8');
+  const iv = createHmac('sha256', ivKey)
+    .update(aad)
+    .update('\0')
+    .update(plain)
+    .digest()
+    .subarray(0, 12);
+  const cipher = createCipheriv('aes-256-gcm', enc, iv);
+  cipher.setAAD(Buffer.from(aad));
+  const body = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
+}
+
+/** What `sealToken` sealed for this `aad`, or undefined for anything else. */
+export function openToken(token: string, aad: string): unknown {
+  try {
+    const raw = Buffer.from(token, 'base64url');
+    if (raw.length < 29) return undefined;
+    const decipher = createDecipheriv('aes-256-gcm', keys().enc, raw.subarray(0, 12));
+    decipher.setAAD(Buffer.from(aad));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    return JSON.parse(
+      Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8'),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+const aad = (b: CursorBinding) => `${b.collection}\0${b.sort}\0${b.desc ? 'd' : 'a'}`;
+
+/**
+ * Seal a list position (ADR 0021). The position may be a row the caller may
+ * not see (the walk stopped at its read ceiling), so the caller can neither
+ * read it nor write one.
  */
 export function sealCursor(pos: DecodedCursor, bind: CursorBinding): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key(), iv);
-  cipher.setAAD(aad(bind));
-  const body = Buffer.concat([cipher.update(JSON.stringify(pos), 'utf8'), cipher.final()]);
-  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64url');
+  return sealToken(pos, aad(bind));
 }
 
 /**
@@ -299,18 +333,7 @@ export function openCursor(
 ): DecodedCursor | 'start' | null {
   if (!cursor) return null;
   if (cursor === START_CURSOR) return 'start';
-  let decoded: unknown;
-  try {
-    const raw = Buffer.from(cursor, 'base64url');
-    if (raw.length < 29) return null;
-    const decipher = createDecipheriv('aes-256-gcm', key(), raw.subarray(0, 12));
-    decipher.setAAD(aad(bind));
-    decipher.setAuthTag(raw.subarray(12, 28));
-    const text = Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]);
-    decoded = JSON.parse(text.toString('utf8'));
-  } catch {
-    return null;
-  }
+  const decoded = openToken(cursor, aad(bind));
   if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) return null;
   const { id, val } = decoded as { id?: unknown; val?: JsonValue };
   if (typeof id === 'string' && id && val !== undefined) return { id, val };

@@ -14,6 +14,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Database } from '../../db/index.js';
+import { DDLManager } from '../../lib/data/index.js';
 import { _internalForTests as emailInternals } from '../../lib/email.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
 import { initTenantManager } from '../../lib/tenancy/index.js';
@@ -47,6 +48,10 @@ beforeEach(() => {
 function run(table: string, rows: Record<string, unknown>[], config: Record<string, unknown>) {
   const db = new CannedDb();
   initTenantManager(db.kysely as unknown as Database);
+  // The collection cache is the process's (30 s): another file that looked up
+  // `contacts` on its own canned database left `null` there, and CI failed
+  // here whenever that file ran less than 30 s before this one.
+  DDLManager.invalidateCache(table.slice(4));
   db.when(/set_config/i, []);
   db.when(/from "zvd_collections"/i, [{ name: table.slice(4), fields: [] }]);
   db.when(new RegExp(`from "${table}"`, 'i'), rows);

@@ -22,6 +22,8 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  openSyncCursor,
+  syncCursor,
   syncPull,
 } from '../../testing/app-harness.js';
 
@@ -226,7 +228,7 @@ d('sync pull returns deletes', () => {
     const keep = await insert(db, 'kept');
     const old = (Date.now() - 40 * 86_400_000) * 1000;
     const stale = `d${old}:${old}:00000000-0000-0000-0000-000000000000`;
-    const body = await pull({ cursors: { [TABLE]: stale } });
+    const body = await pull({ cursors: { [TABLE]: await syncCursor(TABLE, stale) } });
     expect(body.resync?.[TABLE]).toBe(true);
     expect(body.changes.map((ch) => ch.id)).toContain(keep);
     expect(deletesIn(body)).toEqual([]);
@@ -235,14 +237,18 @@ d('sync pull returns deletes', () => {
     expect(fresh.resync?.[TABLE]).toBeUndefined();
     // What counts is when the client's deletes stop, not where its rows are.
     const staleDeletes = `d${(Date.now() - 40 * 86_400_000) * 1000}:${Date.now() * 1000}:00000000-0000-0000-0000-000000000000`;
-    expect((await pull({ cursors: { [TABLE]: staleDeletes } })).resync?.[TABLE]).toBe(true);
+    expect(
+      (await pull({ cursors: { [TABLE]: await syncCursor(TABLE, staleDeletes) } })).resync?.[TABLE],
+    ).toBe(true);
 
     // A caught-up pull moves it to now, or a client syncing daily would still
     // be restarted once its first pull fell out of the retention.
     const agingDeletes = `d${(Date.now() - 29 * 86_400_000) * 1000}:${Date.now() * 1000}:00000000-0000-0000-0000-000000000000`;
-    const caughtUp = await pull({ cursors: { [TABLE]: agingDeletes } });
+    const caughtUp = await pull({ cursors: { [TABLE]: await syncCursor(TABLE, agingDeletes) } });
     expect(caughtUp.resync?.[TABLE]).toBeUndefined();
-    const owed = Number(/^d(\d+):/.exec(caughtUp.cursors?.[TABLE] ?? '')?.[1]) / 1000;
+    const owed =
+      Number(/^d(\d+):/.exec((await openSyncCursor(TABLE, caughtUp.cursors?.[TABLE])) ?? '')?.[1]) /
+      1000;
     expect(owed).toBeGreaterThan(Date.now() - 60_000);
   });
 

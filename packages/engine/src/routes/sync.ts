@@ -7,7 +7,7 @@
 
 import { sqlState } from '../db/bun-sql-quirks.js';
 import { readableColumns, readSource, withEngineColumns } from '../db/dynamic.js';
-import { describeWriteRefusal, isRlsRefusal } from '../lib/data/index.js';
+import { describeWriteRefusal, isRlsRefusal, openToken, sealToken } from '../lib/data/index.js';
 import { guardSession } from '../lib/admin-guard.js';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
@@ -123,6 +123,8 @@ async function rowBeforeDelete(db: Database, table: string, id: string) {
   return r.rows[0];
 }
 
+/** A sync cursor opens only for the collection it was sealed for (ADR 0021). */
+export const syncCursorAad = (collection: string) => `sync\0${collection}`;
 export async function syncWatermarkUs(db: Database, ownPid: number): Promise<string> {
   const { rows } = await sql<{ w: string }>`
     SELECT CASE
@@ -737,18 +739,47 @@ export function syncRoutes(db: Database, _auth: any): Hono {
 
     const collections = body.collections as string[];
 
-    // `d<deletes-from us>:<updated_at in epoch microseconds>:<id>`, as the
-    // previous pull wrote it. Checked here, before any SQL: a bad value cast inside the tenant
-    // transaction would abort it and answer 500.
+    // `{ del, us, id }` — deletes complete from, `updated_at` in epoch
+    // microseconds, id — sealed by the previous pull (ADR 0021): it is the last
+    // row READ, which entity access may have hidden, and a position the client
+    // wrote would be a comparison oracle on `updated_at`. One that does not open
+    // (from before the seal, tampered, another collection, a rotated secret)
+    // restarts its collection with `resync`. Checked here, before any SQL: a
+    // bad value cast inside the tenant transaction would abort it and answer 500.
+    const tableOf = (raw: unknown): string =>
+      typeof raw === 'string' && raw.startsWith('zvd_') ? raw : `zvd_${raw}`;
+    const pulled = new Set(collections.map(tableOf));
     const cursorIn = new Map<string, { del: string; us: string; id: string }>();
+    const unopened = new Set<string>();
     if (body.cursors !== undefined) {
       if (!body.cursors || typeof body.cursors !== 'object' || Array.isArray(body.cursors)) {
         return c.json({ error: 'Invalid body: cursors must be an object' }, 400);
       }
       for (const [name, value] of Object.entries(body.cursors)) {
-        const m = typeof value === 'string' ? /^d(\d{1,18}):(\d{1,18}):(.+)$/s.exec(value) : null;
-        if (!m) return c.json({ error: `Invalid cursor for ${name}` }, 400);
-        cursorIn.set(name, { del: m[1]!, us: m[2]!, id: m[3]! });
+        if (typeof value !== 'string') return c.json({ error: `Invalid cursor for ${name}` }, 400);
+        // Only the (at most 20) collections pulled: opening is a key derivation
+        // and a decryption, and the SDK sends every cursor it holds. Opening all
+        // of them let one 8 MB body hold the event loop for over a second.
+        if (!pulled.has(name)) continue;
+        const pos = openToken(value, syncCursorAad(name)) as
+          | { del?: unknown; us?: unknown; id?: unknown }
+          | undefined;
+        const ok =
+          typeof pos?.del === 'string' &&
+          /^\d{1,18}$/.test(pos.del) &&
+          typeof pos.us === 'string' &&
+          // Any bigint the pull sealed: before 1970 it is negative, and refusing
+          // it restarted the collection on every pull (a full one, forever).
+          /^-?\d{1,19}$/.test(pos.us) &&
+          typeof pos.id === 'string' &&
+          pos.id !== '';
+        if (ok)
+          cursorIn.set(name, {
+            del: pos.del as string,
+            us: pos.us as string,
+            id: pos.id as string,
+          });
+        else unopened.add(name);
       }
     }
 
@@ -786,8 +817,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       sql`('epoch'::timestamptz + ${us}::bigint * interval '1 microsecond')`;
 
     for (const rawName of collections) {
-      const collection: string =
-        typeof rawName === 'string' && rawName.startsWith('zvd_') ? rawName : `zvd_${rawName}`;
+      const collection = tableOf(rawName);
 
       // Registered collections only — see push.
       if (!COLLECTION_RE.test(collection)) continue;
@@ -820,6 +850,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         c.get('authType') ?? 'session',
       );
       let cursor = cursorIn.get(collection);
+      if (unopened.has(collection)) resync[collection] = true;
       // Judged by where this client's deletes are complete from, not by the
       // cursor's row position: paging through rows older than the retention
       // restarted from nothing on every page, so a large old collection never
@@ -919,7 +950,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       // (or a watermark of 0, which delivers nothing) still owes what it owed.
       // A client with no position holds nothing a delete could remove.
       const owed = full || watermarkUs === '0' ? (cursor?.del ?? watermarkUs) : watermarkUs;
-      if (last) cursorsOut[collection] = `d${owed}:${last.us}:${last.id}`;
+      if (last) {
+        cursorsOut[collection] = sealToken(
+          { del: String(owed), us: String(last.us), id: String(last.id) },
+          syncCursorAad(collection),
+        );
+      }
       if (full) hasMore = true;
       const pageRows = page.flatMap((p) => (p.row ? [p.row] : []));
       const kept = await scope.keep(

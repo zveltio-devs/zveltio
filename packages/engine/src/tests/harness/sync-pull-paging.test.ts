@@ -16,6 +16,8 @@ import {
   createGodSession,
   getTestApp,
   harnessAvailable,
+  openSyncCursor,
+  syncCursor,
   syncPull,
 } from '../../testing/app-harness.js';
 
@@ -98,23 +100,35 @@ d('sync pull pages without losing rows', () => {
     expect(after.changes.length).toBe(0);
     expect(after.hasMore).toBe(false);
     // The row position holds; only where its deletes are complete from moves on.
-    const position = (cur?: string) => cur?.replace(/^d\d+:/, '');
-    expect(position(after.cursors?.[`zvd_${TIED}`])).toBe(position(cursors[`zvd_${TIED}`]));
+    const position = async (cur?: string) =>
+      (await openSyncCursor(`zvd_${TIED}`, cur))?.replace(/^d\d+:/, '');
+    expect(await position(after.cursors?.[`zvd_${TIED}`])).toBe(
+      await position(cursors[`zvd_${TIED}`]),
+    );
   });
 
-  it('refuses a malformed cursor with 400 instead of failing the pull', async () => {
-    // The last: a position without where its deletes are complete from.
+  it('restarts from a cursor that does not open, and refuses one that is not a string', async () => {
+    // Unsealed (a client's own, or one from before ADR 0021): resync, not a 500.
     for (const bad of [
       'not-a-cursor',
-      `${Date.now() * 1000}:00000000-0000-0000-0000-000000000000`,
+      `d0:${Date.now() * 1000}:00000000-0000-0000-0000-000000000000`,
     ]) {
       const res = await app.request('/api/sync/pull', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', cookie },
         body: JSON.stringify({ collections: [`zvd_${TIED}`], cursors: { [`zvd_${TIED}`]: bad } }),
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      expect(
+        ((await res.json()) as PullBody & { resync?: Record<string, boolean> }).resync,
+      ).toEqual({ [`zvd_${TIED}`]: true });
     }
+    const res = await app.request('/api/sync/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ collections: [`zvd_${TIED}`], cursors: { [`zvd_${TIED}`]: 7 } }),
+    });
+    expect(res.status).toBe(400);
   });
 
   it('pages through rows older than the tombstone retention', async () => {
@@ -135,9 +149,16 @@ d('sync pull pages without losing rows', () => {
     const owed = `${(Date.now() - 29 * 86_400_000) * 1000}`;
     const page = await pull({
       collections: [`zvd_${OLD}`],
-      cursors: { [`zvd_${OLD}`]: `d${owed}:0:00000000-0000-0000-0000-000000000000` },
+      cursors: {
+        [`zvd_${OLD}`]: await syncCursor(
+          `zvd_${OLD}`,
+          `d${owed}:0:00000000-0000-0000-0000-000000000000`,
+        ),
+      },
     });
     expect(page.hasMore).toBe(true);
-    expect(page.cursors?.[`zvd_${OLD}`]).toStartWith(`d${owed}:`);
+    expect(await openSyncCursor(`zvd_${OLD}`, page.cursors?.[`zvd_${OLD}`])).toStartWith(
+      `d${owed}:`,
+    );
   });
 });
