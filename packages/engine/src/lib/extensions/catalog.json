@@ -313,16 +313,6 @@
       "permissions": ["database"]
     },
     {
-      "name": "developer/validation",
-      "displayName": "Data Validation",
-      "description": "Field-level validation rules with AI-assisted natural language rule generation",
-      "category": "developer",
-      "version": "1.0.0",
-      "author": "Zveltio",
-      "tags": ["validation", "rules", "ai"],
-      "permissions": ["database"]
-    },
-    {
       "name": "search",
       "displayName": "Search Adapter",
       "description": "Full-text search via MeiliSearch or Typesense with automatic record sync",

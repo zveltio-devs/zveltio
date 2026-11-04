@@ -120,6 +120,7 @@ import m101 from './sql/107_seed_anon_read_rate_limit.sql' with { type: 'text' }
 import m102 from './sql/108_location_native_point.sql' with { type: 'text' };
 import m103 from './sql/109_drop_quality_engine_tables.sql' with { type: 'text' };
 import m104 from './sql/110_retire_edge_functions_extension.sql' with { type: 'text' };
+import m105 from './sql/111_adopt_validation_tables.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -228,4 +229,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '108_location_native_point.sql': m102,
   '109_drop_quality_engine_tables.sql': m103,
   '110_retire_edge_functions_extension.sql': m104,
+  '111_adopt_validation_tables.sql': m105,
 };

@@ -216,11 +216,6 @@ async function prepare(
     case 'putEntry':
     case 'removeEntry':
       checkEntry(target, op.list, op.entry);
-      if (op.list === 'validationGroups' && !(await ruleGroupsTable(db))) {
-        throw new SchemaFileError(
-          `${target}: validation groups are the developer/validation extension's, which this instance does not have`,
-        );
-      }
       return op;
     case 'alterField':
       return { ...op, field: parsed(target, FieldSchema.safeParse(op.field)) };
@@ -398,12 +393,6 @@ const findValidation = (db: Database, collection: string, e: Entry) =>
     .where(sql<boolean>`COALESCE(rule_config, 'null'::jsonb) = ${toJsonb(e.config ?? null)}`)
     .executeTakeFirst()
     .then((r) => r?.id);
-
-const ruleGroupsTable = async (db: Database) =>
-  (
-    await sql<{ ok: boolean }>`
-    SELECT to_regclass('zvd_validation_rule_groups') IS NOT NULL AS ok`.execute(db)
-  ).rows[0]?.ok;
 
 /**
  * A group as `ctx.internals.writeValidationRuleGroup` writes it, keyed by its

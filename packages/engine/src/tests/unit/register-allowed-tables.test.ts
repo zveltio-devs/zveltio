@@ -11,7 +11,6 @@ import { EXTENSION_TABLE_GRANTS, buildAllowedTables } from '../../lib/extensions
 describe('EXTENSION_TABLE_GRANTS', () => {
   it('declares known cross-namespace table grants', () => {
     expect(EXTENSION_TABLE_GRANTS['content/drafts']).toContain('zv_revisions');
-    expect(EXTENSION_TABLE_GRANTS['developer/validation']).toContain('zv_validation_rules');
   });
 });
 

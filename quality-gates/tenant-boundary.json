@@ -59,7 +59,7 @@
     "zvd_relations": "VERIFICAT 2026-09-02: fără `tenant_id`. Relații ÎNTRE definiții de colecții, deci la același nivel ca ele. Vezi `zvd_collections`.",
     "zvd_rls_policies": "VERIFICAT 2026-09-02: fără `tenant_id`. Regulile de rând se DEFINESC pe colecții partajate și se APLICĂ per firmă, prin GUC. Vezi `zvd_collections`.",
     "zvd_rpc_functions": "VERIFICAT 2026-09-02: fără `tenant_id`. Funcții definite la nivel de instanță, ca și colecțiile.",
-    "zvd_validation_rule_groups": "Migrația 091 (și 004 din developer/validation): grupurile combină regulile de instanță, deci sunt la nivel de instanță; rolurile de cerere doar citesc, scrierea doar prin `ctx.internals.writeValidationRuleGroup`, ca engine, pentru un admin de instanță."
+    "zvd_validation_rule_groups": "Migrațiile 091 și 111 (engine-ul a preluat tabela de la developer/validation, retrasă): grupurile combină regulile de instanță, deci sunt la nivel de instanță; rolurile de cerere doar citesc, scrierea doar prin `ctx.internals.writeValidationRuleGroup`, ca engine, pentru un admin de instanță."
   },
   "_unpoliced": "Tabele care POARTĂ `tenant_id` și nu au politică RLS, declarat deliberat. Coloana marchează rândul; doar politica îl apără. O intrare nouă înseamnă o decizie, nu o omisiune — două omisiuni au trecut drept decizii până când poarta a început să întrebe (workflow/checklists 006, ai 008).",
   "unpoliced": {

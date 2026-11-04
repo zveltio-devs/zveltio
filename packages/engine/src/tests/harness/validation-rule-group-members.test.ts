@@ -31,7 +31,6 @@ const M097 = migration('097_validation_test_case_orphans');
 
 d('validation rule group members', () => {
   let db: Database;
-  let createdTable = false;
 
   // A config each: an instance rule's key is unique (migration 098).
   let n = 0;
@@ -72,23 +71,11 @@ d('validation rule group members', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    createdTable = !(
-      await sql<{ ok: boolean }>`
-        SELECT to_regclass('zvd_validation_rule_groups') IS NOT NULL AS ok`.execute(db)
-    ).rows[0]!.ok;
-    // developer/validation's table, in its shape after 091.
-    await sql`CREATE TABLE IF NOT EXISTS zvd_validation_rule_groups (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL,
-      collection TEXT NOT NULL, field_name TEXT NOT NULL, description TEXT,
-      logic TEXT NOT NULL DEFAULT 'AND' CHECK (logic IN ('AND','OR')),
-      rule_ids UUID[] NOT NULL DEFAULT '{}', is_active BOOLEAN NOT NULL DEFAULT true,
-      created_by TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`.execute(db);
   }, 120_000);
 
   afterAll(async () => {
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${C}`.execute(db);
-    if (createdTable) await sql`DROP TABLE IF EXISTS zvd_validation_rule_groups`.execute(db);
-    else await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${C}`.execute(db);
+    await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${C}`.execute(db);
   });
 
   it('a deleted rule leaves every group that named it, and an emptied group stays', async () => {
@@ -134,18 +121,5 @@ d('validation rule group members', () => {
     await runMigration(M096, 'up');
     await runMigration(M097, 'up');
     expect(await members('after_down')).toEqual([]);
-  });
-
-  it('a rule still deletes when the extension table is absent', async () => {
-    if (!createdTable) return; // the extension is really installed here
-    await sql`DROP TABLE zvd_validation_rule_groups`.execute(db);
-    const a = await rule();
-    await db.deleteFrom('zv_validation_rules').where('id', '=', a).execute();
-    const left = await db
-      .selectFrom('zv_validation_rules')
-      .select('id')
-      .where('id', '=', a)
-      .execute();
-    expect(left).toEqual([]);
   });
 });

@@ -35,6 +35,7 @@ import {
   LayoutGrid,
   Zap,
   Sparkles,
+  ShieldCheck,
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
@@ -226,6 +227,11 @@ const RAW_NAV: NavGroup[] = [
         href: resolve(`developer/edge-functions`),
         icon: Code,
         labelKey: 'nav.edgeFunctions',
+      },
+      {
+        href: resolve(`developer/validation`),
+        icon: ShieldCheck,
+        labelKey: 'nav.validationRules',
       },
 
       {

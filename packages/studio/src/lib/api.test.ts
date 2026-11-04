@@ -178,6 +178,23 @@ describe('api — the error envelope', () => {
     expect(err.traceId).toBe('abc-123');
   });
 
+  it('names the field and reason a refused body carries in errors', async () => {
+    // validation_failed has no detail: the reasons are zod issues in `errors`.
+    respond(400, {
+      title: 'Bad Request',
+      code: 'validation_failed',
+      errors: [{ path: ['egress', 0], message: 'Not a host name: 127.1' }],
+    });
+    const err = asApiError(await api.get('/api/x').catch((e) => e));
+    expect(err.message).toBe('egress.0: Not a host name: 127.1');
+  });
+
+  it('adds the field pipeline reasons to detail, once', async () => {
+    respond(422, { detail: 'Invalid record', errors: ['code is required', 'Invalid record'] });
+    const err = asApiError(await api.get('/api/x').catch((e) => e));
+    expect(err.message).toBe('Invalid record: code is required');
+  });
+
   it('prefers detail over title when both are present', async () => {
     // Ordering is the whole point of the chain: `title` is the status name
     // ("Forbidden"), `detail` is what actually happened.

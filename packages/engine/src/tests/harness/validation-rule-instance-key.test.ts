@@ -124,7 +124,16 @@ d('migration 098: one instance validation rule per key', () => {
           VALUES (${newer}::uuid, 'vrik', 'v', true, 'test')`.execute(trx),
     );
 
-    await runMigration('up');
+    // 098 ran before 111, while the table was the extension's and its policy
+    // checked writes against every visible tenant. Since 111 boot gives it the
+    // engine's write check (the request's tenant only), which a re-run of 098's
+    // cross-tenant UPDATE here would meet; as the owner, outside FORCE, it does not.
+    await sql.raw(`ALTER TABLE ${T} NO FORCE ROW LEVEL SECURITY`).execute(db);
+    try {
+      await runMigration('up');
+    } finally {
+      await sql.raw(`ALTER TABLE ${T} FORCE ROW LEVEL SECURITY`).execute(db);
+    }
 
     const left = await sql<{ id: string }>`
       SELECT id FROM zv_validation_rules WHERE collection = ${C} ORDER BY created_at, id`.execute(

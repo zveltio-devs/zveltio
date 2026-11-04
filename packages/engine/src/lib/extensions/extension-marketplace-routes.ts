@@ -7,6 +7,7 @@
 // methods) and forwards its module-level `triggerReload` as `triggerReloadFn`
 // (passed in rather than imported, to avoid an import cycle with the loader).
 
+import { RETIRED_EXTENSIONS } from './load.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { readFileSync } from 'node:fs';
@@ -508,6 +509,9 @@ export function registerMarketplaceRoutes(
   const installExtension = async (c: Context, name: string) => {
     const gate = await requireGodStepUp(c, `extension.install:${name}`);
     if (gate instanceof Response) return gate;
+    // The registry may still list its 1.x; the engine would refuse to load it.
+    const retired = RETIRED_EXTENSIONS[name];
+    if (retired) return c.json({ error: `${name} is retired: ${retired}` }, 410);
 
     return withExtensionLock(db, name, async () => {
       const catalog = await fetchCatalog();

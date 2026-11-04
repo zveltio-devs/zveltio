@@ -142,7 +142,7 @@ See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extens
 
 **Communications & HR** · `communications/mail` · `sms` · `hr/employees` · `hr/time-tracking` · `hr/leave` · `hr/payroll`
 
-**Developer & Integrations** · `developer/graphql` · `developer/api-docs` · `developer/byod` (import tables from an existing database) · `developer/validation` · `integrations/api-connector` · `integrations/migrators` (HubSpot, Notion, Airtable)
+**Developer & Integrations** · `developer/graphql` · `developer/api-docs` · `developer/byod` (import tables from an existing database) · `integrations/api-connector` · `integrations/migrators` (HubSpot, Notion, Airtable)
 
 **Intelligence** · `ai` (multi-provider) · `analytics/dashboard` (per-role home dashboards) · `analytics/quality`
 

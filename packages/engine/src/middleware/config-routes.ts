@@ -18,6 +18,7 @@ const CONFIG_PREFIXES = [
   '/api/templates',
   '/api/tenants',
   '/api/users',
+  '/api/validation', // rules refuse every tenant's writes
   '/api/webhooks',
 ];
 

@@ -728,12 +728,19 @@ export interface ExtensionInternals<DB = unknown> {
     collection: string,
     data: Record<string, unknown>,
   ) => Promise<DataApiAnswer>;
-  /** `PATCH /api/data/:collection/:id`, as `createRecord`: 404 for a row the caller cannot see, 403 for one they may not change. */
+  /**
+   * `PATCH /api/data/:collection/:id`, as `createRecord`: 404 for a row the
+   * caller cannot see, 403 for one they may not change. With `expect`, as
+   * `host.collections` `update`: the write happens only if each listed field
+   * currently holds one of the given values, checked on the locked row;
+   * otherwise 409, code `precondition_failed`.
+   */
   updateRecord: (
     c: Context,
     collection: string,
     id: string,
     data: Record<string, unknown>,
+    options?: { expect?: UpdateExpect },
   ) => Promise<DataApiAnswer>;
   /** `DELETE /api/data/:collection/:id`, as `updateRecord`. */
   deleteRecord: (c: Context, collection: string, id: string) => Promise<DataApiAnswer>;

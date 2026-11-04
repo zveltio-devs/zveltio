@@ -12,7 +12,7 @@
  * BYOD tables (`is_managed = false`), rows, secrets, and tenant state — grants
  * scoped to one tenant and user→role assignments. Validation rules are the
  * instance's (a tenant's own rule, migration 092, is tenant state), and so are
- * `developer/validation`'s rule groups, which combine instance rules only.
+ * the rule groups (`zvd_validation_rule_groups`), which combine instance rules only.
  */
 
 import { sql } from 'kysely';
@@ -126,14 +126,8 @@ interface RuleGroupRow {
   is_active: boolean;
 }
 
-/**
- * `developer/validation`'s groups (instance-wide since migration 091), or none
- * when the extension, and so its table, is not installed.
- */
+/** The instance's validation rule groups (instance-wide since migration 091). */
 async function ruleGroups(db: Database): Promise<RuleGroupRow[]> {
-  const present = await sql<{ ok: boolean }>`
-    SELECT to_regclass('zvd_validation_rule_groups') IS NOT NULL AS ok`.execute(db);
-  if (!present.rows[0]?.ok) return [];
   // rule_ids may arrive as the text form `{a,b}` (see toIdArray).
   const rows = await sql<Omit<RuleGroupRow, 'rule_ids'> & { rule_ids: unknown }>`
     SELECT name, collection, field_name, description, logic, rule_ids, is_active
