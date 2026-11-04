@@ -746,6 +746,9 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // (from before the seal, tampered, another collection, a rotated secret)
     // restarts its collection with `resync`. Checked here, before any SQL: a
     // bad value cast inside the tenant transaction would abort it and answer 500.
+    const tableOf = (raw: unknown): string =>
+      typeof raw === 'string' && raw.startsWith('zvd_') ? raw : `zvd_${raw}`;
+    const pulled = new Set(collections.map(tableOf));
     const cursorIn = new Map<string, { del: string; us: string; id: string }>();
     const unopened = new Set<string>();
     if (body.cursors !== undefined) {
@@ -754,6 +757,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       }
       for (const [name, value] of Object.entries(body.cursors)) {
         if (typeof value !== 'string') return c.json({ error: `Invalid cursor for ${name}` }, 400);
+        // Only the (at most 20) collections pulled: opening is a key derivation
+        // and a decryption, and the SDK sends every cursor it holds. Opening all
+        // of them let one 8 MB body hold the event loop for over a second.
+        if (!pulled.has(name)) continue;
         const pos = openToken(value, syncCursorAad(name)) as
           | { del?: unknown; us?: unknown; id?: unknown }
           | undefined;
@@ -761,7 +768,9 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           typeof pos?.del === 'string' &&
           /^\d{1,18}$/.test(pos.del) &&
           typeof pos.us === 'string' &&
-          /^\d{1,18}$/.test(pos.us) &&
+          // Any bigint the pull sealed: before 1970 it is negative, and refusing
+          // it restarted the collection on every pull (a full one, forever).
+          /^-?\d{1,19}$/.test(pos.us) &&
           typeof pos.id === 'string' &&
           pos.id !== '';
         if (ok)
@@ -808,8 +817,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       sql`('epoch'::timestamptz + ${us}::bigint * interval '1 microsecond')`;
 
     for (const rawName of collections) {
-      const collection: string =
-        typeof rawName === 'string' && rawName.startsWith('zvd_') ? rawName : `zvd_${rawName}`;
+      const collection = tableOf(rawName);
 
       // Registered collections only — see push.
       if (!COLLECTION_RE.test(collection)) continue;

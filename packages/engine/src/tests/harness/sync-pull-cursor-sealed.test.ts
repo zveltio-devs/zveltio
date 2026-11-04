@@ -22,6 +22,8 @@ const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `hsyncseal_${Date.now()}`;
 const TABLE = `zvd_${NAME}`;
 const OWNER = 'harness-sync-sealed';
+const OLD = `${NAME}_old`;
+const OLD_TABLE = `zvd_${OLD}`;
 
 type PullBody = {
   changes: Array<{ id: string }>;
@@ -54,6 +56,14 @@ d('sync pull cursor is sealed', () => {
       VALUES ('show', now() - interval '2 hours'), ('hide', now() - interval '1 hour')
       RETURNING id, title`.execute(db);
     hidden = (r.rows as Array<{ id: string; title: string }>).find((x) => x.title === 'hide')!.id;
+    // A row written before 1970 (an import, a worker's raw SQL): its position
+    // in epoch microseconds is negative.
+    await DDLManager.createCollection(db, {
+      name: OLD,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
+    await sql`INSERT INTO ${sql.table(OLD_TABLE)} (title, updated_at)
+              VALUES ('old', '1960-01-01T00:00:00Z')`.execute(db);
     entityAccessRegistry.scope(OWNER).register({
       table: TABLE,
       check: (record, _user, op) =>
@@ -65,7 +75,8 @@ d('sync pull cursor is sealed', () => {
     entityAccessRegistry.unregisterAll(OWNER);
     if (!db) return;
     await sql.raw(`DROP TABLE IF EXISTS "${TABLE}" CASCADE`).execute(db);
-    await db.deleteFrom('zvd_collections').where('name', '=', NAME).execute();
+    await sql.raw(`DROP TABLE IF EXISTS "${OLD_TABLE}" CASCADE`).execute(db);
+    await db.deleteFrom('zvd_collections').where('name', 'in', [NAME, OLD]).execute();
   });
 
   it('does not show the hidden row it stopped at', async () => {
@@ -87,5 +98,21 @@ d('sync pull cursor is sealed', () => {
     const body = await pull({ cursors: { [TABLE]: forged } });
     expect(body.resync?.[TABLE]).toBe(true);
     expect(body.changes.length).toBe(1);
+  });
+
+  it('resumes from a row older than 1970 without restarting', async () => {
+    // Its position is negative; refused on the way back in, every pull
+    // restarted the collection with resync, and a full page looped forever.
+    const res = await syncPull(app, cookie, { collections: [OLD_TABLE] });
+    const first = res.body as PullBody;
+    const cursor = first.cursors?.[OLD_TABLE] ?? '';
+    expect(cursor).not.toBe('');
+    const again = (await syncPull(app, cookie, {
+      collections: [OLD_TABLE],
+      cursors: { [OLD_TABLE]: cursor },
+    })) as { status: number; body: PullBody };
+    expect(again.status).toBe(200);
+    expect(again.body.resync?.[OLD_TABLE]).toBeFalsy();
+    expect(again.body.changes).toEqual([]);
   });
 });
