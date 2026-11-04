@@ -1,6 +1,29 @@
 import { ENGINE_URL } from './config.js';
 
 /**
+ * `detail` with the reasons the envelope's `errors` carries: a refused body
+ * (validation_failed) has no `detail`, only zod issues `{ path, message }`, and
+ * a 422 from the field pipeline has strings. Without them the toast said "Bad
+ * Request" and never which field or why.
+ */
+function withReasons(detail: unknown, errors: unknown): string {
+  const reasons = Array.isArray(errors)
+    ? errors
+        .map((x) => {
+          if (typeof x === 'string') return x;
+          const issue = x as { path?: unknown; message?: unknown } | null;
+          if (typeof issue?.message !== 'string') return null;
+          const path = Array.isArray(issue.path) ? issue.path.join('.') : '';
+          return path ? `${path}: ${issue.message}` : issue.message;
+        })
+        .filter((r): r is string => !!r && r !== detail)
+    : [];
+  const head = typeof detail === 'string' ? detail : '';
+  if (reasons.length === 0) return head;
+  return head ? `${head}: ${reasons.join('; ')}` : reasons.join('; ');
+}
+
+/**
  * The unit the Studio is standing in.
  *
  * The engine has read `x-tenant-slug` off the request since tenancy shipped, and
@@ -107,7 +130,11 @@ class ApiClient {
       // keep tolerant fallback for legacy `{ error }` bodies during the beta.
       const err = await res.json().catch(() => ({}));
       const message =
-        err.detail || err.title || err.error || err.message || `Request failed: ${res.status}`;
+        withReasons(err.detail, err.code === 'existing_rules' ? undefined : err.errors) ||
+        err.title ||
+        err.error ||
+        err.message ||
+        `Request failed: ${res.status}`;
       const e = new Error(message) as Error & {
         code?: string;
         status?: number;

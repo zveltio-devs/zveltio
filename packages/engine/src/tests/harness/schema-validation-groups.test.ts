@@ -38,7 +38,6 @@ d('schema artifact: validation rule groups', () => {
   let app: Hono;
   let db: Database;
   let cookie: string;
-  let createdTable = false;
   const original: string[] = [];
 
   const call = (route: 'apply' | 'plan', files: unknown) =>
@@ -76,18 +75,6 @@ d('schema artifact: validation rule groups', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
-    // The developer/validation extension's table, in its shape after 091.
-    createdTable = !(
-      await sql<{ ok: boolean }>`SELECT to_regclass(${T}) IS NOT NULL AS ok`.execute(db)
-    ).rows[0]!.ok;
-    await sql`CREATE TABLE IF NOT EXISTS zvd_validation_rule_groups (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL,
-      collection TEXT NOT NULL, field_name TEXT NOT NULL, description TEXT,
-      logic TEXT NOT NULL DEFAULT 'AND' CHECK (logic IN ('AND','OR')),
-      rule_ids UUID[] NOT NULL DEFAULT '{}', is_active BOOLEAN NOT NULL DEFAULT true,
-      created_by TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`.execute(db);
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS zvd_validation_rule_groups_collection_name
-      ON zvd_validation_rule_groups (collection, name)`.execute(db);
 
     await DDLManager.createCollection(db, {
       name: C,
@@ -123,8 +110,7 @@ d('schema artifact: validation rule groups', () => {
   afterAll(async () => {
     if (!db) return;
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${C}`.execute(db);
-    if (createdTable) await sql`DROP TABLE IF EXISTS zvd_validation_rule_groups`.execute(db);
-    else await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${C}`.execute(db);
+    await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${C}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${C}`.execute(db);
     await dropTestCollection(db, C);
   });
@@ -251,15 +237,5 @@ d('schema artifact: validation rule groups', () => {
   it('refuses a format-1 file, which would plan every group away', async () => {
     const old = { ...pulled, 'zveltio-schema.json': serialize({ format: 1 }) };
     expect((await call('plan', old)).status).toBe(400);
-  });
-
-  it('refuses groups on an instance without the extension table, before any change', async () => {
-    if (!createdTable) return; // the extension is really installed here
-    await sql`DELETE FROM zv_validation_rules WHERE collection = ${C}`.execute(db);
-    await sql`DROP TABLE zvd_validation_rule_groups`.execute(db);
-    const res = await call('apply', pulled);
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { detail: string }).detail).toContain('developer/validation');
-    expect(await rules()).toEqual([]);
   });
 });

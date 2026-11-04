@@ -27,7 +27,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { exportSchema } from '../../lib/schema-artifact/export.js';
-import { invalidateRulesCache, resetRuleGroupsTableProbe } from '../../lib/validation-engine.js';
+import { invalidateRulesCache } from '../../lib/validation-engine.js';
 import {
   ALL_COLLECTIONS_ACTOR,
   createGodSession,
@@ -49,7 +49,6 @@ const COLL = `vrpt_${STAMP}`;
 const PROBE = `vrpt-probe-${STAMP}`;
 const A = { id: crypto.randomUUID(), slug: `vrpt-a-${STAMP}` };
 const B = { id: crypto.randomUUID(), slug: `vrpt-b-${STAMP}` };
-const GROUPS = 'zvd_validation_rule_groups';
 
 d('validation rules per tenant, tighten-only', () => {
   let engine: Hono;
@@ -59,7 +58,6 @@ d('validation rules per tenant, tighten-only', () => {
   let adminA: Record<string, string> = {};
   let adminB: Record<string, string> = {};
   const userIds: string[] = [];
-  let createdGroupsTable = false;
 
   const call = (method: string, path: string, headers: Record<string, string>, body?: unknown) =>
     app.request(`/ext/${PROBE}${path}`, {
@@ -175,9 +173,7 @@ d('validation rules per tenant, tighten-only', () => {
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);
-    if (createdGroupsTable) await sql.raw(`DROP TABLE IF EXISTS ${GROUPS}`).execute(db);
-    else await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${COLL}`.execute(db);
-    resetRuleGroupsTableProbe(db);
+    await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${COLL}`.execute(db);
     await sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`.execute(
       db,
     );
@@ -317,17 +313,6 @@ d('validation rules per tenant, tighten-only', () => {
   });
 
   it('a tenant rule in an OR group never relaxes an instance rule', async () => {
-    createdGroupsTable = !(
-      await sql<{ p: boolean }>`SELECT to_regclass(${GROUPS}) IS NOT NULL AS p`.execute(db)
-    ).rows[0]!.p;
-    await sql
-      .raw(`CREATE TABLE IF NOT EXISTS ${GROUPS} (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL, collection TEXT NOT NULL,
-      field_name TEXT NOT NULL, description TEXT, logic TEXT NOT NULL DEFAULT 'AND',
-      rule_ids UUID[] NOT NULL DEFAULT '{}', is_active BOOLEAN NOT NULL DEFAULT true,
-      created_by TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)
-      .execute(db);
-    resetRuleGroupsTableProbe(db);
     // A's rule accepts anything of 1+ characters: as an OR member it would
     // satisfy the group for A and lift the instance's "at most 10".
     const lax = await create(adminA, {

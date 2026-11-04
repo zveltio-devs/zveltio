@@ -18,7 +18,7 @@ import type { Database } from '../../db/index.js';
 import { _setConnectionTracing, tracedAcquisitionSite } from '../../db/connection-trace.js';
 import { _settleAuditWrites } from '../../lib/audit.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { invalidateRulesCache, resetRuleGroupsTableProbe } from '../../lib/validation-engine.js';
+import { invalidateRulesCache } from '../../lib/validation-engine.js';
 import {
   createGodSession,
   dropTestCollection,
@@ -40,7 +40,6 @@ d('a data write needs one connection (in-process)', () => {
   // writeAuditRow, seen once in CI. Settled first, each window is its own.
   const cold = async () => {
     await _settleAuditWrites();
-    resetRuleGroupsTableProbe(db);
     invalidateRulesCache(C);
   };
   const send = (method: string, path: string, body?: unknown) =>

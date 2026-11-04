@@ -39,11 +39,11 @@ export async function writeValidationRule(
   write: ValidationRuleWrite,
 ): Promise<Record<string, unknown> | null> {
   const instance = await requireInstanceAdmin(p.user.id);
-  // The tenant is the gate's (the request's), never the extension's argument.
+  // The tenant is the request's, never an argument.
   const ownTenant = !instance && p.tenantId && (await isTenantAdmin(p.user.id)) ? p.tenantId : null;
   if (!instance && !ownTenant) {
     throw new Error(
-      'ctx.internals.writeValidationRule: only an instance admin, or a tenant admin for ' +
+      'Only an instance admin, or a tenant admin for ' +
         "their own tenant's rules, may write a validation rule.",
     );
   }
@@ -52,9 +52,8 @@ export async function writeValidationRule(
     if (instance ? !p.tenantId : write.scope === 'instance') {
       throw new Error(
         instance
-          ? "ctx.internals.writeValidationRule: `scope: 'tenant'` needs a request with a tenant."
-          : 'ctx.internals.writeValidationRule: an instance rule binds every tenant, so only ' +
-              'an instance admin may write one.',
+          ? "`scope: 'tenant'` needs a request with a tenant."
+          : 'An instance rule binds every tenant, so only ' + 'an instance admin may write one.',
       );
     }
     tenantId = ownTenant ?? p.tenantId;
@@ -69,9 +68,7 @@ export async function writeValidationRule(
         ? { ok: false as const, reason: 'is missing' }
         : checkValidationExpression(expression, write.rule.rule_type);
     if (!verdict.ok) {
-      throw new Error(
-        `ctx.internals.writeValidationRule: the \`${write.rule.rule_type}\` rule's expression ${verdict.reason}.`,
-      );
+      throw new Error(`The \`${write.rule.rule_type}\` rule's expression ${verdict.reason}.`);
     }
   }
   const db = p.trx ?? getDb();
@@ -117,7 +114,7 @@ export async function writeValidationRule(
         const r = write.rule;
         throw Object.assign(
           new Error(
-            `ctx.internals.writeValidationRule: ${r.collection}.${r.field_name} already has an ` +
+            `${r.collection}.${r.field_name} already has an ` +
               `instance rule ${r.rule_type} with this config.`,
           ),
           { errno: '23505' },
@@ -155,8 +152,7 @@ export async function writeValidationRuleGroup(
 ): Promise<Record<string, unknown> | null> {
   if (!(await requireInstanceAdmin(p.user.id))) {
     throw new Error(
-      'ctx.internals.writeValidationRuleGroup: rule groups apply to every tenant, so only an ' +
-        'instance admin may write one.',
+      'Rule groups apply to every tenant, so only an ' + 'instance admin may write one.',
     );
   }
   const db = p.trx ?? getDb();
@@ -181,8 +177,7 @@ export async function writeValidationRuleGroup(
            FOR SHARE) m`.execute(db);
     if ((members.rows[0]?.n ?? 0) !== ruleIds.length) {
       throw new Error(
-        'ctx.internals.writeValidationRuleGroup: every rule_ids entry must be an instance ' +
-          "rule on the group's collection and field.",
+        'Every rule_ids entry must be an instance ' + "rule on the group's collection and field.",
       );
     }
     const r = await sql<Record<string, unknown>>`

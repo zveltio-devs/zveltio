@@ -119,8 +119,7 @@ const RuleGroupCreateSchema = z.object({
  */
 async function applyRule(
   ruleType: string,
-  // biome-ignore lint/suspicious/noExplicitAny: rule_config is per-type JSON
-  cfg: any,
+  cfg: { value?: number; pattern?: unknown; min?: number; max?: number; expression?: unknown },
   input: string,
   previous: string | null,
   fieldType: string | undefined,

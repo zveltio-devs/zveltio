@@ -55,8 +55,9 @@ workflow.
   in this format in its own package (`schema/collections/<name>.json`, see
   [authoring](../extensions/authoring.md#collections--declared-created-by-the-engine));
   the engine records it as their owner (`zvd_collections.owner_extension`) and
-  plans its files against what it owns only. One exception: `developer/validation`'s rule groups (§4.1), which
-  decide how the engine's own validation rules combine.
+  plans its files against what it owns only. Validation rule groups (§4.1) were
+  the one extension table exported (`developer/validation`'s); the engine owns
+  them since migration 111.
 - BYOD (`is_managed = false`) tables are not exported in v1.
 
 ## 3. Layout
@@ -129,8 +130,8 @@ The file holds everything that belongs to one collection:
   junction table is derived and not listed.
 - **Validation rules are the instance's.** A tenant's own rule (migration 092)
   is tenant state and stays out, as do tenant-scoped grants.
-- **Validation groups** (`zvd_validation_rule_groups`, the `developer/validation`
-  extension's table, instance-wide since migration 091) are keyed by `name`,
+- **Validation groups** (`zvd_validation_rule_groups`, the engine's since
+  migration 111, instance-wide since 091) are keyed by `name`,
   unique per collection. A group stores its members as rule ids, which no other
   instance shares, so the file names each member by its rule's key instead:
   `rule` and `config`, on the group's `field`. Apply resolves each key to that

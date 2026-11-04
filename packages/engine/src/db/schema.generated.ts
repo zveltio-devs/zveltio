@@ -1830,13 +1830,13 @@ export interface ZvdValidationTestCasesTable {
   rule_id: string;
   label: string;
   input_value: string;
+  previous_value: string | null;
   expected_result: boolean;
   last_run_result: boolean | null;
   last_run_at: Date | null;
   created_by: string;
   created_at: Generated<Date>;
   tenant_id: Generated<string | null>;
-  previous_value: string | null;
 }
 
 export interface ZvdWebhookDeliveriesTable {

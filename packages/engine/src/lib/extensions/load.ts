@@ -58,6 +58,23 @@ import type { ExtensionLoader } from './extension-loader.js';
 let devReloadSeq = 0;
 
 /**
+ * First-party extensions whose feature the engine now serves itself. A
+ * migration removed their registry rows (110, 111), but a name in
+ * ZVELTIO_EXTENSIONS never passes through the registry, and an extensions
+ * directory kept across the upgrade still holds the 1.x bundle: loaded, it
+ * mounted a second, stale surface beside the engine's and re-ran its
+ * migrations, which put back what the engine's had converted.
+ */
+export const RETIRED_EXTENSIONS: Readonly<Record<string, string>> = {
+  'developer/edge-functions': 'the engine administers edge functions (/api/edge-functions)',
+  'developer/validation': 'the engine administers validation rules (/api/validation)',
+  'developer/saved-queries': 'the engine serves saved queries (/api/saved-queries)',
+  'analytics/insights': 'the engine serves insights (/api/insights)',
+  'operations/backup': 'the engine serves backups (/api/backup)',
+  'developer/schema-branches': 'the engine serves schema branches',
+};
+
+/**
  * The module this process imported from each entry path, with a hash of the
  * bytes it came from. Bun's import() caches by path: a newer version unpacked
  * where the old one was imported got the OLD module back, so the reload ran the
@@ -78,8 +95,11 @@ export async function loadExtensionFromDir(
   // `engine` is the owner tag of the engine's own registrations: an extension
   // under that name got the unrestricted `ctx.services` scope, registered
   // outside any namespace, and on unload removed the engine's entries.
-  if (extName === 'engine') {
-    const msg = '"engine" is reserved for the engine and cannot name an extension';
+  const retired = RETIRED_EXTENSIONS[extName];
+  if (extName === 'engine' || retired) {
+    const msg = retired
+      ? `retired: ${retired}. Remove it from ZVELTIO_EXTENSIONS and the extensions directory`
+      : '"engine" is reserved for the engine and cannot name an extension';
     console.error(`❌ Extension "${extName}" not loaded: ${msg}`);
     loader.lastLoadError.set(extName, msg);
     return;

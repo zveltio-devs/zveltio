@@ -44,7 +44,7 @@ import {
 } from '../../testing/app-harness.js';
 import { _settleAuditWrites } from '../../lib/audit.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
-import { DDLManager, fieldRuleTables } from '../../lib/data/ddl-manager.js';
+import { DDLManager, FIELD_RULE_TABLES } from '../../lib/data/ddl-manager.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -349,7 +349,7 @@ d('validation rule groups are instance-wide', () => {
 
     // The field's rules and its groups go together: rename, then drop.
     await db.transaction().execute(async (trx) => {
-      for (const [t, col, f] of await fieldRuleTables(trx)) {
+      for (const [t, col, f] of FIELD_RULE_TABLES) {
         await sql`UPDATE ${sql.id(t)} SET ${sql.id(f)} = 'kod'
                    WHERE ${sql.id(col)} = ${C2} AND ${sql.id(f)} = 'sku'`.execute(trx);
       }

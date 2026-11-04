@@ -511,7 +511,7 @@ export function toIdArray(value: unknown): string[] {
   return inner.split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
 }
 
-/** A rule group as `developer/validation` stores it. */
+/** A rule group as `zvd_validation_rule_groups` stores it. */
 interface RuleGroup {
   field_name: string;
   logic: string;
@@ -521,113 +521,43 @@ interface RuleGroup {
 const groupsCache = new Map<string, { groups: RuleGroup[]; ts: number }>();
 
 /**
- * Rule groups for a collection — or none, when the feature is not installed.
+ * Rule groups for a collection.
  *
  * An administrator could create a group with `logic: "OR"`, see it listed as
  * active, and have it change nothing: `zvd_validation_rule_groups` was read only
  * by its own CRUD, and this engine evaluated every rule on a field with AND,
- * unconditionally. So "either a VAT number or a registration number" — the case
- * the feature exists for — was expressible in the UI and could not work. The
- * write was refused citing a rule the group had said was optional.
- *
- * Note which way that failed: AND is the STRICTER reading, so no invalid record
- * ever got in. The damage was valid records refused and an administrator shown a
- * green, active group that was doing nothing.
- *
- * The table belongs to the `developer/validation` extension while
- * `zv_validation_rules` belongs to the engine, so this reads across a boundary
- * that points the wrong way. It is guarded rather than typed: absent table,
- * uninstalled extension, or any error means no groups and the previous
- * behaviour, which is the safe direction.
+ * unconditionally. AND is the stricter reading, so no invalid record got in;
+ * valid ones were refused citing a rule the group had said was optional.
  *
  * Instance-wide since migration 091, like the rules: the cache below is keyed by
  * collection alone, and while the table was tenant-scoped one tenant's groups
- * were served to every other tenant's writes until it expired.
+ * were served to every other tenant's writes until it expired. The engine's
+ * since 111; before, the `developer/validation` extension's, and probed for.
  */
-/**
- * Does the extension's table exist? Asked once per process, not per write.
- *
- * `null` = not asked yet. The answer only changes when the extension is
- * installed or removed, which restarts the engine.
- */
-const ruleGroupsTablePresent = new WeakMap<object, boolean>();
-
-async function hasRuleGroupsTable(db: Database): Promise<boolean> {
-  // Keyed on the pool, not on `db`: that is a new transaction on every write.
-  const key = (_db ?? db) as unknown as object;
-  const known = ruleGroupsTablePresent.get(key);
-  if (known !== undefined) return known;
-  let present = false;
-  try {
-    const probe = await sql<{ present: boolean }>`
-      SELECT to_regclass('zvd_validation_rule_groups') IS NOT NULL AS present
-    `.execute(db);
-    present = probe.rows[0]?.present === true;
-  } catch {
-    // This catch is not the one that caused the bug, and the difference is the
-    // whole point: `to_regclass` returns NULL for a name that does not exist
-    // rather than raising, so it cannot fail for the case being asked about and
-    // cannot abort anything. A throw here means there is no usable database
-    // at all — or a test handing over a stub that answers a fixed set of
-    // queries — and "no groups" is then both the old behaviour and the strict
-    // direction: every rule on a field stays required.
-    present = false;
-  }
-  ruleGroupsTablePresent.set(key, present);
-  return present;
-}
-
-/** Test seam — a test may create or drop the table under a handle it reuses. */
-export function resetRuleGroupsTableProbe(db?: Database): void {
-  if (db) ruleGroupsTablePresent.delete((_db ?? db) as unknown as object);
-}
-
 async function getRuleGroups(db: Database, collection: string): Promise<RuleGroup[]> {
   const cached = groupsCache.get(collection);
   if (cached && Date.now() - cached.ts < 60_000) return cached.groups;
 
-  let groups: RuleGroup[] = [];
-  // Ask whether the table is there instead of asking it a question and
-  // catching the refusal.
-  //
-  // The refusal is `42P01`, and `42P01` ABORTS THE TRANSACTION. Catching it in
-  // JavaScript does not undo that — every later statement on the connection
-  // answers `25P02 current transaction is aborted`, including statements
-  // belonging to a completely different request once the connection goes back
-  // to the pool. Traced in CI: this query failed during
-  // `POST /api/data/hist_probe_…`, and a later `GET` on the same collection
-  // died on its FIRST statement, `select * from zvd_collections where name = $1`,
-  // having done nothing wrong itself. E2E failed that way in 8 of 19 runs.
-  //
-  // `to_regclass` returns NULL rather than raising, so the probe cannot poison
-  // anything, and the answer is cached for the life of the process: installing
-  // or removing an extension restarts the engine.
-  //
-  if (await hasRuleGroupsTable(db)) {
-    // Guarded even though the probe just said the table is there. The probe's
-    // answer is cached for the life of the process, so it can be stale — a
-    // migration during the run, or, in `bun test`, an earlier file that
-    // answered the probe differently. A stale "present" would put us right back
-    // to a failed statement inside somebody's transaction.
-    groups = await withSavepoint(
-      db,
-      'zv_rule_groups',
-      async () => {
-        const rows = await sql<{ field_name: string; logic: string; rule_ids: string[] | null }>`
-          SELECT field_name, logic, rule_ids
-          FROM zvd_validation_rule_groups
-          WHERE collection = ${collection} AND is_active = true
-        `.execute(db);
-        return rows.rows.map((r) => ({
-          field_name: r.field_name,
-          logic: String(r.logic ?? 'AND').toUpperCase(),
-          rule_ids: toIdArray(r.rule_ids),
-        }));
-      },
-      // No groups is the strict reading — every rule on a field stays required.
-      () => [],
-    );
-  }
+  // In a savepoint: a failed read inside the caller's write must not abort it
+  // (25P02 on every later statement). No groups is the strict reading.
+  const groups = await withSavepoint(
+    db,
+    'zv_rule_groups',
+    async () => {
+      const rows = await sql<{ field_name: string; logic: string; rule_ids: string[] | null }>`
+        SELECT field_name, logic, rule_ids
+        FROM zvd_validation_rule_groups
+        WHERE collection = ${collection} AND is_active = true
+      `.execute(db);
+      return rows.rows.map((r) => ({
+        field_name: r.field_name,
+        logic: String(r.logic ?? 'AND').toUpperCase(),
+        rule_ids: toIdArray(r.rule_ids),
+      }));
+    },
+    // No groups is the strict reading — every rule on a field stays required.
+    () => [],
+  );
   groupsCache.set(collection, { groups, ts: Date.now() });
   return groups;
 }

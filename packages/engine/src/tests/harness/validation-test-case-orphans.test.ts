@@ -29,7 +29,6 @@ const STAMP = Date.now();
 const C = `vtco_${STAMP}`;
 const A = { id: crypto.randomUUID(), slug: `vtco-a-${STAMP}` };
 const B = { id: crypto.randomUUID(), slug: `vtco-b-${STAMP}` };
-const T = 'zvd_validation_test_cases';
 const M097 = new URL(
   '../../db/migrations/sql/097_validation_test_case_orphans.sql',
   import.meta.url,
@@ -37,7 +36,6 @@ const M097 = new URL(
 
 d('validation test cases follow their rule', () => {
   let db: Database;
-  let createdTable = false;
 
   const rule = async () =>
     (
@@ -86,38 +84,16 @@ d('validation test cases follow their rule', () => {
       await sql`INSERT INTO zv_tenants (id, slug, name, status)
                 VALUES (${t.id}::uuid, ${t.slug}, 'vtco', 'active')`.execute(db);
     }
-    createdTable = !(
-      await sql<{ ok: boolean }>`SELECT to_regclass(${T}) IS NOT NULL AS ok`.execute(db)
-    ).rows[0]!.ok;
-    if (createdTable) {
-      // developer/validation's table as its 001-003 leave it.
-      await sql
-        .raw(`CREATE TABLE ${T} (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(), rule_id UUID NOT NULL,
-        label TEXT NOT NULL, input_value TEXT NOT NULL, previous_value TEXT,
-        expected_result BOOLEAN NOT NULL, last_run_result BOOLEAN, last_run_at TIMESTAMPTZ,
-        created_by TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        tenant_id UUID DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid,
-                                        '00000000-0000-0000-0000-000000000001'::uuid));
-        ALTER TABLE ${T} ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE ${T} FORCE ROW LEVEL SECURITY;
-        CREATE POLICY tenant_isolation_${T} ON ${T}
-          USING (zveltio_tenant_scope_ok(tenant_id)) WITH CHECK (zveltio_tenant_scope_ok(tenant_id));`)
-        .execute(db);
-    }
   }, 120_000);
 
   afterAll(async () => {
     if (!db) return;
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${C}`.execute(db);
-    if (createdTable) await sql.raw(`DROP TABLE IF EXISTS ${T}`).execute(db);
-    else {
-      await asEveryTenant(db, (trx) =>
-        sql`DELETE FROM zvd_validation_test_cases WHERE label = 'probe' AND created_by = 'test'`.execute(
-          trx,
-        ),
-      );
-    }
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zvd_validation_test_cases WHERE label = 'probe' AND created_by = 'test'`.execute(
+        trx,
+      ),
+    );
     for (const t of [A, B]) await sql`DELETE FROM zv_tenants WHERE id = ${t.id}::uuid`.execute(db);
   });
 
