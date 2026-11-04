@@ -118,6 +118,7 @@ import m099 from './sql/105_drop_seeded_business_object_rules.sql' with { type: 
 import m100 from './sql/106_collection_written_by.sql' with { type: 'text' };
 import m101 from './sql/107_seed_anon_read_rate_limit.sql' with { type: 'text' };
 import m102 from './sql/108_location_native_point.sql' with { type: 'text' };
+import m103 from './sql/109_drop_quality_engine_tables.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -224,4 +225,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '106_collection_written_by.sql': m100,
   '107_seed_anon_read_rate_limit.sql': m101,
   '108_location_native_point.sql': m102,
+  '109_drop_quality_engine_tables.sql': m103,
 };

@@ -1213,43 +1213,6 @@ export interface ZvPushSubscriptionsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvQualityIssuesTable {
-  id: Generated<string>;
-  scan_id: string;
-  collection: string;
-  issue_type: string;
-  severity: Generated<'info' | 'warning' | 'error'>;
-  record_ids: Generated<string[]>;
-  field_name: string | null;
-  description: string;
-  suggestion: string | null;
-  auto_fixable: Generated<boolean>;
-  dismissed: Generated<boolean>;
-  created_at: Generated<Date>;
-  record_id: string | null;
-  value_sample: string | null;
-  is_dismissed: Generated<boolean>;
-  dismissed_by: string | null;
-  dismissed_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvQualityScansTable {
-  id: Generated<string>;
-  collection: string;
-  scan_type: Generated<string>;
-  status: Generated<'running' | 'completed' | 'failed'>;
-  records_scanned: Generated<number>;
-  issues_found: Generated<number>;
-  triggered_by: string | null;
-  started_at: Generated<Date>;
-  completed_at: Date | null;
-  total_records: Generated<number>;
-  error: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvRagDocumentsTable {
   id: Generated<string>;
   title: string;
@@ -1883,44 +1846,6 @@ export interface ZvdPushTokensSuperseded013Table {
   updated_at: Date;
 }
 
-export interface ZvdQualityRemediationsTable {
-  id: Generated<string>;
-  issue_id: string;
-  action_type: 'set_default' | 'delete_record' | 'manual_review' | 'auto_fix';
-  description: string;
-  applied_at: Date | null;
-  applied_by: string | null;
-  result: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdQualityRulesTable {
-  id: Generated<string>;
-  name: string;
-  collection: string;
-  field_name: string | null;
-  rule_type: 'not_null' | 'unique' | 'pattern' | 'range' | 'reference' | 'custom';
-  rule_config: Generated<unknown>;
-  severity: Generated<'info' | 'warning' | 'error' | 'critical'>;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdQualitySlaTargetsTable {
-  id: Generated<string>;
-  collection: string;
-  max_critical_issues: Generated<number>;
-  max_error_issues: Generated<number>;
-  alert_email: string | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdRelationsTable {
   id: Generated<string>;
   name: string;
@@ -2180,8 +2105,6 @@ export interface DbSchema {
   zv_pitr_restore_points: ZvPitrRestorePointsTable;
   zv_prompt_templates: ZvPromptTemplatesTable;
   zv_push_subscriptions: ZvPushSubscriptionsTable;
-  zv_quality_issues: ZvQualityIssuesTable;
-  zv_quality_scans: ZvQualityScansTable;
   zv_rag_documents: ZvRagDocumentsTable;
   zv_rate_limit_configs: ZvRateLimitConfigsTable;
   zv_record_comments: ZvRecordCommentsTable;
@@ -2232,9 +2155,6 @@ export interface DbSchema {
   zvd_permissions_pruned_034: ZvdPermissionsPruned034Table;
   zvd_push_tokens: ZvdPushTokensTable;
   zvd_push_tokens_superseded_013: ZvdPushTokensSuperseded013Table;
-  zvd_quality_remediations: ZvdQualityRemediationsTable;
-  zvd_quality_rules: ZvdQualityRulesTable;
-  zvd_quality_sla_targets: ZvdQualitySlaTargetsTable;
   zvd_relations: ZvdRelationsTable;
   zvd_rls_policies: ZvdRlsPoliciesTable;
   zvd_rpc_functions: ZvdRpcFunctionsTable;

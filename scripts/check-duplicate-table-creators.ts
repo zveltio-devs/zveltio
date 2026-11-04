@@ -62,18 +62,6 @@ const ACCEPTED = new Map<string, string>([
       'CREATE contributes nothing and every column the extension reads is added by ' +
       'an ALTER that does run.',
   ],
-  [
-    'zv_quality_issues',
-    'analytics/quality redeclares it, and the two columns its code uses that the ' +
-      "engine's shape lacks — `dismissed_by`, `dismissed_at` — are added by ALTER in " +
-      'its 001. `dismissed` it shares with the engine. The rest of its CREATE is ' +
-      'aspirational and unreached.',
-  ],
-  [
-    'zv_quality_scans',
-    'Same extension, same pattern: `created_at` arrives by ALTER in its 001. Nothing ' +
-      'it reads depends on the CREATE winning.',
-  ],
 ]);
 
 /** `CREATE TABLE [IF NOT EXISTS] [schema.]name`, comments already stripped. */
@@ -91,11 +79,11 @@ const CREATE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w
  * The UP half only. A `CREATE TABLE` written to restore a table a rollback just
  * dropped is not a second creator — it never runs on an install.
  *
- * Planted 2026-09-04, and one real file has the shape today:
- * `analytics/quality/…/004_drop_quality_score.sql` recreates `zvd_quality_scores`
- * below its marker. Harmless so far only because it is the same owner as the
- * table's real creator, so `add()` deduplicates it; a different owner doing the
- * same thing would have been reported as shadowing that cannot occur.
+ * Planted 2026-09-04, when one real file had the shape: `analytics/quality`
+ * 1.x `004_drop_quality_score.sql` recreated `zvd_quality_scores` below its
+ * marker. Harmless only because it was the same owner as the table's real
+ * creator, so `add()` deduplicated it; a different owner doing the same thing
+ * would have been reported as shadowing that cannot occur.
  *
  * Same marker and same reason as `upHalf()` in `scripts/lib/install-template.ts`.
  */

@@ -960,14 +960,11 @@ export interface ZvdWebhookDeliveriesTable {
 // and this copy never followed. A copy that nothing reads cannot be noticed
 // when it goes wrong.
 //
-// `zv_quality_scans` and `zv_doc_templates` stay, and the difference is worth
-// stating: the ENGINE's `001_initial.sql` still creates both. While that is
-// true they are the engine's by creation, whatever else also creates them
-// (`analytics/quality` re-creates `zv_quality_scans`, an accepted duplicate),
-// and removing their types would be drift, not tidying. They leave here when
-// the engine's baseline stops declaring them — the same rule the
-// `EXTENSION_TABLE_GRANTS` map in `lib/extensions/register.ts` records for
-// going inert.
+// `zv_doc_templates` stays, and the difference is worth stating: the ENGINE's
+// `001_initial.sql` still creates it. While that is true it is the engine's by
+// creation, and removing its type would be drift, not tidying. It leaves here
+// when the engine stops declaring it — as `zv_quality_scans` and
+// `zv_quality_issues` did with migration 109.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Portal tables — OLD (kept for backward compat, renamed in migration 061)
@@ -1076,33 +1073,6 @@ export interface ZvValidationRulesTable {
   created_by: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
-}
-
-export interface ZvQualityScansTable {
-  id: Generated<string>;
-  collection: string;
-  scan_type: Generated<string>; // DEFAULT 'full'
-  status: Generated<string>; // DEFAULT 'running'
-  records_scanned: Generated<number>; // DEFAULT 0
-  issues_found: Generated<number>; // DEFAULT 0
-  triggered_by: string | null;
-  started_at: Generated<Date>;
-  completed_at: Date | null;
-}
-
-export interface ZvQualityIssuesTable {
-  id: Generated<string>;
-  scan_id: string;
-  collection: string;
-  issue_type: string;
-  severity: Generated<string>; // DEFAULT 'warning'
-  record_ids: Generated<string[]>; // TEXT[] DEFAULT '{}'
-  field_name: string | null;
-  description: string;
-  suggestion: string | null;
-  auto_fixable: Generated<boolean>; // DEFAULT false
-  dismissed: Generated<boolean>; // DEFAULT false
-  created_at: Generated<Date>;
 }
 
 export interface ZvDashboardsTable {
@@ -1486,8 +1456,6 @@ export interface DbSchema {
   zv_pitr_restore_points: ZvPitrRestorePointsTable;
   zv_saved_queries: ZvSavedQueriesTable;
   zv_validation_rules: ZvValidationRulesTable;
-  zv_quality_scans: ZvQualityScansTable;
-  zv_quality_issues: ZvQualityIssuesTable;
   zv_dashboards: ZvDashboardsTable;
   zv_panels: ZvPanelsTable;
   zv_doc_templates: ZvDocTemplatesTable;
