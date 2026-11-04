@@ -4,6 +4,27 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Validation rules are administered by the engine.** `/api/validation` (tenant
+admins; rule groups and AI drafting for instance admins, configuration step-up)
+and Studio **Developer → Validation Rules** replace the retired
+`developer/validation` extension. Migration 111 adopts its tables
+(`zvd_validation_rule_groups`, `zvd_validation_test_cases`,
+`zvd_validation_import_log`) with their rows and removes its registry and
+migration-ledger rows. The paths moved from `/ext/developer/validation/*`; the
+`/:collection/...` variants are gone (`/rules?collection=`, `/rules/import`
+with `{ collection, rules }`, `/test-cases/run` with `{ collection }`).
+
+**Retired extensions no longer load.** `developer/edge-functions`,
+`developer/validation` and the earlier promotions to core are refused at load
+with the reason, whether named in `ZVELTIO_EXTENSIONS` or still on disk, and the
+marketplace answers 410 to installing one.
+
+**Studio names the field and reason of a refused request** (the envelope's
+`errors`), instead of "Bad Request".
+
+**SDK:** `ctx.internals.updateRecord` accepts `{ expect }`, which the engine
+already implemented (409 `precondition_failed` when unmet). Additive (v1).
+
 ## [3.0.0-beta.99] - 2026-11-03
 
 **A public extension route reads as the tenant's `public` role (ADR 0020).**
