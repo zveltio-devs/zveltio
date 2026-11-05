@@ -98,6 +98,16 @@ const host = Object.freeze({
   // The engine performs it (ADR 0022 decision 3): this process opens no socket.
   fetch: async (input, init) => {
     const req = new Request(input, init);
+    // The engine follows redirects, each hop held to the egress list; it offers no other mode.
+    if (req.redirect !== 'follow') throw new TypeError('host.fetch follows redirects only');
+    const signal = init && init.signal;
+    if (signal) {
+      signal.throwIfAborted();
+      return Promise.race([
+        host.fetch(input, { ...init, signal: undefined }),
+        new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })),
+      ]);
+    }
     const body = req.method === 'GET' || req.method === 'HEAD' ? null : b64(new Uint8Array(await req.arrayBuffer()));
     const a = await call('fetch', [{ url: req.url, method: req.method, headers: [...req.headers], body }]);
     const nullBody = [101, 103, 204, 205, 304].includes(a.status);

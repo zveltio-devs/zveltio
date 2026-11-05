@@ -579,24 +579,35 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     // spans it; each host call opens its own, in the tenant, never on the pool,
     // after checking the tenant is still active.
     const allowed = runner.egress.filter((a) => reg.capabilities.has(`${EGRESS_PREFIX}${a}`));
-    const fetches = egressLimiter();
+    const fetches = limiter(EGRESS_LIMITS.requests, EGRESS_LIMITS.inFlight, 'requests');
+    // Each call holds a pool connection: a run must not take the pool from every other tenant.
+    const dbCalls = limiter(Number.POSITIVE_INFINITY, 2, 'host calls');
+    const writing = new Set<Promise<unknown>>();
     const ended = new AbortController();
     const abort = () => ended.abort();
     reg.unload.signal.addEventListener('abort', abort);
     try {
       await run(async (name, args) => {
         if (name === 'fetch') return fetches(() => jobFetch(allowed, args[0], ended.signal));
-        const now = await getDb()
-          .selectFrom('zv_tenants')
-          .select('status')
-          .where('id', '=', tenantId)
-          .executeTakeFirst();
-        if (now?.status !== 'active') throw new Error(`tenant ${tenantId} is no longer active`);
-        return inTenant((collections) => hostCall(collections, name, args));
+        const p = dbCalls(async () => {
+          const now = await getDb()
+            .selectFrom('zv_tenants')
+            .select('status')
+            .where('id', '=', tenantId)
+            .executeTakeFirst();
+          if (now?.status !== 'active') throw new Error(`tenant ${tenantId} is no longer active`);
+          return inTenant((collections) => hostCall(collections, name, args));
+        });
+        writing.add(p);
+        void p.finally(() => writing.delete(p)).catch(() => undefined);
+        return p;
       });
     } finally {
       reg.unload.signal.removeEventListener('abort', abort);
       ended.abort();
+      // Their transactions commit on their own: the outcome is recorded after
+      // the last one settles, so a retry never starts beside a write still landing.
+      await Promise.allSettled([...writing]);
     }
   } catch (err) {
     failure = (err as Error)?.message ?? String(err);
@@ -650,19 +661,20 @@ async function auditRun(
   });
 }
 
+/** Seconds one fetch may take, its body included. */
+const FETCH_TIMEOUT_S = 30;
+
 /**
- * One run's fetch budget: at most `EGRESS_LIMITS.requests` in all, and
- * `EGRESS_LIMITS.inFlight` at once (the rest wait), as an edge function's.
+ * One run's budget for a kind of call: at most `max` in all and `inFlight` at
+ * once (the rest wait). Fetches get the edge function's (50, 6).
  */
-function egressLimiter() {
+function limiter(max: number, inFlight: number, what: string) {
   let total = 0;
   let active = 0;
   const waiting: (() => void)[] = [];
   return async <T>(fn: () => Promise<T>): Promise<T> => {
-    if (++total > EGRESS_LIMITS.requests) {
-      throw new Error(`[egress] more than ${EGRESS_LIMITS.requests} requests in one run`);
-    }
-    while (active >= EGRESS_LIMITS.inFlight) await new Promise<void>((r) => waiting.push(r));
+    if (++total > max) throw new Error(`[egress] more than ${max} ${what} in one run`);
+    while (active >= inFlight) await new Promise<void>((r) => waiting.push(r));
     active++;
     try {
       return await fn();
@@ -686,7 +698,12 @@ async function jobFetch(
 ): Promise<unknown> {
   const req = parseRequest(JSON.stringify({ ...(arg as object), id: 0 }));
   if (!req) throw new Error('fetch: malformed request');
-  const a = await performEgress(req, allowed, signal, true);
+  const a = await performEgress(
+    req,
+    allowed,
+    AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_S * 1000)]),
+    true,
+  );
   if (!a.ok) throw new Error(a.error);
   const { id: _, ...answer } = a;
   return answer;
