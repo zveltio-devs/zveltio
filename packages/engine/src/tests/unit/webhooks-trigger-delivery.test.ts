@@ -33,7 +33,7 @@ describe('WebhookManager.trigger — delivery insert + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-no-del',
-        url: 'https://hooks.example.com/no-del',
+        url: 'https://93.184.216.34/no-del',
         method: 'POST',
         events: ['record.created'],
         collections: ['contacts'],
@@ -64,7 +64,7 @@ describe('WebhookManager.trigger — delivery insert + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-plain',
-        url: 'https://hooks.example.com/plain',
+        url: 'https://93.184.216.34/plain',
         method: 'POST',
         events: ['*'],
         collections: null,
@@ -93,7 +93,7 @@ describe('WebhookManager.trigger — delivery insert + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-direct',
-        url: 'https://hooks.example.com/direct',
+        url: 'https://93.184.216.34/direct',
         method: 'POST',
         events: ['*'],
         collections: null,

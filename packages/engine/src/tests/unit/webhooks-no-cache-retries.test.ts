@@ -28,7 +28,7 @@ function stubFetch(failFirst: number): void {
 }
 
 const base = {
-  url: 'https://hooks.example.com/x',
+  url: 'https://93.184.216.34/x',
   method: 'POST',
   event: 'record.created',
   collection: 'c',

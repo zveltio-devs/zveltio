@@ -92,11 +92,11 @@ afterEach(() => {
 describe('webhookWorker._process — LMPOP batch', () => {
   it('delivers every payload returned by a single LMPOP call', async () => {
     const cache = new FakeRedis([
-      payload('https://one.example/h'),
-      payload('https://two.example/h'),
+      payload('https://93.184.216.34/one'),
+      payload('https://93.184.216.34/two'),
     ]);
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls.sort()).toEqual(['https://one.example/h', 'https://two.example/h']);
+    expect(fetchUrls.sort()).toEqual(['https://93.184.216.34/one', 'https://93.184.216.34/two']);
   });
 });

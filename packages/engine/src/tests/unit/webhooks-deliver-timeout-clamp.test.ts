@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 const basePayload = {
-  url: 'https://hooks.example.com/clamp',
+  url: 'https://93.184.216.34/clamp',
   event: 'record.created',
   collection: 'contacts',
   data: { id: 'r1' },
