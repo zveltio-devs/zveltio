@@ -10,7 +10,9 @@
 
 import { describe, expect, it } from 'bun:test';
 import { CapabilityDeniedError, gateInternals } from '../../lib/extensions/capabilities.js';
+import { ManifestSchema } from '../../lib/extensions/manifest-schema.js';
 import {
+  declaredCapabilities,
   parseForwardMap,
   parseGranted,
   resolveCapabilities,
@@ -170,5 +172,48 @@ describe('credential forwarding needs approval of the whole map', () => {
     for (const bad of [null, '[]', '{"/a":"cookie"}', '{"/a":[1]}', 'nope']) {
       expect(parseForwardMap(bad)).toBeNull();
     }
+  });
+});
+
+describe('job egress consent (ADR 0022 decision 5)', () => {
+  const manifest = {
+    permissions: ['data:system'],
+    jobs: [{ name: 'send', egress: ['api.anaf.ro', 'api.x.com:8443'] }, { name: 'quiet' }],
+  };
+
+  it('asks for each declared authority as egress:<authority>', () => {
+    expect(declaredCapabilities(manifest)).toEqual([
+      'data:system',
+      'egress:api.anaf.ro',
+      'egress:api.x.com:8443',
+    ]);
+  });
+
+  it('is never grandfathered: silence grants no network', () => {
+    const r = resolveCapabilities(declaredCapabilities(manifest), null);
+    expect(r.effective).toEqual(['data:system']);
+    expect(r.pending).toEqual(['egress:api.anaf.ro', 'egress:api.x.com:8443']);
+  });
+
+  it('grants exactly what was approved', () => {
+    const r = resolveCapabilities(declaredCapabilities(manifest), [
+      'data:system',
+      'egress:api.anaf.ro',
+    ]);
+    expect(r.effective).toEqual(['data:system', 'egress:api.anaf.ro']);
+    expect(r.pending).toEqual(['egress:api.x.com:8443']);
+  });
+
+  it('the manifest holds egress to exact authorities, and long runs to egress jobs', () => {
+    const job = (j: Record<string, unknown>) =>
+      ManifestSchema.safeParse({
+        name: 'x',
+        jobs: [{ name: 'j', input: { type: 'object' }, ...j }],
+      });
+    expect(job({ egress: ['api.x.com'], timeoutSeconds: 900 }).success).toBe(true);
+    expect(job({ timeoutSeconds: 61 }).success).toBe(false);
+    expect(job({ egress: ['*.x.com'] }).success).toBe(false);
+    expect(job({ egress: ['https://api.x.com'] }).success).toBe(false);
+    expect(job({ egress: ['api.x.com'], timeoutSeconds: 901 }).success).toBe(false);
   });
 });

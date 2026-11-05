@@ -60,6 +60,7 @@ import {
   forwardPairsOutside,
   parseForwardMap,
   parseGranted,
+  declaredCapabilities,
   recordConsent,
   recordForwardApproval,
   resolveCapabilities,
@@ -382,9 +383,8 @@ export function registerMarketplaceRoutes(
     /** What a manifest asks for. Only a request until consent is recorded. */
     const readDeclared = (name: string): string[] => {
       try {
-        const m = JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8'));
-        return ((m.permissions ?? []) as unknown[]).filter(
-          (x: unknown): x is string => typeof x === 'string',
+        return declaredCapabilities(
+          JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8')),
         );
       } catch {
         return [];
@@ -1358,9 +1358,9 @@ export function registerMarketplaceRoutes(
 
     let declared: string[];
     try {
-      const m = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
-      declared = ((m.permissions ?? []) as unknown[]).filter(
-        (x: unknown): x is string => typeof x === 'string',
+      // Its jobs' egress too (ADR 0022): approved here, by name, never by install.
+      declared = declaredCapabilities(
+        JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8')),
       );
     } catch {
       return c.json({ error: `No manifest on disk for "${name}"` }, 404);

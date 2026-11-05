@@ -90,7 +90,7 @@ export function egressAllows(list: readonly string[], url: URL): boolean {
 }
 
 /** What the sandbox sends. */
-interface EgressRequest {
+export interface EgressRequest {
   id: number;
   url: string;
   method: string;
@@ -116,7 +116,7 @@ export type EgressAnswer =
 // The engine sets these for the connection it opens.
 const DROPPED_HEADERS = new Set(['host', 'content-length', 'connection', 'transfer-encoding']);
 
-function parseRequest(line: string): EgressRequest | null {
+export function parseRequest(line: string): EgressRequest | null {
   let m: unknown;
   try {
     m = JSON.parse(line);
@@ -165,6 +165,8 @@ export async function performEgress(
   req: EgressRequest,
   list: readonly string[],
   signal: AbortSignal,
+  /** The job runner's: pin through a configured proxy too (ADR 0022). */
+  pinThroughProxy = false,
 ): Promise<EgressAnswer> {
   const { id, url, method, headers, body } = req;
   try {
@@ -182,6 +184,7 @@ export async function performEgress(
           );
         }
       },
+      pinThroughProxy,
     );
     const sent = new Headers();
     for (const [k, v] of headers) if (!DROPPED_HEADERS.has(k.toLowerCase())) sent.append(k, v);

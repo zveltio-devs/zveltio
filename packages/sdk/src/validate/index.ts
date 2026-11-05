@@ -356,8 +356,27 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
     if (!int(j.memoryMb, 32, 512)) {
       out.push(err('MANIFEST_BAD_JOB', `job "${j.name}": "memoryMb" is an integer, 32-512`));
     }
-    if (!int(j.timeoutSeconds, 1, 60)) {
-      out.push(err('MANIFEST_BAD_JOB', `job "${j.name}": "timeoutSeconds" is an integer, 1-60`));
+    const egress = j.egress;
+    const egressOk =
+      egress === undefined ||
+      (Array.isArray(egress) &&
+        egress.every((e) => typeof e === 'string' && /^[a-z0-9.\-[\]:]+$/.test(e)));
+    if (!egressOk) {
+      out.push(
+        err(
+          'MANIFEST_BAD_JOB',
+          `job "${j.name}": "egress" lists lower-case host names or host:port, no scheme, path or wildcard`,
+        ),
+      );
+    }
+    const hasEgress = Array.isArray(egress) && egress.length > 0;
+    if (!int(j.timeoutSeconds, 1, hasEgress ? 900 : 60)) {
+      out.push(
+        err(
+          'MANIFEST_BAD_JOB',
+          `job "${j.name}": "timeoutSeconds" is an integer, 1-${hasEgress ? 900 : 60} (above 60 needs egress)`,
+        ),
+      );
     }
   }
 

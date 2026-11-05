@@ -45,6 +45,24 @@ export function parseGranted(value: unknown): string[] | null {
   return raw.filter((v): v is string => typeof v === 'string');
 }
 
+/** A job's consented egress authority, as a capability (ADR 0022 decision 5). */
+export const EGRESS_PREFIX = 'egress:';
+
+/**
+ * What a manifest asks consent for: its `permissions`, and one
+ * `egress:<authority>` per authority its jobs declare. Read from the raw
+ * manifest JSON; anything not a string is ignored, as it is for `permissions`.
+ */
+export function declaredCapabilities(manifest: unknown): string[] {
+  const m = (manifest ?? {}) as { permissions?: unknown; jobs?: unknown };
+  const strings = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  const egress = (Array.isArray(m.jobs) ? m.jobs : []).flatMap((j) =>
+    strings((j as { egress?: unknown } | null)?.egress).map((a) => `${EGRESS_PREFIX}${a}`),
+  );
+  return [...new Set([...strings(m.permissions), ...egress])];
+}
+
 export interface EffectiveCapabilities {
   /** What the gate should enforce. */
   effective: string[];
@@ -63,13 +81,21 @@ export interface EffectiveCapabilities {
  * grandfathered to their declared set rather than crippled: nobody was ever
  * asked, so treating silence as refusal would break working installs on an
  * engine upgrade. Consent is recorded from the next install/enable onwards.
+ *
+ * Egress (`egress:<authority>`, ADR 0022) is the exception: never
+ * grandfathered. Silence grants no network; an administrator approves each one.
  */
 export function resolveCapabilities(
   declared: readonly string[],
   granted: readonly string[] | null,
 ): EffectiveCapabilities {
   if (granted === null) {
-    return { effective: [...declared], pending: [], dropped: [], grandfathered: true };
+    return {
+      effective: declared.filter((c) => !c.startsWith(EGRESS_PREFIX)),
+      pending: declared.filter((c) => c.startsWith(EGRESS_PREFIX)),
+      dropped: [],
+      grandfathered: true,
+    };
   }
   const grantedSet = new Set(granted);
   const declaredSet = new Set(declared);

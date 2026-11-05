@@ -41,6 +41,7 @@ export const HOST_CALLS = [
   'collections.insert',
   'collections.update',
   'collections.delete',
+  'fetch',
 ] as const;
 export type HostCall = (typeof HOST_CALLS)[number];
 
@@ -72,6 +73,12 @@ const send = (m) => (queue = queue.then(() => out.write(enc.encode(JSON.stringif
 for (const k of ['log', 'info', 'debug', 'trace', 'dir', 'dirxml', 'table', 'group', 'groupCollapsed']) {
   console[k] = (...a) => console.error(...a);
 }
+const b64 = (u8) => {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const pending = new Map();
 let next = 0;
 const call = (name, args) =>
@@ -88,6 +95,17 @@ const host = Object.freeze({
     update: (c, id, d, o) => call('collections.update', [c, id, d, o ?? {}]),
     delete: (c, id) => call('collections.delete', [c, id]),
   }),
+  // The engine performs it (ADR 0022 decision 3): this process opens no socket.
+  fetch: async (input, init) => {
+    const req = new Request(input, init);
+    const body = req.method === 'GET' || req.method === 'HEAD' ? null : b64(new Uint8Array(await req.arrayBuffer()));
+    const a = await call('fetch', [{ url: req.url, method: req.method, headers: [...req.headers], body }]);
+    const nullBody = [101, 103, 204, 205, 304].includes(a.status);
+    const res = new Response(nullBody ? null : unb64(a.body), { status: a.status, statusText: a.statusText, headers: a.headers });
+    Object.defineProperty(res, 'url', { value: a.url });
+    Object.defineProperty(res, 'redirected', { value: a.redirected });
+    return res;
+  },
 });
 async function run(start) {
   let done;

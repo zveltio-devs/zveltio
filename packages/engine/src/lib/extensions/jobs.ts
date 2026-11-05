@@ -60,6 +60,8 @@ import {
   publicRouteRequest,
 } from '../../middleware/extension-auth-gate.js';
 import { compileInput, type DataIo, hostCollections, pairImplementations } from './actions.js';
+import { EGRESS_LIMITS, parseRequest, performEgress } from '../edge-functions/egress.js';
+import { EGRESS_PREFIX } from './consent.js';
 import { ensureDeno } from './deno.js';
 import { type HostCall, runInDeno } from './job-runner.js';
 import type { ExtensionManifest } from './manifest-schema.js';
@@ -75,7 +77,13 @@ export interface CompiledJob {
   /** Inline: the module's implementation, run in the engine. */
   run?: ExtensionJob;
   /** In the Deno runner (ADR 0022): the verified `jobs.js` and the run's ceilings. */
-  runner?: { code: Uint8Array; memoryMb: number; timeoutSeconds: number };
+  runner?: {
+    code: Uint8Array;
+    memoryMb: number;
+    timeoutSeconds: number;
+    /** Declared authorities; reachable only once consented as `egress:<authority>`. */
+    egress: readonly string[];
+  };
 }
 
 /** What a queued job carries: everything it runs as, recorded at enqueue. */
@@ -94,7 +102,13 @@ interface JobPayload {
  */
 const registered = new Map<
   string,
-  { jobs: ReadonlyMap<string, CompiledJob>; system: boolean; unload: AbortController }
+  {
+    jobs: ReadonlyMap<string, CompiledJob>;
+    system: boolean;
+    unload: AbortController;
+    /** The effective capabilities: the consented `egress:<authority>` among them. */
+    capabilities: ReadonlySet<string>;
+  }
 >();
 /**
  * Queues this process works, each with the promise of its queue existing and its
@@ -176,30 +190,42 @@ export function compileJobs(
     fromPublicRoutes: (j.fromPublicRoutes ?? []).map(compilePattern),
     retry: j.retry,
   });
-  if (worker) {
-    for (const name of Object.keys(implemented)) {
+  // What it declares decides, not its name (ADR 0022 decision 1): egress exists
+  // only in the runner, so a job that declares any runs there, first-party too.
+  const inRunner = declared.filter((j) => worker || j.egress.length > 0);
+  const inline = declared.filter((j) => !inRunner.includes(j));
+  for (const j of inRunner) {
+    if (Object.hasOwn(implemented, j.name)) {
       refuse(
-        `job "${name}" runs in the Deno runner: export it from engine/jobs.ts, not the module's jobs`,
+        `job "${j.name}" runs in the Deno runner: export it from engine/jobs.ts, not the module's jobs`,
       );
     }
-    if (declared.length === 0) return out;
-    if (!jobsCode) {
-      refuse(
-        'its jobs run in the Deno runner, which needs engine/jobs.js and integrity.jobsSha256 ' +
-          '(`zveltio extension pack` builds both from engine/jobs.ts)',
-      );
-    }
-    for (const j of declared) {
-      out.set(j.name, {
-        ...common(j, compileInput('job', j, refuse)),
-        runner: { code: jobsCode!, memoryMb: j.memoryMb, timeoutSeconds: j.timeoutSeconds },
-      });
-    }
-    return out;
+  }
+  if (worker && Object.keys(implemented).length > 0) {
+    refuse(
+      `a worker-isolated extension's jobs run in the Deno runner: export them from engine/jobs.ts, not the module's jobs`,
+    );
+  }
+  if (inRunner.length > 0 && !jobsCode) {
+    refuse(
+      `job "${inRunner[0]!.name}" runs in the Deno runner, which needs engine/jobs.js and ` +
+        'integrity.jobsSha256 (`zveltio extension pack` builds both from engine/jobs.ts)',
+    );
+  }
+  for (const j of inRunner) {
+    out.set(j.name, {
+      ...common(j, compileInput('job', j, refuse)),
+      runner: {
+        code: jobsCode!,
+        memoryMb: j.memoryMb,
+        timeoutSeconds: j.timeoutSeconds,
+        egress: j.egress,
+      },
+    });
   }
   for (const { declared: j, input, run } of pairImplementations(
     'job',
-    declared,
+    inline,
     implemented,
     refuse,
   )) {
@@ -219,6 +245,7 @@ export function registerJobs(
     jobs,
     system: capabilities.includes('data:system'),
     unload: new AbortController(),
+    capabilities: new Set(capabilities),
   });
   // Subscribed on first use, not at import: in the compiled binary this module
   // can be evaluated before ddl-queue's, whose listener list is not there yet.
@@ -513,26 +540,64 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     const timezone = await effectiveTimeZone(getDb(), tenantId);
     // Outside any tenant context (`work`), so the transaction's domain is this
     // tenant, not one inherited from wherever pg-boss resumed.
-    await withTenantIsolation(tenantId, async (trx) => {
-      await publishApiKeyActor(user.id, false, user.scopes);
-      const collections = hostCollections(
-        `job "${job}"`,
-        def,
-        jobData(extName, user, trx, tenantId),
-      );
-      if (!def.runner) return def.run!(input, { collections, timezone });
-      await runInDeno({
-        deno: await ensureDeno(),
-        code: def.runner.code,
+    const { runner } = def;
+    // In `tenantId`'s transaction, as the job's principal: the run's, or one per call.
+    const inTenant = <T>(fn: (c: HostCollections) => Promise<T>) =>
+      withTenantIsolation(tenantId, async (trx) => {
+        await publishApiKeyActor(user.id, false, user.scopes);
+        return fn(hostCollections(`job "${job}"`, def, jobData(extName, user, trx, tenantId)));
+      });
+    if (!runner) {
+      await inTenant((collections) => def.run!(input, { collections, timezone }));
+      return;
+    }
+    const deno = await ensureDeno();
+    const run = (call: (n: HostCall, a: unknown[]) => Promise<unknown>) =>
+      runInDeno({
+        deno,
+        code: runner.code,
         job,
         input,
         timezone,
-        memoryMb: def.runner.memoryMb,
-        timeoutSeconds: def.runner.timeoutSeconds,
+        memoryMb: runner.memoryMb,
+        timeoutSeconds: runner.timeoutSeconds,
         signal: reg.unload.signal,
-        call: (name, args) => hostCall(collections, name, args),
+        call,
       });
-    });
+    // No egress: one transaction for the run, as inline. A failure rolls it all back.
+    if (runner.egress.length === 0) {
+      await inTenant((collections) =>
+        run((name, args) =>
+          name === 'fetch'
+            ? Promise.reject(new Error('this job declares no egress'))
+            : hostCall(collections, name, args),
+        ),
+      );
+      return;
+    }
+    // Egress (ADR 0022 decision 4): a run can last minutes, so no transaction
+    // spans it; each host call opens its own, in the tenant, never on the pool,
+    // after checking the tenant is still active.
+    const allowed = runner.egress.filter((a) => reg.capabilities.has(`${EGRESS_PREFIX}${a}`));
+    const fetches = egressLimiter();
+    const ended = new AbortController();
+    const abort = () => ended.abort();
+    reg.unload.signal.addEventListener('abort', abort);
+    try {
+      await run(async (name, args) => {
+        if (name === 'fetch') return fetches(() => jobFetch(allowed, args[0], ended.signal));
+        const now = await getDb()
+          .selectFrom('zv_tenants')
+          .select('status')
+          .where('id', '=', tenantId)
+          .executeTakeFirst();
+        if (now?.status !== 'active') throw new Error(`tenant ${tenantId} is no longer active`);
+        return inTenant((collections) => hostCall(collections, name, args));
+      });
+    } finally {
+      reg.unload.signal.removeEventListener('abort', abort);
+      ended.abort();
+    }
   } catch (err) {
     failure = (err as Error)?.message ?? String(err);
     throw err;
@@ -586,6 +651,48 @@ async function auditRun(
 }
 
 /**
+ * One run's fetch budget: at most `EGRESS_LIMITS.requests` in all, and
+ * `EGRESS_LIMITS.inFlight` at once (the rest wait), as an edge function's.
+ */
+function egressLimiter() {
+  let total = 0;
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (++total > EGRESS_LIMITS.requests) {
+      throw new Error(`[egress] more than ${EGRESS_LIMITS.requests} requests in one run`);
+    }
+    while (active >= EGRESS_LIMITS.inFlight) await new Promise<void>((r) => waiting.push(r));
+    active++;
+    try {
+      return await fn();
+    } finally {
+      active--;
+      waiting.shift()?.();
+    }
+  };
+}
+
+/**
+ * The job's `fetch`: the edge-function egress bridge's request, held to the
+ * job's CONSENTED authorities on every redirect hop, the SSRF guard, and an
+ * address pinned even behind a configured proxy. Answers the bridge's answer
+ * without its id; a refusal is the job's error.
+ */
+async function jobFetch(
+  allowed: readonly string[],
+  arg: unknown,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const req = parseRequest(JSON.stringify({ ...(arg as object), id: 0 }));
+  if (!req) throw new Error('fetch: malformed request');
+  const a = await performEgress(req, allowed, signal, true);
+  if (!a.ok) throw new Error(a.error);
+  const { id: _, ...answer } = a;
+  return answer;
+}
+
+/**
  * One host call from the Deno runner, as the inline job would make it. The
  * arguments come from code the operator did not write: each is checked for the
  * type the data API expects before it gets there. Who the call acts as is
@@ -628,6 +735,8 @@ async function hostCall(c: HostCollections, name: HostCall, a: unknown[]): Promi
     }
     case 'collections.delete':
       return c.delete(str(0, 'collection'), str(1, 'id'));
+    case 'fetch':
+      throw new Error('fetch is not a collection call');
   }
 }
 

@@ -15,6 +15,7 @@
 import { join } from 'path';
 import { z } from 'zod';
 import { CAPABILITIES, isKnownCapability } from './capabilities.js';
+import { parseEgress } from '../edge-functions/egress.js';
 
 /** Request headers that carry the caller's credentials; never handed to a worker unasked. */
 export const CREDENTIAL_HEADERS = [
@@ -301,12 +302,21 @@ export const ManifestSchema = z
             })
             .default({ limit: 2, backoff: true }),
           /**
+           * Authorities the job may fetch (ADR 0022 decision 5), each exact as
+           * an edge function's (`api.x.com`, `api.x.com:8443`; no wildcard; IDN
+           * in `xn--`). A job that declares any runs in the Deno runner, and
+           * each one reaches the network only once an administrator approves
+           * it as the capability `egress:<authority>`.
+           */
+          egress: z.array(z.string()).default([]),
+          /**
            * Ceilings of a run in the Deno runner (ADR 0022 decision 5); an inline
-           * run ignores them. The time limit is the database's idle-in-transaction
-           * limit, because the run holds one transaction.
+           * run ignores them. Without egress the run holds one transaction, so
+           * its time limit is the database's idle-in-transaction limit, 60 s;
+           * with egress each host call has its own, and the limit is 900 s.
            */
           memoryMb: z.number().int().min(32).max(512).default(128),
-          timeoutSeconds: z.number().int().min(1).max(60).default(60),
+          timeoutSeconds: z.number().int().min(1).max(900).default(60),
         }),
       )
       .default([]),
@@ -480,6 +490,22 @@ export const ManifestSchema = z
       }
       jobNames.add(j.name);
       inputSchemaIssue(ctx, ['jobs', i, 'input'], `job "${j.name}"`, j.input);
+      try {
+        parseEgress(j.egress);
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['jobs', i, 'egress'],
+          message: `job "${j.name}": ${(err as Error).message}`,
+        });
+      }
+      if (j.egress.length === 0 && j.timeoutSeconds > 60) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['jobs', i, 'timeoutSeconds'],
+          message: `job "${j.name}": timeoutSeconds above 60 needs egress (the run holds one transaction)`,
+        });
+      }
       for (const route of j.fromPublicRoutes) {
         // One route, not a family: a `*` would let every public handler under it queue the job.
         if (route.includes('*')) {
