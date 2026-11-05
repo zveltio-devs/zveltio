@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 572
+# tables: 574
 
 table account
   col accessToken                    text
@@ -1465,32 +1465,6 @@ table zv_schema_versions
   col version                        integer NOT NULL
   pk  zv_schema_versions_pkey PRIMARY KEY (id)
   uq  zv_schema_versions_version_key UNIQUE (version)
-
-table zv_scim_tokens
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col last_used_at                   timestamp with time zone
-  col name                           text NOT NULL
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col token_hash                     text NOT NULL
-  pk  zv_scim_tokens_pkey PRIMARY KEY (id)
-  uq  zv_scim_tokens_token_hash_key UNIQUE (token_hash)
-  rls enabled forced
-  pol tenant_isolation_zv_scim_tokens FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_scim_users
-  col active                         boolean NOT NULL DEFAULT true
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col external_id                    text
-  col held_valid_to                  timestamp with time zone
-  col suspended_at                   timestamp with time zone
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col user_id                        text NOT NULL
-  pk  zv_scim_users_pkey PRIMARY KEY (tenant_id, user_id)
-  rls enabled forced
-  pol tenant_isolation_zv_scim_users FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_search_indexes
   col collection                     text NOT NULL
@@ -7528,6 +7502,58 @@ table zvd_saml_spent_assertions
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('saml_spent_assertions'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('saml_spent_assertions'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('saml_spent_assertions'::text, 'update'::text) AS zveltio_collection_allows)
 
+table zvd_scim_tokens
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col last_used_at                   timestamp with time zone
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col token_hash                     text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_scim_tokens_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_scim_tokens_pkey PRIMARY KEY (id)
+  uq  zvd_scim_tokens_tenant_id_token_hash_key UNIQUE (tenant_id, token_hash)
+  fk  zvd_scim_tokens_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('scim_tokens'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('scim_tokens'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('scim_tokens'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('scim_tokens'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('scim_tokens'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_scim_users
+  col active                         boolean DEFAULT true
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col external_id                    text
+  col held_valid_to                  timestamp with time zone
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_text                    text
+  col search_vector                  tsvector
+  col suspended_at                   timestamp with time zone
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col user_id                        text NOT NULL
+  fk  zvd_scim_users_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_scim_users_pkey PRIMARY KEY (id)
+  uq  zvd_scim_users_tenant_id_user_id_key UNIQUE (tenant_id, user_id)
+  fk  zvd_scim_users_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('scim_users'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('scim_users'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('scim_users'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('scim_users'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('scim_users'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_stock_levels
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
@@ -12023,6 +12049,34 @@ table zvv_saml_spent_assertions
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
+
+table zvv_scim_tokens
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col last_used_at                   timestamp with time zone
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col token_hash                     text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_scim_users
+  col active                         boolean
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col external_id                    text
+  col held_valid_to                  timestamp with time zone
+  col id                             uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col suspended_at                   timestamp with time zone
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col user_id                        text
 
 table zvv_stock_levels
   col created_at                     timestamp with time zone
