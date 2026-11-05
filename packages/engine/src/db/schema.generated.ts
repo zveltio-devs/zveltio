@@ -1581,46 +1581,6 @@ export interface ZvdInsightSavedQueriesTable {
   tenant_id: Generated<string>;
 }
 
-export interface ZvdLdapConfigTable {
-  tenant_id: Generated<string>;
-  config: unknown;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdLdapGroupMappingsTable {
-  id: Generated<string>;
-  ldap_group: string;
-  zveltio_role: string;
-  description: string | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdLdapIpAllowlistTable {
-  id: Generated<string>;
-  cidr: string;
-  description: string | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdLdapLoginLogTable {
-  id: Generated<string>;
-  user_id: string | null;
-  ldap_dn: string | null;
-  username: string;
-  ip: string | null;
-  success: boolean;
-  failure_reason: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdMailConfigTable {
   tenant_id: Generated<string>;
   config: unknown;
@@ -1999,10 +1959,6 @@ export interface DbSchema {
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
   zvd_incoming_webhooks: ZvdIncomingWebhooksTable;
   zvd_insight_saved_queries: ZvdInsightSavedQueriesTable;
-  zvd_ldap_config: ZvdLdapConfigTable;
-  zvd_ldap_group_mappings: ZvdLdapGroupMappingsTable;
-  zvd_ldap_ip_allowlist: ZvdLdapIpAllowlistTable;
-  zvd_ldap_login_log: ZvdLdapLoginLogTable;
   zvd_mail_config: ZvdMailConfigTable;
   zvd_panel_cache: ZvdPanelCacheTable;
   zvd_permissions: ZvdPermissionsTable;
