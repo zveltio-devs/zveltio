@@ -70,4 +70,35 @@ d('introspectSchema inside a tenant transaction', () => {
     expect(managed.rows[0]!.fields).toEqual([{ name: 'kept', type: 'text' }]);
     expect((await DDLManager.getCollection(db, FRESH))?.is_managed).toBe(false);
   });
+
+  it("serves the collection from a view with the request role's own rights, and a drop keeps the source", async () => {
+    const id = crypto.randomUUID();
+    // The view lends nothing: with SELECT only on the source, the request role cannot write.
+    const refused = await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) =>
+      sql`INSERT INTO ${sql.id('public', `zvd_${FRESH}`)} (id, name) VALUES (${id}, 'x')`
+        .execute(trx)
+        .then(
+          () => null,
+          (e: Error) => e.message,
+        ),
+    ).catch((e: Error) => e.message);
+    expect(refused).toContain('permission denied');
+
+    await sql.raw(`GRANT INSERT ON ${SCHEMA}.${FRESH} TO zveltio_rls`).execute(db);
+    await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+      await sql`INSERT INTO ${sql.id('public', `zvd_${FRESH}`)} (id, name) VALUES (${id}, 'x')`.execute(
+        trx,
+      );
+      const read = await sql<{ name: string }>`
+        SELECT name FROM ${sql.id('public', `zvd_${FRESH}`)} WHERE id = ${id}`.execute(trx);
+      expect(read.rows).toEqual([{ name: 'x' }]);
+    });
+    expect(await DDLManager.tableExists(db, FRESH)).toBe(true);
+
+    await DDLManager.dropInTransaction(db, FRESH, {});
+    expect(await DDLManager.tableExists(db, FRESH)).toBe(false);
+    const source = await sql<{ name: string }>`
+      SELECT name FROM ${sql.id(SCHEMA, FRESH)} WHERE id = ${id}`.execute(db);
+    expect(source.rows).toEqual([{ name: 'x' }]);
+  });
 });
