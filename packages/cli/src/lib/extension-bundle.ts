@@ -26,6 +26,11 @@ export interface ExtensionBundleOptions {
   sourcemap?: boolean;
   /** Extension root — used for node_modules resolution. */
   resolveDir: string;
+  /**
+   * `browser` for `engine/jobs.js`, which runs in Deno (ADR 0022): no `Bun.*`
+   * and no `node:` built-ins. Default `bun`.
+   */
+  target?: 'bun' | 'browser';
 }
 
 /**
@@ -45,6 +50,7 @@ export async function bundleExtensionEngine(opts: ExtensionBundleOptions): Promi
       sourcemap: opts.sourcemap,
     }),
     naming: `${entryBase}.[ext]`,
+    ...(opts.target ? { target: opts.target } : {}),
   });
 
   if (!result.success) {

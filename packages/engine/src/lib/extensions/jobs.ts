@@ -20,10 +20,14 @@
  * (ADR 0018): same outbox, same transaction, no user, so no author.
  */
 
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { CompiledQuery } from 'kysely';
 import type { z } from 'zod';
 import type {
   ExtensionJob,
+  HostCollections,
   RequestUser,
   UpdateExpect,
   ZveltioExtension,
@@ -55,7 +59,9 @@ import {
   type GatePrincipal,
   publicRouteRequest,
 } from '../../middleware/extension-auth-gate.js';
-import { type DataIo, hostCollections, pairImplementations } from './actions.js';
+import { compileInput, type DataIo, hostCollections, pairImplementations } from './actions.js';
+import { ensureDeno } from './deno.js';
+import { type HostCall, runInDeno } from './job-runner.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 
 export interface CompiledJob {
@@ -66,7 +72,10 @@ export interface CompiledJob {
   /** The `publicRoutes` entries that may enqueue it (`fromPublicRoutes`), compiled as the gate's. */
   fromPublicRoutes: readonly RegExp[];
   retry: { limit: number; backoff: boolean };
-  run: ExtensionJob;
+  /** Inline: the module's implementation, run in the engine. */
+  run?: ExtensionJob;
+  /** In the Deno runner (ADR 0022): the verified `jobs.js` and the run's ceilings. */
+  runner?: { code: Uint8Array; memoryMb: number; timeoutSeconds: number };
 }
 
 /** What a queued job carries: everything it runs as, recorded at enqueue. */
@@ -79,8 +88,14 @@ interface JobPayload {
   input: unknown;
 }
 
-/** Each loaded extension's jobs, and whether it holds `data:system`. */
-const registered = new Map<string, { jobs: ReadonlyMap<string, CompiledJob>; system: boolean }>();
+/**
+ * Each loaded extension's jobs, whether it holds `data:system`, and the signal
+ * its unload aborts, which kills its runs in the Deno runner.
+ */
+const registered = new Map<
+  string,
+  { jobs: ReadonlyMap<string, CompiledJob>; system: boolean; unload: AbortController }
+>();
 /**
  * Queues this process works, each with the promise of its queue existing and its
  * worker started: a second start or register adds no second worker, and an
@@ -89,14 +104,62 @@ const registered = new Map<string, { jobs: ReadonlyMap<string, CompiledJob>; sys
 const working = new Map<string, { ready: Promise<void> }>();
 let listening = false;
 
+/**
+ * The Deno runner's queues, claimed by `pumpRunner` rather than a pg-boss
+ * worker: a run is claimed only when a slot is free, so no job sits `active`
+ * waiting for one — where `expireInSeconds` would end it and pg-boss retry it
+ * while this instance still runs it, a side effect twice (ADR 0022 decision 6).
+ */
+const runnerQueues = new Map<string, { extName: string; job: string }>();
+let RUNNER_CONCURRENCY = Math.max(1, Number(process.env.ZVELTIO_JOB_RUNNER_CONCURRENCY) || 4);
+export function _setRunnerConcurrencyForTests(n: number): void {
+  RUNNER_CONCURRENCY = n;
+}
+/** A claimed run's time beyond its `timeoutSeconds`: the tenant check, the transaction, the audit. */
+const RUNNER_EXPIRE_MARGIN_S = 60;
+let runnerBusy = 0;
+let pumping = false;
+let pumpTimer: ReturnType<typeof setInterval> | null = null;
+let denoWarned = false;
+
 export const jobQueueName = (extName: string, job: string): string => `ext.${extName}.${job}`;
 
-/** Pair the manifest's jobs with the module's; throws, refusing the load, on any mismatch. */
+/**
+ * `engine/jobs.js` of the extension at `extDir`, when the manifest's
+ * `integrity.jobsSha256` vouches for it; null when either is missing. Throws on
+ * a mismatch: the bundle was changed after it was packed. Read once, at load:
+ * every run gets a copy of THESE bytes, so a file replaced on disk never runs
+ * against the definitions and grants it was not loaded with.
+ */
+export function verifiedJobsCode(
+  extDir: string,
+  manifest: ExtensionManifest | null,
+): Uint8Array | null {
+  const path = join(extDir, 'engine', 'jobs.js');
+  const want = manifest?.integrity?.jobsSha256;
+  if (!want || !existsSync(path)) return null;
+  const code = readFileSync(path);
+  const actual = createHash('sha256').update(code).digest('hex');
+  if (actual !== want) {
+    throw new Error(
+      `engine/jobs.js hashes to ${actual}, not the manifest's integrity.jobsSha256 ${want}; ` +
+        're-pack, or the bundle was tampered with',
+    );
+  }
+  return new Uint8Array(code);
+}
+
+/**
+ * Pair the manifest's jobs with their code; throws, refusing the load, on any
+ * mismatch. A worker-isolated extension's jobs run in the Deno runner from
+ * `jobsCode` (ADR 0022 decision 1); everything else's inline, from the module.
+ */
 export function compileJobs(
   extName: string,
   manifest: ExtensionManifest | null,
   extension: ZveltioExtension,
   worker: boolean,
+  jobsCode: Uint8Array | null,
 ): Map<string, CompiledJob> {
   const declared = manifest?.jobs ?? [];
   const implemented = extension.jobs ?? {};
@@ -105,22 +168,42 @@ export function compileJobs(
   const refuse = (why: string): never => {
     throw new Error(`Extension "${extName}": ${why}`);
   };
-  if (worker) refuse('jobs are not run for a worker-isolated extension yet');
+  const common = (j: (typeof declared)[number], input: z.ZodType) => ({
+    name: j.name,
+    input,
+    reads: new Set(j.reads),
+    writes: new Set(j.writes),
+    fromPublicRoutes: (j.fromPublicRoutes ?? []).map(compilePattern),
+    retry: j.retry,
+  });
+  if (worker) {
+    for (const name of Object.keys(implemented)) {
+      refuse(
+        `job "${name}" runs in the Deno runner: export it from engine/jobs.ts, not the module's jobs`,
+      );
+    }
+    if (declared.length === 0) return out;
+    if (!jobsCode) {
+      refuse(
+        'its jobs run in the Deno runner, which needs engine/jobs.js and integrity.jobsSha256 ' +
+          '(`zveltio extension pack` builds both from engine/jobs.ts)',
+      );
+    }
+    for (const j of declared) {
+      out.set(j.name, {
+        ...common(j, compileInput('job', j, refuse)),
+        runner: { code: jobsCode!, memoryMb: j.memoryMb, timeoutSeconds: j.timeoutSeconds },
+      });
+    }
+    return out;
+  }
   for (const { declared: j, input, run } of pairImplementations(
     'job',
     declared,
     implemented,
     refuse,
   )) {
-    out.set(j.name, {
-      name: j.name,
-      input,
-      reads: new Set(j.reads),
-      writes: new Set(j.writes),
-      fromPublicRoutes: (j.fromPublicRoutes ?? []).map(compilePattern),
-      retry: j.retry,
-      run,
-    });
+    out.set(j.name, { ...common(j, input), run });
   }
   return out;
 }
@@ -132,7 +215,11 @@ export function registerJobs(
   capabilities: readonly string[],
 ): void {
   if (jobs.size === 0) return;
-  registered.set(extName, { jobs, system: capabilities.includes('data:system') });
+  registered.set(extName, {
+    jobs,
+    system: capabilities.includes('data:system'),
+    unload: new AbortController(),
+  });
   // Subscribed on first use, not at import: in the compiled binary this module
   // can be evaluated before ddl-queue's, whose listener list is not there yet.
   if (!listening) {
@@ -153,16 +240,71 @@ export async function unregisterJobs(extName: string): Promise<void> {
   const reg = registered.get(extName);
   if (!reg) return;
   registered.delete(extName);
+  // Its runs in the Deno runner die first: each is a failed attempt, retried
+  // when it loads again. Runner queues have no pg-boss worker to stop.
+  reg.unload.abort();
   const boss = jobQueue();
+  // Taken before the first await: a load that registers again meanwhile starts
+  // workers of its own, which this loop must not stop.
+  const taken: [string, { ready: Promise<void> }][] = [];
   for (const job of reg.jobs.keys()) {
     const q = jobQueueName(extName, job);
     const entry = working.get(q);
     if (!entry) continue;
     working.delete(q);
+    runnerQueues.delete(q);
+    taken.push([q, entry]);
+  }
+  for (const [q, entry] of taken) {
     // A start still in flight sees it is no longer this registration's and adds
     // no worker; one already past that point is stopped here.
     await entry.ready.catch(() => undefined);
+    if (working.has(q)) continue;
     if (boss) await boss.offWork(q).catch((err: Error) => warn(extName, err));
+  }
+}
+
+/**
+ * Claim runner jobs while slots are free. Nothing is claimed until Deno is
+ * available: the jobs wait in their queues, they are not failed.
+ */
+async function pumpRunner(): Promise<void> {
+  const boss = jobQueue();
+  if (pumping || !boss || runnerQueues.size === 0) return;
+  pumping = true;
+  try {
+    try {
+      await ensureDeno();
+    } catch (err) {
+      if (!denoWarned) console.warn('[ext-jobs] runner jobs wait:', (err as Error).message);
+      denoWarned = true;
+      return;
+    }
+    let claimed = true;
+    while (claimed && runnerBusy < RUNNER_CONCURRENCY) {
+      claimed = false;
+      for (const [q, { extName, job }] of runnerQueues) {
+        if (runnerBusy >= RUNNER_CONCURRENCY) break;
+        const [j] = await boss.fetch<JobPayload>(q, { batchSize: 1 });
+        if (!j) continue;
+        claimed = true;
+        runnerBusy++;
+        void runOutsideTenantContext(() => runJob(extName, job, j.id, j.data))
+          .then(
+            () => boss.complete(q, j.id),
+            (err: Error) => boss.fail(q, j.id, { message: err?.message ?? String(err) }),
+          )
+          .catch((err: Error) => warn(extName, err))
+          .finally(() => {
+            runnerBusy--;
+            void pumpRunner();
+          });
+      }
+    }
+  } catch (err) {
+    console.warn('[ext-jobs] runner:', (err as Error)?.message ?? err);
+  } finally {
+    pumping = false;
   }
 }
 
@@ -175,6 +317,13 @@ function work(boss: JobQueue, extName: string): void {
       await boss.createQueue(q, QUEUE_RETENTION);
       // Unloaded while the queue was created (`unregisterJobs` took the entry): no worker.
       if (!registered.has(extName) || working.get(q) !== entry) return;
+      if (registered.get(extName)?.jobs.get(job)?.runner) {
+        runnerQueues.set(q, { extName, job });
+        pumpTimer ??= setInterval(() => void pumpRunner(), 2000);
+        pumpTimer.unref?.();
+        void pumpRunner();
+        return;
+      }
       // Outside whatever context pg-boss resumes its loop in (see ddl-queue's `work`).
       await boss.work<JobPayload>(q, ([j]) =>
         runOutsideTenantContext(() => runJob(extName, job, j!.id, j!.data)),
@@ -305,6 +454,10 @@ async function sendJob(
       retryLimit: def.retry.limit,
       retryBackoff: def.retry.backoff,
       retryDelay: 1,
+      // Claimed only when a runner slot is free (`pumpRunner`), so this bounds the run itself.
+      ...(def.runner
+        ? { expireInSeconds: def.runner.timeoutSeconds + RUNNER_EXPIRE_MARGIN_S }
+        : {}),
       db: {
         executeSql: (text, values) =>
           trx.executeQuery(CompiledQuery.raw(text, values ?? [])) as Promise<{ rows: never[] }>,
@@ -367,7 +520,18 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
         def,
         jobData(extName, user, trx, tenantId),
       );
-      await def.run(input, { collections, timezone });
+      if (!def.runner) return def.run!(input, { collections, timezone });
+      await runInDeno({
+        deno: await ensureDeno(),
+        code: def.runner.code,
+        job,
+        input,
+        timezone,
+        memoryMb: def.runner.memoryMb,
+        timeoutSeconds: def.runner.timeoutSeconds,
+        signal: reg.unload.signal,
+        call: (name, args) => hostCall(collections, name, args),
+      });
     });
   } catch (err) {
     failure = (err as Error)?.message ?? String(err);
@@ -419,6 +583,52 @@ async function auditRun(
     // A purged tenant's trail went with it; the instance's keeps this row.
     tenantId: tenantExists ? data.tenantId : null,
   });
+}
+
+/**
+ * One host call from the Deno runner, as the inline job would make it. The
+ * arguments come from code the operator did not write: each is checked for the
+ * type the data API expects before it gets there. Who the call acts as is
+ * already bound in `c`.
+ */
+async function hostCall(c: HostCollections, name: HostCall, a: unknown[]): Promise<unknown> {
+  const str = (i: number, what: string): string => {
+    if (typeof a[i] !== 'string') throw new Error(`${name}: ${what} must be a string`);
+    return a[i] as string;
+  };
+  const obj = (i: number, what: string): Record<string, unknown> => {
+    const v = a[i];
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+      throw new Error(`${name}: ${what} must be an object`);
+    }
+    return v as Record<string, unknown>;
+  };
+  switch (name) {
+    case 'collections.read':
+      return c.read(str(0, 'collection'), str(1, 'id'));
+    case 'collections.list':
+      return c.list(str(0, 'collection'), obj(1, 'query'));
+    case 'collections.insert':
+      return c.insert(str(0, 'collection'), obj(1, 'data'));
+    case 'collections.update': {
+      const { expect } = obj(3, 'options');
+      const scalar = (v: unknown) =>
+        v === null || ['string', 'number', 'boolean'].includes(typeof v);
+      if (
+        expect !== undefined &&
+        (expect === null ||
+          typeof expect !== 'object' ||
+          !Object.values(expect).every((vs) => Array.isArray(vs) && vs.every(scalar)))
+      ) {
+        throw new Error(`${name}: options.expect maps fields to lists of scalars`);
+      }
+      return c.update(str(0, 'collection'), str(1, 'id'), obj(2, 'data'), {
+        expect: expect as UpdateExpect | undefined,
+      });
+    }
+    case 'collections.delete':
+      return c.delete(str(0, 'collection'), str(1, 'id'));
+  }
 }
 
 /** The data API as the job's principal, in its transaction, marked as `extName`'s job. */

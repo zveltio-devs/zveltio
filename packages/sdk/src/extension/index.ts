@@ -1583,6 +1583,13 @@ export type ExtensionJob = (input: unknown, host: JobHost) => Promise<void>;
  * delete) — the data API's checks, as for an API key holding those scopes — in
  * the tenant it was enqueued in, in a transaction of its own. Rows it writes are
  * authored by the user whose action enqueued it.
+ *
+ * A worker-isolated extension's jobs run in the engine's Deno runner (ADR
+ * 0022), with no permissions: `engine/jobs.ts` default-exports them by name and
+ * `zveltio extension pack` bundles it as `engine/jobs.js`. The host is the same,
+ * each call a message to the engine; nothing else (network, files, environment)
+ * is reachable. The manifest's `memoryMb` (default 128) and `timeoutSeconds`
+ * (default and most 60) bound each run there.
  */
 export interface JobHost {
   collections: HostCollections;
