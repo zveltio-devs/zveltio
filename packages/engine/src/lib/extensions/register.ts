@@ -851,7 +851,7 @@ export async function finalizeExtensionLoad(
     manifest,
     extension,
     worker,
-    worker || manifest?.jobs.some((j) => j.egress.length > 0)
+    worker || (manifest?.jobs ?? []).some((j) => (j.egress ?? []).length > 0)
       ? verifiedJobsCode(extDir, manifest)
       : null,
   );

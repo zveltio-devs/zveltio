@@ -192,7 +192,7 @@ export function compileJobs(
   });
   // What it declares decides, not its name (ADR 0022 decision 1): egress exists
   // only in the runner, so a job that declares any runs there, first-party too.
-  const inRunner = declared.filter((j) => worker || j.egress.length > 0);
+  const inRunner = declared.filter((j) => worker || (j.egress ?? []).length > 0);
   const inline = declared.filter((j) => !inRunner.includes(j));
   for (const j of inRunner) {
     if (Object.hasOwn(implemented, j.name)) {
@@ -219,7 +219,7 @@ export function compileJobs(
         code: jobsCode!,
         memoryMb: j.memoryMb,
         timeoutSeconds: j.timeoutSeconds,
-        egress: j.egress,
+        egress: j.egress ?? [],
       },
     });
   }
