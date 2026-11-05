@@ -71,9 +71,20 @@ d('introspectSchema inside a tenant transaction', () => {
     expect((await DDLManager.getCollection(db, FRESH))?.is_managed).toBe(false);
   });
 
-  it('serves the collection from a view the request role may write, and a drop keeps the source', async () => {
+  it('serves the collection from a view with the request role\'s own rights, and a drop keeps the source', async () => {
     const id = crypto.randomUUID();
-    // The request role holds SELECT on the source only: the write goes through the view.
+    // The view lends nothing: with SELECT only on the source, the request role cannot write.
+    const refused = await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) =>
+      sql`INSERT INTO ${sql.id('public', `zvd_${FRESH}`)} (id, name) VALUES (${id}, 'x')`
+        .execute(trx)
+        .then(
+          () => null,
+          (e: Error) => e.message,
+        ),
+    ).catch((e: Error) => e.message);
+    expect(refused).toContain('permission denied');
+
+    await sql.raw(`GRANT INSERT ON ${SCHEMA}.${FRESH} TO zveltio_rls`).execute(db);
     await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
       await sql`INSERT INTO ${sql.id('public', `zvd_${FRESH}`)} (id, name) VALUES (${id}, 'x')`.execute(
         trx,

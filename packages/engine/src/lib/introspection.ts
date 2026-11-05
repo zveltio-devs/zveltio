@@ -213,13 +213,17 @@ export async function introspectSchema(
       // The data API serves a collection from `public.zvd_<name>`; a foreign table
       // has no such relation, so its records were served from nothing. A simple
       // view over it is auto-updatable, so reads and writes reach the source
-      // table, and it is the engine's: the request role gets DML on the view
-      // only, never on the source. Re-created on every import: a source whose
-      // columns changed cannot be `CREATE OR REPLACE`d. The collection is
-      // instance-wide (the source has no `tenant_id`), so grants keep it admin-only.
+      // table. `security_invoker`: the source is read and written with the
+      // request role's own privileges and under the source's own RLS, so the
+      // view adds nothing to what the administrator granted on the source; a
+      // definer view would have lent the request role the engine's rights.
+      // Re-created on every import: a source whose columns changed cannot be
+      // `CREATE OR REPLACE`d. The collection is instance-wide (the source has no
+      // `tenant_id`), so grants keep it admin-only.
       const view = sql.id('public', `zvd_${table_name}`);
       await sql`DROP VIEW IF EXISTS ${view}`.execute(db);
-      await sql`CREATE VIEW ${view} AS SELECT * FROM ${sql.id(schemaName, table_name)}`.execute(db);
+      await sql`CREATE VIEW ${view} WITH (security_invoker = true)
+                AS SELECT * FROM ${sql.id(schemaName, table_name)}`.execute(db);
       await sql`GRANT SELECT, INSERT, UPDATE, DELETE ON ${view} TO zveltio_rls`.execute(db);
       if (existing) {
         await db
