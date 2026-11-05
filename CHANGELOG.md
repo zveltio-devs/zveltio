@@ -4,6 +4,29 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.102] - 2026-11-05
+
+**BYOD: an imported collection is served from its source table.** The import
+creates `public.zvd_<name>` as a `security_invoker` view over the source
+table and grants DML on the view, so reads and writes run with the caller's
+rights on the source. Dropping the collection drops the view and keeps the
+source table (#1542).
+
+**Extension `asSystem` calls are audited when they settle.** The audit row
+carries `metadata.outcome` (`ok` or `error`), and an optional
+`opts.actor(result)` records who the call acted for as
+`metadata.claimed_actor` (additive in extension-api v1) (#1543).
+
+**Security: `safeFetch` fails closed.** A host name that does not resolve is
+refused, and an IPv4 address embedded in an IPv6 address is checked against
+the private ranges (#1541).
+
+**Upgrading auth/ldap, auth/saml, auth/scim or developer/byod from 1.x:** the
+2.0 releases do not read or adopt the 1.x tables (`zvd_ldap_*`, `zvd_saml_*`,
+`zv_scim_*`, `zvd_byod_*`). Reconfigure the extension and recreate its data
+(settings, SCIM tokens, BYOD profiles); the 1.x tables are left in place,
+unused, and can be dropped by the operator.
+
 ## [3.0.0-beta.101] - 2026-11-05
 
 **Fixed: a BYOD schema import failed on every install with the RLS role.**
