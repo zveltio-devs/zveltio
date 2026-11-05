@@ -71,7 +71,7 @@ d('introspectSchema inside a tenant transaction', () => {
     expect((await DDLManager.getCollection(db, FRESH))?.is_managed).toBe(false);
   });
 
-  it('serves the collection from a view with the request role\'s own rights, and a drop keeps the source', async () => {
+  it("serves the collection from a view with the request role's own rights, and a drop keeps the source", async () => {
     const id = crypto.randomUUID();
     // The view lends nothing: with SELECT only on the source, the request role cannot write.
     const refused = await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) =>
