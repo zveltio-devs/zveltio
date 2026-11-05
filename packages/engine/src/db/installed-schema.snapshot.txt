@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 573
+# tables: 572
 
 table account
   col accessToken                    text
@@ -7469,68 +7469,64 @@ table zvd_salary_history
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('salary_history'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('salary_history'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('salary_history'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_saml_attribute_mappings
+table zvd_saml_settings
+  col audience                       text
+  col audience_check                 boolean DEFAULT true
+  col callback_url                   text NOT NULL
+  col cert                           text NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col description                    text
+  col created_by                     text
+  col enabled                        boolean DEFAULT false
+  col entry_point                    text NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col saml_attribute                 text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col transform                      text
-  col zveltio_field                  text NOT NULL
-  pk  zvd_saml_attribute_mappings_pkey PRIMARY KEY (id)
-  uq  zvd_saml_attribute_mappings_saml_attribute_key UNIQUE (tenant_id, saml_attribute)
-  rls enabled forced
-  pol tenant_isolation_zvd_saml_attribute_mappings FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_saml_config
-  col config                         jsonb NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col issuer                         text NOT NULL
+  col map_email                      text DEFAULT 'email'::text
+  col map_name                       text DEFAULT 'displayName'::text
+  col private_key                    text
+  col scope                          text NOT NULL DEFAULT 'tenant'::text
+  col search_text                    text
+  col search_vector                  tsvector
+  col signature_algorithm            text DEFAULT 'sha256'::text
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zvd_saml_config_pkey PRIMARY KEY (tenant_id)
+  col updated_by                     text
+  col want_authn_response_signed     boolean DEFAULT true
+  fk  zvd_saml_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_saml_settings_pkey PRIMARY KEY (id)
+  uq  zvd_saml_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
+  fk  zvd_saml_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_saml_config FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('saml_settings'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('saml_settings'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('saml_settings'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('saml_settings'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('saml_settings'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_saml_consumed_assertions
+table zvd_saml_spent_assertions
   col assertion_id                   text NOT NULL
-  col consumed_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col expires_at                     timestamp with time zone NOT NULL
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zvd_saml_consumed_assertions_pkey PRIMARY KEY (tenant_id, assertion_id)
-  rls enabled forced
-  pol tenant_isolation_zvd_saml_consumed_assertions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_saml_idp_metadata
-  col entity_id                      text NOT NULL
-  col fetched_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col metadata_xml                   text NOT NULL
-  col refresh_url                    text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col valid_until                    timestamp with time zone
-  uq  zvd_saml_idp_metadata_entity_id_key UNIQUE (entity_id)
-  pk  zvd_saml_idp_metadata_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_saml_idp_metadata FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_saml_login_log
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col email                          text
-  col failure_reason                 text
+  col created_by                     text
+  col expires_at                     timestamp with time zone NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col idp_entity_id                  text
-  col ip                             text
-  col name_id                        text
-  col relay_state                    text
-  col session_index                  text
-  col success                        boolean NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text
-  pk  zvd_saml_login_log_pkey PRIMARY KEY (id)
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_saml_spent_assertions_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_saml_spent_assertions_pkey PRIMARY KEY (id)
+  uq  zvd_saml_spent_assertions_tenant_id_assertion_id_key UNIQUE (tenant_id, assertion_id)
+  fk  zvd_saml_spent_assertions_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_saml_login_log FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('saml_spent_assertions'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('saml_spent_assertions'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('saml_spent_assertions'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('saml_spent_assertions'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('saml_spent_assertions'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_stock_levels
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -11987,6 +11983,41 @@ table zvv_salary_history
   col reason                         text
   col salary                         numeric
   col salary_type                    text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_saml_settings
+  col audience                       text
+  col audience_check                 boolean
+  col callback_url                   text
+  col cert                           text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col enabled                        boolean
+  col entry_point                    text
+  col id                             uuid
+  col issuer                         text
+  col map_email                      text
+  col map_name                       text
+  col private_key                    text
+  col scope                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col signature_algorithm            text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col want_authn_response_signed     boolean
+
+table zvv_saml_spent_assertions
+  col assertion_id                   text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col expires_at                     timestamp with time zone
+  col id                             uuid
   col search_text                    text
   col search_vector                  tsvector
   col tenant_id                      uuid

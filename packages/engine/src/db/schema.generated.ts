@@ -1710,57 +1710,6 @@ export interface ZvdRpcFunctionsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdSamlAttributeMappingsTable {
-  id: Generated<string>;
-  saml_attribute: string;
-  zveltio_field: string;
-  transform: string | null;
-  description: string | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdSamlConfigTable {
-  tenant_id: Generated<string>;
-  config: unknown;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvdSamlConsumedAssertionsTable {
-  tenant_id: Generated<string>;
-  assertion_id: string;
-  consumed_at: Generated<Date>;
-  expires_at: Date;
-}
-
-export interface ZvdSamlIdpMetadataTable {
-  id: Generated<string>;
-  entity_id: string;
-  metadata_xml: string;
-  valid_until: Date | null;
-  fetched_at: Generated<Date>;
-  refresh_url: string | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdSamlLoginLogTable {
-  id: Generated<string>;
-  user_id: string | null;
-  email: string | null;
-  name_id: string | null;
-  idp_entity_id: string | null;
-  session_index: string | null;
-  ip: string | null;
-  success: boolean;
-  failure_reason: string | null;
-  relay_state: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdValidationImportLogTable {
   id: Generated<string>;
   collection: string;
@@ -1970,11 +1919,6 @@ export interface DbSchema {
   zvd_relations: ZvdRelationsTable;
   zvd_rls_policies: ZvdRlsPoliciesTable;
   zvd_rpc_functions: ZvdRpcFunctionsTable;
-  zvd_saml_attribute_mappings: ZvdSamlAttributeMappingsTable;
-  zvd_saml_config: ZvdSamlConfigTable;
-  zvd_saml_consumed_assertions: ZvdSamlConsumedAssertionsTable;
-  zvd_saml_idp_metadata: ZvdSamlIdpMetadataTable;
-  zvd_saml_login_log: ZvdSamlLoginLogTable;
   zvd_validation_import_log: ZvdValidationImportLogTable;
   zvd_validation_rule_groups: ZvdValidationRuleGroupsTable;
   zvd_validation_test_cases: ZvdValidationTestCasesTable;
