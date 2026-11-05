@@ -56,6 +56,16 @@ export default {
   sneak: async (input, host) => {
     await host.collections.list(${JSON.stringify(SECRET)}, {});
   },
+  net: async (input, host) => {
+    let label;
+    try {
+      const res = await host.fetch(input.url, { method: 'POST', body: 'ping' });
+      label = 'net-' + input.tag + '-' + res.status + '-' + (await res.text());
+    } catch (e) {
+      label = 'net-' + input.tag + '-ERR-' + e.message;
+    }
+    await host.collections.insert(${JSON.stringify(C)}, { label });
+  },
   badArgs: async (input, host) => {
     await host.collections.read(42, 'x');
   },
@@ -153,6 +163,11 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
         job('sneak', [C], [C]),
         job('slow', [], [C]),
         job('badArgs', [C], []),
+        {
+          ...job('net', [C], [C]),
+          timeoutSeconds: 120,
+          egress: ['1.1.1.1', '8.8.8.8', 'localhost', 'nonexistent.invalid', '[64:ff9b::a00:1]'],
+        },
       ],
     });
     const jobs = compileJobs(
@@ -162,7 +177,14 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
       true,
       verifiedJobsCode(extDir, manifest as never),
     );
-    registerJobs(EXT, jobs, ['data:system']);
+    // Every egress authority approved but 8.8.8.8 (ADR 0022 decision 5).
+    registerJobs(EXT, jobs, [
+      'data:system',
+      'egress:1.1.1.1',
+      'egress:localhost',
+      'egress:nonexistent.invalid',
+      'egress:[64:ff9b::a00:1]',
+    ]);
     // Its queues are created in the background.
     await until(
       async () =>
@@ -172,7 +194,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
                                     WHERE name LIKE ${`ext.${EXT}.%`}`.execute(db)
           ).rows[0]?.n,
         ),
-      (n) => n === 5,
+      (n) => n === 6,
     );
   }, 180_000);
 
@@ -220,6 +242,32 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
         new Uint8Array(),
       ),
     ).toThrow(/export it from engine\/jobs\.ts/);
+    // An inline (first-party) extension: a job with egress goes to the runner, the rest stay inline.
+    const mixed = ManifestSchema.parse({
+      name: EXT,
+      jobs: [
+        { name: 'record', input: anyInput },
+        { name: 'net', input: anyInput, egress: ['api.x.com'] },
+      ],
+    });
+    const compiled = compileJobs(
+      EXT,
+      mixed as never,
+      { name: EXT, jobs: { record: async () => {} } } as unknown as ZveltioExtension,
+      false,
+      new Uint8Array([1]),
+    );
+    expect(compiled.get('record')?.runner).toBeUndefined();
+    expect(compiled.get('net')?.runner?.egress).toEqual(['api.x.com']);
+    expect(() =>
+      compileJobs(
+        EXT,
+        mixed as never,
+        { name: EXT, jobs: { record: async () => {} } } as unknown as ZveltioExtension,
+        false,
+        null,
+      ),
+    ).toThrow(/job "net" runs in the Deno runner, which needs engine\/jobs\.js/);
   });
 
   it('runs in its tenant, through the data API, and is audited', async () => {
@@ -268,6 +316,74 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
     // Not the 20 s timeout: the refusal reached the job as its error.
     expect(Date.now() - t).toBeLessThan(15_000);
   }, 30_000);
+
+  describe('egress (ADR 0022 decision 3)', () => {
+    const real = globalThis.fetch;
+    const seen: string[] = [];
+    beforeAll(() => {
+      // The network under the guard: what reaches it was allowed by everything above it.
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        );
+        seen.push(url.href);
+        if (url.pathname === '/redirect') {
+          return new Response(null, { status: 302, headers: { location: 'http://8.8.8.8/' } });
+        }
+        const body = init?.body ? new TextDecoder().decode(init.body as Uint8Array) : '';
+        return new Response(`pong:${body}`, { status: 200 });
+      }) as typeof fetch;
+    });
+    afterAll(() => {
+      globalThis.fetch = real;
+    });
+    const net = async (tag: string, url: string) => {
+      await send('net', { tag, url });
+      const got = await until(
+        () => rows(`net-${tag}-`),
+        (r) => r.length > 0,
+      );
+      expect(got[0]?.tenant_id).toBe(OTHER);
+      return got[0]!.label;
+    };
+
+    it('reaches a consented authority through the engine', async () => {
+      expect(await net('ok', 'http://1.1.1.1/hook')).toBe('net-ok-200-pong:ping');
+      expect(seen).toContain('http://1.1.1.1/hook');
+    }, 40_000);
+
+    it('refuses a declared authority nobody approved', async () => {
+      expect(await net('unconsented', 'http://8.8.8.8/')).toContain(
+        "8.8.8.8 is not in this function's egress",
+      );
+    }, 40_000);
+
+    it('refuses an undeclared authority, and a redirect to an unapproved one', async () => {
+      expect(await net('undeclared', 'http://9.9.9.9/')).toContain('is not in');
+      expect(await net('redirect', 'http://1.1.1.1/redirect')).toContain('8.8.8.8 is not in');
+    }, 40_000);
+
+    it('refuses a name resolving to a private address, and one that does not resolve', async () => {
+      expect(await net('private', 'http://localhost/')).toContain('private address blocked');
+      expect(await net('nxdomain', 'http://nonexistent.invalid/')).toContain('did not resolve');
+    }, 40_000);
+
+    it('pins even with a proxy configured', async () => {
+      process.env.HTTPS_PROXY = 'http://1.1.1.1:3128';
+      process.env.HTTP_PROXY = 'http://1.1.1.1:3128';
+      try {
+        expect(await net('proxied', 'http://nonexistent.invalid/')).toContain('did not resolve');
+      } finally {
+        delete process.env.HTTPS_PROXY;
+        delete process.env.HTTP_PROXY;
+      }
+    }, 40_000);
+
+    it('refuses a NAT64 address', async () => {
+      expect(await net('nat64', 'http://[64:ff9b::a00:1]/')).toContain('private address blocked');
+      expect(seen.some((u) => u.includes('64:ff9b'))).toBe(false);
+    }, 40_000);
+  });
 
   it('claims a job only when a runner slot is free', async () => {
     _setRunnerConcurrencyForTests(1);

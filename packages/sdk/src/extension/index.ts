@@ -1589,12 +1589,23 @@ export type ExtensionJob = (input: unknown, host: JobHost) => Promise<void>;
  * `zveltio extension pack` bundles it as `engine/jobs.js`. The host is the same,
  * each call a message to the engine; nothing else (network, files, environment)
  * is reachable. The manifest's `memoryMb` (default 128) and `timeoutSeconds`
- * (default and most 60) bound each run there.
+ * (default 60; at most 60, or 900 with egress) bound each run there. A job that
+ * declares `egress` runs there too, first-party or not.
  */
 export interface JobHost {
   collections: HostCollections;
   /** As `ActionHost.timezone`, for the tenant that enqueued the job. */
   timezone: string;
+  /**
+   * `fetch`, performed by the engine (ADR 0022): only to the authorities the
+   * manifest's `egress` lists AND an administrator approved as
+   * `egress:<authority>`, on every redirect hop, never to a private address;
+   * at most 50 requests a run, 1 MiB up and 5 MiB down each. Each collection
+   * call of such a job is its own transaction, so it must retry safely:
+   * `expect` on updates, idempotency keys toward the remote. Present in the
+   * Deno runner only (engines from 3.0.0-beta.103).
+   */
+  fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 }
 
 // ─── Studio extension API (available via window.__zveltio in IIFE bundles) ───

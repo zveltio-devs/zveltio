@@ -58,8 +58,9 @@ function pinnedRequest(
   url: string,
   init: RequestInit,
   address: string | null,
+  proxied: (init: RequestInit) => boolean = proxyConfigured,
 ): { url: string; init: RequestInit } {
-  if (!address || proxyConfigured(init)) return { url, init };
+  if (!address || proxied(init)) return { url, init };
 
   const parsed = new URL(url);
   const pinned = new URL(url);
@@ -102,7 +103,13 @@ export function createSafeFetch(
    * The edge egress bridge passes the function's allowlist here.
    */
   allowUrl?: (url: URL) => void,
+  /**
+   * Pin even when a proxy is configured (the Deno job runner, ADR 0022): the
+   * proxy then connects to the address checked here, never to one it resolves.
+   */
+  pinThroughProxy = false,
 ) {
+  const proxied = (init: RequestInit) => !pinThroughProxy && proxyConfigured(init);
   return async function safeFetch(
     input: string | URL | Request,
     init?: RequestInit,
@@ -135,16 +142,12 @@ export function createSafeFetch(
     // fetch would resolve it again, unchecked, and a name under someone else's
     // control can fail the first lookup and answer a private address to the
     // second. With a proxy the proxy resolves, so there is nothing to pin.
-    if (
-      !address &&
-      !isIP(new URL(url).hostname.replace(/^\[|\]$/g, '')) &&
-      !proxyConfigured(baseInit)
-    ) {
+    if (!address && !isIP(new URL(url).hostname.replace(/^\[|\]$/g, '')) && !proxied(baseInit)) {
       throw new Error(`[safeFetch] ${new URL(url).hostname} did not resolve; refused unpinned.`);
     }
 
     // Prevent redirect-based SSRF: intercept redirects and re-validate the Location URL.
-    const target = pinnedRequest(url, { ...baseInit, redirect: 'manual' }, address);
+    const target = pinnedRequest(url, { ...baseInit, redirect: 'manual' }, address, proxied);
     const response = await baseFetch()(target.url, target.init);
     if (REDIRECT_STATUSES.has(response.status)) {
       // The caller's own redirect mode, which the forced 'manual' above hides:

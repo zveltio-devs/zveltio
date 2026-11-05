@@ -80,6 +80,7 @@ import { compileJobs, registerJobs, verifiedJobsCode } from './jobs.js';
 import { buildExtensionConfig } from './config.js';
 import {
   readApprovedForward,
+  declaredCapabilities,
   readGranted,
   refreshForwardApproval,
   resolveCapabilities,
@@ -850,13 +851,16 @@ export async function finalizeExtensionLoad(
     manifest,
     extension,
     worker,
-    worker ? verifiedJobsCode(extDir, manifest) : null,
+    worker || (manifest?.jobs ?? []).some((j) => (j.egress ?? []).length > 0)
+      ? verifiedJobsCode(extDir, manifest)
+      : null,
   );
   // What the manifest DECLARES is only a request. What an administrator
   // consented to is what the gate enforces — otherwise an extension widens its
   // own power by shipping a new manifest, and the contract means nothing on the
   // one path that matters (update). See consent.ts.
-  const declared = manifest?.permissions ?? [];
+  // With its jobs' `egress:<authority>` (ADR 0022), consented like any other.
+  const declared = declaredCapabilities(manifest);
   const granted = await readGranted(ctx.db, extName).catch(() => null);
   const { effective, pending, grandfathered } = resolveCapabilities(declared, granted);
   if (pending.length > 0) {
