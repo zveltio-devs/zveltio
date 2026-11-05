@@ -58,7 +58,7 @@ Moving an extension between backends is configuration, never a rewrite.
 |---|---|
 | **Collections** | the extension's data, declared through schema-as-code (`lib/schema-artifact`). Permissions, RLS, column rules, audit, revisions and flows come from the engine, through the same path as `/api/data`. |
 | **Actions** | synchronous business logic ("issue invoice", "convert lead"). Declared in the manifest with a typed input, a permission and the collections they read and write. They run inside the request transaction and do no network I/O. |
-| **Jobs** | asynchronous work: network, mail, ANAF, AI, heavy compute. An action or a flow enqueues a job in a transactional **outbox**. The job runs out of the request, holds no transaction, and writes back only through the public API with a key scoped to the extension. |
+| **Jobs** | asynchronous work: network, mail, ANAF, AI, heavy compute. An action or a flow enqueues a job in a transactional **outbox**. The job runs out of the request, holds no transaction, and writes back only through the public API with a key scoped to the extension. *(Amended by ADR 0022: a no-egress job keeps one transaction, timeout ≤ 60 s; an egress job opens one per host call; nothing is written back through the public API.)* |
 | **Rules** | declarative expressions for validation, state transitions and flow conditions. No code and no runtime. |
 | **UI** | Studio pages, as today. |
 | **`host`** | the only way an action or job reaches the engine: `host.collections.read/insert/update/delete` with declarative filters, `host.enqueue`, `host.audit`, `host.config`, and `host.services` (the broker). The engine generates every SQL statement. **No raw SQL and no `ctx.internals` for anything but first-party code.** |
@@ -88,7 +88,7 @@ All runs were warm, with Postgres CPU excluded.
 | Backend | CPU / action | 2000-line compute | Memory | Isolation |
 |---|---|---|---|---|
 | inline | 0.163 ms | 1.8 ms | 0 | none |
-| **process per extension** (Bun child, IPC) | 0.406 ms | 2.0 ms | ~60 MB | OS: uid, cgroup, egress |
+| **process per extension** (Bun child, IPC) | 0.406 ms | 2.0 ms | ~60 MB | OS: uid, cgroup, egress *(egress proxy left phase D, ADR 0022)* |
 | SES compartment in a Worker | 0.284 ms | 18.3 ms | 0.28 MB | language-level; no memory cap |
 | QuickJS-WASM | 0.790 ms | 57 ms | 0.65 MB | precise CPU and memory limits |
 
@@ -98,7 +98,7 @@ All runs were warm, with Postgres CPU excluded.
 - SES and QuickJS stay candidates for a later *density* backend.
 - **Jobs run in Deno, one subprocess per job.** The permissions come from the
   approved manifest: `--allow-net=<approved hosts>` and nothing else, plus
-  `--v8-flags=--max-old-space-size=<n>`.
+  `--v8-flags=--max-old-space-size=<n>`. *(Amended by ADR 0022: Deno gets no permissions at all — no `--allow-net`; every fetch, collection read or write is a JSON-line request the engine serves through `safeFetch`, consented as `egress:<authority>`.)*
   - Every escape we tried was refused: other hosts and ports, the filesystem,
     env, spawn, FFI, and asking for more permissions.
   - Cost: 31 ms to start and 60 MB while running.
@@ -182,7 +182,7 @@ judge against nothing. Transition rules sit outside rule groups.
    - No approver role is added under god.
 4. **Egress approval** names domains. Deno enforces it for jobs. The process
    backend enforces it through a per-extension egress proxy (Host/SNI allowlist,
-   DNS pinning), because today's runner filters only by IP (`ext-runner.ts:500`).
+   DNS pinning), because today's runner filters only by IP (`ext-runner.ts:500`). *(Amended by ADR 0022: Deno opens no socket — the engine fetches for it; the per-extension egress proxy leaves phase D, so third-party routes and actions get no egress.)*
 
 ### Developer platform
 
@@ -222,7 +222,7 @@ The estimates are in engineer-weeks for the engine, from the code as it stands.
 | **A. Close today's gaps** (no dependency on the rest) | signature + digest verified at load, tier from the signed catalog (`load.ts`, `load-phases.ts`, `extension-sandbox.ts`); verified tier stops running inline; profiles; god step-up in `requireGod` | 1–2 |
 | **B. Contract** | `extension-api v1` types in the SDK; `host.collections` on the data write pipeline (permissions, RLS, column rules, flows, audit); the action primitive (manifest, route, Casbin `execute`, audit, request transaction); outbox table and dispatcher (migration); ctx v3 replacing `ctx.internals` (85 call sites, 47 extensions use `ctx.db`) | 5–7 |
 | **C. Rules** | CEL adopted for validation, transitions and flow `condition`; migration of stored rules | 2–4 |
-| **D. Backends** | the process backend speaks `host.*` over IPC instead of `db:query` (reuses `ext-runner.ts` supervision); the Deno job runner (spawn, permissions from the manifest, memory flag, timeout); the per-extension egress proxy | 4–6 |
+| **D. Backends** | the process backend speaks `host.*` over IPC instead of `db:query` (reuses `ext-runner.ts` supervision); the Deno job runner (spawn, permissions from the manifest, memory flag, timeout); the per-extension egress proxy | 4–6 *(the Deno runner follows ADR 0022; no egress proxy in D)* |
 | **E. Delete** | third-party `db:query`, the request-transaction bridge, `worker-extension-ctx.ts` parity, most of `worker-extension-host.ts`, the text SQL policy for third parties: about 2,500–3,000 lines and 8–10 harness tests | 1–2 |
 | **Engine total** | | **13–21** |
 
