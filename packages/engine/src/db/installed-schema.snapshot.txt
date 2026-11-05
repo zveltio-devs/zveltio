@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 574
+# tables: 576
 
 table account
   col accessToken                    text
@@ -2515,44 +2515,62 @@ table zvd_budgets
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('budgets'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('budgets'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('budgets'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_byod_scan_history
+table zvd_byod_profiles
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col error                          text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col profile_id                     uuid
-  col schema_name                    text NOT NULL
-  col status                         text NOT NULL DEFAULT 'completed'::text
-  col tables_found                   integer NOT NULL DEFAULT 0
-  col tables_imported                integer NOT NULL DEFAULT 0
-  col tables_skipped                 integer NOT NULL DEFAULT 0
-  col tables_updated                 integer NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col triggered_by                   text NOT NULL DEFAULT 'manual'::text
-  pk  zvd_byod_scan_history_pkey PRIMARY KEY (id)
-  fk  zvd_byod_scan_history_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES zvd_byod_scan_profiles(id) ON DELETE SET NULL
-  ck  zvd_byod_scan_history_status_check CHECK ((status = ANY (ARRAY['completed'::text, 'failed'::text])))
-  rls enabled forced
-  pol tenant_isolation_zvd_byod_scan_history FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_byod_scan_profiles
-  col auto_sync                      boolean NOT NULL DEFAULT false
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
+  col created_by                     text
   col db_schema                      text NOT NULL DEFAULT 'public'::text
   col description                    text
-  col exclude_patterns               ARRAY NOT NULL DEFAULT '{}'::text[]
+  col exclude_patterns               jsonb
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col is_active                      boolean NOT NULL DEFAULT true
   col last_sync_at                   timestamp with time zone
   col name                           text NOT NULL
-  col next_sync_at                   timestamp with time zone
-  col sync_interval_hours            integer NOT NULL DEFAULT 24
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zvd_byod_scan_profiles_pkey PRIMARY KEY (id)
+  col updated_by                     text
+  fk  zvd_byod_profiles_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_byod_profiles_pkey PRIMARY KEY (id)
+  fk  zvd_byod_profiles_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_byod_scan_profiles FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('byod_profiles'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('byod_profiles'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('byod_profiles'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('byod_profiles'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('byod_profiles'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_byod_scans
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col error                          text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col profile_id                     uuid
+  col schema_name                    text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text NOT NULL
+  col tables_found                   bigint NOT NULL DEFAULT 0
+  col tables_imported                bigint NOT NULL DEFAULT 0
+  col tables_updated                 bigint NOT NULL DEFAULT 0
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col triggered_by                   text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_byod_scans_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_byod_scans_pkey PRIMARY KEY (id)
+  fk  zvd_byod_scans_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES zvd_byod_profiles(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_byod_scans_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('byod_scans'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('byod_scans'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('byod_scans'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('byod_scans'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('byod_scans'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_canned_responses
   col category_id                    uuid
@@ -9273,6 +9291,40 @@ table zvv_budgets
   col notes                          text
   col search_vector                  tsvector
   col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_byod_profiles
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col db_schema                      text
+  col description                    text
+  col exclude_patterns               jsonb
+  col id                             uuid
+  col is_active                      boolean
+  col last_sync_at                   timestamp with time zone
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_byod_scans
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col error                          text
+  col id                             uuid
+  col profile_id                     uuid
+  col schema_name                    text
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text
+  col tables_found                   bigint
+  col tables_imported                bigint
+  col tables_updated                 bigint
+  col tenant_id                      uuid
+  col triggered_by                   text
   col updated_at                     timestamp with time zone
   col updated_by                     text
 

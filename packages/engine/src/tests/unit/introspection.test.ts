@@ -80,7 +80,7 @@ describe('introspectSchema — field derivation (dry run)', () => {
       if (f) capturedFields = JSON.parse(f as string);
       return [];
     });
-    db.when(/select "id" from "zvd_collections"/i, []); // not existing → insert path
+    db.when(/select "id", "is_managed" from "zvd_collections"/i, []); // not existing → insert path
     withSchema(db, {
       people: [
         COL({ column_name: 'full_name', data_type: 'character varying', is_nullable: 'NO' }),
@@ -119,7 +119,7 @@ describe('introspectSchema — field derivation (dry run)', () => {
 describe('introspectSchema — write branches', () => {
   it('inserts a new unmanaged collection with source_type=table', async () => {
     const db = new CannedDb();
-    db.when(/select "id" from "zvd_collections"/i, []); // miss → insert
+    db.when(/select "id", "is_managed" from "zvd_collections"/i, []); // miss → insert
     withSchema(db, { invoices: [COL({ column_name: 'number' })] });
 
     const result = await introspectSchema(asDb(db), 'public', [], false);
@@ -133,9 +133,12 @@ describe('introspectSchema — write branches', () => {
     expect(insert.parameters).toContain('Invoices'); // display_name title-cased
   });
 
-  it('updates an existing collection without touching is_managed', async () => {
+  it('updates an existing unmanaged collection without touching is_managed', async () => {
     const db = new CannedDb();
-    db.when(/select "id" from "zvd_collections"/i, [{ id: 'existing-1' }]); // hit → update
+    // hit → update
+    db.when(/select "id", "is_managed" from "zvd_collections"/i, [
+      { id: 'existing-1', is_managed: false },
+    ]);
     withSchema(db, { legacy: [COL()] });
 
     const result = await introspectSchema(asDb(db), 'public', [], false);
@@ -143,6 +146,21 @@ describe('introspectSchema — write branches', () => {
     const update = db.executed(/update "zvd_collections" set/i)[0]!;
     expect(update.sql).toContain('"fields"');
     expect(update.sql).not.toContain('is_managed'); // never rewritten on update
+    expect(db.executed(/insert into "zvd_collections"/i)).toHaveLength(0);
+  });
+
+  it('leaves a managed collection of the same name alone', async () => {
+    // A foreign `legacy.contacts` used to replace the managed `contacts`
+    // collection's fields with its own columns.
+    const db = new CannedDb();
+    db.when(/select "id", "is_managed" from "zvd_collections"/i, [
+      { id: 'managed-1', is_managed: true },
+    ]);
+    withSchema(db, { contacts: [COL()] });
+
+    expect(await introspectSchema(asDb(db), 'legacy', [], true)).toEqual([]);
+    expect(await introspectSchema(asDb(db), 'legacy', [], false)).toEqual([]);
+    expect(db.executed(/update "zvd_collections"/i)).toHaveLength(0);
     expect(db.executed(/insert into "zvd_collections"/i)).toHaveLength(0);
   });
 

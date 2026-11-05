@@ -1437,39 +1437,6 @@ export interface ZvdBranchReviewRequestsTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvdByodScanHistoryTable {
-  id: Generated<string>;
-  profile_id: string | null;
-  schema_name: string;
-  tables_found: Generated<number>;
-  tables_imported: Generated<number>;
-  tables_updated: Generated<number>;
-  tables_skipped: Generated<number>;
-  status: Generated<'completed' | 'failed'>;
-  error: string | null;
-  triggered_by: Generated<string>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdByodScanProfilesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  db_schema: Generated<string>;
-  exclude_patterns: Generated<string[]>;
-  auto_sync: Generated<boolean>;
-  sync_interval_hours: Generated<number>;
-  last_sync_at: Date | null;
-  next_sync_at: Date | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdCollectionsTable {
   id: Generated<string>;
   name: string;
@@ -1877,8 +1844,6 @@ export interface DbSchema {
   zvd_api_logs: ZvdApiLogsTable;
   zvd_api_oauth_tokens: ZvdApiOauthTokensTable;
   zvd_branch_review_requests: ZvdBranchReviewRequestsTable;
-  zvd_byod_scan_history: ZvdByodScanHistoryTable;
-  zvd_byod_scan_profiles: ZvdByodScanProfilesTable;
   zvd_collections: ZvdCollectionsTable;
   zvd_column_permissions: ZvdColumnPermissionsTable;
   zvd_dashboard_shares: ZvdDashboardSharesTable;

@@ -10,6 +10,7 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { engineHandle } from './engine-handle.js';
 import { toJsonb } from './jsonb.js';
+import { asEngineRole } from './role-window.js';
 
 // PG data_type → Zveltio type mapping
 const PG_TYPE_MAP: Record<string, string> = {
@@ -131,6 +132,7 @@ export async function introspectSchema(
   `.execute(db);
 
   const results: IntrospectedTable[] = [];
+  let wrote = false;
   // Dynamic, as in ddl-manager: both modules import back into this layer.
   const { nonCollectionObjects } = await import('./tenancy/index.js');
   const reserved = await nonCollectionObjects(db);
@@ -174,63 +176,69 @@ export async function introspectSchema(
       label: col.column_name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
     }));
 
-    // If dry-run, collect only the preview
-    if (dryRun) {
-      results.push({
-        tableName: table_name,
-        collectionName: table_name,
-        fieldsCount: fields.length,
-        isNew: true,
-      });
-      continue;
-    }
-
-    // Upsert into zvd_collections
-    // `.catch(() => null)` meant "no such collection", and the branch below turns
-    // that into an INSERT. So a failed read made introspection try to CREATE a
-    // collection row that already existed — a unique-violation at best, a duplicate
-    // registration at worst, on a path whose whole job is to reconcile what is
-    // already there.
+    // A name the registry already holds for a MANAGED collection — the engine's
+    // or an extension's — is not this import's to touch. The update below used
+    // to rewrite any same-named row's `fields`, so a foreign `legacy.contacts`
+    // replaced the managed `contacts` collection's field list (what the data API
+    // validates, seals and serves) with the foreign table's columns.
     const existing = await db
       .selectFrom('zvd_collections')
-      .select('id')
+      .select(['id', 'is_managed'])
       .where('name', '=', table_name)
       .executeTakeFirst();
-
-    if (existing) {
-      // Update fields but DON'T change is_managed — it may have been already managed
-      await db
-        .updateTable('zvd_collections')
-        .set({ fields: toJsonb(fields), updated_at: new Date() })
-        .where('name', '=', table_name)
-        .execute();
-      results.push({
-        tableName: table_name,
-        collectionName: table_name,
-        fieldsCount: fields.length,
-        isNew: false,
-      });
-    } else {
-      const displayName = table_name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-
-      await db
-        .insertInto('zvd_collections')
-        .values({
-          name: table_name,
-          display_name: displayName,
-          fields: toJsonb(fields),
-          is_managed: false,
-          source_type: 'table',
-        })
-        .execute();
-      results.push({
-        tableName: table_name,
-        collectionName: table_name,
-        fieldsCount: fields.length,
-        isNew: true,
-      });
+    if (existing && existing.is_managed !== false) {
+      console.warn(
+        `[introspection] skipped "${table_name}": a managed collection already has that name`,
+      );
+      continue;
     }
+    results.push({
+      tableName: table_name,
+      collectionName: table_name,
+      fieldsCount: fields.length,
+      isNew: !existing,
+    });
+    if (dryRun) continue;
+
+    // The registry is the engine's: the request role (`zveltio_rls`) may read
+    // `zvd_collections` and write none of it, and an extension route runs inside
+    // the request's tenant transaction — every import answered `permission
+    // denied for table zvd_collections`. The write steps out of the request role
+    // for its statement, inside the caller's transaction, so it stays atomic with
+    // whatever the caller records next (`asEngineRole`, as for validation rules).
+    // The catalogue reads above stay the caller's: `information_schema` lists
+    // only the tables the request role may use, so a preview and an import offer
+    // the same tables and neither offers one that role cannot read.
+    await asEngineRole(db, async () => {
+      if (existing) {
+        await db
+          .updateTable('zvd_collections')
+          .set({ fields: toJsonb(fields), updated_at: new Date() })
+          .where('id', '=', existing.id)
+          .execute();
+      } else {
+        await db
+          .insertInto('zvd_collections')
+          .values({
+            name: table_name,
+            display_name: table_name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+            fields: toJsonb(fields),
+            is_managed: false,
+            source_type: 'table',
+          })
+          .execute();
+      }
+    });
+    wrote = true;
   }
 
+  if (wrote) {
+    // As `registerMetadata` does, and again after the caller's commit: a read on
+    // another connection before then re-cached the registry without these rows.
+    const { DDLManager } = await import('./data/index.js');
+    const { onAfterCommit } = await import('./tenancy/index.js');
+    DDLManager.invalidateCache();
+    onAfterCommit(() => DDLManager.invalidateCache());
+  }
   return results;
 }
