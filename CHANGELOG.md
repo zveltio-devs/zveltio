@@ -4,6 +4,28 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.101] - 2026-11-05
+
+**Fixed: a BYOD schema import failed on every install with the RLS role.**
+`introspectSchema` ran inside the request's tenant transaction as
+`zveltio_rls`, which may only read `zvd_collections`, so the registry write
+answered `permission denied`. The write now runs as the engine, still inside
+the caller's transaction. An import no longer overwrites the fields of a
+managed collection with the same name, and the collection cache is
+invalidated after the write (#1539). Known limit: the registry has no
+source-schema column, so an imported collection is not yet served from its
+source table.
+
+**auth/ldap, auth/saml, auth/scim and developer/byod 2.0.0 declare their
+collections.** Their own SQL tables leave the engine schema snapshot; the
+engine creates and owns `ldap_settings`, `saml_settings`,
+`saml_spent_assertions`, `scim_tokens`, `scim_users`, `byod_profiles` and
+`byod_scans` (#1536, #1537, #1538, #1539). Data held by the 1.x tables is not
+moved automatically.
+
+**Extension test harness:** a route handler that throws now rolls back the
+tenant transaction, as the engine does.
+
 ## [3.0.0-beta.100] - 2026-11-04
 
 **The sync pull cursor is sealed (ADR 0021, amended).** `POST /api/sync/pull`
