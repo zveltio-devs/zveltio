@@ -124,7 +124,8 @@ async function locate(): Promise<string> {
 async function download(pin: { target: string; zip: string }, path: string): Promise<void> {
   const url = `https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${pin.target}.zip`;
   // Bounded: a stalled download must not hold the runner's claim loop forever.
-  const res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
+  // `Bun.fetch`, not the global: test files in the same process replace that one.
+  const res = await Bun.fetch(url, { signal: AbortSignal.timeout(300_000) });
   if (!res.ok) throw new Error(`downloading Deno from ${url} answered ${res.status}`);
   const zip = new Uint8Array(await res.arrayBuffer());
   const actual = sha256(zip);
