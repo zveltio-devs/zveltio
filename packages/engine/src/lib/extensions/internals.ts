@@ -460,7 +460,7 @@ export interface ExtensionInternals {
   asSystem: <T>(
     collections: readonly string[],
     fn: () => Promise<T>,
-    opts?: AsSystemOptions,
+    opts?: AsSystemOptions<T>,
   ) => Promise<T>;
   /**
    * Queue one of this extension's jobs from a request to one of its

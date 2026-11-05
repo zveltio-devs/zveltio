@@ -171,5 +171,47 @@ d('ctx.internals.asSystem', () => {
     expect(row?.resource_id).toBe('products');
     expect(row?.metadata?.extension).toBe(`ext:${EXT}`);
     expect(row?.metadata?.collections).toEqual(['products']);
+    expect(row?.metadata?.outcome).toBe('ok');
+  });
+
+  it('audits when the work settles: the actor fn found, and a failure', async () => {
+    // A public route (SCIM) learns who is calling only INSIDE fn — the token
+    // lookup is the system work. Audited on entry, the row could name neither
+    // that actor nor whether the call failed.
+    const tokenId = crypto.randomUUID();
+    await inTenant(() =>
+      granted.asSystem(['scim_tokens'], async () => ({ id: tokenId }), {
+        reason: 'actor probe',
+        actor: (row) => `scim_token:${row.id}`,
+      }),
+    );
+    const thrown = await inTenant(() =>
+      granted.asSystem(
+        ['scim_tokens'],
+        async () => {
+          throw new Error('lookup failed');
+        },
+        { reason: 'failure probe', actor: () => 'never' },
+      ),
+    ).catch((e: Error) => e.message);
+    expect(thrown).toBe('lookup failed');
+    await _settleAuditWrites();
+    const rows = await withTenantIsolation(
+      A,
+      async (trx) =>
+        (
+          await sql<{ user_id: string; metadata: Record<string, unknown> }>`
+          SELECT user_id, metadata FROM zv_audit_log
+           WHERE event_type = 'extension.as_system' AND tenant_id = ${A}::uuid`.execute(trx)
+        ).rows,
+    );
+    const ok = rows.find((r) => r.metadata?.reason === 'actor probe');
+    // The extension's word for who called, kept apart from the trusted user.
+    expect(ok?.metadata?.claimed_actor).toBe(`scim_token:${tokenId}`);
+    expect(ok?.metadata?.outcome).toBe('ok');
+    expect(ok?.user_id).toBe(USER);
+    const failed = rows.find((r) => r.metadata?.reason === 'failure probe');
+    expect(failed?.metadata?.outcome).toBe('error');
+    expect(failed?.metadata?.claimed_actor).toBeUndefined();
   });
 });
