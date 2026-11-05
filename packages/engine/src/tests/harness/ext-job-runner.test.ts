@@ -56,6 +56,9 @@ export default {
   sneak: async (input, host) => {
     await host.collections.list(${JSON.stringify(SECRET)}, {});
   },
+  badArgs: async (input, host) => {
+    await host.collections.read(42, 'x');
+  },
   slow: async (input, host) => {
     await new Promise((r) => setTimeout(r, input.ms));
     await host.collections.insert(${JSON.stringify(C)}, { label: input.label });
@@ -149,6 +152,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
         job('peek', [C], [C]),
         job('sneak', [C], [C]),
         job('slow', [], [C]),
+        job('badArgs', [C], []),
       ],
     });
     const jobs = compileJobs(
@@ -168,7 +172,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
                                     WHERE name LIKE ${`ext.${EXT}.%`}`.execute(db)
           ).rows[0]?.n,
         ),
-      (n) => n === 4,
+      (n) => n === 5,
     );
   }, 180_000);
 
@@ -251,6 +255,18 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
     expect(a[0]?.metadata.outcome).toBe('failure');
     expect(String(a[0]?.metadata.error)).toContain('does not list in reads');
     expect(await state(id)).toBe('failed');
+  }, 30_000);
+
+  it('answers malformed host-call arguments with an error, at once', async () => {
+    const t = Date.now();
+    const id = await send('badArgs', {});
+    const a = await until(
+      () => audit(id),
+      (r) => r.length > 0,
+    );
+    expect(String(a[0]?.metadata.error)).toContain('collection must be a string');
+    // Not the 20 s timeout: the refusal reached the job as its error.
+    expect(Date.now() - t).toBeLessThan(15_000);
   }, 30_000);
 
   it('claims a job only when a runner slot is free', async () => {

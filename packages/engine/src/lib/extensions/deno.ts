@@ -5,8 +5,8 @@
  * provides (an air-gapped host, a prebuilt image); otherwise the engine
  * downloads ONE exact version, pinned here with the SHA-256 of each platform's
  * archive and of the binary inside it, into the install's extensions directory.
- * The binary's digest is checked once per boot before its first spawn, so a
- * file swapped on disk is refused, not run. No auto-update: a Deno bump is an
+ * The binary's digest is checked once per boot, before its first spawn (ADR
+ * 0022): a file swapped on disk while the engine was down is refused, not run. No auto-update: a Deno bump is an
  * engine release that edits this table.
  */
 
@@ -123,7 +123,8 @@ async function locate(): Promise<string> {
 
 async function download(pin: { target: string; zip: string }, path: string): Promise<void> {
   const url = `https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${pin.target}.zip`;
-  const res = await fetch(url);
+  // Bounded: a stalled download must not hold the runner's claim loop forever.
+  const res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
   if (!res.ok) throw new Error(`downloading Deno from ${url} answered ${res.status}`);
   const zip = new Uint8Array(await res.arrayBuffer());
   const actual = sha256(zip);

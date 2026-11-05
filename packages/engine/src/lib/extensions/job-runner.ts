@@ -142,6 +142,10 @@ function runIn(dir: string, r: RunnerRun): Promise<void> {
   writeFileSync(jobsPath, r.code);
   writeFileSync(bootPath, RUNNER_BOOTSTRAP);
   const budgetMb = r.memoryMb + RUNNER_LIMITS.runtimeMb;
+  // `limitedCommand` drops every ceiling for an argument with a quote in it; refuse instead.
+  if ([r.deno, dir].some((p) => p.includes("'"))) {
+    return Promise.reject(new Error(`the Deno path or temp directory contains a quote: ${r.deno}`));
+  }
   const useCgroup = cgroupLimitAvailable();
   const argv = [
     r.deno,
@@ -225,6 +229,8 @@ function runIn(dir: string, r: RunnerRun): Promise<void> {
     };
 
     const onLine = (line: string) => {
+      // Killed: lines still buffered from the same chunk are not acted on.
+      if (failure) return;
       let m: {
         id?: unknown;
         call?: unknown;
@@ -298,7 +304,8 @@ function runIn(dir: string, r: RunnerRun): Promise<void> {
       clearTimeout(timer);
       if (watchdog) clearInterval(watchdog);
       r.signal?.removeEventListener('abort', onAbort);
-      await Promise.allSettled([...inFlight]);
+      // Bounded: the child is gone, and a stalled call must not hold the slot forever.
+      await Promise.race([Promise.allSettled([...inFlight]), Bun.sleep(10_000)]);
       const tail = stderr.trim() ? ` — stderr: ${stderr.trim()}` : '';
       if (failure) return reject(new Error(`${failure}${tail}`));
       if (outcome && 'ok' in outcome) return resolve();

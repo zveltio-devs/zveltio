@@ -244,15 +244,22 @@ export async function unregisterJobs(extName: string): Promise<void> {
   // when it loads again. Runner queues have no pg-boss worker to stop.
   reg.unload.abort();
   const boss = jobQueue();
+  // Taken before the first await: a load that registers again meanwhile starts
+  // workers of its own, which this loop must not stop.
+  const taken: [string, { ready: Promise<void> }][] = [];
   for (const job of reg.jobs.keys()) {
     const q = jobQueueName(extName, job);
     const entry = working.get(q);
     if (!entry) continue;
     working.delete(q);
     runnerQueues.delete(q);
+    taken.push([q, entry]);
+  }
+  for (const [q, entry] of taken) {
     // A start still in flight sees it is no longer this registration's and adds
     // no worker; one already past that point is stopped here.
     await entry.ready.catch(() => undefined);
+    if (working.has(q)) continue;
     if (boss) await boss.offWork(q).catch((err: Error) => warn(extName, err));
   }
 }
@@ -584,7 +591,7 @@ async function auditRun(
  * type the data API expects before it gets there. Who the call acts as is
  * already bound in `c`.
  */
-function hostCall(c: HostCollections, name: HostCall, a: unknown[]): Promise<unknown> {
+async function hostCall(c: HostCollections, name: HostCall, a: unknown[]): Promise<unknown> {
   const str = (i: number, what: string): string => {
     if (typeof a[i] !== 'string') throw new Error(`${name}: ${what} must be a string`);
     return a[i] as string;
