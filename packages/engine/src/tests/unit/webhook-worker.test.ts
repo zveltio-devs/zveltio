@@ -103,7 +103,7 @@ function stubFetch(status = 200): void {
 
 function payload(over: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    url: 'https://hooks.example.com/x',
+    url: 'https://93.184.216.34/x',
     event: 'record.created',
     collection: 'c',
     data: { id: '1' },
@@ -135,7 +135,7 @@ describe('webhookWorker._process', () => {
     const cache = new FakeRedis({ lmpop: [payload()] });
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls).toEqual(['https://hooks.example.com/x']);
+    expect(fetchUrls).toEqual(['https://93.184.216.34/x']);
     expect(cache.zaddCalls.length).toBe(0); // 2xx → no retry scheduled
   });
 
@@ -180,7 +180,7 @@ describe('webhookWorker._process', () => {
     expect(cache.lpushCalls.length).toBe(1);
     expect(cache.lpushCalls[0][0]).toBe(WEBHOOK_DLQ_KEY);
     const dead = JSON.parse(cache.lpushCalls[0][1] as string);
-    expect(dead.url).toBe('https://hooks.example.com/x');
+    expect(dead.url).toBe('https://93.184.216.34/x');
     expect(dead.event).toBe('record.created');
     expect(dead.data).toEqual({ id: '1' }); // the body, so a replay can resend it
     expect(typeof dead.failedAt).toBe('string');
@@ -202,7 +202,7 @@ describe('webhookWorker._process', () => {
     const dead = JSON.parse(cache.lpushCalls[0][1] as string);
     expect(dead.secret).toBeUndefined();
     expect(cache.lpushCalls[0][1]).not.toContain('plaintext-signing-secret');
-    expect(dead.url).toBe('https://hooks.example.com/x'); // the rest still recorded
+    expect(dead.url).toBe('https://93.184.216.34/x'); // the rest still recorded
   });
 
   it('caps the dead-letter queue', async () => {
@@ -232,7 +232,7 @@ describe('webhookWorker._process', () => {
     cache.lpopQueue = [payload()];
     _setCacheForTests(cache as unknown as Redis);
     await webhookWorker._process();
-    expect(fetchUrls).toEqual(['https://hooks.example.com/x']);
+    expect(fetchUrls).toEqual(['https://93.184.216.34/x']);
   });
 
   it('re-enqueues retries that are now due', async () => {
