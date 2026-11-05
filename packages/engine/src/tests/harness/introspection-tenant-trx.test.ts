@@ -70,4 +70,24 @@ d('introspectSchema inside a tenant transaction', () => {
     expect(managed.rows[0]!.fields).toEqual([{ name: 'kept', type: 'text' }]);
     expect((await DDLManager.getCollection(db, FRESH))?.is_managed).toBe(false);
   });
+
+  it('serves the collection from a view the request role may write, and a drop keeps the source', async () => {
+    const id = crypto.randomUUID();
+    // The request role holds SELECT on the source only: the write goes through the view.
+    await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+      await sql`INSERT INTO ${sql.id('public', `zvd_${FRESH}`)} (id, name) VALUES (${id}, 'x')`.execute(
+        trx,
+      );
+      const read = await sql<{ name: string }>`
+        SELECT name FROM ${sql.id('public', `zvd_${FRESH}`)} WHERE id = ${id}`.execute(trx);
+      expect(read.rows).toEqual([{ name: 'x' }]);
+    });
+    expect(await DDLManager.tableExists(db, FRESH)).toBe(true);
+
+    await DDLManager.dropInTransaction(db, FRESH, {});
+    expect(await DDLManager.tableExists(db, FRESH)).toBe(false);
+    const source = await sql<{ name: string }>`
+      SELECT name FROM ${sql.id(SCHEMA, FRESH)} WHERE id = ${id}`.execute(db);
+    expect(source.rows).toEqual([{ name: 'x' }]);
+  });
 });

@@ -210,6 +210,17 @@ export async function introspectSchema(
     // only the tables the request role may use, so a preview and an import offer
     // the same tables and neither offers one that role cannot read.
     await asEngineRole(db, async () => {
+      // The data API serves a collection from `public.zvd_<name>`; a foreign table
+      // has no such relation, so its records were served from nothing. A simple
+      // view over it is auto-updatable, so reads and writes reach the source
+      // table, and it is the engine's: the request role gets DML on the view
+      // only, never on the source. Re-created on every import: a source whose
+      // columns changed cannot be `CREATE OR REPLACE`d. The collection is
+      // instance-wide (the source has no `tenant_id`), so grants keep it admin-only.
+      const view = sql.id('public', `zvd_${table_name}`);
+      await sql`DROP VIEW IF EXISTS ${view}`.execute(db);
+      await sql`CREATE VIEW ${view} AS SELECT * FROM ${sql.id(schemaName, table_name)}`.execute(db);
+      await sql`GRANT SELECT, INSERT, UPDATE, DELETE ON ${view} TO zveltio_rls`.execute(db);
       if (existing) {
         await db
           .updateTable('zvd_collections')

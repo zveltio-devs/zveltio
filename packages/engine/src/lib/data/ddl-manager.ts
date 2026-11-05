@@ -425,9 +425,11 @@ export class DDLManager {
     const tableName = this.getTableName(collectionName);
     const result = await sql<{ exists: boolean }>`
       SELECT EXISTS (
-        SELECT FROM pg_tables
-        WHERE schemaname = 'public'
-        AND tablename = ${tableName}
+        SELECT FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+        AND c.relname = ${tableName}
+        -- 'v': an imported (BYOD) collection is a view over its source table.
+        AND c.relkind IN ('r', 'p', 'v')
       ) as exists
     `.execute(db);
     return result.rows[0]?.exists ?? false;
@@ -1169,7 +1171,13 @@ export class DDLManager {
     await withLockTimeout(db, async (trx) => {
       // The view first, as a reader takes it: CASCADE would take it after the table.
       await dropMaskView(trx, tableName);
-      await sql.raw(`DROP TABLE IF EXISTS ${tableName} CASCADE`).execute(trx);
+      // An imported collection is a view over a source table that is not ours:
+      // the view goes, the source stays.
+      const kind = await sql<{ relkind: string }>`
+        SELECT c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = ${tableName}`.execute(trx);
+      const what = kind.rows[0]?.relkind === 'v' ? 'VIEW' : 'TABLE';
+      await sql.raw(`DROP ${what} IF EXISTS ${tableName} CASCADE`).execute(trx);
     });
 
     // The field another collection holds for a relation to this one with no
