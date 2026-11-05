@@ -47,8 +47,16 @@ export function normalizeHost(host: string): string {
   let m = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (m) return m[1];
 
-  // IPv4-mapped IPv6 hex words: ::ffff:7f00:0001
-  m = h.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  // IPv4 inside IPv6, dotted: NAT64 64:ff9b::a.b.c.d, IPv4-compatible ::a.b.c.d
+  m = h.match(/^(?:64:ff9b)?::(\d+\.\d+\.\d+\.\d+)$/);
+  if (m) return m[1];
+
+  // IPv4 inside IPv6, hex words: IPv4-mapped ::ffff:7f00:0001, NAT64
+  // 64:ff9b::a9fe:a9fe (a DNS64 host reaches 169.254.169.254 through it),
+  // IPv4-compatible ::7f00:1, and 6to4 2002:a9fe:a9fe:: (the v4 is in words 2-3).
+  m =
+    h.match(/^(?:::ffff|64:ff9b:|:):([0-9a-f]{1,4}):([0-9a-f]{1,4})$/) ??
+    h.match(/^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/);
   if (m) {
     const hi = parseInt(m[1], 16);
     const lo = parseInt(m[2], 16);
@@ -111,7 +119,10 @@ export const BLOCKED_PATTERNS: RegExp[] = [
   /^::$/, // IPv6 unspecified (equivalent to 0.0.0.0)
   /^fe[89ab][0-9a-f]:/, // IPv6 link-local fe80::/10
   /^f[cd][0-9a-f]{2}:/, // IPv6 ULA fc00::/7 (fc.. and fd..)
-  /^0\.0\.0\.0$/,
+  /^0\.\d+\.\d+\.\d+$/, // 0.0.0.0/8 ("this network")
+  /^198\.1[89]\.\d+\.\d+$/, // 198.18.0.0/15 (benchmarking, used as internal space)
+  /^(22[4-9]|2[3-5]\d)\.\d+\.\d+\.\d+$/, // 224.0.0.0/4 multicast, 240.0.0.0/4 reserved
+  /^ff[0-9a-f]{0,2}:/, // IPv6 multicast ff00::/8
   /host\.docker\.internal$/,
   /kubernetes\.default$/,
 ];

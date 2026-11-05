@@ -38,6 +38,7 @@ mock.module('node:dns/promises', () => ({
 }));
 
 const { assertPublicUrl } = await import('../../lib/security/url-validator.js');
+const { createSafeFetch } = await import('../../lib/edge-functions/safe-fetch.js');
 
 function reset() {
   nextAnswer = PUBLIC_ANSWER;
@@ -114,11 +115,24 @@ describe('assertPublicUrl — resolved-address blocking', () => {
     expect(lookupCalls).toBe(0);
   });
 
-  it('allows an unresolvable host — fetch cannot reach it either', async () => {
+  it('answers null for an unresolvable host, which safeFetch then refuses', async () => {
     shouldThrow = true;
-
-    // Nothing to pin either: a host that does not resolve cannot be reached.
+    // Validation of a setting (offline, CI) still passes: nothing to pin.
     await expect(assertPublicUrl('https://does-not-exist.example/')).resolves.toBeNull();
+
+    // But nothing CONNECTS to it by name: fetch would resolve it again,
+    // unchecked, and a name someone else controls can fail the first lookup and
+    // answer 169.254.169.254 to the second.
+    const seen: string[] = [];
+    const safeFetch = createSafeFetch(
+      () =>
+        (async (u: string) => {
+          seen.push(u);
+          return new Response('ok');
+        }) as unknown as typeof fetch,
+    );
+    await expect(safeFetch('https://does-not-exist.example/')).rejects.toThrow(/did not resolve/);
+    expect(seen).toEqual([]);
   });
 
   it('rejects non-http(s) schemes before any resolution happens', async () => {
