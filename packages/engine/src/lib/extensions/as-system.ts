@@ -22,8 +22,13 @@
  *   - **It needs the `data:system` capability**, declared and approved like any
  *     other, so an administrator sees which extensions can act beyond their
  *     users.
- *   - **Every entry is audited** — extension, user, collections, reason — so an
- *     extension that leans on it is visible in the tenant's trail.
+ *   - **Every call is audited when it settles** — extension, user,
+ *     collections, reason, outcome (`ok`/`error`) — so an extension that leans
+ *     on it is visible in the tenant's trail. On settle, not on entry: a public
+ *     route (SCIM) learns who is calling only inside `fn`, and an entry row
+ *     could say neither that nor whether the work failed. `opts.actor` names
+ *     that caller from `fn`'s result; it is the extension's word, recorded as
+ *     `metadata.claimed_actor`, never as the row's `user_id`.
  *
  * The mark is the `zveltio.system_collections` setting, which only the engine
  * writes: `set_config` is one of the functions `ctx.db` refuses to an extension
@@ -44,9 +49,26 @@ import { auditAs } from './tenant-facts.js';
 /** The setting the collection-permission policy reads. */
 export const SYSTEM_COLLECTIONS_SETTING = 'zveltio.system_collections';
 
-export interface AsSystemOptions {
+export interface AsSystemOptions<T = unknown> {
   /** Why — recorded in the audit row. Up to 200 characters. */
   reason?: string;
+  /**
+   * Who the extension says called, from `fn`'s result — `metadata.claimed_actor`
+   * in the audit row, up to 200 characters. Not run when `fn` throws; a throw
+   * or a non-string here records no actor and does not fail the call.
+   */
+  actor?: (result: T) => unknown;
+}
+
+function claimActor<T>(caller: string, actor: AsSystemOptions<T>['actor'], result: T) {
+  if (typeof actor !== 'function') return undefined;
+  try {
+    const a = actor(result);
+    return typeof a === 'string' && a.length > 0 ? a.slice(0, 200) : undefined;
+  } catch (err) {
+    console.warn(`[asSystem] actor for ext:${caller} threw:`, (err as Error)?.message ?? err);
+    return undefined;
+  }
 }
 
 const NAME = /^[a-z][a-z0-9_]{0,62}$/;
@@ -79,7 +101,7 @@ export async function asSystemAs<T>(
   caller: string,
   collections: readonly string[],
   fn: () => Promise<T>,
-  opts: AsSystemOptions = {},
+  opts: AsSystemOptions<T> = {},
 ): Promise<T> {
   if (!Array.isArray(collections) || collections.length === 0) {
     throw new Error(`ext:${caller}: ctx.internals.asSystem needs the collections it acts on`);
@@ -128,21 +150,31 @@ export async function asSystemAs<T>(
     throw err;
   }
 
-  // Not awaited into the result: a failed audit write must not fail the work,
-  // and `auditAs` writes in a transaction of its own. Logged when it fails.
-  auditAs(caller, {
-    type: 'extension.as_system',
-    userId,
-    resourceType: 'collection',
-    resourceId: [...collections].sort().join(','),
-    metadata: { collections: [...collections].sort(), ...(reason ? { reason } : {}) },
-  }).catch((err) => {
-    console.warn(`[asSystem] audit for ext:${caller} failed:`, (err as Error)?.message ?? err);
-  });
-
+  let outcome: 'ok' | 'error' = 'error';
+  let claimedActor: string | undefined;
   try {
-    return await fn();
+    const result = await fn();
+    outcome = 'ok';
+    claimedActor = claimActor(caller, opts.actor, result);
+    return result;
   } finally {
+    // Not awaited into the result: a failed audit write must not fail the work
+    // nor mask its error, and `auditAs` writes in a transaction of its own — so
+    // a failed `fn` that aborts the request's transaction still leaves its row.
+    auditAs(caller, {
+      type: 'extension.as_system',
+      userId,
+      resourceType: 'collection',
+      resourceId: [...collections].sort().join(','),
+      metadata: {
+        collections: [...collections].sort(),
+        outcome,
+        ...(reason ? { reason } : {}),
+        ...(claimedActor ? { claimed_actor: claimedActor } : {}),
+      },
+    }).catch((err) => {
+      console.warn(`[asSystem] audit for ext:${caller} failed:`, (err as Error)?.message ?? err);
+    });
     // Rewritten, not cleared: another call's window may still be open. If the
     // transaction is aborted this fails too — and the transaction's own
     // rollback discards the setting with everything else.

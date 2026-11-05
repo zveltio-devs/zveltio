@@ -815,12 +815,15 @@ export interface ExtensionInternals<DB = unknown> {
    * collections (`['products']`, not `zvd_products`): collection permissions
    * stand down for `ctx.db` during the call; tenant isolation and the table
    * guard do not. Needs the `data:system` capability. Every call is audited
-   * with the extension, the user, the collections and `reason`.
+   * when it settles, with the extension, the user, the collections, `reason`
+   * and the outcome (`ok`/`error`). `actor` names who called from `fn`'s result
+   * (a public route's token) — recorded as `metadata.claimed_actor`, the
+   * extension's word, not the row's user; engines before 3.0.0-beta.102 ignore it.
    */
   asSystem: <T>(
     collections: readonly string[],
     fn: () => Promise<T>,
-    opts?: { reason?: string },
+    opts?: { reason?: string; actor?: (result: T) => string | undefined },
   ) => Promise<T>;
   /**
    * Queue one of this extension's jobs from a handler of one of its
