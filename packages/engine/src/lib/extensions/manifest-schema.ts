@@ -300,6 +300,13 @@ export const ManifestSchema = z
               backoff: z.boolean().default(true),
             })
             .default({ limit: 2, backoff: true }),
+          /**
+           * Ceilings of a run in the Deno runner (ADR 0022 decision 5); an inline
+           * run ignores them. The time limit is the database's idle-in-transaction
+           * limit, because the run holds one transaction.
+           */
+          memoryMb: z.number().int().min(32).max(512).default(128),
+          timeoutSeconds: z.number().int().min(1).max(60).default(60),
         }),
       )
       .default([]),
@@ -386,6 +393,11 @@ export const ManifestSchema = z
           .optional(),
         // ADR 0012: the declared schema files, checked at load (`readDeclaredCollections`).
         schemaSha256: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
+        // ADR 0022: `engine/jobs.js`, the job bundle the Deno runner runs, checked at load.
+        jobsSha256: z
           .string()
           .regex(/^[a-f0-9]{64}$/)
           .optional(),

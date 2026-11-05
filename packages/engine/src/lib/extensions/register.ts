@@ -76,7 +76,7 @@ import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import { type CompiledAction, compileActions, forgetActions, mountActions } from './actions.js';
-import { compileJobs, registerJobs } from './jobs.js';
+import { compileJobs, registerJobs, verifiedJobsCode } from './jobs.js';
 import { buildExtensionConfig } from './config.js';
 import {
   readApprovedForward,
@@ -844,11 +844,13 @@ export async function finalizeExtensionLoad(
     extension,
     manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true,
   );
+  const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
   const jobs = compileJobs(
     extName,
     manifest,
     extension,
-    manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true,
+    worker,
+    worker ? verifiedJobsCode(extDir, manifest) : null,
   );
   // What the manifest DECLARES is only a request. What an administrator
   // consented to is what the gate enforces — otherwise an extension widens its

@@ -247,6 +247,8 @@ interface Manifest {
     schemaSha256?: string;
     /** Hash of the TypeScript the bundle was built from — see `hashEngineSources`. */
     sourceSha256?: string;
+    /** `engine/jobs.js`, the Deno runner's bundle (ADR 0022). */
+    jobsSha256?: string;
     archiveSha256?: string;
   };
   [k: string]: unknown;
@@ -469,6 +471,31 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
     `  ${c.green('✓')} ${c.bold(`engine/index.js`)} ${c.dim(`(${sizeKb} KB, sha256=${engineSha256.slice(0, 12)}…)`)}`,
   );
 
+  // ADR 0022: the job functions alone, for the Deno runner, which runs a
+  // worker-isolated extension's jobs. `engine/jobs.ts` default-exports them by
+  // name; nothing of routes, Studio or `register` comes along.
+  let jobsSha256: string | undefined;
+  const jobsEntry = join(dir, 'engine', 'jobs.ts');
+  if (existsSync(jobsEntry)) {
+    const jobsOut = join(dir, 'engine', 'jobs.js');
+    try {
+      await bundleExtensionEngine({
+        entry: jobsEntry,
+        outfile: jobsOut,
+        external: [],
+        resolveDir: dir,
+        target: 'browser',
+      });
+    } catch (err) {
+      throw new Error(`Bun bundle of engine/jobs.ts failed: ${(err as Error).message}`);
+    }
+    scrubBuildPaths(jobsOut, dir);
+    jobsSha256 = createHash('sha256').update(readFileSync(jobsOut)).digest('hex');
+    console.log(
+      `  ${c.green('✓')} ${c.bold('engine/jobs.js')} ${c.dim(`(sha256=${jobsSha256.slice(0, 12)}…)`)}`,
+    );
+  }
+
   // Resolve the publisher tier so community extensions get worker
   // isolation auto-injected (marketplace-policy.md §2). The engine refuses
   // inline community extensions at enable, so packing one without worker
@@ -531,6 +558,7 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
       engineSha256,
       sourceSha256: hashEngineSources(dir),
       ...(declaresCollections(manifest) ? { schemaSha256: hashSchemaFiles(dir) } : {}),
+      ...(jobsSha256 ? { jobsSha256 } : {}),
       // Only carry archiveSha256 forward if a prior valid value exists —
       // never write an empty placeholder (the engine's manifest schema
       // rejects it). The registry computes archiveSha256 on upload.

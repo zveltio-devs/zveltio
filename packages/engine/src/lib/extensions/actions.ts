@@ -61,14 +61,7 @@ export function pairImplementations<D extends { name: string; input: Record<stri
   const out = declared.map((d) => {
     const run = Object.hasOwn(implemented, d.name) ? implemented[d.name] : undefined;
     if (typeof run !== 'function') refuse(`manifest ${kind} "${d.name}" has no implementation`);
-    try {
-      const input = z.fromJSONSchema(d.input as Parameters<typeof z.fromJSONSchema>[0]);
-      return { declared: d, input, run: run as F };
-    } catch (err) {
-      return refuse(
-        `${kind} "${d.name}": input is not a usable JSON Schema (${(err as Error).message})`,
-      );
-    }
+    return { declared: d, input: compileInput(kind, d, refuse), run: run as F };
   });
   for (const name of Object.keys(implemented)) {
     if (!declared.some((d) => d.name === name)) {
@@ -76,6 +69,21 @@ export function pairImplementations<D extends { name: string; input: Record<stri
     }
   }
   return out;
+}
+
+/** A declared input JSON Schema as zod; refuses one zod cannot use. */
+export function compileInput(
+  kind: 'action' | 'job',
+  d: { name: string; input: Record<string, unknown> },
+  refuse: (why: string) => never,
+): z.ZodType {
+  try {
+    return z.fromJSONSchema(d.input as Parameters<typeof z.fromJSONSchema>[0]);
+  } catch (err) {
+    return refuse(
+      `${kind} "${d.name}": input is not a usable JSON Schema (${(err as Error).message})`,
+    );
+  }
 }
 
 /**

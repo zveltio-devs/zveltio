@@ -350,6 +350,15 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
         err('MANIFEST_BAD_JOB', `job "${j.name}": "retry" is { limit: 0-10, backoff: boolean }`),
       );
     }
+    // ADR 0022: the ceilings of a run in the Deno runner.
+    const int = (v: unknown, min: number, max: number) =>
+      v === undefined || (Number.isInteger(v) && (v as number) >= min && (v as number) <= max);
+    if (!int(j.memoryMb, 32, 512)) {
+      out.push(err('MANIFEST_BAD_JOB', `job "${j.name}": "memoryMb" is an integer, 32-512`));
+    }
+    if (!int(j.timeoutSeconds, 1, 60)) {
+      out.push(err('MANIFEST_BAD_JOB', `job "${j.name}": "timeoutSeconds" is an integer, 1-60`));
+    }
   }
 
   // The host strips these from a worker's request; a public route may ask for some back.
