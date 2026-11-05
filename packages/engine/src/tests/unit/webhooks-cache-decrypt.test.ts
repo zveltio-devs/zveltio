@@ -33,7 +33,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-cache',
-        url: 'https://hooks.example.com/queued',
+        url: 'https://93.184.216.34/queued',
         method: 'POST',
         events: ['record.created'],
         collections: ['contacts'],
@@ -63,7 +63,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-enc',
-        url: 'https://hooks.example.com/enc',
+        url: 'https://93.184.216.34/enc',
         method: 'POST',
         events: ['*'],
         collections: null,
@@ -110,7 +110,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-nonstring',
-        url: 'https://hooks.example.com/ns',
+        url: 'https://93.184.216.34/ns',
         method: 'POST',
         events: ['*'],
         collections: null,
@@ -138,7 +138,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-scoped',
-        url: 'https://hooks.example.com/scoped',
+        url: 'https://93.184.216.34/scoped',
         method: 'POST',
         events: ['record.created'],
         collections: ['orders'],
@@ -162,7 +162,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
         h instanceof Headers ? h.get('host') : (h as Record<string, string> | undefined)?.host;
       const u = new URL(String(url));
       if (host) u.host = host;
-      if (u.toString() === 'https://hooks.example.com/scoped') hit = true;
+      if (u.toString() === 'https://93.184.216.34/scoped') hit = true;
       return { status: 200, ok: true, text: async () => '' } as Response;
     }) as typeof fetch;
 
