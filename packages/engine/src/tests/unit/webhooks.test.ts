@@ -42,6 +42,10 @@ function stubFetch(status = 200, ok = status < 400): void {
  *
  * These two helpers undo the pinning instead, which works under any resolver:
  * the `Host` header is exactly the authority that was replaced.
+ *
+ * Since #1541 a name that does not resolve is refused, not fetched, so a host
+ * name made these tests depend on the resolver again. They use a public IP
+ * literal: nothing is resolved and nothing is pinned.
  */
 function headers(): Record<string, string> {
   const h = lastReq?.init?.headers;
@@ -64,7 +68,7 @@ function sentUrl(): string | undefined {
 }
 
 const basePayload = {
-  url: 'https://hooks.example.com/receive',
+  url: 'https://93.184.216.34/receive',
   event: 'record.created',
   collection: 'contacts',
   data: { id: 'r1', name: 'Ada' },
@@ -200,7 +204,7 @@ describe('WebhookManager.trigger', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh1',
-        url: 'https://hooks.example.com/trigger',
+        url: 'https://93.184.216.34/trigger',
         method: 'POST',
         events: ['*'],
         collections: null,
@@ -214,6 +218,6 @@ describe('WebhookManager.trigger', () => {
     await WebhookManager.trigger('record.created', 'contacts', { id: 'r1' });
     // No Valkey → deliver() is fire-and-forget; let it flush.
     await new Promise((r) => setTimeout(r, 50));
-    expect(sentUrl()).toBe('https://hooks.example.com/trigger');
+    expect(sentUrl()).toBe('https://93.184.216.34/trigger');
   });
 });

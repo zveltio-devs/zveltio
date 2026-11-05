@@ -9,7 +9,7 @@ import { WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const basePayload = {
-  url: 'https://hooks.example.com/hook',
+  url: 'https://93.184.216.34/hook',
   event: 'record.created',
   collection: 'contacts',
   data: { id: 'r1' },
