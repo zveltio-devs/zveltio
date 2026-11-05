@@ -30,7 +30,7 @@ const P256DH =
 const AUTH_SECRET = 'BTBZMqHH6r4Tts7J_aSIgg';
 
 const STAMP = Date.now();
-const ENDPOINT = `https://push.example.com/wiring-${STAMP}`;
+const ENDPOINT = `https://93.184.216.34/wiring-${STAMP}`;
 
 d('sendNotification delivers web push (in-process)', () => {
   let db: Database;
@@ -83,7 +83,7 @@ d('sendNotification delivers web push (in-process)', () => {
     else process.env.VAPID_SUBJECT = envBefore.sub;
 
     if (!db) return;
-    await sql`DELETE FROM zv_push_subscriptions WHERE endpoint LIKE ${`https://push.example.com/wiring-${STAMP}%`}`
+    await sql`DELETE FROM zv_push_subscriptions WHERE endpoint LIKE ${`https://93.184.216.34/wiring-${STAMP}%`}`
       .execute(db)
       .catch(() => {});
     await sql`DELETE FROM zv_notifications WHERE title = ${`wiring-${STAMP}`}`

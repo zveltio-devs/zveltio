@@ -85,3 +85,30 @@ describe('172.16.0.0/12 stops at its edges', () => {
     expect(isBlockedHost(host)).toBe(false);
   });
 });
+
+describe('IPv4 hidden inside IPv6, and the reserved v4 ranges', () => {
+  test.each([
+    '64:ff9b::a9fe:a9fe', // NAT64 → 169.254.169.254 on a DNS64 host
+    '64:ff9b::169.254.169.254',
+    '64:ff9b::a00:5', // NAT64 → 10.0.0.5
+    '::a9fe:a9fe', // IPv4-compatible
+    '::127.0.0.1',
+    '2002:a9fe:a9fe::1', // 6to4
+    '[64:ff9b::7f00:1]',
+    '0.1.2.3',
+    '198.18.0.1',
+    '198.19.255.255',
+    '224.0.0.1',
+    '255.255.255.255',
+    'ff02::1',
+  ])('blocks %s', (host) => {
+    expect(isBlockedHost(host)).toBe(true);
+  });
+
+  test.each(['64:ff9b::5db8:d822', '2002:5db8:d822::1', '198.20.0.1', '223.255.255.255'])(
+    'leaves %s reachable (a public v4 inside, or just outside a range)',
+    (host) => {
+      expect(isBlockedHost(host)).toBe(false);
+    },
+  );
+});

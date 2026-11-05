@@ -13,6 +13,7 @@
 
 // Not the barrel: the edge egress bridge imports this module, and the compose
 // probe runs it from source with no node_modules (the barrel pulls hono, kysely).
+import { isIP } from 'node:net';
 import { assertPublicUrl, validatePublicUrl } from '../security/url-validator.js';
 export { validatePublicUrl, assertPublicUrl };
 
@@ -51,7 +52,7 @@ function proxyConfigured(init?: RequestInit): boolean {
  * cloudflare.com all answer normally this way, CDN fronting included.
  *
  * `address` is null when there is nothing to pin: an IP literal was never a
- * name, and a host that did not resolve cannot be reached by the fetch either.
+ * name. A name that did not resolve never gets here (`safeFetch` refuses it).
  */
 function pinnedRequest(
   url: string,
@@ -122,8 +123,25 @@ export function createSafeFetch(
     // URL — so it is unpacked here rather than passed through.
     const baseInit: RequestInit =
       input instanceof Request
-        ? { method: input.method, headers: input.headers, body: input.body, ...(init ?? {}) }
+        ? {
+            method: input.method,
+            headers: input.headers,
+            body: input.body,
+            ...(init ?? {}),
+          }
         : (init ?? {});
+
+    // A name that did not resolve here is refused, not handed to fetch by name:
+    // fetch would resolve it again, unchecked, and a name under someone else's
+    // control can fail the first lookup and answer a private address to the
+    // second. With a proxy the proxy resolves, so there is nothing to pin.
+    if (
+      !address &&
+      !isIP(new URL(url).hostname.replace(/^\[|\]$/g, '')) &&
+      !proxyConfigured(baseInit)
+    ) {
+      throw new Error(`[safeFetch] ${new URL(url).hostname} did not resolve; refused unpinned.`);
+    }
 
     // Prevent redirect-based SSRF: intercept redirects and re-validate the Location URL.
     const target = pinnedRequest(url, { ...baseInit, redirect: 'manual' }, address);
