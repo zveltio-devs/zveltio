@@ -425,11 +425,12 @@ export class DDLManager {
     const tableName = this.getTableName(collectionName);
     const result = await sql<{ exists: boolean }>`
       SELECT EXISTS (
-        SELECT FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public'
-        AND c.relname = ${tableName}
-        -- 'v': an imported (BYOD) collection is a view over its source table.
-        AND c.relkind IN ('r', 'p', 'v')
+        SELECT FROM pg_tables
+        WHERE schemaname = 'public'
+        AND tablename = ${tableName}
+        -- An imported (BYOD) collection is a view over its source table.
+        UNION ALL
+        SELECT FROM pg_views WHERE schemaname = 'public' AND viewname = ${tableName}
       ) as exists
     `.execute(db);
     return result.rows[0]?.exists ?? false;
