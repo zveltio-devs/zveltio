@@ -93,6 +93,11 @@ jobs:
           [ "$(docker inspect -f '{{.Config.User}}' zveltio-engine:standalone)" = root ] \
             || { echo "::error::the default target does not start as root"; exit 1; }
           docker run --rm zveltio-engine:standalone --help | grep -q migrate
+      - name: Deno jobs run in the image
+        # Alpine is musl and Deno ships glibc only: the image carries glibc's
+        # loader for it. The pinned Deno, verified by deno.ts, runs a job with
+        # no permissions as an extension's uid under the socket ban.
+        run: bash packages/engine/scripts/deno-image.sh zveltio-engine:ci
 
   compose-and-installers:
     runs-on: ubuntu-latest
