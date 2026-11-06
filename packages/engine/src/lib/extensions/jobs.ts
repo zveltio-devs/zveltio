@@ -61,7 +61,7 @@ import {
 } from '../../middleware/extension-auth-gate.js';
 import { compileInput, type DataIo, hostCollections, pairImplementations } from './actions.js';
 import { EGRESS_LIMITS, parseRequest, performEgress } from '../edge-functions/egress.js';
-import { EGRESS_PREFIX } from './consent.js';
+import { EGRESS_PREFIX, readGranted } from './consent.js';
 import { ensureDeno } from './deno.js';
 import { type HostCall, runInDeno } from './job-runner.js';
 import type { ExtensionManifest } from './manifest-schema.js';
@@ -106,8 +106,6 @@ const registered = new Map<
     jobs: ReadonlyMap<string, CompiledJob>;
     system: boolean;
     unload: AbortController;
-    /** The effective capabilities: the consented `egress:<authority>` among them. */
-    capabilities: ReadonlySet<string>;
   }
 >();
 /**
@@ -245,7 +243,6 @@ export function registerJobs(
     jobs,
     system: capabilities.includes('data:system'),
     unload: new AbortController(),
-    capabilities: new Set(capabilities),
   });
   // Subscribed on first use, not at import: in the compiled binary this module
   // can be evaluated before ddl-queue's, whose listener list is not there yet.
@@ -578,7 +575,6 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     // Egress (ADR 0022 decision 4): a run can last minutes, so no transaction
     // spans it; each host call opens its own, in the tenant, never on the pool,
     // after checking the tenant is still active.
-    const allowed = runner.egress.filter((a) => reg.capabilities.has(`${EGRESS_PREFIX}${a}`));
     const fetches = limiter(EGRESS_LIMITS.requests, EGRESS_LIMITS.inFlight, 'requests');
     // Each call holds a pool connection: a run must not take the pool from every other tenant.
     const dbCalls = limiter(Number.POSITIVE_INFINITY, 2, 'host calls');
@@ -588,7 +584,18 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     reg.unload.signal.addEventListener('abort', abort);
     try {
       await run(async (name, args) => {
-        if (name === 'fetch') return fetches(() => jobFetch(allowed, args[0], ended.signal));
+        if (name === 'fetch') {
+          return fetches(async () => {
+            // The consent as recorded now, not as it was at load (ADR 0023
+            // decision 4): a revocation cuts the next fetch. On the pool, as the
+            // tenant check below: an instance row, read before the fetch, so no
+            // transaction is held across it. No row (uninstalled) or no consent
+            // recorded: no egress — it is never grandfathered.
+            const granted = new Set((await readGranted(getDb(), extName)) ?? []);
+            const allowed = runner.egress.filter((a) => granted.has(`${EGRESS_PREFIX}${a}`));
+            return jobFetch(allowed, args[0], ended.signal);
+          });
+        }
         const p = dbCalls(async () => {
           const now = await getDb()
             .selectFrom('zv_tenants')

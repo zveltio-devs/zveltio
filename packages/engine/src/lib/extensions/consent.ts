@@ -107,12 +107,19 @@ export function resolveCapabilities(
   };
 }
 
-/** Read the recorded consent for one extension. null = never recorded. */
+/**
+ * Read the recorded consent for one extension. null = never recorded.
+ *
+ * God's row (`tenant_id IS NULL`), where consent is decided: a firm's
+ * activation row is written without it, and reading whichever row came first
+ * answered NULL — grandfathered, every declared capability granted unasked.
+ */
 export async function readGranted(db: Database, name: string): Promise<string[] | null> {
   const row = await db
     .selectFrom('zv_extension_registry')
     .select('granted_capabilities')
     .where('name', '=', name)
+    .where('tenant_id', 'is', null)
     .executeTakeFirst();
   if (!row) return null;
   return parseGranted(row.granted_capabilities);
