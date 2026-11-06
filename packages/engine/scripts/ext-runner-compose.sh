@@ -7,9 +7,11 @@
 # The probe extension (ext-runner-isolation.ts) runs twice from the "engine":
 #   process — a child under the engine's uid: MUST read the .env and the
 #             environment and reach the network (proves the probe works);
-#   runner  — the runner container: MUST do none of it, MUST run under a
-#             uid of its own (not root, not the engine's), and MUST NOT be able
-#             to write into the runner's socket directory.
+#   runner  — the runner container: MUST do none of it — its raw socket
+#             refused by the seccomp socket ban (ADR 0023), not only by the
+#             network — MUST run under a uid of its own (not root, not the
+#             engine's), and MUST NOT be able to write into the runner's
+#             socket directory.
 # A connection from a uid other than the engine's is refused (SO_PEERCRED), and
 # an extension's process does not outlive its connection.
 #
@@ -60,7 +62,9 @@ for ext in r1 r2; do
   echo "runner:  $out"
   grep -q '"transport":"runner"' <<<"$out" || { echo "FAIL: runner probe gave no answer"; fail=1; }
   grep -q hunter2 <<<"$out" && { echo "FAIL: runner transport read an engine secret"; fail=1; }
-  grep -q '"net":"DENIED' <<<"$out" || { echo "FAIL: runner transport reached $URL over a raw socket"; fail=1; }
+  # EACCES: the socket ban (ADR 0023) refuses the socket before
+  # network_mode: none could (that would be ENETUNREACH).
+  grep -q '"net":"DENIED EACCES"' <<<"$out" || { echo "FAIL: runner transport opened a raw socket (no socket ban)"; fail=1; }
   grep -q '"write":"WROTE"' <<<"$out" && { echo "FAIL: an extension wrote into the socket directory"; fail=1; }
   uid=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
   [ -n "$uid" ] && [ "$uid" -ge 200000 ] || { echo "FAIL: extension ran as uid ${uid:-?}"; fail=1; }

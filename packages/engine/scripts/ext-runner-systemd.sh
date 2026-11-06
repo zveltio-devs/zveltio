@@ -11,6 +11,8 @@
 #     its `fetch` is refused by the runtime (ADR 0022: no egress for routes);
 #   - an extension in its runner reads neither secret and reaches no address,
 #     not even over a raw socket (IPAddressDeny=any, no operator override);
+#     the unit bans every socket family but AF_UNIX (seccomp, ADR 0023) — it
+#     answered, so its start check saw AF_INET and AF_SMC refused;
 #   - two extensions run under two different uids, neither the engine's, and
 #     one cannot write into the other's runner directory;
 #   - the engine user may start its runners through polkit and no other unit;
@@ -72,6 +74,9 @@ check "runner reaches no address, raw socket included" 'grep -q "\"net\":\"DENIE
 
 INST_A=$(ls /run/zveltio-ext)
 UNIT_A="zveltio-ext-runner@${INST_A}.service"
+check "runner unit bans sockets but AF_UNIX, under seccomp" \
+  '[ "$(systemctl show -p RestrictAddressFamilies --value "$UNIT_A")" = AF_UNIX ] &&
+   sudo grep -q "^Seccomp:[[:space:]]*2" "/proc/$(systemctl show -p MainPID --value "$UNIT_A")/status"'
 
 # ── extension B: another uid, cannot touch A ──────────────────────────────────
 out=$(PROBE_WRITE="/run/zveltio-ext/${INST_A}/planted.sock" probe managed b acme/probe-b)

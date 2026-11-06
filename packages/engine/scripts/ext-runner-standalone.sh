@@ -11,7 +11,9 @@
 # the container's environment; through it an extension runs under a uid of its
 # own, reads neither the engine's environment nor a world-readable file in
 # /data/storage nor the engine's TMPDIR, and cannot write into the socket
-# directory; it cannot start more than 64 tasks, and one that allocates without
+# directory; it opens no socket although the container has a network (the
+# seccomp socket ban, ADR 0023: EACCES), and an edge function still runs there;
+# it cannot start more than 64 tasks, and one that allocates without
 # end dies alone while the runner serves the next. Started as uid 100, the
 # entrypoint is the binary and nothing else.
 #
@@ -68,17 +70,20 @@ docker exec --privileged "$C" cat "/proc/$runner/environ" | grep -q hunter2 \
   && { echo "FAIL: the runner holds the container's environment"; fail=1; }
 
 PROBE=/src/packages/engine/scripts/ext-runner-isolation.ts
-probe() { docker exec -u 100:101 -e PROBE_WRITE=/run/zveltio-ext/evil "$C" bun "$PROBE" "$@"; }
+# The container's network is the engine's: only the socket ban stops a raw socket.
+URL="${PROBE_URL:-http://example.com/}"
+probe() { docker exec -u 100:101 -e PROBE_URL="$URL" -e PROBE_WRITE=/run/zveltio-ext/evil "$C" bun "$PROBE" "$@"; }
 out=$(probe process /data/storage/upload /data/extensions/p)
 echo "process: $out"
-[ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] \
-  || { echo "FAIL: under the engine's uid the probe should read both secrets (probe broken?)"; fail=1; }
+[ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] && grep -q '"net":"CONNECTED"' <<<"$out" \
+  || { echo "FAIL: under the engine's uid the probe should read both secrets and reach $URL (probe broken?)"; fail=1; }
 uids=()
 for ext in r1 r2; do
   out=$(probe runner /data/storage/upload "/data/extensions/$ext" "$SOCK")
   echo "runner:  $out"
   grep -q '"transport":"runner"' <<<"$out" || { echo "FAIL: runner probe gave no answer"; fail=1; }
   grep -q hunter2 <<<"$out" && { echo "FAIL: an extension read an engine secret"; fail=1; }
+  grep -q '"net":"DENIED EACCES"' <<<"$out" || { echo "FAIL: an extension opened a raw socket (no socket ban)"; fail=1; }
   grep -q '"write":"WROTE"' <<<"$out" && { echo "FAIL: an extension wrote into the socket directory"; fail=1; }
   uid=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
   [ -n "$uid" ] && [ "$uid" -ge 200000 ] || { echo "FAIL: extension ran as uid ${uid:-?}"; fail=1; }
@@ -95,6 +100,14 @@ docker exec -u 100:101 -e PROBE_ALLOC=1 "$C" bun "$PROBE" runner /data/storage/u
   && { echo "FAIL: an extension allocating without end survived"; fail=1; }
 probe runner /data/storage/upload /data/extensions/r3 "$SOCK" | grep -q '"transport":"runner"' \
   || { echo "FAIL: after one extension ran out of memory the runner did not serve the next"; fail=1; }
+# Edge functions share the wrap and its socket ban: one still starts, and its
+# fetch crosses to the engine, which refuses a function that declares no egress.
+out=$(docker exec -u 100:101 -e PROBE_URL="$URL" -e ZVELTIO_EDGE_TRANSPORT=runner \
+  -e ZVELTIO_EXT_RUNNER_SOCKET="$SOCK" "$C" bun /src/packages/engine/scripts/edge-runner-isolation.ts 2>&1 || true)
+echo "edge:    ${out:0:300}"
+grep -q '"transport":"runner"' <<<"$out" && grep -q 'declares no egress' <<<"$out" \
+  || { echo "FAIL: an edge function did not run on the runner"; fail=1; }
+
 # An orphan is reparented to PID 1, which must reap it.
 docker exec "$C" sh -c '(sleep 1 &)'
 sleep 3

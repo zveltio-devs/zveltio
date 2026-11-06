@@ -5,7 +5,8 @@
  * One systemd service per extension, `zveltio-ext-runner@<instance>`, with
  * `DynamicUser=yes`: each extension runs under its own uid, in its own cgroup
  * (MemoryMax) and with no network (IPAddressDeny=any: routes and actions have
- * no egress, ADR 0022; a job's egress goes through the engine). The engine keeps `NoNewPrivileges=yes` and so
+ * no egress, ADR 0022; a job's egress goes through the engine; and the unit's
+ * RestrictAddressFamilies=AF_UNIX, ADR 0023). The engine keeps `NoNewPrivileges=yes` and so
  * cannot start a process under another uid; it asks systemd to start the
  * instance over D-Bus (`systemctl start`, allowed by the polkit rule `setup`
  * writes) and connects to the instance's unix socket. Each accepted
@@ -27,8 +28,10 @@
  * extension on a socket in a volume shared with the engine
  * (`ZVELTIO_EXT_RUNNER_SOCKET` set on both sides), starts as root with only
  * CAP_SETUID, CAP_SETGID and CAP_KILL, and gives every process a uid of its own from
- * `ZVELTIO_EXT_RUNNER_UID_BASE`. Its network is the container's
- * (`network_mode: none` in compose). One container (Fly.io, Railway, Render,
+ * `ZVELTIO_EXT_RUNNER_UID_BASE`, under a seccomp filter that bans sockets
+ * (socket-ban.ts, ADR 0023): its network is the container's (`network_mode:
+ * none` in compose, shared on a PaaS), and the filter keeps it out of reach.
+ * One container (Fly.io, Railway, Render,
  * `docker run --user 0:0`): `docker/zveltio-entrypoint.sh` starts it beside
  * the engine, which it drops to the engine's uid.
  */
@@ -49,6 +52,7 @@ import { createServer, type Socket } from 'node:net';
 import { spawn } from 'node:child_process';
 import { WORKER_RUNTIME_SOURCE } from './worker-extension-runtime-source.generated.js';
 import { createHash } from 'node:crypto';
+import { checkSocketBan, writeSocketBan } from './socket-ban.js';
 
 // Bun's `--compile` mode does NOT auto-bundle workers. Embed the pre-
 // compiled worker JS as a string constant and write it to a temp file
@@ -161,13 +165,21 @@ export async function runExtRunner(): Promise<never> {
     chmodSync(dirname(edgeBootstrapPath), 0o755);
     chmodSync(edgeBootstrapPath, 0o644);
   }
-  // Container mode: each process under a uid of its own, dropped by setpriv.
+  // Container mode: each process under a uid of its own and the socket ban
+  // (ADR 0023), both through setpriv. On systemd the unit bans sockets for the
+  // runner and everything it starts.
   const allocate = uidBase === null ? null : uidAllocator(uidBase);
+  const socketBan = uidBase === null ? undefined : writeSocketBan();
   const wrap: RouteWrap = (argv) => {
     if (!allocate) return { argv };
     const { uid, release } = allocate();
-    return { release, argv: limitArgv(setprivArgv(uid, argv)) };
+    return { release, argv: limitArgv(setprivArgv(uid, argv, socketBan)) };
   };
+  const unbanned = checkSocketBan(wrap);
+  if (unbanned) {
+    console.error(`[ext-runner] ${unbanned}`);
+    process.exit(1);
+  }
   const route = {
     workerArgv: [process.execPath, runtimePath],
     // Only what the runtime needs. The runner's own environment is the unit's,
@@ -277,14 +289,19 @@ export function uidAllocator(base: number): () => { uid: number; release: () => 
   };
 }
 
-/** Bun's spawn ignores `uid` without a word (measured: the child ran as root). */
-export function setprivArgv(uid: number, argv: string[]): string[] {
+/**
+ * Bun's spawn ignores `uid` without a word (measured: the child ran as root).
+ * `seccompFilter`: the socket ban's file (socket-ban.ts), which setpriv loads
+ * under no_new_privs, last before exec.
+ */
+export function setprivArgv(uid: number, argv: string[], seccompFilter?: string): string[] {
   return [
     'setpriv',
     `--reuid=${uid}`,
     `--regid=${uid}`,
     '--clear-groups',
     '--no-new-privs',
+    ...(seccompFilter ? [`--seccomp-filter=${seccompFilter}`] : []),
     '--',
     ...argv,
   ];
@@ -536,6 +553,18 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 IPAddressDeny=any
+# The socket ban (ADR 0023): seccomp, so it holds where IPAddressDeny (cgroup
+# BPF) is a no-op. AF_UNIX for the runner's own socket; the runner checks at
+# start that a process it starts opens no other family.
+RestrictAddressFamilies=AF_UNIX
+# AF_UNIX stays for the runner's own socket; hide the host's: abstract sockets
+# live in the network namespace, path sockets of D-Bus and Postgres are hidden.
+PrivateNetwork=yes
+InaccessiblePaths=-/run/dbus -/run/postgresql -/var/run/postgresql -/run/systemd/private
+SystemCallArchitectures=native
+SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register
+# Refused with EPERM, not killed: the runner's start check probes io_uring.
+SystemCallErrorNumber=EPERM
 
 MemoryMax=1G
 MemorySwapMax=0
