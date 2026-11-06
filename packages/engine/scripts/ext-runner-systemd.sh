@@ -159,6 +159,7 @@ job() { # env PROBE_* pass through; the engine downloads Deno on first use
     PROBE_JOB="${PROBE_JOB:-hold}" "${DIR}/zveltio" "${DIR}/job-probe.mjs" 2>&1 || true
 }
 job >/dev/null
+sudo find "${DIR}/extensions" -maxdepth 3 -printf '%M %u %p\n' | grep -E "deno|extensions$" || true
 job_out=$(mktemp)
 PROBE_URL="$URL" PROBE_HOLD_MS=8000 job >"$job_out" &
 job_pid=$!
@@ -175,10 +176,10 @@ check "Deno job's uid reads no engine secret" \
   '[ -n "$UJ" ] && ! sudo setpriv --reuid="$UJ" --regid="$UJ" --clear-groups cat "${DIR}/.env" 2>/dev/null | grep -q hunter2'
 wait "$job_pid" || true
 out=$(cat "$job_out"); rm -f "$job_out"
-echo "job: ${out:0:300} (uid ${UJ:-?})"
+echo "job: ${out: -400} (uid ${UJ:-?})"
 check "Deno job reaches its host through the engine" 'grep -q "\"fetch\":\"HTTP" <<<"$out"'
 out=$(PROBE_JOB=alloc job)
-echo "job mem: ${out:0:300}"
+echo "job mem: ${out: -400}"
 check "Deno job past its memoryMb is killed by the runner's watchdog" \
   'grep -q "exceeded the memory limit of 64 MB" <<<"$out"'
 

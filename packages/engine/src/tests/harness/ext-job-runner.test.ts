@@ -354,7 +354,13 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
     );
     expect(a[0]?.metadata.outcome).toBe('failure');
     expect(String(a[0]?.metadata.error)).toContain('does not list in reads');
-    expect(await state(id)).toBe('failed');
+    // The audit row is written before the queue settles the job.
+    expect(
+      await until(
+        () => state(id),
+        (st) => st === 'failed',
+      ),
+    ).toBe('failed');
   }, 30_000);
 
   it('answers malformed host-call arguments with an error, at once', async () => {
