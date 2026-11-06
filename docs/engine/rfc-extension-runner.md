@@ -138,10 +138,11 @@ runner shares a network (one container on a PaaS, the Helm sidecar) or where
 `IPAddressDeny` is a no-op (systemd without cgroup BPF). In containers every
 process the runner starts — extension runtimes and edge functions — is loaded
 by `setpriv --seccomp-filter` (util-linux 2.41 or newer) with the filter
-`socket-ban.ts` builds: `socket`, `socketpair` and `io_uring_*` fail with
-EACCES for every family, the x32 range too, and a foreign architecture is
-killed. The runtime needs no socket: its channel is fds 0-2, created before
-exec (so it cannot `Bun.spawn` with piped stdio either). On systemd the unit
+`socket-ban.ts` builds: `socket` and `io_uring_*` fail with EACCES for every
+family, `socketpair` for everything but an AF_UNIX stream pair (connected, inside the
+process; Deno's tokio and Bun's piped child stdio need one), the x32 range
+too, and a foreign architecture is killed. The runtime opens no socket: its
+channel is fds 0-2, created before exec. On systemd the unit
 does the same with `RestrictAddressFamilies=AF_UNIX` (the runner's own
 socket), `SystemCallArchitectures=native` and
 `SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`, which the

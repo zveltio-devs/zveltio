@@ -14,8 +14,8 @@ socket ban below makes the rule hold where the runner shares a network.
 
 **Security: third-party code opens no socket (ADR 0023).** Every process the
 extension runner starts — extension runtimes and edge functions — runs under
-a seccomp filter: `socket`, `socketpair` and `io_uring` fail with EACCES for
-every family, the x32 range too, and a foreign architecture is killed. This
+a seccomp filter: `socket` and `io_uring` fail with EACCES for every family,
+`socketpair` for everything but an AF_UNIX stream pair, the x32 range too, and a foreign architecture is killed. This
 closes `node:net`, `Bun.connect` and FFI sockets where the runner shares a
 network (one container on Fly.io, Railway or Render, the Helm sidecar) or
 `IPAddressDeny` is a no-op. Containers load it with `setpriv --seccomp-filter`
@@ -23,8 +23,7 @@ network (one container on Fly.io, Railway or Render, the Helm sidecar) or
 gains `RestrictAddressFamilies=AF_UNIX`, `SystemCallArchitectures=native` and
 `SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`
 (`update.sh` rewrites it). The runner checks the ban at start and refuses to
-start without it. Breaking for third-party extensions: they cannot
-`Bun.spawn` with piped stdio (Bun pipes through `socketpair`).
+start without it.
 
 **A revoked egress consent cuts a running job's next fetch (ADR 0023 decision
 4).** A job's `host.fetch` used the `egress:<authority>` set compiled when the
