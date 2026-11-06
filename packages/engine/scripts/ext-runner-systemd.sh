@@ -46,7 +46,9 @@ bun build --compile "${E}/src/binary-entry.ts" --outfile /tmp/zveltio-ci-bin >/d
 bun build --target bun "${E}/scripts/ext-runner-isolation.ts" --outfile /tmp/zveltio-ci-probe.mjs >/dev/null
 bun build --target bun "${E}/scripts/edge-runner-isolation.ts" --outfile /tmp/zveltio-ci-edge-probe.mjs >/dev/null
 bun build --target bun "${E}/scripts/job-runner-isolation.ts" --outfile /tmp/zveltio-ci-job-probe.mjs >/dev/null
-sudo mkdir -p "${DIR}/extensions"
+# Explicit mode: the engine refuses a Deno under a directory others can write,
+# and this runner's sudo leaves mkdir at 777.
+sudo install -d -m 755 "${DIR}" "${DIR}/extensions"
 sudo install -m 755 /tmp/zveltio-ci-bin "${DIR}/zveltio"
 sudo install -m 644 /tmp/zveltio-ci-probe.mjs "${DIR}/probe.mjs"
 sudo install -m 644 /tmp/zveltio-ci-edge-probe.mjs "${DIR}/edge-probe.mjs"
@@ -159,7 +161,6 @@ job() { # env PROBE_* pass through; the engine downloads Deno on first use
     PROBE_JOB="${PROBE_JOB:-hold}" "${DIR}/zveltio" "${DIR}/job-probe.mjs" 2>&1 || true
 }
 job >/dev/null
-sudo find "${DIR}/extensions" -maxdepth 3 -printf '%M %u %p\n' | grep -E "deno|extensions$" || true
 job_out=$(mktemp)
 PROBE_URL="$URL" PROBE_HOLD_MS=8000 job >"$job_out" &
 job_pid=$!
