@@ -49,6 +49,13 @@ export type ApplyOp =
   /** Changes `required` (DDL) and the field's descriptive keys (metadata only). */
   | { kind: 'alterField'; collection: string; field: Obj; keys: string[] }
   /**
+   * An extension's text field turned `secret` (ADR 0024 §6): `alterField`'s
+   * retype, which keeps every value — plaintext encrypted, the field key's
+   * ciphertext kept — and drops what a secret cannot carry (default, unique key,
+   * index, the `encrypted` flag). Any other type change has no op.
+   */
+  | { kind: 'intoSecret'; collection: string; field: string }
+  /**
    * Creates a relation the way `POST /api/relations` does — its foreign key or
    * junction and the fields that stand for it — or, when one already holds the
    * field, sets its name, actions and metadata the way `PATCH` does. `fields`
@@ -101,6 +108,13 @@ const ALTERABLE = new Set([
   // Metadata the data API reads; set only by an extension's apply.
   'writtenBy',
 ]);
+/** The types whose column holds text: the ones an extension may retype into `secret`. */
+const INTO_SECRET_FROM = new Set(['text', 'textarea', 'longtext', 'richtext', 'email', 'url']);
+/** What a field becomes through an `intoSecret` op, as `exportField` writes it. */
+function afterIntoSecret(f: Obj): Obj {
+  const { defaultValue: _d, unique: _u, indexed: _i, encrypted: _e, ...rest } = f;
+  return { ...rest, type: 'secret' };
+}
 /** The alterable keys a relation field cannot change (its column is the relation's). */
 const NOT_ON_RELATION = ['options', 'unique', 'indexed', 'defaultValue'];
 /** Relation keys `PATCH /api/relations` changes. */
@@ -491,6 +505,8 @@ interface Sink {
   owned: Map<string, Set<string>>;
   /** A field as the desired files define it. */
   fieldOf: (collection: string, field: string) => Obj | undefined;
+  /** An extension's plan (ADR 0024 §6): a text field may turn `secret`. */
+  intoSecret: boolean;
 }
 
 /**
@@ -551,7 +567,7 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
     if (!desNames.has(f.name as string)) step('-', `drop field ${f.name}`, true);
   }
   for (const f of desFields) {
-    const old = curByName.get(f.name as string);
+    let old = curByName.get(f.name as string);
     if (!old && owned.has(f.name as string)) continue; // its relation creates it
     if (!old) {
       step('+', `add field ${f.name} (${f.type})`, false, {
@@ -559,9 +575,20 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
         collection: name,
         field: f,
       });
-    } else if (old.type !== f.type) {
-      step('~', `change field ${f.name} type ${old.type} → ${f.type}`, true);
-    } else if (!same(old, f)) {
+      continue;
+    }
+    if (old.type !== f.type) {
+      const action = `change field ${f.name} type ${old.type} → ${f.type}`;
+      if (!sink.intoSecret || f.type !== 'secret' || !INTO_SECRET_FROM.has(String(old.type))) {
+        step('~', action, true);
+        continue;
+      }
+      // Keeps every value, so not destructive; what else the file changes on
+      // the field is planned against the field the retype leaves.
+      step('~', action, false, { kind: 'intoSecret', collection: name, field: f.name as string });
+      old = afterIntoSecret(old);
+    }
+    if (!same(old, f)) {
       const keys = [...new Set([...Object.keys(old), ...Object.keys(f)])]
         .filter((k) => !same(old[k], f[k]))
         .sort();
@@ -752,6 +779,8 @@ export function planSchema(
   current: Record<string, string>,
   desired: Record<string, unknown>,
   applied: ReadonlyMap<string, string> = new Map(),
+  /** `intoSecret`: an extension's plan, where a text field may turn `secret` (ADR 0024 §6). */
+  opts: { intoSecret?: boolean } = {},
 ): PlanStep[] {
   const cur = read(current);
   const des = read(desired);
@@ -798,6 +827,7 @@ export function planSchema(
       list(collection, des.collections.get(collection)?.fields, 'fields')
         .map(exportField)
         .find((f) => f.name === field),
+    intoSecret: opts.intoSecret === true,
   };
 
   const names = [...new Set([...cur.collections.keys(), ...des.collections.keys()])].sort();

@@ -355,7 +355,10 @@ export async function alterField(
       updatedFieldShape = { ...updatedFieldShape, type: newType };
       if (intoSecret) {
         await intoSecretColumn(trx, name, tableName, fieldName, fieldDef.encrypted === true);
+        // A secret is always encrypted: the `encrypted` flag of the text field it
+        // was would stay in the metadata, and an extension's file never names it.
         delete updatedFieldShape.defaultValue;
+        delete updatedFieldShape.encrypted;
       }
       actions.push(`type ${fieldDef.type}→${newType}`);
     }
