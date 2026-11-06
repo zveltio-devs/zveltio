@@ -563,6 +563,8 @@ PrivateNetwork=yes
 InaccessiblePaths=-/run/dbus -/run/postgresql -/var/run/postgresql -/run/systemd/private
 SystemCallArchitectures=native
 SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register
+# Refused with EPERM, not killed: the runner's start check probes io_uring.
+SystemCallErrorNumber=EPERM
 
 MemoryMax=1G
 MemorySwapMax=0

@@ -62,6 +62,7 @@ describe('runnerSetupFiles', () => {
     expect(unit).toContain('\nRestrictAddressFamilies=AF_UNIX\n');
     expect(unit).toContain('\nSystemCallArchitectures=native\n');
     expect(unit).toContain('\nSystemCallFilter=~io_uring_setup io_uring_enter io_uring_register\n');
+    expect(unit).toContain('\nSystemCallErrorNumber=EPERM\n');
   });
 
   it('switches the engine to the runner transport', () => {

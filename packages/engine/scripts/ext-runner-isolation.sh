@@ -22,12 +22,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 IMAGE="${BUN_IMAGE:-oven/bun:1.4.4}"
-# RestrictAddressFamilies=AF_UNIX, as a docker seccomp profile: socket() of any
-# other family fails with EAFNOSUPPORT.
+# The unit's RestrictAddressFamilies=AF_UNIX and SystemCallFilter=~io_uring_*
+# (SystemCallErrorNumber=EPERM), as a docker seccomp profile: socket() of any
+# other family fails with EAFNOSUPPORT, io_uring with EPERM.
 PROFILE=$(mktemp)
 trap 'rm -f "$PROFILE"' EXIT
 echo '{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["socket"],"action":"SCMP_ACT_ERRNO",
-  "errnoRet":97,"args":[{"index":0,"value":1,"op":"SCMP_CMP_NE"}]}]}' >"$PROFILE"
+  "errnoRet":97,"args":[{"index":0,"value":1,"op":"SCMP_CMP_NE"}]},
+  {"names":["io_uring_setup","io_uring_enter","io_uring_register"],"action":"SCMP_ACT_ERRNO","errnoRet":1}]}' >"$PROFILE"
 
 out=$(docker run --rm -v "${ROOT}:/src:ro" "${IMAGE}" bash -c '
 useradd -r -M zveltio-ext && cd /tmp &&
