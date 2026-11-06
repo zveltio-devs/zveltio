@@ -25,6 +25,7 @@ import {
   unregisterJobs,
   verifiedJobsCode,
 } from '../../lib/extensions/jobs.js';
+import { readGranted, recordConsent } from '../../lib/extensions/consent.js';
 import { ensureDeno } from '../../lib/extensions/deno.js';
 import { DDLManager, jobQueue } from '../../lib/data/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
@@ -66,6 +67,24 @@ export default {
     }
     await host.collections.insert(${JSON.stringify(C)}, { label });
   },
+  twice: async (input, host) => {
+    const once = async (n) => {
+      let label;
+      try {
+        label = 'twice-' + n + '-' + (await host.fetch('http://1.1.1.1/' + n)).status;
+      } catch (e) {
+        label = 'twice-' + n + '-ERR-' + e.message;
+      }
+      await host.collections.insert(${JSON.stringify(C)}, { label });
+    };
+    await once(1);
+    // Until the test, having revoked the consent, says go.
+    const go = JSON.stringify({ label: { eq: 'twice-go' } });
+    while ((await host.collections.list(${JSON.stringify(C)}, { filter: go })).records.length === 0) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await once(2);
+  },
   badArgs: async (input, host) => {
     await host.collections.read(42, 'x');
   },
@@ -77,6 +96,13 @@ export default {
 `;
 
 const anyInput = { type: 'object' };
+const GRANTED = [
+  'data:system',
+  'egress:1.1.1.1',
+  'egress:localhost',
+  'egress:nonexistent.invalid',
+  'egress:[64:ff9b::a00:1]',
+];
 
 d('jobs of a worker-isolated extension run in the Deno runner', () => {
   let db: Database;
@@ -168,6 +194,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
           timeoutSeconds: 120,
           egress: ['1.1.1.1', '8.8.8.8', 'localhost', 'nonexistent.invalid', '[64:ff9b::a00:1]'],
         },
+        { ...job('twice', [C], [C]), timeoutSeconds: 60, egress: ['1.1.1.1'] },
       ],
     });
     const jobs = compileJobs(
@@ -177,14 +204,12 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
       true,
       verifiedJobsCode(extDir, manifest as never),
     );
-    // Every egress authority approved but 8.8.8.8 (ADR 0022 decision 5).
-    registerJobs(EXT, jobs, [
-      'data:system',
-      'egress:1.1.1.1',
-      'egress:localhost',
-      'egress:nonexistent.invalid',
-      'egress:[64:ff9b::a00:1]',
-    ]);
+    // Every egress authority approved but 8.8.8.8 (ADR 0022 decision 5), on
+    // the registry row a run reads at each fetch (ADR 0023 decision 4).
+    await sql`INSERT INTO zv_extension_registry (name, display_name, is_installed, is_enabled)
+              VALUES (${EXT}, ${EXT}, true, true)`.execute(db);
+    await recordConsent(db, EXT, GRANTED);
+    registerJobs(EXT, jobs, GRANTED);
     // Its queues are created in the background.
     await until(
       async () =>
@@ -194,7 +219,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
                                     WHERE name LIKE ${`ext.${EXT}.%`}`.execute(db)
           ).rows[0]?.n,
         ),
-      (n) => n === 6,
+      (n) => n === 7,
     );
   }, 180_000);
 
@@ -214,6 +239,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
     await dropTestCollection(db, C);
     await dropTestCollection(db, SECRET);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
+    await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
   });
 
   it('refuses a jobs.js that does not match its digest, and jobs without one', () => {
@@ -379,10 +405,59 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
       }
     }, 40_000);
 
+    it('a revoked consent cuts the next fetch of a run already going (ADR 0023 decision 4)', async () => {
+      await send('twice', {});
+      expect(
+        (
+          await until(
+            () => rows('twice-1-'),
+            (r) => r.length > 0,
+          )
+        )[0]?.label,
+      ).toBe('twice-1-200');
+      // What the approve-capabilities route writes: the same set without 1.1.1.1.
+      await recordConsent(
+        db,
+        EXT,
+        GRANTED.filter((c) => c !== 'egress:1.1.1.1'),
+      );
+      try {
+        await asTenant(db, OTHER, (trx) =>
+          sql`INSERT INTO ${sql.table(`zvd_${C}`)} (label) VALUES ('twice-go')`.execute(trx),
+        );
+        const second = await until(
+          () => rows('twice-2-'),
+          (r) => r.length > 0,
+        );
+        // Nothing consented is left to this job: the bridge refuses before any network.
+        expect(second[0]?.label).toStartWith('twice-2-ERR-[egress]');
+        expect(seen).not.toContain('http://1.1.1.1/2');
+      } finally {
+        await recordConsent(db, EXT, GRANTED);
+      }
+    }, 40_000);
+
     it('refuses a NAT64 address', async () => {
       expect(await net('nat64', 'http://[64:ff9b::a00:1]/')).toContain('private address blocked');
       expect(seen.some((u) => u.includes('64:ff9b'))).toBe(false);
     }, 40_000);
+  });
+
+  it("reads consent from god's row, not a firm's activation row written without it", async () => {
+    const name = `${EXT}-firm`;
+    try {
+      await sql`INSERT INTO zv_extension_registry (name, display_name, is_installed)
+                VALUES (${name}, ${name}, true)`.execute(db);
+      await recordConsent(db, name, ['data:system']);
+      await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_enabled)
+                VALUES (${name}, ${name}, ${OTHER}, true)`.execute(db);
+      // God's tuple now lies after the firm's: a read of "the first row" got NULL.
+      await sql`UPDATE zv_extension_registry SET is_enabled = true
+                WHERE name = ${name} AND tenant_id IS NULL`.execute(db);
+      expect(await readGranted(db, name)).toEqual(['data:system']);
+    } finally {
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${name}`.execute(db);
+    }
   });
 
   it('claims a job only when a runner slot is free', async () => {

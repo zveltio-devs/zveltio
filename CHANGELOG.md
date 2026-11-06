@@ -9,8 +9,8 @@ egress (ADR 0022).** In a worker-isolated extension `fetch` rejects with the
 reason, and the bare-metal runner unit no longer documents a per-extension
 `IPAddressAllow`: runners have no network. Network work goes to a job that
 declares `egress`; the engine fetches for it, per authority the operator
-consents to. `ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH` is gone. In the process
-backend (single-container PaaS) the refusal is in code only.
+consents to. `ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH` is gone. The kernel
+socket ban below makes the rule hold where the runner shares a network.
 
 **Security: third-party code opens no socket (ADR 0023).** Every process the
 extension runner starts — extension runtimes and edge functions — runs under
@@ -25,6 +25,15 @@ gains `RestrictAddressFamilies=AF_UNIX`, `SystemCallArchitectures=native` and
 (`update.sh` rewrites it). The runner checks the ban at start and refuses to
 start without it. Breaking for third-party extensions: they cannot
 `Bun.spawn` with piped stdio (Bun pipes through `socketpair`).
+
+**A revoked egress consent cuts a running job's next fetch (ADR 0023 decision
+4).** A job's `host.fetch` used the `egress:<authority>` set compiled when the
+extension loaded, so a run kept the network an operator had just taken away
+until the extension reloaded. Each fetch now reads the extension's current
+`granted_capabilities`; no registry row (uninstalled) or no recorded consent
+means no egress. Consent is also read from god's registry row only: a firm's
+activation row carries none, and a load that happened to read it first was
+grandfathered to every declared capability.
 
 ## [3.0.0-beta.102] - 2026-11-05
 
