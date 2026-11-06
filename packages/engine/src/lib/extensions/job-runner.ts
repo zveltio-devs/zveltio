@@ -197,32 +197,42 @@ export function jobPlacement(): 'runner' | 'process' {
   return t;
 }
 
+/** When each extension's runner was last started in the background (`runnerAnswers`). */
+const runnerStarts = new Map<string, number>();
+const RUNNER_RESTART_MS = 30_000;
+
 /**
  * Whether `extName`'s runner answers now, or no runner is needed (`process`).
  * The pump asks before claiming from its queues: a run claimed while the runner
  * is down would fail, spend a retry, and after enough of them be dropped
- * (ADR 0022: without a way to run them, jobs wait). A connection opened and
- * closed with no byte sent spawns nothing on the runner.
+ * (ADR 0022: without a way to run them, jobs wait). Its socket first — a
+ * connection opened and closed with no byte sent spawns nothing on the runner;
+ * only when nothing listens is the runner started (systemd: `systemctl start`,
+ * at most every 30 s), in the background: a dead runner never holds up the
+ * claims of another extension, and the next pass sees whether it came up.
  */
 export async function runnerAnswers(extName: string): Promise<boolean> {
   if (jobPlacement() !== 'runner') return true;
-  try {
-    const { startRunner } = await import('../ext-runner.js');
-    const path = await startRunner(extName);
-    return await new Promise<boolean>((resolve) => {
-      const sock = connect(path);
-      const done = (ok: boolean) => {
-        clearTimeout(timer);
-        sock.destroy();
-        resolve(ok);
-      };
-      const timer = setTimeout(() => done(false), 2000);
-      sock.once('connect', () => done(true));
-      sock.once('error', () => done(false));
-    });
-  } catch {
-    return false;
+  const { runnerSocketFor, startRunner } = await import('../ext-runner.js');
+  const answers = await new Promise<boolean>((resolve) => {
+    const sock = connect(runnerSocketFor(extName));
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      sock.destroy();
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), 1000);
+    sock.once('connect', () => done(true));
+    sock.once('error', () => done(false));
+  });
+  if (answers) return true;
+  if (Date.now() - (runnerStarts.get(extName) ?? 0) > RUNNER_RESTART_MS) {
+    runnerStarts.set(extName, Date.now());
+    void startRunner(extName).catch((err: Error) =>
+      console.warn(`[ext-jobs] starting ${extName}'s runner: ${err.message}`),
+    );
   }
+  return false;
 }
 
 /** Run one job in Deno. Resolves when it succeeded; rejects, saying why, otherwise. */
@@ -378,6 +388,10 @@ export function parseJobHeader(line: string): { memoryMb: number; timeoutSeconds
 
 /** The `runner` transport: the extension's runner spawns it; closing the connection kills it. */
 async function overRunner(r: RunnerRun): Promise<JobProc> {
+  // Untyped callers (scripts): the runner is the extension's, so no name, no run.
+  if (typeof r.extName !== 'string' || !r.extName) {
+    throw new Error('a job on the extension runner needs the name of its extension (extName)');
+  }
   const { startRunner } = await import('../ext-runner.js');
   const path = await startRunner(r.extName).catch((err: Error) => {
     throw new Error(`the extension runner is unreachable: ${err.message}`);
@@ -470,13 +484,29 @@ export function serveJobConnection(
             stderr: '',
           });
         }
-        const { argv, release } = wrap(
-          limitedCommand(denoArgv(deno, memoryMb), 0, cpuSeconds(timeoutSeconds), false),
-          {
-            addressSpace: false,
-          },
-        );
-        const p = spawnDeno(argv, { DENO_DIR: denoDir() }, memoryMb);
+        let p: JobProc;
+        let release: (() => void) | undefined;
+        try {
+          const wrapped = wrap(
+            limitedCommand(denoArgv(deno, memoryMb), 0, cpuSeconds(timeoutSeconds), false),
+            { addressSpace: false },
+          );
+          release = wrapped.release;
+          // PATH: the wrap's prlimit, setpriv and sh are named bare, as in checkSocketBan.
+          const env = {
+            DENO_DIR: denoDir(),
+            PATH: process.env.PATH ?? '/usr/sbin:/usr/bin:/sbin:/bin',
+          };
+          p = spawnDeno(wrapped.argv, env, memoryMb);
+        } catch (err) {
+          // The uid goes back, and the engine hears why now, not at its wall clock.
+          release?.();
+          return report({
+            failure: `the runner could not start the job: ${(err as Error).message}`,
+            how: '',
+            stderr: '',
+          });
+        }
         proc = p;
         p.write(buf);
         const relayed = (async () => {

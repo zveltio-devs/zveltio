@@ -11,7 +11,15 @@
  */
 
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { installExtensionsBase } from './extension-paths.js';
@@ -116,6 +124,13 @@ async function locate(download: boolean): Promise<string> {
     if (!download) throw new Error(`no Deno at ${path} yet: the engine downloads it`);
     await fetchDeno(pin, path);
   }
+  const open = othersWritable(path);
+  if (open) {
+    throw new Error(
+      `${open} is writable by other users: an extension's uid could replace the Deno binary ` +
+        'after its digest was checked; jobs that need the runner do not run until it is not',
+    );
+  }
   const actual = sha256(readFileSync(path));
   if (actual !== pin.bin) {
     throw new Error(
@@ -124,6 +139,20 @@ async function locate(download: boolean): Promise<string> {
     );
   }
   return path;
+}
+
+/**
+ * The binary, or one of the directories up to the extensions base, that users
+ * other than its owner and group may write to; null when none. The digest is
+ * checked once per process, so the file must not be replaceable afterwards by
+ * the extensions' uids, which share neither (ADR 0023). Group bits are the
+ * engine's group, which no extension process holds.
+ */
+export function othersWritable(path: string, levels = 3): string | null {
+  for (let p = path, i = 0; i <= levels; i++, p = dirname(p)) {
+    if (statSync(p).mode & 0o002) return p;
+  }
+  return null;
 }
 
 async function fetchDeno(pin: { target: string; zip: string }, path: string): Promise<void> {
@@ -137,7 +166,7 @@ async function fetchDeno(pin: { target: string; zip: string }, path: string): Pr
   if (actual !== pin.zip) {
     throw new Error(`the Deno archive from ${url} hashes to ${actual}, not the pinned ${pin.zip}`);
   }
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true, mode: 0o755 });
   // Renamed into place, so a crash mid-write never leaves a half binary at `path`.
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, unzipSingle(zip));

@@ -464,6 +464,11 @@ export function runnerSocketPath(extName: string): string {
   return join(RUNNER_DIR, runnerInstance(extName), 'runner.sock');
 }
 
+/** Where the extension's runner listens: the shared container socket, or its unit's. */
+export function runnerSocketFor(extName: string): string {
+  return process.env.ZVELTIO_EXT_RUNNER_SOCKET || runnerSocketPath(extName);
+}
+
 async function systemctl(verb: 'start' | 'stop', unit: string): Promise<void> {
   const proc = Bun.spawn(['systemctl', verb, '--no-ask-password', unit], {
     stdout: 'ignore',

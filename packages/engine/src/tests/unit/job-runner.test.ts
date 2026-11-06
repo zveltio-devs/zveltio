@@ -11,16 +11,17 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawn } from 'bun';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ensureDeno, unzipSingle } from '../../lib/extensions/deno.js';
+import { ensureDeno, othersWritable, unzipSingle } from '../../lib/extensions/deno.js';
 import {
   RUNNER_BOOTSTRAP,
   jobPlacement,
   parseJobHeader,
   runInDeno,
+  runnerAnswers,
   serveJobConnection,
   type HostCall,
 } from '../../lib/extensions/job-runner.js';
@@ -34,6 +35,8 @@ const sock = join(sockDir, 'runner.sock');
 let server: Server;
 /** What the runner's wrap was asked for, per job connection. */
 const wrapped: { argv: string[]; addressSpace?: boolean }[] = [];
+let wrapThrows = false;
+let released = 0;
 const saved = {
   transport: process.env.ZVELTIO_EXT_TRANSPORT,
   socket: process.env.ZVELTIO_EXT_RUNNER_SOCKET,
@@ -84,7 +87,8 @@ beforeAll(async () => {
       childEnv: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
       wrap: (argv, opts) => {
         wrapped.push({ argv, addressSpace: opts?.addressSpace });
-        return { argv };
+        if (wrapThrows) throw new Error('setpriv: not found');
+        return { argv, release: () => void released++ };
       },
       serveEdge: (c) => c.destroy(),
       serveJob: (c, first, wrap) => serveJobConnection(c, first, wrap, async () => deno),
@@ -274,12 +278,66 @@ describe('the runner side', () => {
     expect(wrapped[0]!.argv.join(' ')).not.toContain('ulimit -v');
   }, 20_000);
 
+  it('a spawn that throws ends the run at once, saying why, and gives the uid back', async () => {
+    transport = 'runner';
+    wrapThrows = true;
+    released = 0;
+    const t0 = performance.now();
+    try {
+      expect(await run(job(''), { timeoutSeconds: 30 })).toMatch(
+        /the runner could not start the job: setpriv: not found/,
+      );
+    } finally {
+      wrapThrows = false;
+    }
+    expect(performance.now() - t0).toBeLessThan(5000);
+    // The wrap threw before handing out a uid; one that runs gives it back on exit.
+    expect(await run(job(''))).toBe('ok');
+    expect(released).toBe(1);
+  }, 20_000);
+
+  it('asks the runner without waiting for one that is down', async () => {
+    process.env.ZVELTIO_EXT_TRANSPORT = 'runner';
+    expect(await runnerAnswers('acme/jobs')).toBe(true);
+    process.env.ZVELTIO_EXT_RUNNER_SOCKET = join(sockDir, 'gone.sock');
+    try {
+      const t0 = performance.now();
+      expect(await runnerAnswers('acme/jobs')).toBe(false);
+      expect(performance.now() - t0).toBeLessThan(1000);
+    } finally {
+      process.env.ZVELTIO_EXT_RUNNER_SOCKET = sock;
+    }
+  });
+
   it('a job line forged by the child is a malformed message on the engine', async () => {
     transport = 'process';
     expect(
       await run(job(`await Deno.stdout.write(new TextEncoder().encode('{"runner":{}}\\n'));`)),
     ).toMatch(/malformed host call/);
   }, 20_000);
+});
+
+describe('the Deno binary', () => {
+  it('is refused when it or a directory above it is writable by other users', () => {
+    const base = mkdtempSync(join(tmpdir(), 'zv-deno-perm-'));
+    try {
+      const bin = join(base, '.deno', '2.9.8', 'deno');
+      mkdirSync(join(base, '.deno', '2.9.8'), { recursive: true, mode: 0o755 });
+      writeFileSync(bin, 'x', { mode: 0o755 });
+      chmodSync(base, 0o755);
+      expect(othersWritable(bin)).toBeNull();
+      // Group-writable is the engine's group, which no extension uid holds.
+      chmodSync(join(base, '.deno'), 0o775);
+      expect(othersWritable(bin)).toBeNull();
+      for (const p of [bin, join(base, '.deno', '2.9.8'), join(base, '.deno'), base]) {
+        chmodSync(p, 0o777);
+        expect(othersWritable(bin)).toBe(p);
+        chmodSync(p, 0o755);
+      }
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('production', () => {
