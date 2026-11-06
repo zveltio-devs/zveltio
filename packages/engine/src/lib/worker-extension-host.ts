@@ -163,6 +163,12 @@ interface InvokeScope {
   /** The request's async context — domain, tenant, the API key the gate admitted. */
   run?: <R>(fn: () => R) => R;
   /**
+   * The route request this is, of which extension: what `host.collections`
+   * answers for (ADR 0025). A service it calls copies the record, and another
+   * extension is not this one.
+   */
+  route?: { extName: string; c: unknown };
+  /**
    * The request's own session, looked up with its own headers. A service call's
    * holds only the caller's user id (`invokeWorkerService`).
    */
@@ -206,6 +212,8 @@ export interface WorkerCtxSource {
   forwardCredentials?: Record<string, readonly string[]>;
   /** The manifest's own `forwardCredentials`, against which an approval change is re-resolved. */
   declaredForwardCredentials?: Record<string, string[]>;
+  /** One `host.collections` call of a route serving `c`, its arguments checked (ADR 0025). */
+  collections?: (c: unknown, call: string, args: unknown[]) => Promise<unknown>;
 }
 
 /**
@@ -1072,6 +1080,18 @@ export class WorkerExtensionHost {
             describeDenial(getCurrentTenantTrx() ?? getDb(), String(a), String(b)),
           );
           break;
+        case 'collections': {
+          const route = scope?.route;
+          const answer = managed.source?.collections;
+          if (!answer || route?.extName !== managed.name) {
+            throw new Error('host.collections answers only in a route request of this extension');
+          }
+          if (!/^collections\.(read|list|insert|update|delete)$/.test(String(a))) {
+            throw new Error(`unknown host.collections call "${String(a)}"`);
+          }
+          result = await run(() => answer(route.c, String(a), msg.args.slice(1)));
+          break;
+        }
         default:
           throw new Error(`unknown host call "${String(msg.op)}"`);
       }
@@ -1305,6 +1325,7 @@ export class WorkerExtensionHost {
             user,
             run: AsyncLocalStorage.snapshot(),
             session: async () => auth?.api.getSession({ headers: c.req.raw.headers }) ?? null,
+            route: { extName: managed.name, c },
           };
           // The request's own tenant transaction, joined as a worker service an
           // inline route calls joins it: one connection, so an inline service

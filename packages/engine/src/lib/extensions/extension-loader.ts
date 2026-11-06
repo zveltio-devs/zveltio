@@ -300,6 +300,8 @@ interface LoadedExtension {
   serviceDeps?: ServiceDeps;
   /** Manifest actions paired with their implementations at load, for a reload to mount. */
   actions?: ReadonlyMap<string, CompiledAction>;
+  /** What its routes' `host.collections` reaches (ADR 0025), for a reload to hand them. */
+  routes?: { reads: ReadonlySet<string>; writes: ReadonlySet<string> };
 }
 
 // ManifestMeta, ExtensionManifest, and embedPageSchemas moved to

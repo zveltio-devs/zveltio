@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Extension routes get `host.collections` (ADR 0025).** `ctx.host(c).collections` in a route, inline or worker-isolated, reaches the collections the manifest declares and those its actions and jobs read or write, as the caller (the user, or the `public` role on a public route); in an inline extension, inside `ctx.internals.asSystem(collections, fn)` the named ones act as the extension's own key principal, audited as `asSystem` is; a worker-isolated route has no `asSystem` and always acts as its caller. Secrets of a collection the extension owns come back decrypted, so a public sign-in route reads its `secret` settings this way.
+
 **New field type `secret` (ADR 0024).** Write-only for everyone, god included, and always encrypted under `FIELD_ENCRYPTION_KEY` (no plaintext mode; planted `enc:v1:` is encrypted again); only the extension owning the collection reads the plaintext, through `host.collections` in its actions and jobs. Retyping to `secret` encrypts the stored values, drops the column default, adds a CHECK that keeps the column ciphertext, and removes the field from the collection's revisions and webhook delivery payloads; retyping from it is refused. A secret takes no default, unique key or index.
 
 **Breaking for third-party extensions: routes and actions have no network

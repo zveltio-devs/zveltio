@@ -20,6 +20,7 @@ import { sqlState } from '../../db/bun-sql-quirks.js';
 import type {
   DataApiAnswer,
   RlsFilter,
+  RouteHost,
   UpdateExpect,
   ValidationRuleGroupWrite,
   ValidationRuleWrite,
@@ -165,6 +166,8 @@ export interface ExtensionContext {
   /** Per-request tenant-scoped DB (request's tenant transaction + table guard).
    * Equivalent to `ctx.db` within a request; kept for handlers that pass `c`. */
   reqDb?: (c: Context) => Database;
+  /** A route's `host` for request `c` (ADR 0025) — see `routeHost`. */
+  host?: (c: unknown) => RouteHost;
   // Better-Auth instance. Its type is a deep generic over the configured
   // plugins/adapters; naming it here would couple the loader to the exact
   // better-auth build. Kept `any` as a documented survivor (H-04).

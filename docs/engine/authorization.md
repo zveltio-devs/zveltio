@@ -296,7 +296,9 @@ roles); INSERT, UPDATE and DELETE stay table-level, so writing a new hash needs
 no read of the old one. Only the table's owner can read the column.
 A `secret` field is sealed the same way; it is stored encrypted, and the
 engine decrypts it only into the `host.collections` reads of the extension that
-owns the collection (ADR 0024).
+owns the collection (ADR 0024) — in its actions, jobs and routes (ADR 0025; a
+route of an inline extension inside `ctx.internals.asSystem` reads the named collections as the
+extension, so a public sign-in route reaches its own settings).
 
 - `SELECT pw …`, `SELECT * …`, `RETURNING *`, or an expression naming the column
   (`SET title = pw`) on a request role is refused with `42501`.

@@ -227,6 +227,25 @@ export function buildWorkerCtx(bridge: WorkerBridge): {
     },
     describeDenial: (resource: string, action: string) =>
       bridge.host('describeDenial', [resource, action]),
+    // ADR 0025: answered as the route request the call is made in, never as `c` says.
+    host: () => {
+      const call = (name: string, ...args: unknown[]) =>
+        bridge.host('collections', [name, ...args]);
+      return {
+        collections: {
+          read: (collection: string, id: string) => call('collections.read', collection, id),
+          list: (collection: string, query?: unknown) =>
+            call('collections.list', collection, query ?? {}),
+          insert: (collection: string, data: unknown) =>
+            call('collections.insert', collection, data),
+          update: (collection: string, id: string, data: unknown, options?: unknown) =>
+            call('collections.update', collection, id, data, options ?? {}),
+          delete: async (collection: string, id: string) => {
+            await call('collections.delete', collection, id);
+          },
+        },
+      };
+    },
   };
   for (const member of OUT_OF_PROCESS) {
     // Not enumerable, so spreading the ctx does not trip it.

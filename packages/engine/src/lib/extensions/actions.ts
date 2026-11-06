@@ -18,23 +18,30 @@ import type {
   ExtensionAction,
   HostCollections,
   RefusalStatus,
+  RouteHost,
   UpdateExpect,
   ZveltioExtension,
 } from '@zveltio/sdk/extension';
 import { getDb } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import { problem } from '../problem.js';
-import { gatePrincipal } from '../../middleware/extension-auth-gate.js';
+import { gatePrincipal, publicRouteRequest } from '../../middleware/extension-auth-gate.js';
 import { afterRequestSettles } from '../../middleware/tenant.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import { CapabilityDeniedError, holdsCapability } from './capabilities.js';
 import { actionWrites, type ExtensionContext, type ExtensionInternals } from './internals.js';
-import { enqueueJob } from './jobs.js';
-import { effectiveTimeZone } from '../tenancy/index.js';
+import { enqueueJob, extensionPrincipal, jobData } from './jobs.js';
+import { systemCollectionsFor } from './as-system.js';
+import {
+  asIdentityOn,
+  effectiveTimeZone,
+  encodeApiKeyScopes,
+  getCurrentTenantTrx,
+} from '../tenancy/index.js';
 import { activeForRequest } from './activation.js';
 import { withSavepoint } from '../savepoint.js';
 import { asEngineRole } from '../role-window.js';
-import { DDLManager, decryptField, normalizeFields } from '../data/index.js';
+import { DDLManager, decryptField, normalizeFields, rowAuthorId } from '../data/index.js';
 import type { Database } from '../../db/index.js';
 import type { GatePrincipal } from '../../middleware/extension-auth-gate.js';
 
@@ -490,5 +497,120 @@ export function hostCollections(
       declared('writes', collection);
       ok(await io.delete(collection, id));
     },
+  };
+}
+
+/**
+ * ADR 0025: what a route's `host.collections` reaches — the collections the
+ * manifest declares (`collections`, read and written), and those its actions
+ * and jobs list in `reads` / `writes`.
+ */
+export function routeCollections(
+  manifest: Pick<ExtensionManifest, 'collections' | 'actions' | 'jobs'> | null,
+): { reads: ReadonlySet<string>; writes: ReadonlySet<string> } {
+  const declared = manifest?.collections ?? [];
+  const entries = [...(manifest?.actions ?? []), ...(manifest?.jobs ?? [])];
+  return {
+    reads: new Set([...declared, ...entries.flatMap((e) => e.reads)]),
+    writes: new Set([...declared, ...entries.flatMap((e) => e.writes)]),
+  };
+}
+
+/**
+ * ADR 0025: `host` for one of `extName`'s routes, serving request `c`. The data
+ * API as the caller — the gate's principal, or `public` on one of its public
+ * routes (ADR 0020) — except for the collections named by the
+ * `ctx.internals.asSystem` calls open around the call: those go as the
+ * extension's principal (ADR 0022's key, holding only them), on the request's
+ * transaction. The owner reveal (ADR 0024) is the same for either.
+ */
+export function routeHost(
+  c: unknown,
+  extName: string,
+  def: { reads: ReadonlySet<string>; writes: ReadonlySet<string> },
+  internals: ExtensionInternals,
+): RouteHost {
+  // Through the extension's own gated `ctx.internals`: `data:write` for writes,
+  // the public role on its public routes, no action mark on what it writes.
+  const caller: DataIo = {
+    read: (collection, id) => internals.readRecord(c, collection, id),
+    list: (collection, query) => internals.listRecords(c, collection, query),
+    create: (collection, data) => internals.createRecord(c, collection, data),
+    update: (collection, id, data, expect) =>
+      internals.updateRecord(c, collection, id, data, { expect }),
+    delete: (collection, id) => internals.deleteRecord(c, collection, id),
+  };
+  const request = () => {
+    const p = gatePrincipal(c);
+    if (p) return { trx: p.trx, tenantId: p.tenantId, author: rowAuthorId(p.user) };
+    const pub = publicRouteRequest(c);
+    return pub?.extName === extName
+      ? { trx: pub.trx, tenantId: pub.tenantId, author: null }
+      : undefined;
+  };
+  const io = (collection: string): DataIo => {
+    const r = request();
+    const named = r?.trx ? systemCollectionsFor(`ext:${extName}`, r.trx) : [];
+    if (!r?.trx || !named.includes(collection)) return caller;
+    const { trx, tenantId } = r;
+    // `asSystem` itself is gated; asked again in case approval was withdrawn since.
+    if (!holdsCapability(extName, 'data:system')) {
+      throw new CapabilityDeniedError(extName, 'data:system', 'asSystem');
+    }
+    if (!tenantId || getCurrentTenantTrx() !== trx) {
+      throw new Error(`route of "${extName}": asSystem acts only in its request's transaction`);
+    }
+    const user = extensionPrincipal(
+      // Not a job name (`[a-z][a-zA-Z0-9]*`), so no job's principal is this one.
+      `apikey:job:${extName}:@route`,
+      `${extName} route as system`,
+      {
+        reads: named.filter((n) => def.reads.has(n)),
+        writes: named.filter((n) => def.writes.has(n)),
+      },
+      r.author,
+    );
+    const grants = encodeApiKeyScopes(user.scopes);
+    // Published on the request's transaction for the call, the caller's put back after.
+    const as = <T>(fn: () => Promise<T>) =>
+      asIdentityOn(
+        trx,
+        {
+          userId: user.id,
+          email: '',
+          role: 'api_key',
+          roles: ['api_key'],
+          bypass: false,
+          collectionGrants: grants.grants,
+          collectionAll: grants.all,
+        },
+        fn,
+      );
+    const data = jobData(user, trx, tenantId, undefined);
+    return {
+      read: (collection, id) => as(() => data.read(collection, id)),
+      list: (collection, query) => as(() => data.list(collection, query)),
+      create: (collection, body) => as(() => data.create(collection, body)),
+      update: (collection, id, body, expect) => as(() => data.update(collection, id, body, expect)),
+      delete: (collection, id) => as(() => data.delete(collection, id)),
+    };
+  };
+  return {
+    collections: hostCollections(
+      `a route of "${extName}"`,
+      def,
+      {
+        read: (collection, id) => io(collection).read(collection, id),
+        list: (collection, query) => io(collection).list(collection, query),
+        create: (collection, data) => io(collection).create(collection, data),
+        update: (collection, id, data, expect) =>
+          io(collection).update(collection, id, data, expect),
+        delete: (collection, id) => io(collection).delete(collection, id),
+      },
+      async (collection, records) => {
+        const r = request();
+        if (r?.trx) await secretReveal(r.trx, r.tenantId, extName)(collection, records);
+      },
+    ),
   };
 }

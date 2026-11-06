@@ -311,6 +311,16 @@ export default defineExtension(['data:write', 'data:system'], {
   run this way cannot run another. Optional member: absent before 3.0.0-beta.94.
 - `host.timezone` is the tenant's IANA zone. Use `todayIn(host.timezone)` for
   "today", never `new Date().toISOString().slice(0, 10)`.
+- A route has `host.collections` too (ADR 0025): `ctx.host(c).collections`,
+  inline and worker-isolated, over the collections the manifest declares
+  (`collections`) and those its actions and jobs read or write. It acts as the
+  caller — the signed-in user, or the `public` role on a public route, which
+  reads only — and its writes need `data:write` and carry no action mark.
+  In an inline extension, inside `ctx.internals.asSystem(['settings'], fn)`
+  (`data:system`, audited) the named collections act as the extension, as a
+  job does; the rest stay the caller's. A worker-isolated route has no
+  `ctx.internals`, so it always acts as its caller. Secrets of a collection the extension owns come back decrypted
+  either way.
 
 ### Inbound webhooks: a public route enqueues, a job writes
 
