@@ -12,6 +12,20 @@ declares `egress`; the engine fetches for it, per authority the operator
 consents to. `ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH` is gone. In the process
 backend (single-container PaaS) the refusal is in code only.
 
+**Security: third-party code opens no socket (ADR 0023).** Every process the
+extension runner starts — extension runtimes and edge functions — runs under
+a seccomp filter: `socket`, `socketpair` and `io_uring` fail with EACCES for
+every family, the x32 range too, and a foreign architecture is killed. This
+closes `node:net`, `Bun.connect` and FFI sockets where the runner shares a
+network (one container on Fly.io, Railway or Render, the Helm sidecar) or
+`IPAddressDeny` is a no-op. Containers load it with `setpriv --seccomp-filter`
+(util-linux 2.41 or newer); the systemd unit `zveltio ext-runner setup` writes
+gains `RestrictAddressFamilies=AF_UNIX`, `SystemCallArchitectures=native` and
+`SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`
+(`update.sh` rewrites it). The runner checks the ban at start and refuses to
+start without it. Breaking for third-party extensions: they cannot
+`Bun.spawn` with piped stdio (Bun pipes through `socketpair`).
+
 ## [3.0.0-beta.102] - 2026-11-05
 
 **BYOD: an imported collection is served from its source table.** The import

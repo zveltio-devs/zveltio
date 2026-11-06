@@ -56,6 +56,14 @@ describe('runnerSetupFiles', () => {
     expect(unit).toContain('RuntimeDirectory=zveltio-ext/%i');
   });
 
+  // ADR 0023: seccomp, which holds where IPAddressDeny's cgroup BPF is a no-op.
+  // The runner and everything it starts inherit it; AF_UNIX is its own socket.
+  it('bans every socket family but AF_UNIX, foreign ABIs and io_uring', () => {
+    expect(unit).toContain('\nRestrictAddressFamilies=AF_UNIX\n');
+    expect(unit).toContain('\nSystemCallArchitectures=native\n');
+    expect(unit).toContain('\nSystemCallFilter=~io_uring_setup io_uring_enter io_uring_register\n');
+  });
+
   it('switches the engine to the runner transport', () => {
     expect(files['/etc/systemd/system/zveltio.service.d/ext-runner.conf']).toContain(
       'Environment=ZVELTIO_EXT_TRANSPORT=runner',
@@ -114,6 +122,17 @@ describe('container runner', () => {
       '--no-new-privs',
       '--',
       '/bin/zveltio',
+      'rt.mjs',
+    ]);
+    // The socket ban (ADR 0023), loaded by setpriv after the drop.
+    expect(setprivArgv(200005, ['rt.mjs'], '/tmp/f/socket-ban.bpf')).toEqual([
+      'setpriv',
+      '--reuid=200005',
+      '--regid=200005',
+      '--clear-groups',
+      '--no-new-privs',
+      '--seccomp-filter=/tmp/f/socket-ban.bpf',
+      '--',
       'rt.mjs',
     ]);
   });

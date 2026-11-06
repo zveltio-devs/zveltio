@@ -9,6 +9,11 @@
 #   runner  — the runner service, under zveltio-ext: MUST read neither.
 # A third check: a connection from the zveltio-ext uid is refused (SO_PEERCRED).
 #
+# The runner checks at start that what it spawns opens no socket (ADR 0023);
+# here it inherits the ban from the container's seccomp profile, as it does
+# from its unit's RestrictAddressFamilies=AF_UNIX on systemd. Without the
+# profile it MUST refuse to start.
+#
 # Network egress and the per-extension uid are not tested here: they come from
 # the systemd unit, which ext-runner-systemd.sh tests on a real systemd.
 #
@@ -17,8 +22,23 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 IMAGE="${BUN_IMAGE:-oven/bun:1.4.4}"
+# RestrictAddressFamilies=AF_UNIX, as a docker seccomp profile: socket() of any
+# other family fails with EAFNOSUPPORT.
+PROFILE=$(mktemp)
+trap 'rm -f "$PROFILE"' EXIT
+echo '{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["socket"],"action":"SCMP_ACT_ERRNO",
+  "errnoRet":97,"args":[{"index":0,"value":1,"op":"SCMP_CMP_NE"}]}]}' >"$PROFILE"
 
-docker run --rm -v "${ROOT}:/src:ro" "${IMAGE}" bash -euo pipefail -c '
+out=$(docker run --rm -v "${ROOT}:/src:ro" "${IMAGE}" bash -c '
+useradd -r -M zveltio-ext && cd /tmp &&
+setpriv --reuid=zveltio-ext --regid=zveltio-ext --init-groups env -i PATH="$PATH" HOME=/tmp \
+  ZVELTIO_ENGINE_UID=4242 ZVELTIO_EXT_RUNNER_SOCKET=/tmp/runner.sock \
+  timeout 20 bun /src/packages/engine/src/binary-entry.ts ext-runner' 2>&1 || true)
+echo "no ban:  ${out:0:300}"
+grep -q "cannot ban sockets for the processes it starts (AF_INET: fd" <<<"$out" \
+  || { echo "FAIL: a runner whose processes can open sockets did not refuse to start"; exit 1; }
+
+docker run --rm --security-opt seccomp="$PROFILE" -v "${ROOT}:/src:ro" "${IMAGE}" bash -euo pipefail -c '
 cd /tmp
 useradd -r -M zveltio
 useradd -r -M zveltio-ext

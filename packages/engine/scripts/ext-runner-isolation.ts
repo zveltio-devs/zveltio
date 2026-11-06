@@ -83,8 +83,12 @@ export default {
     let forks = 'skipped';
     if (${JSON.stringify(process.env.PROBE_FORKS ?? '')}) {
       // A shell's fork loop: Bun.spawn past the limit hangs instead of throwing.
-      const out = Bun.spawnSync(['sh', '-c', 'n=0; while [ $n -lt 200 ]; do sleep 3 & n=$((n+1)); echo $n; done']);
-      forks = Number(out.stdout.toString().trim().split('\\n').at(-1) || 0);
+      // Counted in a file: piped stdio is a socketpair, which the socket ban
+      // refuses (ADR 0023).
+      const count = '/tmp/zveltio-probe-forks-' + Math.random().toString(36).slice(2);
+      Bun.spawnSync(['sh', '-c', 'n=0; while [ $n -lt 200 ]; do sleep 3 & n=$((n+1)); echo $n > ' + count + '; done'],
+        { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' });
+      forks = Number((await read(count)).trim() || 0);
     }
     if (${JSON.stringify(process.env.PROBE_ALLOC ?? '')}) {
       const hog = [];

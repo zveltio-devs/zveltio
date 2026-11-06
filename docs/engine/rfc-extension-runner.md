@@ -118,7 +118,7 @@ The runner never holds a connection string.
 | Docker / compose | A separate `zveltio-ext-runner` service. The engine spawns extension processes in it over a control channel. | Separate container: no engine volumes or env, own network with egress policy, cgroup limits per container (or per process via a cgroup v2 subtree). |
 | Kubernetes / Helm | A sidecar container in the engine pod, or a separate Deployment. | As above, plus `NetworkPolicy` for egress, `securityContext` (non-root, read-only rootfs, no privilege escalation, seccomp `RuntimeDefault`). |
 | Bare metal (single binary) | One systemd service per extension, `zveltio-ext-runner@<instance>`, with `DynamicUser=yes`. The engine starts it through polkit and connects to its unix socket (steps 3, 3b). | A uid per extension (so the engine's files, environment and process state, and other extensions, are out of reach), the unit's sandbox (`TemporaryFileSystem`, `ProtectProc=invisible`, `IPAddressDeny`) and its cgroup limits. |
-| One container (Fly.io, Railway, Render, `docker run`) | The same runner, started beside the engine by the image's entrypoint when the container starts as root (the Dockerfile's default target; step 9b). | A uid per extension, the runner with only `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` and none of the container's environment, the engine dropped to uid 100 with no capabilities, `/data` (but `extensions/`) and the engine's `TMPDIR` closed to the extensions; per process, rlimits instead of a cgroup: 64 tasks (a fork bomb stops there) and 1024 MB of address space (about 300 MB of heap; past it that process aborts, nothing else); `tini` as PID 1 reaps what a dead runner leaves. **Not** the network, nor a memory quota: the network is the container's and the memory is shared with the engine — a PaaS gives one container and no cgroup to divide. |
+| One container (Fly.io, Railway, Render, `docker run`) | The same runner, started beside the engine by the image's entrypoint when the container starts as root (the Dockerfile's default target; step 9b). | A uid per extension, the runner with only `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` and none of the container's environment, the engine dropped to uid 100 with no capabilities, `/data` (but `extensions/`) and the engine's `TMPDIR` closed to the extensions; per process, rlimits instead of a cgroup: 64 tasks (a fork bomb stops there) and 1024 MB of address space (about 300 MB of heap; past it that process aborts, nothing else); `tini` as PID 1 reaps what a dead runner leaves. The network is the container's, but the seccomp socket ban (ADR 0023, [Network](#network)) leaves an extension no socket to reach it with. **Not** a memory quota: the memory is shared with the engine — a PaaS gives one container and no cgroup to divide. |
 | Development | A child of the engine speaking the runner protocol (`ZVELTIO_EXT_TRANSPORT=process`, the default outside production; step 9). | Nothing: the engine's uid. Production refuses it. |
 
 A child under the **same** uid with an empty environment is *not* enough. Processes
@@ -132,6 +132,23 @@ Amended by ADR 0022: routes and actions have **no** egress. The runtime refuses
 container network (`network_mode: none`) or, on bare metal, `IPAddressDeny=any`
 with no per-extension override. Network work goes to a job that declares
 `egress`; the engine fetches for it, per authority the operator consents to.
+
+ADR 0023: under both sits a kernel socket ban, which also holds where the
+runner shares a network (one container on a PaaS, the Helm sidecar) or where
+`IPAddressDeny` is a no-op (systemd without cgroup BPF). In containers every
+process the runner starts — extension runtimes and edge functions — is loaded
+by `setpriv --seccomp-filter` (util-linux 2.41 or newer) with the filter
+`socket-ban.ts` builds: `socket`, `socketpair` and `io_uring_*` fail with
+EACCES for every family, the x32 range too, and a foreign architecture is
+killed. The runtime needs no socket: its channel is fds 0-2, created before
+exec (so it cannot `Bun.spawn` with piped stdio either). On systemd the unit
+does the same with `RestrictAddressFamilies=AF_UNIX` (the runner's own
+socket), `SystemCallArchitectures=native` and
+`SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`, which the
+runner and everything it starts inherit. At start the runner runs its own wrap
+on a probe that opens `AF_INET`, `AF_INET6` and `AF_SMC` through libc; if any
+opens, or the wrap fails, it refuses to start, and production refuses
+worker-isolated extensions as it does when no runner answers.
 
 ### Lifecycle and failure
 
@@ -523,10 +540,10 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      built image with `NODE_ENV=production`: `hello-ext-worker` installs,
      enables and answers `/ext/hello-ext-worker/health` (the image before this
      refused it: `extension runner unreachable (… "systemctl")`).
-   - **Limits:** the extensions share the container's network (they can reach
-     whatever the engine reaches, without its credentials), its memory and its
-     process table (`/proc` entries other uids may read, such as command
-     lines); a runaway extension can exhaust the container and take the engine
+   - **Limits:** the extensions share the container's network, but open no
+     socket in it (the socket ban, ADR 0023: see [Network](#network)); they
+     share its memory and its process table (`/proc` entries other uids may
+     read, such as command lines); a runaway extension can exhaust the container and take the engine
      with it. A platform that denies root or `CAP_SETUID` in the container gets
      a runner that refuses to start, and the engine refuses third-party
      extensions with `extension runner unreachable`.
