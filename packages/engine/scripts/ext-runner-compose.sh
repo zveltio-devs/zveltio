@@ -73,7 +73,6 @@ out=$(dc exec -T -e PROBE_URL="$URL" engine bun "$EDGE" 2>&1 || true)
 echo "edge process: ${out:0:300}"
 grep -q '"fetch":"HTTP' <<<"$out" \
   || { echo "FAIL: an edge function under the engine's uid should reach $URL (probe broken?)"; fail=1; }
-grep -q '"fetch":"DENIED' <<<"$out" || { echo "FAIL: the runtime did not refuse fetch (ADR 0022)"; fail=1; }
 # Held for 10 s: measured from outside while it lives, under its own uid.
 edge_out=$(mktemp)
 dc exec -T -e PROBE_URL="$URL" -e PROBE_HOLD_MS=10000 -e ZVELTIO_EDGE_TRANSPORT=runner \
@@ -93,7 +92,6 @@ done
 # Positive control: the runner's image holds the engine's 0600 .env, readable by its owner.
 { dc exec -T -u 100 ext-runner cat /opt/zveltio/.env || true; } | grep -q hunter2 \
   || { echo "FAIL: the runner holds no engine secret to test against (probe broken?)"; fail=1; }
-grep -q '"fetch":"DENIED' <<<"$out" || { echo "FAIL: the runtime did not refuse fetch (ADR 0022)"; fail=1; }
 if [ -n "$uid" ]; then
   [ "$uid" -ge 200000 ] || { echo "FAIL: edge function ran as uid $uid"; fail=1; }
   { dc exec -T -u "$uid" ext-runner cat /opt/zveltio/.env 2>/dev/null || true; } | grep -q hunter2 \

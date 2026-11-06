@@ -23,6 +23,7 @@
  * nothing.
  */
 
+import { lookup } from 'node:dns/promises';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -42,9 +43,18 @@ if (
 
 mkdirSync(extDir, { recursive: true });
 const bundle = join(extDir, 'index.mjs');
+// The raw socket's target, resolved here (the engine's side) to an address.
+const probeAddr = process.env.PROBE_URL
+  ? await (async () => {
+      const u = new URL(process.env.PROBE_URL as string);
+      const { address } = await lookup(u.hostname);
+      return { host: address, port: Number(u.port) || (u.protocol === 'https:' ? 443 : 80) };
+    })()
+  : null;
 writeFileSync(
   bundle,
-  `const denied = (e) => 'DENIED ' + (e.code ?? e.name ?? e.message);
+  `import { connect } from 'node:net';
+const denied = (e) => 'DENIED ' + (e.code ?? e.name ?? e.message);
 const read = async (p) => { try { return await Bun.file(p).text(); } catch (e) { return denied(e); } };
 export default {
   name: 'isolation-probe',
@@ -57,10 +67,10 @@ export default {
       catch (e) { fetched = denied(e); }
       // A raw socket: what hostile code does, past the runtime's fetch refusal.
       // This one measures the OS rule.
-      const u = new URL(url);
-      const { connect } = await import('node:net');
+      // Resolved on the engine's side: a refusal must come from the network
+      // rule, not from a resolver the runner cannot reach.
       net = await new Promise((resolve) => {
-        const s = connect({ host: u.hostname, port: Number(u.port) || (u.protocol === 'https:' ? 443 : 80) });
+        const s = connect(${JSON.stringify(probeAddr)});
         const done = (r) => { s.destroy(); resolve(r); };
         s.setTimeout(3000, () => done('DENIED timeout'));
         s.once('connect', () => done('CONNECTED'));
