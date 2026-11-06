@@ -13,6 +13,7 @@
 import { encodeApiKeyScopes, intersectGrants } from './collection-permissions.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
+import { setTraceOwnerResolver } from '../../db/connection-trace.js';
 import type { Database } from '../../db/index.js';
 import { joinedTransactionBuilder, withSavepoint } from '../savepoint.js';
 import { DEFAULT_TENANT_ID, issuerSettings, type RlsIdentity } from './tenant-manager.js';
@@ -414,6 +415,8 @@ export function requestTransactionState(): 'open' | 'over' | 'none' {
 export function getCurrentTenantTrx(): Database | undefined {
   return store.getStore()?.trx;
 }
+// The connection trace charges a request only what its own transaction's context takes.
+setTraceOwnerResolver(getCurrentTenantTrx);
 
 /** The tenant the open tenant transaction writes as, or `null` outside one. */
 export function getCurrentTrxTenant(): string | null {

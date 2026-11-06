@@ -32,6 +32,22 @@ let _extra = 0;
  * the first one — the rest are almost always the same call site.
  */
 let _firstStack = '';
+/**
+ * The async context the open window belongs to: the tenant transaction current
+ * where `beginTracedTransaction` ran. The window is process-wide, so without it
+ * a connection taken by unrelated work running meanwhile (a webhook delivery a
+ * previous request left behind, recording its outcome) was charged to the
+ * request that happened to hold the window. Only acquisitions made under the
+ * same transaction are the request's.
+ */
+let _owner: unknown;
+/** The current context's tenant transaction; set by `tenant-context.ts` (no import cycle). */
+let _currentOwner: () => unknown = () => undefined;
+
+/** Wiring for `tenant-context.ts`: how to read the current tenant transaction. */
+export function setTraceOwnerResolver(resolve: () => unknown): void {
+  _currentOwner = resolve;
+}
 
 /** Whether tracing is on. Read once per connection acquisition, so it is cheap. */
 export function connectionTracingEnabled(): boolean {
@@ -45,7 +61,7 @@ export function _setConnectionTracing(on: boolean): void {
 
 /** Called by the driver wrapper. Counts only what is taken while one is held. */
 export function noteConnectionAcquired(): void {
-  if (!_tracing || !_inTransaction) return;
+  if (!_tracing || !_inTransaction || _currentOwner() !== _owner) return;
   _extra++;
   if (!_firstStack) {
     const raw = new Error('extra connection').stack ?? '';
@@ -67,6 +83,7 @@ export function tracedAcquisitionSite(): string {
 export function beginTracedTransaction(): void {
   if (!_tracing) return;
   _inTransaction = true;
+  _owner = _currentOwner();
   _extra = 0;
   _firstStack = '';
 }
