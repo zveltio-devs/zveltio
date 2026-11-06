@@ -557,6 +557,10 @@ IPAddressDeny=any
 # BPF) is a no-op. AF_UNIX for the runner's own socket; the runner checks at
 # start that a process it starts opens no other family.
 RestrictAddressFamilies=AF_UNIX
+# AF_UNIX stays for the runner's own socket; hide the host's: abstract sockets
+# live in the network namespace, path sockets of D-Bus and Postgres are hidden.
+PrivateNetwork=yes
+InaccessiblePaths=-/run/dbus -/run/postgresql -/var/run/postgresql -/run/systemd/private
 SystemCallArchitectures=native
 SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register
 

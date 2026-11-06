@@ -81,9 +81,10 @@ export function writeSocketBan(): string {
  * printed as the descriptor, or -1 with errno. AF_SMC is the one a deny-list
  * missed.
  */
-export const SOCKET_BAN_PROBE = `const { dlopen, FFIType, read } = require('bun:ffi');
+export const SOCKET_BAN_PROBE = `const { dlopen, FFIType, ptr, read } = require('bun:ffi');
 const { symbols: c } = dlopen('libc.so.6', {
   socket: { args: [FFIType.i32, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+  syscall: { args: [FFIType.i64, FFIType.i64, FFIType.ptr], returns: FFIType.i64 },
   __errno_location: { returns: FFIType.ptr },
 });
 const out = {};
@@ -91,6 +92,10 @@ for (const [name, family] of [['AF_INET', 2], ['AF_INET6', 10], ['AF_SMC', 43]])
   const fd = c.socket(family, 1, 0);
   out[name] = fd >= 0 ? 'fd ' + fd : 'errno ' + read.i32(c.__errno_location(), 0);
 }
+// io_uring_setup (425 on x86_64 and aarch64) with valid params: IORING_OP_SOCKET
+// opens sockets past a socket() ban, and systemd ignores an unknown filter name.
+const ring = Number(c.syscall(425, 1, ptr(new Uint8Array(120))));
+out.io_uring = ring >= 0 ? 'fd ' + ring : 'errno ' + read.i32(c.__errno_location(), 0);
 console.log(JSON.stringify(out));`;
 
 type Wrap = (argv: string[]) => { argv: string[]; release?: () => void };
@@ -114,7 +119,12 @@ export function checkSocketBan(
       // reservation does not fit the wrap's RLIMIT_AS (measured: "bun:ffi
       // requires the JIT" under 1024 MB). Ignored by a Bun that drops the
       // option: the probe then fails, and the runner refuses to start.
-      env: { BUN_BE_BUN: '1', BUN_JSC_jitMemoryReservationSize: String(64 << 20) },
+      env: {
+        BUN_BE_BUN: '1',
+        BUN_JSC_jitMemoryReservationSize: String(64 << 20),
+        // The wrap's argv[0] is prlimit/setpriv, resolved from PATH.
+        PATH: process.env.PATH ?? '/usr/sbin:/usr/bin:/sbin:/bin',
+      },
     }),
 ): string | null {
   const { argv, release } = wrap([process.execPath, '-e', SOCKET_BAN_PROBE]);
@@ -131,7 +141,7 @@ export function checkSocketBan(
     /* reported below */
   }
   const opened = got ? Object.entries(got).filter(([, v]) => !v.startsWith('errno ')) : [];
-  if (r.exitCode === 0 && got && Object.keys(got).length === 3 && opened.length === 0) return null;
+  if (r.exitCode === 0 && got && Object.keys(got).length === 4 && opened.length === 0) return null;
   const why = got
     ? opened.map(([family, v]) => `${family}: ${v}`).join(', ')
     : r.stderr?.toString().trim() || `exit ${r.exitCode}`;
