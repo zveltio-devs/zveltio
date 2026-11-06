@@ -42,7 +42,6 @@
     "compliance/ro/etransport/engine/routes.ts": 1,
     "compliance/ro/saft/engine/routes.ts": 1,
     "compliance/ro/procurement/engine/routes.ts": 1,
-    "compliance/ro/efactura/engine/routes.ts": 1,
     "hr/employees/engine/employment-service.ts": 1,
     "hr/employees/engine/routes.ts": 1,
     "hr/payroll/engine/routes.ts": 1,

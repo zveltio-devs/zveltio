@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 576
+# tables: 579
 
 table account
   col accessToken                    text
@@ -514,113 +514,6 @@ table zv_edge_functions
   uq  zv_edge_functions_tenant_name_key UNIQUE (tenant_id, name)
   rls enabled forced
   pol tenant_isolation_zv_edge_functions FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
-
-table zv_efactura_daily_stats
-  col accepted_count                 integer NOT NULL DEFAULT 0
-  col date                           date NOT NULL
-  col rejected_count                 integer NOT NULL DEFAULT 0
-  col seller_cui                     text NOT NULL
-  col submitted_count                integer NOT NULL DEFAULT 0
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total_amount                   numeric NOT NULL DEFAULT 0
-  col vat_amount                     numeric NOT NULL DEFAULT 0
-  pk  zv_efactura_daily_stats_pkey PRIMARY KEY (tenant_id, date, seller_cui)
-  rls enabled forced
-  pol tenant_isolation_zv_efactura_daily_stats FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_efactura_invoices
-  col anaf_index                     text
-  col anaf_response                  jsonb
-  col buyer_address                  text
-  col buyer_city                     text
-  col buyer_country                  text DEFAULT 'RO'::text
-  col buyer_county                   text
-  col buyer_cui                      text
-  col buyer_cui_type                 text DEFAULT 'RO'::text
-  col buyer_name                     text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col currency                       text NOT NULL DEFAULT 'RON'::text
-  col due_date                       date
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col invoice_date                   date
-  col invoice_number                 text
-  col lines                          jsonb NOT NULL DEFAULT '[]'::jsonb
-  col payment_method                 text
-  col payment_reference              text
-  col reverse_charge                 boolean NOT NULL DEFAULT false
-  col seller_address                 text
-  col seller_bank                    text
-  col seller_city                    text
-  col seller_country                 text DEFAULT 'RO'::text
-  col seller_county                  text
-  col seller_cui                     text
-  col seller_iban                    text
-  col seller_name                    text
-  col seller_reg_com                 text
-  col source_invoice_id              uuid
-  col status                         text NOT NULL DEFAULT 'draft'::text
-  col subtotal                       numeric NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total                          numeric NOT NULL DEFAULT 0
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col vat_total                      numeric NOT NULL DEFAULT 0
-  col xml_content                    text
-  ck  zv_efactura_invoices_buyer_cui_type_check CHECK ((buyer_cui_type = ANY (ARRAY['RO'::text, 'EU'::text, 'OTHER'::text])))
-  pk  zv_efactura_invoices_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_efactura_invoices FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_efactura_settings
-  col access_token                   text
-  col callback_url                   text
-  col cert_password                  text
-  col cert_path                      text
-  col client_id                      text
-  col client_secret                  text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col environment                    text NOT NULL DEFAULT 'test'::text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col last_error                     text
-  col last_verified_at               timestamp with time zone
-  col refresh_token                  text
-  col seller_cif                     text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col token_expires_at               timestamp with time zone
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zv_efactura_settings_environment_check CHECK ((environment = ANY (ARRAY['test'::text, 'prod'::text])))
-  pk  zv_efactura_settings_pkey PRIMARY KEY (id)
-  idx uq_zv_efactura_settings_tenant UNIQUE (tenant_id)
-  rls enabled forced
-  pol tenant_isolation_zv_efactura_settings FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_efactura_status_log
-  col changed_by                     text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col invoice_id                     uuid NOT NULL
-  col new_status                     text NOT NULL
-  col note                           text
-  col old_status                     text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_efactura_status_log_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES zv_efactura_invoices(id) ON DELETE CASCADE
-  pk  zv_efactura_status_log_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_efactura_status_log FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_efactura_storno
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col original_id                    uuid NOT NULL
-  col reason                         text NOT NULL
-  col requested_by                   text NOT NULL
-  col storno_invoice_id              uuid
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_efactura_storno_original_id_fkey FOREIGN KEY (original_id) REFERENCES zv_efactura_invoices(id)
-  pk  zv_efactura_storno_pkey PRIMARY KEY (id)
-  fk  zv_efactura_storno_storno_invoice_id_fkey FOREIGN KEY (storno_invoice_id) REFERENCES zv_efactura_invoices(id)
-  rls enabled forced
-  pol tenant_isolation_zv_efactura_storno FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_environments
   col color                          text DEFAULT '#6b7280'::text
@@ -4005,6 +3898,157 @@ table zvd_ec_tax_rules
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('ec_tax_rules'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('ec_tax_rules'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('ec_tax_rules'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('ec_tax_rules'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_efactura_files
+  col archive                        text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col invoice_id                     uuid NOT NULL
+  col pdf                            text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col xml                            text NOT NULL
+  fk  zvd_efactura_files_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_efactura_files_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES zvd_efactura_invoices(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_efactura_files_pkey PRIMARY KEY (id)
+  uq  zvd_efactura_files_tenant_id_invoice_id_key UNIQUE (tenant_id, invoice_id)
+  fk  zvd_efactura_files_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('efactura_files'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('efactura_files'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('efactura_files'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('efactura_files'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('efactura_files'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_efactura_invoices
+  col anaf_download_id               text
+  col anaf_index                     text
+  col anaf_response                  text
+  col anaf_state                     text
+  col buyer_address                  text
+  col buyer_city                     text
+  col buyer_country                  text DEFAULT 'RO'::text
+  col buyer_county                   text
+  col buyer_cui                      text
+  col buyer_name                     text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col currency                       text NOT NULL DEFAULT 'RON'::text
+  col due_date                       date
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col invoice_date                   date NOT NULL
+  col invoice_number                 text NOT NULL
+  col lines                          jsonb NOT NULL DEFAULT '[]'::jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col seller_address                 text
+  col seller_bank                    text
+  col seller_city                    text
+  col seller_country                 text DEFAULT 'RO'::text
+  col seller_county                  text
+  col seller_cui                     text NOT NULL
+  col seller_iban                    text
+  col seller_name                    text NOT NULL
+  col seller_reg_com                 text
+  col source_invoice_id              uuid
+  col status                         text NOT NULL DEFAULT 'draft'::text
+  col storno_of                      uuid
+  col storno_reason                  text
+  col submitted_at                   timestamp with time zone
+  col subtotal                       numeric NOT NULL DEFAULT 0
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col total                          numeric NOT NULL DEFAULT 0
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col vat_total                      numeric NOT NULL DEFAULT 0
+  fk  zvd_efactura_invoices_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_efactura_invoices_pkey PRIMARY KEY (id)
+  fk  zvd_efactura_invoices_storno_of_fkey FOREIGN KEY (storno_of) REFERENCES zvd_efactura_invoices(id) ON UPDATE CASCADE ON DELETE RESTRICT
+  uq  zvd_efactura_invoices_tenant_id_source_invoice_id_key UNIQUE (tenant_id, source_invoice_id)
+  uq  zvd_efactura_invoices_tenant_id_storno_of_key UNIQUE (tenant_id, storno_of)
+  fk  zvd_efactura_invoices_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('efactura_invoices'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('efactura_invoices'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('efactura_invoices'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('efactura_invoices'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('efactura_invoices'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_efactura_messages
+  col anaf_id                        text NOT NULL
+  col archive                        text
+  col cif                            text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col data_creare                    text
+  col detalii                        text
+  col downloaded_at                  timestamp with time zone
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col id_solicitare                  text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col tip                            text
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_efactura_messages_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_efactura_messages_pkey PRIMARY KEY (id)
+  uq  zvd_efactura_messages_tenant_id_anaf_id_key UNIQUE (tenant_id, anaf_id)
+  fk  zvd_efactura_messages_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('efactura_messages'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('efactura_messages'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('efactura_messages'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('efactura_messages'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('efactura_messages'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_efactura_settings
+  col access_token                   text
+  col callback_url                   text
+  col client_id                      text
+  col client_secret                  text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col environment                    text NOT NULL DEFAULT 'test'::text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col last_error                     text
+  col last_verified_at               timestamp with time zone
+  col oauth_state                    text
+  col oauth_state_expires_at         timestamp with time zone
+  col refresh_token                  text
+  col scope                          text NOT NULL DEFAULT 'tenant'::text
+  col search_text                    text
+  col search_vector                  tsvector
+  col seller_cif                     text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col token_expires_at               timestamp with time zone
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  ck  zvd_efactura_settings_access_token_check CHECK (((access_token IS NULL) OR (access_token ~~ 'enc:v1:%'::text)))
+  ck  zvd_efactura_settings_client_secret_check CHECK (((client_secret IS NULL) OR (client_secret ~~ 'enc:v1:%'::text)))
+  fk  zvd_efactura_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  ck  zvd_efactura_settings_oauth_state_check CHECK (((oauth_state IS NULL) OR (oauth_state ~~ 'enc:v1:%'::text)))
+  pk  zvd_efactura_settings_pkey PRIMARY KEY (id)
+  ck  zvd_efactura_settings_refresh_token_check CHECK (((refresh_token IS NULL) OR (refresh_token ~~ 'enc:v1:%'::text)))
+  uq  zvd_efactura_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
+  fk  zvd_efactura_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('efactura_settings'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('efactura_settings'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('efactura_settings'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('efactura_settings'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('efactura_settings'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_employee_benefits
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -10120,6 +10164,98 @@ table zvv_ec_tax_rules
   col search_text                    text
   col search_vector                  tsvector
   col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_efactura_files
+  col archive                        text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col invoice_id                     uuid
+  col pdf                            text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col xml                            text
+
+table zvv_efactura_invoices
+  col anaf_download_id               text
+  col anaf_index                     text
+  col anaf_response                  text
+  col anaf_state                     text
+  col buyer_address                  text
+  col buyer_city                     text
+  col buyer_country                  text
+  col buyer_county                   text
+  col buyer_cui                      text
+  col buyer_name                     text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col currency                       text
+  col due_date                       date
+  col id                             uuid
+  col invoice_date                   date
+  col invoice_number                 text
+  col lines                          jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col seller_address                 text
+  col seller_bank                    text
+  col seller_city                    text
+  col seller_country                 text
+  col seller_county                  text
+  col seller_cui                     text
+  col seller_iban                    text
+  col seller_name                    text
+  col seller_reg_com                 text
+  col source_invoice_id              uuid
+  col status                         text
+  col storno_of                      uuid
+  col storno_reason                  text
+  col submitted_at                   timestamp with time zone
+  col subtotal                       numeric
+  col tenant_id                      uuid
+  col total                          numeric
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col vat_total                      numeric
+
+table zvv_efactura_messages
+  col anaf_id                        text
+  col archive                        text
+  col cif                            text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col data_creare                    text
+  col detalii                        text
+  col downloaded_at                  timestamp with time zone
+  col id                             uuid
+  col id_solicitare                  text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col tip                            text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_efactura_settings
+  col callback_url                   text
+  col client_id                      text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col environment                    text
+  col id                             uuid
+  col last_error                     text
+  col last_verified_at               timestamp with time zone
+  col oauth_state_expires_at         timestamp with time zone
+  col scope                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col seller_cif                     text
+  col tenant_id                      uuid
+  col token_expires_at               timestamp with time zone
   col updated_at                     timestamp with time zone
   col updated_by                     text
 

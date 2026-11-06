@@ -413,97 +413,6 @@ export interface ZvEdgeFunctionsTable {
   egress: string[] | null;
 }
 
-export interface ZvEfacturaDailyStatsTable {
-  date: Date;
-  seller_cui: string;
-  submitted_count: Generated<number>;
-  accepted_count: Generated<number>;
-  rejected_count: Generated<number>;
-  total_amount: Generated<number>;
-  vat_amount: Generated<number>;
-  tenant_id: Generated<string>;
-}
-
-export interface ZvEfacturaInvoicesTable {
-  id: Generated<string>;
-  invoice_number: string | null;
-  invoice_date: Date | null;
-  due_date: Date | null;
-  seller_name: string;
-  seller_cui: string;
-  seller_reg_com: string | null;
-  seller_address: string | null;
-  seller_iban: string | null;
-  seller_bank: string | null;
-  buyer_name: string;
-  buyer_cui: string | null;
-  buyer_address: string | null;
-  lines: Generated<unknown>;
-  subtotal: Generated<number>;
-  vat_total: Generated<number>;
-  total: Generated<number>;
-  currency: Generated<string>;
-  status: Generated<string>;
-  xml_content: string | null;
-  anaf_index: string | null;
-  anaf_response: unknown | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  buyer_cui_type: Generated<'RO' | 'EU' | 'OTHER' | null>;
-  payment_method: string | null;
-  payment_reference: string | null;
-  reverse_charge: Generated<boolean>;
-  created_by: string | null;
-  source_invoice_id: string | null;
-  tenant_id: Generated<string | null>;
-  seller_city: string | null;
-  seller_country: Generated<string | null>;
-  buyer_city: string | null;
-  buyer_country: Generated<string | null>;
-  seller_county: string | null;
-  buyer_county: string | null;
-}
-
-export interface ZvEfacturaSettingsTable {
-  id: Generated<string>;
-  environment: Generated<'test' | 'prod'>;
-  seller_cif: string | null;
-  client_id: string | null;
-  client_secret: string | null;
-  cert_path: string | null;
-  cert_password: string | null;
-  access_token: string | null;
-  refresh_token: string | null;
-  token_expires_at: Date | null;
-  last_verified_at: Date | null;
-  last_error: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-  callback_url: string | null;
-}
-
-export interface ZvEfacturaStatusLogTable {
-  id: Generated<string>;
-  invoice_id: string;
-  old_status: string;
-  new_status: string;
-  changed_by: string;
-  note: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvEfacturaStornoTable {
-  id: Generated<string>;
-  original_id: string;
-  storno_invoice_id: string | null;
-  reason: string;
-  requested_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvEnvironmentsTable {
   id: Generated<string>;
   tenant_id: string;
@@ -1771,11 +1680,6 @@ export interface DbSchema {
   zv_doc_templates: ZvDocTemplatesTable;
   zv_edge_function_logs: ZvEdgeFunctionLogsTable;
   zv_edge_functions: ZvEdgeFunctionsTable;
-  zv_efactura_daily_stats: ZvEfacturaDailyStatsTable;
-  zv_efactura_invoices: ZvEfacturaInvoicesTable;
-  zv_efactura_settings: ZvEfacturaSettingsTable;
-  zv_efactura_status_log: ZvEfacturaStatusLogTable;
-  zv_efactura_storno: ZvEfacturaStornoTable;
   zv_environments: ZvEnvironmentsTable;
   zv_erd_layouts: ZvErdLayoutsTable;
   zv_extension_forward_approvals: ZvExtensionForwardApprovalsTable;
