@@ -85,18 +85,20 @@ let resolved: Promise<string> | null = null;
 
 /**
  * The verified binary's path. Downloads it on first use when no
- * `ZVELTIO_DENO_PATH` is set. Rejects, saying why, when it cannot be had or
- * does not match its digest; a later call tries again.
+ * `ZVELTIO_DENO_PATH` is set, unless `download` is false (the extension
+ * runner: it has no network, and the engine downloads into the extensions
+ * directory it shares read-only). Rejects, saying why, when it cannot be had
+ * or does not match its digest; a later call tries again.
  */
-export function ensureDeno(): Promise<string> {
-  resolved ??= locate().catch((err: Error) => {
+export function ensureDeno(opts: { download?: boolean } = {}): Promise<string> {
+  resolved ??= locate(opts.download ?? true).catch((err: Error) => {
     resolved = null;
     throw err;
   });
   return resolved;
 }
 
-async function locate(): Promise<string> {
+async function locate(download: boolean): Promise<string> {
   const own = process.env.ZVELTIO_DENO_PATH;
   // The operator's binary is theirs to vouch for: only its presence is checked.
   if (own) {
@@ -110,7 +112,10 @@ async function locate(): Promise<string> {
     );
   }
   const path = denoInstallPath();
-  if (!existsSync(path)) await download(pin, path);
+  if (!existsSync(path)) {
+    if (!download) throw new Error(`no Deno at ${path} yet: the engine downloads it`);
+    await fetchDeno(pin, path);
+  }
   const actual = sha256(readFileSync(path));
   if (actual !== pin.bin) {
     throw new Error(
@@ -121,7 +126,7 @@ async function locate(): Promise<string> {
   return path;
 }
 
-async function download(pin: { target: string; zip: string }, path: string): Promise<void> {
+async function fetchDeno(pin: { target: string; zip: string }, path: string): Promise<void> {
   const url = `https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${pin.target}.zip`;
   // Bounded: a stalled download must not hold the runner's claim loop forever.
   // `Bun.fetch`, not the global: test files in the same process replace that one.

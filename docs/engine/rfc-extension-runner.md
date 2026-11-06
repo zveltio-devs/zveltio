@@ -172,6 +172,35 @@ minimal environment and a memory ceiling, by default under the engine's uid.
 With `ZVELTIO_EDGE_TRANSPORT=runner` it runs on the same runner placement
 instead, which closes the same-uid gap for edge functions too (step 5).
 
+### Deno jobs
+
+ADR 0023 decision 2: on the `runner` transport a Deno job (ADR 0022) runs in
+its extension's own runner — the extension's unit on bare metal, the runner
+container in compose and Helm, the entrypoint's runner on one container — under
+the same uid drop and socket ban as the extension's routes, never under the
+engine's uid. One connection is one run: the engine writes
+`JOB <memoryMb> <timeoutSeconds>` (the runner tells it by its first byte, `J`,
+as it tells `EDGE`), then the job's JSON lines unchanged; `jobs.js`, verified
+against `integrity.jobsSha256` by the engine at load, travels in the first of
+them and is imported from a `data:` URL, as is the bootstrap, so Deno runs with
+no permission at all (not even a read) and `DENO_DIR` points where it cannot
+create a file. The runner spawns Deno through its wrap without RLIMIT_AS (V8
+reserves about 1 TiB) but with the task limit, RLIMIT_CPU at twice the timeout
+(a backstop for a run nobody supervises any more) and an RSS watchdog — only
+the runner sees the process — and ends the connection with one
+`{"runner":{…}}` line saying how it ended; a line the child forges describes
+only its own run, and the runner's comes last. The engine keeps the wall clock,
+the host-call and stdout ceilings, and every host call; closing the connection
+kills the run. The runner finds the Deno the engine downloaded under its
+`EXTENSIONS_DIR` (the unit sets it; the containers share `/data/extensions`
+read-only), or `ZVELTIO_DENO_PATH` in its own environment, checks its digest
+and never downloads one. Production never runs a job as the engine's child: on
+`ZVELTIO_EXT_TRANSPORT=process` its jobs are not claimed. Proof: the
+`ext-runner-{standalone,compose,systemd}.sh` lanes run a job under a uid of its
+own with `Seccomp: 2`, read from outside while it is held, its `host.fetch`
+answered through the engine, and a job past its `memoryMb` killed by the
+runner.
+
 ## Migration plan
 
 0. **Done in #906:** the production opt-in for worker extensions, and corrected

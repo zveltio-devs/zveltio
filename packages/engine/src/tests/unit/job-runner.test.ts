@@ -2,16 +2,47 @@
  * The Deno job runner (ADR 0022), against the real pinned Deno: what the child
  * is refused, how each ceiling ends a run, and that every call reaches the
  * engine only as a message `call` answers. Items 1 and 2 of the ADR's
- * "Verified in implementation" list.
+ * "Verified in implementation" list. Every case runs twice: as the engine's
+ * child (`process`), and across the extension runner (`runner`, ADR 0023
+ * decision 2) — `routeConnection` on a socket in this process, the code
+ * `zveltio ext-runner` serves with, minus the uid drop and the socket ban its
+ * wrap adds (ext-runner-{standalone,compose,systemd}.sh prove those).
  */
 
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawn } from 'bun';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer, type Server } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ensureDeno, unzipSingle } from '../../lib/extensions/deno.js';
-import { RUNNER_BOOTSTRAP, runInDeno, type HostCall } from '../../lib/extensions/job-runner.js';
+import {
+  RUNNER_BOOTSTRAP,
+  jobPlacement,
+  parseJobHeader,
+  runInDeno,
+  serveJobConnection,
+  type HostCall,
+} from '../../lib/extensions/job-runner.js';
+import { routeConnection } from '../../lib/ext-runner.js';
 import { deflateRawSync } from 'node:zlib';
 
 let deno = '';
+let transport: 'process' | 'runner' = 'process';
+const sockDir = mkdtempSync(join(tmpdir(), 'zv-job-runner-test-'));
+const sock = join(sockDir, 'runner.sock');
+let server: Server;
+/** What the runner's wrap was asked for, per job connection. */
+const wrapped: { argv: string[]; addressSpace?: boolean }[] = [];
+const saved = {
+  transport: process.env.ZVELTIO_EXT_TRANSPORT,
+  socket: process.env.ZVELTIO_EXT_RUNNER_SOCKET,
+  env: process.env.NODE_ENV,
+};
+function restore(name: string, value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 const code = (src: string) => new TextEncoder().encode(src);
 const job = (body: string) => code(`export default { j: async (input, host) => { ${body} } };`);
 
@@ -25,7 +56,9 @@ async function run(
   } = {},
 ): Promise<string> {
   try {
+    process.env.ZVELTIO_EXT_TRANSPORT = transport;
     await runInDeno({
+      extName: 'acme/jobs',
       deno,
       code: src,
       job: 'j',
@@ -44,48 +77,72 @@ async function run(
 
 beforeAll(async () => {
   deno = await ensureDeno();
+  server = createServer((conn) =>
+    routeConnection(conn, {
+      // An extension's channel is piped to its program unchanged; `cat` echoes it.
+      workerArgv: ['cat'],
+      childEnv: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+      wrap: (argv, opts) => {
+        wrapped.push({ argv, addressSpace: opts?.addressSpace });
+        return { argv };
+      },
+      serveEdge: (c) => c.destroy(),
+      serveJob: (c, first, wrap) => serveJobConnection(c, first, wrap, async () => deno),
+    }),
+  );
+  await new Promise<void>((resolve) => server.listen(sock, resolve));
+  process.env.ZVELTIO_EXT_RUNNER_SOCKET = sock;
 }, 120_000);
 
-describe('a job in Deno reaches nothing but the engine', () => {
-  const refused: [string, string, RegExp][] = [
-    ['fetch to any host', `await fetch('https://example.com');`, /Requires net access/],
-    [
-      'a raw socket',
-      `await Deno.connect({ hostname: '127.0.0.1', port: 5432 });`,
-      /Requires net access/,
-    ],
-    ['the environment', `Deno.env.get('DATABASE_URL');`, /Requires env access/],
-    [
-      'a read outside its copy of jobs.js',
-      `await Deno.readTextFile('/etc/passwd');`,
-      /Requires read access/,
-    ],
-    ['a write', `await Deno.writeTextFile('x', 'x');`, /Requires write access/],
-    ['a subprocess', `await new Deno.Command('/bin/sh').output();`, /Requires run access/],
-    ['FFI', `Deno.dlopen('libc.so.6', {});`, /Requires ffi access/],
-    [
-      'a permission request',
-      `const s = await Deno.permissions.request({ name: 'net' }); throw new Error('state ' + s.state);`,
-      /state denied/,
-    ],
-    ['an https: import', `await import('https://deno.land/std/version.ts');`, /--no-remote/],
-    ['an npm: import', `await import('npm:lodash');`, /--no-npm/],
-    [
-      'a worker granted more',
-      `new Worker('data:text/javascript,1', { type: 'module', deno: { permissions: { net: true } } });`,
-      /unstable-worker-options|Requires|NotCapable|escalat/i,
-    ],
-  ];
-  for (const [what, body, why] of refused) {
-    it(`refuses ${what}`, async () => {
-      expect(await run(job(body))).toMatch(why);
-    }, 20_000);
-  }
+afterAll(async () => {
+  restore('ZVELTIO_EXT_TRANSPORT', saved.transport);
+  restore('ZVELTIO_EXT_RUNNER_SOCKET', saved.socket);
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  rmSync(sockDir, { recursive: true, force: true });
+});
 
-  it('answers host calls, returns their errors with code and status, and logs to stderr', async () => {
-    const seen: [string, unknown[]][] = [];
-    const out = await run(
-      job(`
+for (const t of ['process', 'runner'] as const) {
+  describe(`over ${t}`, () => {
+    beforeAll(() => {
+      transport = t;
+    });
+
+    describe('a job in Deno reaches nothing but the engine', () => {
+      const refused: [string, string, RegExp][] = [
+        ['fetch to any host', `await fetch('https://example.com');`, /Requires net access/],
+        [
+          'a raw socket',
+          `await Deno.connect({ hostname: '127.0.0.1', port: 5432 });`,
+          /Requires net access/,
+        ],
+        ['the environment', `Deno.env.get('DATABASE_URL');`, /Requires env access/],
+        ['any read', `await Deno.readTextFile('/etc/passwd');`, /Requires read access/],
+        ['a write', `await Deno.writeTextFile('x', 'x');`, /Requires write access/],
+        ['a subprocess', `await new Deno.Command('/bin/sh').output();`, /Requires run access/],
+        ['FFI', `Deno.dlopen('libc.so.6', {});`, /Requires ffi access/],
+        [
+          'a permission request',
+          `const s = await Deno.permissions.request({ name: 'net' }); throw new Error('state ' + s.state);`,
+          /state denied/,
+        ],
+        ['an https: import', `await import('https://deno.land/std/version.ts');`, /--no-remote/],
+        ['an npm: import', `await import('npm:lodash');`, /--no-npm/],
+        [
+          'a worker granted more',
+          `new Worker('data:text/javascript,1', { type: 'module', deno: { permissions: { net: true } } });`,
+          /unstable-worker-options|Requires|NotCapable|escalat/i,
+        ],
+      ];
+      for (const [what, body, why] of refused) {
+        it(`refuses ${what}`, async () => {
+          expect(await run(job(body))).toMatch(why);
+        }, 20_000);
+      }
+
+      it('answers host calls, returns their errors with code and status, and logs to stderr', async () => {
+        const seen: [string, unknown[]][] = [];
+        const out = await run(
+          job(`
         console.log('a log line is not a message');
         const row = await host.collections.read('c', 'id-1');
         if (row.v !== 1 || host.timezone !== 'Europe/Bucharest' || input.n !== 1) throw new Error('lost');
@@ -94,94 +151,95 @@ describe('a job in Deno reaches nothing but the engine', () => {
         }
         await host.collections.update('c', 'id-1', { v: 2 }, { expect: { v: [1] } });
       `),
-      {
-        call: async (n, a) => {
-          seen.push([n, a]);
-          if (a[0] === 'nope')
-            throw Object.assign(new Error('no'), { code: 'refused', status: 403 });
-          return { v: 1 };
-        },
-      },
-    );
-    expect(out).toBe('ok');
-    expect(seen.map(([n]) => n)).toEqual([
-      'collections.read',
-      'collections.insert',
-      'collections.update',
-    ]);
-    expect(seen[2]![1]).toEqual(['c', 'id-1', { v: 2 }, { expect: { v: [1] } }]);
-  }, 20_000);
+          {
+            call: async (n, a) => {
+              seen.push([n, a]);
+              if (a[0] === 'nope')
+                throw Object.assign(new Error('no'), { code: 'refused', status: 403 });
+              return { v: 1 };
+            },
+          },
+        );
+        expect(out).toBe('ok');
+        expect(seen.map(([n]) => n)).toEqual([
+          'collections.read',
+          'collections.insert',
+          'collections.update',
+        ]);
+        expect(seen[2]![1]).toEqual(['c', 'id-1', { v: 2 }, { expect: { v: [1] } }]);
+      }, 20_000);
 
-  it('fails a run that throws, naming why', async () => {
-    expect(await run(job(`throw new Error('the remote said no');`))).toBe('the remote said no');
-    expect(await run(code('export default {};'))).toMatch(/exports no job "j"/);
-  }, 20_000);
+      it('fails a run that throws, naming why', async () => {
+        expect(await run(job(`throw new Error('the remote said no');`))).toBe('the remote said no');
+        expect(await run(code('export default {};'))).toMatch(/exports no job "j"/);
+      }, 20_000);
 
-  it('kills a run that writes anything but a message on the channel', async () => {
-    expect(
-      await run(
-        job(
-          `await Deno.stdout.write(new TextEncoder().encode('{"id":"x"}\\n')); await new Promise(() => {});`,
-        ),
-      ),
-    ).toMatch(/malformed host call/);
-  }, 20_000);
+      it('kills a run that writes anything but a message on the channel', async () => {
+        expect(
+          await run(
+            job(
+              `await Deno.stdout.write(new TextEncoder().encode('{"id":"x"}\\n')); await new Promise(() => {});`,
+            ),
+          ),
+        ).toMatch(/malformed host call/);
+      }, 20_000);
 
-  it('kills a run past 1,000 host calls', async () => {
-    expect(
-      await run(job(`for (let i = 0; i < 1100; i++) await host.collections.read('c', String(i));`)),
-    ).toMatch(/more than 1000 host calls/);
-  }, 30_000);
-});
+      it('kills a run past 1,000 host calls', async () => {
+        expect(
+          await run(
+            job(`for (let i = 0; i < 1100; i++) await host.collections.read('c', String(i));`),
+          ),
+        ).toMatch(/more than 1000 host calls/);
+      }, 30_000);
+    });
 
-describe('each ceiling ends the run', () => {
-  it('heap past memoryMb', async () => {
-    expect(await run(job(`const a = []; for (;;) a.push(new Array(1e4).fill(1));`))).toMatch(
-      /killed|exited|memory/,
-    );
-  }, 30_000);
+    describe('each ceiling ends the run', () => {
+      it('heap past memoryMb', async () => {
+        expect(await run(job(`const a = []; for (;;) a.push(new Array(1e4).fill(1));`))).toMatch(
+          /killed|exited|memory/,
+        );
+      }, 30_000);
 
-  it('ArrayBuffers past memoryMb, which the heap limit does not count', async () => {
-    expect(
-      await run(
-        job(`const a = []; for (let i = 0; i < 64; i++) a.push(new Uint8Array(32 << 20).fill(1));`),
-      ),
-    ).toMatch(/memory|SIGKILL/);
-  }, 30_000);
+      it('ArrayBuffers past memoryMb, which the heap limit does not count', async () => {
+        expect(
+          await run(
+            job(
+              `const a = []; for (let i = 0; i < 64; i++) a.push(new Uint8Array(32 << 20).fill(1));`,
+            ),
+          ),
+          // On the runner nothing but its RSS watchdog can see the process.
+        ).toMatch(t === 'runner' ? /exceeded the memory limit of 64 MB/ : /memory|SIGKILL/);
+      }, 30_000);
 
-  it('the wall clock, also for a loop that never yields', async () => {
-    const t = performance.now();
-    expect(await run(job(`for (;;) {}`), { timeoutSeconds: 2 })).toMatch(/timeout of 2s/);
-    expect(performance.now() - t).toBeLessThan(6000);
-  }, 20_000);
+      it('the wall clock, also for a loop that never yields', async () => {
+        const t = performance.now();
+        expect(await run(job(`for (;;) {}`), { timeoutSeconds: 2 })).toMatch(/timeout of 2s/);
+        expect(performance.now() - t).toBeLessThan(6000);
+      }, 20_000);
 
-  it('unload', async () => {
-    const ac = new AbortController();
-    setTimeout(() => ac.abort(), 300);
-    expect(await run(job(`await new Promise(() => {});`), { signal: ac.signal })).toMatch(
-      /unloaded/,
-    );
-  }, 20_000);
+      it('unload', async () => {
+        const ac = new AbortController();
+        setTimeout(() => ac.abort(), 300);
+        expect(await run(job(`await new Promise(() => {});`), { signal: ac.signal })).toMatch(
+          /unloaded/,
+        );
+      }, 20_000);
+    });
+  });
+}
 
+describe('the process itself', () => {
   it('a child whose stdin closes exits', async () => {
-    const dir = (await import('node:fs')).mkdtempSync('/tmp/zv-runner-test-');
-    await Bun.write(`${dir}/boot.js`, RUNNER_BOOTSTRAP);
-    await Bun.write(`${dir}/jobs.js`, 'export default { j: () => new Promise(() => {}) };');
+    const b64 = (s: string) => Buffer.from(s).toString('base64');
     const child = spawn({
-      cmd: [
-        deno,
-        'run',
-        '--no-prompt',
-        `--allow-read=${dir}/jobs.js`,
-        `${dir}/boot.js`,
-        `${dir}/jobs.js`,
-      ],
+      cmd: [deno, 'run', '--no-prompt', `data:text/javascript;base64,${b64(RUNNER_BOOTSTRAP)}`],
       stdin: 'pipe',
       stdout: 'ignore',
       stderr: 'ignore',
-      env: {},
+      env: { DENO_DIR: join(sockDir, 'none') },
     });
-    child.stdin.write(`${JSON.stringify({ job: 'j', input: {}, timezone: 'UTC' })}\n`);
+    const code = b64('export default { j: () => new Promise(() => {}) };');
+    child.stdin.write(`${JSON.stringify({ job: 'j', input: {}, timezone: 'UTC', code })}\n`);
     child.stdin.end();
     const exited = await Promise.race([
       child.exited.then(() => true),
@@ -190,6 +248,52 @@ describe('each ceiling ends the run', () => {
     if (!exited) child.kill('SIGKILL');
     expect(exited).toBe(true);
   }, 20_000);
+});
+
+describe('the runner side', () => {
+  it('reads the job header, and nothing else', () => {
+    expect(parseJobHeader('JOB 128 60')).toEqual({ memoryMb: 128, timeoutSeconds: 60 });
+    for (const bad of [
+      'JOB 0 60',
+      'JOB 128',
+      'JOB -1 60',
+      'JOB 12345 60',
+      'EDGE 128 60',
+      'JOB 1 1 ',
+    ])
+      expect(parseJobHeader(bad)).toBeNull();
+  });
+
+  it('spawns Deno through the wrap with no address-space limit and RLIMIT_CPU at twice the timeout', async () => {
+    wrapped.length = 0;
+    transport = 'runner';
+    expect(await run(job(''), { timeoutSeconds: 7 })).toBe('ok');
+    expect(wrapped).toHaveLength(1);
+    expect(wrapped[0]!.addressSpace).toBe(false);
+    expect(wrapped[0]!.argv.join(' ')).toContain('ulimit -t 14');
+    expect(wrapped[0]!.argv.join(' ')).not.toContain('ulimit -v');
+  }, 20_000);
+
+  it('a job line forged by the child is a malformed message on the engine', async () => {
+    transport = 'process';
+    expect(
+      await run(job(`await Deno.stdout.write(new TextEncoder().encode('{"runner":{}}\\n'));`)),
+    ).toMatch(/malformed host call/);
+  }, 20_000);
+});
+
+describe('production', () => {
+  it("never runs a job as the engine's child: on `process` it waits", () => {
+    process.env.NODE_ENV = 'production';
+    try {
+      process.env.ZVELTIO_EXT_TRANSPORT = 'process';
+      expect(() => jobPlacement()).toThrow(/only on the extension runner/);
+      delete process.env.ZVELTIO_EXT_TRANSPORT;
+      expect(jobPlacement()).toBe('runner');
+    } finally {
+      restore('NODE_ENV', saved.env);
+    }
+  });
 });
 
 describe('unzipSingle', () => {

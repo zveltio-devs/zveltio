@@ -32,6 +32,7 @@ if [ -z "${ZVELTIO_EXT_RUNNER_SOCKET:-}" ]; then
   env -i PATH="$PATH" NODE_ENV="${NODE_ENV:-production}" ZVELTIO_ENGINE_UID=100 \
     ZVELTIO_EXT_RUNNER_SOCKET="$sock" \
     ZVELTIO_EXT_RUNNER_UID_BASE="${ZVELTIO_EXT_RUNNER_UID_BASE:-200000}" \
+    ${ZVELTIO_DENO_PATH:+"ZVELTIO_DENO_PATH=$ZVELTIO_DENO_PATH"} \
     setpriv --inh-caps=-all --bounding-set=-all,+setuid,+setgid,+kill -- \
     sh -c "while :; do $BIN ext-runner; sleep 5; done" &
   i=0

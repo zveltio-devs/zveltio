@@ -62,6 +62,9 @@ const OWNER_EXEMPTIONS: Record<string, readonly string[]> = {
     'packages/engine/src/lib/edge-functions/subprocess-runner.ts',
     'packages/engine/src/lib/edge-functions/safe-fetch.ts',
   ],
+  // The runner serves Deno jobs (ADR 0023) from job-runner alone; the barrel
+  // would load the whole extension loader, and its database, into the runner.
+  extensions: ['packages/engine/src/lib/ext-runner.ts'],
 };
 
 interface Violation {

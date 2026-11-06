@@ -14,7 +14,11 @@
 # directory; it opens no socket although the container has a network (the
 # seccomp socket ban, ADR 0023: EACCES), and an edge function still runs there;
 # it cannot start more than 64 tasks, and one that allocates without
-# end dies alone while the runner serves the next. Started as uid 100, the
+# end dies alone while the runner serves the next. A Deno job (ADR 0023
+# decision 2) runs there too: under a uid of its own that reads no engine
+# secret, with the socket ban loaded (Seccomp: 2, read from outside while it
+# is held), its host.fetch answered through the engine, and a job past its
+# memoryMb killed by the runner's watchdog. Started as uid 100, the
 # entrypoint is the binary and nothing else.
 #
 #   bash packages/engine/scripts/ext-runner-standalone.sh
@@ -26,7 +30,11 @@ C=zveltio-ext-runner-standalone
 trap 'docker rm -f "$C" "$C-user" >/dev/null 2>&1 || true' EXIT
 
 docker build -q -t "$IMG" -f - "$ROOT" >/dev/null <<'EOF'
+FROM gcr.io/distroless/cc-debian12 AS glibc
 FROM oven/bun:1.4-alpine
+# Deno's glibc loader, as the release image carries it (Dockerfile, stage 3).
+COPY --from=glibc /lib/ /lib/
+RUN if [ "$(uname -m)" = x86_64 ]; then mkdir -p /lib64 && ln -s /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 /lib64/; fi
 RUN apk add --no-cache setpriv tini util-linux-misc && addgroup -S -g 101 zveltio && adduser -S -u 100 -G zveltio zveltio && \
     mkdir -p /data/extensions /data/storage /run/zveltio-ext && chown -R 100:101 /data && \
     echo hunter2-upload > /data/storage/upload && chown 100:101 /data/storage/upload && \
@@ -107,6 +115,39 @@ out=$(docker exec -u 100:101 -e PROBE_URL="$URL" -e ZVELTIO_EDGE_TRANSPORT=runne
 echo "edge:    ${out:0:300}"
 grep -q '"transport":"runner"' <<<"$out" && grep -q 'declares no egress' <<<"$out" \
   || { echo "FAIL: an edge function did not run on the runner"; fail=1; }
+
+# A Deno job: held, so its process is read from outside (uid, seccomp), then
+# its host.fetch crosses to the engine (the probe), which reaches $URL.
+HOST=$(sed -E 's#^[a-z]+://([^/:]+).*#\1#' <<<"$URL")
+job() { docker exec -u 100:101 -e ZVELTIO_EXT_TRANSPORT=runner -e ZVELTIO_EXT_RUNNER_SOCKET="$SOCK" \
+  -e EXTENSIONS_DIR=/data/extensions -e PROBE_URL="$URL" -e PROBE_EGRESS="$HOST" "$@" \
+  "$C" bun /src/packages/engine/scripts/job-runner-isolation.ts 2>&1 || true; }
+# The engine downloads Deno into the extensions directory the runner reads.
+job -e PROBE_URL= >/dev/null
+job_out=$(mktemp)
+job -e PROBE_HOLD_MS=8000 >"$job_out" &
+job_pid=$!
+jstat=
+for _ in $(seq 1 30); do
+  sleep 0.5
+  jstat=$(docker exec "$C" sh -c 'for p in /proc/[0-9]*; do grep -q "^Name:.*deno" $p/status 2>/dev/null && cat $p/status; done; true')
+  [ -n "$jstat" ] && break
+done
+juid=$(awk '/^Uid:/{print $2; exit}' <<<"$jstat")
+[ -n "$juid" ] && [ "$juid" -ge 200000 ] || { echo "FAIL: the Deno job ran as uid ${juid:-?}, not one of its own"; fail=1; }
+grep -qE '^Seccomp:[[:space:]]+2' <<<"$jstat" && grep -qE '^NoNewPrivs:[[:space:]]+1' <<<"$jstat" \
+  || { echo "FAIL: the Deno job runs without the socket ban"; fail=1; }
+[ -n "$juid" ] && docker exec -u "$juid" "$C" cat /data/storage/upload 2>/dev/null | grep -q hunter2 \
+  && { echo "FAIL: the Deno job's uid reads an engine file"; fail=1; }
+wait "$job_pid" || true
+out=$(cat "$job_out"); rm -f "$job_out"
+echo "job:     ${out:0:300} (uid ${juid:-?})"
+grep -q '"transport":"runner"' <<<"$out" && grep -q '"fetch":"HTTP' <<<"$out" \
+  || { echo "FAIL: a Deno job on the runner did not reach $HOST through the engine"; fail=1; }
+out=$(job -e PROBE_JOB=alloc)
+echo "job mem: ${out:0:300}"
+grep -q 'exceeded the memory limit of 64 MB' <<<"$out" \
+  || { echo "FAIL: a Deno job past its memoryMb was not killed by the runner's watchdog"; fail=1; }
 
 # An orphan is reparented to PID 1, which must reap it.
 docker exec "$C" sh -c '(sleep 1 &)'

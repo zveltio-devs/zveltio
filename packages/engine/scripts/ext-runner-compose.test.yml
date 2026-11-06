@@ -11,7 +11,11 @@ x-image: &image
   build: !override
     context: .
     dockerfile_inline: |
+      FROM gcr.io/distroless/cc-debian12 AS glibc
       FROM oven/bun:1.4-alpine
+      # Deno's glibc loader, as the release image carries it (Dockerfile, stage 3).
+      COPY --from=glibc /lib/ /lib/
+      RUN if [ "$(uname -m)" = x86_64 ]; then mkdir -p /lib64 && ln -s /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 /lib64/; fi
       # /run/zveltio-ext and /tmp 0777 with no sticky bit, as a Kubernetes emptyDir
       # is: the runner must close both.
       RUN apk add --no-cache setpriv util-linux-misc && mkdir -p /run/zveltio-ext /data/extensions /opt/zveltio && \
@@ -38,6 +42,8 @@ services:
     <<: *image
     container_name: !reset null
     command: ['bun', '/src/packages/engine/src/binary-entry.ts', 'ext-runner']
+    # The release image's WORKDIR: the runner finds Deno under ./extensions.
+    working_dir: /data
     tmpfs: !override ['/tmp:mode=0777']
     volumes:
       - ${ZV_SRC:?}:/src:ro

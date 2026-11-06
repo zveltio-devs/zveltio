@@ -25,6 +25,22 @@ gains `RestrictAddressFamilies=AF_UNIX`, `SystemCallArchitectures=native` and
 (`update.sh` rewrites it). The runner checks the ban at start and refuses to
 start without it.
 
+**Security: a Deno job runs on the extension runner, not under the engine's uid
+(ADR 0023 decision 2).** The job runner spawned Deno as the engine's child, so
+Deno's permission check was its only boundary and an escape read the engine's
+environment and `.env`. On the `runner` transport a job now runs in its
+extension's runner, under the runner's uid drop and socket ban, spoken to over
+the runner's socket (`JOB <memoryMb> <timeoutSeconds>`, then the job protocol
+unchanged); the runner kills it past `memoryMb` (RSS watchdog; no RLIMIT_AS,
+which Deno cannot start under) and reports how it ended. Production never
+falls back to the engine's child: on `ZVELTIO_EXT_TRANSPORT=process` the jobs
+wait. Deno now runs with no permission at all: `jobs.js` and the bootstrap are
+`data:` URLs, and `DENO_DIR` points where nothing can be written. RLIMIT_CPU is
+twice the timeout, a backstop, so it no longer kills a run before the wall
+clock does. The systemd unit sets `EXTENSIONS_DIR` so the runner finds the
+Deno the engine downloaded (`update.sh` rewrites it); with `ZVELTIO_DENO_PATH`
+set, set it on the runner too.
+
 **A revoked egress consent cuts a running job's next fetch (ADR 0023 decision
 4).** A job's `host.fetch` used the `egress:<authority>` set compiled when the
 extension loaded, so a run kept the network an operator had just taken away
