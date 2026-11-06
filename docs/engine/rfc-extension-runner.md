@@ -139,7 +139,7 @@ runner shares a network (one container on a PaaS, the Helm sidecar) or where
 process the runner starts — extension runtimes and edge functions — is loaded
 by `setpriv --seccomp-filter` (util-linux 2.41 or newer) with the filter
 `socket-ban.ts` builds: `socket` and `io_uring_*` fail with EACCES for every
-family, `socketpair` for every family but AF_UNIX (a connected pair inside the
+family, `socketpair` for everything but an AF_UNIX stream pair (connected, inside the
 process; Deno's tokio and Bun's piped child stdio need one), the x32 range
 too, and a foreign architecture is killed. The runtime opens no socket: its
 channel is fds 0-2, created before exec. On systemd the unit

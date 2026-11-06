@@ -15,7 +15,7 @@ socket ban below makes the rule hold where the runner shares a network.
 **Security: third-party code opens no socket (ADR 0023).** Every process the
 extension runner starts — extension runtimes and edge functions — runs under
 a seccomp filter: `socket` and `io_uring` fail with EACCES for every family,
-`socketpair` for every family but AF_UNIX, the x32 range too, and a foreign architecture is killed. This
+`socketpair` for everything but an AF_UNIX stream pair, the x32 range too, and a foreign architecture is killed. This
 closes `node:net`, `Bun.connect` and FFI sockets where the runner shares a
 network (one container on Fly.io, Railway or Render, the Helm sidecar) or
 `IPAddressDeny` is a no-op. Containers load it with `setpriv --seccomp-filter`

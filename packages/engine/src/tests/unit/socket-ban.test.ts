@@ -37,6 +37,10 @@ const out = {};
 const fds = new Int32Array(2);
 out.socketpair = c.socketpair(1, 1, 0, ptr(fds)) === 0 ? 'ok' : 'errno ' + errno();
 out.socketpairInet = c.socketpair(2, 1, 0, ptr(fds)) === 0 ? 'ok' : 'errno ' + errno();
+// SOCK_DGRAM: sendto with an address would reach the host's datagram sockets.
+out.socketpairDgram = c.socketpair(1, 2, 0, ptr(fds)) === 0 ? 'ok' : 'errno ' + errno();
+// SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, as tokio asks.
+out.socketpairFlags = c.socketpair(1, 1 | 0o4000 | 0o2000000, 0, ptr(fds)) === 0 ? 'ok' : 'errno ' + errno();
 // x32 getpid (39 | 0x40000000) and io_uring_setup(1, NULL).
 if (process.arch === 'x64') out.x32 = Number(c.syscall(39 | 0x40000000, 0, 0, 0)) >= 0 ? 'ok' : 'errno ' + errno();
 out.io_uring = Number(c.syscall(425, 1, 0, 0)) >= 0 ? 'ok' : 'errno ' + errno();
@@ -69,9 +73,9 @@ function runUnder(filter: Uint8Array | null): Record<string, unknown> {
 
 // A classic-BPF interpreter for the four opcodes the filter uses, so the
 // architecture this host is not (aarch64 on CI, or the reverse) is checked too.
-function evaluate(prog: Uint8Array, arch: number, nr: number, arg0 = 0): number {
+function evaluate(prog: Uint8Array, arch: number, nr: number, arg0 = 0, arg1 = 0): number {
   const v = new DataView(prog.buffer, prog.byteOffset, prog.byteLength);
-  const data: Record<number, number> = { 0: nr, 4: arch, 16: arg0 };
+  const data: Record<number, number> = { 0: nr, 4: arch, 16: arg0, 24: arg1 };
   let a = 0;
   for (let pc = 0; ; pc++) {
     const [code, jt, jf, k] = [
@@ -83,6 +87,7 @@ function evaluate(prog: Uint8Array, arch: number, nr: number, arg0 = 0): number 
     if (code === 0x20) a = data[k] ?? 0;
     else if (code === 0x15) pc += a === k ? jt : jf;
     else if (code === 0x35) pc += a >= k ? jt : jf;
+    else if (code === 0x54) a = (a & k) >>> 0;
     else if (code === 0x06) return k;
     else throw new Error(`opcode ${code}`);
   }
@@ -117,9 +122,12 @@ describe('socket ban filter, by architecture', () => {
       expect(evaluate(prog, 0x40000028, 281)).toBe(KILL);
       if (arch === 'x64') expect(evaluate(prog, c.audit, 0x40000000 | 41)).toBe(EACCES);
       // socketpair: AF_UNIX only (Deno's tokio needs one; it reaches nothing).
-      expect(evaluate(prog, c.audit, c.socketpair, 1)).toBe(ALLOW);
+      expect(evaluate(prog, c.audit, c.socketpair, 1, 1)).toBe(ALLOW);
+      expect(evaluate(prog, c.audit, c.socketpair, 1, 1 | 0o4000 | 0o2000000)).toBe(ALLOW);
+      for (const type of [2, 3, 5])
+        expect(evaluate(prog, c.audit, c.socketpair, 1, type)).toBe(EACCES);
       for (const family of [2, 10, 16, 43]) {
-        expect(evaluate(prog, c.audit, c.socketpair, family)).toBe(EACCES);
+        expect(evaluate(prog, c.audit, c.socketpair, family, 1)).toBe(EACCES);
       }
     });
   }
@@ -144,6 +152,8 @@ describe.skipIf(process.platform !== 'linux')('socket ban, loaded into a Bun pro
     expect(got).toEqual({
       socketpair: 'ok',
       socketpairInet: 'errno 13',
+      socketpairDgram: 'errno 13',
+      socketpairFlags: 'ok',
       ...(process.arch === 'x64' ? { x32: 'errno 13' } : {}),
       io_uring: 'errno 13',
       net: 'EACCES',

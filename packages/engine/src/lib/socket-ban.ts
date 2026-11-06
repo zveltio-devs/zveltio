@@ -8,8 +8,10 @@
  * INET families (measured). So:
  *   - `socket` and `io_uring_setup/enter/register` fail with EACCES for every
  *     family (io_uring opens sockets of its own);
- *   - `socketpair` fails the same way except for AF_UNIX: a connected pair
- *     inside the process reaches nothing outside it, and the runtimes need one
+ *   - `socketpair` fails the same way except for AF_UNIX SOCK_STREAM: a
+ *     connected stream pair inside the process reaches nothing outside it (a
+ *     datagram pair would: `sendto` with an address reaches the host's
+ *     datagram sockets, `/dev/log` or an abstract one), and the runtimes need one
  *     (Deno's tokio signal self-pipe panics without it; Bun pipes a child's
  *     stdio through one — measured);
  *   - on x86_64, the x32 range (`nr | 0x40000000`) fails the same way;
@@ -31,20 +33,25 @@ import { join } from 'node:path';
 const AUDIT_ARCH = { x64: 0xc000003e, arm64: 0xc00000b7 } as const;
 // socket, io_uring_setup, io_uring_enter, io_uring_register
 const DENIED_NR = { x64: [41, 425, 426, 427], arm64: [198, 425, 426, 427] } as const;
-// socketpair: allowed for AF_UNIX only
+// socketpair: allowed for AF_UNIX SOCK_STREAM only
 const SOCKETPAIR_NR = { x64: 53, arm64: 199 } as const;
 const AF_UNIX = 1;
+const SOCK_STREAM = 1;
+// The type's low bits; SOCK_NONBLOCK and SOCK_CLOEXEC sit above them.
+const SOCK_TYPE_MASK = 0xf;
 const X32_SYSCALL_BIT = 0x40000000;
 
 // linux/filter.h, linux/seccomp.h
 const LD_W_ABS = 0x20;
 const JEQ_K = 0x15;
 const JGE_K = 0x35;
+const AND_K = 0x54;
 const RET_K = 0x06;
 const SECCOMP_DATA_NR = 0;
 const SECCOMP_DATA_ARCH = 4;
 // args[0], low 32 bits (little-endian): the family is an int
 const SECCOMP_DATA_ARG0 = 16;
+const SECCOMP_DATA_ARG1 = 24;
 const RET_KILL_PROCESS = 0x80000000;
 const RET_EACCES = 0x00050000 | 13;
 const RET_ALLOW = 0x7fff0000;
@@ -63,9 +70,12 @@ export function socketBanFilter(arch: string = process.arch): Uint8Array {
   if (arch === 'x64') prog.push([JGE_K, 0, 1, X32_SYSCALL_BIT], deny);
   for (const nr of DENIED_NR[arch]) prog.push([JEQ_K, 0, 1, nr], deny);
   prog.push(
-    [JEQ_K, 0, 4, SOCKETPAIR_NR[arch]],
+    [JEQ_K, 0, 7, SOCKETPAIR_NR[arch]],
     [LD_W_ABS, 0, 0, SECCOMP_DATA_ARG0],
-    [JEQ_K, 0, 1, AF_UNIX],
+    [JEQ_K, 0, 4, AF_UNIX],
+    [LD_W_ABS, 0, 0, SECCOMP_DATA_ARG1],
+    [AND_K, 0, 0, SOCK_TYPE_MASK],
+    [JEQ_K, 0, 1, SOCK_STREAM],
     [RET_K, 0, 0, RET_ALLOW],
     deny,
   );
