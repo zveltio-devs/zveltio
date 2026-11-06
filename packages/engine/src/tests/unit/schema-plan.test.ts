@@ -346,4 +346,50 @@ describe('planSchema', () => {
     const o2m = { name: 'posts_comments', type: 'o2m', field: 'comments', target: 'comments' };
     expect(same(o2m, { ...defaults, targetField: 'posts_id' })).toEqual([]);
   });
+
+  // ADR 0024 §6: an extension that turns its text field `secret` (auth/ldap
+  // 2.0.0 → 2.1.0) had no op, so every install of 2.0.0 refused to load 2.1.0.
+  describe('a text field turned secret', () => {
+    const withField = (f: Obj): Obj => ({ ...posts(), fields: [(posts().fields as Obj[])[0], f] });
+    const was = { name: 'body', type: 'text', required: true, encrypted: true, defaultValue: 'x' };
+    const now = { name: 'body', type: 'secret', required: true };
+    const steps = (from: Obj, to: Obj, intoSecret = true) =>
+      planSchema(files([withField(from)]), files([withField(to)]), new Map(), { intoSecret });
+
+    it("is one step in an extension's plan, not destructive, and leaves nothing owed", () => {
+      const out = steps(was, now);
+      expect(out).toEqual([
+        {
+          change: '~',
+          target: 'posts',
+          action: 'change field body type text → secret',
+          op: { kind: 'intoSecret', collection: 'posts', field: 'body' },
+        },
+      ]);
+      // A unique key and an index go with the retype too.
+      expect(steps({ ...was, unique: true, indexed: true }, now)).toHaveLength(1);
+      // From a textarea, as auth/saml's private_key.
+      expect(
+        steps({ name: 'body', type: 'textarea' }, { name: 'body', type: 'secret' }),
+      ).toHaveLength(1);
+    });
+
+    it('plans what else the file changes against the field the retype leaves', () => {
+      const out = steps(was, { ...now, required: false, label: 'Body' });
+      expect(out.map((s) => s.op?.kind)).toEqual(['intoSecret', 'alterField']);
+      expect(out[1].action).toBe('alter field body (label, required)');
+    });
+
+    it('stays refused outside an extension, and for any other type change', () => {
+      const refused = (from: Obj, to: Obj, intoSecret = true) => {
+        const [only] = steps(from, to, intoSecret);
+        expect(only).toMatchObject({ destructive: true });
+        expect(only.op).toBeUndefined();
+      };
+      refused(was, now, false);
+      refused(was, { ...now, type: 'integer' });
+      refused({ name: 'body', type: 'boolean' }, now);
+      refused({ name: 'body', type: 'password' }, now);
+    });
+  });
 });

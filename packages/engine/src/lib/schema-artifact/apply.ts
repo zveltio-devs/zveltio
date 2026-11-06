@@ -212,6 +212,7 @@ async function prepare(
     case 'revokeDefault':
     case 'setCollection':
     case 'reorderFields':
+    case 'intoSecret':
       return op;
     case 'putEntry':
     case 'removeEntry':
@@ -575,6 +576,23 @@ async function run(
       );
     case 'addField':
       return runAddField(db, op.collection, op.field, owner);
+    case 'intoSecret': {
+      // A unique key or an index goes in the same change: a secret holds
+      // ciphertext under a random IV, and `alterField` refuses one that keeps them.
+      const field = (await fieldsOf(db, op.collection)).find((f) => f.name === op.field);
+      await alterField(
+        db,
+        op.collection,
+        op.field,
+        {
+          newType: 'secret',
+          ...(field?.unique ? { unique: false } : {}),
+          ...(field?.indexed ? { indexed: false } : {}),
+        },
+        owner,
+      );
+      return;
+    }
     case 'setCollection':
       await DDLManager.updateCollectionMetadata(db, op.collection, { [op.key]: op.value });
       return announceSchemaChange(op.collection, 'alter');
@@ -708,11 +726,16 @@ export async function planExtensionSchema(
       typeof declared_file === 'string' ? JSON.parse(declared_file) : declared_file,
     );
   }
-  const steps = planSchema(current, {
-    ...files,
-    'zveltio-schema.json': current['zveltio-schema.json'],
-    'roles.json': current['roles.json'],
-  });
+  const steps = planSchema(
+    current,
+    {
+      ...files,
+      'zveltio-schema.json': current['zveltio-schema.json'],
+      'roles.json': current['roles.json'],
+    },
+    new Map(),
+    { intoSecret: true },
+  );
   // Read by the plan, so each file is a JSON object. An o2m puts its key on the
   // target: on a collection this extension does not declare, that is a column
   // in somebody else's table.
