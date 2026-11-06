@@ -5186,6 +5186,7 @@ table zvd_ldap_settings
   col updated_by                     text
   col url                            text NOT NULL
   col username_attribute             text DEFAULT 'uid'::text
+  ck  zvd_ldap_settings_bind_password_check CHECK (((bind_password IS NULL) OR (bind_password ~~ 'enc:v1:%'::text)))
   fk  zvd_ldap_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_ldap_settings_pkey PRIMARY KEY (id)
   uq  zvd_ldap_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
@@ -7485,6 +7486,7 @@ table zvd_saml_settings
   col want_authn_response_signed     boolean DEFAULT true
   fk  zvd_saml_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_saml_settings_pkey PRIMARY KEY (id)
+  ck  zvd_saml_settings_private_key_check CHECK (((private_key IS NULL) OR (private_key ~~ 'enc:v1:%'::text)))
   uq  zvd_saml_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
   fk  zvd_saml_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
@@ -10809,7 +10811,6 @@ table zvv_journal_lines
 
 table zvv_ldap_settings
   col bind_dn                        text
-  col bind_password                  text
   col created_at                     timestamp with time zone
   col created_by                     text
   col email_attribute                text
@@ -12080,7 +12081,6 @@ table zvv_saml_settings
   col issuer                         text
   col map_email                      text
   col map_name                       text
-  col private_key                    text
   col scope                          text
   col search_text                    text
   col search_vector                  tsvector
