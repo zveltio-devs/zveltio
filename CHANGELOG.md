@@ -4,11 +4,37 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.103] - 2026-11-06
+
 **An extension update can turn its text field `secret` (ADR 0024 §6).** An extension's declared collections had no step for a type change, so an update that declared a 2.0.0 `text` field as `secret` (auth/ldap `bind_password`, auth/saml `private_key`) was refused on every install that had the old one, and a retype by hand left `encrypted: true` in the field's metadata, a step the plan then owed forever. The extension plan now runs that retype, from a text-stored field only: ciphertext under the field key is kept, plaintext is encrypted, and the default, unique key, index and `encrypted` flag go, so the next load owes nothing. Any other type change is still refused.
 
 **Extension routes get `host.collections` (ADR 0025).** `ctx.host(c).collections` in a route, inline or worker-isolated, reaches the collections the manifest declares and those its actions and jobs read or write, as the caller (the user, or the `public` role on a public route); in an inline extension, inside `ctx.internals.asSystem(collections, fn)` the named ones act as the extension's own key principal, audited as `asSystem` is; a worker-isolated route has no `asSystem` and always acts as its caller. Secrets of a collection the extension owns come back decrypted, so a public sign-in route reads its `secret` settings this way.
 
 **New field type `secret` (ADR 0024).** Write-only for everyone, god included, and always encrypted under `FIELD_ENCRYPTION_KEY` (no plaintext mode; planted `enc:v1:` is encrypted again); only the extension owning the collection reads the plaintext, through `host.collections` in its actions and jobs. Retyping to `secret` encrypts the stored values, drops the column default, adds a CHECK that keeps the column ciphertext, and removes the field from the collection's revisions and webhook delivery payloads; retyping from it is refused. A secret takes no default, unique key or index.
+
+**Jobs of worker-isolated extensions run in Deno with no permissions (ADR 0022).**
+A worker-isolated extension may now declare jobs. Each run is one Deno 2.9.8
+process (pinned by SHA-256 per platform, downloaded on first use into
+`<EXTENSIONS_DIR>/.deno/2.9.8/`, or `ZVELTIO_DENO_PATH`) with no environment
+and no permission; every collection call is a message the engine answers
+through the data API in the job's tenant, as an inline job's. The run is
+killed past `timeoutSeconds`, `memoryMb`, 1,000 host calls or 16 MiB of
+output. Manifest additions (extension-api v1): `jobs[].memoryMb` (32-512,
+default 128), `jobs[].timeoutSeconds` (1-60, default 60) and
+`integrity.jobsSha256`; `zveltio extension pack` builds `engine/jobs.ts` into
+`engine/jobs.js` and records its digest, which the engine verifies at load.
+`ZVELTIO_JOB_RUNNER_CONCURRENCY` (default 4) bounds concurrent runs. The
+images carry the glibc loader the pinned Deno needs (+4.5 MB); air-gapped,
+copy the pinned binary to `<EXTENSIONS_DIR>/.deno/2.9.8/deno`.
+
+**Job egress through the engine, consented per authority (ADR 0022).** A job
+declares `jobs[].egress` (exact authorities such as `api.x.com:8443`, no
+wildcard); `host.fetch` sends the request to the engine, which performs it
+under the SSRF guard, held on every redirect to the authorities the operator
+approved (`POST /api/marketplace/:name/approve-capabilities`, god step-up).
+Consent is never grandfathered: install consents `permissions` only. A job
+with egress may run up to 900 seconds and holds no transaction across the
+run; each host call opens its own.
 
 **Breaking for third-party extensions: routes and actions have no network
 egress (ADR 0022).** In a worker-isolated extension `fetch` rejects with the
