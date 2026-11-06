@@ -25,7 +25,6 @@ import { type Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { sqlState } from '../db/bun-sql-quirks.js';
 import { Turns } from '../db/trx-sequencer.js';
-import { createSafeFetch } from './edge-functions/safe-fetch.js';
 import { buildWorkerCtx } from './worker-extension-ctx.js';
 import type {
   HostCallOp,
@@ -271,38 +270,31 @@ function collectRoutes(app: Hono): RouteDescriptor[] {
   return out;
 }
 
+/** What a third-party route or action's `fetch` rejects with. */
+const NO_EGRESS_MESSAGE =
+  'Third-party extension routes and actions have no network egress (ADR 0022). ' +
+  'Enqueue a job that declares `egress` and let the job make the call.';
+
 /**
- * Route the worker's `fetch` through the engine's SSRF validator.
+ * Refuse `fetch` in a worker-isolated extension: its routes and actions have
+ * no egress (ADR 0022, Consequences). Network work goes to a job, which the
+ * engine fetches for, per consented authority.
  *
- * Read the limit first, because the name invites the wrong reading: this is
- * NOT a security boundary, and nothing here contains malicious code. The
- * runtime has the full Node API — `node:http` and `node:net` are one import
- * away, and an extension that wants to reach 169.254.169.254 simply does not
- * call `fetch`. That was measured, not assumed: `Bun.plugin` cannot block
- * builtin imports. Containment against hostile code is the runner's network
- * (`network_mode: none`, `IPAddressDeny=any`), not this.
+ * Read the limit first: this is NOT the boundary. The runtime has the full
+ * Node API — `node:net` and `node:http` are one import away, and `Bun.fetch`
+ * cannot be replaced (a readonly, unconfigurable property). The boundary is
+ * the runner's network: `network_mode: none` in containers, `IPAddressDeny=any`
+ * on systemd. In the process backend (single-container PaaS) there is no OS
+ * rule, and this refusal is all there is — the known gap the ADR records.
  *
- * What it does buy, and the reason it ships: an extension that takes a URL
- * from its own configuration and fetches it — a webhook target, an API base
- * URL, an avatar — stops being an SSRF pivot into the operator's private
- * network by accident. That is the common case and it is worth closing.
- *
- * Scope is narrow by construction. Only `isolation: "worker"` extensions run
- * here, which today is the third-party/community tier and nothing else. The
- * first-party extensions that legitimately talk to loopback services (Ollama,
- * SeaweedFS) load inline and never reach this code, so the guard cannot break
- * them. ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH=1 lifts it for an operator running
- * a worker extension against a deliberately internal endpoint.
+ * What it buys: an extension that calls `fetch` learns at once, with the
+ * reason, instead of a timeout from a runner with no address. Only
+ * `isolation: "worker"` extensions run here — the third-party tier; first-party
+ * extensions load inline and never reach this code.
  */
-function installFetchGuard(): void {
-  if (process.env.ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH === '1') return;
-  const original = globalThis.fetch;
-  // The engine's own safeFetch, not a check in front of the real fetch: a check
-  // in front let the real fetch follow redirects, so a configured public URL
-  // that 302'd to 169.254.169.254 was fetched anyway.
-  const guarded = createSafeFetch(() => original);
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-    guarded(input, init)) as typeof fetch;
+function refuseFetch(): void {
+  globalThis.fetch = (() =>
+    Promise.reject(new Error(NO_EGRESS_MESSAGE))) as unknown as typeof fetch;
 }
 
 async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): Promise<void> {
@@ -314,7 +306,7 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     // after it crashed the worker (ProcessNextTick undefined, core dump).
     if (msg.env.NODE_ENV) process.env.NODE_ENV = msg.env.NODE_ENV;
     for (const [name, owner] of msg.services ?? []) serviceOwners.set(name, owner);
-    installFetchGuard();
+    refuseFetch();
     const module = await import(msg.bundleUrl);
     const extension = module.default;
     if (!extension || typeof extension.register !== 'function') {

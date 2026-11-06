@@ -1,5 +1,5 @@
 /**
- * The worker runtime's `fetch` guard, exercised through a REAL runtime process
+ * The worker runtime's `fetch` refusal, exercised through a REAL runtime process
  * (the `process` transport) running the bundle the engine actually ships.
  *
  * A mocked worker would prove nothing here. The guard lives inside
@@ -7,11 +7,12 @@
  * `gen-worker-source.ts` compiles it into
  * `worker-extension-runtime-source.generated.ts` — so a test that stubs the
  * worker would keep passing if the guard never made it into the bundle. This
- * spawns the generated source and asks it to fetch a private address.
+ * spawns the generated source and asks it to fetch.
  *
- * Read the guard's own docstring for what it is not: the runtime has the full
- * Node API, so this stops accidental SSRF, not hostile code (`node:http` is one
- * import away). These tests pin the accident case.
+ * Read the refusal's own docstring for what it is not: the runtime has the
+ * full Node API (`node:net` is one import away), so the boundary is the
+ * runner's network, measured by the ext-runner-* scripts. These tests pin that
+ * the shipped bundle refuses `fetch`, public addresses included.
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
@@ -85,33 +86,16 @@ async function fetchFromWorker(target: string): Promise<string> {
   }
 }
 
-describe('worker fetch guard', () => {
-  it('refuses loopback', async () => {
-    const msg = await fetchFromWorker('http://127.0.0.1:1/x');
-    expect(msg).not.toContain('FETCH-ALLOWED');
-    expect(msg.toLowerCase()).toMatch(/private|loopback|blocked|refus|not allowed/);
-  }, 20_000);
-
-  it('refuses the cloud metadata address', async () => {
-    // The one that turns a webhook URL field into an instance-credential leak.
-    const msg = await fetchFromWorker('http://169.254.169.254/latest/meta-data/');
-    expect(msg).not.toContain('FETCH-ALLOWED');
-    expect(msg.toLowerCase()).toMatch(/private|link-local|metadata|blocked|refus|not allowed/);
-  }, 20_000);
-
-  it('refuses an RFC1918 address', async () => {
-    const msg = await fetchFromWorker('http://10.0.0.1/admin');
-    expect(msg).not.toContain('FETCH-ALLOWED');
-    expect(msg.toLowerCase()).toMatch(/private|blocked|refus|not allowed/);
-  }, 20_000);
-});
-
-describe('worker fetch guard — redirects', () => {
-  it('is the engine safeFetch, which re-validates every hop', () => {
-    // The guard used to check the first URL and then hand it to the real fetch,
-    // which followed redirects on its own: a configured public URL that 302'd to
-    // 169.254.169.254 was fetched. Hop handling is exercised in
-    // safe-fetch-redirect.test.ts; this pins that the worker bundle carries it.
-    expect(WORKER_RUNTIME_SOURCE).toContain('[safeFetch] Redirect with no Location header.');
-  });
+describe('worker fetch refusal (ADR 0022: third-party routes and actions have no egress)', () => {
+  for (const target of [
+    'https://example.com/',
+    'http://127.0.0.1:1/x',
+    'http://169.254.169.254/latest/meta-data/',
+  ]) {
+    it(`refuses ${target}`, async () => {
+      const msg = await fetchFromWorker(target);
+      expect(msg).not.toContain('FETCH-ALLOWED');
+      expect(msg).toContain('no network egress (ADR 0022)');
+    }, 20_000);
+  }
 });

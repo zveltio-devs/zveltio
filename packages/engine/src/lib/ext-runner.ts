@@ -4,8 +4,8 @@
  *
  * One systemd service per extension, `zveltio-ext-runner@<instance>`, with
  * `DynamicUser=yes`: each extension runs under its own uid, in its own cgroup
- * (MemoryMax) and behind its own egress rule (IPAddressDeny, with the
- * operator's IPAddressAllow). The engine keeps `NoNewPrivileges=yes` and so
+ * (MemoryMax) and with no network (IPAddressDeny=any: routes and actions have
+ * no egress, ADR 0022; a job's egress goes through the engine). The engine keeps `NoNewPrivileges=yes` and so
  * cannot start a process under another uid; it asks systemd to start the
  * instance over D-Bus (`systemctl start`, allowed by the polkit rule `setup`
  * writes) and connects to the instance's unix socket. Each accepted
@@ -498,7 +498,8 @@ export function runnerSetupFiles(opts: {
 # starts it. Per-extension overrides: systemctl edit zveltio-ext-runner@<instance>
 #   [Service]
 #   MemoryMax=2G
-#   IPAddressAllow=203.0.113.7
+# No IPAddressAllow: routes and actions have no egress (ADR 0022). Network work
+# goes to a job that declares \`egress\`; the engine fetches for it.
 [Unit]
 Description=Zveltio extension runner (%i)
 PartOf=zveltio.service

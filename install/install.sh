@@ -771,9 +771,9 @@ KMSEOF
   # One zveltio-ext-runner@ instance per extension, each under its own dynamic
   # uid: it cannot read the engine's .env, storage or process state, nor another
   # extension's runner. The engine keeps NoNewPrivileges and starts instances
-  # over D-Bus, allowed by a polkit rule scoped to those units. Egress is closed
-  # until the operator opens it per extension:
-  #   systemctl edit zveltio-ext-runner@<instance>  ->  [Service] IPAddressAllow=203.0.113.7
+  # over D-Bus, allowed by a polkit rule scoped to those units. Runners have no
+  # network (IPAddressDeny=any): extension routes and actions have no egress, and
+  # a job's egress goes through the engine, per consented authority (ADR 0022).
   # `setup` writes the template unit, the polkit rule and the engine drop-in that
   # selects ZVELTIO_EXT_TRANSPORT=runner (update.sh runs the same command).
   if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then

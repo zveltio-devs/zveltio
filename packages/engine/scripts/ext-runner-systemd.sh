@@ -7,9 +7,10 @@
 # installs the units with `zveltio ext-runner setup`, and plays the engine as
 # its own user. Asserts:
 #   - over `process` (today: the engine's uid) the probe reads the engine's .env
-#     and environment and reaches the network — the probe works;
-#   - an extension in its runner reads neither secret and reaches no address;
-#   - the operator's IPAddressAllow opens egress for that extension only;
+#     and environment and opens a socket to the network — the probe works — and
+#     its `fetch` is refused by the runtime (ADR 0022: no egress for routes);
+#   - an extension in its runner reads neither secret and reaches no address,
+#     not even over a raw socket (IPAddressDeny=any, no operator override);
 #   - two extensions run under two different uids, neither the engine's, and
 #     one cannot write into the other's runner directory;
 #   - the engine user may start its runners through polkit and no other unit;
@@ -59,14 +60,15 @@ probe() { # <transport> <ext dir> [target] — env PROBE_URL / PROBE_WRITE pass 
 out=$(PROBE_URL="$URL" probe process p)
 echo "process: ${out:0:200}"
 check "process transport reads both secrets (probe works)" '[ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ]'
-check "process transport reaches ${URL} (network is there)" 'grep -q "\"fetch\":\"HTTP 200\"" <<<"$out"'
+check "process transport opens a socket to ${URL} (network is there)" 'grep -q "\"net\":\"CONNECTED\"" <<<"$out"'
+check "process transport: the runtime refuses fetch" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
 
 # ── extension A in its runner ─────────────────────────────────────────────────
 out=$(PROBE_URL="$URL" probe managed a acme/probe-a)
 echo "runner A: $out"
 check "runner answered" 'grep -q "\"transport\":\"managed\"" <<<"$out"'
 check "runner reads no engine secret" '! grep -q hunter2 <<<"$out"'
-check "runner reaches no address" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
+check "runner reaches no address, raw socket included" 'grep -q "\"net\":\"DENIED" <<<"$out"'
 
 INST_A=$(ls /run/zveltio-ext)
 UNIT_A="zveltio-ext-runner@${INST_A}.service"
@@ -80,14 +82,6 @@ uid_of() { ps -o uid= -p "$(systemctl show -p MainPID --value "zveltio-ext-runne
 UA=$(uid_of "$INST_A"); UB=$(uid_of "$INST_B"); UE=$(id -u zveltio)
 echo "uids: A=$UA B=$UB engine=$UE"
 check "A and B run under different uids, neither the engine's" '[ "$UA" != "$UB" ] && [ "$UA" != "$UE" ] && [ "$UB" != "$UE" ] && [ "$UA" != 0 ]'
-
-# ── the operator opens egress for A only ──────────────────────────────────────
-sudo systemctl set-property --runtime "$UNIT_A" IPAddressAllow=any
-out=$(PROBE_URL="$URL" probe managed a acme/probe-a)
-echo "runner A allowed: $out"
-check "IPAddressAllow opens A" 'grep -q "\"fetch\":\"HTTP 200\"" <<<"$out"'
-out=$(PROBE_URL="$URL" probe managed b acme/probe-b)
-check "B stays closed" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
 
 # ── polkit: runners yes, anything else no ─────────────────────────────────────
 err=$(sudo -u zveltio systemctl stop --no-ask-password "$UNIT_A" 2>&1) && echo "engine stopped A" || { echo "$err"; fail=1; }
