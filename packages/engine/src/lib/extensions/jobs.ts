@@ -63,7 +63,7 @@ import { compileInput, type DataIo, hostCollections, pairImplementations } from 
 import { EGRESS_LIMITS, parseRequest, performEgress } from '../edge-functions/egress.js';
 import { EGRESS_PREFIX, readGranted } from './consent.js';
 import { ensureDeno } from './deno.js';
-import { type HostCall, runInDeno } from './job-runner.js';
+import { type HostCall, jobPlacement, runInDeno, runnerAnswers } from './job-runner.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 
 export interface CompiledJob {
@@ -133,6 +133,7 @@ let runnerBusy = 0;
 let pumping = false;
 let pumpTimer: ReturnType<typeof setInterval> | null = null;
 let denoWarned = false;
+const runnerDownWarned = new Set<string>();
 
 export const jobQueueName = (extName: string, job: string): string => `ext.${extName}.${job}`;
 
@@ -290,7 +291,8 @@ export async function unregisterJobs(extName: string): Promise<void> {
 
 /**
  * Claim runner jobs while slots are free. Nothing is claimed until Deno is
- * available: the jobs wait in their queues, they are not failed.
+ * available, nor in production without the extension runner to run it on
+ * (ADR 0023 decision 2): the jobs wait in their queues, they are not failed.
  */
 async function pumpRunner(): Promise<void> {
   const boss = jobQueue();
@@ -298,17 +300,29 @@ async function pumpRunner(): Promise<void> {
   pumping = true;
   try {
     try {
+      jobPlacement();
       await ensureDeno();
     } catch (err) {
       if (!denoWarned) console.warn('[ext-jobs] runner jobs wait:', (err as Error).message);
       denoWarned = true;
       return;
     }
+    // Asked once per extension per pass: a queue whose runner is down is not claimed from.
+    const answers = new Map<string, Promise<boolean>>();
     let claimed = true;
     while (claimed && runnerBusy < RUNNER_CONCURRENCY) {
       claimed = false;
       for (const [q, { extName, job }] of runnerQueues) {
         if (runnerBusy >= RUNNER_CONCURRENCY) break;
+        if (!answers.has(extName)) answers.set(extName, runnerAnswers(extName));
+        if (!(await answers.get(extName))) {
+          if (!runnerDownWarned.has(extName)) {
+            runnerDownWarned.add(extName);
+            console.warn(`[ext-jobs] ${extName}: its runner does not answer; its jobs wait`);
+          }
+          continue;
+        }
+        runnerDownWarned.delete(extName);
         const [j] = await boss.fetch<JobPayload>(q, { batchSize: 1 });
         if (!j) continue;
         claimed = true;
@@ -551,6 +565,7 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     const deno = await ensureDeno();
     const run = (call: (n: HostCall, a: unknown[]) => Promise<unknown>) =>
       runInDeno({
+        extName,
         deno,
         code: runner.code,
         job,

@@ -20,7 +20,11 @@
 #     `edge` instance: no address, a uid that is not the engine's and cannot
 #     read the engine's .env (measured from outside while the invocation lives);
 #   - its egress goes through the engine: a listed host answers, an unlisted
-#     host and a private address are refused.
+#     host and a private address are refused;
+#   - a Deno job (ADR 0023 decision 2) runs in its extension's instance, under
+#     the unit's uid and seccomp (read from outside while it is held), finds
+#     the Deno the engine downloaded through the unit's EXTENSIONS_DIR, reaches
+#     its host only through the engine, and dies past its memoryMb.
 #
 #   bash packages/engine/scripts/ext-runner-systemd.sh
 set -euo pipefail
@@ -41,10 +45,14 @@ id -u zveltio &>/dev/null || sudo useradd -r -M -s /bin/false zveltio
 bun build --compile "${E}/src/binary-entry.ts" --outfile /tmp/zveltio-ci-bin >/dev/null
 bun build --target bun "${E}/scripts/ext-runner-isolation.ts" --outfile /tmp/zveltio-ci-probe.mjs >/dev/null
 bun build --target bun "${E}/scripts/edge-runner-isolation.ts" --outfile /tmp/zveltio-ci-edge-probe.mjs >/dev/null
-sudo mkdir -p "${DIR}/extensions"
+bun build --target bun "${E}/scripts/job-runner-isolation.ts" --outfile /tmp/zveltio-ci-job-probe.mjs >/dev/null
+# Explicit mode: the engine refuses a Deno under a directory others can write,
+# and this runner's sudo leaves mkdir at 777.
+sudo install -d -m 755 "${DIR}" "${DIR}/extensions"
 sudo install -m 755 /tmp/zveltio-ci-bin "${DIR}/zveltio"
 sudo install -m 644 /tmp/zveltio-ci-probe.mjs "${DIR}/probe.mjs"
 sudo install -m 644 /tmp/zveltio-ci-edge-probe.mjs "${DIR}/edge-probe.mjs"
+sudo install -m 644 /tmp/zveltio-ci-job-probe.mjs "${DIR}/job-probe.mjs"
 echo "SECRET=hunter2-env-file" | sudo tee "${DIR}/.env" >/dev/null
 sudo chown -R zveltio:zveltio "${DIR}"
 sudo chmod 600 "${DIR}/.env"
@@ -144,6 +152,37 @@ check "edge egress: an unlisted host is refused" 'grep -q "is not in this functi
 out=$(egress "http://169.254.169.254/latest/meta-data/" "$HOST 169.254.169.254")
 echo "edge egress private:  ${out:0:300}"
 check "edge egress: a private address is refused" 'grep -q "internal/private address blocked" <<<"$out"'
+
+# ── Deno jobs: the extension's own instance ───────────────────────────────────
+job() { # env PROBE_* pass through; the engine downloads Deno on first use
+  sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp BUN_BE_BUN=1 \
+    EXTENSIONS_DIR="${DIR}/extensions" ZVELTIO_EXT_TRANSPORT=runner PROBE_EXT=acme/job-probe \
+    PROBE_URL="${PROBE_URL:-}" PROBE_EGRESS="$HOST" PROBE_HOLD_MS="${PROBE_HOLD_MS:-0}" \
+    PROBE_JOB="${PROBE_JOB:-hold}" "${DIR}/zveltio" "${DIR}/job-probe.mjs" 2>&1 || true
+}
+job >/dev/null
+job_out=$(mktemp)
+PROBE_URL="$URL" PROBE_HOLD_MS=8000 job >"$job_out" &
+job_pid=$!
+JSTAT=
+for _ in $(seq 1 30); do
+  sleep 0.5
+  for p in $(pgrep -x deno || true); do JSTAT=$(sudo cat "/proc/$p/status" 2>/dev/null || true); done
+  [ -n "$JSTAT" ] && break
+done
+UJ=$(awk '/^Uid:/{print $2; exit}' <<<"$JSTAT")
+check "Deno job runs under a uid of its own" '[ -n "$UJ" ] && [ "$UJ" != "$UE" ] && [ "$UJ" != 0 ]'
+check "Deno job runs under the unit's seccomp" 'grep -qE "^Seccomp:[[:space:]]+2" <<<"$JSTAT"'
+check "Deno job's uid reads no engine secret" \
+  '[ -n "$UJ" ] && ! sudo setpriv --reuid="$UJ" --regid="$UJ" --clear-groups cat "${DIR}/.env" 2>/dev/null | grep -q hunter2'
+wait "$job_pid" || true
+out=$(cat "$job_out"); rm -f "$job_out"
+echo "job: ${out: -400} (uid ${UJ:-?})"
+check "Deno job reaches its host through the engine" 'grep -q "\"fetch\":\"HTTP" <<<"$out"'
+out=$(PROBE_JOB=alloc job)
+echo "job mem: ${out: -400}"
+check "Deno job past its memoryMb is killed by the runner's watchdog" \
+  'grep -q "exceeded the memory limit of 64 MB" <<<"$out"'
 
 sudo systemctl stop 'zveltio-ext-runner@*' 2>/dev/null || true
 [ "$fail" = 0 ] && echo "PASS: ext-runner on systemd"

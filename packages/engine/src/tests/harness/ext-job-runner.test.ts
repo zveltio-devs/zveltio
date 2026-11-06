@@ -311,6 +311,32 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
     expect(a[0]?.metadata.outcome).toBe('success');
   }, 30_000);
 
+  it('waits while its runner does not answer: not claimed, no retry spent (ADR 0022)', async () => {
+    const saved = [process.env.ZVELTIO_EXT_TRANSPORT, process.env.ZVELTIO_EXT_RUNNER_SOCKET];
+    process.env.ZVELTIO_EXT_TRANSPORT = 'runner';
+    process.env.ZVELTIO_EXT_RUNNER_SOCKET = join(tmpdir(), `zv-no-runner-${STAMP}.sock`);
+    let id = '';
+    try {
+      id = await send('record', { label: 'runner-down' });
+      // Several pump passes (every 2 s): a claim would fail it at once (retryLimit 0).
+      await Bun.sleep(5000);
+      expect(await state(id)).toBe('created');
+    } finally {
+      const [t, s] = saved;
+      if (t === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
+      else process.env.ZVELTIO_EXT_TRANSPORT = t;
+      if (s === undefined) delete process.env.ZVELTIO_EXT_RUNNER_SOCKET;
+      else process.env.ZVELTIO_EXT_RUNNER_SOCKET = s;
+    }
+    // Back on a transport that runs it: the same job runs, it was never dropped.
+    expect(
+      await until(
+        () => state(id),
+        (st) => st === 'completed',
+      ),
+    ).toBe('completed');
+  }, 60_000);
+
   it("cannot read another tenant's rows", async () => {
     await send('peek', {});
     const got = await until(
@@ -328,7 +354,13 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
     );
     expect(a[0]?.metadata.outcome).toBe('failure');
     expect(String(a[0]?.metadata.error)).toContain('does not list in reads');
-    expect(await state(id)).toBe('failed');
+    // The audit row is written before the queue settles the job.
+    expect(
+      await until(
+        () => state(id),
+        (st) => st === 'failed',
+      ),
+    ).toBe('failed');
   }, 30_000);
 
   it('answers malformed host-call arguments with an error, at once', async () => {

@@ -23,6 +23,12 @@
 # default and reaches a listed host through the engine; an unlisted host, a
 # private address it lists, and a function that lists nothing reach nothing.
 #
+# Deno jobs (ADR 0023 decision 2, job-runner-isolation.ts): a job runs on the
+# runner under a uid of its own that cannot read the engine's .env, with the
+# socket ban loaded (Seccomp: 2, read from outside while it is held), its
+# host.fetch answered through the engine although the runner has no network,
+# and a job past its memoryMb killed by the runner's watchdog.
+#
 #   bash packages/engine/scripts/ext-runner-compose.sh
 set -euo pipefail
 
@@ -142,6 +148,36 @@ echo "edge egress default:  ${out:0:300} (uid ${duid:-?})"
 [ -n "$duid" ] || { echo "FAIL: a declared function did not run on the runner by default"; fail=1; }
 grep -q '"transport":"runner"' <<<"$out" && grep -q '"fetch":"HTTP' <<<"$out" \
   || { echo "FAIL: a declared function on the default transport did not reach $HOST"; fail=1; }
+
+# A Deno job. The engine downloads Deno into the extensions volume the runner reads.
+job() { dc exec -T -e ZVELTIO_EXT_TRANSPORT=runner -e EXTENSIONS_DIR=/data/extensions \
+  -e PROBE_URL="$URL" -e PROBE_EGRESS="$HOST" "$@" engine \
+  bun /src/packages/engine/scripts/job-runner-isolation.ts 2>&1 || true; }
+job -e PROBE_URL= >/dev/null
+job_out=$(mktemp)
+job -e PROBE_HOLD_MS=8000 >"$job_out" &
+job_pid=$!
+jstat=
+for _ in $(seq 1 30); do
+  sleep 0.5
+  jstat=$( { dc exec -T ext-runner sh -c 'for p in /proc/[0-9]*; do grep -q "^Name:.*deno" $p/status 2>/dev/null && cat $p/status; done; true' || true; })
+  [ -n "$jstat" ] && break
+done
+juid=$(awk '/^Uid:/{print $2; exit}' <<<"$jstat")
+[ -n "$juid" ] && [ "$juid" -ge 200000 ] || { echo "FAIL: the Deno job ran as uid ${juid:-?}, not one of its own"; fail=1; }
+grep -qE '^Seccomp:[[:space:]]+2' <<<"$jstat" && grep -qE '^NoNewPrivs:[[:space:]]+1' <<<"$jstat" \
+  || { echo "FAIL: the Deno job runs without the socket ban"; fail=1; }
+[ -n "$juid" ] && { dc exec -T -u "$juid" ext-runner cat /opt/zveltio/.env 2>/dev/null || true; } | grep -q hunter2 \
+  && { echo "FAIL: the Deno job's uid reads the engine's .env"; fail=1; }
+wait "$job_pid" || true
+out=$(cat "$job_out"); rm -f "$job_out"
+echo "job:                  ${out:0:300} (uid ${juid:-?})"
+grep -q '"transport":"runner"' <<<"$out" && grep -q '"fetch":"HTTP' <<<"$out" \
+  || { echo "FAIL: a Deno job on the runner did not reach $HOST through the engine"; fail=1; }
+out=$(job -e PROBE_JOB=alloc)
+echo "job mem:              ${out:0:300}"
+grep -q 'exceeded the memory limit of 64 MB' <<<"$out" \
+  || { echo "FAIL: a Deno job past its memoryMb was not killed by the runner's watchdog"; fail=1; }
 
 # A closed connection ends its extension's process. (The probe exits on EOF by
 # itself; one that ignores EOF is what CAP_KILL in the overlay is for.)

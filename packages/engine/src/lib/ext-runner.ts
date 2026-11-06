@@ -159,6 +159,8 @@ export async function runExtRunner(): Promise<never> {
   const { edgeBootstrapPath, serveEdgeConnection } = await import(
     './edge-functions/subprocess-runner.js'
   );
+  // Deno jobs (ADR 0023 decision 2) run here too, under the same wrap.
+  const { serveJobConnection } = await import('./extensions/job-runner.js');
   // The processes run under other uids and must read the runtime and bootstrap.
   if (uidBase !== null) {
     chmodSync(dirname(runtimePath), 0o755);
@@ -170,10 +172,13 @@ export async function runExtRunner(): Promise<never> {
   // runner and everything it starts.
   const allocate = uidBase === null ? null : uidAllocator(uidBase);
   const socketBan = uidBase === null ? undefined : writeSocketBan();
-  const wrap: RouteWrap = (argv) => {
+  const wrap: RouteWrap = (argv, opts) => {
     if (!allocate) return { argv };
     const { uid, release } = allocate();
-    return { release, argv: limitArgv(setprivArgv(uid, argv, socketBan)) };
+    return {
+      release,
+      argv: limitArgv(setprivArgv(uid, argv, socketBan), opts?.addressSpace ?? true),
+    };
   };
   const unbanned = checkSocketBan(wrap);
   if (unbanned) {
@@ -187,6 +192,7 @@ export async function runExtRunner(): Promise<never> {
     childEnv: { NODE_ENV: process.env.NODE_ENV ?? 'production', BUN_BE_BUN: '1' },
     wrap,
     serveEdge: serveEdgeConnection,
+    serveJob: (conn: Socket, first: Buffer, w: RouteWrap) => serveJobConnection(conn, first, w),
   };
 
   const server = createServer(async (conn) => {
@@ -218,9 +224,10 @@ export async function runExtRunner(): Promise<never> {
 }
 
 /**
- * Serve one accepted connection: an edge invocation when it starts with the
- * edge header, otherwise an extension's frame channel, piped to a runtime
- * process unchanged. Nothing is spawned until the first bytes say which.
+ * Serve one accepted connection: an edge invocation or a Deno job when it
+ * starts with their header, otherwise an extension's frame channel, piped to
+ * a runtime process unchanged. Nothing is spawned until the first bytes say
+ * which.
  */
 export function routeConnection(
   conn: Socket,
@@ -229,6 +236,7 @@ export function routeConnection(
     childEnv: Record<string, string>;
     wrap: RouteWrap;
     serveEdge: (conn: Socket, first: Buffer, wrap: RouteWrap) => void;
+    serveJob?: (conn: Socket, first: Buffer, wrap: RouteWrap) => void;
   },
 ): void {
   conn.once('data', (first: Buffer) => {
@@ -237,6 +245,11 @@ export function routeConnection(
     conn.pause();
     if (first[0] === EDGE_TAG_BYTE) {
       opts.serveEdge(conn, first, opts.wrap);
+      return;
+    }
+    if (first[0] === JOB_TAG_BYTE) {
+      if (opts.serveJob) opts.serveJob(conn, first, opts.wrap);
+      else conn.destroy();
       return;
     }
     // Memory and tasks: the unit's cgroup limits, per extension, or in
@@ -267,9 +280,15 @@ export function routeConnection(
   });
 }
 
-type RouteWrap = (argv: string[]) => { argv: string[]; release?: () => void };
+/** `addressSpace: false` for Deno, which cannot start under RLIMIT_AS (job-runner.ts). */
+type RouteWrap = (
+  argv: string[],
+  opts?: { addressSpace?: boolean },
+) => { argv: string[]; release?: () => void };
 // 'E' of the edge header; see EDGE_HEADER_TAG in edge-functions/subprocess-runner.ts.
 const EDGE_TAG_BYTE = 0x45;
+// 'J' of the job header; see JOB_HEADER_TAG in extensions/job-runner.ts.
+const JOB_TAG_BYTE = 0x4a;
 
 /**
  * Container mode: a uid per extension process, from `base` up. A uid stays
@@ -330,12 +349,13 @@ const EXT_ADDRESS_SPACE_MB = 1024;
  * and bash `-u`.
  * ponytail: RLIMIT_AS bounds virtual memory, not RSS, and the container's
  * memory is still shared; a cgroup per extension (systemd mode) is the limit.
+ * Without `addressSpace` (Deno): its RSS watchdog and the container's limit.
  */
-export function limitArgv(argv: string[]): string[] {
+export function limitArgv(argv: string[], addressSpace = true): string[] {
   return [
     'prlimit',
     `--nproc=${EXT_MAX_TASKS}`,
-    `--as=${EXT_ADDRESS_SPACE_MB * 1024 * 1024}`,
+    ...(addressSpace ? [`--as=${EXT_ADDRESS_SPACE_MB * 1024 * 1024}`] : []),
     '--',
     ...argv,
   ];
@@ -444,6 +464,11 @@ export function runnerSocketPath(extName: string): string {
   return join(RUNNER_DIR, runnerInstance(extName), 'runner.sock');
 }
 
+/** Where the extension's runner listens: the shared container socket, or its unit's. */
+export function runnerSocketFor(extName: string): string {
+  return process.env.ZVELTIO_EXT_RUNNER_SOCKET || runnerSocketPath(extName);
+}
+
 async function systemctl(verb: 'start' | 'stop', unit: string): Promise<void> {
   const proc = Bun.spawn(['systemctl', verb, '--no-ask-password', unit], {
     stdout: 'ignore',
@@ -533,6 +558,8 @@ ExecStart=${dir}/zveltio ext-runner
 Environment=NODE_ENV=production
 Environment=ZVELTIO_ENGINE_UID=${engineUid}
 Environment=ZVELTIO_EXT_RUNNER_SOCKET=${RUNNER_DIR}/%i/runner.sock
+# Where the runner finds the Deno the engine downloaded for jobs (ADR 0023).
+Environment=EXTENSIONS_DIR=${dir}/extensions
 RuntimeDirectory=zveltio-ext/%i
 RuntimeDirectoryMode=0755
 Restart=on-failure

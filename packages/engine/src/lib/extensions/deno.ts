@@ -11,7 +11,15 @@
  */
 
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { installExtensionsBase } from './extension-paths.js';
@@ -85,18 +93,20 @@ let resolved: Promise<string> | null = null;
 
 /**
  * The verified binary's path. Downloads it on first use when no
- * `ZVELTIO_DENO_PATH` is set. Rejects, saying why, when it cannot be had or
- * does not match its digest; a later call tries again.
+ * `ZVELTIO_DENO_PATH` is set, unless `download` is false (the extension
+ * runner: it has no network, and the engine downloads into the extensions
+ * directory it shares read-only). Rejects, saying why, when it cannot be had
+ * or does not match its digest; a later call tries again.
  */
-export function ensureDeno(): Promise<string> {
-  resolved ??= locate().catch((err: Error) => {
+export function ensureDeno(opts: { download?: boolean } = {}): Promise<string> {
+  resolved ??= locate(opts.download ?? true).catch((err: Error) => {
     resolved = null;
     throw err;
   });
   return resolved;
 }
 
-async function locate(): Promise<string> {
+async function locate(download: boolean): Promise<string> {
   const own = process.env.ZVELTIO_DENO_PATH;
   // The operator's binary is theirs to vouch for: only its presence is checked.
   if (own) {
@@ -110,7 +120,17 @@ async function locate(): Promise<string> {
     );
   }
   const path = denoInstallPath();
-  if (!existsSync(path)) await download(pin, path);
+  if (!existsSync(path)) {
+    if (!download) throw new Error(`no Deno at ${path} yet: the engine downloads it`);
+    await fetchDeno(pin, path);
+  }
+  const open = othersWritable(path);
+  if (open) {
+    throw new Error(
+      `${open} is writable by other users: an extension's uid could replace the Deno binary ` +
+        'after its digest was checked; jobs that need the runner do not run until it is not',
+    );
+  }
   const actual = sha256(readFileSync(path));
   if (actual !== pin.bin) {
     throw new Error(
@@ -121,7 +141,21 @@ async function locate(): Promise<string> {
   return path;
 }
 
-async function download(pin: { target: string; zip: string }, path: string): Promise<void> {
+/**
+ * The binary, or one of the directories up to the extensions base, that users
+ * other than its owner and group may write to; null when none. The digest is
+ * checked once per process, so the file must not be replaceable afterwards by
+ * the extensions' uids, which share neither (ADR 0023). Group bits are the
+ * engine's group, which no extension process holds.
+ */
+export function othersWritable(path: string, levels = 3): string | null {
+  for (let p = path, i = 0; i <= levels; i++, p = dirname(p)) {
+    if (statSync(p).mode & 0o002) return p;
+  }
+  return null;
+}
+
+async function fetchDeno(pin: { target: string; zip: string }, path: string): Promise<void> {
   const url = `https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${pin.target}.zip`;
   // Bounded: a stalled download must not hold the runner's claim loop forever.
   // `Bun.fetch`, not the global: test files in the same process replace that one.
@@ -132,7 +166,7 @@ async function download(pin: { target: string; zip: string }, path: string): Pro
   if (actual !== pin.zip) {
     throw new Error(`the Deno archive from ${url} hashes to ${actual}, not the pinned ${pin.zip}`);
   }
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true, mode: 0o755 });
   // Renamed into place, so a crash mid-write never leaves a half binary at `path`.
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, unzipSingle(zip));

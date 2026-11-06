@@ -96,7 +96,8 @@ jobs:
       - name: Deno jobs run in the image
         # Alpine is musl and Deno ships glibc only: the image carries glibc's
         # loader for it. The pinned Deno, verified by deno.ts, runs a job with
-        # no permissions as an extension's uid under the socket ban.
+        # no permissions on the image's own runner, as an extension's uid under
+        # the socket ban (ADR 0023 decision 2).
         run: bash packages/engine/scripts/deno-image.sh zveltio-engine:ci
 
   compose-and-installers:
