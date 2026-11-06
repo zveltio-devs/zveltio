@@ -66,7 +66,17 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       bun build src/binary-entry.ts --compile --outfile /zveltio --target bun-linux-x64; \
     fi
 
-# ── Stage 3: Production image ─────────────────────────────────
+# ── Stage 3: glibc for Deno ───────────────────────────────────
+# Deno publishes no musl build (ADR 0022 pins the glibc one, deno.ts), and on
+# this alpine image it fails to load (`__res_init: symbol not found`, gcompat
+# included). Its loader and libraries go where only a glibc binary looks:
+# /lib/<triple>-linux-gnu, which musl never searches. No LD_LIBRARY_PATH, so the
+# musl engine never loads them. Deno asks for the loader at
+# /lib64/ld-linux-x86-64.so.2 or /lib/ld-linux-aarch64.so.1; the arm64 one
+# comes with /lib, the x86_64 one is linked below.
+FROM gcr.io/distroless/cc-debian12 AS glibc
+
+# ── Stage 4: Production image ─────────────────────────────────
 FROM oven/bun:1.4-alpine AS production
 
 LABEL org.opencontainers.image.title="Zveltio Engine"
@@ -74,6 +84,8 @@ LABEL org.opencontainers.image.description="Zveltio Business OS — Engine + Stu
 LABEL org.opencontainers.image.source="https://github.com/zveltio/zveltio"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
+
+COPY --from=glibc /lib/ /lib/
 
 # Numeric ids, pinned to what `adduser -S` assigned in every image so far, so
 # existing volumes stay writable. Kubernetes `runAsNonRoot` refuses an image
@@ -85,7 +97,10 @@ LABEL org.opencontainers.image.vendor="DaRe IT Systems S.R.L."
 # runner's prlimit, which caps each extension's tasks and address space.
 RUN apk add --no-cache curl tzdata setpriv tini util-linux-misc && \
     addgroup -S -g 101 zveltio && \
-    adduser -S -u 100 -G zveltio zveltio
+    adduser -S -u 100 -G zveltio zveltio && \
+    if [ "$(uname -m)" = x86_64 ]; then \
+      mkdir -p /lib64 && ln -s /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 /lib64/; \
+    fi
 
 COPY --from=engine-builder /zveltio /usr/local/bin/zveltio
 COPY docker/zveltio-entrypoint.sh /usr/local/bin/zveltio-entrypoint
@@ -127,7 +142,7 @@ USER 100:101
 ENTRYPOINT ["/usr/local/bin/zveltio-entrypoint"]
 CMD ["start"]
 
-# ── Stage 4: one container, extension runner included ─────────
+# ── Stage 5: one container, extension runner included ─────────
 # The default target: what fly.toml, railway.json and render.yaml build, and
 # what `docker build .` gives. Those platforms cannot run the runner as a
 # second container, and third-party extensions run only on the runner in
