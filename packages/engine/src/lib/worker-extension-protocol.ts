@@ -225,7 +225,9 @@ export type HostCallOp =
   | 'off'
   | 'waitForService'
   | 'unregisterService'
-  | 'describeDenial';
+  | 'describeDenial'
+  /** A route's `host.collections` (ADR 0025): `[call, ...its arguments]`, as the job runner's. */
+  | 'collections';
 
 export interface HostCallRequest {
   type: 'host:call';

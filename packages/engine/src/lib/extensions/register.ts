@@ -75,8 +75,16 @@ import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
-import { type CompiledAction, compileActions, forgetActions, mountActions } from './actions.js';
-import { compileJobs, registerJobs, verifiedJobsCode } from './jobs.js';
+import {
+  type CompiledAction,
+  compileActions,
+  forgetActions,
+  mountActions,
+  routeCollections,
+  routeHost,
+} from './actions.js';
+import { compileJobs, hostCall, registerJobs, verifiedJobsCode } from './jobs.js';
+import type { HostCall } from './job-runner.js';
 import { buildExtensionConfig } from './config.js';
 import {
   readApprovedForward,
@@ -396,6 +404,8 @@ export function buildRestrictedContext(
   pendingCapabilities: readonly string[] = [],
   /** Manifest `dependencies` + `optionalDependencies`: whose services it may read. */
   serviceDeps: ServiceDeps = new Map(),
+  /** What its routes' `host.collections` reaches (`routeCollections`); nothing by default. */
+  routes: ReturnType<typeof routeCollections> = routeCollections(null),
 ): ExtensionContext {
   const hasAdminDb = capabilities.includes('db:admin');
   // Drop any health checks this extension registered on a previous load so a
@@ -444,6 +454,11 @@ export function buildRestrictedContext(
         },
       });
 
+  const internals = guardTenantTrx(
+    gateInternals(extName, ctx.internals, capabilities, pendingCapabilities),
+    extName,
+    allowedTables,
+  );
   return {
     ...ctx,
     events: trackedEvents,
@@ -568,11 +583,9 @@ export function buildRestrictedContext(
     // boundary — the previous capability policy died because its only live
     // call site was inside the WASM host, so no denial was ever reachable for
     // a JS extension.
-    internals: guardTenantTrx(
-      gateInternals(extName, ctx.internals, capabilities, pendingCapabilities),
-      extName,
-      allowedTables,
-    ),
+    internals,
+    // ADR 0025: as the caller, or as the extension inside its `asSystem` calls.
+    host: (c) => routeHost(c, extName, routes, internals),
   };
 }
 
@@ -736,6 +749,10 @@ async function registerExtensionRoutes(
           auth: restrictedCtx.auth,
           forwardCredentials,
           declaredForwardCredentials: isolation.forwardCredentials ?? {},
+          collections: (c, call, args) => {
+            if (!restrictedCtx.host) throw new Error(`${extName}: no route host`);
+            return hostCall(restrictedCtx.host(c).collections, call as HostCall, args);
+          },
         },
       );
     } finally {
@@ -937,6 +954,7 @@ export async function finalizeExtensionLoad(
           forwardCredentials: manifest.forwardCredentials,
         }
       : undefined;
+  const routes = routeCollections(manifest);
   const restrictedCtx = buildRestrictedContext(
     ctx,
     extName,
@@ -946,6 +964,7 @@ export async function finalizeExtensionLoad(
     effective,
     pending,
     serviceDeps,
+    routes,
   );
 
   // Register routes — if the live app's Hono matcher is already built (happens
@@ -1032,6 +1051,7 @@ export async function finalizeExtensionLoad(
     workerIsolation,
     serviceDeps,
     actions,
+    routes,
   });
   console.log(`🔌 Extension loaded: ${extName}`);
 
@@ -1080,6 +1100,7 @@ export async function reRegisterExtension(
     loaded?.permissions ?? [],
     loaded?.pendingCapabilities ?? [],
     loaded?.serviceDeps,
+    loaded?.routes,
   );
 
   try {

@@ -437,6 +437,14 @@ export interface ExtensionContext<DB = any, C extends string = Capability> {
   registerPublicRoute(spec: PublicRouteSpec): void;
 
   /**
+   * The route's `host` (ADR 0025): `ctx.host(c).collections`, for the request
+   * `c` the handler serves — see `RouteHost`. Present on engines from
+   * 3.0.0-beta.103, inline and worker-isolated; a worker-isolated route always
+   * acts as its caller (no `asSystem` there).
+   */
+  host?: (c: unknown) => RouteHost;
+
+  /**
    * Tell every engine replica, this one included, that something this
    * extension caches changed. Engine 3.0.0-beta.90 and later; refused to a
    * worker-isolated extension. See `ExtensionBroadcast`.
@@ -1610,6 +1618,28 @@ export interface JobHost {
    * Deno runner only (engines from 3.0.0-beta.103).
    */
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+}
+
+/**
+ * How a route reaches data (ADR 0025): `ctx.host(c)`, `c` the route's request
+ * context. The collections the manifest declares (`collections`) and those its
+ * actions and jobs read or write — `read`/`list` on the readable ones,
+ * `insert`/`update`/`delete` on the writable ones. As the request's caller,
+ * through the data API: the signed-in user or API key, or on one of the
+ * extension's `publicRoutes` the tenant's `public` role, which reads only
+ * (ADR 0020). Writes as the caller need `data:write`, and carry no action mark.
+ *
+ * Inline only: inside `ctx.internals.asSystem(collections, fn)` (needs
+ * `data:system`, audited), the collections it names act as the extension
+ * instead, as a job does — a key holding just those collections, in the
+ * request's transaction and tenant; the others stay the caller's. A
+ * worker-isolated route has no `ctx.internals`, so it always acts as its caller.
+ *
+ * On a collection this extension owns, `read`/`list` add its `secret` fields
+ * decrypted, whoever the principal is. Engines from 3.0.0-beta.103.
+ */
+export interface RouteHost {
+  collections: HostCollections;
 }
 
 // ─── Studio extension API (available via window.__zveltio in IIFE bundles) ───

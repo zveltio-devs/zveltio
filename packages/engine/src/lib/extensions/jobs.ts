@@ -514,14 +514,33 @@ async function sendJob(
 
 /** The job's principal: the extension, as a key holding the job's declared collections. */
 function jobPrincipal(extName: string, def: CompiledJob, author: string | null): RequestUser {
+  return extensionPrincipal(
+    `apikey:job:${extName}:${def.name}`,
+    `${extName} job ${def.name}`,
+    def,
+    author,
+  );
+}
+
+/**
+ * The extension acting as itself: a key holding `reads` (read) and `writes`
+ * (create, update, delete). `id` starts `apikey:job:`, which the checks read as
+ * an extension bounded by its manifest, with no issuer (`keyIssuerAllows`).
+ */
+export function extensionPrincipal(
+  id: `apikey:job:${string}`,
+  name: string,
+  def: { reads: Iterable<string>; writes: Iterable<string> },
+  author: string | null,
+): RequestUser {
   const scopes = new Map<string, string[]>();
   for (const c of def.reads) scopes.set(c, ['read']);
   for (const c of def.writes)
     scopes.set(c, [...(scopes.get(c) ?? []), 'create', 'update', 'delete']);
   return {
     // `apikey:` so every check treats it as a key: scopes, not Casbin; no `"user"` row.
-    id: `apikey:job:${extName}:${def.name}`,
-    name: `${extName} job ${def.name}`,
+    id,
+    name,
     role: 'api_key',
     scopes: [...scopes].map(([collection, actions]) => ({ collection, actions })),
     rlsBypass: false,
@@ -566,7 +585,7 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
           hostCollections(
             `job "${job}"`,
             def,
-            jobData(extName, user, trx, tenantId),
+            jobData(user, trx, tenantId, extName),
             secretReveal(trx, tenantId, extName),
           ),
         );
@@ -750,7 +769,7 @@ async function jobFetch(
  * type the data API expects before it gets there. Who the call acts as is
  * already bound in `c`.
  */
-async function hostCall(c: HostCollections, name: HostCall, a: unknown[]): Promise<unknown> {
+export async function hostCall(c: HostCollections, name: HostCall, a: unknown[]): Promise<unknown> {
   const str = (i: number, what: string): string => {
     if (typeof a[i] !== 'string') throw new Error(`${name}: ${what} must be a string`);
     return a[i] as string;
@@ -792,8 +811,16 @@ async function hostCall(c: HostCollections, name: HostCall, a: unknown[]): Promi
   }
 }
 
-/** The data API as the job's principal, in its transaction, marked as `extName`'s job. */
-function jobData(extName: string, user: RequestUser, trx: Database, tenantId: string): DataIo {
+/**
+ * The data API as `user`, an extension's principal, in `trx`. Writes carry
+ * `writtenBy` (a job's: its extension's mark; a route's: none).
+ */
+export function jobData(
+  user: RequestUser,
+  trx: Database,
+  tenantId: string,
+  writtenBy: string | undefined,
+): DataIo {
   const db = createRequestScopedDb(getDb());
   const who = { user, authType: 'api_key' as const, trx, tenantId };
   const write = async (
@@ -809,7 +836,7 @@ function jobData(extName: string, user: RequestUser, trx: Database, tenantId: st
       id,
       body: async () => data,
       expect,
-      writtenBy: extName,
+      writtenBy,
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   };

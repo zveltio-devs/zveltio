@@ -41,6 +41,7 @@
  * 2026-10-04: add the way out, then close the door).
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getCurrentTenantTrx } from '../tenancy/index.js';
@@ -72,6 +73,30 @@ function claimActor<T>(caller: string, actor: AsSystemOptions<T>['actor'], resul
 }
 
 const NAME = /^[a-z][a-z0-9_]{0,62}$/;
+
+/**
+ * The `asSystem` calls `fn` runs inside, for a route's `host.collections` (ADR
+ * 0025): their collections go as the extension's principal there. `open` ends
+ * with the call, so work `fn` left running past it is the caller's again.
+ */
+interface SystemWindow {
+  caller: string;
+  trx: Database;
+  collections: readonly string[];
+  open: boolean;
+}
+const windows = new AsyncLocalStorage<SystemWindow[]>();
+
+/**
+ * The collections `caller` named in the `asSystem` calls open around this code
+ * on `trx` — the outer ones too; none outside one, after it settled, or for
+ * another extension or transaction.
+ */
+export function systemCollectionsFor(caller: string, trx: Database): readonly string[] {
+  return (windows.getStore() ?? [])
+    .filter((w) => w.open && w.caller === caller && w.trx === trx)
+    .flatMap((w) => w.collections);
+}
 
 /** The collection list as the setting carries it: `,a,b,` for exact matching. */
 export function encodeSystemCollections(names: readonly string[]): string {
@@ -152,12 +177,14 @@ export async function asSystemAs<T>(
 
   let outcome: 'ok' | 'error' = 'error';
   let claimedActor: string | undefined;
+  const window: SystemWindow = { caller, trx, collections: mine, open: true };
   try {
-    const result = await fn();
+    const result = await windows.run([...(windows.getStore() ?? []), window], fn);
     outcome = 'ok';
     claimedActor = claimActor(caller, opts.actor, result);
     return result;
   } finally {
+    window.open = false;
     // Not awaited into the result: a failed audit write must not fail the work
     // nor mask its error, and `auditAs` writes in a transaction of its own — so
     // a failed `fn` that aborts the request's transaction still leaves its row.
