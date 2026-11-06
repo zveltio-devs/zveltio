@@ -294,6 +294,9 @@ the sealed ones, for every role that reads it (`zveltio_rls`,
 `zveltio_worker`, `zveltio_flow_reader`, `zveltio_ext` and the per-extension
 roles); INSERT, UPDATE and DELETE stay table-level, so writing a new hash needs
 no read of the old one. Only the table's owner can read the column.
+A `secret` field is sealed the same way; it is stored encrypted, and the
+engine decrypts it only into the `host.collections` reads of the extension that
+owns the collection (ADR 0024).
 
 - `SELECT pw …`, `SELECT * …`, `RETURNING *`, or an expression naming the column
   (`SET title = pw`) on a request role is refused with `42501`.

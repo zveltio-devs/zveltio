@@ -1547,7 +1547,11 @@ export interface ActionHost {
 
 /** The data API, through `ActionHost` or `JobHost`, for the collections the manifest declares. */
 export interface HostCollections {
-  /** The record, or `null` when the caller cannot see one with this id. */
+  /**
+   * The record, or `null` when the caller cannot see one with this id. On a
+   * collection this extension owns, its `secret` fields come decrypted (as in
+   * `list`); no other read path serves them.
+   */
   read(collection: string, id: string): Promise<Record<string, unknown> | null>;
   /** `GET /api/data/:collection`'s body: `{ records, … }`. */
   list(collection: string, query?: DataApiReadQuery): Promise<Record<string, unknown>>;

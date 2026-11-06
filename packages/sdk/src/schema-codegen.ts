@@ -467,6 +467,7 @@ export const CORE_FIELD_TS_TYPES: Readonly<Record<string, string>> = {
   float: 'number',
   textarea: 'string',
   password: 'string',
+  secret: 'string',
   slug: 'string',
   color: 'string',
   phone: 'string',

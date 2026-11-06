@@ -144,6 +144,29 @@ export function renderSqlDefault(value: unknown): string {
   return `'${raw.replace(/'/g, "''")}'`;
 }
 
+/**
+ * What a `secret` field (ADR 0024) may not carry, or null. A column DEFAULT is
+ * written by Postgres, past the encryption; `unique` and `indexed` work on
+ * ciphertext under a random IV, which no two writes share, so they mean nothing.
+ */
+export function secretFieldRefusal(
+  field: Pick<FieldConfig, 'name' | 'defaultValue' | 'unique' | 'indexed'>,
+): string | null {
+  if (field.defaultValue != null) {
+    return `Secret field "${field.name}" takes no default: it would be stored unencrypted.`;
+  }
+  if (field.unique || field.indexed) {
+    return `Secret field "${field.name}" cannot be unique or indexed: it holds ciphertext.`;
+  }
+  return null;
+}
+
+/** The CHECK that keeps a `secret` column ciphertext or NULL. */
+export function secretCheckSql(column: string): string {
+  const col = `"${column.replace(/"/g, '""')}"`;
+  return `CHECK (${col} IS NULL OR ${col} LIKE 'enc:v1:%')`;
+}
+
 export class FieldTypeRegistry {
   private types = new Map<string, FieldTypeDefinition>();
 
@@ -181,6 +204,13 @@ export class FieldTypeRegistry {
 
     // Default value — field-specific overrides type default
     const defaultVal = field.defaultValue ?? typeDef.db.defaultValue;
+    if (field.type === 'secret') {
+      const refusal = secretFieldRefusal(field);
+      if (refusal) throw new Error(refusal);
+      // The database refuses plaintext too: a write that skips the engine
+      // (`ctx.db`, an operator's SQL) cannot store a readable secret.
+      parts.push(secretCheckSql(field.name));
+    }
     if (defaultVal !== undefined && defaultVal !== null) {
       parts.push(`DEFAULT ${renderSqlDefault(defaultVal)}`);
     }

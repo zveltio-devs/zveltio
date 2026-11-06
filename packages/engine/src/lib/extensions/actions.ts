@@ -33,6 +33,9 @@ import { enqueueJob } from './jobs.js';
 import { effectiveTimeZone } from '../tenancy/index.js';
 import { activeForRequest } from './activation.js';
 import { withSavepoint } from '../savepoint.js';
+import { asEngineRole } from '../role-window.js';
+import { DDLManager, decryptField, normalizeFields } from '../data/index.js';
+import type { Database } from '../../db/index.js';
 import type { GatePrincipal } from '../../middleware/extension-auth-gate.js';
 
 export interface CompiledAction {
@@ -237,6 +240,7 @@ async function actionHost(
       `action "${def.name}"`,
       def,
       callerData(c, ctx.internals, extName),
+      secretReveal(trx, p.tenantId, extName),
     ),
     enqueue: (job, input) => enqueueJob(extName, p, def, job, input),
     actions: {
@@ -377,11 +381,66 @@ function callerData(c: Context, internals: ExtensionInternals, extName: string):
   };
 }
 
+/** Adds a collection's secret fields to the records a read found, when the reader owns them. */
+export type SecretReveal = (
+  collection: string,
+  records: Record<string, unknown>[],
+) => Promise<void>;
+
+/**
+ * ADR 0024 §4: the plaintext of a collection's `secret` fields, for the
+ * extension that owns the collection (`zvd_collections.owner_extension`) and no
+ * one else. The rows are the ones the caller's data API read returned — tenancy,
+ * RLS and row rules decided those; the values are read by their ids in this
+ * tenant, as the table owner, because the column is sealed from request roles.
+ */
+export function secretReveal(
+  trx: Database,
+  tenantId: string | null,
+  extName: string,
+): SecretReveal {
+  return async (collection, records) => {
+    const def = await DDLManager.getCollection(trx, collection);
+    if (!tenantId || def?.owner_extension !== extName) return;
+    const secrets = normalizeFields(def)
+      .filter((f) => f.type === 'secret')
+      .map((f) => f.name);
+    const ids = records.map((r) => r.id).filter((id): id is string => typeof id === 'string');
+    if (secrets.length === 0 || ids.length === 0) return;
+    const rows = await asEngineRole(trx, () =>
+      trx
+        .selectFrom(DDLManager.getTableName(collection) as never)
+        .select(['id', ...secrets] as never)
+        .where('id' as never, 'in', ids as never)
+        .where('tenant_id' as never, '=', tenantId as never)
+        .execute(),
+    );
+    const byId = new Map((rows as Record<string, unknown>[]).map((r) => [String(r.id), r]));
+    for (const record of records) {
+      const row = byId.get(String(record.id));
+      if (!row) continue;
+      for (const name of secrets) {
+        const v = row[name];
+        // A value the current key cannot open reads as unset, as `maybeDecrypt`
+        // keeps a record readable: recovery is writing a new one.
+        record[name] =
+          typeof v === 'string'
+            ? await decryptField(v).catch((err: Error) => {
+                console.error(`[secret] ${collection}.${name}: cannot decrypt — ${err.message}`);
+                return null;
+              })
+            : null;
+      }
+    }
+  };
+}
+
 /** `io`, narrowed to the collections `def` declares; a refused call throws. */
 export function hostCollections(
   what: string,
   def: { reads: ReadonlySet<string>; writes: ReadonlySet<string> },
   io: DataIo,
+  reveal: SecretReveal,
 ): HostCollections {
   const declared = (kind: 'reads' | 'writes', collection: string) => {
     if (!def[kind].has(collection)) {
@@ -405,11 +464,19 @@ export function hostCollections(
     read: async (collection, id) => {
       declared('reads', collection);
       const a = await io.read(collection, id);
-      return a.status === 404 ? null : ok(a);
+      if (a.status === 404) return null;
+      const record = ok(a);
+      await reveal(collection, [record]);
+      return record;
     },
     list: async (collection, query) => {
       declared('reads', collection);
-      return ok(await io.list(collection, query));
+      const body = ok(await io.list(collection, query));
+      // An `as_of` page is history, which holds no secret: only live rows get one.
+      if (Array.isArray(body.records) && body.time_travel === undefined) {
+        await reveal(collection, body.records as Record<string, unknown>[]);
+      }
+      return body;
     },
     insert: async (collection, data) => {
       declared('writes', collection);
