@@ -374,9 +374,7 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
       sql`DELETE FROM zv_revisions WHERE collection IN (${S}, ${T}, ${W})`.execute(trx),
     );
     for (const c of [S, T, W]) await dropTestCollection(db, c).catch(() => {});
-    await sql`DELETE FROM zv_rate_limit_configs WHERE key_prefix = 'anon-read'`
-      .execute(db)
-      .catch(() => {});
+    // The `anon-read` row is seeded by migration 107; this file never changes it.
     clearLocalRateLimitCache('anon-read');
   });
 
