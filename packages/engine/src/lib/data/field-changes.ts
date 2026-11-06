@@ -22,7 +22,14 @@ import { announceSchemaChange } from './ddl-queue.js';
 import { resolveConversion } from './field-type-conversions.js';
 import { applyColumnGuard } from './column-guard.js';
 import { dropMaskView, sealColumns } from './sealed-columns.js';
-import { fieldTypeRegistry, renderSqlDefault } from './field-type-registry.js';
+import {
+  fieldTypeRegistry,
+  renderSqlDefault,
+  secretCheckSql,
+  secretFieldRefusal,
+} from './field-type-registry.js';
+import { publishEveryTenant } from '../tenancy/index.js';
+import { decryptField, encryptField, isEncryptedValue } from './field-crypto.js';
 
 const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
@@ -238,6 +245,31 @@ export async function alterField(
       400,
     );
   }
+  // ADR 0024 §6: retyping a secret would decrypt its stored values into a column
+  // someone can read — the one path a declarative change must not open.
+  if (newType && newType !== fieldDef.type && fieldDef.type === 'secret') {
+    throw new FieldChangeError(
+      `"${fieldName}" is a secret field and cannot change type: drop it and declare a new field.`,
+      400,
+    );
+  }
+  // ADR 0024: a secret takes no default, unique key or index. A retype into
+  // `secret` drops the default it had (the column's too, in the transaction).
+  const intoSecret = newType === 'secret' && fieldDef.type !== 'secret';
+  if ((newType ?? fieldDef.type) === 'secret') {
+    const refusal = secretFieldRefusal({
+      name: fieldName,
+      defaultValue:
+        change.defaultValue !== undefined
+          ? change.defaultValue
+          : intoSecret
+            ? undefined
+            : fieldDef.defaultValue,
+      unique: Boolean(change.unique ?? fieldDef.unique),
+      indexed: Boolean(change.indexed ?? fieldDef.indexed),
+    });
+    if (refusal) throw new FieldChangeError(refusal, 400);
+  }
   if (newType && fieldDef.type === 'computed') {
     throw new FieldChangeError('Computed fields cannot change type via this endpoint.', 400);
   }
@@ -321,6 +353,10 @@ export async function alterField(
       }
       await dynamicChangeColumnType(trx, tableName, fieldName, conv.sqlType, conv.using);
       updatedFieldShape = { ...updatedFieldShape, type: newType };
+      if (intoSecret) {
+        await intoSecretColumn(trx, name, tableName, fieldName, fieldDef.encrypted === true);
+        delete updatedFieldShape.defaultValue;
+      }
       actions.push(`type ${fieldDef.type}→${newType}`);
     }
 
@@ -411,6 +447,121 @@ export async function alterField(
   }
   announceSchemaChange(name, 'alter');
   return { field: updatedFieldShape, actions };
+}
+
+/**
+ * A column turned `secret` (ADR 0024 §6), in the retype's transaction, before
+ * `updateCollectionMetadata` seals it:
+ * - its DEFAULT goes (a boolean's `false`, a list's `{}` survive ALTER TYPE, and
+ *   Postgres writes a default past the encryption);
+ * - every stored value is encrypted under the field key. A value kept as it is
+ *   must already decrypt AND come from an `encrypted: true` field — a planted
+ *   `enc:v1:` in a plain text column is encrypted again. Without a key, a column
+ *   holding values is refused here; an empty one retypes;
+ * - a CHECK keeps it ciphertext from now on;
+ * - the plaintext copies outside the table go: the key, and the search columns
+ *   that concatenate it, leave this collection's revisions (`data`, `delta`)
+ *   and its webhook delivery payloads.
+ *
+ * The table's rows are every tenant's, not the ones RLS lets the owner read:
+ * FORCE is lifted for its statements, as Ghost DDL's swap count does, under the
+ * ACCESS EXCLUSIVE the ALTER COLUMN above already holds. The shared tables are
+ * scrubbed tenant by tenant instead, without a table lock; a row whose tenant no
+ * longer exists stays, as in migration 084 — no request role reads it either.
+ */
+async function intoSecretColumn(
+  trx: Database,
+  collection: string,
+  table: string,
+  column: string,
+  wasEncrypted: boolean,
+): Promise<void> {
+  const t = sql.id(table);
+  const col = sql.id(column);
+  await sql`ALTER TABLE ${t} ALTER COLUMN ${col} DROP DEFAULT`.execute(trx);
+  const force = await sql<{ forced: boolean }>`
+    SELECT relforcerowsecurity AS forced FROM pg_class WHERE oid = to_regclass(quote_ident(${table}))
+  `.execute(trx);
+  const forced = force.rows[0]?.forced === true;
+  if (forced) await sql`ALTER TABLE ${t} NO FORCE ROW LEVEL SECURITY`.execute(trx);
+  const rows = await sql<{ id: string; v: string }>`
+    SELECT id::text AS id, ${col} AS v FROM ${t} WHERE ${col} IS NOT NULL
+  `.execute(trx);
+  const sealed: Record<string, string> = {};
+  for (const { id, v } of rows.rows) {
+    const kept =
+      wasEncrypted &&
+      isEncryptedValue(v) &&
+      (await decryptField(v).then(
+        () => true,
+        () => false,
+      ));
+    sealed[id] = kept ? v : await encryptField(v);
+  }
+  // ponytail: one jsonb parameter for the whole column; batch it if a secret column ever holds millions.
+  if (rows.rows.length > 0) {
+    await sql`
+      UPDATE ${t} SET ${col} = m.value
+      FROM jsonb_each_text(${JSON.stringify(sealed)}::text::jsonb) AS m
+      WHERE ${t}.id::text = m.key
+    `.execute(trx);
+  }
+  await sql`ALTER TABLE ${t} ADD ${sql.raw(secretCheckSql(column))}`.execute(trx);
+  if (forced) await sql`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`.execute(trx);
+  await scrubCopies(trx, collection, column);
+}
+
+/** `j` as an object: a copy stored as a jsonb string (the shape migration 009 unwrapped) is parsed. */
+const asObject = (j: string) =>
+  sql.raw(
+    `(CASE WHEN jsonb_typeof(${j}) = 'string' AND pg_input_is_valid(${j} #>> '{}', 'jsonb') ` +
+      `THEN (${j} #>> '{}')::jsonb ELSE ${j} END)`,
+  );
+
+/**
+ * Removes `column`, and the search columns that copy it, from `collection`'s
+ * revisions and webhook delivery payloads, in every tenant.
+ */
+async function scrubCopies(trx: Database, collection: string, column: string): Promise<void> {
+  const prev = await sql<{ cur: string | null; vis: string | null }>`
+    SELECT current_setting('zveltio.current_tenant', true) AS cur,
+           current_setting('zveltio.visible_tenants', true) AS vis
+  `.execute(trx);
+  await publishEveryTenant(trx);
+  const data = asObject('data');
+  const delta = asObject('delta');
+  const body = asObject(`payload -> 'data'`);
+  // With the search columns: a stored row's copy of them concatenates every
+  // text field, this one's plaintext included.
+  const keys = sql`ARRAY[${column}::text, 'search_text', 'search_vector']`;
+  const tenants = await sql<{ id: string }>`
+    SELECT DISTINCT tenant_id::text AS id FROM zv_revisions
+     WHERE collection = ${collection} AND (${data} ?| ${keys} OR ${delta} ?| ${keys})
+    UNION
+    SELECT DISTINCT tenant_id::text FROM zvd_webhook_deliveries
+     WHERE payload ->> 'collection' = ${collection} AND ${body} ?| ${keys}
+  `.execute(trx);
+  // Each tenant as its own writer: the policies' WITH CHECK is the own node.
+  for (const { id } of tenants.rows) {
+    await sql`SELECT set_config('zveltio.current_tenant', ${id}, true)`.execute(trx);
+    await sql`
+      UPDATE zv_revisions
+         SET data = CASE WHEN jsonb_typeof(${data}) = 'object' THEN ${data} - ${keys} ELSE data END,
+             delta = CASE WHEN jsonb_typeof(${delta}) = 'object' THEN ${delta} - ${keys} ELSE delta END
+       WHERE collection = ${collection} AND tenant_id = ${id}::uuid
+         AND (${data} ?| ${keys} OR ${delta} ?| ${keys})
+    `.execute(trx);
+    await sql`
+      UPDATE zvd_webhook_deliveries
+         SET payload = jsonb_set(payload, '{data}', ${body} - ${keys})
+       WHERE payload ->> 'collection' = ${collection} AND tenant_id = ${id}::uuid
+         AND jsonb_typeof(${body}) = 'object' AND ${body} ?| ${keys}
+    `.execute(trx);
+  }
+  await sql`
+    SELECT set_config('zveltio.current_tenant', ${prev.rows[0]?.cur ?? ''}, true),
+           set_config('zveltio.visible_tenants', ${prev.rows[0]?.vis ?? ''}, true)
+  `.execute(trx);
 }
 
 /** Drops a field: its column (or, for o2m and m2m, the column or junction it stands for), its relation and its metadata. */

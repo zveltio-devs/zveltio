@@ -21,6 +21,9 @@ interface Props {
   onGoToSchema: () => void;
 }
 const { collectionName, insertableFields, onSaved, onGoToSchema }: Props = $props();
+const secretFields = $derived(
+  new Set(insertableFields.filter((f) => f.type === 'secret').map((f) => f.name)),
+);
 
 // ── Who changed this, and when ───────────────────────────
 //
@@ -172,7 +175,8 @@ function validateForm(): boolean {
   for (const f of insertableFields) {
     const v = insertForm[f.name];
     const present = v !== undefined && v !== null && v !== '';
-    if (f.required && !present) {
+    // An edit never holds the stored secret: left empty, it is kept.
+    if (f.required && !present && !(drawerMode === 'edit' && f.type === 'secret')) {
       formErrors[f.name] = m['common.required']();
       ok = false;
       continue;
@@ -214,7 +218,8 @@ async function saveRecord() {
     for (const [k, v] of Object.entries(insertForm)) {
       if (v === undefined) continue;
       if (v === '') {
-        if (drawerMode === 'edit') payload[k] = null;
+        // A secret is never shown, so an empty input is "keep it", not "clear it".
+        if (drawerMode === 'edit' && !secretFields.has(k)) payload[k] = null;
         continue;
       }
       payload[k] = v;
@@ -326,6 +331,32 @@ async function saveRecord() {
                     {insertForm[field.name] ? m['common.yes']() : m['common.no']()}
                   </span>
                 </label>
+
+              {:else if field.type === 'secret'}
+                <!-- Write-only (ADR 0024): never read back, so always empty; left empty, it is
+                     kept. "Clear" sends null, which removes it. -->
+                <div class="flex items-center gap-2">
+                  <input
+                    id="ins-{field.name}"
+                    type="password"
+                    autocomplete="new-password"
+                    class="input input-bordered flex-1 {formErrors[field.name] ? 'input-error' : ''}"
+                    placeholder={m['record.enterField']({ field: fieldLabel(field) })}
+                    disabled={insertForm[field.name] === null}
+                    bind:value={insertForm[field.name]}
+                  />
+                  {#if drawerMode === 'edit'}
+                    <button
+                      type="button"
+                      class="btn btn-sm {insertForm[field.name] === null ? 'btn-active' : 'btn-ghost'}"
+                      aria-pressed={insertForm[field.name] === null}
+                      onclick={() =>
+                        (insertForm[field.name] = insertForm[field.name] === null ? undefined : null)}
+                    >
+                      {m['common.clear']()}
+                    </button>
+                  {/if}
+                </div>
 
               {:else if field.type === 'textarea' || field.type === 'richtext' || field.type === 'longtext'}
                 <textarea

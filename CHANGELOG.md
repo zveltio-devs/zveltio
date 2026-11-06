@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**New field type `secret` (ADR 0024).** Write-only for everyone, god included, and always encrypted under `FIELD_ENCRYPTION_KEY` (no plaintext mode; planted `enc:v1:` is encrypted again); only the extension owning the collection reads the plaintext, through `host.collections` in its actions and jobs. Retyping to `secret` encrypts the stored values, drops the column default, adds a CHECK that keeps the column ciphertext, and removes the field from the collection's revisions and webhook delivery payloads; retyping from it is refused. A secret takes no default, unique key or index.
+
 **Breaking for third-party extensions: routes and actions have no network
 egress (ADR 0022).** In a worker-isolated extension `fetch` rejects with the
 reason, and the bare-metal runner unit no longer documents a per-extension

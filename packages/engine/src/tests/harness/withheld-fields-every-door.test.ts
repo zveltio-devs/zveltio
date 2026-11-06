@@ -30,6 +30,8 @@ const d = harnessAvailable() && process.env.FIELD_ENCRYPTION_KEY ? describe : de
 const COLLECTION = `hwithheld_${Date.now()}`;
 const TABLE = `zvd_${COLLECTION}`;
 const SECRET = 'iban-RO49-AAAA-1B31-0075-9384-0000';
+/** A `secret` field's plaintext (ADR 0024): served by no door, decrypted or not. */
+const TOKEN = 'anaf-refresh-token-7f3a9c';
 
 /**
  * Neither the hash nor the ciphertext, anywhere in the payload. A stream or a
@@ -43,6 +45,8 @@ function expectWithheld(payload: unknown, encrypted: 'dropped' | 'decrypted' = '
   expect(s).not.toContain('enc:v1:');
   // Concatenates every text field, column-hidden ones included.
   expect(s).not.toContain('search_text');
+  expect(s).not.toContain(TOKEN);
+  expect(s).not.toContain('"tok"');
   if (encrypted === 'dropped') expect(s).not.toContain(SECRET);
   else expect(s).toContain(SECRET);
 }
@@ -77,6 +81,7 @@ d('password and encrypted fields leave through no door (in-process)', () => {
       fields: [
         { name: 'label', type: 'text', required: false, unique: false, indexed: false },
         { name: 'pw', type: 'password', required: false, unique: false, indexed: false },
+        { name: 'tok', type: 'secret', required: false, unique: false, indexed: false },
         {
           name: 'secret',
           type: 'text',
@@ -155,7 +160,12 @@ d('password and encrypted fields leave through no door (in-process)', () => {
     const made = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: god },
-      body: JSON.stringify({ label: 'visible-label', pw: 'correct horse battery', secret: SECRET }),
+      body: JSON.stringify({
+        label: 'visible-label',
+        pw: 'correct horse battery',
+        secret: SECRET,
+        tok: TOKEN,
+      }),
     });
     expect(made.status).toBe(201);
     recordId = ((await made.json()) as { id: string }).id;
@@ -214,10 +224,18 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   });
 
   it('stores the hash and the ciphertext, which is the premise', async () => {
-    const row = await sql<{ pw: string; secret: string }>`
-      SELECT pw, secret FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`.execute(db);
+    const row = await sql<{ pw: string; secret: string; tok: string }>`
+      SELECT pw, secret, tok FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`.execute(db);
     expect(row.rows[0]!.pw.startsWith('$argon2')).toBe(true);
     expect(row.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
+    expect(row.rows[0]!.tok.startsWith('enc:v1:')).toBe(true);
+  });
+
+  it('the stored revision row keeps no secret', async () => {
+    const revs = await sql<{ data: unknown }>`
+      SELECT data FROM zv_revisions WHERE collection = ${COLLECTION}`.execute(db);
+    expect(revs.rows.length).toBeGreaterThan(0);
+    for (const r of revs.rows) expect(JSON.stringify(r.data)).not.toContain('"tok"');
   });
 
   // The gate's own share, not only the write path's: a virtual collection's
@@ -237,6 +255,7 @@ d('password and encrypted fields leave through no door (in-process)', () => {
     });
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.pw).toBeUndefined();
+    expect('tok' in body).toBe(false);
     expect(JSON.stringify(body)).not.toContain('$argon2');
     expect(JSON.stringify(body)).toContain(SECRET);
   });
@@ -323,5 +342,13 @@ d('password and encrypted fields leave through no door (in-process)', () => {
       headers: { cookie: god },
     });
     expect(sorted.status).toBe(400);
+  });
+
+  it('a filter, sort or search on a secret field is refused', async () => {
+    const filter = encodeURIComponent(JSON.stringify({ tok: { eq: TOKEN } }));
+    for (const q of [`filter=${filter}`, 'sort=tok', 'sort=-tok']) {
+      const res = await app.request(`/api/data/${COLLECTION}?${q}`, { headers: { cookie: god } });
+      expect(res.status).toBe(400);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import type { FieldTypeRegistry } from '../lib/data/index.js';
+import { encryptField, type FieldTypeRegistry } from '../lib/data/index.js';
 
 /**
  * Does this value already hold a password hash?
@@ -389,6 +389,36 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
         if (f.required && !v) return `${f.label || f.name} is required`;
         if (v && typeof v === 'string' && !isPasswordHash(v) && v.length < 8) {
           return 'Password must be at least 8 characters';
+        }
+        return null;
+      },
+    },
+    typescript: { inputType: 'string', outputType: 'undefined' },
+  });
+
+  // ADR 0024: served to no one as `password` is (outputType 'undefined' makes it
+  // unserved, sealed, unfilterable and out of revisions), but reversible: only
+  // its owning extension reads the plaintext, through `host.collections`.
+  registry.register({
+    type: 'secret',
+    label: 'Secret',
+    description:
+      'Write-only. Encrypted at rest; only the extension that owns the collection reads it.',
+    category: 'text',
+    db: { columnType: 'text' },
+    api: {
+      filterOperators: [],
+      serialize: () => undefined,
+      // Always encrypted, with no plaintext mode, and a value that already reads
+      // as `enc:v1:` is encrypted again: ciphertext copied from elsewhere must
+      // not be planted as this secret. No key: `encryptField` refuses the write.
+      deserialize: (v: unknown) => (v === null || v === undefined ? null : encryptField(String(v))),
+      validate: (v, f) => {
+        if (f.required && (v === undefined || v === null || v === '')) {
+          return `${f.label || f.name} is required`;
+        }
+        if (v !== undefined && v !== null && typeof v !== 'string') {
+          return `${f.label || f.name} must be a string`;
         }
         return null;
       },

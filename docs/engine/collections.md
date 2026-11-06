@@ -63,6 +63,7 @@ collection.
 | `phone` | `VARCHAR(30)` | Phone number | `required` |
 | `slug` | `VARCHAR(255)` | URL-safe slug | `required` |
 | `password` | `TEXT` | Hashed password field | `required` |
+| `secret` | `TEXT` | Write-only, encrypted; read back only by the owning extension through `host.collections` (ADR 0024) | `required` |
 | `reference` | `UUID` | Foreign key to another collection | `collection`, `required` |
 | `m2o` | `UUID` | Many-to-one relation | `collection` |
 | `o2m` | — | One-to-many (virtual) | `collection`, `foreignKey` |

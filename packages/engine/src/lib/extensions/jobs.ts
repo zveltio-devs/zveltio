@@ -59,7 +59,13 @@ import {
   type GatePrincipal,
   publicRouteRequest,
 } from '../../middleware/extension-auth-gate.js';
-import { compileInput, type DataIo, hostCollections, pairImplementations } from './actions.js';
+import {
+  compileInput,
+  type DataIo,
+  hostCollections,
+  pairImplementations,
+  secretReveal,
+} from './actions.js';
 import { EGRESS_LIMITS, parseRequest, performEgress } from '../edge-functions/egress.js';
 import { EGRESS_PREFIX, readGranted } from './consent.js';
 import { ensureDeno } from './deno.js';
@@ -556,7 +562,14 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     const inTenant = <T>(fn: (c: HostCollections) => Promise<T>) =>
       withTenantIsolation(tenantId, async (trx) => {
         await publishApiKeyActor(user.id, false, user.scopes);
-        return fn(hostCollections(`job "${job}"`, def, jobData(extName, user, trx, tenantId)));
+        return fn(
+          hostCollections(
+            `job "${job}"`,
+            def,
+            jobData(extName, user, trx, tenantId),
+            secretReveal(trx, tenantId, extName),
+          ),
+        );
       });
     if (!runner) {
       await inTenant((collections) => def.run!(input, { collections, timezone }));

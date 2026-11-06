@@ -104,6 +104,39 @@ describe('RecordDrawer', () => {
     expect(update.mock.calls[0][2]).toHaveProperty('title', null);
   });
 
+  it('renders a secret as an empty write-only input, and an empty one is kept, not cleared', async () => {
+    const { component, getByLabelText, getByText } = mount([
+      ...fields,
+      { name: 'tok', label: 'Token', type: 'secret', required: true },
+    ]);
+    component.openEdit({ id: 'rec-a', title: 'A' });
+    await waitFor(() => getByLabelText('Token'));
+    const input = getByLabelText('Token') as HTMLInputElement;
+    expect(input.type).toBe('password');
+    expect(input.value).toBe('');
+    await fireEvent.input(input, { target: { value: '' } });
+    await fireEvent.click(getByText(/update record|save record/i));
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][2]).not.toHaveProperty('tok');
+  });
+
+  it('clears a secret on edit only through its Clear control, which sends null', async () => {
+    const { component, getByLabelText, getByRole, getByText } = mount([
+      ...fields,
+      { name: 'tok', label: 'Token', type: 'secret' },
+    ]);
+    component.openEdit({ id: 'rec-a', title: 'A' });
+    await waitFor(() => getByLabelText('Token'));
+    const clear = getByRole('button', { name: /^clear$/i });
+    expect(clear.getAttribute('aria-pressed')).toBe('false');
+    await fireEvent.click(clear);
+    expect(clear.getAttribute('aria-pressed')).toBe('true');
+    expect((getByLabelText('Token') as HTMLInputElement).disabled).toBe(true);
+    await fireEvent.click(getByText(/update record|save record/i));
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][2]).toHaveProperty('tok', null);
+  });
+
   it('does not claim the related collection is empty when its fetch failed', async () => {
     listRecords.mockImplementationOnce(async () => {
       throw new Error('boom');
