@@ -42,23 +42,25 @@ SOCK=/run/zveltio-ext/runner.sock
 modes=$(dc exec -T ext-runner stat -c %a /run/zveltio-ext /tmp | tr '\n' ' ')
 [ "$modes" = "755 1777 " ] || { echo "FAIL: socket dir and /tmp left as: $modes"; fail_early=1; }
 PROBE=/src/packages/engine/scripts/ext-runner-isolation.ts
-# A public address: the runtime's SSRF guard refuses private ones on its own,
-# which would hide what the container network does.
+# A public address: the probe's raw socket (`net`) must find the network over
+# `process` and none in the runner. Its `fetch` is refused by the runtime in
+# both (ADR 0022), so `fetch` says nothing about the container network.
 URL="${PROBE_URL:-http://example.com/}"
 probe() { dc exec -T -e PROBE_URL="$URL" -e PROBE_WRITE=/run/zveltio-ext/evil "$@"; }
 fail=${fail_early:-0}
 
 out=$(probe engine bun "$PROBE" process /opt/zveltio/.env /data/extensions/p)
 echo "process: $out"
-[ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] && grep -q '"fetch":"HTTP' <<<"$out" \
+[ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] && grep -q '"net":"CONNECTED"' <<<"$out" \
   || { echo "FAIL: process transport should read both secrets and reach $URL (probe broken?)"; fail=1; }
+grep -q '"fetch":"DENIED' <<<"$out" || { echo "FAIL: the runtime did not refuse fetch (ADR 0022)"; fail=1; }
 
 for ext in r1 r2; do
   out=$(probe engine bun "$PROBE" runner /opt/zveltio/.env "/data/extensions/$ext" "$SOCK")
   echo "runner:  $out"
   grep -q '"transport":"runner"' <<<"$out" || { echo "FAIL: runner probe gave no answer"; fail=1; }
   grep -q hunter2 <<<"$out" && { echo "FAIL: runner transport read an engine secret"; fail=1; }
-  grep -q '"fetch":"HTTP' <<<"$out" && { echo "FAIL: runner transport reached $URL"; fail=1; }
+  grep -q '"net":"DENIED' <<<"$out" || { echo "FAIL: runner transport reached $URL over a raw socket"; fail=1; }
   grep -q '"write":"WROTE"' <<<"$out" && { echo "FAIL: an extension wrote into the socket directory"; fail=1; }
   uid=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
   [ -n "$uid" ] && [ "$uid" -ge 200000 ] || { echo "FAIL: extension ran as uid ${uid:-?}"; fail=1; }

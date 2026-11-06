@@ -6,21 +6,24 @@
  * `.env`, the engine's process environment, a network address, and a path
  * outside its own (another extension's runner directory). It reports through
  * `console.log`, which the runtime forwards as `log` frames. Prints one JSON
- * line: { transport, env, environ, fetch, write, forks, threads, addressSpace,
- * uid } — each what it got, or `DENIED <code>`.
+ * line: { transport, env, environ, fetch, net, write, forks, threads,
+ * addressSpace, uid } — each what it got, or `DENIED <code>`. `fetch` is refused
+ * by the runtime itself (ADR 0022); `net` opens a raw TCP socket to the same
+ * host, which only the OS can stop.
  *
  *   bun scripts/ext-runner-isolation.ts process <env path> <ext dir>
  *   bun scripts/ext-runner-isolation.ts runner  <env path> <ext dir> <socket path>
  *   bun scripts/ext-runner-isolation.ts managed <env path> <ext dir> <extension name>
  *
  * `managed` starts the extension's `zveltio-ext-runner@` unit through systemd,
- * as the engine does. Optional env: PROBE_URL (fetched), PROBE_WRITE (a file
+ * as the engine does. Optional env: PROBE_URL (fetched, and connected to), PROBE_WRITE (a file
  * the extension tries to create). Run by ext-runner-isolation.sh (container),
  * ext-runner-systemd.sh (real systemd), ext-runner-compose.sh (the release
  * compose) and ext-runner-standalone.sh (one container); on its own it proves
  * nothing.
  */
 
+import { lookup } from 'node:dns/promises';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -40,19 +43,39 @@ if (
 
 mkdirSync(extDir, { recursive: true });
 const bundle = join(extDir, 'index.mjs');
+// The raw socket's target, resolved here (the engine's side) to an address.
+const probeAddr = process.env.PROBE_URL
+  ? await (async () => {
+      const u = new URL(process.env.PROBE_URL as string);
+      const { address } = await lookup(u.hostname);
+      return { host: address, port: Number(u.port) || (u.protocol === 'https:' ? 443 : 80) };
+    })()
+  : null;
 writeFileSync(
   bundle,
-  `const denied = (e) => 'DENIED ' + (e.code ?? e.name ?? e.message);
+  `import { connect } from 'node:net';
+const denied = (e) => 'DENIED ' + (e.code ?? e.name ?? e.message);
 const read = async (p) => { try { return await Bun.file(p).text(); } catch (e) { return denied(e); } };
 export default {
   name: 'isolation-probe',
   async register() {
     const url = ${JSON.stringify(process.env.PROBE_URL ?? '')};
     const write = ${JSON.stringify(process.env.PROBE_WRITE ?? '')};
-    let fetched = 'skipped', wrote = 'skipped';
+    let fetched = 'skipped', net = 'skipped', wrote = 'skipped';
     if (url) {
       try { fetched = 'HTTP ' + (await fetch(url, { signal: AbortSignal.timeout(3000) })).status; }
       catch (e) { fetched = denied(e); }
+      // A raw socket: what hostile code does, past the runtime's fetch refusal.
+      // This one measures the OS rule.
+      // Resolved on the engine's side: a refusal must come from the network
+      // rule, not from a resolver the runner cannot reach.
+      net = await new Promise((resolve) => {
+        const s = connect(${JSON.stringify(probeAddr)});
+        const done = (r) => { s.destroy(); resolve(r); };
+        s.setTimeout(3000, () => done('DENIED timeout'));
+        s.once('connect', () => done('CONNECTED'));
+        s.once('error', (e) => done(denied(e)));
+      });
     }
     if (write) {
       try { await Bun.write(write, 'x'); wrote = 'WROTE'; } catch (e) { wrote = denied(e); }
@@ -71,6 +94,7 @@ export default {
       env: await read(${JSON.stringify(envPath)}),
       environ: await read('/proc/${process.pid}/environ'),
       fetch: fetched,
+      net,
       write: wrote,
       forks,
       addressSpace: (await read('/proc/self/limits')).match(/Max address space\\s+(\\S+)/)?.[1],

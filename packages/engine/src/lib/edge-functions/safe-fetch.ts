@@ -90,9 +90,8 @@ export const pinnedRequestForTests = pinnedRequest;
 /**
  * A `safeFetch` that opens its connections with `baseFetch()`.
  *
- * The extension worker replaces its own `globalThis.fetch` with one of these,
- * so the guard there cannot reach the network through `globalThis.fetch` — it
- * would call itself. Resolved per request, not captured, so a test that swaps
+ * For a caller that wraps or replaces `globalThis.fetch` and must not call
+ * itself through it. Resolved per request, not captured, so a test that swaps
  * `globalThis.fetch` still sees its stub.
  */
 export function createSafeFetch(

@@ -107,8 +107,10 @@ Worker isolation (`isolation: 'worker'`) gives:
   down. Auto-respawn with exponential backoff.
 - A process of its own: in production on the extension runner, under
   a uid that cannot read the engine's files, environment or
-  processes, with no database connection and no network until the
-  operator allows one. Production refuses the extension when no
+  processes, with no database connection and no network: routes and
+  actions have no egress, and a job reaches the network only through
+  the engine, for the authorities its manifest declares and the
+  operator consents to (ADR 0022). Production refuses the extension when no
   runner answers; it never runs it in the engine's process.
 - SQL is proxied through the host, which restricts it to user-data
   tables (`zvd_*`) and the extension's own `zv_<ext>_*` namespace,
@@ -158,7 +160,7 @@ recognized values:
 | --- | --- |
 | `database` | Read/write to declared tables only (CREATE TABLE in migrations, queries via `ctx.db`) |
 | `settings` | Read/write to `zv_settings` keys prefixed with the extension's slug |
-| `network` | Outbound HTTP from extension code |
+| `network` | Outbound HTTP from extension code. Worker-isolated extensions get it only in a job that declares `egress`; routes and actions have none (ADR 0022) |
 | `filesystem` | Read from the extension's own folder; write to `EXTENSIONS_DIR/<name>/data/` |
 
 Submissions requesting `network` or `filesystem` get extra review.

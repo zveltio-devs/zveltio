@@ -127,10 +127,11 @@ above never relies on that.
 
 ### Network
 
-The in-runtime SSRF filter (`installFetchGuard`) becomes defence in depth. The
-boundary is the container network policy or, on bare metal, a per-uid firewall rule
-the installer adds. Operators declare allowed egress per extension in the extension
-config. The manifest can request it, and the operator grants it.
+Amended by ADR 0022: routes and actions have **no** egress. The runtime refuses
+`fetch` (`refuseFetch`, a courtesy, not the boundary); the boundary is the
+container network (`network_mode: none`) or, on bare metal, `IPAddressDeny=any`
+with no per-extension override. Network work goes to a job that declares
+`egress`; the engine fetches for it, per authority the operator consents to.
 
 ### Lifecycle and failure
 
@@ -204,8 +205,8 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      `DynamicUser=yes`: every extension has its own uid, its own cgroup
      (`MemoryMax=1G` by default — decision 3, override with
      `systemctl edit zveltio-ext-runner@<instance>`) and its own egress rule
-     (`IPAddressDeny=any`, opened per extension with `IPAddressAllow` —
-     decision 2). The instance is the extension name reduced to `[a-z0-9_]`
+     (`IPAddressDeny=any`; the per-extension `IPAddressAllow` of decision 2
+     was withdrawn by ADR 0022). The instance is the extension name reduced to `[a-z0-9_]`
      plus 8 hex of its SHA-256: an escaped name (`\x2d`) breaks
      `RuntimeDirectory=%i`.
    - The engine starts the instance on enable and stops it on disable with
@@ -222,16 +223,16 @@ instead, which closes the same-uid gap for edge functions too (step 5).
      it, so existing installs get the runner on their next update.
    - `packages/engine/scripts/ext-runner-systemd.sh` (CI job *Extension runner
      on systemd*, a real systemd with sudo) asserts:
-     - the probe over `process` reads both secrets and reaches the network;
-     - the runner reaches neither and no address;
-     - `IPAddressAllow` opens one extension and not the other;
+     - the probe over `process` reads both secrets and opens a socket to the
+       network, and the runtime refuses its `fetch` (ADR 0022);
+     - the runner reaches neither and no address, raw socket included;
      - two extensions run under two uids, and one cannot write into the
        other's runner directory;
      - the engine user can manage its runners and no other unit.
    - Inter-extension services stay brokered by the engine (`service:call` →
      `service:invoke`); runners never talk to each other.
-   - Still open: approving egress from the manifest at install (decision 2) is
-     manual — the operator writes `IPAddressAllow`.
+   - Egress approval from the manifest (decision 2) became the consent of a
+     job's `egress` authorities (ADR 0022); routes get none.
 
 4. **Done — container runner:**
    - Compose: the opt-in overlay `docker-compose.ext-runner.yml` added one

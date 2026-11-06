@@ -4,6 +4,14 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Breaking for third-party extensions: routes and actions have no network
+egress (ADR 0022).** In a worker-isolated extension `fetch` rejects with the
+reason, and the bare-metal runner unit no longer documents a per-extension
+`IPAddressAllow`: runners have no network. Network work goes to a job that
+declares `egress`; the engine fetches for it, per authority the operator
+consents to. `ZVELTIO_WORKER_ALLOW_PRIVATE_FETCH` is gone. In the process
+backend (single-container PaaS) the refusal is in code only.
+
 ## [3.0.0-beta.102] - 2026-11-05
 
 **BYOD: an imported collection is served from its source table.** The import
