@@ -52,6 +52,7 @@ import { DownMissingError, OwnedCollectionsReferencedError } from './extension-e
 import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
 import { toJsonb } from '../jsonb.js';
+import { parseEgress } from '../edge-functions/egress.js';
 import { requireStepUp } from '../step-up.js';
 import { guardAdmin } from '../admin-guard.js';
 import {
@@ -61,7 +62,12 @@ import {
   parseForwardMap,
   parseGranted,
   declaredCapabilities,
+  declaredSlots,
+  formatSlotBinding,
+  parseSlotBinding,
   recordConsent,
+  rewriteConsent,
+  slotBindings,
   recordForwardApproval,
   resolveCapabilities,
   resolveForwarded,
@@ -391,6 +397,17 @@ export function registerMarketplaceRoutes(
       }
     };
 
+    /** The egress slots a manifest's jobs declare (ADR 0026). */
+    const readSlots = (name: string): Set<string> => {
+      try {
+        return declaredSlots(
+          JSON.parse(readFileSync(join(extBase, name, 'manifest.json'), 'utf8')),
+        );
+      } catch {
+        return new Set();
+      }
+    };
+
     /** Public routes the worker is handed the caller's credentials on (manifest `forwardCredentials`). */
     const readForwarded = (name: string): ForwardMap => {
       try {
@@ -476,7 +493,15 @@ export function registerMarketplaceRoutes(
           const declared = readDeclared(entry.name);
           const granted = parseGranted(dbEntry?.granted_capabilities);
           const r = resolveCapabilities(declared, granted);
+          const slots = readSlots(entry.name);
+          const bound = slotBindings(granted, slots);
           return {
+            // Each declared slot with the operator's binding, null when unbound (ADR 0026).
+            egress_slots: [...slots].sort().map((slot) => ({
+              slot,
+              authorities: bound.get(slot)?.authorities ?? null,
+              private: bound.get(slot)?.private ?? false,
+            })),
             declared_capabilities: declared,
             granted_capabilities: granted,
             pending_capabilities: r.pending,
@@ -1357,11 +1382,12 @@ export function registerMarketplaceRoutes(
     if (!isPathInsideBase(extBase, extDir)) return c.json({ error: 'Invalid extension name' }, 400);
 
     let declared: string[];
+    let slots: Set<string>;
     try {
       // Its jobs' egress too (ADR 0022): approved here, by name, never by install.
-      declared = declaredCapabilities(
-        JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8')),
-      );
+      const manifest = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
+      declared = declaredCapabilities(manifest);
+      slots = declaredSlots(manifest);
     } catch {
       return c.json({ error: `No manifest on disk for "${name}"` }, 404);
     }
@@ -1394,8 +1420,12 @@ export function registerMarketplaceRoutes(
       );
     }
 
-    await recordConsent(db, name, approve as string[]);
-    const granted = [...new Set(approve as string[])].sort();
+    // The operator's slot bindings (ADR 0026) are not declared, so they are not
+    // in `approve`: kept, for the slots the manifest still declares.
+    const { written: granted } = (await rewriteConsent(db, name, (now) => [
+      ...(approve as string[]),
+      ...[...slotBindings(now, slots).values()].map(formatSlotBinding),
+    ])) as { written: string[] };
     await auditLog(db, {
       type: 'extension.capabilities.approved',
       tenantId: null,
@@ -1412,6 +1442,86 @@ export function registerMarketplaceRoutes(
         `Approved for "${name}". Reload or re-enable the extension for the new ` +
         `capabilities to take effect.`,
     });
+  };
+
+  /**
+   * POST /api/marketplace/:name/bind-egress-slot
+   *
+   * Body `{ slot, authorities: string[], private?: boolean }`: the operator
+   * fills a job's egress slot (ADR 0026 decision 3). The authorities are exact
+   * hosts as in `egress`; `private` lets them resolve to private and loopback
+   * addresses, never cloud metadata (decision 5). An empty list unbinds. The
+   * binding replaces the slot's previous one at once: a job's next fetch reads
+   * it. God with step-up only — a tenant admin never chooses where an
+   * extension's network goes.
+   */
+  const bindEgressSlot = async (c: Context, name: string) => {
+    const gate = await requireGodStepUp(c, `extension.bind-egress-slot:${name}`);
+    if (gate instanceof Response) return gate;
+
+    const extBase = resolveExtensionsBase();
+    const extDir = join(extBase, name);
+    if (!isPathInsideBase(extBase, extDir)) return c.json({ error: 'Invalid extension name' }, 400);
+    let slots: Set<string>;
+    try {
+      slots = declaredSlots(JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8')));
+    } catch {
+      return c.json({ error: `No manifest on disk for "${name}"` }, 404);
+    }
+
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const slot = body?.slot;
+    const authorities = body?.authorities;
+    const isPrivate = body?.private ?? false;
+    if (typeof slot !== 'string' || !Array.isArray(authorities) || typeof isPrivate !== 'boolean') {
+      return c.json(
+        { error: 'Body must be { slot: string, authorities: string[], private?: boolean }' },
+        400,
+      );
+    }
+    if (!slots.has(slot)) {
+      return c.json(
+        { error: `"${name}" declares no egress slot "${slot}"`, declared_slots: [...slots] },
+        409,
+      );
+    }
+    let list: string[];
+    try {
+      list = parseEgress(authorities) ?? [];
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+    if (list.length === 0 && isPrivate) {
+      return c.json({ error: 'private marks bound authorities; there are none' }, 400);
+    }
+    const binding =
+      list.length > 0 ? formatSlotBinding({ slot, authorities: list, private: isPrivate }) : null;
+
+    let previous: string | null = null;
+    const out = await rewriteConsent(db, name, (now) => {
+      // Recording a set would end grandfathering and drop what it granted unasked.
+      if (now === null) return { refused: 'never' as const };
+      const rest = now.filter((cap) => parseSlotBinding(cap)?.slot !== slot);
+      previous = now.find((cap) => parseSlotBinding(cap)?.slot === slot) ?? null;
+      return binding ? [...rest, binding] : rest;
+    });
+    if ('refused' in out) {
+      return c.json(
+        {
+          error: `No consent is recorded for "${name}" yet: approve its capabilities first.`,
+        },
+        409,
+      );
+    }
+    await auditLog(db, {
+      type: 'extension.egress.slot_bound',
+      tenantId: null,
+      userId: gate.id ?? undefined,
+      resourceId: name,
+      resourceType: 'extension',
+      metadata: { slot, binding, previous },
+    }).catch(() => undefined);
+    return c.json({ success: true, slot, binding, granted_capabilities: out.written });
   };
 
   /**
@@ -1707,6 +1817,8 @@ export function registerMarketplaceRoutes(
         return approveCapabilities(c, name);
       case 'approve-forward-credentials':
         return approveForwardCredentials(c, name);
+      case 'bind-egress-slot':
+        return bindEgressSlot(c, name);
       case 'activate':
         return setActivation(c, name, true).finally(() => lifecycleChanged(name));
       case 'deactivate':

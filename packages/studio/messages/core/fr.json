@@ -1639,5 +1639,11 @@
   "cli.approved": "Approuvé. Retournez à votre terminal.",
   "cli.denied": "Refusé. La demande du terminal est terminée.",
   "cli.notFound": "Cette demande a expiré ou a déjà été utilisée.",
-  "cli.notForYou": "Cette confirmation concerne un autre compte. Connectez-vous avec cet utilisateur pour l'approuver."
+  "cli.notForYou": "Cette confirmation concerne un autre compte. Connectez-vous avec cet utilisateur pour l'approuver.",
+  "mkt.egressSlots": "Emplacements de sortie",
+  "mkt.egressSlotHint": "Hôtes que l'opérateur autorise pour les tâches de cette extension. host ou host:port séparés par des virgules ; vide = délier.",
+  "mkt.egressPrivate": "Réseau privé (jamais les métadonnées cloud)",
+  "mkt.egressUnbound": "non lié",
+  "mkt.egressBound": "Emplacement {slot} lié pour {name}",
+  "mkt.egressBindFailed": "Échec de la liaison : {error}"
 }

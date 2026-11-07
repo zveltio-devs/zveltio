@@ -1639,5 +1639,11 @@
   "cli.approved": "Aprobado. Vuelve a tu terminal.",
   "cli.denied": "Rechazado. La solicitud del terminal ha terminado.",
   "cli.notFound": "Esta solicitud ha caducado o ya se usó.",
-  "cli.notForYou": "Esta confirmación es para otra cuenta. Inicia sesión con ese usuario para aprobarla."
+  "cli.notForYou": "Esta confirmación es para otra cuenta. Inicia sesión con ese usuario para aprobarla.",
+  "mkt.egressSlots": "Ranuras de salida",
+  "mkt.egressSlotHint": "Hosts que el operador permite a los trabajos de esta extensión. host o host:port separados por comas; vacío desvincula.",
+  "mkt.egressPrivate": "Red privada (nunca metadatos de la nube)",
+  "mkt.egressUnbound": "sin vincular",
+  "mkt.egressBound": "Ranura {slot} vinculada para {name}",
+  "mkt.egressBindFailed": "Error al vincular: {error}"
 }

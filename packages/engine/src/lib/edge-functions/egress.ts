@@ -21,7 +21,7 @@
  * source without them.
  */
 
-import { createSafeFetch } from './safe-fetch.js';
+import { assertNonMetadataResolved, assertPublicUrl, createSafeFetch } from './safe-fetch.js';
 
 /** The line prefix a sandbox's egress request carries on stdout. */
 export const FETCH_LINE = 'FETCH ';
@@ -41,6 +41,9 @@ export const EGRESS_LIMITS = {
   /** Requests in flight per invocation; the rest wait. */
   inFlight: 6,
 };
+
+/** A job's egress slot name (ADR 0026 decision 2). */
+export const SLOT_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
 const ENTRY_RE =
   /^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:\d{1,5})?$/;
@@ -167,10 +170,18 @@ export async function performEgress(
   signal: AbortSignal,
   /** The job runner's: pin through a configured proxy too (ADR 0022). */
   pinThroughProxy = false,
+  /**
+   * Authorities of `list` an operator bound and marked private (ADR 0026
+   * decision 5): private and loopback addresses pass for them, metadata never;
+   * a redirect from one stays on it.
+   */
+  privateList: readonly string[] = [],
 ): Promise<EgressAnswer> {
   const { id, url, method, headers, body } = req;
   try {
     if (!method) throw new Error('[egress] malformed request');
+    // The private authority of the previous hop, if it was one: hops are checked in order.
+    let onPrivate: string | null = null;
     // Resolved per request, so a test that stubs globalThis.fetch stubs the network
     // under the guard and nothing else.
     const guarded = createSafeFetch(
@@ -183,8 +194,14 @@ export async function performEgress(
               : '[egress] this function declares no egress',
           );
         }
+        if (onPrivate !== null && u.host !== onPrivate) {
+          throw new Error(`[egress] a redirect from private ${onPrivate} may not leave it`);
+        }
+        onPrivate = egressAllows(privateList, u) ? u.host : null;
       },
       pinThroughProxy,
+      (u) =>
+        egressAllows(privateList, new URL(u)) ? assertNonMetadataResolved(u) : assertPublicUrl(u),
     );
     const sent = new Headers();
     for (const [k, v] of headers) if (!DROPPED_HEADERS.has(k.toLowerCase())) sent.append(k, v);

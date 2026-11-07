@@ -1639,5 +1639,11 @@
   "cli.approved": "Zatwierdzono. Wróć do terminala.",
   "cli.denied": "Odrzucono. Żądanie terminala zostało zakończone.",
   "cli.notFound": "To żądanie wygasło lub zostało już użyte.",
-  "cli.notForYou": "To potwierdzenie dotyczy innego konta. Zaloguj się jako ten użytkownik, aby je zatwierdzić."
+  "cli.notForYou": "To potwierdzenie dotyczy innego konta. Zaloguj się jako ten użytkownik, aby je zatwierdzić.",
+  "mkt.egressSlots": "Sloty ruchu wychodzącego",
+  "mkt.egressSlotHint": "Hosty, do których operator pozwala zadaniom tego rozszerzenia. host lub host:port oddzielone przecinkami; puste odłącza.",
+  "mkt.egressPrivate": "Sieć prywatna (nigdy metadane chmury)",
+  "mkt.egressUnbound": "niepowiązany",
+  "mkt.egressBound": "Slot {slot} powiązany dla {name}",
+  "mkt.egressBindFailed": "Powiązanie nie powiodło się: {error}"
 }

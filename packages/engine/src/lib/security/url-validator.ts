@@ -444,3 +444,31 @@ export function assertNonMetadataUrl(rawUrl: string, label = 'Endpoint'): void {
 export function validateStorageEndpoint(rawUrl: string): void {
   assertNonMetadataUrl(rawUrl, 'Storage endpoint');
 }
+
+/**
+ * {@link assertNonMetadataUrl}, DNS-aware: every address the name resolves to
+ * is checked against the metadata set too, and the first is returned to pin
+ * the connection to (as {@link assertPublicUrl} does). For an authority an
+ * operator bound and marked private (ADR 0026 decision 5): private and
+ * loopback addresses pass, cloud metadata never does.
+ */
+export async function assertNonMetadataResolved(rawUrl: string): Promise<string | null> {
+  assertNonMetadataUrl(rawUrl, 'Private egress');
+  const host = new URL(rawUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (isIpLiteral(host)) return null;
+  let addresses: { address: string }[];
+  try {
+    addresses = await lookup(host, { all: true });
+  } catch {
+    return null;
+  }
+  for (const { address } of addresses) {
+    const a = address.toLowerCase();
+    if (METADATA_PATTERNS.some((re) => re.test(a) || re.test(normalizeHost(a)))) {
+      throw new Error(
+        `Private egress may not target a cloud-metadata address: ${rawUrl} resolves to ${address}`,
+      );
+    }
+  }
+  return addresses.length ? addresses[0]!.address : null;
+}

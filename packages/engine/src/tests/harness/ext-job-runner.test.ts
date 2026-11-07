@@ -85,6 +85,17 @@ export default {
     }
     await once(2);
   },
+  slotnet: async (input, host) => {
+    let label;
+    try {
+      const bound = await host.egress.slot('provider');
+      const res = await host.fetch(input.url);
+      label = 'bound-' + input.tag + '-[' + bound.join(',') + ']-' + res.status;
+    } catch (e) {
+      label = 'bound-' + input.tag + '-ERR-' + e.message;
+    }
+    await host.collections.insert(${JSON.stringify(C)}, { label });
+  },
   badArgs: async (input, host) => {
     await host.collections.read(42, 'x');
   },
@@ -195,6 +206,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
           egress: ['1.1.1.1', '8.8.8.8', 'localhost', 'nonexistent.invalid', '[64:ff9b::a00:1]'],
         },
         { ...job('twice', [C], [C]), timeoutSeconds: 60, egress: ['1.1.1.1'] },
+        { ...job('slotnet', [C], [C]), egress: ['1.1.1.1'], egressSlots: ['provider'] },
       ],
     });
     const jobs = compileJobs(
@@ -388,6 +400,9 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
         if (url.pathname === '/redirect') {
           return new Response(null, { status: 302, headers: { location: 'http://8.8.8.8/' } });
         }
+        if (url.pathname === '/to-public') {
+          return new Response(null, { status: 302, headers: { location: 'http://1.1.1.1/' } });
+        }
         const body = init?.body ? new TextDecoder().decode(init.body as Uint8Array) : '';
         return new Response(`pong:${body}`, { status: 200 });
       }) as typeof fetch;
@@ -468,6 +483,65 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
         await recordConsent(db, EXT, GRANTED);
       }
     }, 40_000);
+
+    describe('an operator-bound slot (ADR 0026)', () => {
+      const slot = async (tag: string, url: string, binding: string | null) => {
+        await recordConsent(db, EXT, binding ? [...GRANTED, binding] : GRANTED);
+        try {
+          await send('slotnet', { tag, url });
+          return (
+            await until(
+              () => rows(`bound-${tag}-`),
+              (r) => r.length > 0,
+            )
+          )[0]!.label;
+        } finally {
+          await recordConsent(db, EXT, GRANTED);
+        }
+      };
+
+      it('unbound: no egress, and the slot reads []', async () => {
+        expect(await slot('unbound', 'http://2.2.2.2/', null)).toContain(
+          "2.2.2.2 is not in this function's egress",
+        );
+        // A job that reads the slot first learns it is off.
+        expect(await slot('unbound-static', 'http://1.1.1.1/', null)).toBe(
+          'bound-unbound-static-[]-200',
+        );
+      }, 40_000);
+
+      it('bound: exactly its authorities, a redirect included', async () => {
+        const b = 'egress:provider=2.2.2.2';
+        expect(await slot('bound', 'http://2.2.2.2/x', b)).toBe('bound-bound-[2.2.2.2]-200');
+        expect(await slot('other', 'http://3.3.3.3/', b)).toContain('3.3.3.3 is not in');
+        expect(await slot('redir', 'http://2.2.2.2/redirect', b)).toContain('8.8.8.8 is not in');
+        // Rebound: the old authority is gone for the next call.
+        expect(await slot('rebound', 'http://2.2.2.2/', 'egress:provider=3.3.3.3')).toContain(
+          '2.2.2.2 is not in',
+        );
+      }, 60_000);
+
+      it('a private address only when the binding is marked private, never metadata', async () => {
+        expect(await slot('pub', 'http://localhost/', 'egress:provider=localhost')).toContain(
+          'private address blocked',
+        );
+        expect(await slot('priv', 'http://localhost/', 'egress:provider=localhost;private')).toBe(
+          'bound-priv-[localhost]-200',
+        );
+        expect(
+          await slot(
+            'meta',
+            'http://169.254.169.254/latest',
+            'egress:provider=169.254.169.254;private',
+          ),
+        ).toContain('cloud-metadata');
+        expect(seen.some((u) => u.includes('169.254'))).toBe(false);
+        // A redirect from the private authority may not leave it, even for an approved one.
+        expect(
+          await slot('leave', 'http://localhost/to-public', 'egress:provider=localhost;private'),
+        ).toContain('may not leave it');
+      }, 60_000);
+    });
 
     it('refuses a NAT64 address', async () => {
       expect(await net('nat64', 'http://[64:ff9b::a00:1]/')).toContain('private address blocked');

@@ -1639,5 +1639,11 @@
   "cli.approved": "Aprobat. Întoarce-te în terminal.",
   "cli.denied": "Refuzat. Cererea din terminal s-a încheiat.",
   "cli.notFound": "Cererea a expirat sau a fost deja folosită.",
-  "cli.notForYou": "Confirmarea este pentru alt cont. Autentifică-te cu acel utilizator ca să o aprobi."
+  "cli.notForYou": "Confirmarea este pentru alt cont. Autentifică-te cu acel utilizator ca să o aprobi.",
+  "mkt.egressSlots": "Sloturi de egress",
+  "mkt.egressSlotHint": "Gazdele pe care operatorul le permite joburilor acestei extensii. Host sau host:port separate prin virgulă; gol = dezlegare.",
+  "mkt.egressPrivate": "Rețea privată (niciodată metadata cloud)",
+  "mkt.egressUnbound": "nelegat",
+  "mkt.egressBound": "Slotul {slot} legat pentru {name}",
+  "mkt.egressBindFailed": "Legarea a eșuat: {error}"
 }

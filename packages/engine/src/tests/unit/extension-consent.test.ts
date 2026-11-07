@@ -13,11 +13,14 @@ import { CapabilityDeniedError, gateInternals } from '../../lib/extensions/capab
 import { ManifestSchema } from '../../lib/extensions/manifest-schema.js';
 import {
   declaredCapabilities,
+  formatSlotBinding,
   parseForwardMap,
   parseGranted,
+  parseSlotBinding,
   resolveCapabilities,
   resolveForwarded,
 } from '../../lib/extensions/consent.js';
+import { jobEgress } from '../../lib/extensions/jobs.js';
 
 describe('the update-widening scenario', () => {
   it('does not grant a capability a new version added on its own say-so', () => {
@@ -215,5 +218,80 @@ describe('job egress consent (ADR 0022 decision 5)', () => {
     expect(job({ egress: ['*.x.com'] }).success).toBe(false);
     expect(job({ egress: ['https://api.x.com'] }).success).toBe(false);
     expect(job({ egress: ['api.x.com'], timeoutSeconds: 901 }).success).toBe(false);
+  });
+});
+
+describe('egress slot bindings (ADR 0026)', () => {
+  it('parses what the bind route writes, and nothing looser', () => {
+    expect(parseSlotBinding('egress:provider=api.x.com,api.y.com:8443;private')).toEqual({
+      slot: 'provider',
+      authorities: ['api.x.com', 'api.y.com:8443'],
+      private: true,
+    });
+    for (const bad of [
+      'egress:api.x.com',
+      'egress:Provider=api.x.com',
+      'egress:provider=',
+      'egress:provider=https://api.x.com',
+      'egress:provider=*.x.com',
+      'egress:provider=api.x.com;public',
+      'data:system',
+    ]) {
+      expect(parseSlotBinding(bad)).toBeNull();
+    }
+    expect(
+      formatSlotBinding({
+        slot: 'p',
+        authorities: ['b.x.com', 'a.x.com', 'b.x.com'],
+        private: false,
+      }),
+    ).toBe('egress:p=a.x.com,b.x.com');
+  });
+
+  it('a binding is never dropped for not being declared, nor a capability', () => {
+    const r = resolveCapabilities(['data:system'], ['data:system', 'egress:provider=api.x.com']);
+    expect(r.dropped).toEqual([]);
+    expect(r.effective).toEqual(['data:system']);
+  });
+
+  it('a job reaches its consented static authorities and its own bound slots only', () => {
+    const granted = [
+      'egress:static.x.com',
+      'egress:provider=api.x.com',
+      'egress:local=localhost:11434;private',
+      'egress:theirs=other.x.com',
+    ];
+    expect(
+      jobEgress(
+        { egress: ['static.x.com', 'unapproved.x.com'], egressSlots: ['provider', 'local'] },
+        granted,
+      ),
+    ).toEqual({
+      allowed: ['static.x.com', 'api.x.com', 'localhost:11434'],
+      privateList: ['localhost:11434'],
+    });
+    expect(jobEgress({ egress: [], egressSlots: ['provider'] }, null)).toEqual({
+      allowed: [],
+      privateList: [],
+    });
+  });
+});
+
+describe('manifest egressSlots', () => {
+  const job = (egressSlots: unknown) =>
+    ManifestSchema.safeParse({
+      name: 'x',
+      jobs: [{ name: 'j', input: { type: 'object' }, egressSlots }],
+    });
+  it('takes slot names, once each, and lets the job run past 60 s', () => {
+    expect(job(['provider']).success).toBe(true);
+    expect(job(['Provider']).success).toBe(false);
+    expect(job(['a', 'a']).success).toBe(false);
+    expect(
+      ManifestSchema.safeParse({
+        name: 'x',
+        jobs: [{ name: 'j', input: { type: 'object' }, egressSlots: ['p'], timeoutSeconds: 300 }],
+      }).success,
+    ).toBe(true);
   });
 });

@@ -1639,5 +1639,11 @@
   "cli.approved": "Goedgekeurd. Ga terug naar je terminal.",
   "cli.denied": "Geweigerd. Het verzoek van de terminal is beëindigd.",
   "cli.notFound": "Dit verzoek is verlopen of al gebruikt.",
-  "cli.notForYou": "Deze bevestiging is voor een ander account. Meld je aan als die gebruiker om haar goed te keuren."
+  "cli.notForYou": "Deze bevestiging is voor een ander account. Meld je aan als die gebruiker om haar goed te keuren.",
+  "mkt.egressSlots": "Egress-slots",
+  "mkt.egressSlotHint": "Hosts die de beheerder de jobs van deze extensie toestaat. host of host:port, kommagescheiden; leeg ontkoppelt.",
+  "mkt.egressPrivate": "Privénetwerk (nooit cloudmetadata)",
+  "mkt.egressUnbound": "niet gekoppeld",
+  "mkt.egressBound": "Slot {slot} gekoppeld voor {name}",
+  "mkt.egressBindFailed": "Koppelen mislukt: {error}"
 }
