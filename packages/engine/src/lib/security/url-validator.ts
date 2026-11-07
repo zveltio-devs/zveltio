@@ -123,6 +123,10 @@ export const BLOCKED_PATTERNS: RegExp[] = [
   /^198\.1[89]\.\d+\.\d+$/, // 198.18.0.0/15 (benchmarking, used as internal space)
   /^(22[4-9]|2[3-5]\d)\.\d+\.\d+\.\d+$/, // 224.0.0.0/4 multicast, 240.0.0.0/4 reserved
   /^ff[0-9a-f]{0,2}:/, // IPv6 multicast ff00::/8
+  // 64:ff9b:1::/48 (RFC 8215), the NAT64 local-use prefix: where the IPv4 sits
+  // inside it is the translator's choice, so it cannot be decoded and checked.
+  // Never a public target: blocked whole.
+  /^64:ff9b:1:/,
   /host\.docker\.internal$/,
   /kubernetes\.default$/,
 ];
@@ -395,6 +399,9 @@ const METADATA_PATTERNS: RegExp[] = [
   /^169\.254\.\d+\.\d+$/, // IPv4 link-local (AWS/GCP/Azure IMDS 169.254.169.254)
   /^fe[89ab][0-9a-f]:/, // IPv6 link-local
   /^fd00:ec2:/, // AWS IMDSv6 (fd00:ec2::254)
+  // NAT64 local-use (RFC 8215): it may embed 169.254.169.254 anywhere, so a
+  // private binding gets none of it either.
+  /^64:ff9b:1:/,
   // Oracle Cloud's IMDS is NOT link-local. 192.0.0.192 sits in 192.0.0.0/24, a
   // globally-routable IANA special-purpose block, so every pattern above misses
   // it and so does any "is this a private address" test — which is exactly what
