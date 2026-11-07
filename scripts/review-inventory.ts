@@ -485,6 +485,9 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/worker-sql-policy.ts`,
       `${E}lib/extensions/extension-sandbox.ts`,
       `${E}lib/wasm-extension-host.ts`,
+      `${E}lib/extensions/deno.ts`,
+      `${E}lib/extensions/job-runner.ts`,
+      `${E}lib/socket-ban.ts`,
     ],
   },
   {
