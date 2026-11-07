@@ -1148,30 +1148,6 @@ export interface ZvSlowQueriesTable {
   created_at: Generated<Date>;
 }
 
-export interface ZvSmsMessagesTable {
-  id: Generated<string>;
-  provider: Generated<string>;
-  to_number: string;
-  from_number: string | null;
-  body: string;
-  status: Generated<string>;
-  provider_message_id: string | null;
-  error: string | null;
-  metadata: Generated<unknown | null>;
-  sent_at: Date | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvSmsTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  body: string;
-  provider: Generated<string>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvStorageQuotasTable {
   user_id: Generated<string>;
   quota_bytes: Generated<number>;
@@ -1733,8 +1709,6 @@ export interface DbSchema {
   zv_search_indexes: ZvSearchIndexesTable;
   zv_settings: ZvSettingsTable;
   zv_slow_queries: ZvSlowQueriesTable;
-  zv_sms_messages: ZvSmsMessagesTable;
-  zv_sms_templates: ZvSmsTemplatesTable;
   zv_storage_quotas: ZvStorageQuotasTable;
   zv_sync_tombstones: ZvSyncTombstonesTable;
   zv_tenant_transfers: ZvTenantTransfersTable;
