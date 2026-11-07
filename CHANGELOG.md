@@ -4,6 +4,20 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.104] - 2026-11-07
+
+**An operator names the hosts an extension job may reach (ADR 0026).** A job may declare `jobs[].egressSlots` (slot names such as `provider` or `api`) beside `egress`. The extension never names a slot's value: an operator binds it through consent, `egress:<slot>=<authority>[,<authority>…]` (god step-up, audited, never grandfathered), and may mark a binding `;private` so that, for that authority only, the engine-served fetch accepts private and loopback addresses; cloud-metadata ranges stay refused. A job reads its binding with `host.egress.slot(name)`, which answers `[]` while unbound, and `host.fetch` reaches bound authorities exactly as consented ones, on every redirect hop. Studio's consent screen gains a slot form behind step-up. Additive to extension-api v1.
+
+**Only a first-party extension reads the instance's S3 keys through the `storage` capability.** A third-party extension that declares it is refused the keys (#1568).
+
+**NAT64 local-use prefix blocked.** `64:ff9b:1::/48` (RFC 8215) is now refused whole by the public and private URL guards, so an embedded metadata address cannot pass through it (#1570).
+
+**Connection trace.** A request is charged only what its own context takes, and what it takes outside its transaction while holding one (#1560, #1566).
+
+**Schema snapshots** record the declared collections of ldap/saml secrets, efactura 2.0.0, sms 2.0.0, migrators 2.0.0 and api-connector 2.0.0 (#1559, #1561, #1563, #1564, #1571).
+
+**CI.** A Deno job runs on the arm64 image that `release.yml` publishes (#1565); the sealed-columns harness test waits out the sync watermark (#1567).
+
 ## [3.0.0-beta.103] - 2026-11-06
 
 **An extension update can turn its text field `secret` (ADR 0024 §6).** An extension's declared collections had no step for a type change, so an update that declared a 2.0.0 `text` field as `secret` (auth/ldap `bind_password`, auth/saml `private_key`) was refused on every install that had the old one, and a retype by hand left `encrypted: true` in the field's metadata, a step the plan then owed forever. The extension plan now runs that retype, from a text-stored field only: ciphertext under the field key is kept, plaintext is encrypted, and the default, unique key, index and `encrypted` flag go, so the next load owes nothing. Any other type change is still refused.
