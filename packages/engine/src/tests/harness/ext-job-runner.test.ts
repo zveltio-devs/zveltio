@@ -90,9 +90,9 @@ export default {
     try {
       const bound = await host.egress.slot('provider');
       const res = await host.fetch(input.url);
-      label = 'slot-' + input.tag + '-[' + bound.join(',') + ']-' + res.status;
+      label = 'bound-' + input.tag + '-[' + bound.join(',') + ']-' + res.status;
     } catch (e) {
-      label = 'slot-' + input.tag + '-ERR-' + e.message;
+      label = 'bound-' + input.tag + '-ERR-' + e.message;
     }
     await host.collections.insert(${JSON.stringify(C)}, { label });
   },
@@ -491,7 +491,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
           await send('slotnet', { tag, url });
           return (
             await until(
-              () => rows(`slot-${tag}-`),
+              () => rows(`bound-${tag}-`),
               (r) => r.length > 0,
             )
           )[0]!.label;
@@ -506,13 +506,13 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
         );
         // A job that reads the slot first learns it is off.
         expect(await slot('unbound-static', 'http://1.1.1.1/', null)).toBe(
-          'slot-unbound-static-[]-200',
+          'bound-unbound-static-[]-200',
         );
       }, 40_000);
 
       it('bound: exactly its authorities, a redirect included', async () => {
         const b = 'egress:provider=2.2.2.2';
-        expect(await slot('bound', 'http://2.2.2.2/x', b)).toBe('slot-bound-[2.2.2.2]-200');
+        expect(await slot('bound', 'http://2.2.2.2/x', b)).toBe('bound-bound-[2.2.2.2]-200');
         expect(await slot('other', 'http://3.3.3.3/', b)).toContain('3.3.3.3 is not in');
         expect(await slot('redir', 'http://2.2.2.2/redirect', b)).toContain('8.8.8.8 is not in');
         // Rebound: the old authority is gone for the next call.
@@ -526,7 +526,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
           'private address blocked',
         );
         expect(await slot('priv', 'http://localhost/', 'egress:provider=localhost;private')).toBe(
-          'slot-priv-[localhost]-200',
+          'bound-priv-[localhost]-200',
         );
         expect(
           await slot(

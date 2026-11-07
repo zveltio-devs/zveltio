@@ -362,6 +362,8 @@ so treat the feature as off. `host.fetch` then reaches exactly the bound
 authorities. A private or loopback address (a local Ollama) only when the
 operator marked the binding `private`; cloud metadata never, and a redirect
 from a private authority never leaves it. A rebinding applies to the next fetch.
+A slot name belongs to the extension: every job that declares `provider`
+shares its one binding.
 
 ---
 
