@@ -70,7 +70,7 @@ The client names the action, confirms it, and sends the token it gets back as
 
 - Actions: `extension.<verb>:<name>` (`install`, `update`, `enable`, `disable`, `uninstall`,
   `config`, `license`, `license-delete`, `approve-capabilities`,
-  `approve-forward-credentials`), `extension.enable-all`, `extension.license-rotate`;
+  `approve-forward-credentials`, `bind-egress-slot`), `extension.enable-all`, `extension.license-rotate`;
   for factor changes `factor.passkey.add`, `factor.passkey.remove`, `factor.totp.add`,
   `factor.totp.disable`, `factor.totp.reveal` (`get-totp-uri`),
   `factor.backup-codes.regenerate`; `user.factors.reset:<user id>` for the reset below.

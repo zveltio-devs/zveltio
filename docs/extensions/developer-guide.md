@@ -351,6 +351,18 @@ the additions until an admin approves them
 not a way to widen your access. Installs predating consent tracking keep running
 with what they declare.
 
+**Hosts the operator chooses** (ADR 0026). A job that talks to a host you
+cannot name in advance — an AI provider's base URL, a tenant's REST API —
+declares a slot instead of an authority: `"egressSlots": ["provider"]`. The
+operator binds it (`POST /api/marketplace/<name>/bind-egress-slot` with
+`{ "slot": "provider", "authorities": ["api.example.com"], "private": false }`,
+god with step-up, audited; Studio's marketplace card has the form). The job
+reads the binding with `await host.egress.slot('provider')`: `[]` means unbound,
+so treat the feature as off. `host.fetch` then reaches exactly the bound
+authorities. A private or loopback address (a local Ollama) only when the
+operator marked the binding `private`; cloud metadata never, and a redirect
+from a private authority never leaves it. A rebinding applies to the next fetch.
+
 ---
 
 ## 5. Writing engine code

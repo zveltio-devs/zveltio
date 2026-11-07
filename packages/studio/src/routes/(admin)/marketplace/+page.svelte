@@ -119,6 +119,8 @@ interface Extension {
   forwarded_credentials?: Record<string, string[]>;
   /** `route: header` pairs not yet approved — none of `forwarded_credentials` is forwarded while any remain. */
   pending_forward_credentials?: string[];
+  /** Its jobs' egress slots and the operator's binding, `authorities` null while unbound (ADR 0026). */
+  egress_slots?: { slot: string; authorities: string[] | null; private: boolean }[];
 }
 
 // ── License key modal state ────────────────────────────────────────────────
@@ -367,6 +369,33 @@ async function approveCapabilities(ext: Extension) {
   } catch (e) {
     if (stepUpAborted(e)) return;
     toast.error(m['mkt.approvalFailed']({ error: (e as Error).message }));
+  } finally {
+    processingId = null;
+  }
+}
+
+/** Bind (or, with no hosts, unbind) one egress slot from its form; the engine checks each host. */
+async function bindSlot(ext: Extension, slot: string, form: FormData) {
+  const authorities = String(form.get('hosts') ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean);
+  const isPrivate = authorities.length > 0 && form.get('private') === 'on';
+  processingId = ext.name;
+  try {
+    await api(
+      `/api/marketplace/${encodeURIComponent(ext.name)}/bind-egress-slot`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ slot, authorities, private: isPrivate }),
+      },
+      `extension.bind-egress-slot:${ext.name}`,
+    );
+    toast.success(m['mkt.egressBound']({ slot, name: ext.displayName }));
+    await loadCatalog();
+  } catch (e) {
+    if (stepUpAborted(e)) return;
+    toast.error(m['mkt.egressBindFailed']({ error: (e as Error).message }));
   } finally {
     processingId = null;
   }
@@ -771,6 +800,39 @@ onMount(loadCatalog);
                           <ShieldCheck size={12} /> {m['common.approve']()}
                         </button>
                       </div>
+                    </div>
+                  {/if}
+
+                  <!-- Egress slots (ADR 0026): hosts only the operator names. -->
+                  {#if ext.is_installed && (ext.egress_slots ?? []).length > 0}
+                    <div class="border border-base-300 rounded-box py-2 px-3 mb-3 text-xs">
+                      <p class="font-semibold mb-1">{m['mkt.egressSlots']()}</p>
+                      <p class="opacity-70 mb-2">{m['mkt.egressSlotHint']()}</p>
+                      {#each ext.egress_slots ?? [] as s (s.slot)}
+                        <form
+                          class="flex flex-wrap items-center gap-2 mb-1"
+                          onsubmit={(e) => {
+                            e.preventDefault();
+                            bindSlot(ext, s.slot, new FormData(e.currentTarget));
+                          }}
+                        >
+                          <code class="font-mono">{s.slot}</code>
+                          <input
+                            name="hosts"
+                            class="input input-bordered input-xs flex-1 min-w-32 font-mono"
+                            aria-label={s.slot}
+                            placeholder={m['mkt.egressUnbound']()}
+                            value={(s.authorities ?? []).join(', ')}
+                          />
+                          <label class="flex items-center gap-1">
+                            <input name="private" type="checkbox" class="checkbox checkbox-xs" checked={s.private} />
+                            {m['mkt.egressPrivate']()}
+                          </label>
+                          <button type="submit" class="btn btn-xs" disabled={isProcessing}>
+                            {m['common.save']()}
+                          </button>
+                        </form>
+                      {/each}
                     </div>
                   {/if}
 

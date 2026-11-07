@@ -14,8 +14,12 @@
 // Not the barrel: the edge egress bridge imports this module, and the compose
 // probe runs it from source with no node_modules (the barrel pulls hono, kysely).
 import { isIP } from 'node:net';
-import { assertPublicUrl, validatePublicUrl } from '../security/url-validator.js';
-export { validatePublicUrl, assertPublicUrl };
+import {
+  assertNonMetadataResolved,
+  assertPublicUrl,
+  validatePublicUrl,
+} from '../security/url-validator.js';
+export { validatePublicUrl, assertPublicUrl, assertNonMetadataResolved };
 
 /**
  * Whether an egress proxy is in play.
@@ -107,6 +111,12 @@ export function createSafeFetch(
    * proxy then connects to the address checked here, never to one it resolves.
    */
   pinThroughProxy = false,
+  /**
+   * Checks the URL's addresses and answers the one to pin, per hop. The public
+   * guard by default; the job runner passes the metadata-only guard for an
+   * authority an operator marked private (ADR 0026 decision 5).
+   */
+  guard: (url: string) => Promise<string | null> = assertPublicUrl,
 ) {
   const proxied = (init: RequestInit) => !pinThroughProxy && proxyConfigured(init);
   return async function safeFetch(
@@ -121,7 +131,7 @@ export function createSafeFetch(
 
     // DNS-aware: also rejects hostnames that RESOLVE into private space, which a
     // literal-text blocklist cannot see. Returns the address to connect to.
-    const address = await assertPublicUrl(url);
+    const address = await guard(url);
 
     if (_hops > 5) throw new Error('[safeFetch] Too many redirects.');
 

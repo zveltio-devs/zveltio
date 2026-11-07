@@ -26,6 +26,7 @@
  */
 
 import type { Database } from '../../db/index.js';
+import { parseEgress } from '../edge-functions/egress.js';
 import { toJsonb } from '../jsonb.js';
 import { EXTENSION_FORWARD_CHANGED_EVENT, realtimeBus } from '../runtime/index.js';
 import { onAfterCommit } from '../tenancy/index.js';
@@ -61,6 +62,61 @@ export function declaredCapabilities(manifest: unknown): string[] {
     strings((j as { egress?: unknown } | null)?.egress).map((a) => `${EGRESS_PREFIX}${a}`),
   );
   return [...new Set([...strings(m.permissions), ...egress])];
+}
+
+/**
+ * An operator's binding of a job's egress slot (ADR 0026 decision 3), stored
+ * in the consent as `egress:<slot>=<authority>[,<authority>…][;private]`.
+ * Never declared: the manifest names the slot, only the operator its value.
+ */
+export interface SlotBinding {
+  slot: string;
+  authorities: string[];
+  /** Private and loopback addresses pass for these authorities (decision 5). */
+  private: boolean;
+}
+
+/** The binding a consent entry records, or null when it is not one. */
+export function parseSlotBinding(cap: string): SlotBinding | null {
+  if (!cap.startsWith(EGRESS_PREFIX)) return null;
+  const m = /^([a-z][a-z0-9_]*)=([^;]+)(;private)?$/.exec(cap.slice(EGRESS_PREFIX.length));
+  if (!m) return null;
+  try {
+    const authorities = parseEgress(m[2]!.split(','));
+    return authorities ? { slot: m[1]!, authorities, private: m[3] !== undefined } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The consent entry for `b`, authorities sorted so one binding has one spelling. */
+export function formatSlotBinding(b: SlotBinding): string {
+  const list = [...new Set(b.authorities)].sort().join(',');
+  return `${EGRESS_PREFIX}${b.slot}=${list}${b.private ? ';private' : ''}`;
+}
+
+/** Every slot name a manifest's jobs declare (`egressSlots`), from the raw JSON. */
+export function declaredSlots(manifest: unknown): Set<string> {
+  const m = (manifest ?? {}) as { jobs?: unknown };
+  return new Set(
+    (Array.isArray(m.jobs) ? m.jobs : []).flatMap((j) => {
+      const v = (j as { egressSlots?: unknown } | null)?.egressSlots;
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    }),
+  );
+}
+
+/** The bindings in `granted` whose slot `slots` holds, by slot. */
+export function slotBindings(
+  granted: readonly string[] | null,
+  slots: ReadonlySet<string>,
+): Map<string, SlotBinding> {
+  const out = new Map<string, SlotBinding>();
+  for (const cap of granted ?? []) {
+    const b = parseSlotBinding(cap);
+    if (b && slots.has(b.slot)) out.set(b.slot, b);
+  }
+  return out;
 }
 
 export interface EffectiveCapabilities {
@@ -102,7 +158,8 @@ export function resolveCapabilities(
   return {
     effective: declared.filter((c) => grantedSet.has(c)),
     pending: declared.filter((c) => !grantedSet.has(c)),
-    dropped: granted.filter((c) => !declaredSet.has(c)),
+    // A slot binding is never declared, so it is not dropped for that.
+    dropped: granted.filter((c) => !declaredSet.has(c) && !parseSlotBinding(c)),
     grandfathered: false,
   };
 }
@@ -142,6 +199,31 @@ export async function recordConsent(
     .set({ granted_capabilities: toJsonb([...new Set(capabilities)].sort()) })
     .where('name', '=', name)
     .execute();
+}
+
+/**
+ * Rewrite the recorded consent for `name` from what it is now, the row locked
+ * so two decisions never overwrite each other. `next` answers the full set to
+ * record, or a refusal (returned, nothing written).
+ */
+export async function rewriteConsent<R>(
+  db: Database,
+  name: string,
+  next: (granted: string[] | null) => readonly string[] | { refused: R },
+): Promise<{ written: string[] } | { refused: R }> {
+  return db.transaction().execute(async (trx) => {
+    const row = await trx
+      .selectFrom('zv_extension_registry')
+      .select('granted_capabilities')
+      .where('name', '=', name)
+      .where('tenant_id', 'is', null)
+      .forUpdate()
+      .executeTakeFirst();
+    const out = next(row ? parseGranted(row.granted_capabilities) : null);
+    if ('refused' in out) return out;
+    await recordConsent(trx, name, out);
+    return { written: [...new Set(out)].sort() };
+  });
 }
 
 // ── Credential forwarding ────────────────────────────────────────────

@@ -67,7 +67,7 @@ import {
   secretReveal,
 } from './actions.js';
 import { EGRESS_LIMITS, parseRequest, performEgress } from '../edge-functions/egress.js';
-import { EGRESS_PREFIX, readGranted } from './consent.js';
+import { EGRESS_PREFIX, readGranted, slotBindings } from './consent.js';
 import { ensureDeno } from './deno.js';
 import { type HostCall, jobPlacement, runInDeno, runnerAnswers } from './job-runner.js';
 import type { ExtensionManifest } from './manifest-schema.js';
@@ -89,6 +89,8 @@ export interface CompiledJob {
     timeoutSeconds: number;
     /** Declared authorities; reachable only once consented as `egress:<authority>`. */
     egress: readonly string[];
+    /** Declared slots (ADR 0026); each reaches what an operator bound to it. */
+    egressSlots: readonly string[];
   };
 }
 
@@ -197,7 +199,9 @@ export function compileJobs(
   });
   // What it declares decides, not its name (ADR 0022 decision 1): egress exists
   // only in the runner, so a job that declares any runs there, first-party too.
-  const inRunner = declared.filter((j) => worker || (j.egress ?? []).length > 0);
+  const inRunner = declared.filter(
+    (j) => worker || (j.egress ?? []).length > 0 || (j.egressSlots ?? []).length > 0,
+  );
   const inline = declared.filter((j) => !inRunner.includes(j));
   for (const j of inRunner) {
     if (Object.hasOwn(implemented, j.name)) {
@@ -225,6 +229,7 @@ export function compileJobs(
         memoryMb: j.memoryMb,
         timeoutSeconds: j.timeoutSeconds,
         egress: j.egress ?? [],
+        egressSlots: j.egressSlots ?? [],
       },
     });
   }
@@ -609,7 +614,7 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
         call,
       });
     // No egress: one transaction for the run, as inline. A failure rolls it all back.
-    if (runner.egress.length === 0) {
+    if (runner.egress.length === 0 && runner.egressSlots.length === 0) {
       await inTenant((collections) =>
         run((name, args) =>
           name === 'fetch'
@@ -634,14 +639,22 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
         if (name === 'fetch') {
           return fetches(async () => {
             // The consent as recorded now, not as it was at load (ADR 0023
-            // decision 4): a revocation cuts the next fetch. On the pool, as the
-            // tenant check below: an instance row, read before the fetch, so no
-            // transaction is held across it. No row (uninstalled) or no consent
-            // recorded: no egress — it is never grandfathered.
-            const granted = new Set((await readGranted(getDb(), extName)) ?? []);
-            const allowed = runner.egress.filter((a) => granted.has(`${EGRESS_PREFIX}${a}`));
-            return jobFetch(allowed, args[0], ended.signal);
+            // decision 4): a revocation or a rebinding cuts the next fetch. On
+            // the pool, as the tenant check below: an instance row, read before
+            // the fetch, so no transaction is held across it. No row
+            // (uninstalled) or no consent recorded: no egress — it is never
+            // grandfathered.
+            const { allowed, privateList } = jobEgress(runner, await readGranted(getDb(), extName));
+            return jobFetch(allowed, privateList, args[0], ended.signal);
           });
+        }
+        if (name === 'egress.slot') {
+          const slot = args[0];
+          if (typeof slot !== 'string' || !runner.egressSlots.includes(slot)) {
+            throw new Error(`egress.slot: job "${job}" declares no egress slot "${String(slot)}"`);
+          }
+          const granted = await readGranted(getDb(), extName);
+          return slotBindings(granted, new Set([slot])).get(slot)?.authorities ?? [];
         }
         const p = dbCalls(async () => {
           const now = await getDb()
@@ -745,8 +758,31 @@ function limiter(max: number, inFlight: number, what: string) {
  * address pinned even behind a configured proxy. Answers the bridge's answer
  * without its id; a refusal is the job's error.
  */
+/**
+ * What a run of the job may reach under `granted`: each declared authority
+ * consented as `egress:<authority>`, and each authority bound to a declared
+ * slot (ADR 0026). `privateList` holds the bound ones marked private.
+ */
+export function jobEgress(
+  runner: { egress: readonly string[]; egressSlots: readonly string[] },
+  granted: readonly string[] | null,
+): { allowed: string[]; privateList: string[] } {
+  const set = new Set(granted ?? []);
+  const bound = [...slotBindings(granted, new Set(runner.egressSlots)).values()];
+  return {
+    allowed: [
+      ...new Set([
+        ...runner.egress.filter((a) => set.has(`${EGRESS_PREFIX}${a}`)),
+        ...bound.flatMap((b) => b.authorities),
+      ]),
+    ],
+    privateList: bound.filter((b) => b.private).flatMap((b) => b.authorities),
+  };
+}
+
 async function jobFetch(
   allowed: readonly string[],
+  privateList: readonly string[],
   arg: unknown,
   signal: AbortSignal,
 ): Promise<unknown> {
@@ -757,6 +793,7 @@ async function jobFetch(
     allowed,
     AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_S * 1000)]),
     true,
+    privateList,
   );
   if (!a.ok) throw new Error(a.error);
   const { id: _, ...answer } = a;
@@ -808,6 +845,8 @@ export async function hostCall(c: HostCollections, name: HostCall, a: unknown[])
       return c.delete(str(0, 'collection'), str(1, 'id'));
     case 'fetch':
       throw new Error('fetch is not a collection call');
+    case 'egress.slot':
+      throw new Error('this job declares no egress slot');
   }
 }
 

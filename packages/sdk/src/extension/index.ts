@@ -1618,6 +1618,15 @@ export interface JobHost {
    * Deno runner only (engines from 3.0.0-beta.103).
    */
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  /**
+   * The job's egress slots (ADR 0026): `slot(name)` answers the authorities an
+   * operator bound to a slot the manifest's `egressSlots` declares, or `[]`
+   * while it is unbound — the capability is then off. `fetch` reaches bound
+   * authorities as it reaches consented ones; a private address only when the
+   * operator marked the binding private, cloud metadata never. Read it each
+   * run: an operator may rebind it at any time. Engines from 3.0.0-beta.104.
+   */
+  egress?: { slot: (name: string) => Promise<string[]> };
 }
 
 /**

@@ -15,7 +15,7 @@
 import { join } from 'path';
 import { z } from 'zod';
 import { CAPABILITIES, isKnownCapability } from './capabilities.js';
-import { parseEgress } from '../edge-functions/egress.js';
+import { parseEgress, SLOT_NAME_RE } from '../edge-functions/egress.js';
 
 /** Request headers that carry the caller's credentials; never handed to a worker unasked. */
 export const CREDENTIAL_HEADERS = [
@@ -310,6 +310,16 @@ export const ManifestSchema = z
            */
           egress: z.array(z.string()).default([]),
           /**
+           * Slots for hosts the operator chooses (ADR 0026 decision 2): an AI
+           * provider's base URL, a tenant's REST API. The manifest names the
+           * slot; an operator binds its authorities as `egress:<slot>=…`, and
+           * until then the slot reaches nothing. A job that declares any runs
+           * in the Deno runner. Read the binding with `host.egress.slot(name)`.
+           */
+          egressSlots: z
+            .array(z.string().regex(SLOT_NAME_RE, 'a slot name is [a-z][a-z0-9_]*'))
+            .default([]),
+          /**
            * Ceilings of a run in the Deno runner (ADR 0022 decision 5); an inline
            * run ignores them. Without egress the run holds one transaction, so
            * its time limit is the database's idle-in-transaction limit, 60 s;
@@ -499,7 +509,14 @@ export const ManifestSchema = z
           message: `job "${j.name}": ${(err as Error).message}`,
         });
       }
-      if (j.egress.length === 0 && j.timeoutSeconds > 60) {
+      if (new Set(j.egressSlots).size !== j.egressSlots.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['jobs', i, 'egressSlots'],
+          message: `job "${j.name}": an egress slot is declared twice`,
+        });
+      }
+      if (j.egress.length === 0 && j.egressSlots.length === 0 && j.timeoutSeconds > 60) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['jobs', i, 'timeoutSeconds'],

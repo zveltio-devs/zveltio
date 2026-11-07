@@ -31,6 +31,7 @@ export type AuditEventType =
   /** An administrator granted an extension the capabilities its manifest
    * declares. The one place a privilege widening is a deliberate act. */
   | 'extension.capabilities.approved'
+  | 'extension.egress.slot_bound'
   /** An administrator approved the caller credentials a worker extension's routes receive. */
   | 'extension.forward_credentials.approved'
   /** One run of an extension action (lib/extensions/actions.ts), with its outcome. */

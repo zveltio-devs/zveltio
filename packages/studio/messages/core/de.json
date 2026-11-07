@@ -1639,5 +1639,11 @@
   "cli.approved": "Genehmigt. Kehre zu deinem Terminal zurück.",
   "cli.denied": "Abgelehnt. Die Anfrage des Terminals ist beendet.",
   "cli.notFound": "Diese Anfrage ist abgelaufen oder wurde bereits verwendet.",
-  "cli.notForYou": "Diese Bestätigung gilt für ein anderes Konto. Melde dich als dieser Benutzer an, um sie zu genehmigen."
+  "cli.notForYou": "Diese Bestätigung gilt für ein anderes Konto. Melde dich als dieser Benutzer an, um sie zu genehmigen.",
+  "mkt.egressSlots": "Egress-Slots",
+  "mkt.egressSlotHint": "Hosts, die der Betreiber den Jobs dieser Erweiterung erlaubt. Host oder host:port, durch Kommas getrennt; leer hebt die Bindung auf.",
+  "mkt.egressPrivate": "Privates Netz (niemals Cloud-Metadaten)",
+  "mkt.egressUnbound": "nicht gebunden",
+  "mkt.egressBound": "Slot {slot} für {name} gebunden",
+  "mkt.egressBindFailed": "Bindung fehlgeschlagen: {error}"
 }

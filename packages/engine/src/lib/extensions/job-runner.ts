@@ -64,6 +64,7 @@ export const HOST_CALLS = [
   'collections.update',
   'collections.delete',
   'fetch',
+  'egress.slot',
 ] as const;
 export type HostCall = (typeof HOST_CALLS)[number];
 
@@ -120,6 +121,8 @@ const host = Object.freeze({
     update: (c, id, d, o) => call('collections.update', [c, id, d, o ?? {}]),
     delete: (c, id) => call('collections.delete', [c, id]),
   }),
+  // The operator's binding of a declared slot (ADR 0026), [] while unbound.
+  egress: Object.freeze({ slot: (name) => call('egress.slot', [name]) }),
   // The engine performs it (ADR 0022 decision 3): this process opens no socket.
   fetch: async (input, init) => {
     const req = new Request(input, init);

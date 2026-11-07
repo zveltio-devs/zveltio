@@ -1639,5 +1639,11 @@
   "cli.approved": "Jóváhagyva. Térj vissza a terminálhoz.",
   "cli.denied": "Elutasítva. A terminál kérése véget ért.",
   "cli.notFound": "Ez a kérés lejárt vagy már felhasználták.",
-  "cli.notForYou": "Ez a megerősítés egy másik fiókhoz tartozik. Jelentkezz be azzal a felhasználóval a jóváhagyáshoz."
+  "cli.notForYou": "Ez a megerősítés egy másik fiókhoz tartozik. Jelentkezz be azzal a felhasználóval a jóváhagyáshoz.",
+  "mkt.egressSlots": "Kimenő slotok",
+  "mkt.egressSlotHint": "Az operátor által ennek a bővítménynek a feladatai számára engedélyezett hosztok. host vagy host:port vesszővel elválasztva; üres = leválasztás.",
+  "mkt.egressPrivate": "Privát hálózat (felhő-metaadat soha)",
+  "mkt.egressUnbound": "nincs kötve",
+  "mkt.egressBound": "{slot} slot kötve ehhez: {name}",
+  "mkt.egressBindFailed": "A kötés sikertelen: {error}"
 }

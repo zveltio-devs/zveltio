@@ -369,7 +369,23 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
         ),
       );
     }
-    const hasEgress = Array.isArray(egress) && egress.length > 0;
+    // ADR 0026: slots an operator binds; the manifest names only the slot.
+    const slots = j.egressSlots;
+    const slotsOk =
+      slots === undefined ||
+      (Array.isArray(slots) &&
+        new Set(slots).size === slots.length &&
+        slots.every((s) => typeof s === 'string' && /^[a-z][a-z0-9_]*$/.test(s)));
+    if (!slotsOk) {
+      out.push(
+        err(
+          'MANIFEST_BAD_JOB',
+          `job "${j.name}": "egressSlots" lists distinct slot names, [a-z][a-z0-9_]*`,
+        ),
+      );
+    }
+    const hasEgress =
+      (Array.isArray(egress) && egress.length > 0) || (Array.isArray(slots) && slots.length > 0);
     if (!int(j.timeoutSeconds, 1, hasEgress ? 900 : 60)) {
       out.push(
         err(
