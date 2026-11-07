@@ -6,7 +6,11 @@
  */
 
 import { describe, it, expect, test } from 'bun:test';
-import { isBlockedHost, validatePublicUrl } from '../../lib/security/url-validator.js';
+import {
+  assertNonMetadataUrl,
+  isBlockedHost,
+  validatePublicUrl,
+} from '../../lib/security/url-validator.js';
 
 describe('validatePublicUrl — allows public http(s)', () => {
   it('accepts ordinary public URLs', () => {
@@ -95,6 +99,8 @@ describe('IPv4 hidden inside IPv6, and the reserved v4 ranges', () => {
     '::127.0.0.1',
     '2002:a9fe:a9fe::1', // 6to4
     '[64:ff9b::7f00:1]',
+    '64:ff9b:1::a9fe:a9fe', // NAT64 local-use (RFC 8215): blocked whole
+    '[64:ff9b:1:a9:fe00:a9fe::]',
     '0.1.2.3',
     '198.18.0.1',
     '198.19.255.255',
@@ -109,6 +115,15 @@ describe('IPv4 hidden inside IPv6, and the reserved v4 ranges', () => {
     'leaves %s reachable (a public v4 inside, or just outside a range)',
     (host) => {
       expect(isBlockedHost(host)).toBe(false);
+    },
+  );
+});
+
+describe('NAT64 local-use under a private binding (ADR 0026)', () => {
+  test.each(['http://[64:ff9b:1::a9fe:a9fe]/', 'http://[64:ff9b:1:a9:fe00:a9fe::]/'])(
+    'refuses %s as metadata',
+    (url) => {
+      expect(() => assertNonMetadataUrl(url)).toThrow(/cloud-metadata/);
     },
   );
 });
