@@ -33,6 +33,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  syncPull,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -278,10 +279,13 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
   });
 
   it('pulls and pushes through sync', async () => {
-    const pull = await call('POST', '/api/sync/pull', { collections: [TABLE] });
+    // Through syncPull: a transaction another test holds open keeps the
+    // watermark under the row, and a direct pull answered nothing.
+    const pull = await syncPull(app, member, { collections: [TABLE] });
     expect(pull.status).toBe(200);
-    expect(pull.body).toContain(recordId);
-    expect(pull.body).not.toContain('argon2');
+    const pulled = JSON.stringify(pull.body);
+    expect(pulled).toContain(recordId);
+    expect(pulled).not.toContain('argon2');
     const id = crypto.randomUUID();
     const push = await call('POST', '/api/sync/push', {
       operations: [
