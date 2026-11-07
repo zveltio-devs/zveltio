@@ -406,6 +406,8 @@ export function buildRestrictedContext(
   serviceDeps: ServiceDeps = new Map(),
   /** What its routes' `host.collections` reaches (`routeCollections`); nothing by default. */
   routes: ReturnType<typeof routeCollections> = routeCollections(null),
+  /** Runs inline, i.e. passed the publisher-tier gate as first-party (see buildExtensionConfig). */
+  firstParty = false,
 ): ExtensionContext {
   const hasAdminDb = capabilities.includes('db:admin');
   // Drop any health checks this extension registered on a previous load so a
@@ -477,7 +479,7 @@ export function buildRestrictedContext(
     ),
     // Configuration resolved host-side, so extensions stop reading the engine's
     // whole environment (and stop missing the admin's Studio storage settings).
-    config: buildExtensionConfig(capabilities, extName),
+    config: buildExtensionConfig(capabilities, extName, firstParty),
     // Explicit, capability-gated cross-tenant handle (the global pool). Present
     // only when the manifest declares the `db:admin` permission — otherwise any
     // use throws, so the escape hatch is visible at review + install time.
@@ -965,6 +967,7 @@ export async function finalizeExtensionLoad(
     pending,
     serviceDeps,
     routes,
+    !workerIsolation,
   );
 
   // Register routes — if the live app's Hono matcher is already built (happens
@@ -1101,6 +1104,7 @@ export async function reRegisterExtension(
     loaded?.pendingCapabilities ?? [],
     loaded?.serviceDeps,
     loaded?.routes,
+    !!loaded && !loaded.workerIsolation,
   );
 
   try {

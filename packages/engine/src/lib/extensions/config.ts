@@ -34,11 +34,15 @@ function flag(name: string): boolean {
 /**
  * Build the config view for one extension.
  *
- * `objectStorage` is present only when the manifest declares the `storage`
- * capability AND the instance actually has object storage configured. Both
- * conditions matter: the capability makes the credential access visible at
- * review and install time, and the `undefined` tells an extension that storage
- * is absent so it can degrade instead of throwing.
+ * `objectStorage` is present only when the extension is first-party, the
+ * manifest declares the `storage` capability, AND the instance actually has
+ * object storage configured. It carries the INSTANCE's S3 keys — the whole
+ * bucket, past the engine's storage rules — so the capability alone is not
+ * enough: `firstParty` is the verified publisher tier (an extension that runs
+ * inline passed `enforcePublisherTier`), never the name, which anyone can
+ * publish under. Any other extension reads `undefined`, as on an instance
+ * without S3, and degrades. Interim until storage/cloud moves onto an engine
+ * file API and the capability is retired (v2-candidates entry 5).
  */
 /**
  * The slice of the environment that belongs to one extension.
@@ -82,8 +86,9 @@ function namespacedEnv(extName: string | undefined): Readonly<Record<string, str
 export function buildExtensionConfig(
   capabilities: readonly string[],
   extName?: string,
+  firstParty = false,
 ): ExtensionConfig {
-  const mayReadStorage = capabilities.includes('storage');
+  const mayReadStorage = firstParty && capabilities.includes('storage');
   const vars = namespacedEnv(extName);
 
   return Object.freeze({

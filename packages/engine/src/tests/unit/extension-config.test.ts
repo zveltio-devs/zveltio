@@ -61,8 +61,15 @@ describe('object storage is capability-gated', () => {
     expect(serialised).not.toContain('AKIA_TEST');
   });
 
-  it('is present with the storage capability', () => {
-    const s = buildExtensionConfig(['storage']).objectStorage;
+  it('is undefined to an extension that is not first-party, whatever its name', () => {
+    // The name proves nothing (the registry reserves no namespace); the tier
+    // the publisher-tier gate verified does, and the caller passes it.
+    expect(buildExtensionConfig(['storage'], 'storage/evil').objectStorage).toBeUndefined();
+    expect(buildExtensionConfig(['storage'], 'storage/evil', false).objectStorage).toBeUndefined();
+  });
+
+  it('is present with the storage capability to a first-party extension', () => {
+    const s = buildExtensionConfig(['storage'], 'storage/cloud', true).objectStorage;
     expect(s?.accessKeyId).toBe('AKIA_TEST');
     expect(s?.secretAccessKey).toBe('shhh');
     expect(s?.bucket).toBe('zveltio');
@@ -71,20 +78,20 @@ describe('object storage is capability-gated', () => {
 
   it('strips a trailing slash so endpoint + bucket + key stays well-formed', () => {
     process.env.S3_ENDPOINT = 'https://s3.example.com/';
-    expect(buildExtensionConfig(['storage']).objectStorage?.endpoint).toBe(
+    expect(buildExtensionConfig(['storage'], 'storage/cloud', true).objectStorage?.endpoint).toBe(
       'https://s3.example.com',
     );
   });
 
   it('is undefined when the instance has no object storage', () => {
     delete process.env.S3_ENDPOINT;
-    expect(buildExtensionConfig(['storage']).objectStorage).toBeUndefined();
+    expect(buildExtensionConfig(['storage'], 'storage/cloud', true).objectStorage).toBeUndefined();
   });
 });
 
 describe('config is live, not a boot-time snapshot', () => {
   it('sees the admin overlay an extension reading S3_* would have missed', () => {
-    const config = buildExtensionConfig(['storage']);
+    const config = buildExtensionConfig(['storage'], 'storage/cloud', true);
     expect(config.objectStorage).toBeUndefined();
 
     // The administrator configures object storage from the Studio. This writes
