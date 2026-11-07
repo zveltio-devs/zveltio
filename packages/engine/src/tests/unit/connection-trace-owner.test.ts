@@ -14,14 +14,18 @@ import {
   noteConnectionAcquired,
   setTraceOwnerResolver,
 } from '../../db/connection-trace.js';
-import { getCurrentTenantTrx } from '../../lib/tenancy/tenant-context.js';
+import {
+  runWithTenantTrx,
+  runWithoutTenantTrx,
+  traceOwner,
+} from '../../lib/tenancy/tenant-context.js';
 
 const als = new AsyncLocalStorage<object>();
 
 describe('connection trace owner', () => {
   afterAll(() => {
     _setConnectionTracing(false);
-    setTraceOwnerResolver(getCurrentTenantTrx);
+    setTraceOwnerResolver(traceOwner);
   });
 
   it('counts the window owner, not work running in another context', async () => {
@@ -44,6 +48,17 @@ describe('connection trace owner', () => {
 
       beginTracedTransaction();
       noteConnectionAcquired(); // the request itself reaching for the pool
+      expect(endTracedTransaction()).toBe(1);
+    });
+  });
+  it('counts what the request takes outside its transaction while holding it', async () => {
+    // A session read in a handler runs under runWithoutTenantTrx (lib/auth.ts):
+    // a pool connection beside the one the request holds.
+    setTraceOwnerResolver(traceOwner);
+    _setConnectionTracing(true);
+    await runWithTenantTrx({} as never, 't', async () => {
+      beginTracedTransaction();
+      runWithoutTenantTrx(() => noteConnectionAcquired());
       expect(endTracedTransaction()).toBe(1);
     });
   });
