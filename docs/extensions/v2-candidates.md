@@ -124,3 +124,23 @@ collections through schema-as-code and the engine creates them, so the engine
 knows the owner. Require an action's `permission.resource` to be a collection
 the extension declares, refuse the manifest otherwise, and grant the default
 `execute` only there.
+
+## 5. `storage` hands an extension the instance's S3 keys — breaking
+
+**What happened.** The `storage` capability puts the instance's object-storage
+settings in `ctx.config.objectStorage`, access key and secret included. With
+them an extension reads and writes the whole bucket directly, past every rule
+the engine's storage routes enforce: tenancy, the private and public
+namespaces. Nothing limited the capability to first-party code: a third party
+that declared it and got operator consent received the keys, in its worker too
+(the init message clones the config).
+
+**What v1 does.** Narrowed now, an owner exception to the freeze (2026-11-07),
+like entries 3 and 4: the keys go only to a first-party extension, and anyone
+else reads `undefined`, as on an instance without object storage. First-party
+is the tier the publisher-tier gate verified (the extension runs inline), not
+its name. The only declarer is `storage/cloud`.
+
+**What v2 should do.** Move `storage/cloud` onto an engine file API that applies
+the engine's storage rules, then retire the `storage` capability and
+`ctx.config.objectStorage`: no extension holds instance credentials.

@@ -121,8 +121,9 @@ export const CAPABILITIES = [
   'introspection',
   /**
    * Read object-storage settings and credentials via `ctx.config.objectStorage`.
-   * Declared by the two extensions that talk to S3 directly; everything else
-   * goes through the engine's storage routes and needs nothing.
+   * First-party only (`buildExtensionConfig`), and being retired
+   * (v2-candidates.md entry 5); everything else goes through the engine's
+   * storage routes and needs nothing.
    */
   'storage',
   /** Register cron schedules. */

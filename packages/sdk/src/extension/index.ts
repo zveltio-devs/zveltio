@@ -264,7 +264,7 @@ export interface ExtensionConfig {
   readonly crossDomainAuth: boolean;
   /** Permits plaintext LDAP binds. Development only. */
   readonly allowInsecureLdap: boolean;
-  /** Present only with the `storage` capability, and only when configured. */
+  /** Present only to a first-party extension with the `storage` capability, and only when configured. */
   readonly objectStorage?: ObjectStorageConfig;
 }
 

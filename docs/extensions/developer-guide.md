@@ -303,7 +303,7 @@ your `ctx`, not inside your own code.
 | `documents` | `generatePDF`, `generatePDFAsync`, `renderTemplate`. |
 | `edge-functions` | `runEdgeFunction`. |
 | `introspection` | `introspectSchema`, `extensionRegistry`, `runQualityScan`. |
-| `storage` | `ctx.config.objectStorage` — S3 settings **and credentials**. |
+| `storage` | `ctx.config.objectStorage` — S3 settings **and credentials**. First-party only; being retired ([v2-candidates 5](v2-candidates.md#5-storage-hands-an-extension-the-instances-s3-keys--breaking)). |
 | `cron` | Register cron schedules. |
 | `field-types` | Contribute engine-side field types. |
 | `net:<host>` | One outbound destination, e.g. `net:api.stripe.com`. |
