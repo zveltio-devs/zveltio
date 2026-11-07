@@ -85,6 +85,11 @@ interface TenantStore {
   requestEnd?: Array<() => Promise<unknown>>;
   /** Set by `settleRequestTransaction`: the request's transaction is ending or over. */
   requestOver?: boolean;
+  /**
+   * Set by `runWithoutTenantTrx`: the transaction this context still holds while
+   * it works on the pool beside it. Read only by the connection trace.
+   */
+  heldTrx?: Database;
 }
 
 /**
@@ -251,7 +256,7 @@ export function setCurrentTenantTrx(trx: Database): void {
 export function runWithoutTenantTrx<T>(fn: () => T): T {
   const s = store.getStore();
   if (!s?.trx) return fn();
-  return store.run({ ...s, trx: undefined, trxTenant: undefined }, fn);
+  return store.run({ ...s, trx: undefined, trxTenant: undefined, heldTrx: s.trx }, fn);
 }
 
 /**
@@ -415,8 +420,14 @@ export function requestTransactionState(): 'open' | 'over' | 'none' {
 export function getCurrentTenantTrx(): Database | undefined {
   return store.getStore()?.trx;
 }
-// The connection trace charges a request only what its own transaction's context takes.
-setTraceOwnerResolver(getCurrentTenantTrx);
+// The connection trace charges a request only what its own transaction's context
+// takes, including what it takes outside its transaction while holding it (a
+// session read under `runWithoutTenantTrx`): that is a second connection too.
+export function traceOwner(): Database | undefined {
+  const s = store.getStore();
+  return s?.trx ?? s?.heldTrx;
+}
+setTraceOwnerResolver(traceOwner);
 
 /** The tenant the open tenant transaction writes as, or `null` outside one. */
 export function getCurrentTrxTenant(): string | null {
