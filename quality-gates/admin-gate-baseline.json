@@ -23,7 +23,6 @@
     "auth/scim/engine/routes.ts": 1,
     "auth/saml/engine/routes.ts": 1,
     "crm/engine/routes.ts": 3,
-    "integrations/migrators/engine/routes.ts": 1,
     "storage/cloud/engine/routes.ts": 2,
     "i18n/translations/engine/routes.ts": 1,
     "forms/engine/routes.ts": 1,
