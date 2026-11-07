@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 579
+# tables: 583
 
 table account
   col accessToken                    text
@@ -1395,34 +1395,6 @@ table zv_slow_queries
   col query_params                   jsonb DEFAULT '{}'::jsonb
   col status_code                    integer
   pk  zv_slow_queries_pkey PRIMARY KEY (id)
-
-table zv_sms_messages
-  col body                           text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col error                          text
-  col from_number                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col metadata                       jsonb DEFAULT '{}'::jsonb
-  col provider                       text NOT NULL DEFAULT 'twilio'::text
-  col provider_message_id            text
-  col sent_at                        timestamp with time zone
-  col status                         text NOT NULL DEFAULT 'pending'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col to_number                      text NOT NULL
-  pk  zv_sms_messages_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_sms_messages FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_sms_templates
-  col body                           text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col provider                       text NOT NULL DEFAULT 'twilio'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zv_sms_templates_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_sms_templates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_storage_quotas
   col allowed_extensions             ARRAY NOT NULL DEFAULT '{}'::text[]
@@ -7618,6 +7590,91 @@ table zvd_scim_users
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('scim_users'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('scim_users'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('scim_users'::text, 'update'::text) AS zveltio_collection_allows)
 
+table zvd_sms_messages
+  col body                           text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col error                          text
+  col from_number                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col provider                       text NOT NULL
+  col provider_message_id            text
+  col search_text                    text
+  col search_vector                  tsvector
+  col sent_at                        timestamp with time zone
+  col status                         text NOT NULL DEFAULT 'pending'::text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col to_number                      text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_sms_messages_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_sms_messages_pkey PRIMARY KEY (id)
+  fk  zvd_sms_messages_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('sms_messages'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('sms_messages'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('sms_messages'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('sms_messages'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('sms_messages'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_sms_settings
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col scope                          text NOT NULL DEFAULT 'tenant'::text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col twilio_account_sid             text
+  col twilio_auth_token              text
+  col twilio_from_number             text
+  col twilio_webhook_url             text
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col vonage_api_key                 text
+  col vonage_api_secret              text
+  col vonage_from_number             text
+  fk  zvd_sms_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_sms_settings_pkey PRIMARY KEY (id)
+  uq  zvd_sms_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
+  ck  zvd_sms_settings_twilio_auth_token_check CHECK (((twilio_auth_token IS NULL) OR (twilio_auth_token ~~ 'enc:v1:%'::text)))
+  fk  zvd_sms_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  ck  zvd_sms_settings_vonage_api_secret_check CHECK (((vonage_api_secret IS NULL) OR (vonage_api_secret ~~ 'enc:v1:%'::text)))
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('sms_settings'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('sms_settings'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('sms_settings'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('sms_settings'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('sms_settings'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_sms_templates
+  col body                           text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col name                           text NOT NULL
+  col provider                       text NOT NULL DEFAULT 'twilio'::text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_sms_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_sms_templates_pkey PRIMARY KEY (id)
+  fk  zvd_sms_templates_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('sms_templates'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('sms_templates'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('sms_templates'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('sms_templates'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('sms_templates'::text, 'update'::text) AS zveltio_collection_allows)
+
 table zvd_stock_levels
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
@@ -12265,6 +12322,53 @@ table zvv_scim_users
   col updated_at                     timestamp with time zone
   col updated_by                     text
   col user_id                        text
+
+table zvv_sms_messages
+  col body                           text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col error                          text
+  col from_number                    text
+  col id                             uuid
+  col provider                       text
+  col provider_message_id            text
+  col search_text                    text
+  col search_vector                  tsvector
+  col sent_at                        timestamp with time zone
+  col status                         text
+  col tenant_id                      uuid
+  col to_number                      text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_sms_settings
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col scope                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col twilio_account_sid             text
+  col twilio_from_number             text
+  col twilio_webhook_url             text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col vonage_api_key                 text
+  col vonage_from_number             text
+
+table zvv_sms_templates
+  col body                           text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col name                           text
+  col provider                       text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
 
 table zvv_stock_levels
   col created_at                     timestamp with time zone

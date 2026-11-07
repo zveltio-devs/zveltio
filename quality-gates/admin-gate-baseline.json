@@ -36,7 +36,6 @@
     "analytics/quality/engine/routes.ts": 8,
     "analytics/dashboard/engine/routes.ts": 1,
     "communications/mail/engine/routes.ts": 2,
-    "sms/engine/routes.ts": 1,
     "compliance/gdpr/engine/routes.ts": 1,
     "compliance/ro/documents/engine/routes.ts": 1,
     "compliance/ro/etransport/engine/routes.ts": 1,
