@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 587
+# tables: 591
 
 table account
   col accessToken                    text
@@ -1553,86 +1553,6 @@ table zvd_ai_search_config
   rls enabled forced
   pol tenant_isolation_zvd_ai_search_config FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
-table zvd_api_connections
-  col auth_config                    jsonb NOT NULL DEFAULT '{}'::jsonb
-  col auth_type                      text NOT NULL DEFAULT 'none'::text
-  col base_url                       text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col default_headers                jsonb NOT NULL DEFAULT '{}'::jsonb
-  col headers                        jsonb NOT NULL DEFAULT '{}'::jsonb
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col retry_count                    integer NOT NULL DEFAULT 3
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col timeout_ms                     integer NOT NULL DEFAULT 30000
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  ck  zvd_api_connections_auth_type_check CHECK ((auth_type = ANY (ARRAY['none'::text, 'bearer'::text, 'api_key'::text, 'basic'::text, 'oauth2'::text])))
-  pk  zvd_api_connections_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_api_connections FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_api_endpoints
-  col connection_id                  uuid NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col default_body                   text
-  col default_headers                jsonb NOT NULL DEFAULT '{}'::jsonb
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col method                         text NOT NULL DEFAULT 'GET'::text
-  col name                           text NOT NULL
-  col path                           text NOT NULL
-  col request_body_template          jsonb
-  col response_mapping               jsonb
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  zvd_api_endpoints_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES zvd_api_connections(id) ON DELETE CASCADE
-  ck  zvd_api_endpoints_method_check CHECK ((method = ANY (ARRAY['GET'::text, 'POST'::text, 'PUT'::text, 'PATCH'::text, 'DELETE'::text])))
-  pk  zvd_api_endpoints_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_api_endpoints FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_api_logs
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col duration_ms                    integer
-  col endpoint_id                    uuid NOT NULL
-  col error                          text
-  col error_message                  text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col method                         text
-  col request_body                   jsonb
-  col response_body                  jsonb
-  col response_status                integer
-  col retry_count                    integer NOT NULL DEFAULT 0
-  col status_code                    integer
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col url                            text
-  col user_id                        text
-  fk  zvd_api_logs_endpoint_id_fkey FOREIGN KEY (endpoint_id) REFERENCES zvd_api_endpoints(id) ON DELETE CASCADE
-  pk  zvd_api_logs_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_api_logs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zvd_api_oauth_tokens
-  col access_token                   text NOT NULL
-  col connection_id                  uuid NOT NULL
-  col expires_at                     timestamp with time zone
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col refresh_token                  text
-  col scope                          text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col token_type                     text NOT NULL DEFAULT 'Bearer'::text
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  zvd_api_oauth_tokens_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES zvd_api_connections(id) ON DELETE CASCADE
-  uq  zvd_api_oauth_tokens_connection_id_key UNIQUE (connection_id)
-  pk  zvd_api_oauth_tokens_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_api_oauth_tokens FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_apidoc_changelogs
   col breaking_changes               text
   col changes                        text NOT NULL
@@ -2809,6 +2729,164 @@ table zvd_company_profile
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('company_profile'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('company_profile'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('company_profile'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('company_profile'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_connector_calls
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col duration_ms                    bigint
+  col endpoint_id                    uuid NOT NULL
+  col error                          text
+  col finished_at                    timestamp with time zone
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col path_params                    jsonb
+  col query_params                   jsonb
+  col request_body                   jsonb
+  col request_headers                jsonb
+  col response_body                  text
+  col response_status                bigint
+  col retries                        bigint
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text NOT NULL DEFAULT 'pending'::text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col url                            text
+  fk  zvd_connector_calls_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_connector_calls_endpoint_id_fkey FOREIGN KEY (endpoint_id) REFERENCES zvd_connector_endpoints(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_connector_calls_pkey PRIMARY KEY (id)
+  fk  zvd_connector_calls_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('connector_calls'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('connector_calls'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('connector_calls'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('connector_calls'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('connector_calls'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_connector_connections
+  col access_token                   text
+  col auth_header                    text
+  col auth_secret                    text
+  col auth_type                      text NOT NULL DEFAULT 'none'::text
+  col auth_username                  text
+  col base_url                       text NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col default_headers                jsonb
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col name                           text NOT NULL
+  col refresh_token                  text
+  col retry_count                    bigint NOT NULL DEFAULT 3
+  col scope                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col timeout_ms                     bigint NOT NULL DEFAULT 30000
+  col token_expires_at               timestamp with time zone
+  col token_url                      text
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  ck  zvd_connector_connections_access_token_check CHECK (((access_token IS NULL) OR (access_token ~~ 'enc:v1:%'::text)))
+  ck  zvd_connector_connections_auth_secret_check CHECK (((auth_secret IS NULL) OR (auth_secret ~~ 'enc:v1:%'::text)))
+  fk  zvd_connector_connections_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_connector_connections_pkey PRIMARY KEY (id)
+  ck  zvd_connector_connections_refresh_token_check CHECK (((refresh_token IS NULL) OR (refresh_token ~~ 'enc:v1:%'::text)))
+  fk  zvd_connector_connections_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('connector_connections'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('connector_connections'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('connector_connections'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('connector_connections'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('connector_connections'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_connector_endpoints
+  col connection_id                  uuid NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col default_headers                jsonb
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col method                         text NOT NULL DEFAULT 'GET'::text
+  col name                           text NOT NULL
+  col path                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_connector_endpoints_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES zvd_connector_connections(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_connector_endpoints_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_connector_endpoints_pkey PRIMARY KEY (id)
+  fk  zvd_connector_endpoints_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('connector_endpoints'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('connector_endpoints'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('connector_endpoints'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('connector_endpoints'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('connector_endpoints'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_connector_webhook_events
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col headers                        jsonb
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col payload                        jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col source_ip                      text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col webhook_id                     uuid NOT NULL
+  fk  zvd_connector_webhook_events_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_connector_webhook_events_pkey PRIMARY KEY (id)
+  fk  zvd_connector_webhook_events_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_connector_webhook_events_webhook_id_fkey FOREIGN KEY (webhook_id) REFERENCES zvd_connector_webhooks(id) ON UPDATE CASCADE ON DELETE CASCADE
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('connector_webhook_events'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('connector_webhook_events'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('connector_webhook_events'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('connector_webhook_events'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('connector_webhook_events'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_connector_webhooks
+  col connection_id                  uuid
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col last_received_at               timestamp with time zone
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col secret                         text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_connector_webhooks_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES zvd_connector_connections(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_connector_webhooks_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_connector_webhooks_pkey PRIMARY KEY (id)
+  ck  zvd_connector_webhooks_secret_check CHECK (((secret IS NULL) OR (secret ~~ 'enc:v1:%'::text)))
+  fk  zvd_connector_webhooks_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('connector_webhooks'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('connector_webhooks'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('connector_webhooks'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('connector_webhooks'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('connector_webhooks'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_contacts
   col avatar_url                     text
@@ -4892,24 +4970,6 @@ table zvd_i18n_translations
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('i18n_translations'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('i18n_translations'::text, 'update'::text) AS zveltio_collection_allows)
-
-table zvd_incoming_webhooks
-  col connection_id                  uuid
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col description                    text
-  col endpoint_path                  text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col last_received_at               timestamp with time zone
-  col name                           text NOT NULL
-  col secret                         text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zvd_incoming_webhooks_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES zvd_api_connections(id) ON DELETE SET NULL
-  uq  zvd_incoming_webhooks_endpoint_path_key UNIQUE (tenant_id, endpoint_path)
-  pk  zvd_incoming_webhooks_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zvd_incoming_webhooks FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zvd_insight_saved_queries
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -8963,22 +9023,6 @@ table zvd_webhook_deliveries
   rls enabled forced
   pol tenant_isolation_zvd_webhook_deliveries FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
-table zvd_webhook_events
-  col error                          text
-  col headers                        jsonb NOT NULL DEFAULT '{}'::jsonb
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col payload                        jsonb NOT NULL DEFAULT '{}'::jsonb
-  col received_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col source_ip                      text
-  col status                         text NOT NULL DEFAULT 'received'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col webhook_id                     uuid NOT NULL
-  pk  zvd_webhook_events_pkey PRIMARY KEY (id)
-  ck  zvd_webhook_events_status_check CHECK ((status = ANY (ARRAY['received'::text, 'processed'::text, 'failed'::text])))
-  fk  zvd_webhook_events_webhook_id_fkey FOREIGN KEY (webhook_id) REFERENCES zvd_incoming_webhooks(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zvd_webhook_events FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zvd_webhooks
   col active                         boolean DEFAULT true
   col collections                    ARRAY
@@ -9698,6 +9742,97 @@ table zvv_company_profile
   col vat_on_collection              boolean
   col vat_payer                      boolean
   col website                        text
+
+table zvv_connector_calls
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col duration_ms                    bigint
+  col endpoint_id                    uuid
+  col error                          text
+  col finished_at                    timestamp with time zone
+  col id                             uuid
+  col path_params                    jsonb
+  col query_params                   jsonb
+  col request_body                   jsonb
+  col request_headers                jsonb
+  col response_body                  text
+  col response_status                bigint
+  col retries                        bigint
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col url                            text
+
+table zvv_connector_connections
+  col auth_header                    text
+  col auth_type                      text
+  col auth_username                  text
+  col base_url                       text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col default_headers                jsonb
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col retry_count                    bigint
+  col scope                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col timeout_ms                     bigint
+  col token_expires_at               timestamp with time zone
+  col token_url                      text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_connector_endpoints
+  col connection_id                  uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col default_headers                jsonb
+  col description                    text
+  col id                             uuid
+  col is_active                      boolean
+  col method                         text
+  col name                           text
+  col path                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_connector_webhook_events
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col headers                        jsonb
+  col id                             uuid
+  col payload                        jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col source_ip                      text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col webhook_id                     uuid
+
+table zvv_connector_webhooks
+  col connection_id                  uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col id                             uuid
+  col is_active                      boolean
+  col last_received_at               timestamp with time zone
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
 
 table zvv_contacts
   col avatar_url                     text
