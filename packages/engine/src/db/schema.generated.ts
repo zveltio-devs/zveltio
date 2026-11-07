@@ -1218,72 +1218,6 @@ export interface ZvdAiSearchConfigTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdApiConnectionsTable {
-  id: Generated<string>;
-  name: string;
-  base_url: string;
-  auth_type: Generated<'none' | 'bearer' | 'api_key' | 'basic' | 'oauth2'>;
-  auth_config: Generated<unknown>;
-  headers: Generated<unknown>;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  default_headers: Generated<unknown>;
-  retry_count: Generated<number>;
-  timeout_ms: Generated<number>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdApiEndpointsTable {
-  id: Generated<string>;
-  connection_id: string;
-  name: string;
-  method: Generated<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>;
-  path: string;
-  description: string | null;
-  request_body_template: unknown | null;
-  response_mapping: unknown | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  default_body: string | null;
-  default_headers: Generated<unknown>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdApiLogsTable {
-  id: Generated<string>;
-  endpoint_id: string;
-  status_code: number | null;
-  request_body: unknown | null;
-  response_body: unknown | null;
-  duration_ms: number | null;
-  error: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  user_id: string | null;
-  url: string | null;
-  method: string | null;
-  response_status: number | null;
-  error_message: string | null;
-  retry_count: Generated<number>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdApiOauthTokensTable {
-  id: Generated<string>;
-  connection_id: string;
-  access_token: string;
-  refresh_token: string | null;
-  expires_at: Date | null;
-  token_type: Generated<string>;
-  scope: string | null;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdBranchReviewRequestsTable {
   id: Generated<string>;
   branch_id: string;
@@ -1356,20 +1290,6 @@ export interface ZvdDashboardSubscriptionsTable {
   last_sent_at: Date | null;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
-}
-
-export interface ZvdIncomingWebhooksTable {
-  id: Generated<string>;
-  connection_id: string | null;
-  name: string;
-  secret: string | null;
-  endpoint_path: string;
-  description: string | null;
-  is_active: Generated<boolean>;
-  last_received_at: Date | null;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvdInsightSavedQueriesTable {
@@ -1570,18 +1490,6 @@ export interface ZvdWebhookDeliveriesTable {
   tenant_id: Generated<string | null>;
 }
 
-export interface ZvdWebhookEventsTable {
-  id: Generated<string>;
-  webhook_id: string;
-  payload: Generated<unknown>;
-  headers: Generated<unknown>;
-  source_ip: string | null;
-  status: Generated<'received' | 'processed' | 'failed'>;
-  error: string | null;
-  received_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdWebhooksTable {
   id: Generated<string>;
   name: string;
@@ -1689,16 +1597,11 @@ export interface DbSchema {
   zv_validation_rules: ZvValidationRulesTable;
   zvd_ai_embeddings: ZvdAiEmbeddingsTable;
   zvd_ai_search_config: ZvdAiSearchConfigTable;
-  zvd_api_connections: ZvdApiConnectionsTable;
-  zvd_api_endpoints: ZvdApiEndpointsTable;
-  zvd_api_logs: ZvdApiLogsTable;
-  zvd_api_oauth_tokens: ZvdApiOauthTokensTable;
   zvd_branch_review_requests: ZvdBranchReviewRequestsTable;
   zvd_collections: ZvdCollectionsTable;
   zvd_column_permissions: ZvdColumnPermissionsTable;
   zvd_dashboard_shares: ZvdDashboardSharesTable;
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
-  zvd_incoming_webhooks: ZvdIncomingWebhooksTable;
   zvd_insight_saved_queries: ZvdInsightSavedQueriesTable;
   zvd_mail_config: ZvdMailConfigTable;
   zvd_panel_cache: ZvdPanelCacheTable;
@@ -1715,6 +1618,5 @@ export interface DbSchema {
   zvd_validation_rule_groups: ZvdValidationRuleGroupsTable;
   zvd_validation_test_cases: ZvdValidationTestCasesTable;
   zvd_webhook_deliveries: ZvdWebhookDeliveriesTable;
-  zvd_webhook_events: ZvdWebhookEventsTable;
   zvd_webhooks: ZvdWebhooksTable;
 }
