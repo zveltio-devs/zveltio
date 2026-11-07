@@ -100,6 +100,19 @@ jobs:
         # the socket ban (ADR 0023 decision 2).
         run: bash packages/engine/scripts/deno-image.sh zveltio-engine:ci
 
+  image-arm64:
+    # release.yml publishes linux/arm64 too, where the loader Deno asks for is
+    # /lib/ld-linux-aarch64.so.1 from the glibc stage, not the x86_64 link. The
+    # amd64 job never runs that path, so no Deno job had run on the arm64
+    # image before a user's did.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build (arm64, not pushed)
+        run: docker build --target production -t zveltio-engine:ci .
+      - name: Deno jobs run in the image
+        run: bash packages/engine/scripts/deno-image.sh zveltio-engine:ci
+
   compose-and-installers:
     runs-on: ubuntu-latest
     steps:
