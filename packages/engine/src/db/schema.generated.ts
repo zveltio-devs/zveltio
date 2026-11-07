@@ -878,32 +878,6 @@ export interface ZvMigrationsTable {
   down_sql: string | null;
 }
 
-export interface ZvMigratorConnectionsTable {
-  id: Generated<string>;
-  source: 'hubspot' | 'notion' | 'airtable';
-  name: string;
-  token_enc: string;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMigratorRunsTable {
-  id: Generated<string>;
-  connection_id: string | null;
-  source: string;
-  source_object: string;
-  target_collection: string;
-  status: Generated<'running' | 'completed' | 'failed'>;
-  total_rows: Generated<number>;
-  imported_rows: Generated<number>;
-  error: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  completed_at: Date | null;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvNotificationsTable {
   id: Generated<string>;
   user_id: string;
@@ -1688,8 +1662,6 @@ export interface DbSchema {
   zv_media_tags: ZvMediaTagsTable;
   zv_media_versions: ZvMediaVersionsTable;
   zv_migrations: ZvMigrationsTable;
-  zv_migrator_connections: ZvMigratorConnectionsTable;
-  zv_migrator_runs: ZvMigratorRunsTable;
   zv_notifications: ZvNotificationsTable;
   zv_panels: ZvPanelsTable;
   zv_pitr_config: ZvPitrConfigTable;

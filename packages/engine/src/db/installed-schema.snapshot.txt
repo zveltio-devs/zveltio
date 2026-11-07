@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 583
+# tables: 587
 
 table account
   col accessToken                    text
@@ -1086,39 +1086,6 @@ table zv_migrations
   col name                           text NOT NULL
   uq  zv_migrations_name_key UNIQUE (name)
   pk  zv_migrations_pkey PRIMARY KEY (id)
-
-table zv_migrator_connections
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col name                           text NOT NULL
-  col source                         text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col token_enc                      text NOT NULL
-  pk  zv_migrator_connections_pkey PRIMARY KEY (id)
-  ck  zv_migrator_connections_source_check CHECK ((source = ANY (ARRAY['hubspot'::text, 'notion'::text, 'airtable'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_migrator_connections FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_migrator_runs
-  col completed_at                   timestamp with time zone
-  col connection_id                  uuid
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col error                          text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col imported_rows                  integer NOT NULL DEFAULT 0
-  col source                         text NOT NULL
-  col source_object                  text NOT NULL
-  col status                         text NOT NULL DEFAULT 'running'::text
-  col target_collection              text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total_rows                     integer NOT NULL DEFAULT 0
-  fk  zv_migrator_runs_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES zv_migrator_connections(id) ON DELETE SET NULL
-  pk  zv_migrator_runs_pkey PRIMARY KEY (id)
-  ck  zv_migrator_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'failed'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_migrator_runs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_notifications
   col action_url                     text
@@ -5467,6 +5434,95 @@ table zvd_media_tags
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('media_tags'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('media_tags'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('media_tags'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('media_tags'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_migrator_connections
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col name                           text NOT NULL
+  col objects                        jsonb
+  col objects_at                     timestamp with time zone
+  col objects_error                  text
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col token                          text NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_migrator_connections_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_migrator_connections_pkey PRIMARY KEY (id)
+  ck  zvd_migrator_connections_token_check CHECK (((token IS NULL) OR (token ~~ 'enc:v1:%'::text)))
+  fk  zvd_migrator_connections_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('migrator_connections'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('migrator_connections'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('migrator_connections'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('migrator_connections'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('migrator_connections'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_migrator_fetches
+  col columns                        jsonb
+  col connection_id                  uuid NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col error                          text
+  col fetched_at                     timestamp with time zone
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col object                         text NOT NULL
+  col row_limit                      bigint NOT NULL
+  col rows                           jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text NOT NULL
+  col status                         text NOT NULL DEFAULT 'pending'::text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col total_rows                     bigint
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_migrator_fetches_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES zvd_migrator_connections(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_migrator_fetches_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_migrator_fetches_pkey PRIMARY KEY (id)
+  fk  zvd_migrator_fetches_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('migrator_fetches'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('migrator_fetches'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('migrator_fetches'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('migrator_fetches'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('migrator_fetches'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_migrator_runs
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col fetch_id                       uuid
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col imported_rows                  bigint NOT NULL
+  col record_ids                     jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col skipped_fields                 jsonb
+  col source                         text NOT NULL
+  col source_object                  text NOT NULL
+  col target_collection              text NOT NULL
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_migrator_runs_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_migrator_runs_fetch_id_fkey FOREIGN KEY (fetch_id) REFERENCES zvd_migrator_fetches(id) ON UPDATE CASCADE ON DELETE SET NULL
+  pk  zvd_migrator_runs_pkey PRIMARY KEY (id)
+  fk  zvd_migrator_runs_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('migrator_runs'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('migrator_runs'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('migrator_runs'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('migrator_runs'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('migrator_runs'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_mileage_entries
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -11152,6 +11208,58 @@ table zvv_media_tags
   col name                           text
   col search_text                    text
   col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_migrator_connections
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col name                           text
+  col objects                        jsonb
+  col objects_at                     timestamp with time zone
+  col objects_error                  text
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_migrator_fetches
+  col columns                        jsonb
+  col connection_id                  uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col error                          text
+  col fetched_at                     timestamp with time zone
+  col id                             uuid
+  col object                         text
+  col row_limit                      bigint
+  col rows                           jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col source                         text
+  col status                         text
+  col tenant_id                      uuid
+  col total_rows                     bigint
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_migrator_runs
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col fetch_id                       uuid
+  col id                             uuid
+  col imported_rows                  bigint
+  col record_ids                     jsonb
+  col search_text                    text
+  col search_vector                  tsvector
+  col skipped_fields                 jsonb
+  col source                         text
+  col source_object                  text
+  col target_collection              text
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
