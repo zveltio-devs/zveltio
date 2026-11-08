@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**The `ai` extension is no longer switched on by default (ADR 0027).** A fresh install activates only `content/pages`; an install that wants AI enables `ai` like any other extension. An install where an earlier engine activated it keeps it until an operator disables it.
+
 ## [3.0.0-beta.104] - 2026-11-07
 
 **An operator names the hosts an extension job may reach (ADR 0026).** A job may declare `jobs[].egressSlots` (slot names such as `provider` or `api`) beside `egress`. The extension never names a slot's value: an operator binds it through consent, `egress:<slot>=<authority>[,<authority>…]` (god step-up, audited, never grandfathered), and may mark a binding `;private` so that, for that authority only, the engine-served fetch accepts private and loopback addresses; cloud-metadata ranges stay refused. A job reads its binding with `host.egress.slot(name)`, which answers `[]` while unbound, and `host.fetch` reaches bound authorities exactly as consented ones, on every redirect hop. Studio's consent screen gains a slot form behind step-up. Additive to extension-api v1.

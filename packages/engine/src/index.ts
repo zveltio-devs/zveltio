@@ -561,13 +561,9 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
         'Pages built from blocks, grouped into sites: drafts, published snapshots and revisions, read through the data API',
       category: 'content',
     },
-    {
-      name: 'ai',
-      display_name: 'AI',
-      description:
-        'AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows',
-      category: 'intelligence',
-    },
+    // `ai` is not a default (ADR 0027): an install that wants no AI gets none.
+    // An install where an earlier engine switched it on keeps it until an
+    // operator disables it.
   ];
 
   // Defaults are what an install promises, so they come only from the install's
