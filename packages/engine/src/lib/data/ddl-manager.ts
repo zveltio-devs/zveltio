@@ -405,6 +405,37 @@ const collectionCache = new Map<string, CacheEntry>();
 let _collectionsListCache: { data: any[]; ts: number } | null = null;
 let _cacheGen = 0;
 
+/** The PostgreSQL extensions a field type may require (`db.requiresExtensions`). */
+const ALLOWED_PG_EXTENSIONS = new Set([
+  'vector', // pgvector's extension name; 'pgvector' made every vector field uncreatable
+  'postgis',
+  'postgis_topology',
+  'uuid-ossp',
+  'pg_trgm',
+  'unaccent',
+  'btree_gist',
+  'btree_gin',
+  'hstore',
+  'citext',
+  'intarray',
+  'fuzzystrmatch',
+]);
+
+/**
+ * Install what `fields`' types require, refusing an extension off the list.
+ * On a create and on an added field alike: the add used to skip it, so a
+ * `vector` or `location` field added to an existing collection failed with
+ * Postgres's "type does not exist" on a database without the extension.
+ */
+async function ensurePgExtensions(db: Database, fields: FieldConfig[]): Promise<void> {
+  for (const ext of fieldTypeRegistry.getRequiredExtensions(fields)) {
+    if (!ALLOWED_PG_EXTENSIONS.has(ext)) {
+      throw new Error(`PostgreSQL extension "${ext}" is not in the allowed extensions whitelist.`);
+    }
+    await sql`CREATE EXTENSION IF NOT EXISTS ${sql.id(ext)}`.execute(db);
+  }
+}
+
 export class DDLManager {
   static getTableName(collectionName: string): string {
     return `zvd_${collectionName}`;
@@ -682,32 +713,7 @@ export class DDLManager {
       `CREATE INDEX IF NOT EXISTS ${indexName(tableName, 'created_at')} ON ${tableName}(created_at DESC)`,
     ];
 
-    const ALLOWED_PG_EXTENSIONS = new Set([
-      'vector', // pgvector's extension name; 'pgvector' made every vector field uncreatable
-      'postgis',
-      'postgis_topology',
-      'uuid-ossp',
-      'pg_trgm',
-      'unaccent',
-      'btree_gist',
-      'btree_gin',
-      'hstore',
-      'citext',
-      'intarray',
-      'fuzzystrmatch',
-    ]);
-
-    const requiredExtensions = fieldTypeRegistry.getRequiredExtensions(
-      regularFields as FieldConfig[],
-    );
-    for (const ext of requiredExtensions) {
-      if (!ALLOWED_PG_EXTENSIONS.has(ext)) {
-        throw new Error(
-          `PostgreSQL extension "${ext}" is not in the allowed extensions whitelist.`,
-        );
-      }
-      await sql`CREATE EXTENSION IF NOT EXISTS ${sql.id(ext)}`.execute(db);
-    }
+    await ensurePgExtensions(db, regularFields as FieldConfig[]);
 
     for (const field of regularFields) {
       const colDDL = fieldTypeRegistry.getColumnDDL(field as FieldConfig);
@@ -1657,6 +1663,7 @@ export class DDLManager {
     }
     const colDDL = fieldTypeRegistry.getColumnDDL(validated as FieldConfig);
     if (colDDL) {
+      await ensurePgExtensions(db, [validated as FieldConfig]);
       const { dropMaskView, sealColumns, storedFields } = await import('./sealed-columns.js');
       await withLockTimeout(db, async (trx) => {
         await dropMaskView(trx, tableName);

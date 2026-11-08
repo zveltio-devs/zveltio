@@ -1,5 +1,6 @@
 /**
- * DDLManager.addField — indexed + unique constraints (ddl-manager.ts).
+ * DDLManager.addField — indexed + unique constraints, and the PostgreSQL
+ * extension a field type requires (ddl-manager.ts).
  */
 
 import { beforeEach, describe, expect, it } from 'bun:test';
@@ -49,5 +50,21 @@ describe('DDLManager.addField — indexes', () => {
     ).toHaveLength(1);
     expect(db.executed(/UNIQUE/)).toHaveLength(1);
     expect(db.executed(/ADD UNIQUE \(tenant_id, "sku"\)/)).toHaveLength(1);
+  });
+
+  it("installs the extension a field's type requires before adding the column", async () => {
+    const db = new CannedDb();
+    db.when(/SELECT EXISTS[\s\S]*pg_tables/i, [{ exists: true }]);
+    db.when(/select \* from "zvd_collections" where "name" = /, [
+      { name: 'products', fields: JSON.stringify([{ name: 'title', type: 'text' }]) },
+    ]);
+    await DDLManager.addField(asDb(db), 'products', { name: 'embedding', type: 'vector' } as never);
+    const all = db.executed(
+      /CREATE EXTENSION IF NOT EXISTS "vector"|ADD COLUMN IF NOT EXISTS "embedding"/,
+    );
+    expect(all.map((q) => (/CREATE EXTENSION/.test(q.sql) ? 'extension' : 'column'))).toEqual([
+      'extension',
+      'column',
+    ]);
   });
 });
