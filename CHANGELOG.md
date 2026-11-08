@@ -4,7 +4,13 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
-**The engine holds no AI code (ADR 0027 §6).** Removed: the `ai_decision` flow step and the `ai_task` flow trigger (with the scheduler's background-task path), `POST /api/validation/generate`, the `ai` keyring and `AI_KEY_ENCRYPTION_KEY`, the `ai` rate-limit tier and its `/api/ai/*` mount, the `zveltio:ai:*` realtime channels, the `ai.task.done` event, the `ai_*` settings keys, the `aiSearchEnabled` / `aiSearchField` collection options (accepted and never stored) and the `ai` extension's grant on `zv_flows`. Migration 113 narrows both flow CHECKs back (NOT VALID: a stored `ai_decision` step fails its run by name, a stored `ai_task` flow is never claimed), drops the three `ai_*` columns ai 1.x added to `zvd_collections`, and deletes the `ai` rate-limit rows. AI is the opt-in `ai` 2.0 extension.
+## [3.0.0-beta.106] - 2026-11-08
+
+**The engine holds no AI code (ADR 0027 §6).** Removed: the `ai_decision` flow step and the `ai_task` flow trigger (with the scheduler's background-task path), `POST /api/validation/generate`, the `ai` keyring and `AI_KEY_ENCRYPTION_KEY`, the `ai` rate-limit tier and its `/api/ai/*` mount, the `zveltio:ai:*` realtime channels, the `ai.task.done` event, the `ai_*` settings keys, the `aiSearchEnabled` / `aiSearchField` collection options (accepted and never stored) and the `ai` extension's grant on `zv_flows`. Migration 113 narrows both flow CHECKs back (NOT VALID: a stored `ai_decision` step fails its run by name, a stored `ai_task` flow is never claimed), drops the three `ai_*` columns ai 1.x added to `zvd_collections`, and deletes the `ai` rate-limit rows. AI is the opt-in `ai` 2.0 extension (#1579).
+
+**To a row rule, a key is its author (ADR 0028).** A row rule's `user_id` and `user_email` resolved to the key itself (`apikey:<uuid>`, `apikey:job:…`), so `* created_by eq user_id` hid a member's own rows from their API key and the enqueuing user's rows from an extension job. They now resolve to the key's author: the issuer of a member key, the user who enqueued a job, the caller for a route's `asSystem` principal; `''` without one, which owns no row. New transaction settings `zveltio.row_user_id` / `zveltio.row_user_email` carry it, read by the database policy and the application matcher alike; `zveltio.user_id` is unchanged. A job or `asSystem` principal with an author is also bound by the author's own row rules, as a member key is. Policies are rebuilt on boot; an older replica in a rolling upgrade hides rows (fail-closed) until replaced (#1581).
+
+**An unknown keyring name is refused.** `ctx.internals.encryptSecret` / `decryptSecret` sealed with the field key for any name but `"mail"`; a misspelt or retired name (`"ai"`) is now an error (#1580).
 
 ## [3.0.0-beta.105] - 2026-11-08
 
