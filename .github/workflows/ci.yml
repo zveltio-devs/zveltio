@@ -125,6 +125,12 @@ jobs:
         # Runnable locally: `bun run check:table-owners` (`--report` to just list).
         run: bun run check:table-owners
 
+      - name: Every source file is in a review section
+        # A file added without a section escaped the review campaign until someone
+        # ran the full inventory, which needs the private ledger; #1576 merged
+        # lib/manifest-capabilities.ts that way. This half needs only the tree.
+        run: bun run review:inventory --sections
+
       - name: Row-rule interpreters are all in the differential suite
         # One stored rule, four pieces of code that each read it and emit their
         # own form. An audit found seven divergences among three of them, one of
