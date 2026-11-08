@@ -103,6 +103,29 @@ zveltio extension install @zveltio/ai
 zveltio extension install @zveltio/crm
 ```
 
+### `zveltio mcp`
+
+Serve the engine to an AI agent as an MCP server over stdio. The agent acts as
+the owner of the API key: the engine's rules decide every call, as they would
+for that person. Tools: `list_collections`, `list_records`, `get_record`,
+`create_record`, `update_record`, `delete_record`, `run_action`. There is no
+schema, DDL or SQL tool.
+
+```json
+{
+  "mcpServers": {
+    "zveltio": {
+      "command": "zveltio",
+      "args": ["mcp"],
+      "env": { "ZVELTIO_URL": "https://your-instance", "ZVELTIO_API_KEY": "zvk_..." }
+    }
+  }
+}
+```
+
+Create the key under your account (`/api/me/api-keys`) with only the scopes the
+agent needs.
+
 ### `zveltio version`
 
 Print the current CLI and engine version:
