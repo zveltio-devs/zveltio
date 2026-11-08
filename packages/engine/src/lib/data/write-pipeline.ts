@@ -779,13 +779,18 @@ export async function hasTransitionRules(
 }
 
 /**
- * Fields a transition rule cannot compare: ciphertext (`encrypted`), and
+ * Fields a transition rule cannot compare: ciphertext (`encrypted`, and a
+ * `secret`, which encrypts in its own type without the flag), and
  * `money`, which Postgres reads back in the locale's format ("$10.00") while
  * the written value is whatever the caller sent ("9.00"), so `value >= previous`
  * compared the two as strings and let a decrease through.
  */
 function incomparableFields(fields: ReturnType<typeof normalizeFields>): Set<string> {
-  return new Set(fields.filter((f) => f.encrypted || f.type === 'money').map((f) => f.name));
+  return new Set(
+    fields
+      .filter((f) => f.encrypted || f.type === 'secret' || f.type === 'money')
+      .map((f) => f.name),
+  );
 }
 
 /**
