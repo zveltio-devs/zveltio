@@ -63,12 +63,25 @@ describe('CollectionSchema', () => {
 describe('createCollection', () => {
   it('rejects disallowed PostgreSQL extensions', async () => {
     const db = setup();
-    await expect(
-      DDLManager.createCollection(asDb(db), {
-        name: 'evil',
-        fields: [{ name: 'vec', type: 'vector', options: { dimensions: 3 } }],
-      } as never),
-    ).rejects.toThrow('not in the allowed extensions whitelist');
+    // No core type needs one: this used to be `vector`, refused only because the
+    // whitelist named pgvector's extension 'pgvector' instead of 'vector'.
+    const spy = spyOn(fieldTypeRegistry, 'getRequiredExtensions').mockReturnValue(['plpython3u']);
+    try {
+      await expect(
+        DDLManager.createCollection(asDb(db), { name: 'evil', fields: [TEXT_FIELD] } as never),
+      ).rejects.toThrow('not in the allowed extensions whitelist');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("installs pgvector by its extension name, 'vector'", async () => {
+    const db = setup();
+    await DDLManager.createCollection(asDb(db), {
+      name: 'embeddings',
+      fields: [{ name: 'vec', type: 'vector' }],
+    } as never);
+    expect(db.executed(/CREATE EXTENSION IF NOT EXISTS "vector"/)).toHaveLength(1);
   });
 
   it('creates the table with system columns, indexes, the FTS vector and triggers', async () => {
