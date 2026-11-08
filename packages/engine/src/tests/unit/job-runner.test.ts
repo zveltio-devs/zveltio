@@ -293,6 +293,8 @@ describe('the runner side', () => {
     expect(performance.now() - t0).toBeLessThan(5000);
     // The wrap threw before handing out a uid; one that runs gives it back on exit.
     expect(await run(job(''))).toBe('ok');
+    // The uid comes back when the process exits, after the run has answered.
+    for (let i = 0; i < 100 && released < 1; i++) await Bun.sleep(20);
     expect(released).toBe(1);
   }, 20_000);
 

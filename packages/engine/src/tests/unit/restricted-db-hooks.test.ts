@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { _internalForTests as dbForTests } from '../../db/index.js';
 import { _internalForTests, createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { AbortHookError, engineEvents } from '../../lib/runtime/event-bus.js';
 import { CannedDb } from './fixtures/canned-db.js';
@@ -22,6 +23,17 @@ type AnyDb = any;
 let canned: CannedDb;
 const rdb = (ext = 'forms'): AnyDb => createRestrictedDb(canned.kysely as never, ext);
 const writes = (verb: RegExp) => canned.executed(verb);
+
+// No engine pool: the written-by and delete-cascade checks on `ctx.db` writes
+// read it (`enginePool()`), and one a harness file left booted in the same
+// process is a real Postgres with no `zvd_forms` (42P01 on every delete).
+let enginePool: ReturnType<typeof dbForTests.swapDbForTests>;
+beforeAll(() => {
+  enginePool = dbForTests.swapDbForTests(null);
+});
+afterAll(() => {
+  dbForTests.swapDbForTests(enginePool);
+});
 
 beforeEach(() => {
   engineEvents.clearPreHooks();
