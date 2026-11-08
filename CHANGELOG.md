@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Schema directories pulled before beta.106 may need three keys removed.** An instance that ran ai 1.x search exported `aiSearchEnabled`, `aiSearchField` and `aiEmbedExcludedFields` on its collections. Since beta.106 (#1579) the schema plan refuses them as `unknown key`. Delete the three keys from the collection files, or pull the schema again.
+
 **`zveltio mcp`: the engine as an MCP tool surface (ADR 0027, step 3).** A local stdio MCP server in the CLI. An agent lists the collections and fields the key may read, reads, creates, changes and deletes records through the data API, and runs extension actions, all as the owner of `ZVELTIO_API_KEY`; the engine's rules decide each call and its refusal reaches the agent with the reason. No schema, DDL or SQL tool. Actions are not yet listed with their input schemas: a key cannot read the manifests, so `run_action` takes the extension and action by name.
 
 ## [3.0.0-beta.106] - 2026-11-08
