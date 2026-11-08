@@ -4,6 +4,14 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.105] - 2026-11-08
+
+**Validation rules judge what was written, not its ciphertext.** A rule on an `encrypted` or `secret` field saw the ciphertext: `minLength` passed any value and `pattern` refused every value. Rules now judge the value before encryption, and a `secret` stays opaque to transition rules (#1573).
+
+**`vector` fields can be created.** The PostgreSQL extension allow-list named pgvector `pgvector` instead of `vector`, so every collection with a `vector` field was refused (#1573). A field added to an existing collection now installs the extension its type requires, as a create does: a `vector` or `location` field no longer fails with `type does not exist` (#1577).
+
+**A new extension version prunes the consent to what it declares (ADR 0026 amendment).** When the recorded manifest changes, `granted_capabilities` keeps only what the new version declares, plus the bindings of the slots it still declares; the rest is dropped and audited as `extension.capabilities.pruned`. A version that declares a capability again is asked again, instead of inheriting an approval given to earlier code. Installs with no consent on record are untouched (#1576).
+
 **The `ai` extension is no longer switched on by default (ADR 0027).** A fresh install activates only `content/pages`; an install that wants AI enables `ai` like any other extension. An install where an earlier engine activated it keeps it until an operator disables it.
 
 ## [3.0.0-beta.104] - 2026-11-07
