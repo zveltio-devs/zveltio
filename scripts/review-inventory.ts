@@ -502,6 +502,7 @@ const SECTIONS: Section[] = [
       `${E}lib/security/registry-keys.ts`,
       `${E}lib/extensions/revocations.ts`,
       `${E}lib/extensions/consent.ts`,
+      `${E}lib/manifest-capabilities.ts`,
       `${E}lib/extensions/extension-license.ts`,
     ],
   },
