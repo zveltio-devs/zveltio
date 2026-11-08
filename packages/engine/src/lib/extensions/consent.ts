@@ -27,6 +27,7 @@
 
 import type { Database } from '../../db/index.js';
 import { parseEgress } from '../edge-functions/egress.js';
+import { EGRESS_PREFIX } from '../manifest-capabilities.js';
 import { toJsonb } from '../jsonb.js';
 import { EXTENSION_FORWARD_CHANGED_EVENT, realtimeBus } from '../runtime/index.js';
 import { onAfterCommit } from '../tenancy/index.js';
@@ -46,23 +47,7 @@ export function parseGranted(value: unknown): string[] | null {
   return raw.filter((v): v is string => typeof v === 'string');
 }
 
-/** A job's consented egress authority, as a capability (ADR 0022 decision 5). */
-export const EGRESS_PREFIX = 'egress:';
-
-/**
- * What a manifest asks consent for: its `permissions`, and one
- * `egress:<authority>` per authority its jobs declare. Read from the raw
- * manifest JSON; anything not a string is ignored, as it is for `permissions`.
- */
-export function declaredCapabilities(manifest: unknown): string[] {
-  const m = (manifest ?? {}) as { permissions?: unknown; jobs?: unknown };
-  const strings = (v: unknown) =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
-  const egress = (Array.isArray(m.jobs) ? m.jobs : []).flatMap((j) =>
-    strings((j as { egress?: unknown } | null)?.egress).map((a) => `${EGRESS_PREFIX}${a}`),
-  );
-  return [...new Set([...strings(m.permissions), ...egress])];
-}
+export { declaredCapabilities, declaredSlots, EGRESS_PREFIX } from '../manifest-capabilities.js';
 
 /**
  * An operator's binding of a job's egress slot (ADR 0026 decision 3), stored
@@ -93,17 +78,6 @@ export function parseSlotBinding(cap: string): SlotBinding | null {
 export function formatSlotBinding(b: SlotBinding): string {
   const list = [...new Set(b.authorities)].sort().join(',');
   return `${EGRESS_PREFIX}${b.slot}=${list}${b.private ? ';private' : ''}`;
-}
-
-/** Every slot name a manifest's jobs declare (`egressSlots`), from the raw JSON. */
-export function declaredSlots(manifest: unknown): Set<string> {
-  const m = (manifest ?? {}) as { jobs?: unknown };
-  return new Set(
-    (Array.isArray(m.jobs) ? m.jobs : []).flatMap((j) => {
-      const v = (j as { egressSlots?: unknown } | null)?.egressSlots;
-      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
-    }),
-  );
 }
 
 /** The bindings in `granted` whose slot `slots` holds, by slot. */
