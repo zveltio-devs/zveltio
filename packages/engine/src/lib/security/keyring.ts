@@ -33,6 +33,17 @@
 
 export type Keyring = 'field' | 'mail';
 
+/**
+ * The keyring a caller named, refused when it is none of ours. An extension
+ * passes the name from untyped JS: a misspelt or retired one (`'ai'`) used to
+ * seal with the field key without a word, under a blast radius the deployment
+ * never chose.
+ */
+export function assertKeyring(keyring: unknown): Keyring {
+  if (keyring === 'field' || keyring === 'mail') return keyring;
+  throw new Error(`Unknown keyring ${JSON.stringify(keyring)}: use "field" or "mail".`);
+}
+
 const FIELD_PREFIX = 'enc:v1:';
 /** Legacy envelope written by integrations/migrators. Decrypt-only. */
 const LEGACY_ENC1_PREFIX = 'enc1:';
@@ -105,6 +116,7 @@ export function isKeyringValue(value: unknown): value is string {
 
 /** Encrypt with the named keyring, in that keyring's current format. */
 export async function encryptWithKeyring(plaintext: string, keyring: Keyring): Promise<string> {
+  assertKeyring(keyring);
   const key = await importKey(keyring, ['encrypt']);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(
@@ -128,6 +140,7 @@ export async function encryptWithKeyring(plaintext: string, keyring: Keyring): P
  * we encrypted anything" into a hard failure at read time.
  */
 export async function decryptWithKeyring(value: string, keyring: Keyring): Promise<string> {
+  assertKeyring(keyring);
   // The `ai` keyring is gone (ADR 0027). Its envelope is ciphertext, not a
   // value from before encryption: returned as is, it would pass as the
   // credential and be wrapped again on the next save. Refuse it.

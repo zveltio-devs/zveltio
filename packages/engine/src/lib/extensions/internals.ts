@@ -103,6 +103,7 @@ import { encryptField, maybeDecrypt, maybeEncrypt } from '../data/index.js';
 import type { Keyring } from '../security/index.js';
 import {
   csvCell,
+  assertKeyring,
   decryptWithKeyring,
   encryptWithKeyring,
   hmacAuthSecret,
@@ -998,7 +999,7 @@ function buildUnboundInternals(): ExtensionInternals {
     createBetterAuthSession: (db: unknown, userId: string, opts?: CreateSsoSessionOptions) =>
       createBetterAuthSession(db as Database, getDb(), userId, opts),
     encryptSecret: async (plaintext: string, opts?: { keyring?: Keyring }) => {
-      const keyring = opts?.keyring ?? 'field';
+      const keyring = assertKeyring(opts?.keyring ?? 'field');
       // Already-encrypted input is returned untouched so a caller that
       // re-saves a record does not double-wrap what it read.
       if (isKeyringValue(plaintext)) return plaintext;
@@ -1006,8 +1007,9 @@ function buildUnboundInternals(): ExtensionInternals {
       return encryptWithKeyring(plaintext, keyring);
     },
     decryptSecret: async (value: string, opts?: { keyring?: Keyring }) => {
+      const keyring = assertKeyring(opts?.keyring ?? 'field');
       if (!isKeyringValue(value)) return value;
-      return decryptWithKeyring(value, opts?.keyring ?? 'field');
+      return decryptWithKeyring(value, keyring);
     },
     deriveTokenHash: hmacAuthSecret,
     csvCell,
