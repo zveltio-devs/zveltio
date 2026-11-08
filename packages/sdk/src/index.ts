@@ -3,6 +3,7 @@ export type {
   ApiKeySelf,
   MemberApiKey,
   MemberApiKeyInput,
+  RunnableAction,
   ZveltioClientConfig,
   ListParams,
   ListResult,

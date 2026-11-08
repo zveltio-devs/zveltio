@@ -965,6 +965,23 @@ admits the endpoint and grants no collection. It too must be named. A 401 means 
 unknown, revoked, expired or of another tenant; a 403, a valid key without the
 scope or a route not declared for keys.
 
+### GET /api/actions
+
+The extension actions the caller may run, in its tenant, each with its manifest
+`input` JSON Schema. A session or an API key; 401 without either.
+
+```json
+{ "actions": [{ "extension": "finance/invoicing", "name": "issue",
+                "input": { "type": "object", "properties": { "id": { "type": "string" } } } }] }
+```
+
+An action is listed exactly when `POST /ext/<extension>/actions/<name>` would
+pass its checks for the same caller: the extension is on for the tenant, the
+caller holds the action's `permission` and, for a key, the key holds
+`$ext:<extension>` for the permission's action and its issuer still holds the
+permission. Both routes ask one predicate (ADR 0029), so a caller learns no
+action it could not run. SDK: `client.actions.list()`.
+
 ### GET /api/api-keys/self
 
 The presenting API key's own record, so a program can learn what it holds (`GET /api/me` is a

@@ -76,6 +76,69 @@ describe('zveltio mcp', () => {
     ]);
   });
 
+  test('each action the engine lists is a typed tool; calling it runs the action', async () => {
+    const input = { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] };
+    const listed = JSON.stringify({
+      actions: [
+        { extension: 'finance/invoicing', name: 'issue', input },
+        { extension: 'crm', name: 'ping', input: {} },
+        // Would share a name with finance/invoicing: neither gets it.
+        { extension: 'finance_invoicing', name: 'issue', input },
+        // Not an object input, not a usable name, not a path: left to run_action.
+        { extension: 'crm', name: 'count', input: { type: 'number' } },
+        { extension: '../admin', name: 'x', input: {} },
+        { extension: 'crm', name: 'Bad', input: {} },
+      ],
+    });
+    const sent: Sent[] = [];
+    const call = async (method: string, path: string, body?: unknown) => {
+      sent.push({ method, path, body });
+      return new Response(path === '/api/actions' ? listed : '{"result":1}');
+    };
+    const r = (await handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, call)) as {
+      result: { tools: { name: string; inputSchema: unknown }[] };
+    };
+    const typed = r.result.tools.slice(7);
+    expect(typed).toEqual([
+      expect.objectContaining({ name: 'crm__ping', inputSchema: { type: 'object' } }),
+    ]);
+    const fi = JSON.stringify({
+      actions: [{ extension: 'finance/invoicing', name: 'issue', input }],
+    });
+    const one = async (method: string, path: string, body?: unknown) => {
+      sent.push({ method, path, body });
+      return new Response(path === '/api/actions' ? fi : '{"result":1}');
+    };
+    const l = (await handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, one)) as {
+      result: { tools: { name: string; inputSchema: unknown }[] };
+    };
+    expect(l.result.tools[7]).toEqual(
+      expect.objectContaining({ name: 'finance_invoicing__issue', inputSchema: input }),
+    );
+    sent.length = 0;
+    const res = await callTool('finance_invoicing__issue', { id: 'i1' }, one);
+    expect(res.result.isError).toBe(false);
+    expect(sent.at(-1)).toEqual({
+      method: 'POST',
+      path: '/ext/finance/invoicing/actions/issue',
+      body: { id: 'i1' },
+    });
+  });
+
+  test('an engine without GET /api/actions keeps the fixed tools', async () => {
+    for (const call of [
+      fake(404, '{"error":"Not found"}').call,
+      async () => {
+        throw new Error('ECONNREFUSED');
+      },
+    ]) {
+      const r = (await handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, call)) as {
+        result: { tools: unknown[] };
+      };
+      expect(r.result.tools).toHaveLength(7);
+    }
+  });
+
   test('each tool is one data-API or action call', async () => {
     const f = fake();
     await callTool('list_collections', {}, f.call);

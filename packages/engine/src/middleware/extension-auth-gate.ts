@@ -108,6 +108,17 @@ export function admittedApiKey(): AdmittedKey | undefined {
 }
 
 /**
+ * Run `fn` with `user`, when it is a key, as the admitted key — for a check made
+ * for a principal the engine itself authenticated: the gate's, the action route's
+ * and `GET /api/actions`' (`mayRunAction`). Never for an id extension code chose.
+ */
+export function asAdmittedKey<T>(user: RequestUser, fn: () => Promise<T>): Promise<T> {
+  if (!isApiKeyPrincipal(user)) return fn();
+  const key = { id: user.id, scopes: user.scopes, authorUserId: user.authorUserId ?? null };
+  return admitted.run(key, fn);
+}
+
+/**
  * Who the gate admitted, as the gate saw it: what the write members of
  * `ctx.internals` act as (`gatePrincipal`).
  *
@@ -351,6 +362,23 @@ function keyRouteAction(extName: string, method: string, sub: string): string | 
 }
 
 /**
+ * Would this gate let `user` reach `POST /ext/<extName>/actions/<name>` as a
+ * principal: the path is the extension's, it is not declared public (served with
+ * no principal, the action route refuses everyone), and a key holds `$ext:<extName>`
+ * for the action the route needs. A session passes, as below. Only `mayRunAction`
+ * asks it.
+ */
+export function gateAdmitsAction(extName: string, name: string, user: RequestUser): boolean {
+  // Switched off, the gate admits no principal, and the action route answers 401.
+  if (process.env.ZVELTIO_EXT_AUTH_GATE === '0') return false;
+  const owner = resolveOwner(`${extName}/actions/${name}`);
+  if (owner?.name !== extName || isDeclaredPublic(extName, owner.sub)) return false;
+  if (!isApiKeyPrincipal(user)) return true;
+  const action = keyRouteAction(extName, 'POST', owner.sub);
+  return !!action && apiKeyHoldsScope(user.scopes, extScope(extName), action);
+}
+
+/**
  * Build the `/ext/*` gate. Mount AFTER tenant middleware and BEFORE the
  * extension subapps so it wraps every extension route.
  */
@@ -384,9 +412,7 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
       if (user instanceof Response) return user;
       c.set('user', user);
       // A session sent alongside the key wins, as it does in `authenticate`.
-      if (!isApiKeyPrincipal(user)) return runAdmitted(c, user, next);
-      const key = { id: user.id, scopes: user.scopes, authorUserId: user.authorUserId ?? null };
-      return admitted.run(key, () => runAdmitted(c, user, next));
+      return asAdmittedKey(user, () => runAdmitted(c, user, next));
     }
 
     // Fail-closed: require an authenticated session.
