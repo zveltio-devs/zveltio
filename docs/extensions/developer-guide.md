@@ -335,8 +335,8 @@ configured* rather than defaulting to something that half-works. The object is
 frozen, and another extension's keys are not in it.
 
 Settings an **administrator** should be able to change at runtime do not belong
-here — put those in a table in your own `zv_<name>_*` namespace and give them a
-route, the way `ai` keeps providers in `zv_ai_providers`. `ctx.config.vars` is
+here — declare a collection for them, the way `ai` keeps providers in its
+`ai_providers` collection. `ctx.config.vars` is
 for what the deployment decides, not what the tenant decides.
 
 Secrets you need to store go through `ctx.internals.encryptSecret` /

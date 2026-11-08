@@ -141,10 +141,6 @@ export const EXTENSION_TABLE_GRANTS: Record<string, string[]> = {
   //
   // `check:table-owners` reports which tables the engine still declares; that is
   // the list to check an entry against before deleting it.
-  // `ai` relaxes a CHECK constraint on `zv_flows` so a flow can carry AI
-  // trigger types. Measured, not assumed — it is the only extension that
-  // reshapes an engine table it does not otherwise own.
-  ai: ['zv_flows'],
   // `zv_document_templates` is created by `content/document-templates`, NOT by
   // the engine — measured against `engineOwnedTables()`, which reads the
   // engine's own migration files; the note that used to say "engine-declared"
@@ -470,8 +466,7 @@ export function buildRestrictedContext(
     // (boot/CLI). So an extension can no longer read or write across tenants by
     // reaching for `ctx.db` instead of `reqDb(c)` — the last multi-tenant hole.
     // Refused instead of the pool where the host opened no transaction on
-    // purpose (`runAsTenantWithoutTransaction`, e.g. an AI task waiting on the
-    // model), and wherever a non-root firm is in scope with no transaction open.
+    // purpose (`runAsTenantWithoutTransaction`), and wherever a non-root firm is in scope with no transaction open.
     db: createRestrictedDb(
       () => getCurrentTenantTrx() ?? poolOrRefusal(ctx.db),
       extName,

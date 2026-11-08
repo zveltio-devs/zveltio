@@ -197,21 +197,10 @@ describe('key material', () => {
   });
 });
 
-describe('the ai keyring', () => {
-  const AI_KEY = 'd5e6'.repeat(16);
-
-  it('round-trips under its own prefix and its own key', async () => {
-    await withEnv('AI_KEY_ENCRYPTION_KEY', AI_KEY, async () => {
-      const enc = await encryptWithKeyring('sk-provider-key', 'ai');
-      expect(enc.startsWith('aes256gcm-ai:')).toBe(true);
-      expect(isKeyringValue(enc)).toBe(true);
-      // Another mail key changes nothing: the value is bound to the ai key.
-      await withEnv('MAIL_ENCRYPTION_KEY', 'c9d4'.repeat(16), async () => {
-        expect(await decryptWithKeyring(enc, 'ai')).toBe('sk-provider-key');
-      });
-      await withEnv('AI_KEY_ENCRYPTION_KEY', 'e7f8'.repeat(16), async () => {
-        await expect(decryptWithKeyring(enc, 'ai')).rejects.toThrow();
-      });
-    });
+describe('the retired ai keyring', () => {
+  it('refuses its envelope instead of passing the ciphertext off as the secret', async () => {
+    await expect(decryptWithKeyring('aes256gcm-ai:00ff:00ff', 'field')).rejects.toThrow(
+      'retired "ai" keyring',
+    );
   });
 });

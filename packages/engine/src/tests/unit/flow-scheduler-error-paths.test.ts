@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { extensionRegistry } from '../../lib/extensions/index.js';
 import { flowScheduler, _internalForTests } from '../../lib/flows/flow-scheduler.js';
-import { serviceRegistry } from '../../lib/service-registry.js';
 import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -29,7 +28,6 @@ beforeEach(() => {
 
 afterEach(() => {
   flowScheduler.stop();
-  serviceRegistry.unregisterAs('test', 'ai.runBackgroundTask');
   initTenantManager(null as unknown as Database);
   _internalForTests.setExecuteFlowForTests(null);
   extensionRegistry.registerTrashPurgeHandler(async () => {});
@@ -58,20 +56,6 @@ describe('flowScheduler error paths', () => {
     await injectDb(db);
     await flowScheduler._tick();
     await new Promise((r) => setTimeout(r, 30));
-  });
-
-  it('_executeScheduledFlow logs when advancing ai_task next_run_at fails', async () => {
-    serviceRegistry.registerAs('test', 'ai.runBackgroundTask', async () => {});
-    db.fail(FLOWS_UPDATE, new Error('update denied'));
-    await injectDb(db);
-    await flowScheduler._executeScheduledFlow({
-      id: 'ai-fail-advance',
-      name: 'AI',
-      trigger_type: 'ai_task',
-      tenant_id: 'tenant-1',
-      trigger_config: { user_id: 'u1', instruction: 'go' },
-      created_by: 'u1',
-    });
   });
 
   it('_executeScheduledFlow logs when advancing cron next_run_at fails', async () => {

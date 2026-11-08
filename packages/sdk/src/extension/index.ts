@@ -1253,8 +1253,8 @@ export interface QueryAlterScope {
  * Inter-extension service registry.
  *
  * Extensions publish services here for other extensions to consume — a Drupal-style
- * services container. Services are keyed by string names (e.g. `'ai.providers'`,
- * `'crm.contacts.lookup'`). Consumers should treat `get()` returning `null` as a
+ * services container. Services are keyed by string names (e.g. `'crm.contacts.lookup'`,
+ * `'pdf.generate'`). Consumers should treat `get()` returning `null` as a
  * recoverable signal (the providing extension is not active) and either skip the
  * feature or surface a clear error to the user.
  *

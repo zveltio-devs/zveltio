@@ -28,7 +28,6 @@ import {
   ExternalLink,
   Circle,
   UserPlus,
-  Bot,
   Workflow,
   ArrowRight,
   Shield,
@@ -40,7 +39,6 @@ import SectionCard from '#lib/components/common/SectionCard.svelte';
 import EmptyState from '#lib/components/common/EmptyState.svelte';
 import Slot from '#lib/components/common/Slot.svelte';
 import { auth } from '#lib/auth.svelte.js';
-import { extensions } from '#lib/extensions.svelte.js';
 
 interface AdminStats {
   collections?: number;
@@ -135,14 +133,6 @@ const nextSteps = $derived.by(() => {
       done: flowsCount > 0,
       href: resolve(`flows`),
       hint: 'Wire triggers → actions without writing code.',
-    });
-  }
-  if (extensions.isActive('ai')) {
-    steps.push({
-      label: 'Try the AI assistant',
-      done: false,
-      href: resolve(`ai`),
-      hint: 'Generate schemas, queries, and insights from natural language.',
     });
   }
   return steps;
@@ -645,9 +635,6 @@ const greeting = $derived(firstName ? `${timeOfDayGreeting()}, ${firstName}` : t
           <a href={resolve(`users`)} class="btn btn-outline btn-sm justify-start gap-2"><UserPlus size={13} /> {m['dashboard.inviteUser']()}</a>
           <a href={resolve(`api-keys`)} class="btn btn-outline btn-sm justify-start gap-2"><Key size={13} /> {m['nav.apiKeys']()}</a>
           <a href={resolve(`flows`)} class="btn btn-outline btn-sm justify-start gap-2"><Workflow size={13} /> {m['dashboard.newFlow']()}</a>
-          {#if extensions.isActive('ai')}
-            <a href={resolve(`ai`)} class="btn btn-outline btn-sm justify-start gap-2"><Bot size={13} /> {m['common.aiStudio']()}</a>
-          {/if}
         </div>
       </SectionCard>
 

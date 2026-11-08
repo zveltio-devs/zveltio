@@ -28,7 +28,6 @@ import { runScript } from '../script-runner.js';
 import { sendEmail } from '../email.js';
 import { recordsToCsv } from '../security/index.js';
 import { sendNotification } from '../../routes/notifications.js';
-import { serviceRegistry } from '../service-registry.js';
 import { traced } from '../runtime/index.js';
 import { evaluateCondition } from '../validation-engine.js';
 import { safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
@@ -75,26 +74,6 @@ async function getUsersForRole(db: Database, role: string, tenantId: string): Pr
   return rows.rows.map((r) => r.id);
 }
 
-/** Replaces {{key.nested}} placeholders from a context object. */
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-function interpolateTemplate(template: string, context: Record<string, any>): string {
-  return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
-    const keys = path.split('.');
-    // Security: block prototype chain traversal (e.g. {{__proto__.polluted}})
-    if (keys.some((k: string) => k === '__proto__' || k === 'constructor' || k === 'prototype')) {
-      return match;
-    }
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    let value: any = context;
-    for (const key of keys) {
-      if (!Object.hasOwn(value, key)) return match;
-      value = value[key];
-      if (value === undefined || value === null) return match;
-    }
-    return typeof value === 'object' ? JSON.stringify(value) : String(value);
-  });
-}
-
 // ── Step executor ─────────────────────────────────────────────────────────────
 
 /** Warn once per process, not once per flow run. */
@@ -121,7 +100,7 @@ const EXPORT_MAX_ROWS = 100_000;
  * `default` arm returned success.
  *
  * Deliberately NOT the same list as `flow-step-schemas.ts`, which defines
- * twelve types. Seven of those never execute and three of these have no schema.
+ * fourteen types. Seven of those never execute.
  * The two lists disagreeing with nothing to notice is the shape of this bug,
  * so this one is anchored to the code that runs.
  */
@@ -132,7 +111,6 @@ export const EXECUTABLE_STEP_TYPES = [
   'webhook',
   'send_notification',
   'export_collection',
-  'ai_decision',
   'condition',
 ] as const;
 
@@ -482,85 +460,6 @@ async function executeStep(
       return { output: { exported: true, rows: records.length, filename, csv } };
     }
 
-    // ── ai_decision ──
-    case 'ai_decision': {
-      const { prompt, options, fallback, temperature } = cfg;
-      if (!prompt || !Array.isArray(options) || options.length === 0) {
-        return { output: { decision: fallback ?? null, error: 'Missing prompt or options' } };
-      }
-
-      const interpolatedPrompt = interpolateTemplate(prompt, {
-        ...flowContext,
-        output: prevOutput,
-      });
-
-      type ChatProvider = {
-        chat?: (
-          messages: unknown[],
-          opts?: unknown,
-        ) => Promise<{ content?: string; usage?: unknown }>;
-        /** `ai` hands out a per-firm stand-in, never null; this says whether the firm has one. */
-        configured?: () => Promise<boolean>;
-      };
-      const aiProviders = serviceRegistry.get<{ getDefault(): ChatProvider | null }>(
-        'ai.providers',
-      );
-      if (!aiProviders) {
-        console.warn('[Flow] ai_decision: AI extension is not active, using fallback');
-        return {
-          output: { decision: fallback, usedFallback: true, error: 'AI extension not active' },
-        };
-      }
-      const provider = aiProviders.getDefault();
-      if (!provider?.chat || (await provider.configured?.()) === false) {
-        console.warn('[Flow] ai_decision: no AI provider configured, using fallback');
-        return { output: { decision: fallback, usedFallback: true, error: 'No AI provider' } };
-      }
-
-      try {
-        const systemPrompt =
-          `You are a decision engine. Analyze the context and choose EXACTLY ONE option.\n` +
-          `Available options: ${options.join(', ')}\n` +
-          `Respond with ONLY the option name, nothing else. No explanation, no punctuation.`;
-
-        const aiResponse = await provider.chat(
-          [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: interpolatedPrompt },
-          ],
-          { temperature: temperature ?? 0.1 },
-        );
-
-        const decision = (aiResponse?.content ?? '').trim().toLowerCase();
-        const matchedOption = options.find((opt: string) => opt.toLowerCase() === decision);
-        const finalDecision = matchedOption ?? fallback;
-
-        console.log(
-          `🤖 AI Decision [${step.id ?? step.name}]: "${decision}" → ${finalDecision}` +
-            (matchedOption ? '' : ` (fallback, AI said: "${decision}")`),
-        );
-
-        return {
-          output: {
-            decision: finalDecision,
-            aiRawResponse: decision,
-            matched: !!matchedOption,
-            usedFallback: !matchedOption,
-          },
-        };
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      } catch (err: any) {
-        console.error(`🤖 AI Decision failed [${step.id ?? step.name}]:`, err);
-        return {
-          output: {
-            decision: fallback,
-            error: err.message,
-            usedFallback: true,
-          },
-        };
-      }
-    }
-
     case 'condition': {
       // CEL over `trigger` and `output`, the same evaluator as validation rules.
       // The losing branch's steps are skipped; with no branches named, false
@@ -660,9 +559,7 @@ export async function executeFlow(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   let output: any = {};
   const stepLogs: Record<string, string[]> = {};
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  const stepResults: Record<string, any> = {};
-  const flowContext = { trigger: triggerData, stepResults };
+  const flowContext = { trigger: triggerData };
 
   // Authoritative tenant for this run's data access: the flow's OWN tenant_id.
   // Every caller (manual run, cron scheduler, DLQ retry, data-event trigger) goes
@@ -724,7 +621,6 @@ export async function executeFlow(
           () => executeStep(db, step, output, flowContext, flowTenantId),
         );
         output = result.output;
-        if (step.id) stepResults[step.id] = output;
         if (result.logs?.length) stepLogs[step.id] = result.logs;
         if (result.branches) {
           // A branch can only name a step after the condition in this flow. Any

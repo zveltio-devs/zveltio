@@ -18,7 +18,6 @@ import {
   Globe,
   Mail,
   Database,
-  Brain,
   Webhook,
   GitBranch,
   Play,
@@ -29,7 +28,6 @@ const STEP_TYPES = [
   { value: 'send_email', label: m['flowEdit.typeEmail'], icon: Mail },
   { value: 'create_record', label: m['flowEdit.typeCreate'], icon: Database },
   { value: 'update_record', label: m['flowEdit.typeUpdate'], icon: Database },
-  { value: 'ai_decision', label: m['flowEdit.typeAi'], icon: Brain },
   { value: 'webhook', label: m['flowEdit.typeWebhook'], icon: Webhook },
   { value: 'condition', label: m['flowEdit.typeCondition'], icon: GitBranch },
 ] as const;
@@ -479,29 +477,6 @@ function updateStepName(name: string) {
                   value={selectedStep.config.data ?? ''}
                   oninput={(e) => updateStepConfig('data', (e.target as HTMLTextAreaElement).value)}
                 ></textarea>
-              </div>
-
-            {:else if selectedStep.type === 'ai_decision'}
-              <div class="form-control">
-                <label class="label py-0" for="step-prompt"><span class="label-text text-xs">{m['flowEdit.prompt']()}</span></label>
-                <textarea
-                  id="step-prompt"
-                  class="textarea textarea-sm resize-none"
-                  rows="4"
-                  placeholder={m['flowEdit.promptPh']({ token: '{{record.text}}' })}
-                  value={selectedStep.config.prompt ?? ''}
-                  oninput={(e) => updateStepConfig('prompt', (e.target as HTMLTextAreaElement).value)}
-                ></textarea>
-              </div>
-              <div class="form-control">
-                <label class="label py-0" for="step-model"><span class="label-text text-xs">{m['flowEdit.modelOptional']()}</span></label>
-                <input
-                  id="step-model"
-                  class="input input-sm"
-                  placeholder="gpt-4o"
-                  value={selectedStep.config.model ?? ''}
-                  oninput={(e) => updateStepConfig('model', (e.target as HTMLInputElement).value)}
-                />
               </div>
 
             {:else if selectedStep.type === 'condition'}

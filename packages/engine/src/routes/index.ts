@@ -24,8 +24,6 @@ import { notificationsRoutes } from './notifications.js';
 import { healthRoutes } from './health.js';
 import { flowsRoutes } from './flows.js';
 import { tenantsRoutes } from './tenants.js';
-// AI routes moved to the `ai` extension (zveltio-extensions/ai). It registers
-// /api/ai*, /api/zveltio-ai, and /api/ai-analytics from there.
 import { goneRoutes } from './gone.js';
 // graphql → extensions/developer/graphql
 // drafts → extensions/content/drafts
@@ -53,7 +51,6 @@ import {
   scimRateLimit,
   shareLinkRateLimit,
   apiRateLimit,
-  aiRateLimit,
   writeRateLimit,
   destructiveRateLimit,
   filesRateLimit,
@@ -70,9 +67,6 @@ import { configStepUp } from '../middleware/config-step-up.js';
 // ── Core routes (always registered) ─────────────────────────────────────────
 // /api/flows         — automation flows (routes/flows.ts)
 // /api/tenants       — multi-tenancy (routes/tenants.ts)
-// /api/ai/*          — AI: providers, chat, embeddings, search, alchemist, query, schema-gen
-// /api/zveltio-ai    — ZveltioAI conversational agent
-// /api/ai-analytics  — AI usage & cost tracking
 //
 // ── Extension routes (registered by extension on load) ───────────────────────
 // /api/mail             → extensions/communications/mail
@@ -289,7 +283,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // authenticates a bearer token on every request, and until now an attacker
   // could try them without limit.
   app.use('/scim/v2/*', scimRateLimit);
-  app.use('/api/ai/*', aiRateLimit);
   // Write operations (POST/PUT/PATCH/DELETE) on data are stricter (60/min) than reads (200/min)
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/data/*', writeRateLimit);
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/sync/*', writeRateLimit);
@@ -511,8 +504,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Multi-tenancy management (core)
   // `poolDb`: deleting a purged tenant's users revokes sessions — see `usersRoutes`.
   app.route('/api/tenants', tenantsRoutes(db, auth, poolDb));
-
-  // AI — moved to extensions/ai. Mounts /api/ai*, /api/zveltio-ai, /api/ai-analytics.
 
   // SDK Local-First Sync (push/pull batch operations).
   app.route('/api/sync', syncRoutes(db, auth));

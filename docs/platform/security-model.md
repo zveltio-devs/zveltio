@@ -101,7 +101,6 @@ header — they don't contain the nonce.
 | `/ext/auth/ldap/login` | 10/min/IP |
 | `/ext/auth/ldap/test` | 10/min/IP |
 | `/ext/auth/saml/callback` | 10/min/IP |
-| `/api/ai/*` | per-tier (see `aiRateLimit`) |
 | `/api/data/*` writes | 60/min/user |
 | `/api/data/*` deletes (collection-level) | 10/min/user |
 | `/api/*` (default) | 200/min/user |
@@ -148,8 +147,7 @@ field-level encryption:
   before insert and decrypted on read.
 - LDAP `bindPassword` and SAML `privateKey` in `zv_settings` are
   encrypted via `ctx.internals.encryptSecret` / `decryptSecret`.
-- Mail provider passwords + AI API keys are encrypted (existing —
-  `MAIL_ENCRYPTION_KEY`, `AI_KEY_ENCRYPTION_KEY` envs).
+- Mail provider passwords are encrypted (existing — `MAIL_ENCRYPTION_KEY`).
 
 If `FIELD_ENCRYPTION_KEY` is unset, the engine logs a loud warning at
 boot listing every collection that has an `encrypted: true` field but
@@ -321,7 +319,6 @@ leak across tenants if treated naively:
 | SSE realtime (`broadcastDataEvent`) | Each `StreamSub` records the tenant id at subscribe time; broadcasts drop messages whose tenant id doesn't match. |
 | WebSocket realtime (`broadcastEvent`) | `WSConnection.tenantId` captured at upgrade; `broadcastEvent(collection, event, data, tenantId)` filters strictly on it. |
 | Cross-instance bus (`realtimeBus.publish`) | `RealtimeBusMessage.tenantId` carried in the envelope; the receiving engine forwards it to its own `broadcastEvent`. |
-| AI embeddings (`zvd_ai_embeddings`) | Column `tenant_id` with `DEFAULT NULLIF(current_setting('zveltio.current_tenant'), '')::uuid` + FORCE RLS, plus the auto-embedding event payload carries `tenantId` (the event fires on the GLOBAL pool, so the GUC is unset and the DEFAULT can't help). See migration 009 in the AI extension. |
 | Edge functions subprocess | Bootstrap file lives in a fresh `mkdtemp` dir (mode 0700) to defeat TOCTOU symlink attacks; subprocess runs with the parent's `process.execPath` (not `bun` via PATH) and a minimal env. |
 
 ### Backfilling tenant_id

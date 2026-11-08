@@ -102,7 +102,7 @@ export function registerMarketplaceRoutes(
    * `requireInstanceAdmin` is god OR an admin of the default tenant. That second
    * arm is right for most instance operations and wrong for this one: installing
    * puts NEW CODE on the instance, and an extension's migrations may alter the
-   * engine's own tables — the `ai` extension adds three columns to
+   * engine's own tables — the `ai` 1.x extension added three columns to
    * `zvd_collections`, measured. On a holding, the default tenant is the parent
    * company, so its administrator would be deciding what code runs for every
    * subsidiary.

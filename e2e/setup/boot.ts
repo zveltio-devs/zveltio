@@ -49,7 +49,6 @@ function engineEnv(): Record<string, string> {
     BETTER_AUTH_SECRET: 'e2e-secret-at-least-32-characters-long',
     FIELD_ENCRYPTION_KEY: '0'.repeat(64),
     MAIL_ENCRYPTION_KEY: '0'.repeat(64),
-    AI_KEY_ENCRYPTION_KEY: '0'.repeat(64),
     // The suite creates its own users through the API rather than seeding SQL,
     // so sign-up has to be reachable.
     ZVELTIO_REGISTRATION_ENABLED: '1',

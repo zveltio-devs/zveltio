@@ -12,7 +12,7 @@ export interface RecordCreatedPayload {
   userId: string;
   /**
    * Tenant id under which the write happened, derived from the request's
-   * `tenantTrx` context. Extension handlers (e.g. AI auto-embedding)
+   * `tenantTrx` context. Extension handlers (e.g. a search indexer)
    * must propagate this into any tenant-scoped tables they write to
    * — they run on the GLOBAL pool, NOT inside the request's
    * transaction, so they lose the `zveltio.current_tenant` GUC and
@@ -99,12 +99,6 @@ export interface FlowCompletedPayload {
   error?: string;
 }
 
-export interface AiTaskDonePayload {
-  userId: string;
-  summary: string;
-  notified: boolean;
-}
-
 // ─── Strict event map ──────────────────────────────────────────────────────────
 
 /**
@@ -119,7 +113,6 @@ export type ZveltioEvents = {
   'user.login': UserLoginPayload;
   'user.logout': UserLogoutPayload;
   'flow.completed': FlowCompletedPayload;
-  'ai.task.done': AiTaskDonePayload;
 };
 
 /**
@@ -145,13 +138,12 @@ const ENGINE_EVENT_NAMES: Record<keyof ZveltioEvents | keyof ZveltioBeforeEvents
   'user.login': true,
   'user.logout': true,
   'flow.completed': true,
-  'ai.task.done': true,
   'record.beforeInsert': true,
   'record.beforeUpdate': true,
   'record.beforeDelete': true,
 };
 
-/** The engine's event namespaces (`record.`, `ai.task.`, …): no extension emits or hears these as its own. */
+/** The engine's event namespaces (`record.`, `flow.`, …): no extension emits or hears these as its own. */
 export const ENGINE_EVENT_NAMESPACES: readonly string[] = [
   ...new Set(Object.keys(ENGINE_EVENT_NAMES).map((n) => n.slice(0, n.lastIndexOf('.') + 1))),
 ];
@@ -165,7 +157,6 @@ export interface EngineEventMap {
   'user.login': UserLoginPayload;
   'user.logout': UserLogoutPayload;
   'flow.completed': FlowCompletedPayload;
-  'ai.task.done': AiTaskDonePayload;
 }
 
 // ─── Typed event bus ───────────────────────────────────────────────────────────

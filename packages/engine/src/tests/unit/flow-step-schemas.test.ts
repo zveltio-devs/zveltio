@@ -108,14 +108,10 @@ describe('validateStepConfig — per-type happy paths', () => {
     ).toBe(true);
   });
 
-  it('ai_decision requires at least two options', () => {
-    expect(
-      validateStepConfig('ai_decision', {
-        prompt: 'classify',
-        options: ['yes', 'no'],
-      }).valid,
-    ).toBe(true);
-    expect(validateStepConfig('ai_decision', { prompt: 'x', options: ['only'] }).valid).toBe(false);
+  it('ai_decision is no step type any more (ADR 0027): refused, not stored', () => {
+    const r = validateStepConfig('ai_decision', { prompt: 'classify', options: ['yes', 'no'] });
+    expect(r.valid).toBe(false);
+    expect(r.errors.join(' ')).toContain('Unknown step type');
   });
 
   it('send_sms accepts phone or template in to', () => {

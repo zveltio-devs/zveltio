@@ -8,7 +8,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { executeFlow, _internalForTests } from '../../lib/flows/flow-executor.js';
-import { serviceRegistry } from '../../lib/service-registry.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const { executeStep } = _internalForTests;
@@ -188,46 +187,6 @@ describe('executeFlow (CannedDb)', () => {
     expect(result.status).toBe('success');
     expect(result.output.total).toBe(10);
   });
-
-  it('ai_decision interpolates stepResults from earlier steps', async () => {
-    serviceRegistry.registerAs('test', 'ai.providers', {
-      getDefault: () => ({
-        chat: async () => ({ content: 'approve' }),
-      }),
-    });
-    try {
-      const db = dbForFlow(
-        [
-          {
-            id: 'pick',
-            name: 'pick',
-            type: 'run_script',
-            step_order: 1,
-            config: { code: 'return { mood: "happy" };' },
-          },
-          {
-            id: 'decide',
-            name: 'decide',
-            type: 'ai_decision',
-            step_order: 2,
-            config: {
-              prompt: 'Mood is {{stepResults.pick.mood}}',
-              options: ['approve', 'reject'],
-              fallback: 'reject',
-            },
-          },
-        ],
-        'run-ai',
-      );
-
-      const result = await executeFlow(db.kysely as unknown as Database, 'flow-ai', {});
-      expect(result.status).toBe('success');
-      expect(result.output.decision).toBe('approve');
-      expect(result.output.matched).toBe(true);
-    } finally {
-      serviceRegistry.unregisterAll('test');
-    }
-  });
 });
 
 describe('executeStep — CannedDb branches', () => {
@@ -248,24 +207,6 @@ describe('executeStep — CannedDb branches', () => {
     expect(output.sent).toBe(true);
     expect(output.count).toBe(2);
     expect(db.executed(/INSERT INTO "zv_notifications"/i).length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('ai_decision leaves __proto__ placeholders literal in the prompt', async () => {
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      {
-        type: 'ai_decision',
-        config: {
-          prompt: 'Pick {{trigger.choice}} not {{__proto__.polluted}}',
-          options: ['yes', 'no'],
-          fallback: 'no',
-        },
-      },
-      {},
-      { trigger: { choice: 'yes' } },
-    );
-    expect(output.usedFallback).toBe(true);
-    expect(output.decision).toBe('no');
   });
 
   it('webhook forwards allowed custom headers and blocks sensitive ones', async () => {
@@ -330,87 +271,6 @@ describe('executeStep — CannedDb branches', () => {
       {},
     );
     expect(output).toEqual({ prev: 42 });
-  });
-
-  it('ai_decision reports missing prompt/options without calling AI', async () => {
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      { type: 'ai_decision', config: { prompt: '', options: [], fallback: 'skip' } },
-      {},
-      {},
-    );
-    expect(output.decision).toBe('skip');
-    expect(output.error).toMatch(/Missing prompt/i);
-  });
-
-  it('ai_decision matches provider output to an option', async () => {
-    serviceRegistry.registerAs('test', 'ai.providers', {
-      getDefault: () => ({
-        chat: async () => ({ content: 'YES' }),
-      }),
-    });
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      {
-        type: 'ai_decision',
-        id: 'pick',
-        config: { prompt: 'Choose', options: ['yes', 'no'], fallback: 'no' },
-      },
-      {},
-      {},
-    );
-    expect(output.decision).toBe('yes');
-    expect(output.matched).toBe(true);
-  });
-
-  it('ai_decision uses fallback when the provider chat throws', async () => {
-    serviceRegistry.registerAs('test', 'ai.providers', {
-      getDefault: () => ({
-        chat: async () => {
-          throw new Error('model offline');
-        },
-      }),
-    });
-    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      const { output } = await executeStep(
-        new CannedDb().kysely as unknown as Database,
-        {
-          type: 'ai_decision',
-          id: 'pick-fail',
-          config: { prompt: 'x', options: ['a'], fallback: 'a' },
-        },
-        {},
-        {},
-      );
-      expect(output.usedFallback).toBe(true);
-      expect(output.decision).toBe('a');
-      expect(
-        errSpy.mock.calls.some((c) => String(c[0]).includes('AI Decision failed [pick-fail]')),
-      ).toBe(true);
-    } finally {
-      errSpy.mockRestore();
-    }
-  });
-
-  it('ai_decision falls back when provider text does not match an option', async () => {
-    serviceRegistry.registerAs('test', 'ai.providers', {
-      getDefault: () => ({
-        chat: async () => ({ content: 'maybe-later' }),
-      }),
-    });
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      {
-        type: 'ai_decision',
-        config: { prompt: 'Pick', options: ['yes', 'no'], fallback: 'no' },
-      },
-      {},
-      {},
-    );
-    expect(output.decision).toBe('no');
-    expect(output.usedFallback).toBe(true);
-    expect(output.aiRawResponse).toBe('maybe-later');
   });
 
   it('send_notification reports missing role and user_id', async () => {
@@ -655,8 +515,4 @@ describe('executeStep — CannedDb branches', () => {
     );
     expect(output).toEqual({ prev: true });
   });
-});
-
-afterEach(() => {
-  serviceRegistry.unregisterAs('test', 'ai.providers');
 });

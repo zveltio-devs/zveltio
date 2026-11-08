@@ -17,7 +17,7 @@ import type { ServiceRegistry } from '@zveltio/sdk/extension';
  *     the same owner is treated as replacement.
  *
  * Naming rule (enforced by `scope`): an extension registers only
- * `<its name>.<feature>` — `ai.providers`, `operations/inventory.products.list` —
+ * `<its name>.<feature>` — `crm.contacts.lookup`, `operations/inventory.products.list` —
  * and reads only services owned by itself, by an extension its manifest names
  * in `dependencies` / `optionalDependencies`, or named in ENGINE_PUBLIC_SERVICES.
  */

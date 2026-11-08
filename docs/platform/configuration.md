@@ -45,7 +45,7 @@ process environment (`/proc/self/environ`) for the life of the process, to
 anything running in it, and removing it from `process.env` does not change that.
 A value read from a file never gets there.
 
-`AI_KEY_ENCRYPTION_KEY`, `APNS_KEY`, `APPLE_CLIENT_SECRET`, `BACKUP_DB_PASSWORD`,
+`APNS_KEY`, `APPLE_CLIENT_SECRET`, `BACKUP_DB_PASSWORD`,
 `BETTER_AUTH_SECRET`, `DATABASE_PASSWORD`, `DATABASE_URL`, `DISCORD_CLIENT_SECRET`,
 `ELECTRIC_SECRET`, `FCM_SERVER_KEY`, `FIELD_ENCRYPTION_KEY`,
 `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_SECRET`, `MAIL_ENCRYPTION_KEY`,
@@ -250,34 +250,15 @@ VALKEY_URL=rediss://valkey:6380
 
 ## AI Providers
 
-AI providers are **not** configured through the environment. They live in the
-`zv_ai_providers` table and are managed from the admin UI, or over the API:
+AI is the opt-in `ai` extension (ADR 0027); the engine holds no AI settings.
+Providers are rows of its `ai_providers` collection, managed from the admin UI
+or the data API. The API key is a `secret` field, encrypted under
+`FIELD_ENCRYPTION_KEY` and readable only by the extension's job, and the model's
+host must be bound to the extension's `provider` egress slot.
 
-```http
-PUT /api/ext/ai/providers/openai
-{ "api_key": "sk-...", "default_model": "gpt-4o", "is_active": true, "is_default": true }
-```
-
-Supported names are `openai`, `anthropic`, `ollama`, and any OpenAI-compatible
-provider given both an `api_key` and a `base_url`.
-
-API keys are encrypted at rest by the host under `AI_KEY_ENCRYPTION_KEY` — the
-extension never holds the key material.
-
-> **Changed.** `OPENAI_API_KEY`, `OPENAI_MODEL`, `ANTHROPIC_API_KEY`,
-> `ANTHROPIC_MODEL`, `OLLAMA_URL`, `OLLAMA_MODEL` and `AI_EMBED_TIMEOUT_MS` were
-> read directly by the AI extension and are no longer consulted. They were a
-> second source of truth for a setting that already had one: a provider
-> configured that way did not appear in `GET /providers`, could not be edited or
-> disabled from the admin UI, and its key sat unencrypted in the process
-> environment — so "which model is this instance using" had two answers and only
-> one of them was on screen.
-
-### Provider priority
-
-The provider whose row has `is_default = true` is used when a caller does not
-name one. Configure several rows for fallback; each is enabled independently
-with `is_active`.
+> **Changed.** `AI_KEY_ENCRYPTION_KEY` is no longer read: the engine's `ai`
+> keyring is gone with ai 1.x. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+> `OLLAMA_URL` and the other provider variables were dropped before that.
 
 ---
 
@@ -383,12 +364,11 @@ In multi-tenant mode, tenants are resolved from:
 | `RECOVERY_TOKEN` | — | Emergency bootstrap token (min 32 chars). When set, enables `POST /api/permissions/bootstrap` to promote any user to `god` role. Remove after use. |
 | `METRICS_TOKEN` | — | Protects `GET /metrics` with `Authorization: Bearer <token>`. **Unset, `/metrics` returns 403, not metrics** — it fails closed rather than leak uptime, heap and request counts to an anonymous caller. This row previously said the opposite. To scrape without a token over a trusted network, set `METRICS_ALLOW_UNAUTHENTICATED=1` and mean it. |
 | `MAIL_ENCRYPTION_KEY` | — | 32-byte hex key for encrypting IMAP/SMTP passwords at rest. Generate: `openssl rand -hex 32` |
-| `AI_KEY_ENCRYPTION_KEY` | — | 32-byte hex key for encrypting AI provider API keys at rest. Generate: `openssl rand -hex 32` |
 | `ZVELTIO_CONSOLE_HOST` | — | Recommended in production. A bare hostname (`admin.example.com`; no scheme, port or path — the engine refuses to start otherwise). When set, the Console (`/admin`), `/api/admin/*`, every configuration mutation and every extension mutation authorized against `admin` answer only on that host and 404 on any other; what the App uses answers on every host. The console host also refuses a request whose `Origin` names another host, so a script on the main domain cannot use the Console's session (sessions are host-only cookies, but the two hosts are same-site). Sign in to the Console on that host. The engine matches the `Host` header and trusts no `X-Forwarded-Host`: a proxy must pass `Host` through. Point the CLI and any script that configures the engine at the console host. Unset, every route answers on every host. |
 
 ```bash
 # Generate secure keys
-openssl rand -hex 32   # for RECOVERY_TOKEN, MAIL_ENCRYPTION_KEY, AI_KEY_ENCRYPTION_KEY
+openssl rand -hex 32   # for RECOVERY_TOKEN, MAIL_ENCRYPTION_KEY
 openssl rand -base64 32  # for BETTER_AUTH_SECRET
 ```
 
@@ -599,10 +579,6 @@ S3_BUCKET=zveltio
 S3_REGION=us-east-1
 S3_PUBLIC_URL=http://localhost:9000/zveltio
 
-# AI providers are configured in the admin UI, not here — see "AI Providers".
-# The host still needs this to encrypt the keys it stores:
-AI_KEY_ENCRYPTION_KEY=<openssl rand -hex 32>
-
 # Extensions
 ZVELTIO_EXTENSIONS=ai,workflow/approvals
 EXTENSIONS_DIR=../zveltio-extensions
@@ -645,10 +621,6 @@ S3_SECRET_KEY=...
 S3_BUCKET=yourapp-zveltio
 S3_REGION=eu-west-1
 S3_PUBLIC_URL=https://cdn.yourapp.com
-
-# AI providers are rows in zv_ai_providers, managed from the admin UI.
-# This key encrypts them at rest.
-AI_KEY_ENCRYPTION_KEY=<openssl rand -hex 32>
 
 # Extensions
 ZVELTIO_EXTENSIONS=ai,workflow/approvals,workflow/checklists

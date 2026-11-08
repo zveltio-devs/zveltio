@@ -128,8 +128,7 @@ level; `zveltio extension pack` without `--first-party` leaves
 
 An extension reads configuration through **`ctx.config.vars`**, populated from
 environment variables named `ZVELTIO_EXT_<NAME>_*`. Not `process.env`, and not
-new fields on `ExtensionConfig`. The `ai` extension additionally keeps a keyring
-with an `aes256gcm-ai:` envelope.
+new fields on `ExtensionConfig`.
 
 ---
 

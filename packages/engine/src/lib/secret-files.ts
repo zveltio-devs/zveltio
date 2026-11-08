@@ -16,7 +16,6 @@ import { readFileSync } from 'node:fs';
 
 /** The variables that may come from a file. Each one is a credential or a key. */
 export const SECRET_FILE_VARS = [
-  'AI_KEY_ENCRYPTION_KEY',
   'APNS_KEY',
   'APPLE_CLIENT_SECRET',
   'BACKUP_DB_PASSWORD',

@@ -1,7 +1,6 @@
 /**
  * Direct executeStep coverage for lib/flows/flow-executor.ts — calls the step
- * runner without inserting into zv_flow_steps (the DB CHECK constraint omits
- * ai_decision even though the executor supports it).
+ * runner without inserting into zv_flow_steps.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -9,7 +8,6 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { runCreateCollection } from '../../lib/data/ddl-queue.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
-import { serviceRegistry } from '../../lib/service-registry.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const { executeStep } = _internalForTests;
@@ -74,35 +72,6 @@ d('executeStep — flow-executor branches', () => {
       .where('name', '=', COLLECTION)
       .execute()
       .catch(() => {});
-    serviceRegistry.unregisterAs('test', 'ai.providers');
-  });
-
-  it('ai_decision falls back when the AI extension is inactive', async () => {
-    const { output } = await executeStep(
-      db,
-      step('ai_decision', { prompt: 'Choose', options: ['yes', 'no'], fallback: 'no' }),
-      {},
-      {},
-    );
-    expect(output.usedFallback).toBe(true);
-    expect(output.decision).toBe('no');
-  });
-
-  it('ai_decision matches a registered provider response', async () => {
-    serviceRegistry.registerAs('test', 'ai.providers', {
-      getDefault: () => ({
-        chat: async () => ({ content: 'YES' }),
-      }),
-    });
-
-    const { output } = await executeStep(
-      db,
-      step('ai_decision', { prompt: 'Pick', options: ['yes', 'no'], fallback: 'no' }),
-      {},
-      {},
-    );
-    expect(output.decision).toBe('yes');
-    expect(output.matched).toBe(true);
   });
 
   it('export_collection fails the step on an invalid collection name', async () => {

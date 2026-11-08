@@ -59,9 +59,7 @@ import { parseMigrationSql } from './extension-utils.js';
  *
  * Measured before writing: 187 ALTER statements across 13 extensions target an
  * engine table today, and all but one are tables those extensions own because
- * the feature moved out of the engine. They are already in the grants list. The
- * exception is `ai`, which relaxes a CHECK constraint on `zv_flows` so flows
- * can carry AI trigger types — legitimate, and now written down.
+ * the feature moved out of the engine. They are already in the grants list.
  */
 async function assertMigrationTablesAllowed(extName: string, sqlText: string): Promise<void> {
   const { EXTENSION_TABLE_GRANTS, engineOwnedTables } = await import('./register.js');
@@ -220,7 +218,7 @@ export async function runExtensionMigrations(
     );
     throw err;
   } finally {
-    // An UP may reshape an engine table (`ai` adds columns to `zvd_collections`),
+    // An UP may reshape an engine table (add a column to `zvd_collections`),
     // and every pooled connection that prepared a `SELECT *` over it then fails
     // it with 0A000 — a 500 inside a request transaction — until it is replaced.
     // Here, not at the boot call site alone: an enable or upgrade on a running

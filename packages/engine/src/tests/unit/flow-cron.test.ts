@@ -4,8 +4,7 @@
  * The scheduler accepted `trigger: { type: 'cron', cron: '0 3 * * *' }`, stored
  * it, and then read only `interval_seconds` — falling back to 60 seconds. A
  * flow scheduled for 03:00 daily ran 1440 times a day. Worse than the inert
- * settings elsewhere in this codebase: it did the wrong thing continuously, and
- * with an `ai_decision` step it did it at a per-call cost.
+ * settings elsewhere in this codebase: it did the wrong thing continuously.
  *
  * Hand-written cron parsing is a known footgun, so these tests are deliberately
  * unkind: boundaries, the dom/dow OR quirk, month lengths, DST-adjacent times,

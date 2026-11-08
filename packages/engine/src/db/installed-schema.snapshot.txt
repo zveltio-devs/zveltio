@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 591
+# tables: 589
 
 table account
   col accessToken                    text
@@ -93,138 +93,6 @@ table verification
   col value                          text NOT NULL
   pk  verification_pkey PRIMARY KEY (id)
   rls enabled
-
-table zv_ai_chats
-  col context                        text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col messages                       jsonb NOT NULL DEFAULT '[]'::jsonb
-  col metadata                       jsonb DEFAULT '{}'::jsonb
-  col model                          text
-  col provider                       text NOT NULL DEFAULT 'default'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col user_id                        text NOT NULL
-  pk  zv_ai_chats_pkey PRIMARY KEY (id)
-  fk  zv_ai_chats_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_ai_chats FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ai_conversations
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col user_id                        text NOT NULL
-  pk  zv_ai_conversations_pkey PRIMARY KEY (id)
-  fk  zv_ai_conversations_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_ai_conversations FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ai_features
-  col config                         jsonb NOT NULL DEFAULT '{}'::jsonb
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col description                    text
-  col display_name                   text NOT NULL
-  col feature_key                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_enabled                     boolean NOT NULL DEFAULT true
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  uq  zv_ai_features_feature_key_key UNIQUE (tenant_id, feature_key)
-  pk  zv_ai_features_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_ai_features FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ai_memory
-  col content                        text NOT NULL
-  col context_key                    text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col embedding                      USER-DEFINED
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col importance                     integer NOT NULL DEFAULT 5
-  col source                         text NOT NULL DEFAULT 'user'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col user_id                        text NOT NULL
-  pk  zv_ai_memory_pkey PRIMARY KEY (id)
-  uq  zv_ai_memory_user_id_context_key_key UNIQUE (tenant_id, user_id, context_key)
-  fk  zv_ai_memory_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_ai_memory FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ai_messages
-  col content                        text NOT NULL
-  col conversation_id                uuid NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col metadata                       jsonb NOT NULL DEFAULT '{}'::jsonb
-  col role                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text
-  fk  zv_ai_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES zv_ai_conversations(id) ON DELETE CASCADE
-  pk  zv_ai_messages_pkey PRIMARY KEY (id)
-  ck  zv_ai_messages_role_check CHECK ((role = ANY (ARRAY['system'::text, 'user'::text, 'assistant'::text, 'tool'::text])))
-  fk  zv_ai_messages_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE SET NULL
-  rls enabled forced
-  pol tenant_isolation_zv_ai_messages FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ai_providers
-  col api_key                        text
-  col base_url                       text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col default_model                  text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col is_default                     boolean NOT NULL DEFAULT false
-  col label                          text NOT NULL
-  col metadata                       jsonb DEFAULT '{}'::jsonb
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  uq  zv_ai_providers_name_key UNIQUE (tenant_id, name)
-  pk  zv_ai_providers_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_ai_providers FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ai_queries
-  col ai_analysis                    text
-  col chart_config                   jsonb
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col error                          text
-  col execution_ms                   integer
-  col generated_sql                  text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_saved                       boolean NOT NULL DEFAULT false
-  col prompt                         text NOT NULL
-  col result_count                   integer
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col title                          text
-  col user_id                        text NOT NULL
-  pk  zv_ai_queries_pkey PRIMARY KEY (id)
-  fk  zv_ai_queries_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_ai_queries FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_ai_usage
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col latency_ms                     integer NOT NULL DEFAULT 0
-  col model                          text NOT NULL
-  col operation                      text NOT NULL
-  col prompt_tokens                  integer NOT NULL DEFAULT 0
-  col provider                       text NOT NULL
-  col response_tokens                integer NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text
-  ck  zv_ai_usage_operation_check CHECK ((operation = ANY (ARRAY['chat'::text, 'embed'::text, 'query'::text, 'generate'::text, 'decide'::text])))
-  pk  zv_ai_usage_pkey PRIMARY KEY (id)
-  fk  zv_ai_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE SET NULL
-  rls enabled forced
-  pol tenant_isolation_zv_ai_usage FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_api_key_access_log
   col api_key_id                     uuid NOT NULL
@@ -622,7 +490,7 @@ table zv_flow_steps
   fk  zv_flow_steps_flow_id_fkey FOREIGN KEY (flow_id) REFERENCES zv_flows(id) ON DELETE CASCADE
   ck  zv_flow_steps_on_error_check CHECK ((on_error = ANY (ARRAY['stop'::text, 'continue'::text, 'retry'::text])))
   pk  zv_flow_steps_pkey PRIMARY KEY (id)
-  ck  zv_flow_steps_type_check CHECK ((type = ANY (ARRAY['query_db'::text, 'run_script'::text, 'send_email'::text, 'webhook'::text, 'send_notification'::text, 'export_collection'::text, 'ai_decision'::text, 'condition'::text]))) NOT VALID
+  ck  zv_flow_steps_type_check CHECK ((type = ANY (ARRAY['query_db'::text, 'run_script'::text, 'send_email'::text, 'webhook'::text, 'send_notification'::text, 'export_collection'::text, 'condition'::text]))) NOT VALID
 
 table zv_flows
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -639,7 +507,7 @@ table zv_flows
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   fk  zv_flows_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_flows_pkey PRIMARY KEY (id)
-  ck  zv_flows_trigger_type_check CHECK ((trigger_type = ANY (ARRAY['manual'::text, 'on_create'::text, 'on_update'::text, 'on_delete'::text, 'cron'::text, 'webhook'::text, 'ai_task'::text])))
+  ck  zv_flows_trigger_type_check CHECK ((trigger_type = ANY (ARRAY['manual'::text, 'on_create'::text, 'on_update'::text, 'on_delete'::text, 'cron'::text, 'webhook'::text]))) NOT VALID
   rls enabled forced
   pol tenant_isolation_zv_flows FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
@@ -1145,29 +1013,6 @@ table zv_pitr_restore_points
   fk  zv_pitr_restore_points_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zv_pitr_restore_points_pkey PRIMARY KEY (id)
 
-table zv_prompt_templates
-  col category                       text DEFAULT 'general'::text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col description                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col max_tokens                     integer DEFAULT 2048
-  col model                          text
-  col name                           text NOT NULL
-  col provider                       text
-  col system_prompt                  text NOT NULL
-  col temperature                    numeric DEFAULT 0.7
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col user_template                  text
-  col variables                      jsonb DEFAULT '[]'::jsonb
-  fk  zv_prompt_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  uq  zv_prompt_templates_name_key UNIQUE (tenant_id, name)
-  pk  zv_prompt_templates_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_prompt_templates FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zv_push_subscriptions
   col auth                           text NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -1179,22 +1024,6 @@ table zv_push_subscriptions
   uq  zv_push_subscriptions_endpoint_key UNIQUE (endpoint)
   pk  zv_push_subscriptions_pkey PRIMARY KEY (id)
   fk  zv_push_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-
-table zv_rag_documents
-  col chunk_index                    integer NOT NULL DEFAULT 0
-  col collection                     text
-  col content                        text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col metadata                       jsonb DEFAULT '{}'::jsonb
-  col namespace                      text DEFAULT 'default'::text
-  col record_id                      text
-  col source_type                    text DEFAULT 'manual'::text
-  col source_url                     text
-  col title                          text NOT NULL
-  fk  zv_rag_documents_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  pk  zv_rag_documents_pkey PRIMARY KEY (id)
 
 table zv_rate_limit_configs
   col description                    text
@@ -1524,34 +1353,153 @@ table zvd_active_timers
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('active_timers'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('active_timers'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('active_timers'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_ai_embeddings
-  col collection                     text NOT NULL
+table zvd_ai_conversations
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col embedding                      USER-DEFINED
-  col field                          text NOT NULL DEFAULT '_auto'::text
+  col created_by                     text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col model                          text
-  col record_id                      text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col text_content                   text NOT NULL DEFAULT ''::text
+  col provider_id                    uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col system_prompt                  text
+  col template_id                    uuid
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col title                          text
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  uq  zvd_ai_embeddings_collection_record_id_field_key UNIQUE (tenant_id, collection, record_id, field)
-  pk  zvd_ai_embeddings_pkey PRIMARY KEY (id)
+  col updated_by                     text
+  fk  zvd_ai_conversations_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_ai_conversations_pkey PRIMARY KEY (id)
+  fk  zvd_ai_conversations_provider_id_fkey FOREIGN KEY (provider_id) REFERENCES zvd_ai_providers(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_ai_conversations_template_id_fkey FOREIGN KEY (template_id) REFERENCES zvd_ai_prompt_templates(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_ai_conversations_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_ai_embeddings FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('ai_conversations'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('ai_conversations'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('ai_conversations'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('ai_conversations'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('ai_conversations'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_ai_search_config
-  col collection                     text NOT NULL
+table zvd_ai_messages
+  col content                        text NOT NULL DEFAULT ''::text
+  col conversation_id                uuid NOT NULL
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col fields                         ARRAY NOT NULL DEFAULT '{}'::text[]
+  col created_by                     text
+  col error                          text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_enabled                     boolean NOT NULL DEFAULT true
-  col namespace                      text NOT NULL DEFAULT 'default'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  uq  zvd_ai_search_config_collection_namespace_key UNIQUE (tenant_id, collection, namespace)
-  pk  zvd_ai_search_config_pkey PRIMARY KEY (id)
+  col model                          text
+  col prompt_tokens                  bigint
+  col response_tokens                bigint
+  col role                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text NOT NULL DEFAULT 'done'::text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_ai_messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES zvd_ai_conversations(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_ai_messages_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_ai_messages_pkey PRIMARY KEY (id)
+  fk  zvd_ai_messages_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_ai_search_config FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('ai_messages'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('ai_messages'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('ai_messages'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('ai_messages'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('ai_messages'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_ai_prompt_templates
+  col category                       text NOT NULL DEFAULT 'general'::text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col description                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col max_tokens                     bigint
+  col model                          text
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col system_prompt                  text NOT NULL
+  col temperature                    numeric
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_ai_prompt_templates_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_ai_prompt_templates_pkey PRIMARY KEY (id)
+  uq  zvd_ai_prompt_templates_tenant_id_name_key UNIQUE (tenant_id, name)
+  fk  zvd_ai_prompt_templates_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('ai_prompt_templates'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('ai_prompt_templates'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('ai_prompt_templates'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('ai_prompt_templates'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('ai_prompt_templates'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_ai_providers
+  col api_key                        text
+  col base_url                       text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col default_model                  text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col is_default                     boolean NOT NULL DEFAULT false
+  col kind                           text NOT NULL DEFAULT 'openai'::text
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  ck  zvd_ai_providers_api_key_check CHECK (((api_key IS NULL) OR (api_key ~~ 'enc:v1:%'::text)))
+  fk  zvd_ai_providers_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_ai_providers_pkey PRIMARY KEY (id)
+  uq  zvd_ai_providers_tenant_id_name_key UNIQUE (tenant_id, name)
+  fk  zvd_ai_providers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('ai_providers'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('ai_providers'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('ai_providers'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('ai_providers'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('ai_providers'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_ai_usage
+  col conversation_id                uuid
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col latency_ms                     bigint NOT NULL DEFAULT 0
+  col model                          text NOT NULL
+  col operation                      text NOT NULL DEFAULT 'chat'::text
+  col prompt_tokens                  bigint NOT NULL DEFAULT 0
+  col provider_id                    uuid
+  col response_tokens                bigint NOT NULL DEFAULT 0
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_ai_usage_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES zvd_ai_conversations(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_ai_usage_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_ai_usage_pkey PRIMARY KEY (id)
+  fk  zvd_ai_usage_provider_id_fkey FOREIGN KEY (provider_id) REFERENCES zvd_ai_providers(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_ai_usage_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('ai_usage'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('ai_usage'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('ai_usage'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('ai_usage'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('ai_usage'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_apidoc_changelogs
   col breaking_changes               text
@@ -2648,9 +2596,6 @@ table zvd_checklists
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklists'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklists'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_collections
-  col ai_embed_excluded_fields       ARRAY NOT NULL DEFAULT '{}'::text[]
-  col ai_search_enabled              boolean NOT NULL DEFAULT false
-  col ai_search_field                text
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col declared_file                  jsonb
   col default_grants                 boolean NOT NULL DEFAULT true
@@ -9090,6 +9035,90 @@ table zvv_active_timers
   col search_vector                  tsvector
   col started_at                     timestamp with time zone
   col task_description               text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_ai_conversations
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col model                          text
+  col provider_id                    uuid
+  col search_text                    text
+  col search_vector                  tsvector
+  col system_prompt                  text
+  col template_id                    uuid
+  col tenant_id                      uuid
+  col title                          text
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_ai_messages
+  col content                        text
+  col conversation_id                uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col error                          text
+  col id                             uuid
+  col model                          text
+  col prompt_tokens                  bigint
+  col response_tokens                bigint
+  col role                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col status                         text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_ai_prompt_templates
+  col category                       text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col description                    text
+  col id                             uuid
+  col is_active                      boolean
+  col max_tokens                     bigint
+  col model                          text
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col system_prompt                  text
+  col temperature                    numeric
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_ai_providers
+  col base_url                       text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col default_model                  text
+  col id                             uuid
+  col is_active                      boolean
+  col is_default                     boolean
+  col kind                           text
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_ai_usage
+  col conversation_id                uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col latency_ms                     bigint
+  col model                          text
+  col operation                      text
+  col prompt_tokens                  bigint
+  col provider_id                    uuid
+  col response_tokens                bigint
+  col search_text                    text
+  col search_vector                  tsvector
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text

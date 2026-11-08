@@ -44,7 +44,9 @@ Open **Studio → AI → Add Provider**, select **Ollama**, and enter:
 | Default Model | `llama3.2` | `deepseek-r1:7b` |
 | API Key | *(leave empty)* | *(leave empty)* |
 
-Save and set as default — the engine will use it for all AI features (chat, schema generation, data quality, embeddings).
+Save and set as default — the `ai` extension uses it for chat. The model's host must be
+bound to the extension's `provider` egress slot (ADR 0026), or the answer fails with that
+reason.
 
 ---
 

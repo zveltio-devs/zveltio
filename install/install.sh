@@ -88,7 +88,6 @@ BETTER_AUTH_SECRET=$(gen_secret)
 # invalidates existing ciphertext.
 FIELD_ENCRYPTION_KEY=$(gen_secret)
 MAIL_ENCRYPTION_KEY=$(gen_secret)
-AI_KEY_ENCRYPTION_KEY=$(gen_secret)
 S3_ACCESS_KEY=$(gen_secret | cut -c1-20)
 S3_SECRET_KEY=$(gen_secret)
 # /metrics answers 403 to every scraper without it (.env.example: REQUIRED).
@@ -96,14 +95,14 @@ METRICS_TOKEN=$(gen_secret)
 
 # ── Update-safety: preserve an existing install's secrets ─────────────────────
 # Re-running the installer to UPDATE must never rotate secrets. Regenerating the
-# encryption keys makes all encrypted data (encrypted fields, mail/AI creds, LDAP
+# encryption keys makes all encrypted data (encrypted fields, mail creds, LDAP
 # bindPassword, SAML privateKey, webhook secrets) undecryptable; regenerating the
 # DB/Valkey passwords or auth secret breaks the running services and every
 # session. So if ${ZVELTIO_DIR}/.env already exists, keep whatever it already set.
 if [[ -f "${ZVELTIO_DIR}/.env" ]]; then
   _keep_env() { grep -E "^$1=" "${ZVELTIO_DIR}/.env" | head -1 | cut -d= -f2-; }
   for _k in POSTGRES_PASSWORD VALKEY_PASSWORD BETTER_AUTH_SECRET \
-            FIELD_ENCRYPTION_KEY MAIL_ENCRYPTION_KEY AI_KEY_ENCRYPTION_KEY \
+            FIELD_ENCRYPTION_KEY MAIL_ENCRYPTION_KEY \
             S3_ACCESS_KEY S3_SECRET_KEY METRICS_TOKEN; do
     _v="$(_keep_env "$_k")"
     [[ -n "$_v" ]] && printf -v "$_k" '%s' "$_v"
@@ -659,7 +658,6 @@ S3_PUBLIC_URL=http://localhost:8333
 
 FIELD_ENCRYPTION_KEY=${FIELD_ENCRYPTION_KEY}
 MAIL_ENCRYPTION_KEY=${MAIL_ENCRYPTION_KEY}
-AI_KEY_ENCRYPTION_KEY=${AI_KEY_ENCRYPTION_KEY}
 
 # Bearer token Prometheus (or any scraper) sends to /metrics.
 METRICS_TOKEN=${METRICS_TOKEN}

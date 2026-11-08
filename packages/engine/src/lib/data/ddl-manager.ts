@@ -295,9 +295,6 @@ export const CollectionSchema = z.preprocess(
     if (o.route_group != null && o.routeGroup == null) o.routeGroup = o.route_group;
     if (o.is_permissioned != null && o.isPermissioned == null) o.isPermissioned = o.is_permissioned;
     if (o.singular_name != null && o.singularName == null) o.singularName = o.singular_name;
-    if (o.ai_search_enabled != null && o.aiSearchEnabled == null)
-      o.aiSearchEnabled = o.ai_search_enabled;
-    if (o.ai_search_field != null && o.aiSearchField == null) o.aiSearchField = o.ai_search_field;
     if (o.is_managed != null && o.isManaged == null) o.isManaged = o.is_managed;
     if (o.is_system != null && o.isSystem == null) o.isSystem = o.is_system;
     if (o.schema_locked != null && o.schemaLocked == null) o.schemaLocked = o.schema_locked;
@@ -333,8 +330,6 @@ export const CollectionSchema = z.preprocess(
     fields: z.array(FieldSchema).min(1).max(1400),
     description: z.string().optional(),
     singularName: z.string().optional(),
-    aiSearchEnabled: z.boolean().optional(),
-    aiSearchField: z.string().nullable().optional(),
     isManaged: z.boolean().optional(),
     isSystem: z.boolean().optional(),
     schemaLocked: z.boolean().optional(),

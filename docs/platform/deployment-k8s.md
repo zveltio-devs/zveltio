@@ -14,7 +14,6 @@ cd charts/zveltio
 BETTER_AUTH_SECRET=$(openssl rand -hex 32)
 ENCRYPTION_KEY=$(openssl rand -hex 32)   # 64 hex chars; anything else is refused
 MAIL_ENCRYPTION_KEY=$(openssl rand -base64 32)
-AI_KEY_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
 # 3. Install
 helm install zveltio . \
@@ -25,8 +24,7 @@ helm install zveltio . \
   --set engine.config.betterAuthSecret="$BETTER_AUTH_SECRET" \
   --set engine.config.betterAuthUrl="http://localhost:3000" \
   --set engine.config.encryptionKey="$ENCRYPTION_KEY" \
-  --set engine.config.mailEncryptionKey="$MAIL_ENCRYPTION_KEY" \
-  --set engine.config.aiKeyEncryptionKey="$AI_KEY_ENCRYPTION_KEY"
+  --set engine.config.mailEncryptionKey="$MAIL_ENCRYPTION_KEY"
 
 # 4. Wait for the engine to be ready
 kubectl rollout status deploy/zveltio-engine -n zveltio --timeout=120s
@@ -158,7 +156,6 @@ Expected keys in the existing Secret:
 | `BETTER_AUTH_URL` | yes | Public base URL |
 | `ENCRYPTION_KEY` | yes | AES-256-GCM master key |
 | `MAIL_ENCRYPTION_KEY` | when SMTP configured | |
-| `AI_KEY_ENCRYPTION_KEY` | when AI extension active | |
 | `METRICS_TOKEN` | recommended | Bearer for `/metrics` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | OpenTelemetry collector |
 | `S3_*` | when using S3 storage | endpoint / bucket / region / keys |

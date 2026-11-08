@@ -273,7 +273,6 @@ cat zveltio/zveltio.log
 | `PORT` | — | HTTP port (default: `3000`) |
 | `NODE_ENV` | — | `production` / `development` |
 | `MAIL_ENCRYPTION_KEY` | ✅ if using mail | AES-256-GCM key for IMAP/SMTP passwords (`openssl rand -hex 32`) |
-| `AI_KEY_ENCRYPTION_KEY` | ✅ if using AI | AES-256-GCM key for AI provider API keys (`openssl rand -hex 32`) |
 | `METRICS_TOKEN` | ✅ | Bearer token protecting `GET /metrics`, shared with Prometheus; both installers (Docker and native) generate it. If unset, `/metrics` returns 403 (and the repository's `docker-compose.yml` refuses to start). |
 | `SLOW_QUERY_THRESHOLD_MS` | — | Log requests slower than this (default: `200`) |
 | `TRUSTED_PROXY` | — | Set to `true` to trust `X-Forwarded-For` headers (behind nginx/ALB) |
@@ -304,8 +303,8 @@ another extension's keys. `<EXTENSION>` is the extension name uppercased with
 
 The unprefixed forms (`STRIPE_WEBHOOK_SECRET`, `MEILISEARCH_HOST`,
 `TWILIO_AUTH_TOKEN`, …) are no longer read. AI providers moved further: they are
-rows in `zv_ai_providers` managed from the admin UI, not environment variables
-at all.
+rows of the `ai` extension's `ai_providers` collection, managed from the admin
+UI, not environment variables at all.
 
 ---
 
