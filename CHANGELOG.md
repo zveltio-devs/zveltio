@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**`zveltio mcp`: the engine as an MCP tool surface (ADR 0027, step 3).** A local stdio MCP server in the CLI. An agent lists the collections and fields the key may read, reads, creates, changes and deletes records through the data API, and runs extension actions, all as the owner of `ZVELTIO_API_KEY`; the engine's rules decide each call and its refusal reaches the agent with the reason. No schema, DDL or SQL tool. Actions are not yet listed with their input schemas: a key cannot read the manifests, so `run_action` takes the extension and action by name.
+
 ## [3.0.0-beta.106] - 2026-11-08
 
 **The engine holds no AI code (ADR 0027 §6).** Removed: the `ai_decision` flow step and the `ai_task` flow trigger (with the scheduler's background-task path), `POST /api/validation/generate`, the `ai` keyring and `AI_KEY_ENCRYPTION_KEY`, the `ai` rate-limit tier and its `/api/ai/*` mount, the `zveltio:ai:*` realtime channels, the `ai.task.done` event, the `ai_*` settings keys, the `aiSearchEnabled` / `aiSearchField` collection options (accepted and never stored) and the `ai` extension's grant on `zv_flows`. Migration 113 narrows both flow CHECKs back (NOT VALID: a stored `ai_decision` step fails its run by name, a stored `ai_task` flow is never claimed), drops the three `ai_*` columns ai 1.x added to `zvd_collections`, and deletes the `ai` rate-limit rows. AI is the opt-in `ai` 2.0 extension (#1579).

@@ -22,6 +22,7 @@ import { rollbackCommand } from './commands/rollback.js';
 import { versionCommand } from './commands/version-cmd.js';
 import { updateCommand } from './commands/update.js';
 import { statusCommand } from './commands/status.js';
+import { mcpCommand } from './commands/mcp.js';
 // Inlined by `bun build` at publish time — always matches package.json,
 // so `zveltio --version` never drifts (was hardcoded to a stale '2.0.0').
 import pkg from '../package.json' with { type: 'json' };
@@ -87,6 +88,13 @@ program
   .option('--url <url>', 'Engine URL', 'http://localhost:3000')
   .option('--json', 'Output as JSON')
   .action(statusCommand);
+
+// ── zveltio mcp ───────────────────────────────────────────────────────────────
+program
+  .command('mcp')
+  .description('Serve the engine to an AI agent over MCP (stdio), as the owner of ZVELTIO_API_KEY')
+  .option('--url <url>', 'Engine URL (env: ZVELTIO_URL)')
+  .action(mcpCommand);
 
 // ── zveltio version ───────────────────────────────────────────────────────────
 program.addCommand(versionCommand);
