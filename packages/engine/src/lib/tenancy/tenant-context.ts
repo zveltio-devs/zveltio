@@ -54,12 +54,11 @@ interface TenantStore {
    */
   singleTenant?: boolean;
   /**
-   * Whether `userId` holds a membership in force in `tenantId`, as the reach
-   * this transaction published answered it — so the membership gate asks no
-   * second time. Absent when no reach was resolved (no user, god, no tenant
-   * transaction).
+   * `userId`'s standing in `tenantId`, as the reach this transaction published
+   * answered it — so the membership gate asks no second time. Absent when no
+   * reach was resolved (no user, god, no tenant transaction).
    */
-  membership?: { userId: string; tenantId: string; inForce: boolean };
+  membership?: { userId: string; tenantId: string; standing: MembershipStanding };
   /**
    * Work that must not start until the transaction has COMMITTED.
    *
@@ -441,10 +440,20 @@ export function setSingleTenantScope(single: boolean): void {
   if (current) current.singleTenant = single;
 }
 
+/**
+ * A user's membership rows in one tenant: none at all, some but none in force
+ * (withdrawn — the reach is NO_UNITS), or one in force.
+ */
+export type MembershipStanding = 'none' | 'lapsed' | 'active';
+
 /** Record the membership the reach resolved. See `TenantStore.membership`. */
-export function setResolvedMembership(userId: string, tenantId: string, inForce: boolean): void {
+export function setResolvedMembership(
+  userId: string,
+  tenantId: string,
+  standing: MembershipStanding,
+): void {
   const current = store.getStore();
-  if (current) current.membership = { userId, tenantId, inForce };
+  if (current) current.membership = { userId, tenantId, standing };
 }
 
 /** Record who the current tenant transaction runs as. See `RequestActor`. */
@@ -459,12 +468,15 @@ export function getRequestActor(): RequestActor | undefined {
 }
 
 /**
- * Whether `userId` is a member in force of `tenantId` by the reach this
- * transaction resolved, or `undefined` when it resolved none for them there.
+ * `userId`'s standing in `tenantId` by the reach this transaction resolved, or
+ * `undefined` when it resolved none for them there.
  */
-export function getResolvedMembership(userId: string, tenantId: string): boolean | undefined {
+export function getResolvedMembership(
+  userId: string,
+  tenantId: string,
+): MembershipStanding | undefined {
   const m = store.getStore()?.membership;
-  return m && m.userId === userId && m.tenantId === tenantId ? m.inForce : undefined;
+  return m && m.userId === userId && m.tenantId === tenantId ? m.standing : undefined;
 }
 
 /**

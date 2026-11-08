@@ -116,7 +116,8 @@ sessionPrefetch        resolves the session ON THE POOL, as the engine role
 tenantMiddleware       resolves the tenant, opens ONE transaction,
                        descends the role + publishes the session variables
    ↓
-tenantMembership       requires membership for non-default tenants
+tenantMembership       requires a membership in force; the default tenant also
+                       admits a user with no row there, never a withdrawn one
    ↓
 handler                everything runs inside that transaction
 ```
@@ -322,8 +323,30 @@ correcting in someone else's place. Putting the read predicate back into
 
 The write half still carries the reach's verdict (migration 060): a member whose
 assignments have all lapsed reads nothing, and since 060 cannot INSERT either —
-the membership door admits everyone to the default tenant, and an insert that
-read nothing back used to land there.
+the membership door used to admit everyone to the default tenant, and an insert
+that read nothing back landed there. That door now refuses such a member too
+(see below); 060 still binds every path that opens a transaction without it.
+
+### Membership in the default tenant
+
+A plain single-tenant install enrols nobody in `zv_tenant_users`, so in the
+default tenant a user with **no row** is a member, as every authenticated user
+always was. A user who **has rows there and none in force** (`valid_to` passed,
+or `valid_from` still ahead — the reach `zveltio_tenant_reach` answers
+`NO_UNITS`) was withdrawn, and is refused with `403 tenant.membership_required`
+exactly as in any other tenant. God is exempt. The same rule
+(`tenantAdmits`) is asked at every door:
+
+- **sessions** — `tenantMembershipMiddleware`, from the reach the request
+  transaction resolved, or read uncached on a path that opens none
+  (`TXN_SKIP_PREFIXES`);
+- **API keys** — `apiKeyActsIn`: a root or default-tenant key acts on its
+  issuer's standing, so a withdrawn user's own key is refused (`401`) too;
+- **open sockets and streams** — `stillInTenant`, on the next principal sweep.
+
+Withdrawing a user from the default tenant also closes `/api/auth/*` to that
+session (sign-out included) unless the request names a tenant they still belong
+to with `X-Tenant-Slug`, as it does in any tenant they do not belong to.
 
 ### What a request can see — `zveltio_visible_tenants()`
 

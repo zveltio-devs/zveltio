@@ -319,8 +319,9 @@ d('writes by a principal that cannot read the collection', () => {
   // `RETURNING` checks the new row against the SELECT policies, and the tenant
   // policy reads with a different set than it writes with: `zveltio_tenant_write_ok`
   // is the current unit, the read set is the reach. A member whose assignments
-  // have all lapsed reaches NO unit, yet the membership door lets them into the
-  // default tenant. The create-without-read path used to insert without
+  // have all lapsed reaches NO unit, and the membership door let them into the
+  // default tenant (it refuses them now: tenant-default-withdrawal.test.ts). The
+  // create-without-read path used to insert without
   // RETURNING and answer 201 — a write the same caller holding `read` too was
   // refused. Now both go through RETURNING and get the same answer.
   it('a lapsed member is refused a create alike, whether or not they can read', async () => {
@@ -350,7 +351,8 @@ d('writes by a principal that cannot read the collection', () => {
   });
 
   // The same lapsed member on every write path, not only the REST create whose
-  // RETURNING happened to refuse it. UPDATE and DELETE were already refused by
+  // RETURNING happened to refuse it. Over HTTP the membership door refuses each
+  // request now; the database's own refusal is pinned below it. UPDATE and DELETE were already refused by
   // the policy's USING (the reach is NO_UNITS); an INSERT that reads nothing
   // back — an extension's plain `ctx.db` insert — passed WITH CHECK, because
   // `zveltio_tenant_write_ok` asked only "is this the current unit?". Migration
@@ -367,11 +369,7 @@ d('writes by a principal that cannot read the collection', () => {
     const created = crypto.randomUUID();
     const victim = await seed('lapsed-victim');
     const results = async (operations: unknown[]) =>
-      (
-        (await (await req('POST', '/api/sync/push', who, { operations })).json()) as {
-          results: Array<{ status: string }>;
-        }
-      ).results.map((r) => r.status);
+      expect((await req('POST', '/api/sync/push', who, { operations })).status).toBe(403);
 
     // create
     expect((await req('POST', `/api/data/${COLL}`, who, { title: 'lapsed-rest' })).status).toBe(
@@ -381,11 +379,13 @@ d('writes by a principal that cannot read the collection', () => {
       { collection: COLL, recordId: created, operation: 'create', payload: { title: 'lapsed-s' } },
     ]);
     // update and delete
-    await req('PATCH', `/api/data/${COLL}/${victim}`, who, { title: 'lapsed-patched' });
+    expect(
+      (await req('PATCH', `/api/data/${COLL}/${victim}`, who, { title: 'lapsed-patched' })).status,
+    ).toBe(403);
     await results([
       { collection: COLL, recordId: victim, operation: 'update', payload: { title: 'lapsed-s2' } },
     ]);
-    await req('DELETE', `/api/data/${COLL}/${victim}`, who);
+    expect((await req('DELETE', `/api/data/${COLL}/${victim}`, who)).status).toBe(403);
     await results([{ collection: COLL, recordId: victim, operation: 'delete', payload: {} }]);
 
     // The database itself, as an extension's ctx.db writes: no RETURNING, no read.

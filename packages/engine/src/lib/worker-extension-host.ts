@@ -1498,9 +1498,12 @@ export const _internalForTests = {
 function currentScope(tenantId: string | null): InvokeScope {
   if (!tenantId) return { tenantId };
   const actor = getRequestActor();
-  // The reach the request's own transaction resolved: `false` is NO_UNITS there.
+  // The reach the request's own transaction resolved: NO_UNITS exactly when
+  // it published NO_UNITS there (rows, none in force). A user with no row
+  // published no set — the default tenant's single-tenant case — and reads
+  // the tenant inline, so here too.
   const userId = actor?.userId;
-  const noUnits = !!userId && getResolvedMembership(userId, tenantId) === false;
+  const noUnits = !!userId && getResolvedMembership(userId, tenantId) === 'lapsed';
   return { tenantId, actor, noUnits };
 }
 

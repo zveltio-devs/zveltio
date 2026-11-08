@@ -16,6 +16,7 @@ import {
   currentAfterCommitQueue,
   getCurrentTenantTrx,
   getRequestActor,
+  type MembershipStanding,
   runAfterCommitJob,
   runWithTenantTrx,
   setRequestActor,
@@ -244,18 +245,50 @@ export const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 export const DEFAULT_TENANT_SLUG = 'default';
 
 /**
+ * Does a user of this standing count as a member of `tenantId`? THE rule, for
+ * every door (the membership middleware, `apiKeyActsIn`, the realtime sweep):
+ * a membership in force — or, in the default tenant, no row at all. A plain
+ * single-tenant install enrols nobody, so there everyone counts; a user whose
+ * every row there has lapsed was withdrawn, and withdrawal means withdrawal
+ * there too. God is exempt everywhere, asked before this.
+ */
+export function tenantAdmits(tenantId: string, standing: MembershipStanding): boolean {
+  return standing === 'active' || (standing === 'none' && tenantId === DEFAULT_TENANT_ID);
+}
+
+/**
+ * `userId`'s standing in `tenantId`, read uncached so a withdrawal counts on the
+ * next request — what the request's reach answers (`zveltio_tenant_reach`), for
+ * a caller that has none. `membershipsOf` reads past `zv_tenant_users`'s
+ * policy, which inside a request's transaction answers for the published actor.
+ * Throws when the read fails.
+ */
+export async function membershipStanding(
+  db: Database,
+  userId: string,
+  tenantId: string,
+): Promise<MembershipStanding> {
+  const r = await sql<{ n: number; live: number }>`
+    SELECT count(*)::int AS n, count(*) FILTER (WHERE ${activeMembership('tu')})::int AS live
+      FROM ${membershipsOf(userId)} WHERE tu.tenant_id = ${tenantId}::uuid`.execute(db);
+  const { n = 0, live = 0 } = r.rows[0] ?? {};
+  return n === 0 ? 'none' : live > 0 ? 'active' : 'lapsed';
+}
+
+/**
  * May this API key act in the request's tenant? One definition, because the
  * auth path, the admin guard and the rate limiter must agree on which keys are
- * real. A request with no tenant acts in root.
+ * real. A request with no tenant acts in the default tenant.
  *
  * - A key bound to an ordinary tenant acts there alone (its issuer's standing
  *   there is `apiKeyUsable`'s).
- * - A root key acts in root, where everyone counts.
- * - A root key in an ordinary tenant acts there on its issuer's standing, the
- *   rule `tenantMembershipMiddleware` holds a session to: god, or a membership
- *   in force there, read uncached so a withdrawal counts on the next request.
- *   It used to act anywhere: a member that middleware refused by session in a
- *   tenant got in with their own root key. A failed lookup refuses.
+ * - A root key acts on its issuer's standing in the request's tenant, the rule
+ *   `tenantMembershipMiddleware` holds a session to (`tenantAdmits`): god, or a
+ *   membership in force there — or, in the default tenant, no row at all. Read
+ *   uncached so a withdrawal counts on the next request. It used to act
+ *   anywhere: a member that middleware refused by session in a tenant got in
+ *   with their own root key — and in the default tenant, whose withdrawals it
+ *   did not ask about. A failed lookup refuses.
  */
 export async function apiKeyActsIn(
   key: { tenant_id?: string | null; created_by?: string | null },
@@ -263,18 +296,12 @@ export async function apiKeyActsIn(
 ): Promise<boolean> {
   const acting = requestTenantId ?? DEFAULT_TENANT_ID;
   if (key.tenant_id && key.tenant_id !== DEFAULT_TENANT_ID) return key.tenant_id === acting;
-  if (acting === DEFAULT_TENANT_ID) return true;
   const issuer = key.created_by;
-  if (!issuer) return false;
+  if (!issuer) return acting === DEFAULT_TENANT_ID;
   if (await isGodUser(issuer)) return true;
-  // `membershipsOf` reads past `zv_tenant_users`'s policy, which inside the
-  // request's transaction answers for the published actor — not yet this key.
   const trx = getCurrentTenantTrx();
   const member = () =>
-    sql<{ ok: boolean }>`SELECT EXISTS (SELECT 1 FROM ${membershipsOf(issuer)}
-                          WHERE tu.tenant_id = ${acting}::uuid AND ${activeMembership('tu')}) AS ok`
-      .execute(trx ?? _db)
-      .then((r) => r.rows[0]?.ok === true);
+    membershipStanding(trx ?? _db, issuer, acting).then((s) => tenantAdmits(acting, s));
   return trx
     ? withSavepoint(trx, 'zv_key_acts_in', member, () => false)
     : member().catch(() => false);
@@ -1074,12 +1101,13 @@ interface TenantBoundConnection {
  * but a socket or stream is admitted once, at open, so each sweep asks both
  * again, for all of them.
  *
- * Membership as the middleware asks it: the default tenant counts everyone, a
- * god is exempt. An API key is asked for its issuer, as `apiKeyActsIn` asks at
- * the door: a root key acts in an ordinary tenant on its issuer's standing
- * there, and the key lookup (`stillAuthenticated`) only asks about the KEY's
- * tenant — root, which counts everyone — so a root key's socket in tenant T
- * outlived its issuer's membership in T. A key with no issuer holds nowhere but
+ * Membership as the middleware asks it (`tenantAdmits`): the default tenant
+ * counts everyone it has not withdrawn, a god is exempt. An API key is asked
+ * for its issuer, as `apiKeyActsIn` asks at the door: a root key acts in a
+ * tenant on its issuer's standing there, and the key lookup
+ * (`stillAuthenticated`) only asks about the KEY's tenant — root, which that
+ * check exempts — so a root key's socket in tenant T outlived its issuer's
+ * membership in T. A key with no issuer holds nowhere but
  * the default tenant. A lapse is a date with no event, so the periodic principal sweep
  * (`startPolicyReconcile`) is what reaches it. `null` (no tenant captured)
  * always holds.
@@ -1104,34 +1132,43 @@ export async function stillInTenant(
       .execute();
     for (const r of rows) active.add(r.id);
   }
-  // Whose membership decides, or `null` for a key with no issuer (refused).
+  // Whose membership decides, or `null` for a key with no issuer (refused but
+  // in the default tenant).
   const memberOf = (c: TenantBoundConnection) =>
-    !c.principal || !c.tenantId || c.tenantId === DEFAULT_TENANT_ID
+    !c.principal || !c.tenantId
       ? undefined
       : ((c.principal.kind === 'session' ? c.principal.userId : c.principal.issuerId) ?? null);
   const asked = list.filter((c) => memberOf(c) && active.has(c.tenantId!));
-  const held = new Set<string>();
+  // `tenant:user` → its standing; a pair with no row is 'none'.
+  const standing = new Map<string, MembershipStanding>();
+  const gods = new Set<string>();
   if (asked.length > 0) {
     const users = [...new Set(asked.map((c) => memberOf(c)!))];
     const tenants = [...new Set(asked.map((c) => c.tenantId!))];
     // `role = 'god'` is `isGodUser`'s own question, asked here so a failed read
     // throws instead of answering "not god" and closing a god's sockets.
-    const rows = await sql<{ user_id: string; tenant_id: string }>`
-      SELECT user_id, tenant_id::text AS tenant_id FROM zv_tenant_users
+    const rows = await sql<{ user_id: string; tenant_id: string; live: boolean }>`
+      SELECT user_id, tenant_id::text AS tenant_id, bool_or(${activeMembership()}) AS live
+        FROM zv_tenant_users
        WHERE user_id = ANY(${sql.val(users)}::text[])
          AND tenant_id = ANY(${sql.val(tenants)}::uuid[])
-         AND ${activeMembership()}
+       GROUP BY user_id, tenant_id
       UNION ALL
-      SELECT id, '*' FROM "user" WHERE id = ANY(${sql.val(users)}::text[]) AND role = 'god'
+      SELECT id, '*', true FROM "user" WHERE id = ANY(${sql.val(users)}::text[]) AND role = 'god'
     `.execute(db);
-    for (const r of rows.rows) held.add(`${r.tenant_id}:${r.user_id}`);
+    for (const r of rows.rows) {
+      if (r.tenant_id === '*') gods.add(r.user_id);
+      else standing.set(`${r.tenant_id}:${r.user_id}`, r.live ? 'active' : 'lapsed');
+    }
   }
   return (c) => {
     if (c.tenantId === null) return true;
     if (!active.has(c.tenantId)) return false;
     const userId = memberOf(c);
     if (userId === undefined) return true;
-    return !!userId && (held.has(`${c.tenantId}:${userId}`) || held.has(`*:${userId}`));
+    if (userId === null) return c.tenantId === DEFAULT_TENANT_ID;
+    if (gods.has(userId)) return true;
+    return tenantAdmits(c.tenantId, standing.get(`${c.tenantId}:${userId}`) ?? 'none');
   };
 }
 
@@ -1542,7 +1579,7 @@ export async function withTenantIsolation<T>(
         setResolvedMembership(
           opts.userId,
           tenantId,
-          row.visible_csv !== null && row.visible_csv !== NO_UNITS,
+          row.visible_csv === null ? 'none' : row.visible_csv === NO_UNITS ? 'lapsed' : 'active',
         );
       }
       // Captured while the store is alive; settled below, once the transaction is.

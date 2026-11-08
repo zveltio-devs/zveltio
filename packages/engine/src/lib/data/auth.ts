@@ -195,8 +195,9 @@ export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKey
  * A key bound to an ordinary tenant acts there on its creator's standing: once
  * their membership is no longer in force (`activeMembership` — lapsed, not yet
  * started, removed; SCIM suspends a user in one tenant this way) the key stops
- * with their sessions. Exempt, as at the membership middleware: the default
- * tenant (it counts everyone) and a god creator.
+ * with their sessions. Exempt: a god creator, and a key of the default tenant —
+ * which acts as a root key, on its creator's standing in the request's tenant
+ * (`apiKeyActsIn`), so a withdrawal there is asked per request.
  *
  * A key with no creator is refused. `created_by` is `ON DELETE SET NULL`:
  * `deleteUser` revokes a user's keys first, but a user row deleted any other

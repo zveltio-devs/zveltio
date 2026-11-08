@@ -11,6 +11,10 @@
 //     whose default-tenant assignment lapsed reads nothing inline (NO_UNITS), and
 //     read and wrote the whole tenant through a worker, which published only
 //     `zveltio.current_tenant`.
+//   - And only then: a user with no row in the default tenant (a plain
+//     single-tenant install enrols nobody) reads the tenant inline, and read
+//     nothing through a worker, which published NO_UNITS for any standing but a
+//     membership in force.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -107,6 +111,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
   const out = {} as Record<Mode, Record<string, unknown>>;
   const loadErrors: Record<string, string | undefined> = {};
   let memberId = '';
+  let unenrolledId = '';
   const saved = {
     transport: process.env.ZVELTIO_EXT_TRANSPORT,
     ctx: extensionLoader.ctx,
@@ -143,6 +148,11 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       grants: [{ collection: COLL, actions: ['read', 'create', 'update', 'delete'] }],
     });
     memberId = member.userId;
+    // No `zv_tenant_users` row at all: the single-tenant case.
+    const unenrolled = await createMemberSession(engine, db, {
+      grants: [{ collection: COLL, actions: ['read'] }],
+    });
+    unenrolledId = unenrolled.userId;
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from)
               VALUES (${DEFAULT_TENANT_ID}::uuid, ${memberId}, 'member', now() - interval '2 days')
               ON CONFLICT (tenant_id, user_id) DO UPDATE SET valid_to = NULL`.execute(db);
@@ -195,6 +205,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
         hook: await call(mode, '/hook', creds, 'POST'),
         fwd: await call(mode, '/fwd', creds, 'POST'),
         rowsInForce: await call(mode, '/rows', asMember),
+        rowsNoRow: await call(mode, '/rows', { cookie: unenrolled.cookie }),
       };
     }
     // After every mode has counted, so one mode's insert is not the next one's row.
@@ -237,7 +248,9 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${extName(m)}`.execute(db);
       await revokeExtensionDbRoles(db, extName(m), true).catch(() => undefined);
     }
-    await sql`DELETE FROM zv_tenant_users WHERE user_id = ${memberId}`.execute(db);
+    await sql`DELETE FROM zv_tenant_users WHERE user_id = ANY(${[memberId, unenrolledId]})`.execute(
+      db,
+    );
     await dropTestCollection(db, COLL);
     if (base) rmSync(base, { recursive: true, force: true });
   });
@@ -296,6 +309,11 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
 
       it('an in-force member reads the tenant (the control)', () => {
         expect(out[m]?.rowsInForce).toEqual({ status: 200, body: 2 });
+      });
+
+      it('a user with no row in the default tenant reads what inline code reads', () => {
+        expect(out.inline.rowsNoRow).toEqual({ status: 200, body: 2 });
+        expect(out[m]?.rowsNoRow).toEqual(out.inline.rowsNoRow);
       });
 
       it('a lapsed member reads nothing and its update and delete touch nothing', () => {

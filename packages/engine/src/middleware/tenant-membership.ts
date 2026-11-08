@@ -6,31 +6,38 @@
 // since the tenant GUC would then be set to that tenant — read its data.
 //
 // Design (see docs/platform/multi-tenancy.md):
-//   - No-op when NO tenant is resolved (single-tenant / public traffic) — the
-//     check costs nothing and changes nothing for the default self-hosted model.
+//   - No-op when NO tenant is resolved (public traffic).
+//   - The default tenant counts every authenticated user it has not withdrawn
+//     (`tenantAdmits`): a plain single-tenant install enrols nobody, and a user
+//     with no `zv_tenant_users` row there is implicitly a member. A user whose
+//     every row there has lapsed was withdrawn and is refused, as elsewhere —
+//     the gate used to wave the default tenant through before any check, so
+//     such a user reached every handler under a NO_UNITS reach (#1586).
 //   - Only enforces for AUTHENTICATED users. Unauthenticated requests fall
 //     through to the route's own auth guard (which returns 401) — membership is
-//     about cross-tenant access by a real user, not a substitute for auth.
+//     about access by a real user, not a substitute for auth. An API key is held
+//     to its issuer's standing at the key door (`apiKeyActsIn`).
 //   - God / super-admin users bypass (cross-tenant operators).
-//   - The lookup runs in the request's transaction and asks for the caller's
-//     row in THIS tenant, which `zv_tenant_users`'s policy (065) shows it.
+//   - Inside the request's transaction the answer is the reach it resolved;
+//     elsewhere (TXN_SKIP_PREFIXES) it is read uncached, so a withdrawal by date
+//     counts on the next request.
 
 import { createMiddleware } from 'hono/factory';
 import { requestSession } from './session-prefetch.js';
 import type { Database } from '../db/index.js';
-import { getResolvedMembership, isGodUser } from '../lib/tenancy/index.js';
-import { activeMembership, DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
+import {
+  getResolvedMembership,
+  isGodUser,
+  membershipStanding,
+  tenantAdmits,
+} from '../lib/tenancy/index.js';
 import { problem } from '../lib/problem.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function tenantMembershipMiddleware(auth: any, db: Database) {
   return createMiddleware(async (c, next) => {
     const tenant = c.get('tenant') as { id: string } | null;
-    // No tenant, or the implicit default tenant (single-tenant space) → no
-    // membership requirement. Membership is enforced only for explicitly
-    // resolved NON-default tenants (real multi-tenant via header/subdomain),
-    // so single-tenant installs keep working for every authenticated user.
-    if (!tenant || tenant.id === DEFAULT_TENANT_ID) return next();
+    if (!tenant) return next();
 
     let userId: string | null = null;
     try {
@@ -47,32 +54,12 @@ export function tenantMembershipMiddleware(auth: any, db: Database) {
     // The request's transaction already resolved this user's reach in this
     // tenant, and the reach is the membership answer (`withTenantIsolation`).
     // Only routes that open no transaction (TXN_SKIP_PREFIXES) ask below.
-    const resolved = getResolvedMembership(userId, tenant.id);
-    if (resolved !== undefined) {
-      if (!resolved) {
-        throw problem(
-          'tenant.membership_required',
-          403,
-          'You are not a member of this tenant. Access denied.',
-        );
-      }
-      return next();
-    }
+    const standing =
+      getResolvedMembership(userId, tenant.id) ??
+      // fabricated-ok: a `null` standing throws a 403 below. An unreadable membership denies access rather than granting it.
+      (await membershipStanding(db, userId, tenant.id).catch(() => null));
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const member = await (db as any)
-      .selectFrom('zv_tenant_users')
-      .select('user_id')
-      .where('tenant_id', '=', tenant.id)
-      .where('user_id', '=', userId)
-      // Withdrawal is a date: an expired or not-yet-started membership is none.
-      // Read uncached, so it takes effect on the next request.
-      .where(activeMembership())
-      .executeTakeFirst()
-      // fabricated-ok: `!member` throws a 403. An unreadable membership denies access rather than granting it.
-      .catch(() => null);
-
-    if (!member) {
+    if (!standing || !tenantAdmits(tenant.id, standing)) {
       throw problem(
         'tenant.membership_required',
         403,
