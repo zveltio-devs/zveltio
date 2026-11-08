@@ -63,6 +63,7 @@ import {
   keyIssuerRowActor,
   matchesRlsFilters,
   rlsJsonConditions,
+  rowActor,
   type RowRule,
 } from '../../lib/tenancy/index.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
@@ -248,10 +249,14 @@ d('one rule, four interpreters (in-process)', () => {
     const where = predicate ?? 'true';
     const off = issuerSettings(undefined);
     const issuer = key?.issuer ?? off;
+    // Whom `user_id`/`user_email` resolve to: a key's author (ADR 0028).
+    const row = key ? await rowActor(KEY) : { id: SESSION.id, email: SESSION.email };
     return db.transaction().execute(async (trx) => {
       await sql`
         SELECT set_config('zveltio.user_id', ${key ? key.id : SESSION.id}, true),
                set_config('zveltio.user_email', ${key ? '' : SESSION.email}, true),
+               set_config('zveltio.row_user_id', ${row.id}, true),
+               set_config('zveltio.row_user_email', ${row.email}, true),
                set_config('zveltio.user_role', ${key ? 'api_key' : SESSION.role}, true),
                set_config('zveltio.user_roles', ${key ? 'api_key' : ''}, true),
                set_config('zveltio.issuer_rows', ${issuer.mode}, true),
@@ -404,7 +409,7 @@ d('one rule, four interpreters (in-process)', () => {
     const { predicate } = buildRowRulePredicate([rule], TYPES);
     const ids = await db.transaction().execute(async (trx) => {
       await sql`
-        SELECT set_config('zveltio.user_id', 'somebody', true),
+        SELECT set_config('zveltio.row_user_id', 'somebody', true),
                set_config('zveltio.actor', 'off', true),
                set_config('zveltio.rls_bypass', 'off', true)
       `.execute(trx);

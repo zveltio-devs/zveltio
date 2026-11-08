@@ -311,12 +311,16 @@ export async function getRlsFilters(
   // nothing (see `rulesFor`) — not a row whose column happens to read `public`.
   const anonymous = authType === 'anonymous';
   if (direct === 'api_key' || anonymous) userRoles.add(direct);
-  const result = rulesFor(policies, {
-    id: anonymous ? '' : user.id,
-    email: user.email,
-    role: direct,
-    roles: userRoles,
-  });
+  // A key is its author to a row rule (ADR 0028): `user_id` and `user_email`
+  // resolve to its issuer or enqueuing user — `''` without one — while its roles
+  // stay the key's. The email is looked up only when a rule asks for it.
+  const actor = anonymous
+    ? { id: '', email: '' }
+    : await rowActor(
+        user,
+        policies.some((p) => p.filter_value_source === 'user_email'),
+      );
+  const result = rulesFor(policies, { ...actor, role: direct, roles: userRoles });
   if (authType !== 'api_key') return result;
 
   // A key never exceeds its issuer, and a rule binding the issuer binds what
@@ -332,6 +336,23 @@ export async function getRlsFilters(
   return result;
 }
 
+/**
+ * Whom a row rule's `user_id` and `user_email` resolve to for `user` (ADR 0028):
+ * a session itself; a key principal its author (`authorUserId`: a member key's
+ * issuer, a job's enqueuing user), or `''` — owning no row — when it has none.
+ * Published as `zveltio.row_user_*` for the database policy (`rowActorSettings`).
+ *
+ * `withEmail` false skips the author's email lookup for a caller no rule asks it of.
+ */
+export async function rowActor(
+  user: { id: string; email?: string; authorUserId?: string | null },
+  withEmail = true,
+): Promise<{ id: string; email: string }> {
+  if (!user.id.startsWith('apikey:')) return { id: user.id, email: user.email ?? '' };
+  const author = user.authorUserId ?? '';
+  return { id: author, email: author && withEmail ? await issuerEmail(author) : '' };
+}
+
 /** Who a row rule's value sources resolve against, and the roles it is matched on. */
 export interface RowActor {
   id: string;
@@ -344,9 +365,15 @@ export interface RowActor {
  * The issuer's half of a key's row rules: the issuer as their own session would
  * be resolved. `'exempt'` where that half stands down — the issuer holds
  * `data:view_all`, the permission that exempts their session; or the key is a
- * job (`apikey:job:`), which has no issuer and is bounded by its manifest, as
- * `keyIssuerAllows` treats it. `null` when the issuer is unknown: the caller
+ * job (`apikey:job:`) with no author (a public route enqueued it), bounded by
+ * its manifest alone. `null` when a member key's issuer is unknown: the caller
  * hides every row a rule covers.
+ *
+ * A job WITH an author meets its author's rules as a member key meets its
+ * issuer's (ADR 0028 decision 3, ADR 0027 §3): its `user_id` resolves to the
+ * author, so without this half a `member` rule binding the author would not
+ * bind the job reading the author's rows. Only the ROW half: a job's grants
+ * stay its manifest's (`keyIssuerAllows`).
  *
  * No catch on the roles, as for a session: a failed lookup refuses the request
  * rather than standing every role-keyed rule down.
@@ -355,7 +382,7 @@ export async function keyIssuerRowActor(key: {
   id: string;
   authorUserId?: string | null;
 }): Promise<RowActor | 'exempt' | null> {
-  if (key.id.startsWith('apikey:job:')) return 'exempt';
+  if (key.id.startsWith('apikey:job:') && !key.authorUserId) return 'exempt';
   const issuer = key.authorUserId;
   if (!issuer) return null;
   if (await checkPermission(issuer, 'data', 'view_all').catch(() => false)) return 'exempt';
@@ -365,6 +392,20 @@ export async function keyIssuerRowActor(key: {
     issuerEmail(issuer),
   ]);
   return { id: issuer, email, role, roles };
+}
+
+/**
+ * `keyIssuerRowActor`'s answer as `RlsIdentity.issuer` publishes it for the
+ * database policy: absent where the half stands down, `deny` for an unknown
+ * issuer (no row a rule covers), `on` with the issuer otherwise.
+ */
+export function issuerRowIdentity(
+  actor: RowActor | 'exempt' | null,
+): { mode: 'on' | 'deny'; id: string; email: string; role: string; roles: string[] } | undefined {
+  if (actor === 'exempt') return undefined;
+  return actor
+    ? { mode: 'on', ...actor }
+    : { mode: 'deny', id: '', email: '', role: '', roles: [] };
 }
 
 /**

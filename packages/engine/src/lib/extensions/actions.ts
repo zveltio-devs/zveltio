@@ -37,6 +37,9 @@ import {
   effectiveTimeZone,
   encodeApiKeyScopes,
   getCurrentTenantTrx,
+  issuerRowIdentity,
+  keyIssuerRowActor,
+  rowActor,
 } from '../tenancy/index.js';
 import { activeForRequest } from './activation.js';
 import { withSavepoint } from '../savepoint.js';
@@ -542,10 +545,10 @@ export function routeHost(
   };
   const request = () => {
     const p = gatePrincipal(c);
-    if (p) return { trx: p.trx, tenantId: p.tenantId, author: rowAuthorId(p.user) };
+    if (p) return { trx: p.trx, tenantId: p.tenantId, author: rowAuthorId(p.user), caller: p.user };
     const pub = publicRouteRequest(c);
     return pub?.extName === extName
-      ? { trx: pub.trx, tenantId: pub.tenantId, author: null }
+      ? { trx: pub.trx, tenantId: pub.tenantId, author: null, caller: undefined }
       : undefined;
   };
   const io = (collection: string): DataIo => {
@@ -572,7 +575,9 @@ export function routeHost(
     );
     const grants = encodeApiKeyScopes(user.scopes);
     // Published on the request's transaction for the call, the caller's put back after.
-    const as = <T>(fn: () => Promise<T>) =>
+    // A row rule resolves it to its author, the caller's (ADR 0028): `getRlsFilters`
+    // does so from `authorUserId`, the database from `rowActor`.
+    const as = async <T>(fn: () => Promise<T>) =>
       asIdentityOn(
         trx,
         {
@@ -583,6 +588,9 @@ export function routeHost(
           bypass: false,
           collectionGrants: grants.grants,
           collectionAll: grants.all,
+          rowActor: await rowActor(r.caller ?? user),
+          // And the author's own row rules, as `getRlsFilters` ANDs them on.
+          issuer: issuerRowIdentity(await keyIssuerRowActor(user)),
         },
         fn,
       );

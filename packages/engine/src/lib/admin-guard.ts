@@ -68,7 +68,9 @@ export async function refuseWithoutSession(
  *   authorUserId }`, told from a session by its id (`isApiKeyPrincipal`), never
  *   by `role`.
  * - RLS: `publishApiKeyActor` sets `zveltio.user_id` = that id, role(s)
- *   `api_key`, email `''`, `zveltio.rls_bypass` = the key's flag. The tenant
+ *   `api_key`, email `''`, `zveltio.rls_bypass` = the key's flag. A row rule's
+ *   `user_id`/`user_email` resolve to its issuer instead (`zveltio.row_user_*`,
+ *   ADR 0028), `''` when it has none. The tenant
  *   (`zveltio.current_tenant`) is the request's; the key changes nothing there.
  * - Grant: the key's scope AND its issuer's own permission, as it is now, for
  *   the same question in the request's tenant (`keyIssuerAllows`) — a key never

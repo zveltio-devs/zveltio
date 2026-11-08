@@ -32,6 +32,8 @@ const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
 const COLL = `keyactor_${STAMP}`;
 const TABLE = `zvd_${COLL}`;
+/** The key's issuer, whom a row rule resolves the key to (ADR 0028). */
+const ISSUER = { id: 'issuer-k1', email: '' };
 
 d('API keys and writes meet the same rules (in-process)', () => {
   let db: Database;
@@ -65,7 +67,7 @@ d('API keys and writes meet the same rules (in-process)', () => {
     await sql
       .raw(`
       INSERT INTO ${TABLE} (tenant_id, title, created_by) VALUES
-        ('${tenant}', 'mine',    'apikey:k1'),
+        ('${tenant}', 'mine',    'issuer-k1'),
         ('${tenant}', 'someone', 'user-9')
     `)
       .execute(db);
@@ -97,7 +99,7 @@ d('API keys and writes meet the same rules (in-process)', () => {
     const titles = await withTenantIsolation(
       tenant,
       async (trx) => {
-        await publishApiKeyActor('apikey:k1', false);
+        await publishApiKeyActor('apikey:k1', false, undefined, undefined, '', undefined, ISSUER);
         const r = await sql
           .raw<{ title: string }>(`SELECT title FROM ${TABLE} ORDER BY title`)
           .execute(trx);
@@ -105,8 +107,9 @@ d('API keys and writes meet the same rules (in-process)', () => {
       },
       { userId: null },
     );
-    // Only the row this key created. Before this, the policy saw no identity and
-    // skipped the rule, so both rows came back.
+    // Only the row this key's issuer authored: to a row rule a key is its
+    // author (ADR 0028). Before the actor was published, the policy saw no
+    // identity and skipped the rule, so both rows came back.
     expect(titles).toEqual(['mine']);
   });
 
@@ -132,7 +135,7 @@ d('API keys and writes meet the same rules (in-process)', () => {
     await withTenantIsolation(
       tenant,
       async (trx) => {
-        await publishApiKeyActor('apikey:k1', false);
+        await publishApiKeyActor('apikey:k1', false, undefined, undefined, '', undefined, ISSUER);
         try {
           await sql
             .raw(

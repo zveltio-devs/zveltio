@@ -50,7 +50,10 @@ import {
   createRequestScopedDb,
   effectiveTimeZone,
   beforeRequestTransactionEnds,
+  issuerRowIdentity,
+  keyIssuerRowActor,
   publishApiKeyActor,
+  rowActor,
   runOutsideTenantContext,
   withTenantIsolation,
 } from '../tenancy/index.js';
@@ -579,13 +582,19 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     const user = jobPrincipal(extName, def, data.author);
     // On the pool, as the status above: the job's transaction runs as the tenant.
     const timezone = await effectiveTimeZone(getDb(), tenantId);
+    // Whom its row rules' `user_id`/`user_email` resolve to (ADR 0028): the
+    // enqueuing user, `''` for a job with none — and that user's own row rules,
+    // ANDed on as a member key's issuer's are, so the job never sees past them.
+    // Before any transaction, on the pool.
+    const [author, issuerRows] = await Promise.all([rowActor(user), keyIssuerRowActor(user)]);
+    const issuer = issuerRowIdentity(issuerRows);
     // Outside any tenant context (`work`), so the transaction's domain is this
     // tenant, not one inherited from wherever pg-boss resumed.
     const { runner } = def;
     // In `tenantId`'s transaction, as the job's principal: the run's, or one per call.
     const inTenant = <T>(fn: (c: HostCollections) => Promise<T>) =>
       withTenantIsolation(tenantId, async (trx) => {
-        await publishApiKeyActor(user.id, false, user.scopes);
+        await publishApiKeyActor(user.id, false, user.scopes, undefined, '', issuer, author);
         return fn(
           hostCollections(
             `job "${job}"`,

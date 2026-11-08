@@ -391,11 +391,18 @@ Multiple matching policies are **ANDed** together (most restrictive wins).
 **Bypasses:** a caller holding `data:view_all` (a god holds it) is never
 filtered, and neither is an API key with `rls_bypass` whose issuer holds
 `data:view_all`. Any other API key is filtered by its own rules (role
-`api_key`, and `*`, resolved against the key: `user_id` is `apikey:<uuid>`,
-`user_email` is empty) AND by its issuer's — the rules of the issuer's roles and
+`api_key`, and `*`, resolved against the key's author: `user_id` and
+`user_email` are its issuer's — ADR 0028 — or empty when it has none) AND by
+its issuer's — the rules of the issuer's roles and
 `*`, resolved against the issuer as their own session would be. A key never
 sees a row its issuer could not. The issuer's half is waived while the issuer
 holds `data:view_all`; a key whose issuer is unknown sees no row a rule covers.
+An extension job is filtered the same way, with the user who enqueued it as the
+issuer: its `api_key`/`*` rules resolved against that user AND that user's own
+rules, so a job never sees a row its author could not (ADR 0028, ADR 0027 §3).
+A job with no author — enqueued by a public route — has no issuer half and is
+bounded by its manifest; `user_id`/`user_email` own no row for it. Only row
+rules work this way: a job's grants are its manifest's declared collections.
 The database policy (`zv_row_rules`) applies the same two halves.
 
 ### Policy structure
@@ -413,14 +420,20 @@ The database policy (`zv_row_rules`) applies the same two halves.
 
 | Source | Resolved value |
 |--------|---------------|
-| `user_id` | The authenticated user's UUID |
-| `user_email` | The authenticated user's email address, compared without case |
+| `user_id` | The authenticated user's UUID; for an API key, its issuer's; for an extension job, the user who enqueued it |
+| `user_email` | That user's email address, compared without case |
 | `user_role` | The authenticated user's role string |
 | `static:VALUE` | A literal value (e.g. `static:published`) |
 
-A caller with no id or no email (an anonymous request, an API key's own
-`user_email`) owns no row through `user_id` / `user_email`: the rule hides every
+A caller with no id or no email (an anonymous request, a key or job with no
+author) owns no row through `user_id` / `user_email`: the rule hides every
 row it covers, on every operator, in the engine and in the database policy.
+
+A key principal is its author to a row rule, so `* created_by eq user_id` keeps
+a member's rows private to them through the UI, their API keys and the jobs
+they enqueue alike. Only the row rule's value changes: the key's roles are
+still `api_key`, and the engine still sees the key as the caller
+(`zveltio.user_id`).
 
 ### Common examples
 

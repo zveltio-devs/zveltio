@@ -92,6 +92,7 @@ import {
   getResolvedMembership,
   getUserRoles,
   issuerSettings,
+  rowActorSettings,
   type RequestActor,
   runOutsideTenantContext,
   runWithDomain,
@@ -1784,10 +1785,14 @@ function workerSettings(scope: InvokeScope | undefined): [string, string][] {
   // all lapsed sees NO_UNITS inline, and saw the whole tenant through here.
   const id = scope.actor?.identity;
   const issuer = issuerSettings(id?.issuer);
+  const row = rowActorSettings(id);
   return [
     ['zveltio.current_tenant', scope.tenantId],
     ['zveltio.user_id', id?.userId ?? ''],
     ['zveltio.user_email', id?.email ?? ''],
+    // Whom a row rule's `user_id`/`user_email` resolve to: a key's author (ADR 0028).
+    ['zveltio.row_user_id', row.userId],
+    ['zveltio.row_user_email', row.email],
     ['zveltio.user_role', id?.role ?? ''],
     ['zveltio.user_roles', (id?.roles ?? []).join(',')],
     // A key's issuer's column rules (095): only narrows, so it is carried.

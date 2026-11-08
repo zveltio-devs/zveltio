@@ -94,7 +94,7 @@ function ident(name: string): string | null {
 }
 
 /**
- * Whose settings a term reads: the caller's (`zveltio.user_id`, …), or an API
+ * Whose settings a term reads: the caller's (`zveltio.row_user_id`, …), or an API
  * key's issuer's (`zveltio.issuer_user_id`, …) — a key's row rules are its own
  * AND its issuer's, as `getRlsFilters` applies them. The issuer's half binds
  * while `zveltio.issuer_rows` is `on`; it is `''` for every other caller, and
@@ -102,6 +102,8 @@ function ident(name: string): string | null {
  */
 const CALLER = 'zveltio.';
 const ISSUER = 'zveltio.issuer_';
+/** The caller's `user_id`/`user_email`, as a row rule resolves them (`rowActorSettings`). */
+const ROW_ACTOR = 'zveltio.row_';
 
 /**
  * The caller's value for a rule's source, cast to the column's type.
@@ -129,11 +131,18 @@ function valueExpr(
   const cast = (inner: string) => (pgType === 'text' ? inner : `CAST(${inner} AS ${pgType})`);
   // An empty id or email is nobody's (`rulesFor` in rls.ts): NULL compares true
   // on no operator, so no row is the caller's. `''` matched every blank column.
-  if (source === 'user_id' || source === 'user_email')
+  //
+  // The caller's half reads the ROW ACTOR (`zveltio.row_user_*`), not
+  // `zveltio.user_*` (ADR 0028): a key principal is its author to a row rule —
+  // a member key its issuer, a job its enqueuing user — while `zveltio.user_id`
+  // stays the key, which the engine's own policies read as the caller.
+  if (source === 'user_id' || source === 'user_email') {
+    const name = prefix === CALLER ? `${ROW_ACTOR}${source}` : `${prefix}${source}`;
     return {
-      sql: cast(`(SELECT nullif(current_setting('${prefix}${source}', true), ''))`),
-      guc: `${prefix}${source}`,
+      sql: cast(`(SELECT nullif(current_setting('${name}', true), ''))`),
+      guc: name,
     };
+  }
   if (source === 'user_role')
     return { sql: cast(guc(`${prefix}${source}`)), guc: `${prefix}${source}` };
   if (source.startsWith('static:')) return { sql: cast(lit(source.slice('static:'.length))) };
