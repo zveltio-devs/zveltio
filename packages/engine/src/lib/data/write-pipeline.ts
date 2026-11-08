@@ -151,6 +151,9 @@ export async function processInput(
 ): Promise<{ errors: string[]; processed: Record<string, unknown>; writtenBy?: string }> {
   const errors: string[] = [];
   const processed: Record<string, unknown> = {};
+  // What the rules below judge: `processed` before encryption. An encrypted or
+  // `secret` field's `minLength` and `pattern` measured its ciphertext.
+  const plain: Record<string, unknown> = {};
 
   const refused = writtenByRefusal(
     collectionDef,
@@ -229,6 +232,8 @@ export async function processInput(
 
     if (value !== undefined) {
       const deserialized = await fieldTypeRegistry.deserialize(field.type, value);
+      // A `secret` encrypts in its own `deserialize` (ADR 0024): its plaintext is the input.
+      plain[field.name] = field.type === 'secret' && value !== null ? String(value) : deserialized;
       processed[field.name] = field.encrypted
         ? await maybeEncrypt(deserialized, true)
         : deserialized;
@@ -251,9 +256,9 @@ export async function processInput(
   // Skipped when the engine has not booted (unit tests, CLI): the rules are
   // per-collection and there is nowhere to read them from. Skipped in partial
   // mode for fields the caller did not send, which `validateRecord` gets for
-  // free by iterating `processed`.
+  // free by iterating `plain`.
   const vdb = getValidationDb();
-  if (vdb && collectionDef?.name && Object.keys(processed).length > 0) {
+  if (vdb && collectionDef?.name && Object.keys(plain).length > 0) {
     // Fail CLOSED. This used to be `.catch(() => null)`, and `null` fell through
     // the `if` below as though every rule had passed — no error, no log, a 201
     // indistinguishable from a validated one.
@@ -272,7 +277,7 @@ export async function processInput(
       verdict = await validateRecord(
         vdb,
         collectionDef.name,
-        processed,
+        plain,
         new Map(fields.map((f) => [f.name, f.type])),
         previous === 'later'
           ? { transitions: 'skip' }

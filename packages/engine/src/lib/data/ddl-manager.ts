@@ -683,7 +683,7 @@ export class DDLManager {
     ];
 
     const ALLOWED_PG_EXTENSIONS = new Set([
-      'pgvector',
+      'vector', // pgvector's extension name; 'pgvector' made every vector field uncreatable
       'postgis',
       'postgis_topology',
       'uuid-ossp',
