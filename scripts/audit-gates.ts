@@ -201,6 +201,15 @@ const CASES: Case[] = [
     body: '{\n  "sduiSchema": 1,\n  "title": "search.plant.title",\n  "resources": [\n    {\n      "id": "plant",\n      "label": "search.plant.label",\n      "dataSource": "/ext/search/plant-does-not-exist",\n      "dataPath": "items"\n    }\n  ]\n}',
   },
   {
+    // A source file outside every review section. `--sections` lists untracked
+    // files too, so a created probe is visible to it (the full inventory, which
+    // needs the private ledger, does not run here).
+    gate: 'review-inventory',
+    cmd: 'bun run scripts/review-inventory.ts --sections',
+    file: 'packages/engine/src/plant-no-section.ts',
+    body: 'export const plant = 1;\n',
+  },
+  {
     // The gate splits severity: `schema.ts` drift alone is a warning, and it
     // exits non-zero only on the kind that crashes at runtime — a `zv_*` table
     // or a column the code queries and no migration creates. Two earlier plants

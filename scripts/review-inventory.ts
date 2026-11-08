@@ -1151,7 +1151,10 @@ const SOURCE_EXT = /(\.(tsx?|jsx?|svelte|sql|sh|ya?ml)$|(^|\/)Dockerfile[^/]*$)/
 const IS_TEST = /(\.test\.|\.spec\.)|\/tests?\//;
 
 async function trackedFiles(): Promise<string[]> {
-  const proc = Bun.spawn(['git', 'ls-files'], { stdout: 'pipe' });
+  // `--sections` also sees a new file not yet added (not ignored): it is about
+  // to be committed, and the check should fail before the commit, not after.
+  const untracked = SECTIONS_ONLY ? ['--others', '--exclude-standard'] : [];
+  const proc = Bun.spawn(['git', 'ls-files', '--cached', ...untracked], { stdout: 'pipe' });
   const out = await new Response(proc.stdout).text();
   if ((await proc.exited) !== 0) throw new Error('git ls-files failed');
   // A file a section names exactly is in scope whatever its extension
