@@ -2836,6 +2836,7 @@ table zvd_connector_endpoints
 table zvd_connector_webhook_events
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
+  col delivery_key                   text
   col headers                        jsonb
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col payload                        jsonb
@@ -2848,6 +2849,7 @@ table zvd_connector_webhook_events
   col webhook_id                     uuid NOT NULL
   fk  zvd_connector_webhook_events_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_connector_webhook_events_pkey PRIMARY KEY (id)
+  uq  zvd_connector_webhook_events_tenant_id_webhook_id_deli_3rycbrd3 UNIQUE (tenant_id, webhook_id, delivery_key)
   fk  zvd_connector_webhook_events_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   fk  zvd_connector_webhook_events_webhook_id_fkey FOREIGN KEY (webhook_id) REFERENCES zvd_connector_webhooks(id) ON UPDATE CASCADE ON DELETE CASCADE
   rls enabled forced
@@ -9808,6 +9810,7 @@ table zvv_connector_endpoints
 table zvv_connector_webhook_events
   col created_at                     timestamp with time zone
   col created_by                     text
+  col delivery_key                   text
   col headers                        jsonb
   col id                             uuid
   col payload                        jsonb
