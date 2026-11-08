@@ -653,6 +653,9 @@ for (const [driver, transport] of LEGS) {
            FROM ${sql.table(table)}`,
       );
       out.lapsedCounts = counts;
+      // Back in force, so the restart below is asked of a member again.
+      await db$(sql`UPDATE zv_tenant_users SET valid_to = NULL
+                    WHERE tenant_id = ${DEFAULT_TENANT}::uuid AND user_id = ${memberId}`);
 
       // A restart: the enabled extensions load at boot, on the same transport.
       leg.engine?.kill();
@@ -830,10 +833,11 @@ for (const [driver, transport] of LEGS) {
     it('a lapsed tenant member reads nothing and writes nothing (migration 060)', () => {
       expect(out.rowsInForce).toEqual({ status: 200, body: 2 });
       expect(out.addInForce).toEqual({ status: 200, body: { added: true } });
-      expect(out.rowsLapsed).toEqual({ status: 200, body: 0 });
-      expect(out.touchLapsed).toEqual({ status: 200, body: { updated: 0, deleted: 0 } });
-      // Refused by the tenant write policy itself, not by some other failure.
-      expect(out.addLapsed).toMatchObject({ status: 200, body: { added: false, errno: '42501' } });
+      // Refused at the door, in the default tenant too: every assignment lapsed
+      // (tenant-default-withdrawal.test.ts). Inside the worker the same caller
+      // still sees NO_UNITS (worker-request-boundary.test.ts).
+      for (const r of [out.rowsLapsed, out.touchLapsed, out.addLapsed])
+        expect(r).toMatchObject({ status: 403 });
       expect(out.lapsedCounts).toEqual({ added: 0, left: 2 });
     });
   });

@@ -17,6 +17,8 @@ import {
   registerExtensionPublicRoutes,
   _resetPublicRouteRegistryForTests,
 } from '../../middleware/extension-auth-gate.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
+import type { Database } from '../../db/index.js';
 
 const authWithUser = {
   api: { getSession: async () => ({ user: { id: 'u1', name: 'U', role: 'member' } }) },
@@ -29,6 +31,17 @@ const dbStub: unknown = new Proxy(() => {}, {
   apply: () => dbStub,
 });
 (dbStub as { execute?: unknown }).execute = undefined;
+
+// A key acting in the default tenant acts on its issuer's standing there
+// (`apiKeyActsIn`): this issuer has no `zv_tenant_users` row at all, the plain
+// single-tenant case, which the default tenant admits.
+initTenantManager({
+  getExecutor: () => ({
+    transformQuery: (q: unknown) => q,
+    compileQuery: (q: unknown) => ({ sql: '', parameters: [], query: q }),
+    executeQuery: async () => ({ rows: [{ n: 0, live: 0 }] }),
+  }),
+} as unknown as Database);
 
 type KeyRow = {
   tenant_id: string | null;
