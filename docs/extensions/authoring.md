@@ -289,6 +289,9 @@ export default defineExtension(['data:write', 'data:system'], {
 
 - `POST /ext/<name>/actions/<action>` runs the action: the caller must hold
   `permission`, and the body must match `input`.
+- `GET /api/actions` lists the actions the caller may run, each with its
+  `input` schema, so an SDK, a Studio picker or `zveltio mcp` can offer them
+  typed. It asks the same check the action route does.
 - `permission.resource` names a collection the extension's actions or jobs
   read or write. Once that collection exists, the engine grants
   `tenant_member` `execute` on it (revocable in the role editor), and dropping

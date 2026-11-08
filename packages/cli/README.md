@@ -108,8 +108,11 @@ zveltio extension install @zveltio/crm
 Serve the engine to an AI agent as an MCP server over stdio. The agent acts as
 the owner of the API key: the engine's rules decide every call, as they would
 for that person. Tools: `list_collections`, `list_records`, `get_record`,
-`create_record`, `update_record`, `delete_record`, `run_action`. There is no
-schema, DDL or SQL tool.
+`create_record`, `update_record`, `delete_record`, `run_action`, and one typed
+tool per extension action the key may run (`GET /api/actions`), named
+`<extension>__<action>` with `/` written `_` (`finance_invoicing__issue`) and the
+action's input schema. Against an engine without `GET /api/actions` only the
+fixed tools are offered. There is no schema, DDL or SQL tool.
 
 ```json
 {

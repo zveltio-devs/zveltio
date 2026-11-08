@@ -8,7 +8,8 @@ import { createInterface } from 'readline';
  * engine's rules decide each call exactly as they would for the key's owner.
  * Nothing here grants, filters or refuses on its own beyond input shape. There
  * is no schema, DDL or SQL tool, by decision; a step-up action is refused by the
- * engine, which gives a key no step-up window.
+ * engine, which gives a key no step-up window. Each action the key may run is
+ * also a typed tool, from the engine's own list (`GET /api/actions`).
  *
  * The protocol is JSON-RPC 2.0, one message per line. Only stdout carries it;
  * anything for a person goes to stderr.
@@ -145,6 +146,55 @@ const TOOLS = [
 class BadInput extends Error {}
 class UnknownTool extends Error {}
 
+/** MCP clients that pass tool names to a model API take only these. */
+const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
+
+/**
+ * One tool per action the key may run (`GET /api/actions`, ADR 0029), named
+ * `<extension>__<action>` with `/` as `_`; the map back is this list, so a name
+ * two actions would share goes to neither (`run_action` still reaches both).
+ * Empty when the engine does not answer it (older than the route): the fixed
+ * tools still work.
+ */
+async function actionTools(call: Call): Promise<Map<string, { path: string; tool: Json }>> {
+  const out = new Map<string, { path: string; tool: Json }>();
+  let actions: unknown;
+  try {
+    const res = await call('GET', '/api/actions');
+    if (!res.ok) return out;
+    actions = ((await res.json()) as Json).actions;
+  } catch {
+    return out;
+  }
+  if (!Array.isArray(actions)) return out;
+  const taken = new Set<string>();
+  for (const a of actions as Json[]) {
+    const { extension, name, input } = a ?? {};
+    if (typeof extension !== 'string' || !EXTENSION.test(extension)) continue;
+    if (typeof name !== 'string' || !ACTION.test(name)) continue;
+    // MCP arguments are an object; an action taking anything else stays on `run_action`.
+    const schema = typeof input === 'object' && input !== null ? (input as Json) : {};
+    if (schema.type !== undefined && schema.type !== 'object') continue;
+    const tool = `${extension.replaceAll('/', '_')}__${name}`;
+    if (!TOOL_NAME.test(tool)) continue;
+    if (taken.has(tool)) {
+      out.delete(tool);
+      continue;
+    }
+    taken.add(tool);
+    out.set(tool, {
+      path: `/ext/${extension}/actions/${name}`,
+      tool: {
+        name: tool,
+        description: `Run the "${name}" action of the ${extension} extension.`,
+        inputSchema: { ...schema, type: 'object' },
+        annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+      },
+    });
+  }
+  return out;
+}
+
 function str(args: Json, key: string, shape?: RegExp): string {
   const v = args[key];
   if (typeof v !== 'string' || v === '') throw new BadInput(`"${key}" must be a non-empty string`);
@@ -197,8 +247,13 @@ async function runTool(name: string, args: Json, call: Call): Promise<Response> 
         `/ext/${str(args, 'extension', EXTENSION)}/actions/${str(args, 'action', ACTION)}`,
         obj(args, 'input', true) ?? {},
       );
-    default:
-      throw new UnknownTool(`Unknown tool: ${name}`);
+    default: {
+      // ponytail: the list is fetched again per call (no cache to go stale when
+      // a grant changes); keep it per session if the extra GET ever matters.
+      const typed = name.includes('__') ? (await actionTools(call)).get(name) : undefined;
+      if (!typed) throw new UnknownTool(`Unknown tool: ${name}`);
+      return call('POST', typed.path, args);
+    }
   }
 }
 
@@ -240,7 +295,9 @@ export async function handleMessage(msg: Json, call: Call): Promise<Json | null>
     case 'ping':
       return reply({});
     case 'tools/list':
-      return reply({ tools: TOOLS });
+      return reply({
+        tools: [...TOOLS, ...[...(await actionTools(call)).values()].map((t) => t.tool)],
+      });
     case 'tools/call': {
       const args = (params.arguments ?? {}) as Json;
       try {

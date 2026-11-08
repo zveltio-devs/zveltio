@@ -55,6 +55,13 @@ export interface MemberApiKeyInput {
   rls_bypass?: boolean;
 }
 
+/** An action in `GET /api/actions` (ADR 0029): one the caller may run, with its input JSON Schema. */
+export interface RunnableAction {
+  extension: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
 export interface ListParams {
   page?: number;
   limit?: number;
@@ -301,6 +308,11 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
         this.request<MemberApiKey & { key: string }>('POST', '/api/me/api-keys', input),
       revoke: (id: string) => this.request('DELETE', `/api/me/api-keys/${encodeURIComponent(id)}`),
     },
+  } as const;
+
+  /** Extension actions: `list()` is those this client's session or key may run. */
+  readonly actions = {
+    list: () => this.request<{ actions: RunnableAction[] }>('GET', '/api/actions'),
   } as const;
 
   /**

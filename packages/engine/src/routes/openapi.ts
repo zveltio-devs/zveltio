@@ -577,6 +577,41 @@ function buildSpec() {
         },
       },
 
+      // ── Extension actions ──────────────────────────────────────────────────
+      '/actions': {
+        get: {
+          tags: ['Extensions'],
+          summary:
+            'The extension actions the caller (session or API key) may run, with their input JSON Schema',
+          responses: {
+            '200': {
+              description: 'Runnable actions',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      actions: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            extension: { type: 'string' },
+                            name: { type: 'string' },
+                            input: { type: 'object' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '401': { description: 'Unauthorized' },
+          },
+        },
+      },
+
       // ── Webhooks ───────────────────────────────────────────────────────────
       '/webhooks': {
         get: {

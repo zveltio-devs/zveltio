@@ -25,7 +25,12 @@ import type {
 import { getDb } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import { problem } from '../problem.js';
-import { gatePrincipal, publicRouteRequest } from '../../middleware/extension-auth-gate.js';
+import {
+  asAdmittedKey,
+  gateAdmitsAction,
+  gatePrincipal,
+  publicRouteRequest,
+} from '../../middleware/extension-auth-gate.js';
 import { afterRequestSettles } from '../../middleware/tenant.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import { CapabilityDeniedError, holdsCapability } from './capabilities.js';
@@ -44,7 +49,14 @@ import {
 import { activeForRequest } from './activation.js';
 import { withSavepoint } from '../savepoint.js';
 import { asEngineRole } from '../role-window.js';
-import { DDLManager, decryptField, normalizeFields, rowAuthorId } from '../data/index.js';
+import {
+  DDLManager,
+  decryptField,
+  isApiKeyPrincipal,
+  normalizeFields,
+  type RequestUser,
+  rowAuthorId,
+} from '../data/index.js';
 import type { Database } from '../../db/index.js';
 import type { GatePrincipal } from '../../middleware/extension-auth-gate.js';
 
@@ -52,6 +64,8 @@ export interface CompiledAction {
   name: string;
   permission: { resource: string; action: string };
   input: z.ZodType;
+  /** `input` as the manifest declares it (JSON Schema), for `GET /api/actions`. */
+  inputSchema: Record<string, unknown>;
   reads: ReadonlySet<string>;
   writes: ReadonlySet<string>;
   /** The jobs `ActionHost.enqueue` may queue. */
@@ -134,6 +148,7 @@ export function compileActions(
       name: a.name,
       permission: a.permission,
       input,
+      inputSchema: a.input,
       reads: new Set(a.reads),
       writes: new Set(a.writes),
       enqueues: new Set(a.enqueues),
@@ -167,8 +182,8 @@ export function mountActions(
     // Without the request transaction each write would commit on its own, and a
     // throw half-way would keep the first half.
     if (!p.trx) throw new Error(`action ${extName}/${def.name}: this request holds no transaction`);
-    const { resource, action } = def.permission;
-    if (!(await ctx.checkPermission(p.user.id, resource, action))) {
+    if (!(await mayRunAction(p.user, extName, def, ctx))) {
+      const { resource, action } = def.permission;
       return c.json({ error: 'Forbidden', code: 'permission_required', resource, action }, 403);
     }
     const parsed = def.input.safeParse(await c.req.json().catch(() => undefined));
@@ -200,6 +215,46 @@ const served = new Map<
 
 export function forgetActions(extName: string): void {
   served.delete(extName);
+}
+
+/**
+ * May `user` run `extName`'s action `def`: the extension gate admits them to its
+ * route (for a key, `$ext:<extName>` for the action) and `ctx.checkPermission`
+ * grants `def.permission` (for a key, also its issuer). THE one answer — the
+ * action route, a called action and `GET /api/actions` all ask this, so the list
+ * cannot drift from what the route admits (ADR 0029).
+ */
+export async function mayRunAction(
+  user: RequestUser,
+  extName: string,
+  def: Pick<CompiledAction, 'name' | 'permission'>,
+  ctx: Pick<ExtensionContext, 'checkPermission'>,
+): Promise<boolean> {
+  if (!gateAdmitsAction(extName, def.name, user)) return false;
+  const { resource, action } = def.permission;
+  const granted = await asAdmittedKey(user, () => ctx.checkPermission(user.id, resource, action));
+  // On the route, `fenceAdminGrant` throws first: an `admin` grant needs a
+  // session's step-up window, which a key never has. Off it, refuse the key here.
+  return granted && !(resource === 'admin' && isApiKeyPrincipal(user));
+}
+
+/** `GET /api/actions` (ADR 0029): the actions `user` may run, of the extensions active for `c`'s tenant. */
+export async function listRunnableActions(
+  c: Context,
+  user: RequestUser,
+  db: Database,
+): Promise<{ extension: string; name: string; input: Record<string, unknown> }[]> {
+  const out: { extension: string; name: string; input: Record<string, unknown> }[] = [];
+  for (const [extension, { actions, ctx }] of served) {
+    // A switched-off extension answers 404 on the route, as one never installed.
+    if (!(await activeForRequest(c, extension, db))) continue;
+    for (const def of actions.values()) {
+      if (await mayRunAction(user, extension, def, ctx)) {
+        out.push({ extension, name: def.name, input: def.inputSchema });
+      }
+    }
+  }
+  return out;
 }
 
 /** After the transaction ends, on the pool: a failure rolls back the request's own writes, and the row recording it must survive that. */
@@ -272,7 +327,7 @@ async function actionHost(
         // The same checks as `POST /ext/<extension>/actions/<action>`, for the same
         // caller, through the called extension's own context.
         const { resource, action: verb } = called.permission;
-        if (!(await target.ctx.checkPermission(p.user.id, resource, verb))) {
+        if (!(await mayRunAction(p.user, extension, called, target.ctx))) {
           throw problem(
             'permission_required',
             403,
