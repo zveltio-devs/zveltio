@@ -789,9 +789,9 @@ async function buildHonoApp(): Promise<Hono> {
   app.use('/ext/*', tenantMiddleware);
   // Membership enforcement: an authenticated user may only act within a tenant
   // they belong to (zv_tenant_users). Runs after tenantMiddleware so the tenant
-  // is resolved. No-op for the default tenant (single-tenant space) + public
-  // requests + god/super-admin; only blocks a logged-in non-member from pivoting
-  // to another tenant via X-Tenant-Slug. See docs/platform/multi-tenancy.md.
+  // is resolved. No-op for public requests + god/super-admin. The default tenant
+  // admits every user with no row there (single-tenant space) and refuses one
+  // whose every row there lapsed. See docs/platform/multi-tenancy.md.
   app.use('/api/*', tenantMembershipMiddleware(auth, scopedDb));
   app.use('/ext/*', tenantMembershipMiddleware(auth, scopedDb));
 

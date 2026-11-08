@@ -108,7 +108,7 @@ d('session prefetch reuse', () => {
     const member = await createMemberSession(app, db);
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id)
               VALUES (${tenant.id}::uuid, ${member.userId})`.execute(db);
-    // The default tenant skips membership: whatever it costs is the route's own.
+    // The default tenant's membership answer is the reach: no lookup of its own.
     const baseline = await counted('/api/me', { cookie: member.cookie });
     const res = await counted('/api/me', { cookie: member.cookie, 'x-tenant-slug': tenant.slug });
     expect(res.status).toBe(200);

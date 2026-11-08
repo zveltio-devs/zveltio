@@ -1,11 +1,11 @@
 {
   "generated": "2026-11-08",
   "note": "Per-bucket noExplicitAny suppression counts. Ratchet: counts may only decrease. See hardening plan item H-01.",
-  "total": 978,
+  "total": 977,
   "counts": {
     "cli": 37,
     "client": 17,
-    "engine": 470,
+    "engine": 469,
     "other": 3,
     "scripts": 13,
     "sdk": 144,

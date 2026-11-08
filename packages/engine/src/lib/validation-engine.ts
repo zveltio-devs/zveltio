@@ -454,7 +454,7 @@ const rulesCache = new Map<string, { rules: ValidationRule[]; ts: number }>();
  * Read as the engine (`asEngineRole`, on the same transaction), filtered by the
  * WHERE below alone. As the request role, migration 093's policy showed a
  * tenant's rules only within the caller's READ reach: a caller whose units had
- * all lapsed (NO_UNITS — the default tenant does not refuse it) read the
+ * all lapsed (NO_UNITS — the default tenant's gate did not refuse it then) read the
  * instance rules alone, and that list was cached under `collection@tenant` for
  * every writer of the tenant. A write into a tenant is bound by its rules
  * whatever its writer may read.
