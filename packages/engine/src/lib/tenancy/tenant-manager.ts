@@ -46,6 +46,20 @@ export function issuerSettings(issuer: RlsIdentity['issuer']): {
 }
 
 /**
+ * Who a row rule's `user_id` and `user_email` resolve to (ADR 0028), as
+ * `zveltio.row_user_id` and `zveltio.row_user_email` carry it: the author a key
+ * principal names (`rowActor`), else the caller itself. Never `zveltio.user_id`,
+ * which the engine's own policies read as the caller.
+ */
+export function rowActorSettings(identity: RlsIdentity | undefined): {
+  userId: string;
+  email: string;
+} {
+  if (identity?.rowActor) return { userId: identity.rowActor.id, email: identity.rowActor.email };
+  return { userId: identity?.userId ?? '', email: identity?.email ?? '' };
+}
+
+/**
  * Who the request is, for the row-rule policies to read.
  *
  * `bypass` is a DECISION the engine has already taken — an API key carrying
@@ -85,9 +99,17 @@ export interface RlsIdentity {
    * published as `zveltio.issuer_rows` = `on` and `zveltio.issuer_user_*` for
    * the row-rule policy. `deny` for a key whose issuer is unknown: every row a
    * rule covers is hidden. Absent when no issuer rules apply — a session, a job
-   * key, an issuer holding `data:view_all`.
+   * with no author, an issuer holding `data:view_all`. A job with an author has
+   * it, resolved as that author (`keyIssuerRowActor`).
    */
   issuer?: { mode: 'on' | 'deny'; id: string; email: string; role: string; roles: string[] };
+  /**
+   * A key principal's author (ADR 0028): whom a row rule's `user_id` and
+   * `user_email` resolve to — a member key's issuer, a job's enqueuing user;
+   * `''` for one with no author, which owns no row. Absent for a session or an
+   * anonymous caller, who is its own author (`rowActorSettings`).
+   */
+  rowActor?: { id: string; email: string };
   /**
    * An anonymous request: no user, but an actor all the same — the tenant's
    * `public` role — so the policies hold it to that role's grants rather than
@@ -1417,6 +1439,7 @@ export async function withTenantIsolation<T>(
       columnsAll: opts?.identity?.columnsAll ?? false,
       issuerRole: opts?.identity?.issuerRole ?? '',
       issuer: issuerSettings(opts?.identity?.issuer),
+      row: rowActorSettings(opts?.identity),
     };
 
     // Whether there is an ACTOR at all — written as its own setting, because
@@ -1472,6 +1495,8 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.visible_tenants', coalesce(reach.visible_csv, ''), true),
              set_config('zveltio.user_id', ${identity.userId}, true),
              set_config('zveltio.user_email', ${identity.email}, true),
+             set_config('zveltio.row_user_id', ${identity.row.userId}, true),
+             set_config('zveltio.row_user_email', ${identity.row.email}, true),
              set_config('zveltio.user_role', ${identity.role}, true),
              set_config('zveltio.user_roles', ${identity.roles}, true),
              set_config('zveltio.issuer_role', ${identity.issuerRole}, true),
@@ -1560,10 +1585,13 @@ export async function asIdentityOn<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const issuer = issuerSettings(identity.issuer);
+  const row = rowActorSettings(identity);
   const settings = JSON.stringify({
     'zveltio.visible_tenants': '',
     'zveltio.user_id': identity.userId,
     'zveltio.user_email': identity.email,
+    'zveltio.row_user_id': row.userId,
+    'zveltio.row_user_email': row.email,
     'zveltio.user_role': identity.role,
     'zveltio.user_roles': identity.roles.join(','),
     'zveltio.issuer_role': identity.issuerRole ?? '',

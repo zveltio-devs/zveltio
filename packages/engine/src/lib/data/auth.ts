@@ -8,7 +8,13 @@
  * `checkPermission` (god bypass + Casbin).
  */
 
-import { keyIssuerRowActor, principalRole, publishApiKeyActor } from '../tenancy/index.js';
+import {
+  issuerRowIdentity,
+  keyIssuerRowActor,
+  principalRole,
+  publishApiKeyActor,
+  rowActor,
+} from '../tenancy/index.js';
 import type { Context } from 'hono';
 import type { ExpressionBuilder } from 'kysely';
 import { type Database, getDb } from '../../db/index.js';
@@ -418,7 +424,7 @@ export async function validateApiKey(
 
   // Tell the DATABASE who this is, HERE — not in the callers.
   //
-  // The row-rule policies read `zveltio.user_id`; a rule whose value does not
+  // The row-rule policies read the caller's identity; a rule whose value does not
   // resolve skips itself. `tenantMiddleware` publishes the actor for sessions,
   // before the transaction opens, but a key is not known then — it is resolved
   // right here, inside the handler. Until this call existed, all key traffic
@@ -449,7 +455,10 @@ export async function validateApiKey(
     // issuer's role unless they hold the exemption that waives their half.
     // And their row rules, which `getRlsFilters` ANDs onto the key's: the issuer
     // as their own session resolves, unless they hold `data:view_all`.
-    const [issuerGrants, issuerBypasses, issuerRole, issuerRows] = issuer
+    // And whom its row rules' `user_id`/`user_email` resolve to: the issuer
+    // (ADR 0028), `''` for a key with none.
+    const key = { id: `apikey:${apiKey.id}`, authorUserId: issuer ?? null };
+    const [issuerGrants, issuerBypasses, issuerRole, issuerRows, author] = issuer
       ? await Promise.all([
           collectionGrantsFor(issuer),
           apiKey.rls_bypass === true
@@ -458,20 +467,18 @@ export async function validateApiKey(
           checkPermission(issuer, 'data', 'view_all_columns')
             .catch(() => false)
             .then((exempt) => (exempt ? '' : principalRole(issuer))),
-          keyIssuerRowActor({ id: `apikey:${apiKey.id}`, authorUserId: issuer }),
+          keyIssuerRowActor(key),
+          rowActor(key),
         ])
-      : [{ all: false, grants: '' }, false, '', null];
+      : [{ all: false, grants: '' }, false, '', null, { id: '', email: '' }];
     await publishApiKeyActor(
       `apikey:${apiKey.id}`,
       apiKey.rls_bypass === true && issuerBypasses,
       apiKey.scopes,
       issuerGrants,
       issuerRole,
-      issuerRows === 'exempt'
-        ? undefined
-        : issuerRows
-          ? { mode: 'on', ...issuerRows }
-          : { mode: 'deny', id: '', email: '', role: '', roles: [] },
+      issuerRowIdentity(issuerRows),
+      author,
     );
   }
 

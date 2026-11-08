@@ -664,9 +664,12 @@ export function createRequestScopedDb(pool: Database): Database {
  * small statement, and only for key traffic.
  *
  * `role` is `api_key`, the same string the engine gives such a caller, so a rule
- * written against `user_role` means the same thing on both sides. `user_email`
- * stays empty: a key has none, and a rule using it compares against `''`, so it
- * matches no owner — which is what the engine does too.
+ * written against `user_role` means the same thing on both sides.
+ * `zveltio.user_id` is the key and `zveltio.user_email` empty: who is calling,
+ * for the engine's own policies. A row rule's `user_id` and `user_email` resolve
+ * to `author` instead (ADR 0028, `rowActor` in rls.ts): the key's issuer, the
+ * job's enqueuing user — `''` when it has none, so it owns no row, as
+ * `getRlsFilters` resolves them.
  *
  * `issuerRole` is the issuer's role whose column rules bind the key as well
  * (`keyColumnAccess`); `''` when none do — no issuer, or one exempt from them.
@@ -680,6 +683,7 @@ export async function publishApiKeyActor(
   issuerGrants?: { all: boolean; grants: string },
   issuerRole = '',
   issuer?: RlsIdentity['issuer'],
+  author: { id: string; email: string } = { id: '', email: '' },
 ): Promise<void> {
   const trx = getCurrentTenantTrx();
   if (!trx) return;
@@ -691,6 +695,8 @@ export async function publishApiKeyActor(
   await sql`
     SELECT set_config('zveltio.user_id', ${userId}, true),
            set_config('zveltio.user_email', '', true),
+           set_config('zveltio.row_user_id', ${author.id}, true),
+           set_config('zveltio.row_user_email', ${author.email}, true),
            set_config('zveltio.user_role', 'api_key', true),
            set_config('zveltio.user_roles', 'api_key', true),
            set_config('zveltio.issuer_role', ${issuerRole}, true),
@@ -721,6 +727,7 @@ export async function publishApiKeyActor(
         collectionAll: all,
         issuerRole,
         issuer,
+        rowActor: author,
       },
     };
   }

@@ -161,12 +161,16 @@ export function sessionPrefetch(
           c.set('prefetchedApiKey', key);
           issuer = key?.created_by;
           // What a key request asks of its issuer inside the transaction
-          // (`validateApiKey`, `getRlsFilters`): their row rules, email included.
+          // (`validateApiKey`, `getRlsFilters`): their row rules, and the email
+          // a row rule resolves the key to (`rowActor`) — asked even where the
+          // issuer's half stands down.
           if (key && issuer) {
-            const { keyIssuerRowActor } = await import('../lib/tenancy/index.js');
-            await keyIssuerRowActor({ id: `apikey:${key.id}`, authorUserId: issuer }).catch(
-              () => null,
-            );
+            const { keyIssuerRowActor, rowActor } = await import('../lib/tenancy/index.js');
+            const principal = { id: `apikey:${key.id}`, authorUserId: issuer };
+            await Promise.all([
+              keyIssuerRowActor(principal).catch(() => null),
+              rowActor(principal).catch(() => null),
+            ]);
           }
         }
       }

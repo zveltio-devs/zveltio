@@ -439,7 +439,9 @@ caller in `current_setting('zveltio.user_id')` — the user's id, or
 column rules), and the issuer whose row rules bind it in `zveltio.issuer_user_id`,
 `zveltio.issuer_user_email`, `zveltio.issuer_user_role` and
 `zveltio.issuer_user_roles` (with `zveltio.issuer_rows` = `on`; empty when the
-issuer is exempt from row rules). A function declared `SECURITY DEFINER` runs with its owner's
+issuer is exempt from row rules). The id and email a row rule resolves the
+caller to are in `zveltio.row_user_id` and `zveltio.row_user_email`: the user's,
+or a key's issuer's (ADR 0028). A function declared `SECURITY DEFINER` runs with its owner's
 rights instead, for a session and a key alike.
 
 ### POST /api/rpc/:function

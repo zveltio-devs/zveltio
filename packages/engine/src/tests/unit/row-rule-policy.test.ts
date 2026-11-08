@@ -31,7 +31,10 @@ describe('row rules as a Postgres predicate', () => {
 
   it('reads the caller from a setting, not from a role name', () => {
     const { predicate } = buildRowRulePredicate([rule()], TYPES);
-    expect(predicate).toContain("current_setting('zveltio.user_id', true)");
+    // The row actor (ADR 0028), never `zveltio.user_id`: a key is its author to
+    // a row rule, while the engine's own policies read `user_id` as the key.
+    expect(predicate).toContain("current_setting('zveltio.row_user_id', true)");
+    expect(predicate).not.toContain("current_setting('zveltio.user_id'");
     expect(predicate).toContain('"created_by" =');
   });
 
@@ -53,7 +56,10 @@ describe('row rules as a Postgres predicate', () => {
         // The value side: right of `=`, inside `IN (`, or inside `CAST(`.
         expect(predicate).not.toMatch(/(= |IN \(|CAST\()current_setting\(/);
         // `nullif` for the sources that name the caller: an empty one owns no row.
-        const setting = `current_setting('zveltio.${filter_value_source}', true)`;
+        const setting =
+          filter_value_source === 'user_role'
+            ? `current_setting('zveltio.user_role', true)`
+            : `current_setting('zveltio.row_${filter_value_source}', true)`;
         expect(predicate).toContain(
           filter_value_source === 'user_role'
             ? `(SELECT ${setting})`
@@ -121,7 +127,7 @@ describe('row rules as a Postgres predicate', () => {
     for (const source of ['user_id', 'user_email']) {
       const { predicate } = buildRowRulePredicate([rule({ filter_value_source: source })], TYPES);
       expect(predicate).toContain(
-        `(SELECT nullif(current_setting('zveltio.${source}', true), ''))`,
+        `(SELECT nullif(current_setting('zveltio.row_${source}', true), ''))`,
       );
       expect(predicate).not.toContain('IS NULL');
     }
@@ -173,7 +179,7 @@ describe('row rules as a Postgres predicate', () => {
         TYPES,
       );
       expect(predicate).toContain(
-        `"created_by" IN ((SELECT nullif(current_setting('zveltio.user_id', true), '')))`,
+        `"created_by" IN ((SELECT nullif(current_setting('zveltio.row_user_id', true), '')))`,
       );
     });
 

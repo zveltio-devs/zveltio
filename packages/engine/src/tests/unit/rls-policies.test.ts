@@ -167,8 +167,12 @@ describe('getRlsFilters — overrides', () => {
     expect(db.log).toHaveLength(0);
   });
 
-  /** The key's own `owner_id eq user_id` rule, resolved against the key. */
-  const OWN: RuleFilter = { field: 'owner_id', condition: { op: 'eq', value: USER.id } };
+  /** A key principal: `apikey:` by its id, as `authenticate` mints it. */
+  const KEY = { id: 'apikey:k1', role: 'api_key' };
+  /** `owner_id eq user_id` resolved against `u-1`, the key's issuer (ADR 0028). */
+  const OWN: RuleFilter = { field: 'owner_id', condition: { op: 'eq', value: 'u-1' } };
+  /** The same rule for a key with no author: it owns no row. */
+  const NOBODYS: RuleFilter = { field: 'owner_id', condition: { op: 'in', value: [] } };
   /** The issuer half of a key whose issuer is unknown: no row a rule covers. */
   const DENY: RuleFilter = { field: 'id', condition: { op: 'in', value: [] } };
 
@@ -178,21 +182,22 @@ describe('getRlsFilters — overrides', () => {
     db.when(/FROM zvd_rls_policies/i, [policy()]);
     // Filtered by its own rule and its issuer's — or, with no issuer known, by
     // its own and a rule that keeps nothing.
-    const issuers: Array<[string | null, RuleFilter]> = [
-      ['u-1', { field: 'owner_id', condition: { op: 'eq', value: 'u-1' } }],
-      [null, DENY],
+    // The key's own half resolves `user_id` to its issuer (ADR 0028).
+    const issuers: Array<[string | null, RuleFilter[]]> = [
+      ['u-1', [OWN, OWN]],
+      [null, [NOBODYS, DENY]],
     ];
-    for (const [authorUserId, issuerHalf] of issuers) {
-      const key = { ...USER, rlsBypass: true, authorUserId };
-      expect(await getRlsFilters('contacts', key, 'api_key')).toEqual([OWN, issuerHalf]);
+    for (const [authorUserId, expected] of issuers) {
+      const key = { ...KEY, rlsBypass: true, authorUserId };
+      expect(await getRlsFilters('contacts', key, 'api_key')).toEqual(expected);
     }
   });
 
   it('a key with the flag OFF is filtered like anyone else', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy()]);
-    const filters = await getRlsFilters('contacts', { ...USER, rlsBypass: false }, 'api_key');
-    expect(filters).toEqual([OWN, DENY]);
+    const filters = await getRlsFilters('contacts', { ...KEY, rlsBypass: false }, 'api_key');
+    expect(filters).toEqual([NOBODYS, DENY]);
   });
 
   it('a key with NO flag at all is filtered, not exempted', async () => {
@@ -203,9 +208,9 @@ describe('getRlsFilters — overrides', () => {
     // instance-wide reads out of an omission nobody wrote down.
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy()]);
-    const { rlsBypass: _omitted, ...noFlag } = { ...USER, rlsBypass: undefined };
+    const { rlsBypass: _omitted, ...noFlag } = { ...KEY, rlsBypass: undefined };
     const filters = await getRlsFilters('contacts', noFlag, 'api_key');
-    expect(filters).toEqual([OWN, DENY]);
+    expect(filters).toEqual([NOBODYS, DENY]);
   });
 
   it('no matching policies → no restriction', async () => {

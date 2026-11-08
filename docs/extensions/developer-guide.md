@@ -571,7 +571,8 @@ EXT_SESSION_REQUIRED`, as before. On a declared route:
 - **Authorship:** the key's id is not a `user` row. Record `user.authorUserId
   ?? user.id` — the person who issued the key — in a `created_by` column.
 - The request runs in its tenant's transaction with the key as the RLS actor
-  (`zveltio.user_id = apikey:<uuid>`), as on the data API.
+  (`zveltio.user_id = apikey:<uuid>`), as on the data API. A row rule's
+  `user_id` and `user_email` resolve to the key's issuer (ADR 0028).
 
 **Manifest `actions` need no `apiKeyRoutes` entry.** `POST /actions/<action>`
 admits a key holding `$ext:<name>` with the action's declared permission action
