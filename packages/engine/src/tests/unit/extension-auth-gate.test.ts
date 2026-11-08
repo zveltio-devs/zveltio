@@ -7,7 +7,7 @@
  * ownership wins for nested extensions, and the env kill-switch disables it.
  */
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import {
   admittedApiKey,
@@ -17,8 +17,9 @@ import {
   registerExtensionPublicRoutes,
   _resetPublicRouteRegistryForTests,
 } from '../../middleware/extension-auth-gate.js';
-import { initTenantManager } from '../../lib/tenancy/index.js';
+import { initPermissions, initTenantManager } from '../../lib/tenancy/index.js';
 import type { Database } from '../../db/index.js';
+import { CannedDb } from './fixtures/canned-db.js';
 
 const authWithUser = {
   api: { getSession: async () => ({ user: { id: 'u1', name: 'U', role: 'member' } }) },
@@ -42,6 +43,15 @@ initTenantManager({
     executeQuery: async () => ({ rows: [{ n: 0, live: 0 }] }),
   }),
 } as unknown as Database);
+
+// The gate resolves a session's role (`principalRole` → `lookupGod`) on the
+// permissions pool. Without `initPermissions` that pool is unset and kysely runs
+// the query on its no-op executor (500); in the full suite an earlier file
+// happened to leave it set. An empty canned db answers "no god row, no grants".
+beforeAll(async () => {
+  process.env.BETTER_AUTH_SECRET ??= 'unit-test-secret-minimum-32-characters-xx';
+  await initPermissions(new CannedDb().kysely as unknown as Database);
+});
 
 type KeyRow = {
   tenant_id: string | null;
