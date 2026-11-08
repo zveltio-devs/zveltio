@@ -11,6 +11,7 @@ import { Script, createContext } from 'node:vm';
 import { celEnv, isCelError, parse, plan } from '@bufbuild/cel';
 import { RE2JS } from '@bufbuild/re2';
 import { sql } from 'kysely';
+import { asEngineRole } from './role-window.js';
 import { withSavepoint } from './savepoint.js';
 import { getCurrentTenantTrx, getCurrentTrxTenant } from './tenancy/index.js';
 import type { Database } from '../db/index.js';
@@ -434,8 +435,8 @@ export function initValidationEngine(db: Database): void {
  * The open tenant transaction when there is one: the rules are read while a
  * write holds it, and the pool then is a SECOND connection — at
  * `c = DB_POOL_MAX` a cold burst of writes held every connection waiting for one
- * more, until the acquire deadline. The request role reads both tables: the
- * SELECT policy of migration 093 shows it the instance rules and its own tenant's.
+ * more, until the acquire deadline. The rules are read on it as the engine
+ * (`getValidationRules`), the rule groups as the request role.
  */
 export function getValidationDb(): Database | null {
   return _db && (getCurrentTenantTrx() ?? _db);
@@ -449,8 +450,14 @@ const rulesCache = new Map<string, { rules: ValidationRule[]; ts: number }>();
  * open tenant transaction writes as (`getCurrentTrxTenant`), where every write
  * path runs — data API, bulk, sync, `dynamicInsert`, a worker's call, a job
  * inside `withTenantIsolation`. No tenant transaction: instance rules only.
- * Filtered here, not only by RLS: outside a transaction the read runs on the
- * pool, as the engine.
+ *
+ * Read as the engine (`asEngineRole`, on the same transaction), filtered by the
+ * WHERE below alone. As the request role, migration 093's policy showed a
+ * tenant's rules only within the caller's READ reach: a caller whose units had
+ * all lapsed (NO_UNITS — the default tenant does not refuse it) read the
+ * instance rules alone, and that list was cached under `collection@tenant` for
+ * every writer of the tenant. A write into a tenant is bound by its rules
+ * whatever its writer may read.
  */
 export async function getValidationRules(
   db: Database,
@@ -476,7 +483,7 @@ export async function getValidationRules(
   if (fieldName) query = query.where('field_name', '=', fieldName);
 
   // rule_config is JSONB → typed as unknown; coerce to the runtime contract.
-  const rules: ValidationRule[] = (await query.execute()).map((row) => ({
+  const rules: ValidationRule[] = (await asEngineRole(db, () => query.execute())).map((row) => ({
     id: String(row.id),
     tenant_id: row.tenant_id,
     field_name: row.field_name,
