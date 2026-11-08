@@ -17,6 +17,10 @@
  * UNASSIGNED and someone has to place it.
  *
  * Run: `bun run review:inventory`
+ *
+ * `--sections` checks only the section list against the tree (no file matches
+ * no section, no entry names a deleted file) and needs no private ledger, so CI
+ * runs it: a file added without a section fails the PR that adds it.
  */
 
 import { existsSync } from 'node:fs';
@@ -76,8 +80,9 @@ type Ledger = { updated: string; sessions: SessionEntry[] };
 // Absent sibling is fatal rather than empty: "could not look" must not read as
 // "nothing to report", which is exactly how the drift went unnoticed.
 const PRIVATE_ROOT = '../zveltio-private/engine';
+const SECTIONS_ONLY = process.argv.includes('--sections');
 
-if (!existsSync(PRIVATE_ROOT)) {
+if (!SECTIONS_ONLY && !existsSync(PRIVATE_ROOT)) {
   console.error(
     `\n❌ review-inventory: no private repository at ${PRIVATE_ROOT}.\n\n` +
       `   The campaign ledger is not in this repository. Clone the sibling:\n\n` +
@@ -1146,7 +1151,10 @@ const SOURCE_EXT = /(\.(tsx?|jsx?|svelte|sql|sh|ya?ml)$|(^|\/)Dockerfile[^/]*$)/
 const IS_TEST = /(\.test\.|\.spec\.)|\/tests?\//;
 
 async function trackedFiles(): Promise<string[]> {
-  const proc = Bun.spawn(['git', 'ls-files'], { stdout: 'pipe' });
+  // `--sections` also sees a new file not yet added (not ignored): it is about
+  // to be committed, and the check should fail before the commit, not after.
+  const untracked = SECTIONS_ONLY ? ['--others', '--exclude-standard'] : [];
+  const proc = Bun.spawn(['git', 'ls-files', '--cached', ...untracked], { stdout: 'pipe' });
   const out = await new Response(proc.stdout).text();
   if ((await proc.exited) !== 0) throw new Error('git ls-files failed');
   // A file a section names exactly is in scope whatever its extension
@@ -1208,8 +1216,26 @@ async function lineCount(file: string): Promise<number> {
   return text.endsWith('\n') ? n - 1 : n;
 }
 
+/** Exit 1 when a tracked file matches no section or an entry names no file. */
+function checkSections(files: string[]): void {
+  const unassigned = files.filter((f) => !sectionFor(f));
+  const tracked = new Set(files);
+  const dead = [...LISTED].filter((f) => !tracked.has(f));
+  for (const f of unassigned) console.error(`match no section: ${f}`);
+  for (const f of dead) console.error(`section entry names no tracked file: ${f}`);
+  if (unassigned.length || dead.length) {
+    console.error('Add or fix the entry in scripts/review-inventory.ts (SECTIONS).');
+    process.exit(1);
+  }
+}
+
 async function main() {
   const files = await trackedFiles();
+  if (SECTIONS_ONLY) {
+    checkSections(files);
+    console.log(`review-inventory --sections: ${files.length} files, every one in a section.`);
+    return;
+  }
   const loc = new Map<string, number>();
   await Promise.all(files.map(async (f) => loc.set(f, await lineCount(f))));
 

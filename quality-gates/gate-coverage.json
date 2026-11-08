@@ -19,6 +19,7 @@
   },
   "_single_shape": "One planted case proves a gate RUNS, not that it covers its rule: the E02 review (2026-10-12) measured six gates certified here that each went green on a second shape of their own defect. So every proved gate needs two planted shapes, or an entry below — 'single shape:' where the rule genuinely has one (freshness, a count), 'second shape not yet planted:' where it does not. The list may shrink, never grow; an entry whose gate gains a second case must go.",
   "single_shape": {
+    "scripts/review-inventory.ts": "second shape not yet planted: only a source file outside every section is planted; a section entry naming a deleted file needs SECTIONS itself edited, which no plant can do without rewriting the gate.",
     "scripts/any-ratchet.ts": "single shape: a ratchet over a count of noExplicitAny suppressions; the only defect is one more than the baseline.",
     "scripts/audit-gates.ts": "single shape: its only defect is a case whose gate stays green, and the extra-cases plant is exactly that.",
     "scripts/check-atomic-writes.ts": "second shape not yet planted: only a handler with two unwrapped writes is planted.",
