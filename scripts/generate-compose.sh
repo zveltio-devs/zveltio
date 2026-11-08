@@ -244,7 +244,6 @@ services:
       BETTER_AUTH_URL: \${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in .env to the URL browsers use to reach this instance}
       CORS_ORIGINS: \${CORS_ORIGINS:-}
       MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
-      AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
       # Webhook signing secrets and every encrypted field are refused without it.
       FIELD_ENCRYPTION_KEY: \${FIELD_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}
@@ -444,7 +443,6 @@ services:
       BETTER_AUTH_URL: \${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in .env to the URL browsers use to reach this instance}
       CORS_ORIGINS: \${CORS_ORIGINS:-}
       MAIL_ENCRYPTION_KEY: \${MAIL_ENCRYPTION_KEY:-}
-      AI_KEY_ENCRYPTION_KEY: \${AI_KEY_ENCRYPTION_KEY:-}
       # Webhook signing secrets and every encrypted field are refused without it.
       FIELD_ENCRYPTION_KEY: \${FIELD_ENCRYPTION_KEY:-}
       ZVELTIO_VERSION: ${VERSION}

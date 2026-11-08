@@ -44,7 +44,7 @@ it.skipIf(!harnessAvailable())(
     _internalForTests.setExecuteFlowForTests((async () => {
       const rows = await replicaB`
         SELECT id FROM zv_flows
-        WHERE is_active = true AND trigger_type IN ('cron','ai_task')
+        WHERE is_active = true AND trigger_type = 'cron'
           AND (next_run_at IS NULL OR next_run_at <= now())
         FOR UPDATE SKIP LOCKED`;
       claimable.push(rows.length);

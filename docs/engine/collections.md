@@ -182,8 +182,7 @@ For complex business rules, create rules in Studio (**Developer → Validation
 Rules**) or with `POST /api/validation/rules` — tenant admins; an instance
 admin's rules bind every tenant, a tenant admin's only their own. They are
 enforced on every write, and each rule can carry test cases
-(`/api/validation/rules/:id/test-cases`). An instance admin with an AI provider
-configured can draft one from a description (`POST /api/validation/generate`).
+(`/api/validation/rules/:id/test-cases`).
 
 A `transition` rule constrains how a field's value may change. Its CEL
 `expression` sees `value` (being written) and `previous` (stored before this

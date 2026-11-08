@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**The engine holds no AI code (ADR 0027 §6).** Removed: the `ai_decision` flow step and the `ai_task` flow trigger (with the scheduler's background-task path), `POST /api/validation/generate`, the `ai` keyring and `AI_KEY_ENCRYPTION_KEY`, the `ai` rate-limit tier and its `/api/ai/*` mount, the `zveltio:ai:*` realtime channels, the `ai.task.done` event, the `ai_*` settings keys, the `aiSearchEnabled` / `aiSearchField` collection options (accepted and never stored) and the `ai` extension's grant on `zv_flows`. Migration 113 narrows both flow CHECKs back (NOT VALID: a stored `ai_decision` step fails its run by name, a stored `ai_task` flow is never claimed), drops the three `ai_*` columns ai 1.x added to `zvd_collections`, and deletes the `ai` rate-limit rows. AI is the opt-in `ai` 2.0 extension.
+
 ## [3.0.0-beta.105] - 2026-11-08
 
 **Validation rules judge what was written, not its ciphertext.** A rule on an `encrypted` or `secret` field saw the ciphertext: `minLength` passed any value and `pattern` refused every value. Rules now judge the value before encryption, and a `secret` stays opaque to transition rules (#1573).

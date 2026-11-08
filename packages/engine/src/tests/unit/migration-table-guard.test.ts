@@ -82,11 +82,16 @@ describe('extension migration table guard', () => {
   });
 
   it('allows an engine table the grants list names', async () => {
-    // `ai` relaxes a CHECK on zv_flows so a flow can carry AI trigger types.
+    // `content/drafts` owns `zv_revisions`, which the engine's 001 still creates.
+    const f = migrationFile('ALTER TABLE zv_revisions ADD COLUMN IF NOT EXISTS note text;');
+    await expect(runExtensionMigrations(ext('content/drafts', [f]), db())).resolves.toBeUndefined();
+  });
+
+  it('no longer lets `ai` reshape zv_flows (ADR 0027 dropped its grant)', async () => {
     const f = migrationFile(
       'ALTER TABLE zv_flows DROP CONSTRAINT IF EXISTS zv_flows_trigger_type_check;',
     );
-    await expect(runExtensionMigrations(ext('ai', [f]), db())).resolves.toBeUndefined();
+    await expect(runExtensionMigrations(ext('ai', [f]), db())).rejects.toThrow(/zv_flows/);
   });
 
   it('does not refuse an extension that only creates its own tables', async () => {

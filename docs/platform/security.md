@@ -336,7 +336,6 @@ User-defined edge functions run in an isolated Bun worker with:
 | Secret | Encryption | Env var |
 |---|---|---|
 | IMAP/SMTP passwords | AES-256-GCM | `MAIL_ENCRYPTION_KEY` |
-| AI provider API keys | AES-256-GCM | `AI_KEY_ENCRYPTION_KEY` |
 
 Generate keys with: `openssl rand -hex 32`
 

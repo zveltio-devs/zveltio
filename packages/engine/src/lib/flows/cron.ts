@@ -6,8 +6,7 @@
  * 60-second default, so a flow an operator scheduled for 03:00 daily ran every
  * minute — 1440 times a day instead of once. That is worse than the inert
  * settings found elsewhere in this codebase: it does not do nothing, it does
- * the wrong thing continuously, and with an `ai_decision` step it does it at
- * a per-call cost.
+ * the wrong thing continuously.
  *
  * Written here rather than pulled in, because adding a dependency to the engine
  * is a supply-chain decision with its own review, and this is the well-specified

@@ -72,7 +72,7 @@ describe('pickTenantLimit', () => {
 
   it('never applies another tenant or another tier', () => {
     expect(pickTenantLimit([row(`tenant:api:${T2}`, 5)], 'api', T1)).toBeNull();
-    expect(pickTenantLimit([row('tenant:ai', 5)], 'api', T1)).toBeNull();
+    expect(pickTenantLimit([row('tenant:write', 5)], 'api', T1)).toBeNull();
   });
 });
 

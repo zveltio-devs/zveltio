@@ -37,10 +37,4 @@ describe('validateStepConfig — edge cases', () => {
     expect(r.valid).toBe(false);
     expect(r.errors.some((e) => e.includes('url'))).toBe(true);
   });
-
-  it('ai_decision rejects empty options array', () => {
-    const r = validateStepConfig('ai_decision', { prompt: 'pick', options: [] });
-    expect(r.valid).toBe(false);
-    expect(r.errors.some((e) => e.includes('options'))).toBe(true);
-  });
 });

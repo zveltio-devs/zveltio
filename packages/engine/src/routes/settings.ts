@@ -93,11 +93,6 @@ const WRITABLE_SETTINGS_KEYS = new Set([
   'session_expiry_hours',
   'api_rate_limit',
   'member_api_keys',
-  // AI configuration (non-secret)
-  'ai_enabled',
-  'ai_default_provider',
-  'ai_default_model',
-  'ai_max_tokens_per_request',
   // Storage configuration (non-secret)
   's3_public_url',
   's3_bucket_public',
@@ -179,8 +174,6 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     'contact_email',
     'registration_enabled',
     'maintenance_mode',
-    'ai_enabled',
-    'ai_default_model',
   ]);
 
   app.get('/public', async (c) => {

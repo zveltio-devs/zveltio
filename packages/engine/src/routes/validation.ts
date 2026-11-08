@@ -2,7 +2,6 @@
  * Validation rule administration, `/api/validation`. Tenant admins only; the
  * engine evaluates the rules on every write (lib/validation-engine.ts).
  *
- * POST   /generate                        AI → a rule to review (instance admin)
  * GET    /rules                           rules this tenant answers to (?collection=)
  * POST   /rules                           create a rule
  * PATCH  /rules/:id                       toggle is_active
@@ -33,7 +32,6 @@ import { guardAdmin, type SessionSource } from '../lib/admin-guard.js';
 import { DDLManager } from '../lib/data/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 import { reqDb } from '../lib/route-db.js';
-import { serviceRegistry } from '../lib/service-registry.js';
 import { isTenantAdmin, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import {
   checkValidationExpression,
@@ -282,62 +280,6 @@ export function validationRoutes(db: Database, auth: SessionSource): Hono<Env> {
     const passed = results.filter((r) => r.passed).length;
     return { total: results.length, passed, failed: results.length - passed, results };
   };
-
-  app.post('/generate', async (c) => {
-    if (!(await instanceAdmin(c))) return c.json(ADMIN_REQUIRED, 403);
-    const { field_name, field_type, description } = await c.req.json();
-    if (!description) return c.json({ error: 'description required' }, 400);
-
-    const systemPrompt = `You are a validation rule generator for a BaaS platform.
-Convert natural language validation descriptions into structured JSON rules.
-
-Output ONLY valid JSON, no markdown, no explanation. Format:
-{
-  "rule_type": "required|min|max|minLength|maxLength|pattern|range|email|url|nlp",
-  "rule_config": { ... },
-  "error_message": "Human readable error in same language as input"
-}
-
-For range: rule_config = { "min": number, "max": number }
-For min/max: rule_config = { "value": number }
-For minLength/maxLength: rule_config = { "value": number }
-For pattern: rule_config = { "pattern": "regex string" }
-For nlp (complex): rule_config = { "expression": "CEL boolean expression using 'value'" }`;
-
-    type ChatProvider = {
-      chat?: (messages: unknown[], opts?: unknown) => Promise<{ content?: string }>;
-      /** `ai` hands out a per-firm stand-in, never null; this says whether the firm has one. */
-      configured?: () => Promise<boolean>;
-    };
-    const provider = serviceRegistry
-      .get<{ getDefault(): ChatProvider | null }>('ai.providers')
-      ?.getDefault();
-    if (!provider?.chat || (await provider.configured?.()) === false) {
-      return c.json({ error: 'AI extension is not active or no AI provider is configured' }, 503);
-    }
-    try {
-      const response = await provider.chat(
-        [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: `Field: ${field_name} (type: ${field_type || 'text'})\nDescription: ${description}`,
-          },
-        ],
-        { temperature: 0.2 },
-      );
-      const parsed = JSON.parse((response.content ?? '').replace(/```json?|```/g, '').trim());
-      return c.json({
-        rule_type: parsed.rule_type,
-        rule_config: parsed.rule_config,
-        error_message: parsed.error_message,
-        nl_description: description,
-        preview: `If saved, this rule will enforce: ${parsed.error_message}`,
-      });
-    } catch (err) {
-      return c.json({ error: 'AI generation failed', details: String(err) }, 500);
-    }
-  });
 
   app.get('/rules', async (c) => {
     const tenant = tenantOf(c);

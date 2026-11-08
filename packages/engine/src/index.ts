@@ -1316,8 +1316,6 @@ async function bootstrap() {
   const _tempApp = new Hono();
 
   await Promise.all([
-    // AI providers are now initialised by the `ai` extension itself when it loads.
-
     // Extensions — ZVELTIO_EXTENSIONS ∪ registry-enabled, sorted as one set. The
     // defaults are registered first so they are part of that set.
     ensureDefaultExtensions(db)

@@ -143,18 +143,6 @@ export const stepSchemas = {
     id: z.union([z.string().uuid(), z.string().startsWith('{{')]),
   }),
 
-  /** AI-based decision step — evaluates prompt and classifies outcome */
-  ai_decision: z.object({
-    prompt: z.string().min(1, 'AI prompt is required'),
-    model: z.string().optional(),
-    options: z.array(z.string()).min(2, 'At least 2 decision options required'),
-    context_keys: z.array(z.string()).default([]),
-    /** Decision returned when the AI is unavailable or answers off-list. */
-    fallback: z.string().optional(),
-    temperature: z.number().min(0).max(2).optional(),
-    timeout_ms: z.number().int().min(1_000).max(60_000).default(15_000),
-  }),
-
   /** Send an SMS message via the configured SMS provider */
   send_sms: z.object({
     to: z.union([z.string(), z.string().startsWith('{{')]),

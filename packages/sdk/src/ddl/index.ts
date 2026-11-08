@@ -80,8 +80,6 @@ export interface CollectionDefinition {
   fields: FieldDefinition[];
   description?: string;
   singularName?: string;
-  aiSearchEnabled?: boolean;
-  aiSearchField?: string | null;
   /** True for collections owned by an extension's migrations
    *  (i.e. ones Studio should not let users alter). */
   isManaged?: boolean;

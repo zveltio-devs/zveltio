@@ -3,17 +3,7 @@ import { m } from '#lib/i18n.svelte.js';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
 import { collectionsApi, api } from '#lib/api.js';
-import {
-  Plus,
-  Sparkles,
-  Save,
-  Code,
-  Database,
-  Layers,
-  Settings,
-  GitFork,
-  Columns,
-} from '@lucide/svelte';
+import { Plus, Code, Database, Layers, Settings, GitFork, Columns } from '@lucide/svelte';
 import { resolve } from '$app/paths';
 import SnippetGenerator from '#lib/components/admin/SnippetGenerator.svelte';
 import Breadcrumb from '#lib/components/common/Breadcrumb.svelte';
@@ -137,8 +127,6 @@ async function loadAll(name: string) {
     allCollections = ((colsRes.collections ?? []) as CollectionSummary[]).filter(
       (c) => c.name !== name,
     );
-    aiSearchEnabled = Boolean(collection?.ai_search_enabled);
-    aiSearchField = (collection?.ai_search_field as string) ?? '';
   } catch (e) {
     if (seq !== loadSeq) return;
     toast.error((e as Error).message || m['col.loadFailed']());
@@ -178,26 +166,6 @@ let recordDrawer = $state<
 // bind:this so the header "Add Field" / "Add Relation" buttons can open its
 // drawers; schema mutations call back through onSchemaChanged → reloadSchema.
 let schemaPanel = $state<{ openAddField: () => void; openRelForm: () => void } | undefined>();
-
-// ── AI settings ───────────────────────────────────────────────────────────
-let aiSearchEnabled = $state(false);
-let aiSearchField = $state('');
-let savingAI = $state(false);
-
-async function saveAISettings() {
-  savingAI = true;
-  try {
-    await api.patch(`/api/collections/${collectionName}`, {
-      aiSearchEnabled,
-      aiSearchField: aiSearchField || null,
-    });
-    toast.success(m['col.settingsSaved']());
-  } catch (e) {
-    toast.error((e as Error).message);
-  } finally {
-    savingAI = false;
-  }
-}
 
 // Lookup: field name → target collection name for M2O FK fields
 const m2oTargetMap = $derived.by(() => {
@@ -314,47 +282,6 @@ const m2oTargetMap = $derived.by(() => {
   <!-- ── SETTINGS TAB ────────────────────────────────────────────────────── -->
   {:else if activeTab === 'settings'}
     <div class="space-y-5 max-w-lg">
-
-      <!-- AI Search -->
-      <div class="card bg-base-100/50 border border-base-200">
-        <div class="card-body gap-4 p-5">
-          <div class="flex items-center gap-2">
-            <Sparkles size={16} class="text-primary" />
-            <h2 class="font-semibold text-sm">{m['col.aiSearch']()}</h2>
-          </div>
-          <p class="text-sm text-base-content/65 leading-relaxed">
-            {m['col.aiSearchDesc']()}
-            <code class="text-primary text-xs">POST /ext/ai/search</code>
-          </p>
-          <label class="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" class="toggle toggle-primary toggle-sm"
-              bind:checked={aiSearchEnabled} />
-            <span class="text-sm font-medium">{m['col.enableAiSearch']()}</span>
-          </label>
-          {#if aiSearchEnabled}
-            <div class="form-control">
-              <label class="label py-1" for="ai-field">
-                <span class="label-text text-sm">{m['col.fieldToEmbed']()}</span>
-                <span class="label-text-alt text-xs opacity-50">{m['col.blankAllText']()}</span>
-              </label>
-              <select id="ai-field" class="select select-sm" bind:value={aiSearchField}>
-                <option value="">{m['col.autoAllText']()}</option>
-                {#each customFields.filter(f => ['text', 'textarea', 'richtext'].includes(f.type)) as f}
-                  <option value={f.name}>{f.label || f.name} ({f.type})</option>
-                {/each}
-              </select>
-            </div>
-          {/if}
-          <button class="btn btn-primary btn-sm w-fit gap-1.5" onclick={saveAISettings} disabled={savingAI}>
-            {#if savingAI}
-              <span class="loading loading-spinner loading-xs"></span>
-            {:else}
-              <Save size={13} />
-            {/if}
-            {m['col.saveSettings']()}
-          </button>
-        </div>
-      </div>
 
       <!-- Collection info -->
       {#if collection}

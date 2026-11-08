@@ -369,8 +369,6 @@ ZVELTIO_VERSION=${VERSION}
 FIELD_ENCRYPTION_KEY=$(generate_secret 32)
 # Required if mail extension is enabled (IMAP/SMTP password encryption)
 MAIL_ENCRYPTION_KEY=$(generate_secret 32)
-# Required if AI extension is enabled (AI API key encryption)
-AI_KEY_ENCRYPTION_KEY=$(generate_secret 32)
 # Bearer token for /metrics. Without it the engine answers 403 there (fail
 # closed), and the repository's docker-compose.yml refuses to start without it.
 METRICS_TOKEN=$(generate_secret 32)

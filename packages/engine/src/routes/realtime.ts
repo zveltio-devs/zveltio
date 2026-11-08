@@ -32,8 +32,6 @@ export const CHANNELS = {
   DATA_CHANGES: 'zveltio:data:*',
   NOTIFICATIONS: 'zveltio:notifications',
   SYSTEM: 'zveltio:system',
-  PROACTIVE_AI_ALERTS: 'zveltio:ai:alerts',
-  PROACTIVE_AI_SUGGESTIONS: 'zveltio:ai:suggestions',
 } as const;
 
 interface SubscriptionFilter {

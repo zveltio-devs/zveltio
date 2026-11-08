@@ -8,11 +8,10 @@ import { validateStepConfig } from '../../lib/flows/flow-step-schemas.js';
  * every config key the executor reads and the schema omits is deleted on the way
  * in — silently, by the validator, on a request that answers 200.
  *
- * Measured before this test existed: `ai_decision.fallback` and `.temperature`,
- * `send_email.body_html`, `webhook.body` and `run_script.input` were all read by
- * the executor and all stripped by the schema. A step whose AI answered
- * off-list returned `decision: undefined` and reported success, because the
- * fallback the operator configured never reached the row.
+ * Measured before this test existed: `send_email.body_html`, `webhook.body` and
+ * `run_script.input` (and two keys of the since-removed `ai_decision` step) were
+ * all read by the executor and all stripped by the schema, so a value the
+ * operator configured never reached the row and the step reported success.
  *
  * Worse, it depended on the route: `POST /flows` stores `s.config` raw, so the
  * same step created two ways behaved two ways.
@@ -37,8 +36,8 @@ describe('flow step config keys survive validation', () => {
       const code = arm.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
       const direct = [...code.matchAll(/\bcfg\.([a-z_]+)/g)].map((k) => k[1]!);
       // `const { a, b } = cfg` is a read of `a` and `b` too. The first version of
-      // this test looked only for `cfg.x`, so it stayed green with
-      // `ai_decision.fallback` deleted from the schema — the very key that
+      // this test looked only for `cfg.x`, so it stayed green with a
+      // destructured key deleted from the schema — the very kind that
       // prompted it. Only the hand-written assertion below failed, which is the
       // "passes for the wrong reason" shape this file is supposed to catch.
       const destructured = [...code.matchAll(/\{([^{}]*)\}\s*=\s*cfg\b/g)].flatMap((m2) =>
@@ -87,13 +86,9 @@ describe('flow step config keys survive validation', () => {
     });
   }
 
-  it('a stripped key is what this test is about — ai_decision.fallback survives', () => {
-    const r = validateStepConfig('ai_decision', {
-      prompt: 'p',
-      options: ['a', 'b'],
-      fallback: 'a',
-    });
+  it('a stripped key is what this test is about — webhook.body survives', () => {
+    const r = validateStepConfig('webhook', { url: 'https://example.com/hook', body: { a: 1 } });
     expect(r.valid).toBe(true);
-    expect((r.config as { fallback?: string }).fallback).toBe('a');
+    expect((r.config as { body?: unknown }).body).toEqual({ a: 1 });
   });
 });

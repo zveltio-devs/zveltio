@@ -213,10 +213,10 @@ d('per-tenant rate limit', () => {
       expect((await patch(bad, { window_ms: 60_000, max_requests: 5 })).status).toBe(400);
     }
     // Creating needs both numbers; there is no seeded row to inherit them from.
-    expect((await patch(`tenant:ai:${f.id}`, { max_requests: 5 })).status).toBe(400);
+    expect((await patch(`tenant:write:${f.id}`, { max_requests: 5 })).status).toBe(400);
 
     // Stored lowercase, the form every lookup uses — an uppercase row would be dead.
-    const created = await patch(`tenant:ai:${f.id.toUpperCase()}`, {
+    const created = await patch(`tenant:write:${f.id.toUpperCase()}`, {
       window_ms: 30_000,
       max_requests: 5,
     });
@@ -226,12 +226,12 @@ d('per-tenant rate limit', () => {
         headers: { cookie: god, 'x-forwarded-for': nextIp() },
       })
     ).json()) as { rate_limits: Array<{ key_prefix: string }>; tiers: string[] };
-    expect(list.rate_limits.map((r) => r.key_prefix)).toContain(`tenant:ai:${f.id}`);
+    expect(list.rate_limits.map((r) => r.key_prefix)).toContain(`tenant:write:${f.id}`);
     expect(list.tiers).toContain('api');
 
     const audited = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log
-       WHERE resource_type = 'rate_limit' AND resource_id = ${`tenant:ai:${f.id}`}`.execute(db);
+       WHERE resource_type = 'rate_limit' AND resource_id = ${`tenant:write:${f.id}`}`.execute(db);
     expect(audited.rows[0]?.n).toBe(1);
 
     // A delegated tenant admin must not raise their own tenant's limit.
@@ -241,7 +241,7 @@ d('per-tenant rate limit', () => {
     const enforcer = await getEnforcer();
     await enforcer.addRoleForUser(userId, 'tenant_admin', f.id);
     await invalidateUserPermCache(userId);
-    const res = await patch(`tenant:ai:${f.id}`, { max_requests: 100_000 }, cookie, f.slug);
+    const res = await patch(`tenant:write:${f.id}`, { max_requests: 100_000 }, cookie, f.slug);
     await enforcer.deleteRoleForUser(userId, 'tenant_admin', f.id);
     expect(res.status).toBe(403);
   });

@@ -332,8 +332,7 @@ export interface ZvFlowStepsTable {
     | 'transform'
     | 'delay'
     | 'send_notification'
-    | 'export_collection'
-    | 'ai_decision';
+    | 'export_collection';
   config: Generated<unknown>; // JSONB DEFAULT '{}'
   on_error: Generated<'stop' | 'continue' | 'retry'>; // DEFAULT 'stop'
   created_at: Generated<Date>;
@@ -585,76 +584,6 @@ export interface ZvErdLayoutsTable {
   collection_name: string;
   x: number;
   y: number;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvPromptTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  system_prompt: string | null;
-  user_template: string;
-  variables: unknown; // JSONB
-  category: string | null;
-  provider: string | null;
-  model: string | null;
-  temperature: PgNumericNull; // NUMERIC — read as string
-  max_tokens: number | null;
-  is_active: boolean;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvAiChatsTable {
-  id: Generated<string>;
-  title: string | null;
-  user_id: string;
-  provider: string | null;
-  model: string | null;
-  context: unknown; // JSONB
-  messages: unknown; // JSONB
-  metadata: unknown; // JSONB
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
-export interface ZvRagDocumentsTable {
-  id: Generated<string>;
-  title: string;
-  content: string;
-  chunk_index: number;
-  source_url: string | null;
-  source_type: string | null;
-  collection: string | null;
-  record_id: string | null;
-  namespace: string | null;
-  metadata: unknown; // JSONB
-  created_by: string | null;
-  created_at: Generated<Date>;
-}
-
-export interface ZvAiQueriesTable {
-  id: Generated<string>;
-  user_id: string | null;
-  prompt: string;
-  generated_sql: string | null;
-  result_count: number | null;
-  execution_ms: number | null;
-  ai_analysis: string | null;
-  chart_config: unknown; // JSONB
-  is_saved: boolean;
-  title: string | null;
-  error: string | null;
-  created_at: Generated<Date>;
-}
-
-export interface ZvAiMemoryTable {
-  id: Generated<string>;
-  user_id: string;
-  context_key: string;
-  content: string;
-  created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
 
@@ -1437,11 +1366,6 @@ export interface DbSchema {
   zv_backups: ZvBackupsTable;
   zv_backup_schedules: ZvBackupSchedulesTable;
   zv_erd_layouts: ZvErdLayoutsTable;
-  zv_prompt_templates: ZvPromptTemplatesTable;
-  zv_ai_chats: ZvAiChatsTable;
-  zv_rag_documents: ZvRagDocumentsTable;
-  zv_ai_queries: ZvAiQueriesTable;
-  zv_ai_memory: ZvAiMemoryTable;
   zv_extension_registry: ZvExtensionRegistryTable;
   zv_extension_forward_approvals: ZvExtensionForwardApprovalsTable;
   zv_default_grant_revocations: ZvDefaultGrantRevocationsTable;

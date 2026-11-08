@@ -507,24 +507,24 @@ if (!lookup) {
 const contact = await lookup('alice@example.com');
 
 // Waiting for a service to appear (rarely needed if dependencies are declared):
-const ai = await ctx.services.waitFor<AiProviders>('ai.providers', 5000);
+const pdf = await ctx.services.waitFor<PdfGenerator>('pdf.generate', 5000);
 ```
 
 **Naming convention** (recommended): `<extension>.<feature>` or `<extension>.<resource>.<verb>`.
-Examples: `ai.providers`, `ai.embed`, `ai.chat`, `crm.contacts.lookup`, `pdf.generate`.
+Examples: `crm.contacts.lookup`, `pdf.generate`.
 
 **Declare dependencies** in `manifest.json` so the engine loads providers before consumers:
 
 ```json
 {
   "dependencies": [
-    { "name": "ai", "minVersion": "1.0.0" }
+    { "name": "crm", "minVersion": "1.0.0" }
   ]
 }
 ```
 
-The engine topologically sorts extensions before loading, guaranteeing the AI extension is
-fully loaded (and `ai.providers` is registered) before any consumer's `register()` runs.
+The engine topologically sorts extensions before loading, guaranteeing the CRM extension is
+fully loaded (and `crm.contacts.lookup` is registered) before any consumer's `register()` runs.
 At boot, the extensions listed in `ZVELTIO_EXTENSIONS` and the ones enabled in the
 registry (marketplace) are one set, sorted once — a dependency enabled only in the
 registry still loads before an extension listed in the environment. Extensions found

@@ -666,7 +666,7 @@ export function rateLimit(config: RateLimitConfig) {
     } catch {
       // Valkey error — fall back to in-memory limiter instead of failing open.
       // Failing open here would disable ALL rate limits on Valkey outage,
-      // allowing brute-force on /api/auth/sign-in and flooding AI endpoints.
+      // allowing brute-force on /api/auth/sign-in.
       // `?? listedIp`, matching the no-cache branch above and for the same
       // reason. `'unknown'` gave every anonymous caller ONE bucket per prefix —
       // a single counter for the whole internet — which on the pre-auth
@@ -704,11 +704,6 @@ export const apiRateLimit = rateLimit({
   windowMs: 60_000,
   max: 200,
   keyPrefix: 'api',
-});
-export const aiRateLimit = rateLimit({
-  windowMs: 60_000,
-  max: 20,
-  keyPrefix: 'ai',
 });
 export const writeRateLimit = rateLimit({
   windowMs: 60_000,

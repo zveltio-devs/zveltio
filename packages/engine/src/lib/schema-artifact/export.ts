@@ -101,8 +101,6 @@ const listed = (m: Map<string, Set<string>> | undefined) =>
     .sort(byKey(([resource]) => resource))
     .map(([resource, actions]) => ({ resource, actions: [...actions].sort() }));
 
-const sortedOrNull = (a: string[] | null | undefined) => (a?.length ? [...a].sort() : null);
-
 /** Field flags whose `false` is the default, so it is not written. */
 const FALSE_DEFAULT_FLAGS = ['required', 'unique', 'indexed', 'encrypted'];
 
@@ -258,12 +256,7 @@ export async function exportSchema(
   );
 
   for (const row of collections) {
-    // The ai_* columns are not in the hand-written DbSchema.
-    const col = row as typeof row & {
-      ai_search_enabled?: boolean;
-      ai_search_field?: string | null;
-      ai_embed_excluded_fields?: string[] | null;
-    };
+    const col = row;
     const name = col.name;
     const fields = fieldsOf(col).map((f) =>
       notNull.get(`zvd_${name}.${f.name}`) === false ? { ...f, required: false } : f,
@@ -282,9 +275,6 @@ export async function exportSchema(
       // The upstream credential is a secret, out of the artifact like the rest.
       virtualConfig: withoutAuthValue(col.virtual_config),
       schemaLocked: col.schema_locked || null,
-      aiSearchEnabled: col.ai_search_enabled || null,
-      aiSearchField: col.ai_search_field,
-      aiEmbedExcludedFields: sortedOrNull(col.ai_embed_excluded_fields),
       defaultGrants: col.default_grants ? null : false,
       writtenBy: col.written_by,
       // Declared order: it is the order Studio shows.

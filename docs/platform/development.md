@@ -35,7 +35,7 @@ project bug.
 ### Required environment variables
 
 `DATABASE_URL`, `BETTER_AUTH_SECRET`, `FIELD_ENCRYPTION_KEY`,
-`MAIL_ENCRYPTION_KEY`, `AI_KEY_ENCRYPTION_KEY`. Production additionally requires
+`MAIL_ENCRYPTION_KEY`. Production additionally requires
 `VALKEY_URL`. Full reference: [configuration.md](configuration.md).
 
 `BETTER_AUTH_SECRET` signs session cookies **and** keys field encryption —

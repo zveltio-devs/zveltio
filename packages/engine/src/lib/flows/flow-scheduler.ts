@@ -3,8 +3,7 @@
  *
  * Uses a simple 60-second interval and compares `next_run_at` against NOW().
  * Rows are claimed with FOR NO KEY UPDATE SKIP LOCKED and executed INSIDE that
- * transaction, so a second replica polling the same second skips them. `ai_task`
- * rows are the exception: advanced inside the claim, run after it commits.
+ * transaction, so a second replica polling the same second skips them.
  * After each execution, `next_run_at` is advanced by trigger_config.interval_seconds
  * (defaults to 60 s). Step execution is delegated to flow-executor.ts so that
  * manual triggers (flows.ts POST /:id/run) and cron triggers share identical behaviour.
@@ -14,12 +13,7 @@ import type { Database } from '../../db/index.js';
 import { nextCronRun } from './cron.js';
 import { executeFlow } from './flow-executor.js';
 import { scheduleGarbageCollector } from '../runtime/index.js';
-import { serviceRegistry } from '../service-registry.js';
-import {
-  runAsTenantWithoutTransaction,
-  withEveryTenant,
-  withTenantIsolation,
-} from '../tenancy/index.js';
+import { withEveryTenant, withTenantIsolation } from '../tenancy/index.js';
 import { withSavepoint } from '../savepoint.js';
 import { scheduleBackups } from '../backup/scheduler.js';
 import { resolveDumpTarget } from '../../routes/backup.js';
@@ -27,7 +21,6 @@ import { sql } from 'kysely';
 
 const SCHEDULER_POLL_MS = 60_000; // How often the scheduler polls for due flows
 const DEFAULT_CRON_INTERVAL_MS = 60_000; // Default interval when trigger_config.interval_seconds is absent
-const DEFAULT_AI_INTERVAL_MS = 3_600_000; // Default interval for ai_task flows (1 h)
 
 let _db: Database | null = null;
 let _running = false;
@@ -102,8 +95,6 @@ export const flowScheduler = {
 
     try {
       const now = new Date();
-      // AI tasks claimed by this tick, run once the claim has committed.
-      const afterClaim: Array<() => Promise<void>> = [];
       // One transaction claims every firm's due flows with SKIP LOCKED, so a
       // second replica polling the same second skips them. `zv_flows` is under
       // the tenant policy (migration 027): on the bare pool a non-superuser
@@ -116,8 +107,7 @@ export const flowScheduler = {
           .selectFrom('zv_flows')
           .selectAll()
           .where('is_active', '=', true)
-          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          .where((eb: any) => eb('trigger_type', 'in', ['cron', 'ai_task']))
+          .where('trigger_type', '=', 'cron')
           .where((eb) => eb.or([eb('next_run_at', 'is', null), eb('next_run_at', '<=', now)]))
           // Only firms that are running. A suspended (or deleted) firm's due
           // flows are not claimed, so `next_run_at` stays where it was and they
@@ -157,7 +147,7 @@ export const flowScheduler = {
         // its siblings.
         await Promise.all(
           flows.map((flow) =>
-            this._executeScheduledFlow(flow, trx, afterClaim).catch((err) => {
+            this._executeScheduledFlow(flow, trx).catch((err) => {
               // Individual flow failures shouldn't poison the tick — surface
               // them so they show up in operator logs and metrics.
               console.error('[FlowScheduler] _executeScheduledFlow failed', {
@@ -169,12 +159,6 @@ export const flowScheduler = {
           ),
         );
       });
-      // Outside the claim: an AI task waits on the model for seconds to
-      // minutes, and the claim's connection would sit `idle in transaction`
-      // through it until `idle_in_transaction_session_timeout` killed it — and
-      // the task with it. Its row was already moved forward inside the claim,
-      // so a later tick or another replica does not take it again.
-      await Promise.all(afterClaim.map((run) => run()));
     } catch (err) {
       // Tick-level error — e.g. transaction failed because the pool is
       // exhausted. We log and let the next tick try again.
@@ -194,39 +178,9 @@ export const flowScheduler = {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     flow: any,
     writer?: Database,
-    afterClaim?: Array<() => Promise<void>>,
   ): Promise<void> {
     if (!_db) return;
     const rows = writer ?? _db;
-
-    // ── AI Task trigger ───────────────────────────────────────────
-    if (flow.trigger_type === 'ai_task') {
-      // Advanced BEFORE the run, inside the claim: the task itself runs after
-      // the claim commits (see `_tick`), so the moved `next_run_at` is what
-      // fences it from the next tick and from other replicas, not the row lock.
-      // A failed advance means no fence, so the task does not run.
-      // ponytail: a run longer than its interval overlaps the next one; a
-      // lease column would fence that, add one if such intervals appear.
-      const intervalMs =
-        ((flow.trigger_config?.interval_seconds as number | undefined) ?? 0) * 1_000 ||
-        DEFAULT_AI_INTERVAL_MS;
-      try {
-        await advance(rows, flow, {
-          last_run_at: new Date(),
-          next_run_at: new Date(Date.now() + intervalMs),
-        });
-      } catch (err) {
-        console.error('[FlowScheduler] failed to advance ai_task next_run_at', {
-          flow: flow.id,
-          error: (err as Error).message,
-        });
-        return;
-      }
-      const run = () => runAiTask(flow);
-      if (afterClaim) afterClaim.push(run);
-      else await run();
-      return; // Skip standard flow executor for ai_task
-    }
 
     // ── Standard flow execution ───────────────────────────────────
     console.log(`[FlowScheduler] executing flow`, { flow: flow.id, name: flow.name });
@@ -255,8 +209,7 @@ export const flowScheduler = {
     // re-running every tick until the row update succeeds.
     // A cron expression means what it says. This used to read only
     // `interval_seconds` and fall back to 60s, so a flow scheduled `0 3 * * *`
-    // ran 1440 times a day instead of once — and with an `ai_decision` step,
-    // at a per-call cost.
+    // ran 1440 times a day instead of once.
     const cronExpr = flow.trigger_config?.cron as string | undefined;
     let nextRunAt: Date | null = null;
     if (cronExpr) {
@@ -290,74 +243,6 @@ export const flowScheduler = {
     });
   },
 };
-
-/**
- * Runs one claimed `ai_task` flow through the AI extension, as the flow's firm,
- * with no transaction open.
- *
- * The task alternates database work with waits on the model. A transaction
- * around the whole of it sat `idle in transaction` through every wait and was
- * killed at `idle_in_transaction_session_timeout`; so the firm is handed over
- * as `tenantId` and the extension opens a short `withTenantIsolation` around
- * each stretch of database work. Its `ctx.db` outside those stretches is
- * refused, never the pool answering as the default firm. No firm on the row
- * means not running it, as in the executor.
- *
- * Never throws: every outcome is logged, and a task that resolves
- * `{ executed: false }` — the `ai` extension catches its own failures — is a
- * failure too.
- */
-async function runAiTask(flow: {
-  id: string;
-  name?: string;
-  tenant_id?: string | null;
-  created_by?: string | null;
-  description?: string | null;
-  trigger_config?: Record<string, unknown> | null;
-}): Promise<void> {
-  const runTask =
-    serviceRegistry.get<
-      (userId: unknown, instruction: unknown, opts: Record<string, unknown>) => Promise<unknown>
-    >('ai.runBackgroundTask');
-  if (!runTask) {
-    console.warn(`[FlowScheduler] ai_task skipped — AI extension is not active`, {
-      flow: flow.id,
-      name: flow.name,
-    });
-    return;
-  }
-  try {
-    if (!flow.tenant_id) throw new Error('the flow row carries no tenant_id');
-    const cfg = flow.trigger_config ?? {};
-    const tenantId: string = flow.tenant_id;
-    const result = await runAsTenantWithoutTransaction(tenantId, () =>
-      runTask(
-        cfg.user_id ?? flow.created_by,
-        cfg.instruction ?? flow.description ?? 'Generate a status report',
-        {
-          tenantId,
-          notifyOnResult: cfg.notify_on_result ?? true,
-          notifyOnlyIfData: cfg.notify_only_if_data ?? false,
-          notificationTitle: cfg.notification_title ?? flow.name,
-          maxIterations: cfg.max_iterations ?? 5,
-        },
-      ),
-    );
-    const outcome = result as { executed?: unknown; error?: unknown } | null | undefined;
-    if (outcome?.executed === false) {
-      throw new Error(
-        typeof outcome.error === 'string' ? outcome.error : 'the task reported it did not run',
-      );
-    }
-    console.log(`[FlowScheduler] ai_task completed`, { flow: flow.id, name: flow.name });
-  } catch (err) {
-    console.error(`[FlowScheduler] ai_task failed`, {
-      flow: flow.id,
-      name: flow.name,
-      error: (err as Error).message,
-    });
-  }
-}
 
 /**
  * Writes the scheduler's bookkeeping to one flow row, as that row's firm.

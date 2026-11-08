@@ -13,7 +13,8 @@
  * types, the executor implements seven, and the two sets are not nested.
  * `create_record` and `update_record` — named in the audit — cannot be stored
  * at all, so they were never live no-ops. `transform` and `delay` are, and were
- * in nobody's list.
+ * in nobody's list. `ai_decision` joined them when ADR 0027 took it out of the
+ * executor: a stored one fails its run by name.
  *
  * Four lists then, all different, none compared to another: the CHECK, the
  * executor's switch, `flow-step-schemas.ts`, and what the Studio offers.
@@ -65,7 +66,7 @@ d('unimplemented flow step (in-process)', () => {
     await sql`
       ALTER TABLE zv_flow_steps ADD CONSTRAINT zv_flow_steps_type_check
       CHECK (type IN ('query_db','run_script','send_email','webhook',
-                      'send_notification','export_collection','ai_decision','condition')) NOT VALID
+                      'send_notification','export_collection','condition')) NOT VALID
     `
       .execute(db)
       .catch(() => {});
@@ -76,7 +77,7 @@ d('unimplemented flow step (in-process)', () => {
     }
   });
 
-  it.each(['transform', 'delay', 'create_record'])(
+  it.each(['transform', 'delay', 'create_record', 'ai_decision'])(
     'fails the run on a %s step instead of reporting success',
     async (stepType) => {
       const flowId = await makeFlow(stepType);

@@ -35,19 +35,14 @@ describe('engineEvents post-write API', () => {
     engineEvents.off('schema.changed', h);
   });
 
-  it('emits flow.completed and ai.task.done payloads', () => {
+  it('emits flow.completed payloads', () => {
     const flows: string[] = [];
-    const ai: boolean[] = [];
     const u1 = engineEvents.on('flow.completed', (p) => flows.push(p.flowId));
-    const u2 = engineEvents.on('ai.task.done', (p) => ai.push(p.notified));
     try {
       engineEvents.emit('flow.completed', { flowId: 'f-1', status: 'success' });
-      engineEvents.emit('ai.task.done', { userId: 'u-1', summary: 'done', notified: true });
       expect(flows).toContain('f-1');
-      expect(ai).toContain(true);
     } finally {
       u1();
-      u2();
     }
   });
 });

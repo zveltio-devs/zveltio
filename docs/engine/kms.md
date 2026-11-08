@@ -1,7 +1,7 @@
 # External key management (KMS)
 
 By default the installer generates Zveltio's secrets (`FIELD_ENCRYPTION_KEY`,
-`MAIL_ENCRYPTION_KEY`, `AI_KEY_ENCRYPTION_KEY`, `BETTER_AUTH_SECRET`, …) and
+`MAIL_ENCRYPTION_KEY`, `BETTER_AUTH_SECRET`, …) and
 stores them in `/opt/zveltio/.env`. Organizations that must keep keys in a KMS
 can source them at boot instead — **without any engine code involvement**.
 

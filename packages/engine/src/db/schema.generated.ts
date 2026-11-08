@@ -66,110 +66,6 @@ export interface VerificationTable {
   updatedAt: Generated<Date | null>;
 }
 
-export interface ZvAiChatsTable {
-  id: Generated<string>;
-  title: string | null;
-  user_id: string;
-  provider: Generated<string>;
-  model: string | null;
-  context: string | null;
-  messages: Generated<unknown>;
-  metadata: Generated<unknown | null>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvAiConversationsTable {
-  id: Generated<string>;
-  user_id: string;
-  title: string | null;
-  metadata: Generated<unknown>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvAiFeaturesTable {
-  id: Generated<string>;
-  feature_key: string;
-  display_name: string;
-  description: string | null;
-  is_enabled: Generated<boolean>;
-  config: Generated<unknown>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvAiMemoryTable {
-  id: Generated<string>;
-  user_id: string;
-  context_key: string;
-  content: string;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  importance: Generated<number>;
-  source: Generated<string>;
-  embedding: unknown | null;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvAiMessagesTable {
-  id: Generated<string>;
-  conversation_id: string;
-  user_id: string | null;
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
-  metadata: Generated<unknown>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvAiProvidersTable {
-  id: Generated<string>;
-  name: string;
-  label: string;
-  api_key: string | null;
-  base_url: string | null;
-  default_model: string | null;
-  is_active: Generated<boolean>;
-  is_default: Generated<boolean>;
-  metadata: Generated<unknown | null>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvAiQueriesTable {
-  id: Generated<string>;
-  user_id: string;
-  prompt: string;
-  generated_sql: string | null;
-  result_count: number | null;
-  execution_ms: number | null;
-  ai_analysis: string | null;
-  chart_config: unknown | null;
-  is_saved: Generated<boolean>;
-  title: string | null;
-  error: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvAiUsageTable {
-  id: Generated<string>;
-  provider: string;
-  model: string;
-  operation: 'chat' | 'embed' | 'query' | 'generate' | 'decide';
-  prompt_tokens: Generated<number>;
-  response_tokens: Generated<number>;
-  latency_ms: Generated<number>;
-  user_id: string | null;
-  tenant_id: Generated<string | null>;
-  created_at: Generated<Date>;
-}
-
 export interface ZvApiKeyAccessLogTable {
   id: Generated<string>;
   api_key_id: string;
@@ -510,7 +406,6 @@ export interface ZvFlowStepsTable {
     | 'webhook'
     | 'send_notification'
     | 'export_collection'
-    | 'ai_decision'
     | 'condition';
   config: Generated<unknown>;
   on_error: Generated<'stop' | 'continue' | 'retry'>;
@@ -521,9 +416,7 @@ export interface ZvFlowsTable {
   id: Generated<string>;
   name: string;
   description: string | null;
-  trigger_type: Generated<
-    'manual' | 'on_create' | 'on_update' | 'on_delete' | 'cron' | 'webhook' | 'ai_task'
-  >;
+  trigger_type: Generated<'manual' | 'on_create' | 'on_update' | 'on_delete' | 'cron' | 'webhook'>;
   trigger_config: Generated<unknown>;
   is_active: Generated<boolean>;
   last_run_at: Date | null;
@@ -932,25 +825,6 @@ export interface ZvPitrRestorePointsTable {
   created_by: string | null;
 }
 
-export interface ZvPromptTemplatesTable {
-  id: Generated<string>;
-  name: string;
-  description: string | null;
-  system_prompt: string;
-  user_template: string | null;
-  variables: Generated<unknown | null>;
-  category: Generated<string | null>;
-  provider: string | null;
-  model: string | null;
-  temperature: Generated<number | null>;
-  max_tokens: Generated<number | null>;
-  is_active: Generated<boolean>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvPushSubscriptionsTable {
   id: Generated<string>;
   user_id: string;
@@ -958,21 +832,6 @@ export interface ZvPushSubscriptionsTable {
   p256dh: string;
   auth: string;
   user_agent: string | null;
-  created_at: Generated<Date>;
-}
-
-export interface ZvRagDocumentsTable {
-  id: Generated<string>;
-  title: string;
-  content: string;
-  chunk_index: Generated<number>;
-  source_url: string | null;
-  source_type: Generated<string | null>;
-  collection: string | null;
-  record_id: string | null;
-  namespace: Generated<string | null>;
-  metadata: Generated<unknown | null>;
-  created_by: string | null;
   created_at: Generated<Date>;
 }
 
@@ -1195,29 +1054,6 @@ export interface ZvValidationRulesTable {
   tenant_id: string | null;
 }
 
-export interface ZvdAiEmbeddingsTable {
-  id: Generated<string>;
-  collection: string;
-  record_id: string;
-  field: Generated<string>;
-  text_content: Generated<string>;
-  embedding: unknown | null;
-  model: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvdAiSearchConfigTable {
-  id: Generated<string>;
-  collection: string;
-  fields: Generated<string[]>;
-  namespace: Generated<string>;
-  is_enabled: Generated<boolean>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvdBranchReviewRequestsTable {
   id: Generated<string>;
   branch_id: string;
@@ -1253,9 +1089,6 @@ export interface ZvdCollectionsTable {
   declared_file: unknown | null;
   default_grants: Generated<boolean>;
   written_by: string | null;
-  ai_search_enabled: Generated<boolean>;
-  ai_search_field: Generated<string | null>;
-  ai_embed_excluded_fields: Generated<string[]>;
 }
 
 export interface ZvdColumnPermissionsTable {
@@ -1513,14 +1346,6 @@ export interface DbSchema {
   session: SessionTable;
   user: UserTable;
   verification: VerificationTable;
-  zv_ai_chats: ZvAiChatsTable;
-  zv_ai_conversations: ZvAiConversationsTable;
-  zv_ai_features: ZvAiFeaturesTable;
-  zv_ai_memory: ZvAiMemoryTable;
-  zv_ai_messages: ZvAiMessagesTable;
-  zv_ai_providers: ZvAiProvidersTable;
-  zv_ai_queries: ZvAiQueriesTable;
-  zv_ai_usage: ZvAiUsageTable;
   zv_api_key_access_log: ZvApiKeyAccessLogTable;
   zv_api_keys: ZvApiKeysTable;
   zv_audit_log: ZvAuditLogTable;
@@ -1574,9 +1399,7 @@ export interface DbSchema {
   zv_panels: ZvPanelsTable;
   zv_pitr_config: ZvPitrConfigTable;
   zv_pitr_restore_points: ZvPitrRestorePointsTable;
-  zv_prompt_templates: ZvPromptTemplatesTable;
   zv_push_subscriptions: ZvPushSubscriptionsTable;
-  zv_rag_documents: ZvRagDocumentsTable;
   zv_rate_limit_configs: ZvRateLimitConfigsTable;
   zv_record_comments: ZvRecordCommentsTable;
   zv_request_logs: ZvRequestLogsTable;
@@ -1595,8 +1418,6 @@ export interface DbSchema {
   zv_tenant_users: ZvTenantUsersTable;
   zv_tenants: ZvTenantsTable;
   zv_validation_rules: ZvValidationRulesTable;
-  zvd_ai_embeddings: ZvdAiEmbeddingsTable;
-  zvd_ai_search_config: ZvdAiSearchConfigTable;
   zvd_branch_review_requests: ZvdBranchReviewRequestsTable;
   zvd_collections: ZvdCollectionsTable;
   zvd_column_permissions: ZvdColumnPermissionsTable;
