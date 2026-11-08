@@ -204,3 +204,16 @@ describe('the retired ai keyring', () => {
     );
   });
 });
+
+describe('an unknown keyring name', () => {
+  it('is refused, never sealed with the field key', async () => {
+    await withEnv('FIELD_ENCRYPTION_KEY', FIELD_KEY, async () => {
+      await expect(encryptWithKeyring('secret', 'ai' as any)).rejects.toThrow(
+        'Unknown keyring "ai"',
+      );
+      await expect(decryptWithKeyring('enc:v1:AAAA', 'nope' as any)).rejects.toThrow(
+        'Unknown keyring',
+      );
+    });
+  });
+});
