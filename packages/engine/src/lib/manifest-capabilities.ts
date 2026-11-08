@@ -1,0 +1,60 @@
+/**
+ * What an extension manifest asks consent for, read from its raw JSON. Pure:
+ * `extensions/consent.ts` decides with it, and `tenancy/resource-grants.ts`
+ * prunes with it when a new manifest is recorded, which neither subsystem
+ * could do through the other's barrel without a cycle.
+ */
+
+/** A job's consented egress authority, as a capability (ADR 0022 decision 5). */
+export const EGRESS_PREFIX = 'egress:';
+
+const strings = (v: unknown) =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+const jobsOf = (manifest: unknown): unknown[] => {
+  const jobs = ((manifest ?? {}) as { jobs?: unknown }).jobs;
+  return Array.isArray(jobs) ? jobs : [];
+};
+
+/**
+ * What a manifest asks consent for: its `permissions`, and one
+ * `egress:<authority>` per authority its jobs declare. Anything not a string
+ * is ignored, as it is for `permissions`.
+ */
+export function declaredCapabilities(manifest: unknown): string[] {
+  const egress = jobsOf(manifest).flatMap((j) =>
+    strings((j as { egress?: unknown } | null)?.egress).map((a) => `${EGRESS_PREFIX}${a}`),
+  );
+  return [
+    ...new Set([
+      ...strings((manifest as { permissions?: unknown } | null)?.permissions),
+      ...egress,
+    ]),
+  ];
+}
+
+/** Every slot name a manifest's jobs declare (`egressSlots`). */
+export function declaredSlots(manifest: unknown): Set<string> {
+  return new Set(
+    jobsOf(manifest).flatMap((j) => strings((j as { egressSlots?: unknown } | null)?.egressSlots)),
+  );
+}
+
+/** The slot a consent entry binds (`egress:<slot>=…`, ADR 0026), or null. */
+export function boundSlot(cap: string): string | null {
+  return /^egress:([a-z][a-z0-9_]*)=/.exec(cap)?.[1] ?? null;
+}
+
+/**
+ * The consent that survives a new manifest: what it still declares, and the
+ * bindings of the slots it still declares. A capability a version stopped
+ * asking for is not carried to a later version that asks again: that one
+ * asks again (owner decision 2026-11-08, ADR 0026 amendment).
+ */
+export function consentKeptBy(granted: readonly string[], manifest: unknown): string[] {
+  const declared = new Set(declaredCapabilities(manifest));
+  const slots = declaredSlots(manifest);
+  return granted.filter((c) => {
+    const slot = boundSlot(c);
+    return slot === null ? declared.has(c) : slots.has(slot);
+  });
+}

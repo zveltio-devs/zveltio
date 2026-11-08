@@ -33,6 +33,7 @@ import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { toJsonb } from '../jsonb.js';
+import { consentKeptBy } from '../manifest-capabilities.js';
 import {
   DEFAULT_ROLE_GRANTS,
   ENGINE_CASBIN_OBJECTS,
@@ -256,12 +257,58 @@ export async function recordManifest(db: Database, name: string, dir: string): P
   if (rows.length === 0) return false;
   const held = rows[0]?.manifest ?? null;
   if (olderVersion(manifest, held)) return false;
-  const { rows: written } = await sql`
+  const { rows: written } = await sql<{ changed: boolean }>`
     UPDATE zv_extension_registry SET manifest = ${toJsonb(manifest)}
      WHERE name = ${name} AND tenant_id IS NULL
        AND ${held === null ? sql`manifest IS NULL` : sql`manifest = ${toJsonb(held)}`}
+    RETURNING ${held === null ? sql`FALSE` : sql`${toJsonb(held)} <> ${toJsonb(manifest)}`} AS changed`.execute(
+    db,
+  );
+  if (written.length === 0) return false;
+  // A new manifest over a recorded one: the consent keeps only what it still asks for.
+  if (written[0]?.changed) await pruneConsent(db, name, manifest);
+  return true;
+}
+
+/**
+ * Drop from `name`'s consent what `manifest` no longer declares (owner
+ * decision 2026-11-08, ADR 0026 amendment). Consent was given to the code that
+ * asked for it: a later version that asks again is asked again, rather than
+ * inheriting it through a version that did not ask. No consent on record
+ * (`NULL`, an install that predates tracking) is left alone. Compare-and-set,
+ * so a decision committing meanwhile wins and this prune waits for the next
+ * record. Audited.
+ */
+async function pruneConsent(db: Database, name: string, manifest: unknown): Promise<void> {
+  const { rows } = await sql<{ granted: unknown }>`
+    SELECT granted_capabilities AS granted FROM zv_extension_registry
+     WHERE name = ${name} AND tenant_id IS NULL`.execute(db);
+  let granted: unknown = rows[0]?.granted ?? null;
+  if (typeof granted === 'string') granted = JSON.parse(granted);
+  if (!Array.isArray(granted)) return;
+  const kept = consentKeptBy(
+    granted.filter((c): c is string => typeof c === 'string'),
+    manifest,
+  );
+  if (kept.length === granted.length) return;
+  const { rows: pruned } = await sql`
+    UPDATE zv_extension_registry SET granted_capabilities = ${toJsonb([...kept].sort())}
+     WHERE name = ${name} AND granted_capabilities = ${toJsonb(granted)}
     RETURNING 1`.execute(db);
-  return written.length > 0;
+  if (pruned.length === 0) return;
+  // Imported here: the audit module reaches back into tenancy.
+  const { auditLog } = await import('../audit.js');
+  await auditLog(db, {
+    type: 'extension.capabilities.pruned',
+    tenantId: null,
+    resourceId: name,
+    resourceType: 'extension',
+    metadata: {
+      version: (manifest as { version?: unknown }).version ?? null,
+      dropped: granted.filter((c) => !kept.includes(c)),
+      kept,
+    },
+  }).catch(() => undefined);
 }
 
 /**
