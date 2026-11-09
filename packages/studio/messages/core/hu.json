@@ -1633,5 +1633,6 @@
   "mkt.egressPrivate": "Privát hálózat (felhő-metaadat soha)",
   "mkt.egressUnbound": "nincs kötve",
   "mkt.egressBound": "{slot} slot kötve ehhez: {name}",
-  "mkt.egressBindFailed": "A kötés sikertelen: {error}"
+  "mkt.egressBindFailed": "A kötés sikertelen: {error}",
+  "auth.secondFactorHint": "Adja meg a hitelesítő alkalmazás kódját vagy az egyik tartalékkódját."
 }

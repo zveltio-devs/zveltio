@@ -18,6 +18,25 @@ function setUser(next: unknown): void {
   currentUser = next;
 }
 
+async function authPost(path: string, body: unknown) {
+  const res = await api.fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || 'Sign in failed');
+  }
+  return res.json();
+}
+
+/** A 200 without a user is not a sign-in; saying so beats a silent bounce off the guard. */
+function setSignedIn(data: { user?: unknown }): void {
+  if (!data?.user) throw new Error('Sign in failed');
+  setUser(data.user);
+}
+
 export const auth = {
   get user() {
     return currentUser;
@@ -45,21 +64,25 @@ export const auth = {
     }
   },
 
-  async signIn(email: string, password: string) {
-    const res = await api.fetch(`/api/auth/sign-in/email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+  /**
+   * Resolves `{ twoFactor: true }` when the account has TOTP on: Better Auth
+   * then answers 200 `{ twoFactorRedirect }` with no session, only a short-lived
+   * `two_factor` cookie, and the caller must finish with `verifySecondFactor`.
+   * Reading that 200 as a sign-in sent the person to the admin guard, which
+   * bounced them back to the sign-in form with no error, every time.
+   */
+  async signIn(email: string, password: string): Promise<{ twoFactor: boolean }> {
+    const data = await authPost(`/api/auth/sign-in/email`, { email, password });
+    if (data.twoFactorRedirect) return { twoFactor: true };
+    setSignedIn(data);
+    return { twoFactor: false };
+  },
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Sign in failed');
-    }
-
-    const data = await res.json();
-    setUser(data.user);
-    return data;
+  /** Second sign-in step: six digits are an authenticator code, anything else a backup code. */
+  async verifySecondFactor(code: string): Promise<void> {
+    const trimmed = code.trim();
+    const path = /^\d{6}$/.test(trimmed) ? 'verify-totp' : 'verify-backup-code';
+    setSignedIn(await authPost(`/api/auth/two-factor/${path}`, { code: trimmed }));
   },
 
   async signOut() {

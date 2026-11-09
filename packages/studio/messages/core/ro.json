@@ -1633,5 +1633,6 @@
   "mkt.egressPrivate": "Rețea privată (niciodată metadata cloud)",
   "mkt.egressUnbound": "nelegat",
   "mkt.egressBound": "Slotul {slot} legat pentru {name}",
-  "mkt.egressBindFailed": "Legarea a eșuat: {error}"
+  "mkt.egressBindFailed": "Legarea a eșuat: {error}",
+  "auth.secondFactorHint": "Introduceți codul din aplicația de autentificare sau unul dintre codurile de rezervă."
 }

@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed: an account with an authenticator app (TOTP) could not sign in to Studio or the client portal.** The engine answers a correct password on such an account with `200 { twoFactorRedirect: true }` and no session. Studio read that as a sign-in, opened the requested page, and the admin guard sent the person back to the sign-in form with no message. The sign-in form now asks for the authenticator code, or one of the backup codes, and finishes the sign-in with it.
+
 ## [3.0.0-beta.108] - 2026-11-09
 
 **An extension can no longer read another extension's settings by picking a name that spells the same prefix.** `ctx.config.vars` handed an extension every variable under `ZVELTIO_EXT_<NAME>_`, with `<NAME>` the name upper-cased and `/`, `-`, `_` all folded to `_`. The prefix was not delimited and the fold not unique, so an extension named `billing-stripe` received `ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` (the `billing` extension's Stripe webhook secret, enough to forge its webhooks) as `WEBHOOK_SECRET`; `a-b` and `a_b` shared every key; and an extension named `runner` received the engine's `ZVELTIO_EXT_RUNNER_SOCKET` and `ZVELTIO_EXT_RUNNER_UID_BASE`. A key that another installed extension's prefix also spells, or that lies under the engine's `ZVELTIO_EXT_RUNNER_*` / `ZVELTIO_EXT_MEMORY_*`, is now handed to neither extension, and the engine logs the withheld key names at load. Which of the two the operator meant cannot be known, so neither gets it.

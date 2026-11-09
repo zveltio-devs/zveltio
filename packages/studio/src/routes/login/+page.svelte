@@ -57,11 +57,20 @@ const reasonMessage = $derived.by(() => {
   }
 });
 
+// Set once the password is accepted on an account with TOTP: the form then asks
+// for the authenticator (or backup) code instead of the password.
+let secondFactor = $state(false);
+let code = $state('');
+
 async function login() {
   error = '';
   loading = true;
   try {
-    await auth.signIn(email, password);
+    if (secondFactor) await auth.verifySecondFactor(code);
+    else if ((await auth.signIn(email, password)).twoFactor) {
+      secondFactor = true;
+      return;
+    }
     goto(redirectTo);
   } catch (err) {
     error = err instanceof Error ? err.message : m['auth.signInFailed']();
@@ -179,6 +188,20 @@ async function signInWithPasskey() {
         of that contract: `username` and `current-password` are what browsers
         and managers actually look for. -->
   <form class="card-body gap-4" onsubmit={(e) => { e.preventDefault(); login(); }}>
+   {#if secondFactor}
+    <div class="form-control">
+     <label class="label py-1" for="login-code"><span class="label-text text-sm">{m['stepUp.codeLabel']()}</span></label>
+     <!-- svelte-ignore a11y_autofocus -->
+     <input id="login-code" name="code" autocomplete="one-time-code" required autofocus
+            class="input font-mono" bind:value={code} aria-describedby="login-code-hint" />
+     <p id="login-code-hint" class="text-xs text-base-content/65 mt-1">{m['auth.secondFactorHint']()}</p>
+    </div>
+    <!-- The way out when the code step can no longer finish (its cookie lasts ten minutes). -->
+    <button type="button" class="btn btn-ghost btn-sm self-start"
+            onclick={() => { secondFactor = false; code = ''; error = ''; }}>
+     {m['common.cancel']()}
+    </button>
+   {:else}
     <div class="form-control">
      <label class="label py-1" for="login-email"><span class="label-text text-sm">{m['auth.email']()}</span></label>
      <input id="login-email" name="email" type="email" autocomplete="username" required
@@ -191,15 +214,16 @@ async function signInWithPasskey() {
      <input id="login-password" name="password" type="password" autocomplete="current-password"
             required class="input" bind:value={password} />
     </div>
+   {/if}
     {#if error}
      <div class="alert alert-error py-2 text-sm">{error}</div>
     {/if}
     <button type="submit" class="btn btn-primary w-full" disabled={loading}>
      {#if loading}<span class="loading loading-spinner loading-sm"></span>{/if}
-     {m['auth.signIn']()}
+     {secondFactor ? m['stepUp.verifyCode']() : m['auth.signIn']()}
     </button>
 
-    {#if browserSupportsPasskey()}
+    {#if browserSupportsPasskey() && !secondFactor}
      <div class="divider text-xs text-base-content/65 my-1">{m['auth.orDivider']()}</div>
      <button
       type="button"

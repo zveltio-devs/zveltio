@@ -232,6 +232,39 @@ describe('api — the 30s response cache and who it belongs to', () => {
   });
 });
 
+describe('auth — sign-in on an account with TOTP', () => {
+  it('asks for the second factor instead of reading the 200 as a session', async () => {
+    // Better Auth answers the password of a TOTP account with 200
+    // `{ twoFactorRedirect }` and no session. Read as a sign-in, it sent the
+    // person to the admin guard, which bounced them back to the form, silently.
+    const { auth } = await import('./auth.svelte.js');
+    respond(200, {});
+    await auth.signOut();
+
+    respond(200, { twoFactorRedirect: true, twoFactorMethods: ['totp'] });
+    expect(await auth.signIn('t@example.test', 'pw')).toEqual({ twoFactor: true });
+    expect(auth.isAuthenticated).toBe(false);
+
+    respond(200, { user: { id: 'user-t' } });
+    await auth.verifySecondFactor(' 123456 ');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/two-factor/verify-totp'),
+      expect.objectContaining({ body: JSON.stringify({ code: '123456' }) }),
+    );
+    expect(auth.user.id).toBe('user-t');
+
+    respond(200, { user: { id: 'user-t' } });
+    await auth.verifySecondFactor('abcde-fghij');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/two-factor/verify-backup-code'),
+      expect.anything(),
+    );
+
+    respond(401, { message: 'Invalid code' });
+    await expect(auth.verifySecondFactor('000000')).rejects.toThrow('Invalid code');
+  });
+});
+
 describe('api — a configuration change without a step-up', () => {
   it('opens the step-up for the action the engine names and sends once more', async () => {
     const refusal = { code: 'step_up_required', errors: { action: 'config' } };

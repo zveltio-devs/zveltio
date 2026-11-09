@@ -1633,5 +1633,6 @@
   "mkt.egressPrivate": "Privénetwerk (nooit cloudmetadata)",
   "mkt.egressUnbound": "niet gekoppeld",
   "mkt.egressBound": "Slot {slot} gekoppeld voor {name}",
-  "mkt.egressBindFailed": "Koppelen mislukt: {error}"
+  "mkt.egressBindFailed": "Koppelen mislukt: {error}",
+  "auth.secondFactorHint": "Voer de code uit je authenticator-app in, of een van je back-upcodes."
 }
