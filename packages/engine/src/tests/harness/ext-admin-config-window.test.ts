@@ -65,9 +65,12 @@ export default {
       await ctx.db.insertInto('${TABLE}').values({ title: 'early' }).execute();
       return (await may(c, 'admin', '*')) ? save(c, 'settings') : c.json({ error: 'no' }, 403);
     });
-    // Swallows whatever the check throws, as several extensions do.
-    app.post('/swallow', async (c) =>
-      (await may(c, 'admin', '*').catch(() => false)) ? save(c, 'swallow') : c.json({ error: 'Forbidden' }, 403));
+    // Swallows whatever the check throws, as several extensions do — after a
+    // write, so the refusal it swallowed must still undo that write.
+    app.post('/swallow', async (c) => {
+      await ctx.db.insertInto('${TABLE}').values({ title: 'early-swallow' }).execute();
+      return (await may(c, 'admin', '*').catch(() => false)) ? save(c, 'swallow') : c.json({ error: 'Forbidden' }, 403);
+    });
     app.post('/items', async (c) =>
       (await may(c, '${COLL}', 'create')) ? save(c, 'item') : c.json({ error: 'no' }, 403));
     ${worker ? '' : publicRoute}
@@ -235,6 +238,8 @@ d('an extension mutation authorized against admin needs the configuration window
     expect(await titles()).toEqual([
       'early',
       'early',
+      'early-swallow',
+      'early-swallow',
       'settings',
       'settings',
       'swallow',
