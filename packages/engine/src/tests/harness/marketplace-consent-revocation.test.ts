@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
 import { resolveExtensionsBase } from '../../lib/extensions/extension-paths.js';
 import { clearRevocationCache } from '../../lib/extensions/revocations.js';
 import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
@@ -221,6 +222,47 @@ d('capability approval + revocation (in-process)', () => {
       if (res.status === 451) {
         const body = (await res.json()) as { detail: string };
         expect(body.detail).toContain('compromised');
+      }
+    });
+
+    it('refuses to UPDATE to a revoked version too', async () => {
+      // An update brings new code onto disk exactly as an install does.
+      // Update reads the live catalogue (it must offer a newer version), then
+      // asks about revocation before fetching anything.
+      _resetCatalogCacheForTests();
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/extensions/list')) {
+          return Response.json({ extensions: [{ name: HELLO_EXT, version: '9.0.0' }] });
+        }
+        if (url.includes('/api/revocations')) {
+          return Response.json({
+            generated_at: new Date().toISOString(),
+            revocations: [
+              {
+                name: HELLO_EXT,
+                version: '*',
+                reason: 'A build pulled after a supply-chain compromise.',
+                severity: 'critical',
+                advisory_url: null,
+                revoked_at: new Date().toISOString(),
+              },
+            ],
+          });
+        }
+        throw new Error('nothing past the revocation check may be fetched');
+      }) as typeof fetch;
+      // Only an extension installed from the registry is updated from it.
+      await sql`UPDATE zv_extension_registry SET installed_sha256 = ${'0'.repeat(64)},
+                  installed_version = '1.0.0' WHERE name = ${HELLO_EXT}`.execute(db);
+      try {
+        const res = await app.request(`/api/marketplace/${HELLO_EXT}/update`, post('', {}));
+        const body = (await res.json()) as { detail: string };
+        expect({ status: res.status, detail: body.detail }).toMatchObject({ status: 451 });
+        expect(body.detail).toContain('supply-chain');
+      } finally {
+        await sql`UPDATE zv_extension_registry SET installed_sha256 = NULL, installed_version = NULL
+                    WHERE name = ${HELLO_EXT}`.execute(db);
       }
     });
 
