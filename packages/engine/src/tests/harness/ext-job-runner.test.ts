@@ -8,6 +8,7 @@
  * and 5 of the ADR's "Verified in implementation" list.
  */
 
+import { effectiveTimeZone } from '../../lib/tenancy/timezone.js';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -314,7 +315,10 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
       () => rows('from-deno'),
       (r) => r.length > 0,
     );
-    expect(got).toEqual([{ tenant_id: OTHER, label: 'from-deno@3' }]);
+    // The tenant's effective zone (tenant, else the instance setting, else UTC):
+    // a hard-coded 'UTC' failed on any database whose instance zone is set.
+    const zone = await effectiveTimeZone(db, OTHER);
+    expect(got).toEqual([{ tenant_id: OTHER, label: `from-deno@${zone.length}` }]);
     const a = await until(
       () => audit(id),
       (r) => r.length > 0,

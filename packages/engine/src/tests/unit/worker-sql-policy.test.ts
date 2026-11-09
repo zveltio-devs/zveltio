@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   assertWorkerSqlAllowed,
+  collectionsWritten,
   coveringExtensionNames,
   noteExtensionNames,
   ownedPrefixFor,
@@ -534,5 +535,30 @@ describe('assertWorkerSqlAllowed — the engine metadata that shares the zvd_ pr
 
   it('still lets a collection through', () => {
     expect(allowed('SELECT * FROM zvd_invoices')).toBe(true);
+  });
+});
+
+describe('ONLY before a table', () => {
+  it('reads the table after ONLY, bare or parenthesised, and checks it as any other', () => {
+    for (const q of [
+      'UPDATE ONLY zvd_orders SET x = 1',
+      'DELETE FROM ONLY zvd_orders',
+      'SELECT * FROM ONLY zvd_orders',
+      'DELETE FROM ONLY (zvd_orders)',
+    ]) {
+      expect(() => assertWorkerSqlAllowed('crm', q, ENGINE)).not.toThrow();
+    }
+    for (const q of [
+      'UPDATE ONLY zvd_permissions SET v0 = 1',
+      'DELETE FROM ONLY (zvd_permissions)',
+      'SELECT * FROM ONLY "user"',
+    ]) {
+      expect(() => assertWorkerSqlAllowed('crm', q, ENGINE)).toThrow(/zvd_permissions|user/);
+    }
+  });
+
+  it('counts a write through ONLY as a write to that collection', () => {
+    expect(collectionsWritten('UPDATE ONLY zvd_orders SET x = 1')).toEqual(['orders']);
+    expect(collectionsWritten('DELETE FROM ONLY (zvd_orders)')).toEqual(['orders']);
   });
 });
