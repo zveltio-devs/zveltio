@@ -494,6 +494,7 @@ const SECTIONS: Section[] = [
       `${E}lib/wasm-extension-host.ts`,
       `${E}lib/extensions/deno.ts`,
       `${E}lib/extensions/job-runner.ts`,
+      `${E}lib/extensions/tcp-relay.ts`,
       `${E}lib/socket-ban.ts`,
     ],
   },

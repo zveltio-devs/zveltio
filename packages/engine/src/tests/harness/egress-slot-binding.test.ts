@@ -46,7 +46,10 @@ d('bind-egress-slot', () => {
       JSON.stringify({
         name: EXT,
         permissions: ['data:system'],
-        jobs: [{ name: 'ask', input: { type: 'object' }, egressSlots: ['provider'] }],
+        jobs: [
+          { name: 'ask', input: { type: 'object' }, egressSlots: ['provider'] },
+          { name: 'sync', input: { type: 'object' }, egressSlots: [{ name: 'mail', kind: 'tcp' }] },
+        ],
       }),
     );
     await sql`INSERT INTO zv_extension_registry (name, display_name, is_installed, is_enabled)
@@ -107,6 +110,18 @@ d('bind-egress-slot', () => {
     expect((await bind({ slot: 'provider', authorities: ['*.example.com'] })).status).toBe(400);
     expect((await bind({ slot: 'provider', authorities: [], private: true })).status).toBe(400);
     expect((await bind({ slot: 'provider', authorities: 'a.example.com' })).status).toBe(400);
+  });
+
+  it('binds a tcp slot only to host:port (ADR 0026 amendment)', async () => {
+    const res = await bind({
+      slot: 'mail',
+      authorities: ['imap.example.com:993', 'smtp.example.com'],
+    });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain('smtp.example.com');
+    expect((await bind({ slot: 'mail', authorities: ['imap.example.com:993'] })).status).toBe(200);
+    expect(await readGranted(db, EXT)).toContain('egress:mail=imap.example.com:993');
+    expect((await bind({ slot: 'mail', authorities: [] })).status).toBe(200);
   });
 
   it("refuses a tenant admin, stepped up: where an extension's network goes is the operator's", async () => {

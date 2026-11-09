@@ -377,6 +377,28 @@ from a private authority never leaves it. A rebinding applies to the next fetch.
 A slot name belongs to the extension: every job that declares `provider`
 shares its one binding.
 
+**A TCP stream** (ADR 0026 amendment): IMAP, SMTP and other protocols that are
+not HTTP. Declare the slot as `{ "name": "mail", "kind": "tcp" }` in
+`egressSlots`; the operator binds it like any slot, but each authority carries
+its port (`imap.example.com:993`). The job never holds a socket: the engine
+opens it and relays the bytes.
+
+```ts
+const s = await host.egress.connect('mail', { host: 'imap.example.com', port: 993, tls: 'implicit' });
+await s.write('a1 CAPABILITY\r\n');
+const greeting = await s.read(); // Uint8Array, at most 64 KiB; null once the server closed
+await s.close();
+```
+
+`tls` is `implicit` (TLS from the start), `starttls` (plaintext until the job
+calls `await s.startTls()` after the protocol's `STARTTLS` exchange; refused
+while the server's plaintext is unread) or `none`. The certificate is always
+verified against `host`. A run opens at most 4 streams and moves at most
+64 MiB over them; what it writes also crosses the run's 16 MiB channel as
+base64, so about 12 MiB of writes per run. A stream idle for 60 s is closed;
+every stream closes when the run ends. A rebinding applies to the next
+`connect`, not to a stream already open. Engines from 3.0.0-beta.109.
+
 ---
 
 ## 5. Writing engine code

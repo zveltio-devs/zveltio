@@ -315,9 +315,24 @@ export const ManifestSchema = z
            * slot; an operator binds its authorities as `egress:<slot>=…`, and
            * until then the slot reaches nothing. A job that declares any runs
            * in the Deno runner. Read the binding with `host.egress.slot(name)`.
+           *
+           * `{ name, kind: "tcp" }` declares a TCP slot (ADR 0026 amendment):
+           * each bound authority carries a port, and the job opens a relayed
+           * stream with `host.egress.connect(name, …)`; it never holds a socket.
+           * A bare name is `kind: "http"`.
            */
           egressSlots: z
-            .array(z.string().regex(SLOT_NAME_RE, 'a slot name is [a-z][a-z0-9_]*'))
+            .array(
+              z.union([
+                z.string().regex(SLOT_NAME_RE, 'a slot name is [a-z][a-z0-9_]*'),
+                z
+                  .object({
+                    name: z.string().regex(SLOT_NAME_RE, 'a slot name is [a-z][a-z0-9_]*'),
+                    kind: z.enum(['http', 'tcp']).default('http'),
+                  })
+                  .strict(),
+              ]),
+            )
             .default([]),
           /**
            * Ceilings of a run in the Deno runner (ADR 0022 decision 5); an inline
@@ -490,6 +505,7 @@ export const ManifestSchema = z
       }
     });
     const jobNames = new Set<string>();
+    const slotKinds = new Map<string, string>();
     m.jobs.forEach((j, i) => {
       if (jobNames.has(j.name)) {
         ctx.addIssue({
@@ -509,12 +525,26 @@ export const ManifestSchema = z
           message: `job "${j.name}": ${(err as Error).message}`,
         });
       }
-      if (new Set(j.egressSlots).size !== j.egressSlots.length) {
+      const slotNames = j.egressSlots.map((s) => (typeof s === 'string' ? s : s.name));
+      if (new Set(slotNames).size !== slotNames.length) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['jobs', i, 'egressSlots'],
           message: `job "${j.name}": an egress slot is declared twice`,
         });
+      }
+      // One binding per slot name serves every job: its kind is one too.
+      for (const s of j.egressSlots) {
+        const [name, kind] = typeof s === 'string' ? [s, 'http'] : [s.name, s.kind];
+        const seen = slotKinds.get(name);
+        if (seen !== undefined && seen !== kind) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['jobs', i, 'egressSlots'],
+            message: `job "${j.name}": slot "${name}" is declared both "${seen}" and "${kind}"`,
+          });
+        }
+        slotKinds.set(name, kind);
       }
       if (j.egress.length === 0 && j.egressSlots.length === 0 && j.timeoutSeconds > 60) {
         ctx.addIssue({

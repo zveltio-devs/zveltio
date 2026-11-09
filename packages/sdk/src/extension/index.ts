@@ -1629,8 +1629,35 @@ export interface JobHost {
    * authorities as it reaches consented ones; a private address only when the
    * operator marked the binding private, cloud metadata never. Read it each
    * run: an operator may rebind it at any time. Engines from 3.0.0-beta.104.
+   *
+   * `connect(slot, { host, port, tls })` opens a byte stream to a `host:port`
+   * bound to a slot declared `{ name, kind: "tcp" }` (ADR 0026 amendment:
+   * IMAP, SMTP). The engine holds the socket and verifies TLS against `host`:
+   * `implicit` from the start, `starttls` once the job calls `startTls()`
+   * (refused while the server's plaintext is unread), `none` never. `read`
+   * answers up to `max` bytes (64 KiB at most), or null once the server
+   * closed. A run opens at most 4 streams and moves at most 64 MiB; a stream
+   * idle for 60 s is closed. Engines from 3.0.0-beta.109.
    */
-  egress?: { slot: (name: string) => Promise<string[]> };
+  egress?: {
+    slot: (name: string) => Promise<string[]>;
+    connect?: (slot: string, options: JobTcpOptions) => Promise<JobTcpStream>;
+  };
+}
+
+/** Where `host.egress.connect` opens a stream (ADR 0026 amendment). */
+export interface JobTcpOptions {
+  host: string;
+  port: number;
+  tls: 'implicit' | 'starttls' | 'none';
+}
+
+/** A relayed TCP stream; the engine holds the socket. */
+export interface JobTcpStream {
+  read(max?: number): Promise<Uint8Array | null>;
+  write(data: Uint8Array | string): Promise<void>;
+  startTls(): Promise<void>;
+  close(): Promise<void>;
 }
 
 /**
