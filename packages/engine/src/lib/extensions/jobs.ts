@@ -28,6 +28,8 @@ import type { z } from 'zod';
 import type {
   ExtensionJob,
   HostCollections,
+  HostFile,
+  HostFiles,
   RequestUser,
   UpdateExpect,
   ZveltioExtension,
@@ -37,7 +39,10 @@ import type { Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import {
   dataApiRead,
+  apiKeyHoldsScope,
   dataApiWriteDetached,
+  isApiKeyPrincipal,
+  STORAGE_SCOPE,
   type JobQueue,
   jobQueue,
   onJobQueueStart,
@@ -71,8 +76,23 @@ import {
 } from './actions.js';
 import { EGRESS_LIMITS, parseRequest, performEgress } from '../edge-functions/egress.js';
 import { EGRESS_PREFIX, readGranted, slotBindings } from './consent.js';
+import { problem } from '../problem.js';
+import { getStorage } from '../storage/index.js';
+import {
+  type FileActor,
+  type FileRefusal,
+  readableFile,
+  removeFile,
+  storeFile,
+} from '../stored-files.js';
 import { ensureDeno } from './deno.js';
-import { type HostCall, jobPlacement, runInDeno, runnerAnswers } from './job-runner.js';
+import {
+  fromBase64Strict,
+  type HostCall,
+  jobPlacement,
+  runInDeno,
+  runnerAnswers,
+} from './job-runner.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 
 export interface CompiledJob {
@@ -106,7 +126,22 @@ interface JobPayload {
   enqueuedBy: string;
   /** The `"user"` row the job's writes are authored by (`rowAuthorId` of the enqueuer). */
   author: string | null;
+  /**
+   * What the enqueuer may do to stored files (`read`, `create`, `delete`): all
+   * three for a session, a member key's `$storage` scope for a key (ADR 0031).
+   * Absent on jobs queued before it existed: none for a key, all for a user.
+   */
+  storage?: string[];
   input: unknown;
+}
+
+const STORAGE_ACTIONS = ['read', 'create', 'delete'] as const;
+
+/** `JobPayload.storage` for a job `user` enqueues: a key never passes on more than it holds. */
+export function storageActionsOf(user: RequestUser): string[] {
+  return isApiKeyPrincipal(user)
+    ? STORAGE_ACTIONS.filter((a) => apiKeyHoldsScope(user.scopes, STORAGE_SCOPE, a))
+    : [...STORAGE_ACTIONS];
 }
 
 /**
@@ -118,6 +153,8 @@ const registered = new Map<
   {
     jobs: ReadonlyMap<string, CompiledJob>;
     system: boolean;
+    /** Holds `files`: its jobs reach stored files as their author (ADR 0031). */
+    files: boolean;
     unload: AbortController;
   }
 >();
@@ -262,6 +299,7 @@ export function registerJobs(
   registered.set(extName, {
     jobs,
     system: capabilities.includes('data:system'),
+    files: capabilities.includes('files'),
     unload: new AbortController(),
   });
   // Subscribed on first use, not at import: in the compiled binary this module
@@ -411,7 +449,17 @@ export async function enqueueJob(
     throw new Error(`action "${action.name}" could not enqueue job "${job}": ${why}`);
   };
   if (!action.enqueues.has(job)) refuse('its manifest does not list it in enqueues');
-  return sendJob(extName, job, input, refuse, p.trx, p.tenantId, p.user.id, rowAuthorId(p.user));
+  return sendJob(
+    extName,
+    job,
+    input,
+    refuse,
+    p.trx,
+    p.tenantId,
+    p.user.id,
+    rowAuthorId(p.user),
+    storageActionsOf(p.user),
+  );
 }
 
 /**
@@ -452,7 +500,17 @@ export async function enqueueFromPublicRoute(
   if (!beforeRequestTransactionEnds(() => held)) refuse('its request is over');
   try {
     const enqueuedBy = `ext:${extName}:route`;
-    const id = await sendJob(extName, job, input, refuse, req.trx, req.tenantId, enqueuedBy, null);
+    const id = await sendJob(
+      extName,
+      job,
+      input,
+      refuse,
+      req.trx,
+      req.tenantId,
+      enqueuedBy,
+      null,
+      [],
+    );
     const { trx } = req;
     // `sendJob` refused a request without one; a failed audit INSERT must not abort the request.
     if (trx) {
@@ -485,6 +543,7 @@ async function sendJob(
   tenantId: string | null,
   enqueuedBy: string,
   author: string | null,
+  storage: string[],
 ): Promise<string> {
   const reg = registered.get(extName);
   const def = reg?.jobs.get(job);
@@ -502,7 +561,7 @@ async function sendJob(
   const queue = working.get(jobQueueName(extName, job));
   if (!queue) return refuse('its queue is not being worked');
   await queue.ready;
-  const payload: JobPayload = { tenantId, enqueuedBy, author, input: parsed.data };
+  const payload: JobPayload = { tenantId, enqueuedBy, author, storage, input: parsed.data };
   // pg-boss's own INSERT, on the request transaction: committed or rolled back
   // with it. As the engine's role — `zveltio_rls` holds nothing on `pgboss`, and
   // granting it would let any tenant statement queue the engine's DDL jobs.
@@ -596,21 +655,48 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     // Outside any tenant context (`work`), so the transaction's domain is this
     // tenant, not one inherited from wherever pg-boss resumed.
     const { runner } = def;
+    // What `host.files` may do as the author (ADR 0031): the run's byte budget
+    // across its transactions, and what the enqueuer could do to stored files.
+    const fileGrant = {
+      held: reg.files,
+      author: data.author,
+      actions: new Set(
+        data.storage ??
+          (data.enqueuedBy.startsWith('apikey:') || !data.author ? [] : STORAGE_ACTIONS),
+      ),
+      budget: { bytes: 0 },
+    };
     // In `tenantId`'s transaction, as the job's principal: the run's, or one per call.
-    const inTenant = <T>(fn: (c: HostCollections) => Promise<T>) =>
-      withTenantIsolation(tenantId, async (trx) => {
-        await publishApiKeyActor(user.id, false, user.scopes, undefined, '', issuer, author);
-        return fn(
-          hostCollections(
-            `job "${job}"`,
-            def,
-            jobData(user, trx, tenantId, extName),
-            secretReveal(trx, tenantId, extName),
-          ),
-        );
-      });
+    // Stored bytes follow the transaction: removed if it rolls back, deleted once it commits.
+    const inTenant = async <T>(fn: (h: JobCallHost) => Promise<T>): Promise<T> => {
+      const effects = txEffects();
+      let out: T;
+      try {
+        out = await withTenantIsolation(tenantId, async (trx) => {
+          await publishApiKeyActor(user.id, false, user.scopes, undefined, '', issuer, author);
+          return fn({
+            collections: hostCollections(
+              `job "${job}"`,
+              def,
+              jobData(user, trx, tenantId, extName),
+              secretReveal(trx, tenantId, extName),
+            ),
+            files: jobFiles(extName, trx, tenantId, fileGrant, effects),
+          });
+        });
+      } catch (err) {
+        await effects.settle(false);
+        throw err;
+      }
+      await effects.settle(true);
+      return out;
+    };
+    // At most two file calls of a run at once: each holds its bytes whole.
+    const fileCalls = limiter(Number.POSITIVE_INFINITY, 2, 'file calls');
+    const call = (h: JobCallHost, name: HostCall, args: unknown[]) =>
+      name.startsWith('files.') ? fileCalls(() => jobCall(h, name, args)) : jobCall(h, name, args);
     if (!runner) {
-      await inTenant((collections) => def.run!(input, { collections, timezone }));
+      await inTenant(({ collections, files }) => def.run!(input, { collections, timezone, files }));
       return;
     }
     const deno = await ensureDeno();
@@ -629,11 +715,11 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
       });
     // No egress: one transaction for the run, as inline. A failure rolls it all back.
     if (runner.egress.length === 0 && runner.egressSlots.length === 0) {
-      await inTenant((collections) =>
+      await inTenant((h) =>
         run((name, args) =>
           name === 'fetch'
             ? Promise.reject(new Error('this job declares no egress'))
-            : hostCall(collections, name, args),
+            : call(h, name, args),
         ),
       );
       return;
@@ -711,15 +797,17 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
           const granted = await readGranted(getDb(), extName);
           return slotBindings(granted, new Set([slot])).get(slot)?.authorities ?? [];
         }
-        const p = dbCalls(async () => {
-          const now = await getDb()
-            .selectFrom('zv_tenants')
-            .select('status')
-            .where('id', '=', tenantId)
-            .executeTakeFirst();
-          if (now?.status !== 'active') throw new Error(`tenant ${tenantId} is no longer active`);
-          return inTenant((collections) => hostCall(collections, name, args));
-        });
+        const p = (name.startsWith('files.') ? fileCalls : passThrough)(() =>
+          dbCalls(async () => {
+            const now = await getDb()
+              .selectFrom('zv_tenants')
+              .select('status')
+              .where('id', '=', tenantId)
+              .executeTakeFirst();
+            if (now?.status !== 'active') throw new Error(`tenant ${tenantId} is no longer active`);
+            return inTenant((h) => jobCall(h, name, args));
+          }),
+        );
         writing.add(p);
         void p.finally(() => writing.delete(p)).catch(() => undefined);
         return p;
@@ -792,6 +880,9 @@ let tcpRelayModule: Promise<typeof import('./tcp-relay.js')> | null = null;
 const loadTcpRelay = () => (tcpRelayModule ??= import('./tcp-relay.js'));
 /** Tests: whether any run has loaded the relay. */
 export const _tcpRelayLoadedForTests = (): boolean => tcpRelayModule !== null;
+
+/** A `limiter` that limits nothing. */
+const passThrough = <T>(fn: () => Promise<T>): Promise<T> => fn();
 
 /** Seconds one fetch may take, its body included. */
 const FETCH_TIMEOUT_S = 30;
@@ -918,7 +1009,205 @@ export async function hostCall(c: HostCollections, name: HostCall, a: unknown[])
     case 'tcp.startTls':
     case 'tcp.close':
       throw new Error('this job declares no tcp slot');
+    case 'files.put':
+    case 'files.get':
+    case 'files.delete':
+      throw new Error(`${name} is not a collection call`);
   }
+}
+
+/** What one host call of a run reaches, in the transaction it runs in. */
+interface JobCallHost {
+  collections: HostCollections;
+  files: HostFiles;
+}
+
+/** One Deno runner call: `files.*` to `h.files`, its bytes as base64 on the channel; the rest to `hostCall`. */
+async function jobCall(h: JobCallHost, name: HostCall, a: unknown[]): Promise<unknown> {
+  if (!name.startsWith('files.')) return hostCall(h.collections, name, a);
+  const str = (i: number, what: string): string => {
+    if (typeof a[i] !== 'string') throw new Error(`${name}: ${what} must be a string`);
+    return a[i] as string;
+  };
+  switch (name) {
+    case 'files.put':
+      return h.files.put(str(0, 'name'), fromBase64Strict(str(1, 'bytes'), 'files.put: bytes'));
+    case 'files.get': {
+      const f = await h.files.get(str(0, 'id'));
+      return f && { ...f, bytes: Buffer.from(f.bytes).toString('base64') };
+    }
+    case 'files.delete':
+      await h.files.delete(str(0, 'id'));
+      return null;
+  }
+  throw new Error(`${name} is not a files call`);
+}
+
+/**
+ * ADR 0031: what one call, and one run, of a job may move through `host.files`.
+ * Mail attachments run to 25 MB; the channel carries them base64, and the
+ * engine holds a call's bytes whole (the storage driver's `put` and `get` do).
+ */
+export const JOB_FILE_LIMITS = { callBytes: 32 * 1024 * 1024, runBytes: 64 * 1024 * 1024 };
+
+/** Work a transaction's outcome decides, run once it settles; a late one runs as it would have. */
+function txEffects() {
+  type Fn = () => Promise<unknown>;
+  let state: 'open' | 'committed' | 'rolled-back' = 'open';
+  const queued = { committed: [] as Fn[], 'rolled-back': [] as Fn[] };
+  const run = (fns: Fn[]) =>
+    Promise.all(
+      fns.map((fn) =>
+        fn().catch((err: Error) => console.warn('[ext-jobs] host.files:', err?.message ?? err)),
+      ),
+    );
+  const on = (when: 'committed' | 'rolled-back', fn: Fn) => {
+    if (state === 'open') queued[when].push(fn);
+    else if (state === when) void run([fn]);
+  };
+  return {
+    afterCommit: (fn: Fn) => on('committed', fn),
+    afterRollback: (fn: Fn) => on('rolled-back', fn),
+    settle: async (committed: boolean) => {
+      state = committed ? 'committed' : 'rolled-back';
+      await run(queued[state]);
+    },
+  };
+}
+type TxEffects = ReturnType<typeof txEffects>;
+
+/**
+ * `host.files` of a job run (ADR 0031): `/api/storage`'s own checks
+ * (lib/stored-files.ts) in the job's tenant transaction `trx`, as the job's
+ * author — the user whose action enqueued it, as a row rule sees it (ADR
+ * 0028) — never as a tenant admin, as a member key without `rls_bypass` is
+ * not, and never beyond the `$storage` scope of the key that enqueued it.
+ * Needs `files`; a job with no author has no files. Bytes follow `trx`: a put's
+ * are removed if it rolls back, a delete's go only once it commits.
+ */
+function jobFiles(
+  extName: string,
+  trx: Database,
+  tenantId: string,
+  grant: {
+    held: boolean;
+    author: string | null;
+    actions: ReadonlySet<string>;
+    budget: { bytes: number };
+  },
+  effects: TxEffects,
+): HostFiles {
+  const { author, budget } = grant;
+  const as = (member: string, action: (typeof STORAGE_ACTIONS)[number]): FileActor => {
+    if (!grant.held) {
+      throw problem(
+        'capability_required',
+        403,
+        `host.files.${member}: "${extName}" does not hold the "files" capability ` +
+          '(declared in its manifest and approved by an administrator)',
+      );
+    }
+    if (!author) {
+      throw problem(
+        'file_author_required',
+        403,
+        `host.files.${member}: a job enqueued without a user (a public route) has no files`,
+      );
+    }
+    if (!grant.actions.has(action)) {
+      throw problem(
+        'scope_required',
+        403,
+        `host.files.${member}: the API key that enqueued this job lacks ${STORAGE_SCOPE} for ${action}`,
+      );
+    }
+    return { tenantId, principalId: author, author, apiKeyRow: null, seesAll: false };
+  };
+  // Asked before the bytes are read or stored, so a refused call costs nothing.
+  const room = (member: string, n: number) => {
+    const { callBytes, runBytes } = JOB_FILE_LIMITS;
+    if (n > callBytes) {
+      throw problem(
+        'file_too_large',
+        413,
+        `host.files.${member}: ${n} bytes; a call moves at most ${callBytes}`,
+      );
+    }
+    if (budget.bytes + n > runBytes) {
+      throw problem(
+        'file_budget_exceeded',
+        413,
+        `host.files.${member}: a run moves at most ${runBytes} bytes`,
+      );
+    }
+  };
+  // A write that fails inside the run's transaction must not abort it for the
+  // job's next call, which a job that catches the error goes on to make.
+  const inSavepoint = <T>(fn: () => Promise<T>) =>
+    withSavepoint(trx, 'host_files', fn, (err) => {
+      throw err;
+    });
+  const refused = (member: string, r: FileRefusal) =>
+    problem('file_refused', r.status, `host.files.${member}: ${r.body.error}`);
+  const describe = (f: {
+    id: string;
+    original_name: string;
+    mimetype: string;
+    size: unknown;
+  }): HostFile => ({
+    id: f.id,
+    name: f.original_name,
+    contentType: f.mimetype,
+    size: Number(f.size),
+  });
+  const storage = getStorage();
+  return {
+    put: async (name, bytes) => {
+      const actor = as('put', 'create');
+      if (typeof name !== 'string' || !(bytes instanceof Uint8Array)) {
+        throw new Error('host.files.put: (name: string, bytes: Uint8Array)');
+      }
+      room('put', bytes.byteLength);
+      budget.bytes += bytes.byteLength;
+      const r = await inSavepoint(() => storeFile(trx, actor, { name, bytes }));
+      if (!('file' in r)) throw refused('put', r);
+      const path = r.file.storage_path;
+      if (storage.isConfigured()) effects.afterRollback(() => storage.delete(path));
+      return describe(r.file);
+    },
+    get: async (id) => {
+      const file = await readableFile(trx, as('get', 'read'), String(id));
+      if (!file) return null;
+      // The row's size first, so a file past the limits is never read into memory.
+      room('get', Number(file.size));
+      if (!storage.isConfigured()) {
+        throw problem('storage_not_configured', 503, 'Storage not configured');
+      }
+      const obj = await storage.get(file.storage_path).catch((err: unknown) => {
+        console.error('storage: read failed', file.id, err);
+        return undefined;
+      });
+      if (!obj) {
+        throw problem(
+          'file_bytes_unavailable',
+          502,
+          `host.files.get: ${file.id} could not be read`,
+        );
+      }
+      room('get', obj.bytes.byteLength);
+      budget.bytes += obj.bytes.byteLength;
+      return { ...describe(file), bytes: obj.bytes };
+    },
+    delete: async (id) => {
+      const actor = as('delete', 'delete');
+      const r = await inSavepoint(() =>
+        removeFile(trx, actor, String(id), (path) => {
+          if (storage.isConfigured()) effects.afterCommit(() => storage.delete(path));
+        }),
+      );
+      if (!('ok' in r)) throw refused('delete', r);
+    },
+  };
 }
 
 /**

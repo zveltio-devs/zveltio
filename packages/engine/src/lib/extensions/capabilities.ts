@@ -111,7 +111,10 @@ export const CAPABILITIES = [
   'data:system',
   /** Send notifications to users. */
   'notifications',
-  /** Read/extract from stored files, move to trash, schedule indexing. */
+  /**
+   * Stored files: `moveToTrash`, and a job's `host.files` — put, get and delete
+   * as the job's author, through `/api/storage`'s own checks (ADR 0031).
+   */
   'files',
   /** Render PDFs and HTML templates. */
   'documents',

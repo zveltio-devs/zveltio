@@ -299,7 +299,7 @@ your `ctx`, not inside your own code.
 | `data:write` | `createRecord`, `updateRecord`, `deleteRecord` — write a collection record through the data API's own handlers (access check, column permissions, row policies, alters, entity access, hooks, revisions, webhooks, flows, realtime) as the caller the engine authenticated for the request `c` you pass. There is no identity parameter; outside that request they throw. |
 | `data:system` | `asSystem(collections, fn, { reason })` — run `fn` as the system inside the running tenant for the named collections (`['products']`): collection permissions stand down for `ctx.db` during the call, tenant isolation and the table guard do not. Only inside a tenant's work (a request, or a job in `withTenantIsolation`). Every call writes an `extension.as_system` audit row when it settles, with the extension, the user, the collections, the reason and the outcome (`ok`/`error`); `{ actor: (result) => 'scim_token:' + result.id }` adds who called, from `fn`'s result, as `metadata.claimed_actor` — the extension's word, never the row's user. For work that is more than the caller may do — stock a customer cannot edit, a counter a public form bumps; what can be said as a permission (the `public` role reading published rows, creating form responses) belongs in the permissions instead. Also `enqueue(c, job, input)`: queue a job from the handler of a `publicRoutes` entry the job lists in `fromPublicRoutes`, in the request's transaction and tenant, with no author (an inbound webhook; ADR 0018, see authoring.md). |
 | `notifications` | `sendNotification`. |
-| `files` | `moveToTrash`. |
+| `files` | `moveToTrash`; a job's `host.files` — put, get and delete stored files as the job's author (ADR 0031, below). |
 | `documents` | `generatePDF`, `generatePDFAsync`, `renderTemplate`. |
 | `edge-functions` | `runEdgeFunction`. |
 | `introspection` | `introspectSchema`, `extensionRegistry`, `runQualityScan`. |
@@ -394,10 +394,38 @@ await s.close();
 calls `await s.startTls()` after the protocol's `STARTTLS` exchange; refused
 while the server's plaintext is unread) or `none`. The certificate is always
 verified against `host`. A run opens at most 4 streams and moves at most
-64 MiB over them; what it writes also crosses the run's 16 MiB channel as
-base64, so about 12 MiB of writes per run. A stream idle for 60 s is closed;
+64 MiB over them; what it writes no longer counts against the run's 16 MiB
+channel (ADR 0031). A stream idle for 60 s is closed;
 every stream closes when the run ends. A rebinding applies to the next
 `connect`, not to a stream already open. Engines from 3.0.0-beta.109.
+
+**Stored files** (ADR 0031). A job of an extension holding `files` reaches the
+engine's stored files (`/api/storage`) as its **author** — the user whose action
+enqueued it — through the route's own checks: the size limit
+(`MAX_UPLOAD_BYTES`), the author's quota, the file-type allowlist, SVG
+sanitising, content sniffing, and who may read and delete what. Never as a
+tenant admin, never beyond the `$storage` scope of the API key whose action
+enqueued it, and a job enqueued by a public route has no author and no files.
+No storage credentials ever reach the extension.
+
+```ts
+const f = await host.files.put('invoice.pdf', bytes); // { id, name, contentType, size }
+const back = await host.files.get(f.id);              // + bytes, or null if the author cannot read it
+await host.files.delete(f.id);                        // the author's own files only
+```
+
+A file `put` stores is the author's and private; Studio downloads it through
+`/api/storage/:id/signed-url`, as any upload. `get` answers `null` for a file the
+author cannot read — a colleague's private file, another tenant's — as the route
+answers 404. A refusal throws with the route's status (`413` quota, `400` type,
+`403` a file the author can read but did not upload, `404` one they cannot
+read). Writes follow the transaction they run in: in a job with no egress,
+which runs in one transaction, a run that fails undoes its `put`s and
+`delete`s, bytes included; in a job with egress each call commits on its own,
+so a later failure does not undo it — retry safely. A call moves at most 32 MiB and a run 64 MiB, `put`
+and `get` together; the bytes cross the channel as base64 apart from its 16 MiB,
+so budget `memoryMb` at about five times your largest file. Inline jobs get the
+same `host.files`. Engines from 3.0.0-beta.109.
 
 ---
 

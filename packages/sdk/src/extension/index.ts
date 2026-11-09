@@ -1603,7 +1603,7 @@ export type ExtensionJob = (input: unknown, host: JobHost) => Promise<void>;
  * A worker-isolated extension's jobs run in the engine's Deno runner (ADR
  * 0022), with no permissions: `engine/jobs.ts` default-exports them by name and
  * `zveltio extension pack` bundles it as `engine/jobs.js`. The host is the same,
- * each call a message to the engine; nothing else (network, files, environment)
+ * each call a message to the engine; nothing else (network, the file system, environment)
  * is reachable. The manifest's `memoryMb` (default 128) and `timeoutSeconds`
  * (default 60; at most 60, or 900 with egress) bound each run there. A job that
  * declares `egress` runs there too, first-party or not.
@@ -1643,6 +1643,38 @@ export interface JobHost {
     slot: (name: string) => Promise<string[]>;
     connect?: (slot: string, options: JobTcpOptions) => Promise<JobTcpStream>;
   };
+  /**
+   * Stored files (`/api/storage`), as the job's author (ADR 0031); needs the
+   * `files` capability. A job with no author (enqueued by a public route) has
+   * none. Engines from 3.0.0-beta.109.
+   */
+  files?: HostFiles;
+}
+
+/**
+ * The engine's stored files, as `/api/storage` serves them to the job's author:
+ * the same size limit, quota, type allowlist, SVG sanitising and visibility. A
+ * file `put` stores is the author's, private, and downloads in Studio through
+ * `/api/storage/:id`. A call moves at most 32 MiB and a run 64 MiB, `put` and
+ * `get` together; a refusal throws with the route's status.
+ */
+export interface HostFiles {
+  /** Store `bytes` as a new file; `name`'s extension must be one `/api/storage/upload` accepts. */
+  put(name: string, bytes: Uint8Array): Promise<HostFile>;
+  /** The file and its bytes, or `null` when the author cannot read one with this id. */
+  get(id: string): Promise<(HostFile & { bytes: Uint8Array }) | null>;
+  /** Delete a file the author uploaded. */
+  delete(id: string): Promise<void>;
+}
+
+/** A stored file, as `HostFiles` describes it. */
+export interface HostFile {
+  id: string;
+  /** The name it was stored under (`original_name`). */
+  name: string;
+  /** The content type the engine detected from its bytes. */
+  contentType: string;
+  size: number;
 }
 
 /** Where `host.egress.connect` opens a stream (ADR 0026 amendment). */
