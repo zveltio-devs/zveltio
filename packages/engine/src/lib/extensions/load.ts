@@ -60,7 +60,7 @@ let devReloadSeq = 0;
 
 /**
  * First-party extensions whose feature the engine now serves itself. A
- * migration removed their registry rows (110, 111), but a name in
+ * migration removed their registry rows (110, 111, 114), but a name in
  * ZVELTIO_EXTENSIONS never passes through the registry, and an extensions
  * directory kept across the upgrade still holds the 1.x bundle: loaded, it
  * mounted a second, stale surface beside the engine's and re-ran its
@@ -73,6 +73,7 @@ export const RETIRED_EXTENSIONS: Readonly<Record<string, string>> = {
   'analytics/insights': 'the engine serves insights (/api/insights)',
   'operations/backup': 'the engine serves backups (/api/backup)',
   'developer/schema-branches': 'the engine serves schema branches',
+  search: 'the engine serves full-text search (search= on the data API)',
 };
 
 /**

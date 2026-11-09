@@ -947,21 +947,6 @@ export interface ZvSchemaVersionsTable {
   rolled_back_at: Date | null;
 }
 
-export interface ZvSearchIndexesTable {
-  id: Generated<string>;
-  collection: string;
-  provider: Generated<string>;
-  index_name: string;
-  searchable_fields: Generated<string[]>;
-  filterable_fields: Generated<string[]>;
-  sortable_fields: Generated<string[]>;
-  last_synced_at: Date | null;
-  record_count: Generated<number | null>;
-  status: Generated<string>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvSettingsTable {
   key: Generated<string>;
   value: unknown;
@@ -1409,7 +1394,6 @@ export interface DbSchema {
   zv_schema_branches: ZvSchemaBranchesTable;
   zv_schema_migrations: ZvSchemaMigrationsTable;
   zv_schema_versions: ZvSchemaVersionsTable;
-  zv_search_indexes: ZvSearchIndexesTable;
   zv_settings: ZvSettingsTable;
   zv_slow_queries: ZvSlowQueriesTable;
   zv_storage_quotas: ZvStorageQuotasTable;

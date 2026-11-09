@@ -21,7 +21,7 @@ describe('S5-05 isFirstParty', () => {
     expect(_internalForTests.isFirstParty('billing')).toBe(true);
     expect(_internalForTests.isFirstParty('crm')).toBe(true);
     expect(_internalForTests.isFirstParty('forms')).toBe(true);
-    expect(_internalForTests.isFirstParty('search')).toBe(true);
+    expect(_internalForTests.isFirstParty('sms')).toBe(true);
   });
 
   it('recognizes prefixed first-party names', () => {

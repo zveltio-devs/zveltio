@@ -149,7 +149,6 @@ const FIRST_PARTY_PREFIXES = [
   'integrations/',
   'operations/',
   'projects/',
-  'search',
   'sms',
   'storage/',
   'workflow/',
