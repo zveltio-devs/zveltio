@@ -32,7 +32,7 @@ import {
   runExtensionMigrations,
 } from './migration-runner.js';
 import { grantExtensionDbRole, grantWorkerDbRole, installedExtensionNames } from './ext-db-role.js';
-import { noteExtensionNames } from './worker-sql-policy.js';
+import { noteExtensionNames, ownedPrefixFor } from './worker-sql-policy.js';
 import { embedPageSchemas, type ManifestMeta, ManifestSchema } from './manifest-schema.js';
 import {
   enforcePublisherTier,
@@ -496,6 +496,27 @@ export async function loadExtensionFromDir(
     // Cache module for re-registration during hot-reload (avoids re-importing)
     loader.modules.set(extName, extension);
 
+    // Before any DDL and before its context is built, whether or not the roles
+    // below can be made: `ctx.config.vars` withholds a key another installed
+    // extension's prefix also spells, loaded or not (config.ts).
+    const installed = await installedExtensionNames(ctx.db);
+    noteExtensionNames([extName, ...installed]);
+    // Two names that fold to one `zv_<ext>_` prefix (`a-b`, `a_b`, `A_b`) would
+    // own each other's tables, env keys and grants. Neither loads while both are
+    // installed (the registry, not the process's never-shrinking known set).
+    const prefix = ownedPrefixFor(extName).toLowerCase();
+    const twins = installed.filter(
+      (n) => n !== extName && ownedPrefixFor(n).toLowerCase() === prefix,
+    );
+    if (twins.length > 0) {
+      const msg =
+        `Extension "${extName}" shares its table prefix ${prefix} with ` +
+        `${twins.map((t) => `"${t}"`).join(', ')}; neither loads until one is uninstalled.`;
+      console.error(`❌ ${msg}`);
+      loader.lastLoadError.set(extName, msg);
+      return;
+    }
+
     // Run extension migrations
     const migrationPaths = extension.getMigrations?.() ?? [];
     if (migrationPaths.length > migrationsLimit) {
@@ -556,10 +577,6 @@ export async function loadExtensionFromDir(
     }
 
     for (const t of EXTENSION_TABLE_GRANTS[extName] ?? []) allowedTables.add(t);
-    // Before its context is built, and whether or not the roles below can be
-    // made: `ctx.config.vars` withholds a key another installed extension's
-    // prefix also spells, loaded or not (config.ts).
-    noteExtensionNames([extName, ...(await installedExtensionNames(ctx.db))]);
     // The same set, as Postgres privileges for the role `ctx.db` runs as inside a
     // tenant transaction — so a statement the analyzer misreads still cannot
     // reach the engine's tables. Best-effort; see ext-db-role.ts.
