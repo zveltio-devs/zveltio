@@ -61,4 +61,10 @@ describe('safeRedirect', () => {
     expect(safeRedirect('/collections', '')).toBe('/collections');
     expect(safeRedirect('//evil.example', '')).toBe('/');
   });
+
+  it('refuses a control character the URL parser would delete', () => {
+    for (const t of ['/\t/evil.example', '/\n/evil.example', '/\r/evil.example']) {
+      expect(safeRedirect(t, '')).toBe('/');
+    }
+  });
 });

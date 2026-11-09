@@ -32,6 +32,10 @@ export function safeRedirect(target: string | null | undefined, base: string): s
   if (!t.startsWith('/') || t.startsWith('//') || t.startsWith('/\\')) return fallback;
   // A backslash anywhere early can smuggle a host past path parsing.
   if (t.includes('\\')) return fallback;
+  // The URL parser deletes tab and newline anywhere, so `/\t/evil.example`
+  // passes the checks above as text and resolves to `//evil.example`.
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point
+  if (/[\u0000-\u001f\u007f]/.test(t)) return fallback;
   // Reject anything carrying a scheme — `/\/evil.example` style payloads and
   // `javascript:` alike.
   if (/^[a-z][a-z0-9+.-]*:/i.test(t)) return fallback;
