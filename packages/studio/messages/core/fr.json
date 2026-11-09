@@ -1633,5 +1633,6 @@
   "mkt.egressPrivate": "Réseau privé (jamais les métadonnées cloud)",
   "mkt.egressUnbound": "non lié",
   "mkt.egressBound": "Emplacement {slot} lié pour {name}",
-  "mkt.egressBindFailed": "Échec de la liaison : {error}"
+  "mkt.egressBindFailed": "Échec de la liaison : {error}",
+  "auth.secondFactorHint": "Saisissez le code de votre application d'authentification ou l'un de vos codes de secours."
 }

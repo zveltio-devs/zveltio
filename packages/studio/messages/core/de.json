@@ -1633,5 +1633,6 @@
   "mkt.egressPrivate": "Privates Netz (niemals Cloud-Metadaten)",
   "mkt.egressUnbound": "nicht gebunden",
   "mkt.egressBound": "Slot {slot} für {name} gebunden",
-  "mkt.egressBindFailed": "Bindung fehlgeschlagen: {error}"
+  "mkt.egressBindFailed": "Bindung fehlgeschlagen: {error}",
+  "auth.secondFactorHint": "Geben Sie den Code aus Ihrer Authenticator-App oder einen Ihrer Backup-Codes ein."
 }

@@ -3830,5 +3830,6 @@
   "workflow.checklists.toast.saved": "Liste de contrôle enregistrée.",
   "workflow.checklists.ui.e_g_onboarding_checklist": "e.g. Onboarding Checklist",
   "workflow.checklists.ui.name": "Nom *",
-  "workflow.checklists.ui.new_item_text": "New item text…"
+  "workflow.checklists.ui.new_item_text": "New item text…",
+  "auth.secondFactorHint": "Saisissez le code de votre application d'authentification ou l'un de vos codes de secours."
 }

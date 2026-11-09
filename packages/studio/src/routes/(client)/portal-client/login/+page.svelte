@@ -7,13 +7,20 @@ let email = $state('');
 let password = $state('');
 let loading = $state(false);
 let error = $state<string | null>(null);
+// Accounts with TOTP answer the password with a second step, not a session.
+let secondFactor = $state(false);
+let code = $state('');
 
 async function handleLogin(e: Event) {
   e.preventDefault();
   loading = true;
   error = null;
   try {
-    await auth.signIn(email, password);
+    if (secondFactor) await auth.verifySecondFactor(code);
+    else if ((await auth.signIn(email, password)).twoFactor) {
+      secondFactor = true;
+      return;
+    }
     goto(resolve(`portal-client/`));
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
@@ -34,6 +41,18 @@ async function handleLogin(e: Event) {
       {/if}
 
       <form onsubmit={handleLogin} class="space-y-3">
+        {#if secondFactor}
+        <div class="form-control">
+          <label class="label pb-1" for="portal-code"><span class="label-text text-sm">Authenticator or backup code</span></label>
+          <input
+            id="portal-code" bind:value={code} required autocomplete="one-time-code"
+            class="input input-bordered input-sm w-full font-mono"
+          />
+        </div>
+        <button type="button" class="btn btn-ghost btn-xs" onclick={() => { secondFactor = false; code = ''; error = null; }}>
+          Cancel
+        </button>
+        {:else}
         <div class="form-control">
           <label class="label pb-1" for="portal-email"><span class="label-text text-sm">Email</span></label>
           <input
@@ -48,6 +67,7 @@ async function handleLogin(e: Event) {
             class="input input-bordered input-sm w-full" placeholder="••••••••"
           />
         </div>
+        {/if}
         <button type="submit" class="btn btn-primary btn-sm w-full mt-2" disabled={loading}>
           {#if loading}<span class="loading loading-spinner loading-xs"></span>{/if}
           Sign in

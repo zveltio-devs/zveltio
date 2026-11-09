@@ -1633,5 +1633,6 @@
   "mkt.egressPrivate": "Rete privata (mai i metadati cloud)",
   "mkt.egressUnbound": "non collegato",
   "mkt.egressBound": "Slot {slot} collegato per {name}",
-  "mkt.egressBindFailed": "Collegamento non riuscito: {error}"
+  "mkt.egressBindFailed": "Collegamento non riuscito: {error}",
+  "auth.secondFactorHint": "Inserisci il codice dell'app di autenticazione o uno dei tuoi codici di backup."
 }

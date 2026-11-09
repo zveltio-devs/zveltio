@@ -1633,5 +1633,6 @@
   "mkt.egressPrivate": "Red privada (nunca metadatos de la nube)",
   "mkt.egressUnbound": "sin vincular",
   "mkt.egressBound": "Ranura {slot} vinculada para {name}",
-  "mkt.egressBindFailed": "Error al vincular: {error}"
+  "mkt.egressBindFailed": "Error al vincular: {error}",
+  "auth.secondFactorHint": "Introduce el código de tu aplicación de autenticación o uno de tus códigos de respaldo."
 }

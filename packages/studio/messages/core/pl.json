@@ -1633,5 +1633,6 @@
   "mkt.egressPrivate": "Sieć prywatna (nigdy metadane chmury)",
   "mkt.egressUnbound": "niepowiązany",
   "mkt.egressBound": "Slot {slot} powiązany dla {name}",
-  "mkt.egressBindFailed": "Powiązanie nie powiodło się: {error}"
+  "mkt.egressBindFailed": "Powiązanie nie powiodło się: {error}",
+  "auth.secondFactorHint": "Wpisz kod z aplikacji uwierzytelniającej lub jeden z kodów zapasowych."
 }

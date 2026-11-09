@@ -3830,5 +3830,6 @@
   "workflow.checklists.toast.saved": "Checkliste gespeichert.",
   "workflow.checklists.ui.e_g_onboarding_checklist": "e.g. Onboarding Checklist",
   "workflow.checklists.ui.name": "Name *",
-  "workflow.checklists.ui.new_item_text": "New item text…"
+  "workflow.checklists.ui.new_item_text": "New item text…",
+  "auth.secondFactorHint": "Geben Sie den Code aus Ihrer Authenticator-App oder einen Ihrer Backup-Codes ein."
 }
