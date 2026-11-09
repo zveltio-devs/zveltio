@@ -107,7 +107,7 @@ describe('malformed expressions are rejected, not approximated', () => {
       '* * 0 * *',
       '* * 32 * *',
       '* * * 13 *',
-      '* * * * 7',
+      '* * * * 8',
     ]) {
       expect(parseCron(e)).toBeNull();
     }
@@ -129,6 +129,15 @@ describe('malformed expressions are rejected, not approximated', () => {
   it('rejects a zero or non-numeric step', () => {
     expect(parseCron('*/0 * * * *')).toBeNull();
     expect(parseCron('*/x * * * *')).toBeNull();
+  });
+});
+
+describe('Sunday is 0 or 7', () => {
+  it('reads 7 as Sunday, as crontab(5) does', () => {
+    const from = at('2026-07-31T10:00:00'); // a Friday
+    expect(fmt(nextCronRun('0 9 * * 7', from))).toBe('2026-08-02 09:00');
+    expect(fmt(nextCronRun('0 9 * * 5-7', from))).toBe('2026-08-01 09:00');
+    expect(parseCron('0 9 * * 8')).toBeNull();
   });
 });
 

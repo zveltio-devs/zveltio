@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
-import { EXECUTABLE_STEP_TYPES, executeFlow } from '../lib/flows/index.js';
+import { EXECUTABLE_STEP_TYPES, executeFlow, nextCronRun } from '../lib/flows/index.js';
 import { validateStepConfig } from '../lib/flows/index.js';
 import { isTenantAdmin, requireInstanceAdmin, withTenantIsolation } from '../lib/tenancy/index.js';
 import { tenantId } from '../lib/route-db.js';
@@ -59,7 +59,12 @@ const TriggerSchema = z.object({
   type: z.enum(['manual', 'on_create', 'on_update', 'on_delete', 'cron', 'webhook']),
   collection: z.string().optional(),
   event: z.enum(['insert', 'update', 'delete']).optional(),
-  cron: z.string().optional(),
+  // An expression the scheduler cannot place is refused here, not stored and
+  // deactivated at its first tick.
+  cron: z
+    .string()
+    .refine((e) => nextCronRun(e) !== null, 'cron: not a 5-field expression that ever occurs')
+    .optional(),
 });
 
 type TriggerInput = z.infer<typeof TriggerSchema>;
@@ -284,6 +289,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
             is_active: body.is_active,
             trigger_type: body.trigger.type,
             trigger_config: toJsonb(toTriggerConfig(body.trigger)),
+            next_run_at: firstRun(body.trigger),
             created_by: user.id,
           })
           .returningAll()
@@ -341,6 +347,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
       if (body.trigger !== undefined) {
         updates.trigger_type = body.trigger.type;
         updates.trigger_config = toJsonb(toTriggerConfig(body.trigger));
+        updates.next_run_at = firstRun(body.trigger);
       }
 
       // Validate any new step configs before touching the DB.
@@ -669,6 +676,16 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
  * event, cron expression) becomes the config payload that the flow
  * executor consumes.
  */
+/**
+ * When a cron flow first runs: its expression's next occurrence. A NULL
+ * `next_run_at` is due at the scheduler's next tick, so `0 3 * * *` saved at
+ * 14:00 ran at 14:00. Without an expression it stays NULL: an interval flow
+ * runs now, then every `interval_seconds`.
+ */
+function firstRun(trigger: TriggerInput): Date | null {
+  return trigger.type === 'cron' && trigger.cron ? nextCronRun(trigger.cron) : null;
+}
+
 function toTriggerConfig(trigger: TriggerInput): Record<string, unknown> {
   const { type: _type, ...rest } = trigger;
   return rest;
