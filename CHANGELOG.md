@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**The `/ext/*` authentication gate can no longer be switched off.** `ZVELTIO_EXT_AUTH_GATE=0` made every route of every installed extension anonymous, including handlers that assume the gate ran. Production refused to start with it, but it was a standing bypass everywhere else, and a bypass is a bug, not a mode. The variable is no longer read: a route meant to be anonymous is declared in the manifest's `publicRoutes`, per route and visible in review. Remove the variable from any deployment that still sets it; it changes nothing.
+
 **Schema directories pulled before beta.106 may need three keys removed.** An instance that ran ai 1.x search exported `aiSearchEnabled`, `aiSearchField` and `aiEmbedExcludedFields` on its collections. Since beta.106 (#1579) the schema plan refuses them as `unknown key`. Delete the three keys from the collection files, or pull the schema again.
 
 **`zveltio mcp`: the engine as an MCP tool surface (ADR 0027, step 3).** A local stdio MCP server in the CLI. An agent lists the collections and fields the key may read, reads, creates, changes and deletes records through the data API, and runs extension actions, all as the owner of `ZVELTIO_API_KEY`; the engine's rules decide each call and its refusal reaches the agent with the reason. No schema, DDL or SQL tool. Each extension action the key may run is also a typed tool, `<extension>__<action>` (`/` written `_`) with the action's input schema as `inputSchema`; `run_action` stays for calls by name, and against an older engine only the fixed tools are offered.

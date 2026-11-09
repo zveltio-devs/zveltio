@@ -37,21 +37,6 @@ export function productionGuardViolations(
 
   const violations: ProductionGuardViolation[] = [];
 
-  // ZVELTIO_EXT_AUTH_GATE=0 returns `next()` before the gate looks at anything,
-  // so EVERY /ext/* route on EVERY installed extension becomes anonymous —
-  // including the ones whose own handlers assume the gate ran. It exists as an
-  // operational safety valve, and a safety valve that can be left open in
-  // production is just an open valve.
-  if (env.ZVELTIO_EXT_AUTH_GATE === '0') {
-    violations.push({
-      variable: 'ZVELTIO_EXT_AUTH_GATE',
-      message:
-        'set to 0, which disables authentication on every /ext/* route of every installed ' +
-        'extension. Unset it. If a specific route must be reachable anonymously, declare it ' +
-        'public in the extension manifest instead — that is per route and visible in review.',
-    });
-  }
-
   // VALKEY_URL absent is not a lighter configuration — it is a set of security
   // controls degrading in silence.
   //

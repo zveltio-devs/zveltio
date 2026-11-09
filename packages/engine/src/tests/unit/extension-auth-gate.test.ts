@@ -218,11 +218,17 @@ describe('extensionAuthGate', () => {
     expect((await app.request('/ext/sms')).status).toBe(200);
   });
 
-  it('is disabled by ZVELTIO_EXT_AUTH_GATE=0', async () => {
+  // The variable once switched the gate off for every route of every extension.
+  // It is gone: setting it changes nothing.
+  it('cannot be switched off: ZVELTIO_EXT_AUTH_GATE=0 still answers 401', async () => {
     process.env.ZVELTIO_EXT_AUTH_GATE = '0';
-    registerExtensionPublicRoutes('sms', []);
-    const res = await appWith(authAnon).request('/ext/sms/config');
-    expect(res.status).toBe(200);
+    try {
+      registerExtensionPublicRoutes('sms', []);
+      const res = await appWith(authAnon).request('/ext/sms/config');
+      expect(res.status).toBe(401);
+    } finally {
+      delete process.env.ZVELTIO_EXT_AUTH_GATE;
+    }
   });
 
   it('never gates a CORS preflight', async () => {

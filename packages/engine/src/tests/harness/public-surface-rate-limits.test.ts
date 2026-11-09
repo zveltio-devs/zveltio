@@ -26,6 +26,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  _resetPublicRouteRegistryForTests,
+  registerExtensionPublicRoutes,
+} from '../../middleware/extension-auth-gate.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -37,7 +41,6 @@ const SCIM_IP = '203.0.113.13';
 d('pre-auth surface rate limits (in-process)', () => {
   let app: Hono;
   let savedEnv: string | undefined;
-  let savedGate: string | undefined;
   let savedProxy: string | undefined;
 
   async function hit(path: string, ip: string) {
@@ -60,14 +63,14 @@ d('pre-auth surface rate limits (in-process)', () => {
     ({ app } = await getTestApp());
     savedEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
-    // The `/ext/*` auth gate is registered before these limiters (index.ts:586
-    // vs 592), so on a live instance it runs first and calls next() for a route
-    // an extension has declared public — after which the limiter applies. No
-    // extension is loaded here, so the gate answers 401 to everything and the
-    // limiter is never reached. Opening the gate makes this file measure the
-    // limiter, which is its subject; the gate has its own tests.
-    savedGate = process.env.ZVELTIO_EXT_AUTH_GATE;
-    process.env.ZVELTIO_EXT_AUTH_GATE = '0';
+    // The `/ext/*` auth gate is registered before these limiters (index.ts), so
+    // on a live instance it runs first and calls next() for a route an
+    // extension has declared public — after which the limiter applies. No
+    // extension is loaded here, so the two probed paths are declared public the
+    // way a loaded extension's manifest declares them, and the limiter is
+    // reached, which is this file's subject; the gate has its own tests.
+    registerExtensionPublicRoutes('forms', ['/public/*']);
+    registerExtensionPublicRoutes('storage/cloud', ['/share/*']);
     // Without TRUSTED_PROXY the limiter ignores X-Forwarded-For entirely — by
     // design, since an untrusted client can spoof it — and every request in
     // this file would land in one bucket per surface. The per-surface tests
@@ -80,8 +83,7 @@ d('pre-auth surface rate limits (in-process)', () => {
   afterAll(() => {
     if (savedEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = savedEnv;
-    if (savedGate === undefined) delete process.env.ZVELTIO_EXT_AUTH_GATE;
-    else process.env.ZVELTIO_EXT_AUTH_GATE = savedGate;
+    _resetPublicRouteRegistryForTests();
     if (savedProxy === undefined) delete process.env.TRUSTED_PROXY;
     else process.env.TRUSTED_PROXY = savedProxy;
   });
