@@ -194,6 +194,12 @@ d('a worker extension gets the inline ctx contract', () => {
     for (const mode of MODES) {
       const name = extName(mode);
       process.env[`ZVELTIO_EXT_${name.toUpperCase()}_GREETING`] = 'hi';
+      // Installed, never loaded: `<name>-twin`'s `SECRET` is spelled exactly as
+      // `<name>`'s `TWIN_SECRET`, so `<name>` must not be handed it.
+      process.env[`ZVELTIO_EXT_${name.toUpperCase()}_TWIN_SECRET`] = 'not-yours';
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${`${name}-twin`}`.execute(db);
+      await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+                VALUES (${`${name}-twin`}, ${`${name}-twin`}, NULL, true, false)`.execute(db);
       // Enabled, as an installed extension is: the activation gate answers 404 otherwise.
       await sql`DELETE FROM zv_extension_registry WHERE name = ${name}`.execute(db);
       await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
@@ -275,6 +281,8 @@ d('a worker extension gets the inline ctx contract', () => {
     _resetWorkerHostForTests();
     for (const m of MODES) {
       delete process.env[`ZVELTIO_EXT_${extName(m).toUpperCase()}_GREETING`];
+      delete process.env[`ZVELTIO_EXT_${extName(m).toUpperCase()}_TWIN_SECRET`];
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${`${extName(m)}-twin`}`.execute(db);
       await sql`DROP TABLE IF EXISTS ${sql.table(table(m))}`.execute(db);
       await sql`DELETE FROM zv_extension_registry WHERE name = ${extName(m)}`.execute(db);
       await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${extName(m)}%`}`.execute(db);
@@ -288,6 +296,13 @@ d('a worker extension gets the inline ctx contract', () => {
 
   it('loads the same extension in both modes', () => {
     for (const m of MODES) expect(loadErrors[extName(m)]).toBeUndefined();
+  });
+
+  it('hands neither mode a key another installed extension also spells', () => {
+    for (const m of MODES) expect(out[m].config).toEqual(out.inline.config);
+    expect((out.inline.config as { body: { vars: unknown } }).body.vars).toEqual({
+      GREETING: 'hi',
+    });
   });
 
   it('inline answers what the contract says', () => {

@@ -242,7 +242,9 @@ export interface ExtensionConfig {
    * Everything the deployment set as `ZVELTIO_EXT_<NAME>_<KEY>` appears here as
    * `<KEY>`, and nothing else does. `search` reading `vars.MEILISEARCH_URL` gets
    * `ZVELTIO_EXT_SEARCH_MEILISEARCH_URL`; it cannot see `DATABASE_URL`,
-   * `BETTER_AUTH_SECRET`, or another extension's keys.
+   * `BETTER_AUTH_SECRET`, or another extension's keys. A key another installed
+   * extension's prefix also spells (`billing`'s `STRIPE_KEY` is
+   * `billing-stripe`'s `KEY`) reaches neither of them.
    *
    * Use this instead of `process.env`, which from inside an in-process extension
    * is the ENGINE's environment in full.

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { buildExtensionConfig } from '../../lib/extensions/config.js';
+import { noteExtensionNames } from '../../lib/extensions/worker-sql-policy.js';
 
 /**
  * `ctx.config.vars` exists because six files across four extensions read
@@ -54,5 +55,47 @@ describe('ctx.config.vars', () => {
     // failure this whole mechanism exists to prevent.
     expect(buildExtensionConfig([])).toHaveProperty('vars');
     expect(buildExtensionConfig([]).vars).toEqual({});
+  });
+
+  // The prefix is not delimited and the fold is not injective: `ZVELTIO_EXT_BILLING_STRIPE_X`
+  // spells `billing`'s `STRIPE_X` and `billing-stripe`'s `X` alike. A key two
+  // known extensions can both read is handed to neither.
+  describe('a key another known extension could also own', () => {
+    const KEYS = [
+      'ZVELTIO_EXT_ENVA_STRIPE_WEBHOOK_SECRET',
+      'ZVELTIO_EXT_ENVA_PLAIN',
+      'ZVELTIO_EXT_ENVB_X_Y',
+      'ZVELTIO_EXT_RUNNER_SOCKET',
+      'ZVELTIO_EXT_RUNNER_UID_BASE',
+      'ZVELTIO_EXT_MEMORY_MB',
+    ];
+    afterEach(() => {
+      for (const k of KEYS) delete process.env[k];
+    });
+
+    it('is not read by a longer-named extension (enva-stripe reading enva webhook secret)', () => {
+      process.env.ZVELTIO_EXT_ENVA_STRIPE_WEBHOOK_SECRET = 'whsec_x';
+      process.env.ZVELTIO_EXT_ENVA_PLAIN = 'p';
+      noteExtensionNames(['enva', 'enva-stripe']);
+      expect(buildExtensionConfig([], 'enva-stripe').vars).toEqual({});
+      expect(buildExtensionConfig([], 'enva/stripe').vars).toEqual({});
+      // Nor by the shorter one: the operator's intent is not knowable.
+      expect(buildExtensionConfig([], 'enva').vars).toEqual({ PLAIN: 'p' });
+    });
+
+    it('is read by neither of two names that fold the same (envb-x / envb_x)', () => {
+      process.env.ZVELTIO_EXT_ENVB_X_Y = 'y';
+      noteExtensionNames(['envb-x', 'envb_x']);
+      expect(buildExtensionConfig([], 'envb-x').vars).toEqual({});
+      expect(buildExtensionConfig([], 'envb_x').vars).toEqual({});
+    });
+
+    it("never hands an extension the engine's own ZVELTIO_EXT_* settings", () => {
+      process.env.ZVELTIO_EXT_RUNNER_SOCKET = '/run/x.sock';
+      process.env.ZVELTIO_EXT_RUNNER_UID_BASE = '60000';
+      process.env.ZVELTIO_EXT_MEMORY_MB = '512';
+      expect(buildExtensionConfig([], 'runner').vars).toEqual({});
+      expect(buildExtensionConfig([], 'memory').vars).toEqual({});
+    });
   });
 });

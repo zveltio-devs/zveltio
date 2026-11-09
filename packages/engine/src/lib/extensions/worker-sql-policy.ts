@@ -141,6 +141,11 @@ export function noteExtensionNames(names: Iterable<string>): void {
   for (const n of names) knownExtensions.set(n, ownedPrefixFor(n).toLowerCase());
 }
 
+/** Every extension name `noteExtensionNames` has seen. */
+export function knownExtensionNames(): string[] {
+  return [...knownExtensions.keys()];
+}
+
 /**
  * The known prefixes that sit inside `extName`'s own: `a` owns `zv_a_`, which
  * spells every table of `a/b` (`zv_a_b_`) too. A table belongs to the extension

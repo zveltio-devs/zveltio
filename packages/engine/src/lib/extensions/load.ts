@@ -31,7 +31,8 @@ import {
   pendingMigrationsRefusal,
   runExtensionMigrations,
 } from './migration-runner.js';
-import { grantExtensionDbRole, grantWorkerDbRole } from './ext-db-role.js';
+import { grantExtensionDbRole, grantWorkerDbRole, installedExtensionNames } from './ext-db-role.js';
+import { noteExtensionNames } from './worker-sql-policy.js';
 import { embedPageSchemas, type ManifestMeta, ManifestSchema } from './manifest-schema.js';
 import {
   enforcePublisherTier,
@@ -555,6 +556,10 @@ export async function loadExtensionFromDir(
     }
 
     for (const t of EXTENSION_TABLE_GRANTS[extName] ?? []) allowedTables.add(t);
+    // Before its context is built, and whether or not the roles below can be
+    // made: `ctx.config.vars` withholds a key another installed extension's
+    // prefix also spells, loaded or not (config.ts).
+    noteExtensionNames([extName, ...(await installedExtensionNames(ctx.db))]);
     // The same set, as Postgres privileges for the role `ctx.db` runs as inside a
     // tenant transaction — so a statement the analyzer misreads still cannot
     // reach the engine's tables. Best-effort; see ext-db-role.ts.
