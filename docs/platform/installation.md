@@ -284,7 +284,11 @@ variables named `ZVELTIO_EXT_<EXTENSION>_<KEY>`, with the prefix stripped, and
 sees nothing else — not `DATABASE_URL`, not `BETTER_AUTH_SECRET`, and not
 another extension's keys. `<EXTENSION>` is the extension name uppercased with
 `/` and `-` replaced by `_`, so `finance/banking` reads
-`ZVELTIO_EXT_FINANCE_BANKING_*`.
+`ZVELTIO_EXT_FINANCE_BANKING_*`. Where two installed extensions' prefixes
+overlap (`billing` and `billing-stripe` both spell
+`ZVELTIO_EXT_BILLING_STRIPE_*`), a key under both is handed to neither and the
+engine logs it at load; the engine's own `ZVELTIO_EXT_RUNNER_*` and
+`ZVELTIO_EXT_MEMORY_*` reach no extension.
 
 | Variable | Extension | Description |
 |----------|-----------|-------------|

@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**An extension can no longer read another extension's settings by picking a name that spells the same prefix.** `ctx.config.vars` handed an extension every variable under `ZVELTIO_EXT_<NAME>_`, with `<NAME>` the name upper-cased and `/`, `-`, `_` all folded to `_`. The prefix was not delimited and the fold not unique, so an extension named `billing-stripe` received `ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` (the `billing` extension's Stripe webhook secret, enough to forge its webhooks) as `WEBHOOK_SECRET`; `a-b` and `a_b` shared every key; and an extension named `runner` received the engine's `ZVELTIO_EXT_RUNNER_SOCKET` and `ZVELTIO_EXT_RUNNER_UID_BASE`. A key that another installed extension's prefix also spells, or that lies under the engine's `ZVELTIO_EXT_RUNNER_*` / `ZVELTIO_EXT_MEMORY_*`, is now handed to neither extension, and the engine logs the withheld key names at load. Which of the two the operator meant cannot be known, so neither gets it.
+
 ## [3.0.0-beta.107] - 2026-11-09
 
 **A tenant's validation rules bind every write, whatever its writer may read.** Since the rules were read on the request's transaction as the request role, migration 093's policy filtered them by the caller's read reach. A default-tenant user whose unit assignments had all lapsed read the instance rules only, and that list was cached under the collection and tenant for 60 s and served to every writer of the tenant: an ordinary member's invalid value was stored (201, not 422). The rules are now read as the engine on the same transaction, filtered only by the tenant (#1586).

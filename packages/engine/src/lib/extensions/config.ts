@@ -25,6 +25,7 @@
 
 import type { ExtensionConfig, ObjectStorageConfig } from '@zveltio/sdk/extension';
 import { storageConfig } from '../storage/index.js';
+import { knownExtensionNames } from './worker-sql-policy.js';
 
 function flag(name: string): boolean {
   const v = process.env[name];
@@ -67,21 +68,52 @@ function flag(name: string): boolean {
  * expects to configure things, and the engine learns nothing about what any
  * particular extension wants.
  *
+ * The prefix is not delimited and the fold is not injective, so one key can
+ * spell two extensions' settings: `ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` is
+ * `billing`'s `STRIPE_WEBHOOK_SECRET` and `billing-stripe`'s `WEBHOOK_SECRET`,
+ * and `a-b` and `a_b` share every key. Which one the operator meant is not
+ * knowable, and "longest prefix wins" (the table rule, `ownsByPrefix`) would
+ * hand `billing`'s secret to whoever publishes `billing-stripe`. So a key that
+ * also lies under another known extension's prefix, or under the engine's own
+ * `ZVELTIO_EXT_*` settings, is handed to neither, and the operator is told.
+ *
  * Read at build time, not per access: `register()` runs once per load, and a
  * frozen snapshot means an extension cannot be handed a value that changed
  * underneath it mid-request.
  */
 function namespacedEnv(extName: string | undefined): Readonly<Record<string, string>> {
   if (!extName) return Object.freeze({});
-  const prefix = `ZVELTIO_EXT_${extName.replace(/[^a-z0-9]/gi, '_').toUpperCase()}_`;
+  const prefix = envPrefix(extName);
+  const others = [...knownExtensionNames().filter((n) => n !== extName), ...ENGINE_NAMESPACES].map(
+    envPrefix,
+  );
   const vars: Record<string, string> = {};
+  const withheld: string[] = [];
   for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value === 'string' && key.startsWith(prefix)) {
-      vars[key.slice(prefix.length)] = value;
-    }
+    if (typeof value !== 'string' || !key.startsWith(prefix)) continue;
+    if (others.some((p) => key.startsWith(p))) withheld.push(key);
+    else vars[key.slice(prefix.length)] = value;
+  }
+  if (withheld.length > 0) {
+    console.warn(
+      `[extensions] "${extName}": ${withheld.join(', ')} also name another extension's ` +
+        `or the engine's settings; withheld from "${extName}"`,
+    );
   }
   return Object.freeze(vars);
 }
+
+/** `ZVELTIO_EXT_` + the name folded as the table prefix folds it, upper-cased. */
+function envPrefix(name: string): string {
+  return `ZVELTIO_EXT_${name.replace(/[^a-z0-9]/gi, '_').toUpperCase()}_`;
+}
+
+/**
+ * The engine's own `ZVELTIO_EXT_*` settings, as namespaces no extension reads:
+ * `RUNNER_SOCKET` and `RUNNER_UID_BASE` (ext-runner.ts), and `MEMORY_MB`
+ * (rfc-extension-runner.md).
+ */
+const ENGINE_NAMESPACES = ['runner', 'memory'];
 
 export function buildExtensionConfig(
   capabilities: readonly string[],

@@ -441,7 +441,7 @@ export async function grantWorkerDbRole(
 }
 
 /** Every extension name `zv_extension_registry` knows, installed or not. */
-async function installedExtensionNames(db: Database): Promise<string[]> {
+export async function installedExtensionNames(db: Database): Promise<string[]> {
   try {
     const r = await sql<{ name: string }>`SELECT DISTINCT name FROM zv_extension_registry`.execute(
       db,

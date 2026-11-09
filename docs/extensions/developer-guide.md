@@ -323,7 +323,11 @@ code.
 Your own deployment settings arrive on `ctx.config.vars`: everything the
 operator set as `ZVELTIO_EXT_<YOUR_NAME>_<KEY>`, with the prefix stripped, and
 nothing else. `<YOUR_NAME>` is your extension name uppercased with `/` and `-`
-replaced by `_`.
+replaced by `_`. That spelling is not unique: `billing`'s `STRIPE_KEY` and
+`billing-stripe`'s `KEY` are both `ZVELTIO_EXT_BILLING_STRIPE_KEY`. A key another
+installed extension's prefix also spells, or one under the engine's own
+`ZVELTIO_EXT_RUNNER_*` and `ZVELTIO_EXT_MEMORY_*`, reaches neither extension (the
+engine logs which), so pick a name whose prefix no other extension's starts with.
 
 ```ts
 // operator sets ZVELTIO_EXT_SEARCH_MEILISEARCH_URL=http://meili:7700

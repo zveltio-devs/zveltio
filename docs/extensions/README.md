@@ -128,7 +128,10 @@ level; `zveltio extension pack` without `--first-party` leaves
 
 An extension reads configuration through **`ctx.config.vars`**, populated from
 environment variables named `ZVELTIO_EXT_<NAME>_*`. Not `process.env`, and not
-new fields on `ExtensionConfig`.
+new fields on `ExtensionConfig`. A key that another installed extension's prefix
+also spells (`billing` and `billing-stripe` both read
+`ZVELTIO_EXT_BILLING_STRIPE_*`), or that belongs to the engine
+(`ZVELTIO_EXT_RUNNER_*`, `ZVELTIO_EXT_MEMORY_*`), is handed to neither.
 
 ---
 
