@@ -144,3 +144,21 @@ its name. The only declarer is `storage/cloud`.
 **What v2 should do.** Move `storage/cloud` onto an engine file API that applies
 the engine's storage rules, then retire the `storage` capability and
 `ctx.config.objectStorage`: no extension holds instance credentials.
+
+## 6. The legacy `ZVELTIO_EXT_<NAME>_<KEY>` spelling — breaking
+
+**What happened.** `ctx.config.vars` read `ZVELTIO_EXT_<NAME>_<KEY>`, with no
+delimiter between name and key, so one variable spells two extensions' settings
+(`ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` is `billing`'s `STRIPE_WEBHOOK_SECRET`
+and `billing-stripe`'s `WEBHOOK_SECRET`). #1597 withholds such a key from both,
+judged against the extensions the process knows at load, which cannot cover an
+overlapping extension installed after the first one loaded.
+
+**What v1 does.** ADR 0030 adds `ZVELTIO_EXT_<NAME>__<KEY>`: the last `__` ends
+the name and the key has none, so a variable names one extension whatever else
+is installed. The legacy spelling is still read, logged at load with its new
+name, and loses to the delimited one; a variable with `__` after
+`ZVELTIO_EXT_` is never read as a legacy key.
+
+**What v2 should do.** Stop reading the single-underscore spelling, and drop the
+withholding logic that exists only for it.

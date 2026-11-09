@@ -321,16 +321,24 @@ rejects `process.env` and the authority-bearing `node:*` modules in extension
 code.
 
 Your own deployment settings arrive on `ctx.config.vars`: everything the
-operator set as `ZVELTIO_EXT_<YOUR_NAME>_<KEY>`, with the prefix stripped, and
-nothing else. `<YOUR_NAME>` is your extension name uppercased with `/` and `-`
-replaced by `_`. That spelling is not unique: `billing`'s `STRIPE_KEY` and
-`billing-stripe`'s `KEY` are both `ZVELTIO_EXT_BILLING_STRIPE_KEY`. A key another
-installed extension's prefix also spells, or one under the engine's own
-`ZVELTIO_EXT_RUNNER_*` and `ZVELTIO_EXT_MEMORY_*`, reaches neither extension (the
-engine logs which), so pick a name whose prefix no other extension's starts with.
+operator set as `ZVELTIO_EXT_<YOUR_NAME>__<KEY>` (two underscores), with the
+prefix stripped, and nothing else. `<YOUR_NAME>` is your extension name
+uppercased with every character other than a letter or digit replaced by `_`;
+the last `__` ends it, and `<KEY>` contains no `__` (ADR 0030). So
+`ZVELTIO_EXT_BILLING__STRIPE_KEY` is `billing`'s `STRIPE_KEY` and
+`ZVELTIO_EXT_BILLING_STRIPE__KEY` is `billing-stripe`'s `KEY`, whatever else is
+installed.
+
+The older single-underscore spelling `ZVELTIO_EXT_<YOUR_NAME>_<KEY>` is still
+read (the engine logs each such key with its new spelling), and loses to the
+delimited one when both set a key. It is not unique (`billing`'s `STRIPE_KEY` and
+`billing-stripe`'s `KEY` are both `ZVELTIO_EXT_BILLING_STRIPE_KEY`), so a legacy
+key another installed extension's prefix also spells, or one under the engine's
+own `ZVELTIO_EXT_RUNNER_*` and `ZVELTIO_EXT_MEMORY_*`, reaches neither
+extension. v2 drops it.
 
 ```ts
-// operator sets ZVELTIO_EXT_SEARCH_MEILISEARCH_URL=http://meili:7700
+// operator sets ZVELTIO_EXT_SEARCH__MEILISEARCH_URL=http://meili:7700
 const url = ctx.config.vars.MEILISEARCH_URL ?? 'http://localhost:7700';
 ```
 

@@ -127,11 +127,13 @@ level; `zveltio extension pack` without `--first-party` leaves
 ## 6. Configuration and secrets
 
 An extension reads configuration through **`ctx.config.vars`**, populated from
-environment variables named `ZVELTIO_EXT_<NAME>_*`. Not `process.env`, and not
-new fields on `ExtensionConfig`. A key that another installed extension's prefix
-also spells (`billing` and `billing-stripe` both read
-`ZVELTIO_EXT_BILLING_STRIPE_*`), or that belongs to the engine
-(`ZVELTIO_EXT_RUNNER_*`, `ZVELTIO_EXT_MEMORY_*`), is handed to neither.
+environment variables named `ZVELTIO_EXT_<NAME>__<KEY>` (ADR 0030: the last `__`
+ends the name, so each variable names one extension). Not `process.env`, and not
+new fields on `ExtensionConfig`. The legacy `ZVELTIO_EXT_<NAME>_<KEY>` is still
+read, but a legacy key that another installed extension's prefix also spells
+(`billing` and `billing-stripe` both read `ZVELTIO_EXT_BILLING_STRIPE_*`), or that
+belongs to the engine (`ZVELTIO_EXT_RUNNER_*`, `ZVELTIO_EXT_MEMORY_*`), is handed
+to neither.
 
 ---
 
