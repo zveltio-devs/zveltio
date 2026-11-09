@@ -159,7 +159,14 @@ async function fetchDeno(pin: { target: string; zip: string }, path: string): Pr
   const url = `https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${pin.target}.zip`;
   // Bounded: a stalled download must not hold the runner's claim loop forever.
   // `Bun.fetch`, not the global: test files in the same process replace that one.
-  const res = await Bun.fetch(url, { signal: AbortSignal.timeout(300_000) });
+  // GitHub's release CDN answers 502/503/504 in bursts while the next request
+  // succeeds; a 4xx (a wrong pin) is final. The hash check below still decides.
+  let res: Response | undefined;
+  for (let attempt = 0; ; attempt++) {
+    res = await Bun.fetch(url, { signal: AbortSignal.timeout(300_000) });
+    if (res.ok || res.status < 500 || attempt === 3) break;
+    await Bun.sleep(2_000 * 2 ** attempt);
+  }
   if (!res.ok) throw new Error(`downloading Deno from ${url} answered ${res.status}`);
   const zip = new Uint8Array(await res.arrayBuffer());
   const actual = sha256(zip);
