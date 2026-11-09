@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.107] - 2026-11-09
+
+**A tenant's validation rules bind every write, whatever its writer may read.** Since the rules were read on the request's transaction as the request role, migration 093's policy filtered them by the caller's read reach. A default-tenant user whose unit assignments had all lapsed read the instance rules only, and that list was cached under the collection and tenant for 60 s and served to every writer of the tenant: an ordinary member's invalid value was stored (201, not 422). The rules are now read as the engine on the same transaction, filtered only by the tenant (#1586).
+
+**The Deno download retries a 5xx.** GitHub's release CDN answered 504 in bursts while other requests succeeded; the first answer was final, so a runner's first job (and CI) failed. A 5xx is now retried three times (2, 4, 8 s); a 4xx stays final and the pinned SHA-256 still decides (#1592).
+
 **The `/ext/*` authentication gate can no longer be switched off.** `ZVELTIO_EXT_AUTH_GATE=0` made every route of every installed extension anonymous, including handlers that assume the gate ran. Production refused to start with it, but it was a standing bypass everywhere else, and a bypass is a bug, not a mode. The variable is no longer read: a route meant to be anonymous is declared in the manifest's `publicRoutes`, per route and visible in review. Remove the variable from any deployment that still sets it; it changes nothing.
 
 **Schema directories pulled before beta.106 may need three keys removed.** An instance that ran ai 1.x search exported `aiSearchEnabled`, `aiSearchField` and `aiEmbedExcludedFields` on its collections. Since beta.106 (#1579) the schema plan refuses them as `unknown key`. Delete the three keys from the collection files, or pull the schema again.
