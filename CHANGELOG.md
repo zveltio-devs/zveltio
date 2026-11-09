@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.108] - 2026-11-09
+
 **An extension can no longer read another extension's settings by picking a name that spells the same prefix.** `ctx.config.vars` handed an extension every variable under `ZVELTIO_EXT_<NAME>_`, with `<NAME>` the name upper-cased and `/`, `-`, `_` all folded to `_`. The prefix was not delimited and the fold not unique, so an extension named `billing-stripe` received `ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` (the `billing` extension's Stripe webhook secret, enough to forge its webhooks) as `WEBHOOK_SECRET`; `a-b` and `a_b` shared every key; and an extension named `runner` received the engine's `ZVELTIO_EXT_RUNNER_SOCKET` and `ZVELTIO_EXT_RUNNER_UID_BASE`. A key that another installed extension's prefix also spells, or that lies under the engine's `ZVELTIO_EXT_RUNNER_*` / `ZVELTIO_EXT_MEMORY_*`, is now handed to neither extension, and the engine logs the withheld key names at load. Which of the two the operator meant cannot be known, so neither gets it.
 
 **Two installed extensions whose names fold to one table prefix no longer load.** An extension owns the tables `zv_<name>_*`, with every non-alphanumeric folded to `_` and case ignored, so `a-b`, `a_b` and `A_b` owned each other's tables and database grants. While two such names are installed, neither loads and the reason shows as its load error; uninstalling one lets the other load. A failed read of the extension registry at load now fails that load instead of treating the registry as empty (#1599, #1600).
@@ -11,6 +13,12 @@ All notable changes to Zveltio will be documented in this file.
 **A cron flow first runs when its expression says, and an expression that never occurs is refused.** A flow saved with a cron trigger had no next run time, so the scheduler ran it at its next tick: `0 3 * * *` saved at 14:00 ran at 14:00. Creating a flow, or changing its trigger, now sets the next run from the expression. An expression that is malformed or names no real date (`0 0 30 2 *`) is a 400 at save instead of a flow that is stored and then deactivated at its first tick. Day-of-week `7` means Sunday, as in crontab(5).
 
 **An extension's settings have a spelling that belongs to it alone: `ZVELTIO_EXT_<NAME>__<KEY>`.** The old `ZVELTIO_EXT_<NAME>_<KEY>` had no delimiter, so `ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` was both `billing`'s `STRIPE_WEBHOOK_SECRET` and `billing-stripe`'s `WEBHOOK_SECRET`, and which extension got it depended on what was installed when each loaded. With two underscores the last `__` ends the name: `ZVELTIO_EXT_BILLING__STRIPE_WEBHOOK_SECRET` is `billing`'s whatever else is installed (ADR 0030). The old spelling still works, loses to the new one when both are set, and is logged at load with its new name; rename those variables, v2 stops reading them. A variable whose key part itself contains `__` (`ZVELTIO_EXT_SEARCH_A__B`) is now read in the new form.
+
+**Studio's sign-in page no longer follows a `?redirect=` that a control character turns into another site.** The URL parser deletes tab and newline, so `/\t/evil.example` passed the path checks as text and resolved to `//evil.example`. Studio is served under `/admin`, which already refused it; the check now refuses any control character itself (#1603).
+
+**Extension SQL may write `UPDATE ONLY t` / `DELETE FROM ONLY (t)`.** `ONLY` was read as a table name and the statement refused with a message naming a table called "only"; the real table is now checked like any other. A cron day field written `*/2` no longer counts as restricted, so `0 0 */2 * 2` means odd days that are Tuesdays, as in Vixie cron (#1605).
+
+**Dependencies:** hono 4.13.17 and kysely 0.29.8 in the engine, the SDK, the worker runtime and the 22 first-party extension bundles that inline them (#1604, zveltio-extensions#361). Tests added for a revoked-version update (#1598), worker statement grants (#1596), a swallowed configuration-window refusal (#1595) and the tenant activation of `GET /api/actions` (#1601).
 
 ## [3.0.0-beta.107] - 2026-11-09
 
