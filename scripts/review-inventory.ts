@@ -575,6 +575,7 @@ const SECTIONS: Section[] = [
       `${E}lib/storage/`,
       `${E}lib/storage-quota.ts`,
       `${E}lib/media-visibility.ts`,
+      `${E}lib/stored-files.ts`,
       `${E}routes/storage.ts`,
       `${E}routes/files.ts`,
       `${E}lib/cloud/`,
