@@ -169,6 +169,26 @@ d('GET /api/actions lists exactly the actions the caller may run', () => {
     expect(await agree(all)).toEqual(['approve']);
   });
 
+  it('an extension switched off for the caller’s tenant lists nothing, as its route answers', async () => {
+    const member = await createMemberSession(engine, db, {});
+    const creds = { cookie: member.cookie };
+    await grant(member.userId, 'execute', true);
+    expect(await agree(creds)).toEqual(['ping']);
+    await sql`
+      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+      VALUES (${EXT}, ${EXT}, ${DEFAULT_TENANT_ID}, true, false)
+    `.execute(db);
+    invalidateActivationCache();
+    try {
+      expect(await agree(creds)).toEqual([]);
+    } finally {
+      await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT} AND tenant_id IS NOT NULL`.execute(
+        db,
+      );
+      invalidateActivationCache();
+    }
+  });
+
   it('an unknown key is 401', async () => {
     expect(
       (await engine.request('/api/actions', { headers: { 'x-api-key': 'zv_nope' } })).status,
