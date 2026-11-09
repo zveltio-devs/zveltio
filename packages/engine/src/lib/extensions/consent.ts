@@ -47,7 +47,12 @@ export function parseGranted(value: unknown): string[] | null {
   return raw.filter((v): v is string => typeof v === 'string');
 }
 
-export { declaredCapabilities, declaredSlots, EGRESS_PREFIX } from '../manifest-capabilities.js';
+export {
+  declaredCapabilities,
+  declaredSlots,
+  declaredTcpSlots,
+  EGRESS_PREFIX,
+} from '../manifest-capabilities.js';
 
 /**
  * An operator's binding of a job's egress slot (ADR 0026 decision 3), stored

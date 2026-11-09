@@ -95,4 +95,17 @@ describe('manifest collections', () => {
     expect(bad(['Tasks'])).toHaveLength(1);
     expect(bad(['tasks', 'tasks'])).toHaveLength(1);
   });
+
+  it('takes tcp slots as { name, kind }, one kind per name (ADR 0026 amendment)', () => {
+    const slots = (egressSlots: unknown[]) => ({ ...job, egressSlots });
+    expect(errors({ jobs: [slots([{ name: 'mail', kind: 'tcp' }, 'provider'])] })).toEqual([]);
+    expect(errors({ jobs: [slots([{ name: 'mail', kind: 'udp' }])] })).toHaveLength(1);
+    expect(errors({ jobs: [slots([{ name: 'mail', port: 993 }])] })).toHaveLength(1);
+    expect(errors({ jobs: [slots(['mail', { name: 'mail', kind: 'tcp' }])] })).toHaveLength(1);
+    expect(
+      errors({
+        jobs: [slots(['mail']), { ...slots([{ name: 'mail', kind: 'tcp' }]), name: 'other' }],
+      }),
+    ).toEqual(['job "other": slot "mail" is declared both "http" and "tcp"']);
+  });
 });

@@ -32,10 +32,37 @@ export function declaredCapabilities(manifest: unknown): string[] {
   ];
 }
 
+/**
+ * A job's `egressSlots` entry: a name, an HTTP slot, or `{ name, kind }`
+ * (ADR 0026 amendment: `kind: "tcp"` is a relayed TCP stream). Anything else
+ * is ignored, as a non-string permission is.
+ */
+type Slot = { name: string; kind: 'http' | 'tcp' };
+const slotsOf = (j: unknown): Slot[] => {
+  const raw = (j as { egressSlots?: unknown } | null)?.egressSlots;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((s): Slot[] => {
+    if (typeof s === 'string') return [{ name: s, kind: 'http' }];
+    const o = s as { name?: unknown; kind?: unknown } | null;
+    if (typeof o?.name !== 'string') return [];
+    if (o.kind === undefined || o.kind === 'http') return [{ name: o.name, kind: 'http' }];
+    return o.kind === 'tcp' ? [{ name: o.name, kind: 'tcp' }] : [];
+  });
+};
+
 /** Every slot name a manifest's jobs declare (`egressSlots`). */
 export function declaredSlots(manifest: unknown): Set<string> {
+  return new Set(jobsOf(manifest).flatMap((j) => slotsOf(j).map((s) => s.name)));
+}
+
+/** The slots a manifest's jobs declare as `kind: "tcp"`: each binding carries a port. */
+export function declaredTcpSlots(manifest: unknown): Set<string> {
   return new Set(
-    jobsOf(manifest).flatMap((j) => strings((j as { egressSlots?: unknown } | null)?.egressSlots)),
+    jobsOf(manifest).flatMap((j) =>
+      slotsOf(j)
+        .filter((s) => s.kind === 'tcp')
+        .map((s) => s.name),
+    ),
   );
 }
 

@@ -21,6 +21,7 @@ import {
   resolveForwarded,
 } from '../../lib/extensions/consent.js';
 import { jobEgress } from '../../lib/extensions/jobs.js';
+import { declaredSlots, declaredTcpSlots } from '../../lib/manifest-capabilities.js';
 
 describe('the update-widening scenario', () => {
   it('does not grant a capability a new version added on its own say-so', () => {
@@ -293,5 +294,26 @@ describe('manifest egressSlots', () => {
         jobs: [{ name: 'j', input: { type: 'object' }, egressSlots: ['p'], timeoutSeconds: 300 }],
       }).success,
     ).toBe(true);
+  });
+
+  it('takes { name, kind } for a tcp slot, one kind per name across jobs (ADR 0026 amendment)', () => {
+    expect(job([{ name: 'mail', kind: 'tcp' }, 'provider']).success).toBe(true);
+    expect(job([{ name: 'mail' }]).success).toBe(true);
+    expect(job([{ name: 'mail', kind: 'udp' }]).success).toBe(false);
+    expect(job([{ name: 'mail', kind: 'tcp', host: 'x' }]).success).toBe(false);
+    expect(job(['mail', { name: 'mail', kind: 'tcp' }]).success).toBe(false);
+    const two = (a: unknown, b: unknown) =>
+      ManifestSchema.safeParse({
+        name: 'x',
+        jobs: [
+          { name: 'a', input: { type: 'object' }, egressSlots: [a] },
+          { name: 'b', input: { type: 'object' }, egressSlots: [b] },
+        ],
+      }).success;
+    expect(two({ name: 'mail', kind: 'tcp' }, { name: 'mail', kind: 'tcp' })).toBe(true);
+    expect(two('mail', { name: 'mail', kind: 'tcp' })).toBe(false);
+    const manifest = { jobs: [{ egressSlots: ['provider', { name: 'mail', kind: 'tcp' }] }] };
+    expect([...declaredSlots(manifest)].sort()).toEqual(['mail', 'provider']);
+    expect([...declaredTcpSlots(manifest)]).toEqual(['mail']);
   });
 });

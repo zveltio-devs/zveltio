@@ -63,6 +63,7 @@ import {
   parseGranted,
   declaredCapabilities,
   declaredSlots,
+  declaredTcpSlots,
   formatSlotBinding,
   parseSlotBinding,
   recordConsent,
@@ -1463,8 +1464,11 @@ export function registerMarketplaceRoutes(
     const extDir = join(extBase, name);
     if (!isPathInsideBase(extBase, extDir)) return c.json({ error: 'Invalid extension name' }, 400);
     let slots: Set<string>;
+    let tcpSlots: Set<string>;
     try {
-      slots = declaredSlots(JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8')));
+      const manifest = JSON.parse(readFileSync(join(extDir, 'manifest.json'), 'utf8'));
+      slots = declaredSlots(manifest);
+      tcpSlots = declaredTcpSlots(manifest);
     } catch {
       return c.json({ error: `No manifest on disk for "${name}"` }, 404);
     }
@@ -1490,6 +1494,12 @@ export function registerMarketplaceRoutes(
       list = parseEgress(authorities) ?? [];
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
+    }
+    // A tcp slot's job connects to host:port (ADR 0026 amendment): a host
+    // without a port would bind nothing it could reach.
+    const portless = tcpSlots.has(slot) ? list.find((a) => !/:\d{1,5}$/.test(a)) : undefined;
+    if (portless !== undefined) {
+      return c.json({ error: `"${slot}" is a tcp slot: write "${portless}" with its port` }, 400);
     }
     if (list.length === 0 && isPrivate) {
       return c.json({ error: 'private marks bound authorities; there are none' }, 400);

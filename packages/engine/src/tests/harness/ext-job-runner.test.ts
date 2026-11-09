@@ -12,6 +12,7 @@ import { effectiveTimeZone } from '../../lib/tenancy/timezone.js';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
@@ -20,6 +21,7 @@ import type { Database } from '../../db/index.js';
 import { ManifestSchema } from '../../lib/extensions/manifest-schema.js';
 import {
   _setRunnerConcurrencyForTests,
+  _tcpRelayLoadedForTests,
   compileJobs,
   jobQueueName,
   registerJobs,
@@ -94,6 +96,19 @@ export default {
       label = 'bound-' + input.tag + '-[' + bound.join(',') + ']-' + res.status;
     } catch (e) {
       label = 'bound-' + input.tag + '-ERR-' + e.message;
+    }
+    await host.collections.insert(${JSON.stringify(C)}, { label });
+  },
+  tcpecho: async (input, host) => {
+    let label;
+    try {
+      const s = await host.egress.connect('mail', { host: '127.0.0.1', port: input.port, tls: 'none' });
+      await s.write('ping');
+      const got = new TextDecoder().decode(await s.read());
+      await s.close();
+      label = 'tcp-' + input.tag + '-' + got;
+    } catch (e) {
+      label = 'tcp-' + input.tag + '-ERR-' + e.message;
     }
     await host.collections.insert(${JSON.stringify(C)}, { label });
   },
@@ -208,6 +223,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
         },
         { ...job('twice', [C], [C]), timeoutSeconds: 60, egress: ['1.1.1.1'] },
         { ...job('slotnet', [C], [C]), egress: ['1.1.1.1'], egressSlots: ['provider'] },
+        { ...job('tcpecho', [C], [C]), egressSlots: [{ name: 'mail', kind: 'tcp' }] },
       ],
     });
     const jobs = compileJobs(
@@ -232,7 +248,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
                                     WHERE name LIKE ${`ext.${EXT}.%`}`.execute(db)
           ).rows[0]?.n,
         ),
-      (n) => n === 7,
+      (n) => n === 8,
     );
   }, 180_000);
 
@@ -551,6 +567,49 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
       expect(await net('nat64', 'http://[64:ff9b::a00:1]/')).toContain('private address blocked');
       expect(seen.some((u) => u.includes('64:ff9b'))).toBe(false);
     }, 40_000);
+  });
+
+  describe('a tcp slot (ADR 0026 amendment)', () => {
+    let server: Server;
+    let port = 0;
+    beforeAll(async () => {
+      server = createServer((s) => s.on('data', (d) => s.write(d.toString().toUpperCase())));
+      port = await new Promise<number>((r) =>
+        server.listen(0, '127.0.0.1', () => r((server.address() as { port: number }).port)),
+      );
+    });
+    afterAll(() => server.close());
+    const tcp = async (tag: string, binding: string | null) => {
+      await recordConsent(db, EXT, binding ? [...GRANTED, binding] : GRANTED);
+      try {
+        await send('tcpecho', { tag, port });
+        return (
+          await until(
+            () => rows(`tcp-${tag}-`),
+            (r) => r.length > 0,
+          )
+        )[0]!.label;
+      } finally {
+        await recordConsent(db, EXT, GRANTED);
+      }
+    };
+
+    it('unbound: refused, and the relay is never loaded', async () => {
+      expect(await tcp('unbound', null)).toContain('slot "mail" is not bound');
+      // Every run above used http egress or none: only a bound tcp connect imports the relay.
+      expect(_tcpRelayLoadedForTests()).toBe(false);
+    }, 40_000);
+
+    it('bound: a stream to exactly its host:port, relayed by the engine', async () => {
+      expect(await tcp('other', `egress:mail=127.0.0.1:${port + 1};private`)).toContain(
+        'is not bound to this slot',
+      );
+      expect(await tcp('public', `egress:mail=127.0.0.1:${port}`)).toContain(
+        'private address blocked',
+      );
+      expect(await tcp('ok', `egress:mail=127.0.0.1:${port};private`)).toBe('tcp-ok-PING');
+      expect(_tcpRelayLoadedForTests()).toBe(true);
+    }, 60_000);
   });
 
   it("reads consent from god's row, not a firm's activation row written without it", async () => {

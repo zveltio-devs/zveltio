@@ -92,8 +92,10 @@ export interface CompiledJob {
     timeoutSeconds: number;
     /** Declared authorities; reachable only once consented as `egress:<authority>`. */
     egress: readonly string[];
-    /** Declared slots (ADR 0026); each reaches what an operator bound to it. */
+    /** Declared slots (ADR 0026), by name; each reaches what an operator bound to it. */
     egressSlots: readonly string[];
+    /** Those of `egressSlots` declared `kind: "tcp"`: reached by a relayed stream, not fetch. */
+    tcpSlots: readonly string[];
   };
 }
 
@@ -232,7 +234,10 @@ export function compileJobs(
         memoryMb: j.memoryMb,
         timeoutSeconds: j.timeoutSeconds,
         egress: j.egress ?? [],
-        egressSlots: j.egressSlots ?? [],
+        egressSlots: (j.egressSlots ?? []).map((s) => (typeof s === 'string' ? s : s.name)),
+        tcpSlots: (j.egressSlots ?? []).flatMap((s) =>
+          typeof s !== 'string' && s.kind === 'tcp' ? [s.name] : [],
+        ),
       },
     });
   }
@@ -640,6 +645,46 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     // Each call holds a pool connection: a run must not take the pool from every other tenant.
     const dbCalls = limiter(Number.POSITIVE_INFINITY, 2, 'host calls');
     const writing = new Set<Promise<unknown>>();
+    // Created by the run's first connect; every stream it opened is closed when the run ends.
+    const streams: { relay: import('./tcp-relay.js').TcpRelay | null } = { relay: null };
+    const tcp = async (name: HostCall, args: unknown[]): Promise<unknown> => {
+      if (name === 'tcp.connect') {
+        const slot = args[0];
+        if (typeof slot !== 'string' || !runner.tcpSlots.includes(slot)) {
+          throw new Error(`tcp.connect: job "${job}" declares no tcp slot "${String(slot)}"`);
+        }
+        // The consent as recorded now, as for a fetch: a rebinding cuts the next connect.
+        const binding = slotBindings(await readGranted(getDb(), extName), new Set([slot])).get(
+          slot,
+        );
+        if (!binding) throw new Error(`tcp.connect: slot "${slot}" is not bound`);
+        const mod = await loadTcpRelay();
+        const target = mod.parseTarget(args[1]);
+        // Ended while this connect waited: no relay is created after closeAll.
+        if (ended.signal.aborted) throw new Error('tcp.connect: the run has ended');
+        streams.relay ??= new mod.TcpRelay();
+        return streams.relay.connect(target, binding);
+      }
+      const relay = streams.relay;
+      if (!relay) throw new Error(`${name}: no open stream`);
+      switch (name) {
+        case 'tcp.read': {
+          const bytes = await relay.read(args[0], args[1]);
+          return bytes === null ? null : Buffer.from(bytes).toString('base64');
+        }
+        case 'tcp.write':
+          if (typeof args[1] !== 'string') throw new Error('tcp.write: data is base64 text');
+          await relay.write(args[0], Buffer.from(args[1], 'base64'));
+          return null;
+        case 'tcp.startTls':
+          await relay.startTls(args[0]);
+          return null;
+        case 'tcp.close':
+          relay.close(args[0]);
+          return null;
+      }
+      throw new Error(`${name} is not a tcp call`);
+    };
     const ended = new AbortController();
     const abort = () => ended.abort();
     reg.unload.signal.addEventListener('abort', abort);
@@ -657,6 +702,7 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
             return jobFetch(allowed, privateList, args[0], ended.signal);
           });
         }
+        if (name.startsWith('tcp.')) return tcp(name, args);
         if (name === 'egress.slot') {
           const slot = args[0];
           if (typeof slot !== 'string' || !runner.egressSlots.includes(slot)) {
@@ -681,6 +727,7 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     } finally {
       reg.unload.signal.removeEventListener('abort', abort);
       ended.abort();
+      streams.relay?.closeAll();
       // Their transactions commit on their own: the outcome is recorded after
       // the last one settles, so a retry never starts beside a write still landing.
       await Promise.allSettled([...writing]);
@@ -736,6 +783,15 @@ async function auditRun(
     tenantId: tenantExists ? data.tenantId : null,
   });
 }
+
+/**
+ * The relay module, imported on the first `tcp.connect` of a bound slot (ADR
+ * 0026 amendment, decision 4): an engine with no tcp binding never loads it.
+ */
+let tcpRelayModule: Promise<typeof import('./tcp-relay.js')> | null = null;
+const loadTcpRelay = () => (tcpRelayModule ??= import('./tcp-relay.js'));
+/** Tests: whether any run has loaded the relay. */
+export const _tcpRelayLoadedForTests = (): boolean => tcpRelayModule !== null;
 
 /** Seconds one fetch may take, its body included. */
 const FETCH_TIMEOUT_S = 30;
@@ -856,6 +912,12 @@ export async function hostCall(c: HostCollections, name: HostCall, a: unknown[])
       throw new Error('fetch is not a collection call');
     case 'egress.slot':
       throw new Error('this job declares no egress slot');
+    case 'tcp.connect':
+    case 'tcp.read':
+    case 'tcp.write':
+    case 'tcp.startTls':
+    case 'tcp.close':
+      throw new Error('this job declares no tcp slot');
   }
 }
 

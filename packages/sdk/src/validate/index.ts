@@ -317,6 +317,8 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
       }
     }
   }
+  // One binding per slot name serves every job: so is its kind.
+  const slotKinds = new Map<string, string>();
   for (const j of jobs) {
     // ADR 0018: a route that enqueues it is one the manifest declares public.
     const publicRoutes = Array.isArray(obj.publicRoutes) ? obj.publicRoutes : [];
@@ -369,20 +371,45 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
         ),
       );
     }
-    // ADR 0026: slots an operator binds; the manifest names only the slot.
+    // ADR 0026: slots an operator binds; the manifest names only the slot. An
+    // entry is a name (an HTTP slot) or { name, kind: "http" | "tcp" }.
     const slots = j.egressSlots;
+    const slotName = (s: unknown): string | null => {
+      if (typeof s === 'string') return s;
+      if (s === null || typeof s !== 'object' || Array.isArray(s)) return null;
+      const o = s as Record<string, unknown>;
+      const keysOk = Object.keys(o).every((k) => k === 'name' || k === 'kind');
+      const kindOk = o.kind === undefined || o.kind === 'http' || o.kind === 'tcp';
+      return keysOk && kindOk && typeof o.name === 'string' ? o.name : null;
+    };
+    const names = Array.isArray(slots) ? slots.map(slotName) : [];
     const slotsOk =
       slots === undefined ||
       (Array.isArray(slots) &&
-        new Set(slots).size === slots.length &&
-        slots.every((s) => typeof s === 'string' && /^[a-z][a-z0-9_]*$/.test(s)));
+        new Set(names).size === names.length &&
+        names.every((n) => n !== null && /^[a-z][a-z0-9_]*$/.test(n)));
     if (!slotsOk) {
       out.push(
         err(
           'MANIFEST_BAD_JOB',
-          `job "${j.name}": "egressSlots" lists distinct slot names, [a-z][a-z0-9_]*`,
+          `job "${j.name}": "egressSlots" lists distinct slots, each a name [a-z][a-z0-9_]* or { name, kind: "http" | "tcp" }`,
         ),
       );
+    } else {
+      for (const s of (slots ?? []) as unknown[]) {
+        const name = slotName(s)!;
+        const kind = typeof s === 'string' ? 'http' : ((s as { kind?: string }).kind ?? 'http');
+        const seen = slotKinds.get(name);
+        if (seen !== undefined && seen !== kind) {
+          out.push(
+            err(
+              'MANIFEST_BAD_JOB',
+              `job "${j.name}": slot "${name}" is declared both "${seen}" and "${kind}"`,
+            ),
+          );
+        }
+        slotKinds.set(name, kind);
+      }
     }
     const hasEgress =
       (Array.isArray(egress) && egress.length > 0) || (Array.isArray(slots) && slots.length > 0);

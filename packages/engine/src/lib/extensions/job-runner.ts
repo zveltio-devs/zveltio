@@ -42,6 +42,11 @@ import { ensureDeno } from './deno.js';
 
 export const RUNNER_LIMITS = {
   hostCalls: 1000,
+  /**
+   * `tcp.read` and `tcp.write`, counted apart: a protocol exchange is many
+   * small ones. The relay's byte ceiling and the wall clock bound them too.
+   */
+  streamCalls: 20_000,
   stdoutBytes: 16 * 1024 * 1024,
   /** Deno's own resident size before a job allocates anything, added to `memoryMb`. */
   runtimeMb: 64,
@@ -65,6 +70,11 @@ export const HOST_CALLS = [
   'collections.delete',
   'fetch',
   'egress.slot',
+  'tcp.connect',
+  'tcp.read',
+  'tcp.write',
+  'tcp.startTls',
+  'tcp.close',
 ] as const;
 export type HostCall = (typeof HOST_CALLS)[number];
 
@@ -121,8 +131,31 @@ const host = Object.freeze({
     update: (c, id, d, o) => call('collections.update', [c, id, d, o ?? {}]),
     delete: (c, id) => call('collections.delete', [c, id]),
   }),
-  // The operator's binding of a declared slot (ADR 0026), [] while unbound.
-  egress: Object.freeze({ slot: (name) => call('egress.slot', [name]) }),
+  egress: Object.freeze({
+    // The operator's binding of a declared slot (ADR 0026), [] while unbound.
+    slot: (name) => call('egress.slot', [name]),
+    // A byte stream the engine opens to a host:port bound to a tcp slot (ADR
+    // 0026 amendment): this process still opens no socket.
+    connect: async (slot, opts) => {
+      const o = opts || {};
+      const id = await call('tcp.connect', [slot, { host: o.host, port: o.port, tls: o.tls }]);
+      return Object.freeze({
+        read: async (max) => {
+          const v = await call('tcp.read', [id, max === undefined ? 65536 : max]);
+          return v === null ? null : unb64(v);
+        },
+        write: async (data) => {
+          await call('tcp.write', [id, b64(typeof data === 'string' ? enc.encode(data) : data)]);
+        },
+        startTls: async () => {
+          await call('tcp.startTls', [id]);
+        },
+        close: async () => {
+          await call('tcp.close', [id]);
+        },
+      });
+    },
+  }),
   // The engine performs it (ADR 0022 decision 3): this process opens no socket.
   fetch: async (input, init) => {
     const req = new Request(input, init);
@@ -546,6 +579,7 @@ function supervise(r: RunnerRun, proc: JobProc): Promise<void> {
     let reported: Partial<Ended> | null = null;
     let ended = false;
     let calls = 0;
+    let streamCalls = 0;
     let stdoutBytes = 0;
     const inFlight = new Set<Promise<void>>();
 
@@ -630,7 +664,11 @@ function supervise(r: RunnerRun, proc: JobProc): Promise<void> {
       ) {
         return kill('the job sent a malformed host call');
       }
-      if (++calls > RUNNER_LIMITS.hostCalls) {
+      if (m.call === 'tcp.read' || m.call === 'tcp.write') {
+        if (++streamCalls > RUNNER_LIMITS.streamCalls) {
+          return kill(`more than ${RUNNER_LIMITS.streamCalls} tcp reads and writes in one run`);
+        }
+      } else if (++calls > RUNNER_LIMITS.hostCalls) {
         return kill(`more than ${RUNNER_LIMITS.hostCalls} host calls in one run`);
       }
       answer(m.id, m.call as HostCall, m.args);
