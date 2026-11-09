@@ -3830,5 +3830,6 @@
   "workflow.checklists.toast.saved": "Listă de verificare salvată.",
   "workflow.checklists.ui.e_g_onboarding_checklist": "e.g. Onboarding Checklist",
   "workflow.checklists.ui.name": "Nume *",
-  "workflow.checklists.ui.new_item_text": "item text…"
+  "workflow.checklists.ui.new_item_text": "item text…",
+  "auth.secondFactorHint": "Introduceți codul din aplicația de autentificare sau unul dintre codurile de rezervă."
 }
