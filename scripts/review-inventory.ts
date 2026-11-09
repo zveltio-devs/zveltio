@@ -650,7 +650,6 @@ const SECTIONS: Section[] = [
       `${S}hooks.client.ts`,
       `${S}lib/web-push.ts`,
       `${S}lib/paths.ts`,
-      `${S}service-worker/`,
       'packages/studio/static/push-sw.js',
       'packages/studio/vite.config.ts',
       'packages/studio/vitest.config.ts',
@@ -1218,11 +1217,24 @@ async function lineCount(file: string): Promise<number> {
   return text.endsWith('\n') ? n - 1 : n;
 }
 
+/**
+ * Section entries that name nothing tracked: a file entry for a deleted or
+ * renamed file, or a directory entry no tracked file is under any more. Either
+ * reads as coverage that is not there.
+ */
+function deadEntries(files: string[]): string[] {
+  const tracked = new Set(files);
+  const dirs = SECTIONS.flatMap((s) => s.match.filter((m) => m.endsWith('/')));
+  return [
+    ...[...LISTED].filter((f) => !tracked.has(f)),
+    ...dirs.filter((d) => !files.some((f) => f.startsWith(d))),
+  ];
+}
+
 /** Exit 1 when a tracked file matches no section or an entry names no file. */
 function checkSections(files: string[]): void {
   const unassigned = files.filter((f) => !sectionFor(f));
-  const tracked = new Set(files);
-  const dead = [...LISTED].filter((f) => !tracked.has(f));
+  const dead = deadEntries(files);
   for (const f of unassigned) console.error(`match no section: ${f}`);
   for (const f of dead) console.error(`section entry names no tracked file: ${f}`);
   if (unassigned.length || dead.length) {
@@ -1598,8 +1610,7 @@ async function main() {
     for (const f of unassigned) console.error(`  ${f}`);
     process.exit(1);
   }
-  // A deleted or renamed file left in a section reads as coverage that is not there.
-  const dead = [...LISTED].filter((f) => !tracked.has(f));
+  const dead = deadEntries(files);
   if (dead.length > 0) {
     console.error(`\n${dead.length} section entries name no tracked file:`);
     for (const f of dead) console.error(`  ${f}`);
