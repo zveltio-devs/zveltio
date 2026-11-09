@@ -63,6 +63,11 @@ describe('the day-of-month / day-of-week quirk', () => {
     expect(fmt(nextCronRun('0 0 13 * 5', from))).toBe('2026-08-07 00:00'); // first Friday
   });
 
+  it('a stepped `*` field is not restricted, as in Vixie cron', () => {
+    // Odd days that are Tuesdays: 11 and 25 August 2026, not the 3rd (odd) or 4th (Tuesday).
+    expect(fmt(nextCronRun('0 0 */2 * 2', at('2026-08-01T00:00:00')))).toBe('2026-08-11 00:00');
+  });
+
   it('ANDs nothing when only day-of-month is restricted', () => {
     expect(fmt(nextCronRun('0 0 13 * *', at('2026-08-01T00:00:00')))).toBe('2026-08-13 00:00');
   });

@@ -86,8 +86,10 @@ export function parseCron(expr: string): CronFields | null {
     dom,
     month,
     dow,
-    domRestricted: parts[2] !== '*',
-    dowRestricted: parts[4] !== '*',
+    // As Vixie cron: a field that starts with `*` (`*`, `*/2`) does not count as
+    // restricted, so `0 0 */2 * 2` is an odd day that is a Tuesday, not either.
+    domRestricted: !parts[2]!.startsWith('*'),
+    dowRestricted: !parts[4]!.startsWith('*'),
   };
 }
 
@@ -97,9 +99,8 @@ function dayMatches(f: CronFields, d: Date): boolean {
   const domHit = f.dom.has(d.getDate());
   const dowHit = f.dow.has(d.getDay());
   if (f.domRestricted && f.dowRestricted) return domHit || dowHit;
-  if (f.domRestricted) return domHit;
-  if (f.dowRestricted) return dowHit;
-  return true;
+  // An unrestricted field still narrows when stepped (`*/2`): both must hit.
+  return domHit && dowHit;
 }
 
 /**

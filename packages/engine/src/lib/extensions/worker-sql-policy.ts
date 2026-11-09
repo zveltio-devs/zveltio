@@ -567,6 +567,11 @@ function tableReferences(code: string): TableRef[] {
     // "user"` was permitted on the strength of its first entry. The existing
     // suite caught it — the case that failed was the one asserting the error
     // NAMES every offending table, which is the same fact seen from the side.
+    // `FROM ONLY t`, `UPDATE ONLY (t)`: ONLY (no inheritance children) and its
+    // optional parenthesis come before the first table. Read as a table it was
+    // refused as one called "only", and the parenthesised form must still reach
+    // the table check below. A quoted "only" starts with `"` and stays a name.
+    rest = rest.replace(/^\s*only\b\s*\(?/i, ' ');
     for (;;) {
       // A keyword here means this intro did not introduce a table list at all.
       // `ON CONFLICT (id) DO UPDATE SET x = $1` contains the word UPDATE, and
