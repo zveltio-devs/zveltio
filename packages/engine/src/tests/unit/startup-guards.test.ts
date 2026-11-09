@@ -20,44 +20,6 @@ const CACHE = 'redis://:pw@cache:6379';
 const BASE = 'https://app.example.com';
 
 describe('productionGuardViolations', () => {
-  it('refuses production with the extension auth gate disabled', () => {
-    const v = productionGuardViolations({
-      NODE_ENV: 'production',
-      VALKEY_URL: CACHE,
-      BETTER_AUTH_URL: BASE,
-      ZVELTIO_EXT_AUTH_GATE: '0',
-    });
-    expect(v).toHaveLength(1);
-    expect(v[0]!.variable).toBe('ZVELTIO_EXT_AUTH_GATE');
-  });
-
-  // The hatch has to keep working where it is meant to work, or it gets set
-  // permanently in the deployment template to stop it being a nuisance.
-  it.each(['development', 'test', undefined])('leaves NODE_ENV=%s alone', (NODE_ENV) => {
-    expect(
-      productionGuardViolations({
-        NODE_ENV,
-        VALKEY_URL: CACHE,
-        BETTER_AUTH_URL: BASE,
-        ZVELTIO_EXT_AUTH_GATE: '0',
-      }),
-    ).toEqual([]);
-  });
-
-  // `=== '0'` is the gate's own test, and this asserts the guard agrees with it
-  // rather than with some looser idea of falsy — an env var is always a string,
-  // and 'false' does NOT disable the gate.
-  it.each(['1', 'false', '', 'no'])('does not fire on the non-disabling value %p', (value) => {
-    expect(
-      productionGuardViolations({
-        NODE_ENV: 'production',
-        VALKEY_URL: CACHE,
-        BETTER_AUTH_URL: BASE,
-        ZVELTIO_EXT_AUTH_GATE: value,
-      }),
-    ).toEqual([]);
-  });
-
   it('refuses production with a wildcard CORS allowlist', () => {
     const v = productionGuardViolations({
       NODE_ENV: 'production',
@@ -119,13 +81,11 @@ describe('productionGuardViolations', () => {
   it('reports every violation at once', () => {
     const v = productionGuardViolations({
       NODE_ENV: 'production',
-      VALKEY_URL: CACHE,
       BETTER_AUTH_URL: BASE,
-      ZVELTIO_EXT_AUTH_GATE: '0',
       CORS_ORIGINS: '*',
     });
     expect(v).toHaveLength(2);
-    expect(v.map((x) => x.variable).sort()).toEqual(['CORS_ORIGINS', 'ZVELTIO_EXT_AUTH_GATE']);
+    expect(v.map((x) => x.variable).sort()).toEqual(['CORS_ORIGINS', 'VALKEY_URL']);
   });
 });
 
@@ -138,9 +98,9 @@ describe('assertProductionConfig', () => {
           NODE_ENV: 'production',
           VALKEY_URL: CACHE,
           BETTER_AUTH_URL: BASE,
-          ZVELTIO_EXT_AUTH_GATE: '0',
+          CORS_ORIGINS: '*',
         }),
-      ).toThrow(/ZVELTIO_EXT_AUTH_GATE/);
+      ).toThrow(/CORS_ORIGINS/);
     } finally {
       err.mockRestore();
     }

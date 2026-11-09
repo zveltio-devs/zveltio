@@ -24,9 +24,8 @@
  * scope instead of Casbin (lib/extensions/register.ts). Every other route
  * refuses a key exactly as before: 403 EXT_SESSION_REQUIRED.
  *
- * Escape hatch: `ZVELTIO_EXT_AUTH_GATE=0` disables it (operational safety valve
- * for an install whose extension manifests predate their publicRoutes
- * declarations). Default is on.
+ * There is no switch to turn it off: a route meant to be anonymous is declared
+ * in the manifest's `publicRoutes`, per route and visible in review.
  *
  * Not covered: routes an extension mounts on the GLOBAL app via
  * `ctx.registerPublicRoute` (they live outside `/ext/<name>`). Those are public
@@ -369,8 +368,6 @@ function keyRouteAction(extName: string, method: string, sub: string): string | 
  * asks it.
  */
 export function gateAdmitsAction(extName: string, name: string, user: RequestUser): boolean {
-  // Switched off, the gate admits no principal, and the action route answers 401.
-  if (process.env.ZVELTIO_EXT_AUTH_GATE === '0') return false;
   const owner = resolveOwner(`${extName}/actions/${name}`);
   if (owner?.name !== extName || isDeclaredPublic(extName, owner.sub)) return false;
   if (!isApiKeyPrincipal(user)) return true;
@@ -384,7 +381,6 @@ export function gateAdmitsAction(extName: string, name: string, user: RequestUse
  */
 export function extensionAuthGate(auth: SessionResolver, db: Database): MiddlewareHandler {
   const gate: MiddlewareHandler = async (c: Context, next) => {
-    if (process.env.ZVELTIO_EXT_AUTH_GATE === '0') return next();
     // CORS preflight carries no credentials — never gate it.
     if (c.req.method === 'OPTIONS') return next();
 
@@ -446,6 +442,5 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
     c.set('user', session.user);
     return runAdmitted(c, session.user as RequestUser, next);
   };
-  // Outside the escape hatch: the configuration window holds with the gate off.
   return (c, next) => runExtensionRequest(c, auth, async () => gate(c, next));
 }

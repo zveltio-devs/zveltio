@@ -601,9 +601,9 @@ app.use('*', permissionGate(ctx, 'my-extension'));
 
 **Escape hatches.** Routes mounted on the global app via
 `ctx.registerPublicRoute` (CDN links, user-deployed webhooks) live outside
-`/ext/*` and the gate — they are public by construction; guard them yourself. An
-operator can disable the gate entirely with `ZVELTIO_EXT_AUTH_GATE=0` (an
-availability valve — leave it on).
+`/ext/*` and the gate — they are public by construction; guard them yourself.
+The gate itself cannot be switched off: a route meant to be anonymous is
+declared in `publicRoutes`.
 
 **CI enforces this.** `scripts/probe-ext-auth.ts` boots a live engine and asserts
 every declared `publicRoutes` entry is actually reachable anonymously and that a
