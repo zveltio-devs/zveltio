@@ -134,7 +134,7 @@ storage, webhooks, realtime, audit, notifications, automation flows, backup,
 insights, saved queries, schema branches, tenants — so they are not in that 56.
 See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extension).
 
-**Data & Content** · `content/pages` (block-based pages and sites, including authenticated portals) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts` · `content/pdf-viewer` · `forms` · `search` · `data/import` · `data/export`
+**Data & Content** · `content/pages` (block-based pages and sites, including authenticated portals) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts` · `content/pdf-viewer` · `forms` · `data/import` · `data/export`
 
 **Customer & Business** · `crm` · `ecommerce/store` · `operations/pos` · `operations/inventory` · `operations/assets` · `operations/traceability` · `finance/invoicing` · `finance/quotes` · `finance/expenses` · `finance/accounting` · `finance/banking` · `finance/subscriptions` · `billing`
 

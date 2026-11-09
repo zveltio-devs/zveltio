@@ -338,8 +338,8 @@ own `ZVELTIO_EXT_RUNNER_*` and `ZVELTIO_EXT_MEMORY_*`, reaches neither
 extension. v2 drops it.
 
 ```ts
-// operator sets ZVELTIO_EXT_SEARCH__MEILISEARCH_URL=http://meili:7700
-const url = ctx.config.vars.MEILISEARCH_URL ?? 'http://localhost:7700';
+// operator sets ZVELTIO_EXT_SMS__TWILIO_ACCOUNT_SID=AC123…
+const sid = ctx.config.vars.TWILIO_ACCOUNT_SID;
 ```
 
 Values are strings; coerce at the point of use, and treat a missing key as *not

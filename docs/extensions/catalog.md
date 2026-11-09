@@ -164,12 +164,6 @@ accurate counts.
 | `projects/helpdesk` | Helpdesk | 1.0.4 | Tickets with SLA timers, priorities, assignment, message threads |
 | `projects/management` | Project Management | 1.0.3 | Projects, milestones, tasks, kanban, assignments, progress |
 
-## search
-
-| Extension | Name | Ver | What it does |
-|---|---|---|---|
-| `search` | Search Adapter | 1.0.3 | Full-text search via MeiliSearch or Typesense with automatic record sync |
-
 ## sms
 
 | Extension | Name | Ver | What it does |

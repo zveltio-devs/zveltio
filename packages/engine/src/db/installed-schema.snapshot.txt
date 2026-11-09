@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 589
+# tables: 588
 
 table account
   col accessToken                    text
@@ -1154,24 +1154,6 @@ table zv_schema_versions
   col version                        integer NOT NULL
   pk  zv_schema_versions_pkey PRIMARY KEY (id)
   uq  zv_schema_versions_version_key UNIQUE (version)
-
-table zv_search_indexes
-  col collection                     text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col filterable_fields              ARRAY NOT NULL DEFAULT '{}'::text[]
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col index_name                     text NOT NULL
-  col last_synced_at                 timestamp with time zone
-  col provider                       text NOT NULL DEFAULT 'meilisearch'::text
-  col record_count                   integer DEFAULT 0
-  col searchable_fields              ARRAY NOT NULL DEFAULT '{}'::text[]
-  col sortable_fields                ARRAY NOT NULL DEFAULT '{}'::text[]
-  col status                         text NOT NULL DEFAULT 'active'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  uq  zv_search_indexes_collection_key UNIQUE (tenant_id, collection)
-  pk  zv_search_indexes_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_search_indexes FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_settings
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()

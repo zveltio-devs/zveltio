@@ -346,7 +346,6 @@ const CATEGORY_TO_GROUP: Record<string, ExtensionNavGroupId> = {
   ecommerce: 'business',
   data: 'developer',
   storage: 'other',
-  search: 'developer',
   sms: 'communications',
   ai: 'developer',
   forms: 'content',
