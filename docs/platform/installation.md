@@ -280,30 +280,34 @@ cat zveltio/zveltio.log
 ### Extension settings
 
 An extension never reads the engine's environment. It is handed only the
-variables named `ZVELTIO_EXT_<EXTENSION>_<KEY>`, with the prefix stripped, and
-sees nothing else — not `DATABASE_URL`, not `BETTER_AUTH_SECRET`, and not
-another extension's keys. `<EXTENSION>` is the extension name uppercased with
-`/` and `-` replaced by `_`, so `finance/banking` reads
-`ZVELTIO_EXT_FINANCE_BANKING_*`. Where two installed extensions' prefixes
-overlap (`billing` and `billing-stripe` both spell
-`ZVELTIO_EXT_BILLING_STRIPE_*`), a key under both is handed to neither and the
-engine logs it at load; the engine's own `ZVELTIO_EXT_RUNNER_*` and
-`ZVELTIO_EXT_MEMORY_*` reach no extension.
+variables named `ZVELTIO_EXT_<EXTENSION>__<KEY>` (two underscores), with the
+prefix stripped, and sees nothing else — not `DATABASE_URL`, not
+`BETTER_AUTH_SECRET`, and not another extension's keys. `<EXTENSION>` is the
+extension name uppercased with every character other than a letter or digit
+replaced by `_`, so `finance/banking` reads `ZVELTIO_EXT_FINANCE_BANKING__*`. The
+last `__` ends the name, so `ZVELTIO_EXT_BILLING__STRIPE_KEY` is `billing`'s and
+`ZVELTIO_EXT_BILLING_STRIPE__KEY` is `billing-stripe`'s.
+
+The single-underscore spelling `ZVELTIO_EXT_<EXTENSION>_<KEY>` is still read and
+logged at load with its new name; rename those variables. A legacy key that two
+installed extensions' prefixes spell (`billing` and `billing-stripe` both spell
+`ZVELTIO_EXT_BILLING_STRIPE_*`) is handed to neither; the engine's own
+`ZVELTIO_EXT_RUNNER_*` and `ZVELTIO_EXT_MEMORY_*` reach no extension.
 
 | Variable | Extension | Description |
 |----------|-----------|-------------|
-| `ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` | `billing` | Stripe webhook HMAC secret |
-| `ZVELTIO_EXT_SEARCH_MEILISEARCH_URL` | `search` | Meilisearch URL (default `http://localhost:7700`) |
-| `ZVELTIO_EXT_SEARCH_MEILISEARCH_API_KEY` | `search` | Meilisearch API key |
-| `ZVELTIO_EXT_SEARCH_TYPESENSE_HOST` | `search` | Typesense host (default `http://localhost`) |
-| `ZVELTIO_EXT_SEARCH_TYPESENSE_PORT` | `search` | Typesense port (default `8108`) |
-| `ZVELTIO_EXT_SEARCH_TYPESENSE_API_KEY` | `search` | Typesense API key |
-| `ZVELTIO_EXT_SMS_TWILIO_ACCOUNT_SID` | `sms` | Twilio account SID |
-| `ZVELTIO_EXT_SMS_TWILIO_AUTH_TOKEN` | `sms` | Twilio auth token |
-| `ZVELTIO_EXT_SMS_TWILIO_FROM_NUMBER` | `sms` | Sender number |
-| `ZVELTIO_EXT_SMS_VONAGE_API_KEY` | `sms` | Vonage API key |
-| `ZVELTIO_EXT_SMS_VONAGE_API_SECRET` | `sms` | Vonage API secret |
-| `ZVELTIO_EXT_SMS_VONAGE_FROM_NUMBER` | `sms` | Sender number |
+| `ZVELTIO_EXT_BILLING__STRIPE_WEBHOOK_SECRET` | `billing` | Stripe webhook HMAC secret |
+| `ZVELTIO_EXT_SEARCH__MEILISEARCH_URL` | `search` | Meilisearch URL (default `http://localhost:7700`) |
+| `ZVELTIO_EXT_SEARCH__MEILISEARCH_API_KEY` | `search` | Meilisearch API key |
+| `ZVELTIO_EXT_SEARCH__TYPESENSE_HOST` | `search` | Typesense host (default `http://localhost`) |
+| `ZVELTIO_EXT_SEARCH__TYPESENSE_PORT` | `search` | Typesense port (default `8108`) |
+| `ZVELTIO_EXT_SEARCH__TYPESENSE_API_KEY` | `search` | Typesense API key |
+| `ZVELTIO_EXT_SMS__TWILIO_ACCOUNT_SID` | `sms` | Twilio account SID |
+| `ZVELTIO_EXT_SMS__TWILIO_AUTH_TOKEN` | `sms` | Twilio auth token |
+| `ZVELTIO_EXT_SMS__TWILIO_FROM_NUMBER` | `sms` | Sender number |
+| `ZVELTIO_EXT_SMS__VONAGE_API_KEY` | `sms` | Vonage API key |
+| `ZVELTIO_EXT_SMS__VONAGE_API_SECRET` | `sms` | Vonage API secret |
+| `ZVELTIO_EXT_SMS__VONAGE_FROM_NUMBER` | `sms` | Sender number |
 
 The unprefixed forms (`STRIPE_WEBHOOK_SECRET`, `MEILISEARCH_HOST`,
 `TWILIO_AUTH_TOKEN`, …) are no longer read. AI providers moved further: they are

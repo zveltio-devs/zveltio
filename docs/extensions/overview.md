@@ -96,7 +96,7 @@ at boot. See [multi-tenancy](/multi-tenancy).
 ## Configuration
 
 An extension reads configuration from environment variables named
-`ZVELTIO_EXT_<NAME>_*`, surfaced to it as `ctx.config.vars`. Secrets an
+`ZVELTIO_EXT_<NAME>__<KEY>`, surfaced to it as `ctx.config.vars`. Secrets an
 extension stores are encrypted at rest.
 
 ---

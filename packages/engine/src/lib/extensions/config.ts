@@ -77,22 +77,49 @@ function flag(name: string): boolean {
  * also lies under another known extension's prefix, or under the engine's own
  * `ZVELTIO_EXT_*` settings, is handed to neither, and the operator is told.
  *
+ * Withholding depends on which extensions the process knows, and this is a
+ * snapshot taken at load: an extension loaded before an overlapping one is
+ * installed keeps the newcomer's keys until it reloads. So there is a
+ * delimited form (ADR 0030), `ZVELTIO_EXT_<NAME>__<KEY>`: the LAST `__` ends
+ * the name, the key has none, and a fold names one installed extension
+ * (#1600), so the variable belongs to exactly one extension whatever else is
+ * installed. A variable with `__` after `ZVELTIO_EXT_` is read only that way,
+ * never as a legacy key under a shorter prefix. The legacy form stays (v1 is
+ * frozen); each legacy key is logged with its delimited spelling, and the
+ * delimited value wins when both set one key.
+ *
  * Read at build time, not per access: `register()` runs once per load, and a
  * frozen snapshot means an extension cannot be handed a value that changed
  * underneath it mid-request.
  */
 function namespacedEnv(extName: string | undefined): Readonly<Record<string, string>> {
   if (!extName) return Object.freeze({});
-  const prefix = envPrefix(extName);
+  const name = envName(extName);
+  const prefix = `${ENV_ROOT}${name}_`;
   const others = [...knownExtensionNames().filter((n) => n !== extName), ...ENGINE_NAMESPACES].map(
-    envPrefix,
+    (n) => `${ENV_ROOT}${envName(n)}_`,
   );
-  const vars: Record<string, string> = {};
+  const legacy: Record<string, string> = {};
+  const delimited: Record<string, string> = {};
   const withheld: string[] = [];
+  const moved: string[] = [];
   for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value !== 'string' || !key.startsWith(prefix)) continue;
-    if (others.some((p) => key.startsWith(p))) withheld.push(key);
-    else vars[key.slice(prefix.length)] = value;
+    if (typeof value !== 'string' || !key.startsWith(ENV_ROOT)) continue;
+    const rest = key.slice(ENV_ROOT.length);
+    const cut = rest.lastIndexOf('__');
+    if (cut !== -1) {
+      if (rest.slice(0, cut) === name && cut + 2 < rest.length)
+        delimited[rest.slice(cut + 2)] = value;
+      continue;
+    }
+    if (!key.startsWith(prefix)) continue;
+    if (others.some((p) => key.startsWith(p))) {
+      withheld.push(key);
+      continue;
+    }
+    const k = key.slice(prefix.length);
+    legacy[k] = value;
+    moved.push(`${key} -> ${ENV_ROOT}${name}__${k}`);
   }
   if (withheld.length > 0) {
     console.warn(
@@ -100,12 +127,20 @@ function namespacedEnv(extName: string | undefined): Readonly<Record<string, str
         `or the engine's settings; withheld from "${extName}"`,
     );
   }
-  return Object.freeze(vars);
+  if (moved.length > 0) {
+    console.warn(
+      `[extensions] "${extName}": legacy settings, read for now; rename them (ADR 0030): ` +
+        moved.join(', '),
+    );
+  }
+  return Object.freeze({ ...legacy, ...delimited });
 }
 
-/** `ZVELTIO_EXT_` + the name folded as the table prefix folds it, upper-cased. */
-function envPrefix(name: string): string {
-  return `ZVELTIO_EXT_${name.replace(/[^a-z0-9]/gi, '_').toUpperCase()}_`;
+const ENV_ROOT = 'ZVELTIO_EXT_';
+
+/** The name folded as the table prefix folds it, upper-cased. */
+function envName(name: string): string {
+  return name.replace(/[^a-z0-9]/gi, '_').toUpperCase();
 }
 
 /**

@@ -98,4 +98,40 @@ describe('ctx.config.vars', () => {
       expect(buildExtensionConfig([], 'memory').vars).toEqual({});
     });
   });
+
+  // ADR 0030: the delimited form names one extension, whatever else is known.
+  describe('ZVELTIO_EXT_<NAME>__<KEY>', () => {
+    const KEYS = [
+      'ZVELTIO_EXT_ENVC__STRIPE_WEBHOOK_SECRET',
+      'ZVELTIO_EXT_ENVC_STRIPE__WEBHOOK_SECRET',
+      'ZVELTIO_EXT_ENVC_MODE',
+      'ZVELTIO_EXT_ENVC__MODE',
+      'ZVELTIO_EXT_RUNNER__TOKEN',
+      'ZVELTIO_EXT_RUNNER_SOCKET',
+    ];
+    afterEach(() => {
+      for (const k of KEYS) delete process.env[k];
+    });
+
+    it('hands each key to the one extension whose name precedes the last __, known or not', () => {
+      process.env.ZVELTIO_EXT_ENVC__STRIPE_WEBHOOK_SECRET = 'mine';
+      process.env.ZVELTIO_EXT_ENVC_STRIPE__WEBHOOK_SECRET = 'theirs';
+      // envc-stripe is not installed: a legacy prefix would hand its key to envc.
+      expect(buildExtensionConfig([], 'envc').vars).toEqual({ STRIPE_WEBHOOK_SECRET: 'mine' });
+      expect(buildExtensionConfig([], 'envc-stripe').vars).toEqual({ WEBHOOK_SECRET: 'theirs' });
+    });
+
+    it('wins over the legacy spelling of the same key, which still reads alone', () => {
+      process.env.ZVELTIO_EXT_ENVC_MODE = 'old';
+      expect(buildExtensionConfig([], 'envc').vars).toEqual({ MODE: 'old' });
+      process.env.ZVELTIO_EXT_ENVC__MODE = 'new';
+      expect(buildExtensionConfig([], 'envc').vars).toEqual({ MODE: 'new' });
+    });
+
+    it("gives an extension named runner its own keys and never the engine's", () => {
+      process.env.ZVELTIO_EXT_RUNNER__TOKEN = 't';
+      process.env.ZVELTIO_EXT_RUNNER_SOCKET = '/run/x.sock';
+      expect(buildExtensionConfig([], 'runner').vars).toEqual({ TOKEN: 't' });
+    });
+  });
 });

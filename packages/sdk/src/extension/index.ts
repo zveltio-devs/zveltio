@@ -239,12 +239,14 @@ export interface ExtensionConfig {
   /**
    * This extension's own slice of the environment.
    *
-   * Everything the deployment set as `ZVELTIO_EXT_<NAME>_<KEY>` appears here as
+   * Everything the deployment set as `ZVELTIO_EXT_<NAME>__<KEY>` appears here as
    * `<KEY>`, and nothing else does. `search` reading `vars.MEILISEARCH_URL` gets
-   * `ZVELTIO_EXT_SEARCH_MEILISEARCH_URL`; it cannot see `DATABASE_URL`,
-   * `BETTER_AUTH_SECRET`, or another extension's keys. A key another installed
-   * extension's prefix also spells (`billing`'s `STRIPE_KEY` is
-   * `billing-stripe`'s `KEY`) reaches neither of them.
+   * `ZVELTIO_EXT_SEARCH__MEILISEARCH_URL`; it cannot see `DATABASE_URL`,
+   * `BETTER_AUTH_SECRET`, or another extension's keys. The last `__` ends the
+   * name, so each variable names one extension. The legacy single-underscore
+   * `ZVELTIO_EXT_<NAME>_<KEY>` is still read, loses to the delimited spelling,
+   * and a legacy key another installed extension's prefix also spells
+   * (`billing`'s `STRIPE_KEY` is `billing-stripe`'s `KEY`) reaches neither.
    *
    * Use this instead of `process.env`, which from inside an in-process extension
    * is the ENGINE's environment in full.
