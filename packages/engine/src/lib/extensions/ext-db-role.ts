@@ -440,16 +440,16 @@ export async function grantWorkerDbRole(
   await syncCollectionExemption(db, extName, [own]);
 }
 
-/** Every extension name `zv_extension_registry` knows, installed or not. */
+/**
+ * Every extension name `zv_extension_registry` knows, installed or not. A read
+ * error propagates: an empty list would hand `ctx.config.vars` keys another
+ * extension's prefix also spells (config.ts), so the load fails instead.
+ */
 export async function installedExtensionNames(db: Database): Promise<string[]> {
-  try {
-    const r = await sql<{ name: string }>`SELECT DISTINCT name FROM zv_extension_registry`.execute(
-      db,
-    );
-    return r.rows.map((x) => x.name);
-  } catch {
-    return [];
-  }
+  const r = await sql<{ name: string }>`SELECT DISTINCT name FROM zv_extension_registry`.execute(
+    db,
+  );
+  return r.rows.map((x) => x.name);
 }
 
 /**
