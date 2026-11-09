@@ -15,6 +15,10 @@
 //     single-tenant install enrols nobody) reads the tenant inline, and read
 //     nothing through a worker, which published NO_UNITS for any standing but a
 //     membership in force.
+//   - Nor wider grants: a collection the member has no `read` on reads empty,
+//     and a column a rule forbids is not written, as `/api/data` refuses both.
+//     The worker publishes `collection_all`, `collection_grants` and
+//     `columns_all`; widening any of them left every worker suite green.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,6 +33,7 @@ import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { applyTenantRLS, DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
+import { writeColumnRules } from '../../lib/tenancy/column-permissions.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
@@ -48,6 +53,8 @@ type Mode = (typeof MODES)[number];
 const extName = (m: Mode) => `wkbnd${m[0]}${SFX}`;
 const COLL = `wkbnd_${SFX}`;
 const TABLE = `zvd_${COLL}`;
+// A collection the member holds no grant on.
+const DENIED = `wkbndx_${SFX}`;
 const HEADERS = [
   'cookie',
   'authorization',
@@ -67,6 +74,17 @@ export default {
     app.post('/fwd', (c) => c.json(seen(c)));
     app.get('/rows', async (c) =>
       c.json((await ctx.db.selectFrom('${TABLE}').select('title').execute()).length));
+    app.get('/denied', async (c) =>
+      c.json((await ctx.db.selectFrom('zvd_${DENIED}').select('title').execute()).length));
+    // A column a rule forbids writing (the guard of migration 072).
+    app.post('/scribble', async (c) => {
+      try {
+        await ctx.db.updateTable('${TABLE}').set({ secret: 'scribbled' }).execute();
+        return c.json({ wrote: true });
+      } catch {
+        return c.json({ wrote: false });
+      }
+    });
     app.post('/touch', async (c) => {
       const u = await ctx.db.updateTable('${TABLE}').set({ title: 'touched' }).executeTakeFirst();
       const d = await ctx.db.deleteFrom('${TABLE}').executeTakeFirst();
@@ -112,6 +130,8 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
   const loadErrors: Record<string, string | undefined> = {};
   let memberId = '';
   let unenrolledId = '';
+  let colPermId = '';
+  const viaData = {} as Record<'denied' | 'scribble', number>;
   const saved = {
     transport: process.env.ZVELTIO_EXT_TRANSPORT,
     ctx: extensionLoader.ctx,
@@ -137,13 +157,37 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     db = tdb;
     await DDLManager.createCollection(db, {
       name: COLL,
-      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+      fields: [
+        { name: 'title', type: 'text', required: false, unique: false, indexed: false },
+        { name: 'secret', type: 'text', required: false, unique: false, indexed: false },
+      ],
     } as never);
     await applyTenantRLS(db, TABLE);
     await sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
               VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`.execute(
       db,
     );
+    colPermId = await writeColumnRules(db, async (trx) => {
+      const row = await trx
+        .insertInto('zvd_column_permissions')
+        .values({
+          collection_name: COLL,
+          column_name: 'secret',
+          role: '*',
+          can_read: true,
+          can_write: false,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      return { result: row.id, collections: [COLL] };
+    });
+    await DDLManager.createCollection(db, {
+      name: DENIED,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
+    await applyTenantRLS(db, `zvd_${DENIED}`);
+    await sql`INSERT INTO ${sql.table(`zvd_${DENIED}`)} (title, tenant_id)
+              VALUES ('x', ${DEFAULT_TENANT_ID}::uuid)`.execute(db);
     const member = await createMemberSession(engine, db, {
       grants: [{ collection: COLL, actions: ['read', 'create', 'update', 'delete'] }],
     });
@@ -200,12 +244,25 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       'x-hub-signature-256': 'sha256=0123',
     };
     const asMember = { cookie: member.cookie };
+    viaData.denied = (await engine.request(`/api/data/${DENIED}`, { headers: asMember })).status;
+    const [first] = (
+      await sql<{ id: string }>`SELECT id FROM ${sql.table(TABLE)} LIMIT 1`.execute(db)
+    ).rows;
+    viaData.scribble = (
+      await engine.request(`/api/data/${COLL}/${first?.id}`, {
+        method: 'PATCH',
+        headers: { ...asMember, 'content-type': 'application/json' },
+        body: JSON.stringify({ secret: 'scribbled' }),
+      })
+    ).status;
     for (const mode of MODES) {
       out[mode] = {
         hook: await call(mode, '/hook', creds, 'POST'),
         fwd: await call(mode, '/fwd', creds, 'POST'),
         rowsInForce: await call(mode, '/rows', asMember),
         rowsNoRow: await call(mode, '/rows', { cookie: unenrolled.cookie }),
+        denied: await call(mode, '/denied', asMember),
+        scribble: await call(mode, '/scribble', asMember, 'POST'),
       };
     }
     // After every mode has counted, so one mode's insert is not the next one's row.
@@ -251,7 +308,11 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     await sql`DELETE FROM zv_tenant_users WHERE user_id = ANY(${[memberId, unenrolledId]})`.execute(
       db,
     );
+    if (colPermId) {
+      await sql`DELETE FROM zvd_column_permissions WHERE id = ${colPermId}`.execute(db);
+    }
     await dropTestCollection(db, COLL);
+    await dropTestCollection(db, DENIED);
     if (base) rmSync(base, { recursive: true, force: true });
   });
 
@@ -320,6 +381,18 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
         expect(out[m]?.rowsLapsed).toEqual(out.inline.rowsLapsed);
         expect(out[m]?.touchLapsed).toEqual(out.inline.touchLapsed);
         expect(out[m]?.left).toBe(2);
+      });
+
+      it('a collection the caller may not read reads empty, as /api/data refuses it', () => {
+        expect(viaData.denied).toBe(403);
+        expect(out.inline.denied).toEqual({ status: 200, body: 0 });
+        expect(out[m]?.denied).toEqual(out.inline.denied);
+      });
+
+      it('a column a rule forbids is not written, as /api/data refuses it', () => {
+        expect(viaData.scribble).toBe(403);
+        expect(out.inline.scribble).toEqual({ status: 200, body: { wrote: false } });
+        expect(out[m]?.scribble).toEqual(out.inline.scribble);
       });
 
       it('a lapsed member inserts nothing (migration 060)', () => {
