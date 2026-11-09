@@ -13,7 +13,7 @@
  * 5-field subset:
  *
  *     minute  hour  day-of-month  month  day-of-week
- *     0-59    0-23  1-31          1-12   0-6 (0 = Sunday)
+ *     0-59    0-23  1-31          1-12   0-7 (0 and 7 = Sunday)
  *
  * Each field accepts `*`, `n`, `a,b,c`, `a-b`, `*&#47;n` and `a-b&#47;n`. Seconds,
  * `@daily`-style macros, `L`/`W`/`#` and named months are NOT supported — an
@@ -75,7 +75,9 @@ export function parseCron(expr: string): CronFields | null {
   const hour = parseField(parts[1]!, 0, 23);
   const dom = parseField(parts[2]!, 1, 31);
   const month = parseField(parts[3]!, 1, 12);
-  const dow = parseField(parts[4]!, 0, 6);
+  // 0-7: Sunday is 0 or 7, as in Vixie cron and crontab(5).
+  const dow = parseField(parts[4]!, 0, 7);
+  if (dow?.delete(7)) dow.add(0);
   if (!minute || !hour || !dom || !month || !dow) return null;
 
   return {

@@ -145,6 +145,51 @@ d('flows CRUD + steps + run (in-process)', () => {
     expect(runs.status).toBe(200);
   });
 
+  it('a cron flow first runs at its expression, not at the next tick; a bad one is 400', async () => {
+    const before = Date.now();
+    const res = await app.request(
+      '/api/flows',
+      json('POST', {
+        name: 'Harness Cron Flow',
+        trigger: { type: 'cron', cron: '0 3 1 1 *' },
+        steps: [],
+        is_active: true,
+      }),
+    );
+    expect(res.status).toBe(201);
+    const id = ((await res.json()) as { flow: { id: string } }).flow.id;
+    try {
+      const at = async () =>
+        (
+          await sql<{ next_run_at: Date | null }>`
+            SELECT next_run_at FROM zv_flows WHERE id = ${id}`.execute(db)
+        ).rows[0]!.next_run_at;
+      const first = await at();
+      expect(first).not.toBeNull();
+      expect(first!.getTime()).toBeGreaterThan(before + 60_000);
+      expect([first!.getMonth(), first!.getDate(), first!.getHours()]).toEqual([0, 1, 3]);
+
+      // A changed trigger moves the schedule with it.
+      const patched = await app.request(
+        `/api/flows/${id}`,
+        json('PATCH', { trigger: { type: 'cron', cron: '30 4 2 2 *' } }),
+      );
+      expect(patched.status).toBe(200);
+      const moved = await at();
+      expect([moved!.getMonth(), moved!.getDate(), moved!.getHours()]).toEqual([1, 2, 4]);
+
+      for (const cron of ['0 0 30 2 *', '61 * * * *', 'every day']) {
+        const bad = await app.request(
+          '/api/flows',
+          json('POST', { name: 'Bad Cron', trigger: { type: 'cron', cron }, steps: [] }),
+        );
+        expect([cron, bad.status]).toEqual([cron, 400]);
+      }
+    } finally {
+      await sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(db);
+    }
+  });
+
   it('lists the dead-letter queue (GET /dlq)', async () => {
     const res = await app.request('/api/flows/dlq', { headers: { cookie } });
     expect(res.status).toBe(200);
