@@ -54,7 +54,6 @@
       "!packages/studio/src/routes/(admin)/pos",
       "!packages/studio/src/routes/(admin)/projects/helpdesk",
       "!packages/studio/src/routes/(admin)/projects/management",
-      "!packages/studio/src/routes/(admin)/search",
       "!packages/studio/src/routes/(admin)/sms",
       "!packages/studio/src/routes/(admin)/storage/cloud",
       "!packages/studio/src/routes/(admin)/traceability",

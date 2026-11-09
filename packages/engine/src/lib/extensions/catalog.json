@@ -313,16 +313,6 @@
       "permissions": ["database"]
     },
     {
-      "name": "search",
-      "displayName": "Search Adapter",
-      "description": "Full-text search via MeiliSearch or Typesense with automatic record sync",
-      "category": "developer",
-      "version": "1.0.0",
-      "author": "Zveltio",
-      "tags": ["search", "fulltext", "meilisearch", "typesense"],
-      "permissions": ["database"]
-    },
-    {
       "name": "billing",
       "displayName": "Billing & Usage",
       "description": "Usage metering and Stripe billing integration",

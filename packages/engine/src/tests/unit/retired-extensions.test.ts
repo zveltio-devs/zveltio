@@ -1,6 +1,6 @@
 /**
  * A retired first-party extension is never loaded, whichever way it is asked
- * for. Migrations 110 and 111 removed the registry rows, but a name in
+ * for. Migrations 110, 111 and 114 removed the registry rows, but a name in
  * ZVELTIO_EXTENSIONS skips the registry, and an extensions directory kept
  * across the upgrade still holds the 1.x bundle.
  */
@@ -12,7 +12,7 @@ import { loadExtensionFromDir, RETIRED_EXTENSIONS } from '../../lib/extensions/l
 
 describe('retired extensions', () => {
   it('refuses to load each one, saying the engine serves it', async () => {
-    for (const name of ['developer/edge-functions', 'developer/validation']) {
+    for (const name of Object.keys(RETIRED_EXTENSIONS)) {
       const lastLoadError = new Map<string, string>();
       const loader = { lastLoadError } as unknown as ExtensionLoader;
       // A directory that does not exist: the refusal comes before any file is read.

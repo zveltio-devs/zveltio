@@ -180,7 +180,7 @@ const CASES: Case[] = [
     // raw key. Ratcheted, so the plant is a NEW borrower.
     gate: 'check-extension-i18n-ownership',
     cmd: 'bun run scripts/check-extension-i18n-ownership.ts',
-    file: '../zveltio-extensions/search/studio/pages/plant-borrow.svelte',
+    file: '../zveltio-extensions/crm/studio/pages/plant-borrow.svelte',
     body: [
       '<script lang="ts">',
       "  import { m } from '$lib/paraglide/messages';",
@@ -197,8 +197,8 @@ const CASES: Case[] = [
     // needed; the baseline said otherwise and the baseline was wrong.
     gate: 'check-sdui-contract',
     cmd: 'bun run scripts/check-sdui-contract.ts',
-    file: '../zveltio-extensions/search/studio/schemas/plant-contract.json',
-    body: '{\n  "sduiSchema": 1,\n  "title": "search.plant.title",\n  "resources": [\n    {\n      "id": "plant",\n      "label": "search.plant.label",\n      "dataSource": "/ext/search/plant-does-not-exist",\n      "dataPath": "items"\n    }\n  ]\n}',
+    file: '../zveltio-extensions/crm/studio/schemas/plant-contract.json',
+    body: '{\n  "sduiSchema": 1,\n  "title": "crm.plant.title",\n  "resources": [\n    {\n      "id": "plant",\n      "label": "crm.plant.label",\n      "dataSource": "/ext/crm/plant-does-not-exist",\n      "dataPath": "items"\n    }\n  ]\n}',
   },
   {
     // A source file outside every review section. `--sections` lists untracked
@@ -246,7 +246,7 @@ const CASES: Case[] = [
     // both. With nothing set the gate exits 0 with a note and this case fails
     // loudly as decoration, which is the right direction to fail in.
     cmd: 'SEAM_DATABASE_URL="$TEST_DATABASE_URL" bun run scripts/check-insert-schema-match.ts',
-    file: '../zveltio-extensions/search/engine/plant-insert.ts',
+    file: '../zveltio-extensions/storage/cloud/engine/plant-insert.ts',
     body: [
       "import { sql } from 'kysely';",
       '',
@@ -477,7 +477,7 @@ const CASES: Case[] = [
     // reached for the environment anyway.
     gate: 'check-ambient-authority',
     cmd: 'bun run scripts/check-ambient-authority.ts',
-    file: '../zveltio-extensions/search/engine/plant-ambient.ts',
+    file: '../zveltio-extensions/crm/engine/plant-ambient.ts',
     body: [
       'export function plantAmbient(): string | undefined {',
       '  return process.env.DATABASE_URL;',
@@ -491,7 +491,7 @@ const CASES: Case[] = [
     // pattern let it through.
     gate: 'check-ambient-authority (Bun.env)',
     cmd: 'bun run scripts/check-ambient-authority.ts',
-    file: '../zveltio-extensions/search/engine/plant-ambient-bun.ts',
+    file: '../zveltio-extensions/crm/engine/plant-ambient-bun.ts',
     body: [
       'export function plantAmbient(): string | undefined {',
       '  return Bun.env.DATABASE_URL;',
@@ -572,7 +572,7 @@ const CASES: Case[] = [
     gate: 'route-collision-check (sibling missing)',
     expect: '[route-collision] FAIL',
     cmd: 'EXTENSIONS_ROOT=/nonexistent-zveltio-extensions bun run scripts/route-collision-check.ts',
-    file: '../zveltio-extensions/search/engine/plant-collision-routes.ts',
+    file: '../zveltio-extensions/crm/engine/plant-collision-routes.ts',
     body: [
       "import { Hono } from 'hono';",
       '',
@@ -996,7 +996,7 @@ export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
     // would.
     gate: 'check-extension-i18n-namespaces',
     cmd: 'bun run scripts/check-extension-i18n-namespaces.ts ../zveltio-extensions',
-    file: '../zveltio-extensions/search/studio/messages/zz.json',
+    file: '../zveltio-extensions/crm/studio/messages/zz.json',
     body: '{ "common.cancel": "planted by audit-gates" }\n',
     mode: 'create',
   },
@@ -1026,7 +1026,7 @@ export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
     // that is not in it, which is the OTHER failure and not the one under test.
     gate: 'admin-gate-check (sibling ratchet)',
     cmd: 'bun run scripts/admin-gate-check.ts',
-    file: '../zveltio-extensions/search/engine/routes.ts',
+    file: '../zveltio-extensions/storage/cloud/engine/routes.ts',
     body:
       '\nexport const __gateProbe = (uid: string, checkPermission: Function) =>\n' +
       "  checkPermission(uid, 'admin', '*');\n",
@@ -1039,7 +1039,7 @@ export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
     // in `// the /ext/* gate` swallowed everything up to the next `*\/`.
     gate: 'admin-gate-check (sibling ratchet, wrapped after a glob comment)',
     cmd: 'bun run scripts/admin-gate-check.ts',
-    file: '../zveltio-extensions/search/engine/routes.ts',
+    file: '../zveltio-extensions/storage/cloud/engine/routes.ts',
     body:
       '\n// the /ext/* gate\n' +
       'export const __gateProbe = (uid: string, checkPermission: Function) =>\n' +

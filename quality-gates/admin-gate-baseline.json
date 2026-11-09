@@ -9,7 +9,6 @@
     "content/documents/engine/routes.ts": 7,
     "data/export/engine/routes.ts": 1,
     "data/import/engine/routes.ts": 1,
-    "search/engine/routes.ts": 1,
     "developer/api-docs/engine/routes.ts": 11,
     "developer/graphql/engine/routes.ts": 10,
     "developer/byod/engine/routes.ts": 1,

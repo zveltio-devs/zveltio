@@ -297,11 +297,6 @@ installed extensions' prefixes spell (`billing` and `billing-stripe` both spell
 | Variable | Extension | Description |
 |----------|-----------|-------------|
 | `ZVELTIO_EXT_BILLING__STRIPE_WEBHOOK_SECRET` | `billing` | Stripe webhook HMAC secret |
-| `ZVELTIO_EXT_SEARCH__MEILISEARCH_URL` | `search` | Meilisearch URL (default `http://localhost:7700`) |
-| `ZVELTIO_EXT_SEARCH__MEILISEARCH_API_KEY` | `search` | Meilisearch API key |
-| `ZVELTIO_EXT_SEARCH__TYPESENSE_HOST` | `search` | Typesense host (default `http://localhost`) |
-| `ZVELTIO_EXT_SEARCH__TYPESENSE_PORT` | `search` | Typesense port (default `8108`) |
-| `ZVELTIO_EXT_SEARCH__TYPESENSE_API_KEY` | `search` | Typesense API key |
 | `ZVELTIO_EXT_SMS__TWILIO_ACCOUNT_SID` | `sms` | Twilio account SID |
 | `ZVELTIO_EXT_SMS__TWILIO_AUTH_TOKEN` | `sms` | Twilio auth token |
 | `ZVELTIO_EXT_SMS__TWILIO_FROM_NUMBER` | `sms` | Sender number |
@@ -309,8 +304,8 @@ installed extensions' prefixes spell (`billing` and `billing-stripe` both spell
 | `ZVELTIO_EXT_SMS__VONAGE_API_SECRET` | `sms` | Vonage API secret |
 | `ZVELTIO_EXT_SMS__VONAGE_FROM_NUMBER` | `sms` | Sender number |
 
-The unprefixed forms (`STRIPE_WEBHOOK_SECRET`, `MEILISEARCH_HOST`,
-`TWILIO_AUTH_TOKEN`, …) are no longer read. AI providers moved further: they are
+The unprefixed forms (`STRIPE_WEBHOOK_SECRET`, `TWILIO_AUTH_TOKEN`, …) are no
+longer read. AI providers moved further: they are
 rows of the `ai` extension's `ai_providers` collection, managed from the admin
 UI, not environment variables at all.
 
