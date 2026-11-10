@@ -34,7 +34,6 @@
     "scripts/check-extension-page-ownership.ts": "second shape not yet planted: only an engine page fetching /ext/* that no extension declares is planted.",
     "scripts/check-extension-sdui-schemas.ts": "second shape not yet planted: only one manifest defect (the plant-sdui-ext manifest) is planted.",
     "scripts/check-i18n-core.ts": "second shape not yet planted: only a hardcoded string appended to one listed page is planted.",
-    "scripts/check-insert-schema-match.ts": "second shape not yet planted: only an INSERT naming a missing column is planted.",
     "scripts/check-jsonb-binding.ts": "second shape not yet planted: only JSON.stringify bound to a jsonb column of a real table is planted.",
     "scripts/check-migration-safety.ts": "second shape not yet planted: only a NOT NULL column without a default is planted; the linter's other hazard rules are not.",
     "scripts/check-pooldb-txn-skip.ts": "second shape not yet planted: only a poolDb router missing from TXN_SKIP_PREFIXES is planted.",

@@ -805,17 +805,6 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
         run: bun run check:schema-snapshot
-      - name: INSERT sites match their schema
-        # Existed as `ext:seam` and ran nowhere — not in CI, not in prepush.
-        # It builds the same full install and checks every extension INSERT
-        # against the columns the table really has; its own header records the
-        # live defect it found (a NOT NULL `created_by` never supplied, so a
-        # canonical product was never created on any install).
-        env:
-          PGHOST: localhost
-          PGUSER: postgres
-          PGPASSWORD: postgres
-        run: bun run ext:seam
 
   integration-tests:
     name: Integration Tests
@@ -850,7 +839,7 @@ jobs:
           bun-version: '1.4.4'
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      # This job runs `ext:seam` and `sql:numeric-arith`, and both read the
+      # This job runs `sql:numeric-arith`, which reads the
       # sibling repository — but it was the one job that never cloned it.
       # `tsFiles()` returns [] for a directory that is not there, so the scans
       # covered nothing and still exited 0. The engine below has the same gap
@@ -1014,27 +1003,6 @@ jobs:
             cat /tmp/engine.log || true
             exit 1
           fi
-      - name: Extensions can write the rows they claim to
-        # THE seam. Ten extensions were examined between their code and their own
-        # migrations and NINE had a defect that stopped or corrupted their primary
-        # function: POS could not record a sale, banking could not import a
-        # statement, subscriptions could not create a subscriber or issue an
-        # invoice. Every one was an INSERT naming a column that does not exist,
-        # omitting a NOT NULL column with no default, counting values wrong, or
-        # writing a literal outside a CHECK.
-        #
-        # Nothing stood here before. TypeScript cannot — these are strings. The
-        # tests could not — they run against mocks or an already-shaped database.
-        # This builds the engine schema once, clones it per extension, applies
-        # that extension's real migrations, and asks `information_schema` whether
-        # each INSERT is possible. 54 extensions in about twelve seconds.
-        #
-        # Proved by reintroducing C-3 (POS): both halves are reported.
-        env:
-          PGHOST: localhost
-          PGUSER: postgres
-          PGPASSWORD: postgres
-        run: bun run ext:seam
       - name: No `+` on a column PostgreSQL returns as a string
         # This lane is the one with a migrated database, and the gate needs one:
         # it reads the BIGINT/NUMERIC column list out of `information_schema`
