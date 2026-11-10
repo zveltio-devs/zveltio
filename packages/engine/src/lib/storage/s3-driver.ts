@@ -10,6 +10,7 @@ import { storageConfig } from './config.js';
 import {
   assertPublicKey,
   type PutOptions,
+  type ServeOverride,
   type StorageDriver,
   type StorageObject,
 } from './driver.js';
@@ -45,6 +46,7 @@ export class S3Driver implements StorageDriver {
       headers: {
         'Content-Type': opts?.contentType || 'application/octet-stream',
         'Content-Length': String(bytes.length),
+        ...(opts?.contentDisposition ? { 'Content-Disposition': opts.contentDisposition } : {}),
       },
     });
     if (!res.ok) throw new Error(`S3 PUT failed: ${res.status}`);
@@ -80,9 +82,15 @@ export class S3Driver implements StorageDriver {
     return `${endpoint.replace(/\/$/, '')}/${bucket}/${key}`;
   }
 
-  async signedUrl(key: string, expiresInSec: number): Promise<string> {
+  async signedUrl(key: string, expiresInSec: number, served?: ServeOverride): Promise<string> {
     const target = new URL(this.url(key));
     target.searchParams.set('X-Amz-Expires', String(expiresInSec));
+    // Signed into the URL: an object stored before its metadata said so (or by
+    // another path) is still served as a download through it.
+    if (served?.disposition) {
+      target.searchParams.set('response-content-type', served.contentType);
+      target.searchParams.set('response-content-disposition', served.disposition);
+    }
     const signed = await this.client().sign(target, {
       method: 'GET',
       aws: { signQuery: true },

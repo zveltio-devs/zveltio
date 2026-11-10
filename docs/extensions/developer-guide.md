@@ -413,9 +413,9 @@ caller adds `$files` beside the action's input:
 The engine takes `$files` out before your input schema sees the body and checks
 it as the caller before your action runs: each `read` id must be a file they
 may read through `/api/storage/:id` (else 404), at most 32 uuids (else 400);
-`write.name` must be a type `/api/storage/upload` accepts (400) and `maxBytes`
-at most 32 MiB (413); a member key also needs `$storage` `read` for `read` and
-`create` for `write` (403). A refused call runs no code and queues nothing.
+`write.name` may be any type (one outside the inline types is served only as a
+download, as an upload is) and `maxBytes` at most 32 MiB (413); a member key
+also needs `$storage` `read` for `read` and `create` for `write` (403). A refused call runs no code and queues nothing.
 The action's audit row records the ids and the name. The type is `ActionFiles`.
 
 The action hands the grant to exactly one job, and never sees or picks an id:

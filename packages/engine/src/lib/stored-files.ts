@@ -3,9 +3,10 @@
  *
  * `/api/storage` (routes/storage.ts) and a job's `host.files` (ADR 0032,
  * lib/extensions/file-grants.ts) both come through here, so a file reaches the store
- * by one set of checks — size, quota, folder, type allowlist, SVG sanitising,
- * content sniffing — and is read and deleted by one visibility rule
- * (`media-visibility.ts`). A second door with its own copy of these checks is
+ * by one set of checks — size, quota, folder, SVG sanitising, content sniffing
+ * — is read and deleted by one visibility rule (`media-visibility.ts`), and goes
+ * back to a browser by one rule, `servedAs` (ADR 0033): any type is stored,
+ * only the inline types are displayed, everything else is a download. A second door with its own copy of these checks is
  * how the quota once had a hole (`storage-quota.ts`).
  *
  * Who acts is a `FileActor` (`fileActorOf`): the request's user, or the user
@@ -210,13 +211,27 @@ const MIME_BY_EXT: Record<string, string> = {
   ppt: 'application/vnd.ms-powerpoint',
 };
 
+/** Extensions whose bytes carry a signature `detectMimeFromMagic` reads: bytes without it are not that type. */
+const SIGNED_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'pdf',
+  'zip',
+  'xlsx',
+  'docx',
+  'pptx',
+]);
+
 /**
  * Detect a file's real MIME from its magic bytes, ignoring the
  * client-supplied `file.type`. A user can rename `evil.html` to `safe.png`
  * and trick the browser into rendering it as HTML if we trust the header;
- * checking the actual bytes catches that. Falls back to the extension
- * allowlist mapping when we don't have a magic-byte signature for the
- * file type (e.g. plain text formats).
+ * checking the actual bytes catches that. Falls back to the extension's type
+ * when the format has no signature we read (e.g. plain text formats); an
+ * extension that has one but whose bytes lack it gets null.
  */
 function detectMimeFromMagic(buf: Buffer, ext: string): string | null {
   if (buf.length >= 4) {
@@ -228,14 +243,18 @@ function detectMimeFromMagic(buf: Buffer, ext: string): string | null {
     if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46)
       return 'application/pdf';
     if (buf[0] === 0x50 && buf[1] === 0x4b) return MIME_BY_EXT[ext] ?? 'application/zip';
-    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46)
-      return 'image/webp'; // RIFF — could be WAV/AVI too, prefer ext
+    // RIFF is WebP, WAV or AVI: only the WEBP FourCC says image.
+    if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP')
+      return 'image/webp';
   }
-  return MIME_BY_EXT[ext] ?? null;
+  return SIGNED_EXTENSIONS.has(ext) ? null : (MIME_BY_EXT[ext] ?? null);
 }
 
-/** The extensions `storeFile` accepts; anything else is refused, whatever its bytes. */
-const ALLOWED_EXTENSIONS = new Set([
+/**
+ * The extensions a browser may display (inline). Any other file is stored but
+ * only ever served as a download (`servedAs`, ADR 0033).
+ */
+const INLINE_EXTENSIONS = new Set([
   'jpg',
   'jpeg',
   'png',
@@ -268,21 +287,82 @@ const ALLOWED_EXTENSIONS = new Set([
   'json',
   'xml',
 ]);
+/** The types those extensions are recorded as: a file is inline only under one of them. */
+const INLINE_TYPES = new Set([...INLINE_EXTENSIONS].map((e) => MIME_BY_EXT[e]));
 
-const extensionOf = (name: string) =>
-  (name.split('.').pop() ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+/** A name's extension, lowercased; '' for none (or an implausibly long one). */
+const extensionOf = (name: string): string => {
+  const dot = name.lastIndexOf('.');
+  const ext =
+    dot < 0
+      ? ''
+      : name
+          .slice(dot + 1)
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
+  return ext.length <= 16 ? ext : '';
+};
 
-/** Why `storeFile` would refuse a file named `name` by its type, or null. */
-export function fileTypeRefusal(name: string): FileRefusal | null {
-  const ext = extensionOf(name);
-  if (ext && ALLOWED_EXTENSIONS.has(ext)) return null;
+/** How a stored file goes to a browser. */
+export interface ServedAs {
+  inline: boolean;
+  contentType: string;
+  /** `attachment; filename…` for a download, absent inline. */
+  disposition?: string;
+  /** Every header the response carries for it, Content-Type included. */
+  headers: Record<string, string>;
+}
+
+/** `attachment` with the name in RFC 6266 form: an ASCII fallback, then RFC 8187 UTF-8. */
+const attachment = (name: string): string => {
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, '_') || 'download';
+  const utf8 = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
+};
+
+/**
+ * How a file named `name`, recorded as `mimetype`, is served (ADR 0033). Every
+ * path that serves stored bytes or a URL to them asks this. Inline only when
+ * its extension is one a browser may display AND its recorded type is that
+ * kind (the recorded type comes from the bytes, `storeFile`): a `.png` whose
+ * bytes are HTML is recorded as neither and goes as a download. Anything else
+ * is `application/octet-stream`, `attachment`, `nosniff` and a CSP `sandbox`,
+ * so no stored byte ever runs as a document on the engine's origin.
+ */
+export function servedAs(name: string, mimetype: string | null | undefined): ServedAs {
+  const type = (mimetype ?? '').split(';')[0]!.trim().toLowerCase();
+  if (INLINE_EXTENSIONS.has(extensionOf(name)) && INLINE_TYPES.has(type)) {
+    const headers: Record<string, string> = {
+      'Content-Type': type,
+      'X-Content-Type-Options': 'nosniff',
+    };
+    // An SVG or XML document opened directly is a document on this origin, and
+    // can carry a script (an `.xml` is not sanitized). Not every type: `sandbox`
+    // would break the browser's PDF viewer.
+    if (type.endsWith('xml')) {
+      headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+    }
+    return { inline: true, contentType: type, headers };
+  }
+  const disposition = attachment(name);
   return {
-    status: 400,
-    body: {
-      error: `File type ".${ext}" is not allowed. Allowed types: ${[...ALLOWED_EXTENSIONS].join(', ')}`,
+    inline: false,
+    contentType: 'application/octet-stream',
+    disposition,
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': disposition,
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': 'sandbox',
     },
   };
 }
+
+/** A client's content type, when it is one (`type/subtype`); recorded only for an unknown extension. */
+const MIME_SHAPE = /^[a-z0-9][\w.+-]*\/[\w.+-]+$/i;
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -429,8 +509,7 @@ export async function storeFile(
     return { status: 404, body: { error: 'Folder not found' } };
   }
 
-  const typeRefused = fileTypeRefusal(name);
-  if (typeRefused) return typeRefused;
+  // Any type is stored (ADR 0033); `servedAs` decides how it goes back out.
   const rawExt = extensionOf(name);
 
   // SVG sanitization — an SVG with embedded <script> or <foreignObject>
@@ -450,22 +529,36 @@ export async function storeFile(
     }
   }
 
-  // Magic-bytes detection — the client's content type is trusted only as a
-  // hint; the Content-Type we record comes from the file content so a renamed
-  // `.png` can't be served as `text/html`.
+  // Magic-bytes detection — the client's content type is recorded only for an
+  // extension we know nothing of (served as a download whatever it says); the
+  // type we record otherwise comes from the content, so a renamed `.png` is
+  // never recorded, nor served, as an image.
   if (!detectedMime) {
+    const hint = (input.typeHint ?? '').split(';')[0]!.trim().toLowerCase();
     detectedMime =
-      detectMimeFromMagic(buffer, rawExt) ?? input.typeHint ?? 'application/octet-stream';
+      detectMimeFromMagic(buffer, rawExt) ??
+      (!MIME_BY_EXT[rawExt] && hint && MIME_SHAPE.test(hint) ? hint : undefined) ??
+      'application/octet-stream';
   }
+  const served = servedAs(name, detectedMime);
 
-  const filename = `${crypto.randomUUID()}.${rawExt}`;
+  // A download keeps no extension in its key: a store that guesses a type from
+  // the key (SeaweedFS answers `page.html` as text/html whatever it was stored
+  // as) has nothing to guess from, and `/files` reads the key as a download.
+  const filename =
+    served.inline && rawExt ? `${crypto.randomUUID()}.${rawExt}` : crypto.randomUUID();
   const storagePath = `${isPublic ? 'public/' : ''}uploads/${new Date().getFullYear()}/${filename}`;
 
   const storage = getStorage();
   let url: string | undefined;
   if (storage.isConfigured()) {
     try {
-      await storage.put(storagePath, safeBytes, { contentType: detectedMime });
+      // The object carries how it is served, so a store serving it straight
+      // (a public bucket URL, any presigned GET) answers as `servedAs` does.
+      await storage.put(storagePath, safeBytes, {
+        contentType: served.contentType,
+        contentDisposition: served.disposition,
+      });
     } catch (err) {
       // The driver's text names the store (endpoint, bucket); the caller gets none of it.
       console.error('storage: upload failed', storagePath, err);
@@ -476,7 +569,7 @@ export async function storeFile(
     // GET /api/storage/:id/signed-url when a private link expires.
     url = isPublic
       ? storage.publicUrl(storagePath)
-      : await storage.signedUrl(storagePath, 24 * 3600);
+      : await storage.signedUrl(storagePath, 24 * 3600, served);
   }
 
   const dims = detectedMime.startsWith('image/')

@@ -29,7 +29,6 @@ import {
   type FileActor,
   type FileRefusal,
   fileActorOf,
-  fileTypeRefusal,
   maxUploadBytes,
   readableFile,
   type StoredFile,
@@ -99,8 +98,7 @@ export async function admitFileGrant(
     }
   }
   if (write) {
-    const refused = fileTypeRefusal(write.name);
-    if (refused) throw problem('file_type_refused', 400, refused.body.error);
+    // Any type: a file outside the inline types is served only as a download (ADR 0033).
     const max = Math.min(JOB_FILE_LIMITS.callBytes, maxUploadBytes());
     if (write.maxBytes > max) {
       throw problem('file_too_large', 413, `$files.write.maxBytes is at most ${max}`);

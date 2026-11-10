@@ -36,6 +36,18 @@ export function safeLocalPath(key: string): string {
   return full;
 }
 
+/** The `<file>.meta` sidecar `put` writes: the content-type, then any Content-Disposition. */
+export async function readLocalMeta(
+  full: string,
+): Promise<{ contentType: string; contentDisposition?: string }> {
+  const meta = Bun.file(`${full}.meta`);
+  const [type, disposition] = (await meta.exists()) ? (await meta.text()).split('\n') : [];
+  return {
+    contentType: type?.trim() || 'application/octet-stream',
+    contentDisposition: disposition?.trim() || undefined,
+  };
+}
+
 function urlSecret(): string {
   const s = process.env.BETTER_AUTH_SECRET;
   if (!s) throw new Error('storage(local): BETTER_AUTH_SECRET is required to sign file URLs');
@@ -76,7 +88,9 @@ export class LocalDriver implements StorageDriver {
     const tmp = `${full}.tmp-${randomBytes(6).toString('hex')}`;
     await Bun.write(tmp, bytes);
     await rename(tmp, full);
-    await Bun.write(`${full}.meta`, opts?.contentType || 'application/octet-stream');
+    // Line 1 the content-type, line 2 (when given) the Content-Disposition.
+    const meta = [opts?.contentType || 'application/octet-stream', opts?.contentDisposition];
+    await Bun.write(`${full}.meta`, meta.filter(Boolean).join('\n'));
   }
 
   async get(key: string): Promise<StorageObject | null> {
@@ -84,9 +98,7 @@ export class LocalDriver implements StorageDriver {
     const file = Bun.file(full);
     if (!(await file.exists())) return null;
     const bytes = new Uint8Array(await file.arrayBuffer());
-    let contentType = 'application/octet-stream';
-    const meta = Bun.file(`${full}.meta`);
-    if (await meta.exists()) contentType = (await meta.text()).trim() || contentType;
+    const { contentType } = await readLocalMeta(full);
     return { bytes, contentType, size: bytes.length };
   }
 

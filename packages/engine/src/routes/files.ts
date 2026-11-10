@@ -18,21 +18,17 @@
  */
 
 import { stat } from 'node:fs/promises';
+import { basename } from 'node:path';
 import { Hono } from 'hono';
 import {
   getStorage,
   isPublicKey,
   LocalDriver,
+  readLocalMeta,
   safeLocalPath,
   verifySignedKey,
 } from '../lib/storage/index.js';
-
-/** Read the persisted content-type from the `<file>.meta` sidecar. */
-async function contentTypeOf(full: string): Promise<string> {
-  const meta = Bun.file(`${full}.meta`);
-  if (await meta.exists()) return (await meta.text()).trim() || 'application/octet-stream';
-  return 'application/octet-stream';
-}
+import { servedAs } from '../lib/stored-files.js';
 
 /**
  * Parse a single-range `Range` header against `size`. Returns the inclusive
@@ -105,23 +101,19 @@ export function filesRoutes(): Hono {
     if (!st || !st.isFile()) return c.json({ error: 'Not found' }, 404);
 
     const size = st.size;
-    const contentType = await contentTypeOf(full);
+    // Decided here for every response, by the stored name (`<uuid>.<ext>`) and
+    // type (ADR 0033): bytes written before the rule, or by another path, are
+    // served by it too. The sidecar's disposition carries the original name.
+    const meta = await readLocalMeta(full);
+    const served = servedAs(basename(key), meta.contentType);
     const headers: Record<string, string> = {
-      'Content-Type': contentType,
+      ...served.headers,
+      ...(served.disposition && meta.contentDisposition
+        ? { 'Content-Disposition': meta.contentDisposition }
+        : {}),
       'Cache-Control': 'private, max-age=3600',
-      'X-Content-Type-Options': 'nosniff',
       'Accept-Ranges': 'bytes',
     };
-    // An SVG opened directly is a document on this origin — Studio's — and the
-    // upload-time sanitizer is the only other thing standing between it and a
-    // script. Every XML type, not SVG alone: an `.xml` upload (allowlisted, not
-    // sanitized, served as `application/xml`) with an SVG or XHTML root runs its
-    // `<script>` the same way. HTML too, for bytes written by another path. Not
-    // every type: `sandbox` would break the browser's PDF viewer.
-    const mediaType = contentType.split(';')[0]!.trim().toLowerCase();
-    if (mediaType.endsWith('xml') || mediaType === 'text/html') {
-      headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
-    }
 
     const range = parseRange(c.req.header('range'), size);
     if (range === 'invalid') {

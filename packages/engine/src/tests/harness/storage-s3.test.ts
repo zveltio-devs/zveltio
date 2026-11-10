@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { S3Driver } from '../../lib/storage/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const hasS3 = Boolean(process.env.S3_ENDPOINT);
@@ -72,5 +73,38 @@ d('storage S3 upload round-trip (in-process)', () => {
     });
     expect([200, 204]).toContain(res.status);
     fileId = '';
+  });
+
+  // ADR 0033: a type off the inline allowlist is stored, and the object itself
+  // says "download", so a presigned link the engine did not sign with overrides
+  // (storage/cloud's share and download links presign the key the same way)
+  // serves it as one. The engine's own signed URL also signs the overrides in.
+  it('stores an .html file whose object is served only as a download', async () => {
+    const fd = new FormData();
+    fd.set('file', new File(['<script>parent.x=1</script>'], 'page.html', { type: 'text/html' }));
+    const res = await app.request('/api/storage/upload', {
+      method: 'POST',
+      headers: { cookie },
+      body: fd,
+    });
+    expect(res.status).toBe(201);
+    const { file } = (await res.json()) as { file: { id: string; storage_path: string } };
+    try {
+      const signedRes = await app.request(`/api/storage/${file.id}/signed-url`, {
+        headers: { cookie },
+      });
+      const { url } = (await signedRes.json()) as { url: string };
+      const plain = await new S3Driver().signedUrl(file.storage_path, 60);
+      for (const u of [url, plain]) {
+        const got = await fetch(u);
+        expect(got.status).toBe(200);
+        expect(got.headers.get('content-type')).toBe('application/octet-stream');
+        expect(got.headers.get('content-disposition')).toBe(
+          `attachment; filename="page.html"; filename*=UTF-8''page.html`,
+        );
+      }
+    } finally {
+      await app.request(`/api/storage/${file.id}`, { method: 'DELETE', headers: { cookie } });
+    }
   });
 });
