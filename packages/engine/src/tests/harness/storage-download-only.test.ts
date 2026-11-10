@@ -40,7 +40,7 @@ d('stored files outside the inline types are served only as downloads (in-proces
   const upload = async (
     name: string,
     type: string,
-    body: string | Uint8Array,
+    body: string | Uint8Array<ArrayBuffer>,
     isPublic = false,
   ): Promise<{ id: string; url: string; storage_path: string; mimetype: string }> => {
     const fd = new FormData();

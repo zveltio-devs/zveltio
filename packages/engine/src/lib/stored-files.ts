@@ -285,7 +285,8 @@ const INLINE_EXTENSIONS = new Set([
   'gz',
   '7z',
   'json',
-  'xml',
+  // Not 'xml': an XML document with an XHTML or SVG root runs script, and S3
+  // cannot send the CSP that would stop it (owner, 2026-11-10). A download.
 ]);
 /** The types those extensions are recorded as: a file is inline only under one of them. */
 const INLINE_TYPES = new Set([...INLINE_EXTENSIONS].map((e) => MIME_BY_EXT[e]));
@@ -339,8 +340,8 @@ export function servedAs(name: string, mimetype: string | null | undefined): Ser
       'Content-Type': type,
       'X-Content-Type-Options': 'nosniff',
     };
-    // An SVG or XML document opened directly is a document on this origin, and
-    // can carry a script (an `.xml` is not sanitized). Not every type: `sandbox`
+    // An SVG opened directly is a document on this origin, and
+    // can carry a script. Not every type: `sandbox`
     // would break the browser's PDF viewer.
     if (type.endsWith('xml')) {
       headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";

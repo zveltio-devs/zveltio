@@ -33,6 +33,7 @@ describe('servedAs', () => {
     ['page.html', 'text/html'],
     ['invite.ics', 'text/calendar'],
     ['message.eml', 'message/rfc822'],
+    ['feed.xml', 'application/xml'],
     ['README', 'text/plain'],
     // The name says image; the recorded type (from the bytes) does not.
     ['evil.png', 'application/octet-stream'],
