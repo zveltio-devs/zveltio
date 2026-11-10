@@ -472,6 +472,8 @@ const SECTIONS: Section[] = [
       // GET /api/actions lists what the action route admits (ADR 0029).
       `${E}routes/actions.ts`,
       `${E}lib/extensions/jobs.ts`,
+      // A job's stored files: only those its user handed it (ADR 0032).
+      `${E}lib/extensions/file-grants.ts`,
       `${E}lib/extensions/broadcast.ts`,
       `${E}lib/engine-handle.ts`,
     ],
@@ -575,6 +577,7 @@ const SECTIONS: Section[] = [
       `${E}lib/storage/`,
       `${E}lib/storage-quota.ts`,
       `${E}lib/media-visibility.ts`,
+      `${E}lib/stored-files.ts`,
       `${E}routes/storage.ts`,
       `${E}routes/files.ts`,
       `${E}lib/cloud/`,

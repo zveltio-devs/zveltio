@@ -36,9 +36,11 @@ import type { ExtensionManifest } from './manifest-schema.js';
 import { CapabilityDeniedError, holdsCapability } from './capabilities.js';
 import { actionWrites, type ExtensionContext, type ExtensionInternals } from './internals.js';
 import { enqueueJob, extensionPrincipal, jobData } from './jobs.js';
+import { admitFileGrant, type FileGrant } from './file-grants.js';
 import { systemCollectionsFor } from './as-system.js';
 import {
   asIdentityOn,
+  DEFAULT_TENANT_ID,
   effectiveTimeZone,
   encodeApiKeyScopes,
   getCurrentTenantTrx,
@@ -186,17 +188,29 @@ export function mountActions(
       const { resource, action } = def.permission;
       return c.json({ error: 'Forbidden', code: 'permission_required', resource, action }, 403);
     }
-    const parsed = def.input.safeParse(await c.req.json().catch(() => undefined));
+    // `$files` is the engine's (ADR 0032): the stored files the caller hands a
+    // job, taken out before the input schema sees the body.
+    const body: unknown = await c.req.json().catch(() => undefined);
+    const handed = hasFiles(body) ? body.$files : undefined;
+    const parsed = def.input.safeParse(hasFiles(body) ? withoutFiles(body) : body);
     if (!parsed.success) {
       return c.json(
         { error: 'Invalid input', code: 'invalid_input', issues: parsed.error.issues },
         400,
       );
     }
-    auditAction(c, p, extName, def.name);
+    // As the caller, before the action's code runs.
+    const grant = hasFiles(body)
+      ? await admitFileGrant(p.trx, p.user, p.tenantId ?? DEFAULT_TENANT_ID, handed)
+      : undefined;
+    auditAction(c, p, extName, def.name, undefined, grant);
     let result: unknown;
     try {
-      result = await def.run(parsed.data, await actionHost(c, p, p.trx, extName, def, ctx, true));
+      const files = grant && { grant, used: false };
+      result = await def.run(
+        parsed.data,
+        await actionHost(c, p, p.trx, extName, def, ctx, true, files),
+      );
     } catch (err) {
       throw refusalProblem(err) ?? err;
     }
@@ -265,6 +279,8 @@ function auditAction(
   action: string,
   /** A called action's own failure, which its caller may have caught. */
   threw: () => boolean = () => false,
+  /** The stored files the caller handed it (ADR 0032). */
+  files?: FileGrant,
 ): void {
   afterRequestSettles(c, () =>
     auditLog(getDb(), {
@@ -277,6 +293,7 @@ function auditAction(
         action,
         outcome: c.res.status < 400 && !threw() ? 'success' : 'failure',
         status: c.res.status,
+        ...(files ? { files: { read: files.read, write: files.write?.name ?? null } } : {}),
       },
       tenantId: p.tenantId,
     }),
@@ -286,7 +303,8 @@ function auditAction(
 /**
  * The host `def` runs with. `mayCall`: the action was called over HTTP, so it may
  * run the actions its manifest lists in `calls` — one level deep, which is all
- * ADR 0014 needs; a called action that calls again throws.
+ * ADR 0014 needs; a called action that calls again throws. `files`: the
+ * request's `$files`, for one `enqueue` (ADR 0032); a called action has none.
  */
 async function actionHost(
   c: Context,
@@ -296,6 +314,7 @@ async function actionHost(
   def: CompiledAction,
   ctx: ExtensionContext,
   mayCall: boolean,
+  files?: { grant: FileGrant; used: boolean },
 ): Promise<ActionHost> {
   return {
     // On the request's transaction, not the pool: a second connection taken
@@ -307,7 +326,31 @@ async function actionHost(
       callerData(c, ctx.internals, extName),
       secretReveal(trx, p.tenantId, extName),
     ),
-    enqueue: (job, input) => enqueueJob(extName, p, def, job, input),
+    enqueue: async (job, input, options) => {
+      const refuse = (why: string): never => {
+        throw new Error(`action "${def.name}" could not enqueue job "${job}": ${why}`);
+      };
+      const o = options as Record<string, unknown> | undefined;
+      const valid =
+        o === undefined ||
+        (typeof o === 'object' &&
+          o !== null &&
+          Object.keys(o).every((k) => k === 'files') &&
+          (o.files === undefined || o.files === true));
+      if (!valid) refuse('its options are { files: true }; no form of enqueue takes file ids');
+      if (o?.files !== true) return enqueueJob(extName, p, def, job, input);
+      if (!files) {
+        refuse(
+          mayCall
+            ? 'the request carried no $files'
+            : 'it was run by another action, which hands it no files',
+        );
+      }
+      // Taken before the await: two enqueues in flight cannot both receive it.
+      if (files!.used) refuse("the request's $files already went to another job");
+      files!.used = true;
+      return enqueueJob(extName, p, def, job, input, files!.grant);
+    },
     actions: {
       run: async (extension, action, input) => {
         const call = `${extension}.${action}`;
@@ -334,6 +377,11 @@ async function actionHost(
             `Running "${call}" needs "${verb}" on "${resource}".`,
           );
         }
+        // Only the user hands files, over HTTP; a dependency never receives
+        // files handed to another extension (ADR 0032).
+        if (hasFiles(input)) {
+          throw problem('invalid_input', 400, `$files is not an input of "${call}".`);
+        }
         const parsed = called.input.safeParse(input);
         if (!parsed.success) {
           throw problem('invalid_input', 400, `Invalid input for "${call}".`, parsed.error.issues);
@@ -358,6 +406,21 @@ async function actionHost(
       },
     },
   };
+}
+
+/** A request body carrying the engine's `$files` (ADR 0032). */
+function hasFiles(body: unknown): body is { $files: unknown } {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    !Array.isArray(body) &&
+    Object.hasOwn(body, '$files')
+  );
+}
+
+function withoutFiles(body: { $files: unknown }): Record<string, unknown> {
+  const { $files: _, ...rest } = body as Record<string, unknown>;
+  return rest;
 }
 
 // The SDK's `ACTION_REFUSAL`, by its registered key: the engine imports only
