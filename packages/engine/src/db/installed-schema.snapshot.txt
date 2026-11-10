@@ -215,90 +215,6 @@ table zv_backups
   fk  zv_backups_schedule_id_fkey FOREIGN KEY (schedule_id) REFERENCES zv_backup_schedules(id) ON DELETE SET NULL NOT VALID
   ck  zv_backups_status_check CHECK ((status = ANY (ARRAY['in_progress'::text, 'completed'::text, 'failed'::text])))
 
-table zv_cloud_access_logs
-  col action                         text NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col file_id                        text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col ip                             text
-  col share_token                    text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_agent                     text
-  col user_id                        text
-  ck  zv_cloud_access_logs_action_check CHECK ((action = ANY (ARRAY['view'::text, 'download'::text, 'upload'::text, 'delete'::text, 'share'::text, 'version'::text])))
-  pk  zv_cloud_access_logs_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_cloud_access_logs FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_cloud_file_versions
-  col bucket                         text NOT NULL DEFAULT 'zveltio'::text
-  col content_type                   text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col etag                           text
-  col file_key                       text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col size                           bigint NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col version                        integer NOT NULL DEFAULT 1
-  fk  zv_cloud_file_versions_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  uq  zv_cloud_file_versions_file_key_version_key UNIQUE (tenant_id, file_key, version)
-  pk  zv_cloud_file_versions_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_cloud_file_versions FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_cloud_retention_policies
-  col archive_after_days             integer
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text NOT NULL
-  col delete_after_days              integer
-  col file_extension                 text
-  col folder_path                    text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col max_versions                   integer NOT NULL DEFAULT 10
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  pk  zv_cloud_retention_policies_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_cloud_retention_policies FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_cloud_shares
-  col bucket                         text NOT NULL DEFAULT 'zveltio'::text
-  col content_type                   text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col download_count                 integer NOT NULL DEFAULT 0
-  col expires_at                     timestamp with time zone
-  col file_key                       text NOT NULL
-  col filename                       text
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col max_downloads                  integer
-  col password_hash                  text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col token                          text NOT NULL DEFAULT encode(gen_random_bytes(24), 'base64url'::text)
-  fk  zv_cloud_shares_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  pk  zv_cloud_shares_pkey PRIMARY KEY (id)
-  uq  zv_cloud_shares_token_key UNIQUE (token)
-  rls enabled forced
-  pol tenant_isolation_zv_cloud_shares FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_cloud_trash
-  col bucket                         text NOT NULL DEFAULT 'zveltio'::text
-  col content_type                   text
-  col deleted_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col deleted_by                     text
-  col file_key                       text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col original_path                  text NOT NULL
-  col purge_after                    timestamp with time zone NOT NULL DEFAULT (now() + '30 days'::interval)
-  col size                           bigint NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_cloud_trash_deleted_by_fkey FOREIGN KEY (deleted_by) REFERENCES "user"(id) ON DELETE SET NULL
-  pk  zv_cloud_trash_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_cloud_trash FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
 table zv_dashboards
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
@@ -577,16 +493,6 @@ table zv_license_audit
   col performed_by                   text
   col user_agent                     text
   pk  zv_license_audit_pkey PRIMARY KEY (id)
-
-table zv_media_favorites
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col file_id                        uuid NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text NOT NULL
-  fk  zv_media_favorites_file_id_fkey FOREIGN KEY (file_id) REFERENCES zv_media_files(id) ON DELETE CASCADE
-  pk  zv_media_favorites_pkey PRIMARY KEY (user_id, file_id)
-  rls enabled forced
-  pol tenant_isolation_zv_media_favorites FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_media_file_tags
   col file_id                        uuid NOT NULL
@@ -933,21 +839,12 @@ table zv_slow_queries
   pk  zv_slow_queries_pkey PRIMARY KEY (id)
 
 table zv_storage_quotas
-  col allowed_extensions             ARRAY NOT NULL DEFAULT '{}'::text[]
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col created_by                     text
-  col id                             uuid DEFAULT gen_random_uuid()
-  col max_file_size_bytes            bigint NOT NULL DEFAULT 104857600
   col quota_bytes                    bigint NOT NULL DEFAULT '5368709120'::bigint
-  col role_name                      text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col used_bytes                     bigint NOT NULL DEFAULT 0
   col user_id                        text NOT NULL
   pk  zv_storage_quotas_pkey PRIMARY KEY (user_id)
   fk  zv_storage_quotas_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_storage_quotas FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_sync_tombstones
   col collection                     text NOT NULL
@@ -2334,6 +2231,81 @@ table zvd_checklists
   pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('checklists'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('checklists'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('checklists'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('checklists'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_cloud_favorites
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col file_id                        uuid NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_cloud_favorites_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_cloud_favorites_pkey PRIMARY KEY (id)
+  fk  zvd_cloud_favorites_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('cloud_favorites'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('cloud_favorites'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('cloud_favorites'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('cloud_favorites'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('cloud_favorites'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_cloud_file_versions
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col file_id                        uuid NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col note                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  col version                        bigint NOT NULL
+  col version_file_id                uuid NOT NULL
+  fk  zvd_cloud_file_versions_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_cloud_file_versions_pkey PRIMARY KEY (id)
+  uq  zvd_cloud_file_versions_tenant_id_file_id_version_key UNIQUE (tenant_id, file_id, version)
+  fk  zvd_cloud_file_versions_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('cloud_file_versions'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('cloud_file_versions'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('cloud_file_versions'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('cloud_file_versions'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('cloud_file_versions'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_cloud_retention_policies
+  col archive_after_days             bigint
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col delete_after_days              bigint
+  col file_extension                 text
+  col folder_path                    text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean NOT NULL DEFAULT true
+  col max_versions                   bigint NOT NULL DEFAULT 10
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_cloud_retention_policies_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_cloud_retention_policies_pkey PRIMARY KEY (id)
+  fk  zvd_cloud_retention_policies_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('cloud_retention_policies'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('cloud_retention_policies'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('cloud_retention_policies'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('cloud_retention_policies'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('cloud_retention_policies'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_collections
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -9773,6 +9745,47 @@ table zvv_checklists
   col template_id                    uuid
   col tenant_id                      uuid
   col time_to_complete_minutes       bigint
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_cloud_favorites
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col file_id                        uuid
+  col id                             uuid
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_cloud_file_versions
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col file_id                        uuid
+  col id                             uuid
+  col note                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+  col version                        bigint
+  col version_file_id                uuid
+
+table zvv_cloud_retention_policies
+  col archive_after_days             bigint
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col delete_after_days              bigint
+  col file_extension                 text
+  col folder_path                    text
+  col id                             uuid
+  col is_active                      boolean
+  col max_versions                   bigint
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text
 
