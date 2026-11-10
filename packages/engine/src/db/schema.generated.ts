@@ -479,203 +479,6 @@ export interface ZvLicenseAuditTable {
   details: Generated<unknown>;
 }
 
-export interface ZvMailAccountsTable {
-  id: Generated<string>;
-  user_id: string;
-  name: string;
-  email_address: string;
-  display_name: string | null;
-  imap_host: string;
-  imap_port: Generated<number>;
-  imap_secure: Generated<boolean>;
-  imap_user: string;
-  imap_password: string;
-  imap_idle_supported: Generated<boolean | null>;
-  smtp_host: string;
-  smtp_port: Generated<number>;
-  smtp_secure: Generated<boolean>;
-  smtp_user: string | null;
-  smtp_password: string | null;
-  sieve_host: Generated<string | null>;
-  sieve_port: Generated<number | null>;
-  oauth2_provider: Generated<'gmail' | 'outlook' | null>;
-  oauth2_access_token: Generated<string | null>;
-  oauth2_refresh_token: Generated<string | null>;
-  oauth2_expires_at: Generated<Date | null>;
-  is_default: Generated<boolean>;
-  is_active: Generated<boolean>;
-  last_sync_at: Date | null;
-  sync_error: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMailAttachmentsTable {
-  id: Generated<string>;
-  message_id: string;
-  filename: string;
-  mime_type: string;
-  size_bytes: number;
-  storage_path: string | null;
-  content_id: string | null;
-  is_inline: Generated<boolean>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-  part: string | null;
-}
-
-export interface ZvMailContactsTable {
-  id: Generated<string>;
-  user_id: string;
-  email: string;
-  display_name: string | null;
-  company: string | null;
-  phone: string | null;
-  frequency: Generated<number>;
-  last_used_at: Date | null;
-  source: Generated<'auto' | 'manual' | 'import' | null>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMailDraftsTable {
-  id: Generated<string>;
-  account_id: string;
-  identity_id: string | null;
-  to_addresses: Generated<unknown>;
-  cc_addresses: Generated<unknown>;
-  bcc_addresses: Generated<unknown>;
-  subject: Generated<string>;
-  body_html: Generated<string>;
-  body_text: Generated<string>;
-  in_reply_to: string | null;
-  references_hdr: string | null;
-  reply_type: 'reply' | 'reply_all' | 'forward' | null;
-  original_msg_id: string | null;
-  attachments: Generated<unknown>;
-  priority: Generated<'high' | 'normal' | 'low' | null>;
-  request_read_receipt: Generated<boolean>;
-  imap_uid: number | null;
-  auto_saved_at: Date | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMailFiltersTable {
-  id: Generated<string>;
-  account_id: string;
-  name: string;
-  is_active: Generated<boolean>;
-  sort_order: Generated<number>;
-  conditions: Generated<unknown>;
-  actions: Generated<unknown>;
-  sieve_script: string | null;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMailFoldersTable {
-  id: Generated<string>;
-  account_id: string;
-  name: string;
-  path: string;
-  type: Generated<'inbox' | 'sent' | 'drafts' | 'trash' | 'spam' | 'archive' | 'other' | null>;
-  unread_count: Generated<number>;
-  total_count: Generated<number>;
-  last_uid: Generated<number | null>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMailIdentitiesTable {
-  id: Generated<string>;
-  account_id: string;
-  email_address: string;
-  display_name: string | null;
-  reply_to: string | null;
-  bcc_self: Generated<boolean>;
-  is_default: Generated<boolean>;
-  sort_order: Generated<number>;
-  signature_id: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMailMessagesTable {
-  id: Generated<string>;
-  account_id: string;
-  folder_id: string;
-  message_id: string | null;
-  uid: number | null;
-  thread_id: string | null;
-  from_address: string;
-  from_name: string | null;
-  to_addresses: Generated<unknown>;
-  cc_addresses: Generated<unknown>;
-  bcc_addresses: Generated<unknown>;
-  reply_to: string | null;
-  in_reply_to: string | null;
-  references_header: string | null;
-  subject: string | null;
-  body_text: string | null;
-  body_html: string | null;
-  snippet: string | null;
-  priority: Generated<'high' | 'normal' | 'low' | null>;
-  is_read: Generated<boolean>;
-  is_starred: Generated<boolean>;
-  is_draft: Generated<boolean>;
-  has_attachments: Generated<boolean>;
-  is_encrypted: Generated<boolean>;
-  is_signed: Generated<boolean>;
-  read_receipt_requested: Generated<boolean>;
-  read_receipt_sent: Generated<boolean>;
-  tags: Generated<string[] | null>;
-  raw_headers: Generated<unknown | null>;
-  sent_at: Date | null;
-  received_at: Generated<Date>;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMailOauthStatesTable {
-  state: Generated<string>;
-  tenant_id: Generated<string>;
-  user_id: string;
-  account_id: string;
-  provider: 'gmail' | 'outlook';
-  redirect_uri: string;
-  expires_at: Date;
-  created_at: Generated<Date>;
-}
-
-export interface ZvMailPgpKeysTable {
-  id: Generated<string>;
-  user_id: string;
-  email: string;
-  public_key: string;
-  private_key: string | null;
-  fingerprint: string;
-  is_own: Generated<boolean>;
-  expires_at: Date | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvMailSignaturesTable {
-  id: Generated<string>;
-  user_id: string;
-  name: string;
-  body_html: Generated<string>;
-  body_text: Generated<string>;
-  is_default: Generated<boolean>;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvMediaFavoritesTable {
   user_id: string;
   file_id: string;
@@ -1124,13 +927,6 @@ export interface ZvdInsightSavedQueriesTable {
   tenant_id: Generated<string>;
 }
 
-export interface ZvdMailConfigTable {
-  tenant_id: Generated<string>;
-  config: unknown;
-  created_at: Generated<Date>;
-  updated_at: Generated<Date>;
-}
-
 export interface ZvdPanelCacheTable {
   id: Generated<string>;
   panel_id: string;
@@ -1361,17 +1157,6 @@ export interface DbSchema {
   zv_instances: ZvInstancesTable;
   zv_invitations: ZvInvitationsTable;
   zv_license_audit: ZvLicenseAuditTable;
-  zv_mail_accounts: ZvMailAccountsTable;
-  zv_mail_attachments: ZvMailAttachmentsTable;
-  zv_mail_contacts: ZvMailContactsTable;
-  zv_mail_drafts: ZvMailDraftsTable;
-  zv_mail_filters: ZvMailFiltersTable;
-  zv_mail_folders: ZvMailFoldersTable;
-  zv_mail_identities: ZvMailIdentitiesTable;
-  zv_mail_messages: ZvMailMessagesTable;
-  zv_mail_oauth_states: ZvMailOauthStatesTable;
-  zv_mail_pgp_keys: ZvMailPgpKeysTable;
-  zv_mail_signatures: ZvMailSignaturesTable;
   zv_media_favorites: ZvMediaFavoritesTable;
   zv_media_file_tags: ZvMediaFileTagsTable;
   zv_media_files: ZvMediaFilesTable;
@@ -1408,7 +1193,6 @@ export interface DbSchema {
   zvd_dashboard_shares: ZvdDashboardSharesTable;
   zvd_dashboard_subscriptions: ZvdDashboardSubscriptionsTable;
   zvd_insight_saved_queries: ZvdInsightSavedQueriesTable;
-  zvd_mail_config: ZvdMailConfigTable;
   zvd_panel_cache: ZvdPanelCacheTable;
   zvd_permissions: ZvdPermissionsTable;
   zvd_permissions_pruned_012: ZvdPermissionsPruned012Table;

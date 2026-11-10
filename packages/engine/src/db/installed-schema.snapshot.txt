@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 588
+# tables: 594
 
 table account
   col accessToken                    text
@@ -577,252 +577,6 @@ table zv_license_audit
   col performed_by                   text
   col user_agent                     text
   pk  zv_license_audit_pkey PRIMARY KEY (id)
-
-table zv_mail_accounts
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col display_name                   text
-  col email_address                  text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col imap_host                      text NOT NULL
-  col imap_idle_supported            boolean
-  col imap_password                  text NOT NULL
-  col imap_port                      integer NOT NULL DEFAULT 993
-  col imap_secure                    boolean NOT NULL DEFAULT true
-  col imap_user                      text NOT NULL
-  col is_active                      boolean NOT NULL DEFAULT true
-  col is_default                     boolean NOT NULL DEFAULT false
-  col last_sync_at                   timestamp with time zone
-  col name                           text NOT NULL
-  col oauth2_access_token            text
-  col oauth2_expires_at              timestamp with time zone
-  col oauth2_provider                text
-  col oauth2_refresh_token           text
-  col sieve_host                     text
-  col sieve_port                     integer DEFAULT 4190
-  col smtp_host                      text NOT NULL
-  col smtp_password                  text
-  col smtp_port                      integer NOT NULL DEFAULT 587
-  col smtp_secure                    boolean NOT NULL DEFAULT true
-  col smtp_user                      text
-  col sync_error                     text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col user_id                        text NOT NULL
-  ck  zv_mail_accounts_oauth2_provider_check CHECK ((oauth2_provider = ANY (ARRAY['gmail'::text, 'outlook'::text, NULL::text])))
-  pk  zv_mail_accounts_pkey PRIMARY KEY (id)
-  fk  zv_mail_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  idx idx_mail_accounts_default UNIQUE (user_id) WHERE (is_default = true)
-  rls enabled forced
-  pol tenant_isolation_zv_mail_accounts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_attachments
-  col content_id                     text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col filename                       text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_inline                      boolean NOT NULL DEFAULT false
-  col message_id                     uuid NOT NULL
-  col mime_type                      text NOT NULL
-  col part                           text
-  col size_bytes                     bigint NOT NULL
-  col storage_path                   text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_mail_attachments_message_id_fkey FOREIGN KEY (message_id) REFERENCES zv_mail_messages(id) ON DELETE CASCADE
-  pk  zv_mail_attachments_pkey PRIMARY KEY (id)
-  idx idx_zv_mail_attachments_message_part UNIQUE (message_id, part)
-  rls enabled forced
-  pol tenant_isolation_zv_mail_attachments FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_contacts
-  col company                        text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col display_name                   text
-  col email                          text NOT NULL
-  col frequency                      integer NOT NULL DEFAULT 1
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col last_used_at                   timestamp with time zone
-  col phone                          text
-  col source                         text DEFAULT 'auto'::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text NOT NULL
-  pk  zv_mail_contacts_pkey PRIMARY KEY (id)
-  ck  zv_mail_contacts_source_check CHECK ((source = ANY (ARRAY['auto'::text, 'manual'::text, 'import'::text])))
-  uq  zv_mail_contacts_user_id_email_key UNIQUE (user_id, email)
-  fk  zv_mail_contacts_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_mail_contacts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_drafts
-  col account_id                     uuid NOT NULL
-  col attachments                    jsonb NOT NULL DEFAULT '[]'::jsonb
-  col auto_saved_at                  timestamp with time zone
-  col bcc_addresses                  jsonb NOT NULL DEFAULT '[]'::jsonb
-  col body_html                      text NOT NULL DEFAULT ''::text
-  col body_text                      text NOT NULL DEFAULT ''::text
-  col cc_addresses                   jsonb NOT NULL DEFAULT '[]'::jsonb
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col identity_id                    uuid
-  col imap_uid                       integer
-  col in_reply_to                    text
-  col original_msg_id                uuid
-  col priority                       text DEFAULT 'normal'::text
-  col references_hdr                 text
-  col reply_type                     text
-  col request_read_receipt           boolean NOT NULL DEFAULT false
-  col subject                        text NOT NULL DEFAULT ''::text
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col to_addresses                   jsonb NOT NULL DEFAULT '[]'::jsonb
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  zv_mail_drafts_account_id_fkey FOREIGN KEY (account_id) REFERENCES zv_mail_accounts(id) ON DELETE CASCADE
-  fk  zv_mail_drafts_identity_id_fkey FOREIGN KEY (identity_id) REFERENCES zv_mail_identities(id) ON DELETE SET NULL
-  fk  zv_mail_drafts_original_msg_id_fkey FOREIGN KEY (original_msg_id) REFERENCES zv_mail_messages(id) ON DELETE SET NULL
-  pk  zv_mail_drafts_pkey PRIMARY KEY (id)
-  ck  zv_mail_drafts_priority_check CHECK ((priority = ANY (ARRAY['high'::text, 'normal'::text, 'low'::text])))
-  ck  zv_mail_drafts_reply_type_check CHECK ((reply_type = ANY (ARRAY['reply'::text, 'reply_all'::text, 'forward'::text, NULL::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_mail_drafts FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_filters
-  col account_id                     uuid NOT NULL
-  col actions                        jsonb NOT NULL DEFAULT '[]'::jsonb
-  col conditions                     jsonb NOT NULL DEFAULT '[]'::jsonb
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_active                      boolean NOT NULL DEFAULT true
-  col name                           text NOT NULL
-  col sieve_script                   text
-  col sort_order                     integer NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  fk  zv_mail_filters_account_id_fkey FOREIGN KEY (account_id) REFERENCES zv_mail_accounts(id) ON DELETE CASCADE
-  pk  zv_mail_filters_pkey PRIMARY KEY (id)
-  rls enabled forced
-  pol tenant_isolation_zv_mail_filters FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_folders
-  col account_id                     uuid NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col last_uid                       integer DEFAULT 0
-  col name                           text NOT NULL
-  col path                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col total_count                    integer NOT NULL DEFAULT 0
-  col type                           text DEFAULT 'other'::text
-  col unread_count                   integer NOT NULL DEFAULT 0
-  fk  zv_mail_folders_account_id_fkey FOREIGN KEY (account_id) REFERENCES zv_mail_accounts(id) ON DELETE CASCADE
-  uq  zv_mail_folders_account_id_path_key UNIQUE (account_id, path)
-  pk  zv_mail_folders_pkey PRIMARY KEY (id)
-  ck  zv_mail_folders_type_check CHECK ((type = ANY (ARRAY['inbox'::text, 'sent'::text, 'drafts'::text, 'trash'::text, 'spam'::text, 'archive'::text, 'other'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_mail_folders FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_identities
-  col account_id                     uuid NOT NULL
-  col bcc_self                       boolean NOT NULL DEFAULT false
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col display_name                   text
-  col email_address                  text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_default                     boolean NOT NULL DEFAULT false
-  col reply_to                       text
-  col signature_id                   uuid
-  col sort_order                     integer NOT NULL DEFAULT 0
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  fk  zv_mail_identities_account_id_fkey FOREIGN KEY (account_id) REFERENCES zv_mail_accounts(id) ON DELETE CASCADE
-  pk  zv_mail_identities_pkey PRIMARY KEY (id)
-  fk  zv_mail_identities_signature_id_fkey FOREIGN KEY (signature_id) REFERENCES zv_mail_signatures(id) ON DELETE SET NULL
-  rls enabled forced
-  pol tenant_isolation_zv_mail_identities FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_messages
-  col account_id                     uuid NOT NULL
-  col bcc_addresses                  jsonb NOT NULL DEFAULT '[]'::jsonb
-  col body_html                      text
-  col body_text                      text
-  col cc_addresses                   jsonb NOT NULL DEFAULT '[]'::jsonb
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col folder_id                      uuid NOT NULL
-  col from_address                   text NOT NULL
-  col from_name                      text
-  col has_attachments                boolean NOT NULL DEFAULT false
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col in_reply_to                    text
-  col is_draft                       boolean NOT NULL DEFAULT false
-  col is_encrypted                   boolean NOT NULL DEFAULT false
-  col is_read                        boolean NOT NULL DEFAULT false
-  col is_signed                      boolean NOT NULL DEFAULT false
-  col is_starred                     boolean NOT NULL DEFAULT false
-  col message_id                     text
-  col priority                       text DEFAULT 'normal'::text
-  col raw_headers                    jsonb DEFAULT '{}'::jsonb
-  col read_receipt_requested         boolean NOT NULL DEFAULT false
-  col read_receipt_sent              boolean NOT NULL DEFAULT false
-  col received_at                    timestamp with time zone NOT NULL DEFAULT now()
-  col references_header              text
-  col reply_to                       text
-  col sent_at                        timestamp with time zone
-  col snippet                        text
-  col subject                        text
-  col tags                           ARRAY DEFAULT '{}'::text[]
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col thread_id                      text
-  col to_addresses                   jsonb NOT NULL DEFAULT '[]'::jsonb
-  col uid                            integer
-  fk  zv_mail_messages_account_id_fkey FOREIGN KEY (account_id) REFERENCES zv_mail_accounts(id) ON DELETE CASCADE
-  fk  zv_mail_messages_folder_id_fkey FOREIGN KEY (folder_id) REFERENCES zv_mail_folders(id) ON DELETE CASCADE
-  pk  zv_mail_messages_pkey PRIMARY KEY (id)
-  ck  zv_mail_messages_priority_check CHECK ((priority = ANY (ARRAY['high'::text, 'normal'::text, 'low'::text])))
-  rls enabled forced
-  pol tenant_isolation_zv_mail_messages FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_oauth_states
-  col account_id                     uuid NOT NULL
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col expires_at                     timestamp with time zone NOT NULL
-  col provider                       text NOT NULL
-  col redirect_uri                   text NOT NULL
-  col state                          text NOT NULL
-  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text NOT NULL
-  fk  zv_mail_oauth_states_account_id_fkey FOREIGN KEY (account_id) REFERENCES zv_mail_accounts(id) ON DELETE CASCADE
-  pk  zv_mail_oauth_states_pkey PRIMARY KEY (state)
-  ck  zv_mail_oauth_states_provider_check CHECK ((provider = ANY (ARRAY['gmail'::text, 'outlook'::text])))
-  fk  zv_mail_oauth_states_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_mail_oauth_states FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_pgp_keys
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col email                          text NOT NULL
-  col expires_at                     timestamp with time zone
-  col fingerprint                    text NOT NULL
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_own                         boolean NOT NULL DEFAULT false
-  col private_key                    text
-  col public_key                     text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col user_id                        text NOT NULL
-  pk  zv_mail_pgp_keys_pkey PRIMARY KEY (id)
-  fk  zv_mail_pgp_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_mail_pgp_keys FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
-
-table zv_mail_signatures
-  col body_html                      text NOT NULL DEFAULT ''::text
-  col body_text                      text NOT NULL DEFAULT ''::text
-  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
-  col is_default                     boolean NOT NULL DEFAULT false
-  col name                           text NOT NULL
-  col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
-  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  col user_id                        text NOT NULL
-  pk  zv_mail_signatures_pkey PRIMARY KEY (id)
-  fk  zv_mail_signatures_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
-  rls enabled forced
-  pol tenant_isolation_zv_mail_signatures FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
 
 table zv_media_favorites
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -5271,14 +5025,304 @@ table zvd_leave_types
   pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('leave_types'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
   pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('leave_types'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('leave_types'::text, 'update'::text) AS zveltio_collection_allows)
 
-table zvd_mail_config
-  col config                         jsonb NOT NULL
+table zvd_mail_accounts
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col display_name                   text
+  col email_address                  text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col imap_host                      text NOT NULL
+  col imap_password                  text
+  col imap_port                      bigint NOT NULL DEFAULT 993
+  col imap_tls                       text NOT NULL DEFAULT 'implicit'::text
+  col imap_user                      text NOT NULL
+  col is_active                      boolean DEFAULT true
+  col is_default                     boolean DEFAULT false
+  col last_sync_at                   timestamp with time zone
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col smtp_host                      text NOT NULL
+  col smtp_password                  text
+  col smtp_port                      bigint NOT NULL DEFAULT 465
+  col smtp_tls                       text NOT NULL DEFAULT 'implicit'::text
+  col smtp_user                      text
+  col sync_error                     text
+  col sync_more                      boolean DEFAULT false
+  col sync_status                    text NOT NULL DEFAULT 'idle'::text
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
-  pk  zvd_mail_config_pkey PRIMARY KEY (tenant_id)
+  col updated_by                     text
+  fk  zvd_mail_accounts_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  ck  zvd_mail_accounts_imap_password_check CHECK (((imap_password IS NULL) OR (imap_password ~~ 'enc:v1:%'::text)))
+  pk  zvd_mail_accounts_pkey PRIMARY KEY (id)
+  ck  zvd_mail_accounts_smtp_password_check CHECK (((smtp_password IS NULL) OR (smtp_password ~~ 'enc:v1:%'::text)))
+  fk  zvd_mail_accounts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
-  pol tenant_isolation_zvd_mail_config FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_accounts'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_accounts'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_accounts'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_accounts'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_accounts'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_mail_attachments
+  col content_id                     text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col encoding                       text
+  col fetch_error                    text
+  col fetch_status                   text
+  col file_id                        uuid
+  col filename                       text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_inline                      boolean DEFAULT false
+  col message_id                     uuid NOT NULL
+  col mime_type                      text
+  col search_text                    text
+  col search_vector                  tsvector
+  col section                        text NOT NULL
+  col size                           bigint
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_mail_attachments_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_mail_attachments_message_id_fkey FOREIGN KEY (message_id) REFERENCES zvd_mail_messages(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_mail_attachments_pkey PRIMARY KEY (id)
+  fk  zvd_mail_attachments_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_attachments'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_attachments'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_attachments'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_attachments'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_attachments'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_mail_contacts
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col display_name                   text
+  col email_address                  text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col notes                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_mail_contacts_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_mail_contacts_pkey PRIMARY KEY (id)
+  fk  zvd_mail_contacts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_contacts'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_contacts'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_contacts'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_contacts'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_contacts'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_mail_drafts
+  col account_id                     uuid NOT NULL
+  col attachments                    jsonb
+  col bcc_addresses                  jsonb
+  col body_html                      text
+  col body_text                      text
+  col cc_addresses                   jsonb
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col identity_id                    uuid
+  col in_reply_to                    text
+  col original_message_id            uuid
+  col priority                       text NOT NULL DEFAULT 'normal'::text
+  col references_header              text
+  col request_read_receipt           boolean DEFAULT false
+  col search_text                    text
+  col search_vector                  tsvector
+  col send_error                     text
+  col send_status                    text NOT NULL DEFAULT 'draft'::text
+  col subject                        text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col to_addresses                   jsonb
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_mail_drafts_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_mail_accounts(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_mail_drafts_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_mail_drafts_identity_id_fkey FOREIGN KEY (identity_id) REFERENCES zvd_mail_identities(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_mail_drafts_original_message_id_fkey FOREIGN KEY (original_message_id) REFERENCES zvd_mail_messages(id) ON UPDATE CASCADE ON DELETE SET NULL
+  pk  zvd_mail_drafts_pkey PRIMARY KEY (id)
+  fk  zvd_mail_drafts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_drafts'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_drafts'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_drafts'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_drafts'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_drafts'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_mail_filters
+  col account_id                     uuid NOT NULL
+  col actions                        jsonb
+  col conditions                     jsonb
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_active                      boolean DEFAULT true
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col sort_order                     bigint DEFAULT 0
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_mail_filters_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_mail_accounts(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_mail_filters_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_mail_filters_pkey PRIMARY KEY (id)
+  fk  zvd_mail_filters_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_filters'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_filters'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_filters'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_filters'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_filters'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_mail_folders
+  col account_id                     uuid NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col last_uid                       bigint DEFAULT 0
+  col name                           text NOT NULL
+  col path                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col total_count                    bigint DEFAULT 0
+  col type                           text NOT NULL DEFAULT 'other'::text
+  col uid_validity                   text
+  col unread_count                   bigint DEFAULT 0
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_mail_folders_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_mail_accounts(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_mail_folders_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_mail_folders_pkey PRIMARY KEY (id)
+  uq  zvd_mail_folders_tenant_id_account_id_path_key UNIQUE (tenant_id, account_id, path)
+  fk  zvd_mail_folders_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_folders'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_folders'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_folders'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_folders'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_folders'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_mail_identities
+  col account_id                     uuid NOT NULL
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col display_name                   text
+  col email_address                  text NOT NULL
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_default                     boolean DEFAULT false
+  col reply_to                       text
+  col search_text                    text
+  col search_vector                  tsvector
+  col signature_id                   uuid
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_mail_identities_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_mail_accounts(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_mail_identities_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_mail_identities_pkey PRIMARY KEY (id)
+  fk  zvd_mail_identities_signature_id_fkey FOREIGN KEY (signature_id) REFERENCES zvd_mail_signatures(id) ON UPDATE CASCADE ON DELETE SET NULL
+  fk  zvd_mail_identities_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_identities'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_identities'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_identities'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_identities'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_identities'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_mail_messages
+  col account_id                     uuid NOT NULL
+  col body_html                      text
+  col body_text                      text
+  col cc_addresses                   jsonb
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col folder_id                      uuid NOT NULL
+  col from_address                   text
+  col from_name                      text
+  col has_attachments                boolean DEFAULT false
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col in_reply_to                    text
+  col is_read                        boolean DEFAULT false
+  col is_starred                     boolean DEFAULT false
+  col message_id                     text
+  col priority                       text NOT NULL DEFAULT 'normal'::text
+  col read_receipt_requested         boolean DEFAULT false
+  col received_at                    timestamp with time zone
+  col references_header              text
+  col reply_to                       text
+  col search_text                    text
+  col search_vector                  tsvector
+  col sent_at                        timestamp with time zone
+  col size                           bigint
+  col snippet                        text
+  col subject                        text
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col to_addresses                   jsonb
+  col uid                            bigint NOT NULL
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_mail_messages_account_id_fkey FOREIGN KEY (account_id) REFERENCES zvd_mail_accounts(id) ON UPDATE CASCADE ON DELETE CASCADE
+  fk  zvd_mail_messages_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  fk  zvd_mail_messages_folder_id_fkey FOREIGN KEY (folder_id) REFERENCES zvd_mail_folders(id) ON UPDATE CASCADE ON DELETE CASCADE
+  pk  zvd_mail_messages_pkey PRIMARY KEY (id)
+  uq  zvd_mail_messages_tenant_id_folder_id_uid_key UNIQUE (tenant_id, folder_id, uid)
+  fk  zvd_mail_messages_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_messages'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_messages'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_messages'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_messages'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_messages'::text, 'update'::text) AS zveltio_collection_allows)
+
+table zvd_mail_signatures
+  col body_html                      text
+  col body_text                      text
+  col created_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col created_by                     text
+  col id                             uuid NOT NULL DEFAULT gen_random_uuid()
+  col is_default                     boolean DEFAULT false
+  col name                           text NOT NULL
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
+  col updated_by                     text
+  fk  zvd_mail_signatures_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
+  pk  zvd_mail_signatures_pkey PRIMARY KEY (id)
+  fk  zvd_mail_signatures_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
+  rls enabled forced
+  pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
+  pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
+  pol zv_coll_create RESTRICTIVE FOR a USING - CHECK ( SELECT zveltio_collection_allows('mail_signatures'::text, 'create'::text) AS zveltio_collection_allows)
+  pol zv_coll_delete RESTRICTIVE FOR d USING ( SELECT zveltio_collection_allows('mail_signatures'::text, 'delete'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_read RESTRICTIVE FOR r USING ( SELECT zveltio_collection_allows('mail_signatures'::text, 'read'::text) AS zveltio_collection_allows) CHECK -
+  pol zv_coll_update RESTRICTIVE FOR w USING ( SELECT zveltio_collection_allows('mail_signatures'::text, 'update'::text) AS zveltio_collection_allows) CHECK ( SELECT zveltio_collection_allows('mail_signatures'::text, 'update'::text) AS zveltio_collection_allows)
 
 table zvd_media_ai_metadata
   col ai_description                 text
@@ -11283,6 +11327,190 @@ table zvv_leave_types
   col max_carry_days                 numeric
   col name                           text
   col requires_approval              boolean
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_accounts
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col display_name                   text
+  col email_address                  text
+  col id                             uuid
+  col imap_host                      text
+  col imap_port                      bigint
+  col imap_tls                       text
+  col imap_user                      text
+  col is_active                      boolean
+  col is_default                     boolean
+  col last_sync_at                   timestamp with time zone
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col smtp_host                      text
+  col smtp_port                      bigint
+  col smtp_tls                       text
+  col smtp_user                      text
+  col sync_error                     text
+  col sync_more                      boolean
+  col sync_status                    text
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_attachments
+  col content_id                     text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col encoding                       text
+  col fetch_error                    text
+  col fetch_status                   text
+  col file_id                        uuid
+  col filename                       text
+  col id                             uuid
+  col is_inline                      boolean
+  col message_id                     uuid
+  col mime_type                      text
+  col search_text                    text
+  col search_vector                  tsvector
+  col section                        text
+  col size                           bigint
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_contacts
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col display_name                   text
+  col email_address                  text
+  col id                             uuid
+  col notes                          text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_drafts
+  col account_id                     uuid
+  col attachments                    jsonb
+  col bcc_addresses                  jsonb
+  col body_html                      text
+  col body_text                      text
+  col cc_addresses                   jsonb
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col identity_id                    uuid
+  col in_reply_to                    text
+  col original_message_id            uuid
+  col priority                       text
+  col references_header              text
+  col request_read_receipt           boolean
+  col search_text                    text
+  col search_vector                  tsvector
+  col send_error                     text
+  col send_status                    text
+  col subject                        text
+  col tenant_id                      uuid
+  col to_addresses                   jsonb
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_filters
+  col account_id                     uuid
+  col actions                        jsonb
+  col conditions                     jsonb
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col is_active                      boolean
+  col name                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col sort_order                     bigint
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_folders
+  col account_id                     uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col last_uid                       bigint
+  col name                           text
+  col path                           text
+  col search_text                    text
+  col search_vector                  tsvector
+  col tenant_id                      uuid
+  col total_count                    bigint
+  col type                           text
+  col uid_validity                   text
+  col unread_count                   bigint
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_identities
+  col account_id                     uuid
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col display_name                   text
+  col email_address                  text
+  col id                             uuid
+  col is_default                     boolean
+  col reply_to                       text
+  col search_text                    text
+  col search_vector                  tsvector
+  col signature_id                   uuid
+  col tenant_id                      uuid
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_messages
+  col account_id                     uuid
+  col body_html                      text
+  col body_text                      text
+  col cc_addresses                   jsonb
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col folder_id                      uuid
+  col from_address                   text
+  col from_name                      text
+  col has_attachments                boolean
+  col id                             uuid
+  col in_reply_to                    text
+  col is_read                        boolean
+  col is_starred                     boolean
+  col message_id                     text
+  col priority                       text
+  col read_receipt_requested         boolean
+  col received_at                    timestamp with time zone
+  col references_header              text
+  col reply_to                       text
+  col search_text                    text
+  col search_vector                  tsvector
+  col sent_at                        timestamp with time zone
+  col size                           bigint
+  col snippet                        text
+  col subject                        text
+  col tenant_id                      uuid
+  col to_addresses                   jsonb
+  col uid                            bigint
+  col updated_at                     timestamp with time zone
+  col updated_by                     text
+
+table zvv_mail_signatures
+  col body_html                      text
+  col body_text                      text
+  col created_at                     timestamp with time zone
+  col created_by                     text
+  col id                             uuid
+  col is_default                     boolean
+  col name                           text
   col search_text                    text
   col search_vector                  tsvector
   col tenant_id                      uuid
