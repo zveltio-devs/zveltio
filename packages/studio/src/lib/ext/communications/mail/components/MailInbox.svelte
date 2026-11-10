@@ -1,6 +1,8 @@
 <script lang="ts">
 /**
- * Mail inbox — Tier-3 client over existing /ext/communications/mail APIs.
+ * Mail inbox over the data API (`mail_*` collections) and the mail actions.
+ * Nothing here talks to a mail server: syncing and sending are actions that
+ * queue engine jobs, so this page polls the row the job updates.
  */
 import { resolve } from '$app/paths';
 import {
@@ -17,17 +19,28 @@ import {
   X,
 } from '@lucide/svelte';
 import { api } from '#lib/api.js';
+import { auth } from '#lib/auth.svelte.js';
 import { safeMailHtml, safeMailText } from '../lib/sanitize.js';
 import { m } from '#lib/i18n.svelte.js';
 import { toast } from '#lib/stores/toast.svelte.js';
 
-const API = '/ext/communications/mail';
+const DATA = '/api/data';
+const ACTIONS = '/ext/communications/mail/actions';
+/** While the page is open, mail is fetched this often. */
+const AUTO_SYNC_MS = 5 * 60_000;
+const ORDER = ['inbox', 'sent', 'drafts', 'archive', 'other', 'spam', 'trash'];
+
+type Address = { address: string; name?: string };
 
 type Account = {
   id: string;
   email_address: string;
   display_name?: string | null;
   is_default?: boolean;
+  sync_status?: string;
+  sync_error?: string | null;
+  sync_more?: boolean;
+  created_by?: string | null;
 };
 
 type Folder = {
@@ -51,12 +64,31 @@ type MsgSummary = {
   received_at?: string | null;
 };
 
+type Attachment = {
+  id: string;
+  filename: string;
+  mime_type?: string;
+  size?: number;
+  file_id?: string | null;
+  fetch_status?: 'queued' | 'failed' | null;
+  fetch_error?: string | null;
+};
+
+/** Stored files handed to the job an action queues (ADR 0032): beside the input, checked by the engine as the caller. */
+type Files = { read?: string[]; write?: { name: string; maxBytes: number } };
+
 type MsgDetail = MsgSummary & {
-  to_addresses?: unknown;
+  message_id?: string | null;
+  references_header?: string | null;
+  reply_to?: string | null;
+  to_addresses?: Address[] | null;
+  cc_addresses?: Address[] | null;
   body_html?: string | null;
   body_text?: string | null;
-  attachments?: Array<{ id: string; filename: string; mime_type?: string; size_bytes?: number }>;
+  attachments?: Attachment[];
 };
+
+type Upload = { file_id: string; filename: string; mime_type: string; size: number };
 
 let accounts = $state<Account[]>([]);
 let accountId = $state<string | null>(null);
@@ -76,10 +108,16 @@ let composing = $state(false);
 let composeTo = $state('');
 let composeSubject = $state('');
 let composeBody = $state('');
+let composeFiles = $state<Upload[]>([]);
 let sending = $state(false);
-let replyToId = $state<string | null>(null);
+let replyTo = $state<MsgDetail | null>(null);
 
 const t = (key: string, fallback: string) => m[key]?.() ?? fallback;
+const errText = (err: unknown, key: string, fallback: string) => (err instanceof Error ? err.message : t(key, fallback));
+const filter = (f: Record<string, unknown>) => encodeURIComponent(JSON.stringify(f));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const action = <T = unknown>(name: string, body: Record<string, unknown>, files?: Files) =>
+  api.post<T>(`${ACTIONS}/${name}`, files ? { ...body, $files: files } : body);
 
 const activeAccount = $derived(accounts.find((a) => a.id === accountId) ?? null);
 const activeFolder = $derived(folders.find((f) => f.id === folderId) ?? null);
@@ -102,19 +140,23 @@ function fromLabel(msg: MsgSummary): string {
 async function loadAccounts(): Promise<void> {
   loadingAccounts = true;
   try {
-    const r = await api.get<{ accounts?: Account[] }>(`${API}/accounts`);
-    accounts = r.accounts ?? [];
+    const r = await api.get<{ records?: Account[] }>(`${DATA}/mail_accounts?sort=name&limit=100`);
+    // The inbox is the signed-in user's own mail. A sync writes its rows as the
+    // user who queued it (ADR 0028): syncing a colleague's account, which an
+    // administrator may see, would file that mail under the administrator.
+    const me = (auth.user as { id?: string } | null)?.id;
+    accounts = (r.records ?? []).filter((a) => a.created_by === me);
     if (!accountId && accounts.length) {
       accountId = accounts.find((a) => a.is_default)?.id ?? accounts[0]!.id;
     }
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.load', 'Failed to load'));
+    toast.error(errText(err, 'communications.mail.error.load', 'Failed to load'));
   } finally {
     loadingAccounts = false;
   }
 }
 
-async function loadFolders(): Promise<void> {
+async function loadFolders(keepSelection = false): Promise<void> {
   if (!accountId) {
     folders = [];
     folderId = null;
@@ -122,12 +164,13 @@ async function loadFolders(): Promise<void> {
   }
   loadingFolders = true;
   try {
-    const r = await api.get<{ folders?: Folder[] }>(`${API}/accounts/${accountId}/folders`);
-    folders = r.folders ?? [];
-    const inbox = folders.find((f) => f.type === 'inbox') ?? folders[0];
-    folderId = inbox?.id ?? null;
+    const r = await api.get<{ records?: Folder[] }>(`${DATA}/mail_folders?filter=${filter({ account_id: accountId })}&limit=500`);
+    folders = (r.records ?? []).sort((a, b) => ORDER.indexOf(a.type) - ORDER.indexOf(b.type) || a.name.localeCompare(b.name));
+    if (!keepSelection || !folders.some((f) => f.id === folderId)) {
+      folderId = (folders.find((f) => f.type === 'inbox') ?? folders[0])?.id ?? null;
+    }
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.folders', 'Failed to load folders'));
+    toast.error(errText(err, 'communications.mail.error.folders', 'Failed to load folders'));
     folders = [];
   } finally {
     loadingFolders = false;
@@ -140,16 +183,14 @@ async function loadMessages(): Promise<void> {
     return;
   }
   loadingMessages = true;
-  selected = null;
   try {
-    const qs = new URLSearchParams({ limit: '50' });
+    const qs = new URLSearchParams({ sort: 'received_at', order: 'desc', limit: '50' });
     if (search.trim()) qs.set('search', search.trim());
-    const r = await api.get<{ messages?: MsgSummary[] }>(
-      `${API}/folders/${folderId}/messages?${qs}`,
-    );
-    messages = r.messages ?? [];
+    const r = await api.get<{ records?: MsgSummary[] }>(`${DATA}/mail_messages?filter=${filter({ folder_id: folderId })}&${qs}`);
+    messages = r.records ?? [];
+    if (selected && !messages.some((msg) => msg.id === selected!.id)) selected = null;
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.messages', 'Failed to load messages'));
+    toast.error(errText(err, 'communications.mail.error.messages', 'Failed to load messages'));
     messages = [];
   } finally {
     loadingMessages = false;
@@ -159,156 +200,227 @@ async function loadMessages(): Promise<void> {
 async function openMessage(id: string): Promise<void> {
   loadingMessage = true;
   showImages = false;
+  composing = false;
   try {
-    const r = await api.get<{ message?: MsgDetail }>(`${API}/messages/${id}`);
-    selected = r.message ?? null;
-    messages = messages.map((msg) => (msg.id === id ? { ...msg, is_read: true } : msg));
+    const [msg, atts] = await Promise.all([
+      api.get<MsgDetail>(`${DATA}/mail_messages/${id}`),
+      api.get<{ records?: Attachment[] }>(`${DATA}/mail_attachments?filter=${filter({ message_id: id })}&limit=100`),
+    ]);
+    selected = { ...msg, attachments: atts.records ?? [] };
+    if (!msg.is_read) await setFlags([id], { is_read: true });
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.message', 'Failed to load message'));
+    toast.error(errText(err, 'communications.mail.error.message', 'Failed to load message'));
   } finally {
     loadingMessage = false;
   }
 }
 
-async function syncAccount(): Promise<void> {
+/** Queue a sync and wait for it; a sync that stopped at its budget (`sync_more`) is continued, a few times. */
+async function syncAccount(quiet = false): Promise<void> {
   if (!accountId || syncing) return;
   syncing = true;
+  const id = accountId;
   try {
-    await api.post(`${API}/accounts/${accountId}/sync`, {});
-    await loadFolders();
-    await loadMessages();
-    toast.success(t('communications.mail.ui.sync', 'Sync') + ' ✓');
+    for (let round = 0; round < 5; round++) {
+      await action('sync', { account_id: id });
+      let acct: Account | null = null;
+      for (let i = 0; i < 90; i++) {
+        await sleep(2000);
+        acct = await api.get<Account>(`${DATA}/mail_accounts/${id}`);
+        if (acct.sync_status !== 'queued' && acct.sync_status !== 'syncing') break;
+      }
+      accounts = accounts.map((a) => (a.id === id && acct ? acct : a));
+      if (acct?.sync_status === 'error') throw new Error(acct.sync_error || t('communications.mail.error.sync', 'Sync failed'));
+      await loadFolders(true);
+      await loadMessages();
+      if (!acct?.sync_more) break;
+    }
+    if (!quiet) toast.success(t('communications.mail.ui.sync', 'Sync') + ' ✓');
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.sync', 'Sync failed'));
+    if (!quiet) toast.error(errText(err, 'communications.mail.error.sync', 'Sync failed'));
   } finally {
     syncing = false;
   }
 }
 
+async function setFlags(ids: string[], change: { is_read?: boolean; is_starred?: boolean }): Promise<void> {
+  await action('setFlags', { message_ids: ids, ...change });
+  messages = messages.map((msg) => (ids.includes(msg.id) ? { ...msg, ...change } : msg));
+  if (selected && ids.includes(selected.id)) selected = { ...selected, ...change };
+}
+
 async function toggleStar(msg: MsgSummary | MsgDetail): Promise<void> {
-  const next = !msg.is_starred;
   try {
-    await api.patch(`${API}/messages/${msg.id}`, { is_starred: next });
-    messages = messages.map((m) => (m.id === msg.id ? { ...m, is_starred: next } : m));
-    if (selected?.id === msg.id) selected = { ...selected, is_starred: next };
+    await setFlags([msg.id], { is_starred: !msg.is_starred });
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.failed', 'Failed'));
+    toast.error(errText(err, 'communications.mail.error.failed', 'Failed'));
   }
 }
 
 async function toggleRead(msg: MsgSummary): Promise<void> {
-  const next = !msg.is_read;
   try {
-    await api.patch(`${API}/messages/${msg.id}`, { is_read: next });
-    messages = messages.map((m) => (m.id === msg.id ? { ...m, is_read: next } : m));
+    await setFlags([msg.id], { is_read: !msg.is_read });
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.failed', 'Failed'));
+    toast.error(errText(err, 'communications.mail.error.failed', 'Failed'));
   }
 }
 
 async function deleteMessage(id: string): Promise<void> {
-  if (!confirm('Delete this message?')) return;
+  if (!confirm(t('communications.mail.confirmDeleteMessage', 'Delete this message?'))) return;
   try {
-    await api.delete(`${API}/messages/${id}`);
-    messages = messages.filter((m) => m.id !== id);
+    await action('deleteMessages', { message_ids: [id] });
+    messages = messages.filter((msg) => msg.id !== id);
     if (selected?.id === id) selected = null;
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.failed', 'Failed'));
+    toast.error(errText(err, 'communications.mail.error.failed', 'Failed'));
   }
 }
 
 function startCompose(): void {
   composing = true;
-  replyToId = null;
+  replyTo = null;
   composeTo = '';
   composeSubject = '';
   composeBody = '';
+  composeFiles = [];
 }
 
-async function startReply(type: 'reply' | 'reply_all' | 'forward'): Promise<void> {
-  if (!selected) return;
-  try {
-    const r = await api.post<{
-      to?: string[];
-      cc?: string[];
-      subject?: string;
-      bodyHtml?: string;
-      bodyText?: string;
-    }>(`${API}/messages/${selected.id}/reply-context`, { type });
-    composing = true;
-    replyToId = selected.id;
-    composeTo = [...(r.to ?? []), ...(type === 'reply_all' ? (r.cc ?? []) : [])].join(', ');
-    composeSubject = r.subject ?? '';
-    composeBody = r.bodyText ?? r.bodyHtml?.replace(/<[^>]+>/g, '') ?? '';
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.failed', 'Failed'));
-  }
-}
+const fmtAddr = (a: Address) => (a.name ? `${a.name} <${a.address}>` : a.address);
 
-async function sendMail(): Promise<void> {
-  if (!accountId || sending) return;
-  const to = composeTo
+function parseAddresses(v: string): Address[] {
+  return v
     .split(/[,;]/)
     .map((s) => s.trim())
-    .filter(Boolean);
-  if (!to.length || !composeSubject.trim()) {
-    toast.warning('To and subject are required');
+    .filter(Boolean)
+    .map((s) => {
+      const mm = /^(.*?)\s*<([^>]+)>$/.exec(s);
+      return mm ? { address: mm[2]!.trim(), ...(mm[1] ? { name: mm[1].replace(/^"|"$/g, '') } : {}) } : { address: s };
+    });
+}
+
+function startReply(type: 'reply' | 'reply_all' | 'forward'): void {
+  if (!selected) return;
+  const msg = selected;
+  const own = (activeAccount?.email_address ?? '').toLowerCase();
+  const sender: Address = { address: msg.reply_to || msg.from_address, ...(msg.from_name ? { name: msg.from_name } : {}) };
+  const others = [...(msg.to_addresses ?? []), ...(msg.cc_addresses ?? [])].filter((a) => a.address.toLowerCase() !== own);
+  const to = type === 'forward' ? [] : type === 'reply_all' ? [sender, ...others] : [sender];
+  const subject = msg.subject ?? '';
+  const prefix = type === 'forward' ? 'Fwd: ' : 'Re: ';
+  const quoted = (msg.body_text ?? '').split('\n').map((l) => `> ${l}`).join('\n');
+  composing = true;
+  replyTo = type === 'forward' ? null : msg;
+  composeTo = to.map(fmtAddr).join(', ');
+  composeSubject = subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : prefix + subject;
+  composeBody = `\n\n${fromLabel(msg)} — ${formatWhen(msg.received_at)}:\n${quoted}`;
+  composeFiles = [];
+}
+
+async function attachFiles(ev: Event): Promise<void> {
+  const input = ev.currentTarget as HTMLInputElement;
+  for (const file of Array.from(input.files ?? [])) {
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const r = await api.post<{ file: { id: string } }>('/api/storage/upload', form);
+      composeFiles = [...composeFiles, { file_id: r.file.id, filename: file.name, mime_type: file.type || 'application/octet-stream', size: file.size }];
+    } catch (err) {
+      toast.error(errText(err, 'communications.mail.error.failed', 'Failed'));
+    }
+  }
+  input.value = '';
+}
+
+/** Save the message as a draft, ask for it to be sent, and wait for the job to delete it (sent) or mark it failed. */
+async function sendMail(): Promise<void> {
+  if (!accountId || sending) return;
+  const to = parseAddresses(composeTo);
+  if (!to.length) {
+    toast.warning(t('communications.mail.error.noRecipient', 'Add at least one recipient'));
     return;
   }
   sending = true;
   try {
-    await api.post(`${API}/send`, {
+    const draft = await api.post<{ id: string }>(`${DATA}/mail_drafts`, {
       account_id: accountId,
-      to,
+      to_addresses: to,
       subject: composeSubject.trim(),
-      // Escaped before it becomes markup. The compose box is a textarea — plain
-      // text — and this wrapped it in <p> without escaping anything, so a user
-      // typing `a < b`, or replying to a message whose quoted text contains an
-      // angle bracket, sent HTML the recipient's client had to guess at. Not a
-      // hole in this Studio (the value is the user's own), but the outgoing mail
-      // is wrong and it is the sender who looks careless.
-      body_html: `<p>${safeMailText(composeBody).replace(/\n/g, '<br>')}</p>`,
       body_text: composeBody,
-      reply_to_message_id: replyToId ?? undefined,
+      // The compose box is plain text: escaped before it becomes markup.
+      body_html: `<p>${safeMailText(composeBody).replace(/\n/g, '<br>')}</p>`,
+      in_reply_to: replyTo?.message_id ?? null,
+      references_header: replyTo ? [replyTo.references_header, replyTo.message_id].filter(Boolean).join(' ') || null : null,
+      original_message_id: replyTo?.id ?? null,
+      attachments: composeFiles,
     });
-    toast.success('Sent');
+    const uploads = composeFiles.map((f) => f.file_id);
+    await action('send', { draft_id: draft.id }, uploads.length ? { read: uploads } : undefined);
+    for (let i = 0; i < 90; i++) {
+      await sleep(2000);
+      let d: { send_status?: string; send_error?: string | null } | null = null;
+      try {
+        d = await api.get(`${DATA}/mail_drafts/${draft.id}`);
+      } catch {
+        d = null; // the job deletes a sent draft
+      }
+      if (!d) {
+        // Sent: the device uploads were only the way into the job. A send that
+        // never completes leaves them in the user's files, for the user to delete.
+        for (const id of uploads) await api.delete(`/api/storage/${id}`).catch(() => undefined);
+        toast.success(t('communications.mail.ui.sent', 'Sent'));
+        composing = false;
+        return;
+      }
+      if (d.send_status === 'failed') throw new Error(d.send_error || t('communications.mail.error.send', 'Failed to send'));
+    }
+    toast.warning(t('communications.mail.ui.sendPending', 'Still sending; the draft stays in Drafts until it goes.'));
     composing = false;
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.send', 'Failed to send'));
+    toast.error(errText(err, 'communications.mail.error.send', 'Failed to send'));
   } finally {
     sending = false;
   }
 }
 
-async function downloadAttachment(attId: string, filename: string): Promise<void> {
+let downloading = $state<string | null>(null);
+
+/**
+ * Open an attachment. One not yet downloaded is fetched from the mail server by
+ * a job, into the user's own files, under its name and at most its part's size.
+ */
+async function downloadAttachment(att: Attachment): Promise<void> {
+  if (downloading) return;
+  downloading = att.id;
   try {
-    const res = await api.fetch(`${API}/attachments/${attId}`);
-    if (!res.ok) throw new Error(`Download failed (${res.status})`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    let fileId = att.file_id ?? null;
+    if (!fileId) {
+      await action('fetchAttachment', { attachment_id: att.id }, { write: { name: att.filename, maxBytes: Math.max(1, att.size ?? 0) } });
+      for (let i = 0; i < 90 && !fileId; i++) {
+        await sleep(2000);
+        const row = await api.get<Attachment>(`${DATA}/mail_attachments/${att.id}`);
+        if (row.fetch_status === 'failed') throw new Error(row.fetch_error || t('communications.mail.error.download', 'Download failed'));
+        fileId = row.file_id ?? null;
+      }
+      if (!fileId) throw new Error(t('communications.mail.error.download', 'Download failed'));
+      att.file_id = fileId;
+    }
+    const r = await api.get<{ url: string }>(`/api/storage/${fileId}/signed-url`);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = filename || 'attachment';
+    a.href = r.url;
+    a.download = att.filename || 'attachment';
+    a.rel = 'noopener';
     a.click();
-    URL.revokeObjectURL(url);
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('communications.mail.error.failed', 'Failed'));
+    toast.error(errText(err, 'communications.mail.error.download', 'Download failed'));
+  } finally {
+    downloading = null;
   }
 }
 
 const safeBody = $derived.by(() => {
   if (!selected) return '';
-  // See studio/src/lib/sanitize.ts. What used to be here removed a literal
-  // script element and nothing else, and the result went to {@html}: 11 of
-  // 12 measured payloads survived, including `<img src=x onerror=…>`. The
-  // attacker for this sink is anyone who can send mail to a user of the
-  // instance — no account, no permission, no prior access.
-  //
-  // The sentence above once spelled that tag out. A closing script tag inside a
-  // `//` comment still CLOSES THE SCRIPT BLOCK: an HTML tokenizer never sees the
-  // comment, only the tag, so everything after it parsed as markup and the
-  // component exported nothing. It is a tokenizer rule, not a Svelte or a biome
-  // one, and it will bite any tool that reads this file.
+  // The engine stores body_html sanitized (jobs.ts → cleanHtml); this second
+  // pass is Studio's own, and the one that blocks remote images until asked.
   if (selected.body_html) return safeMailHtml(selected.body_html, showImages);
   return `<pre style="white-space:pre-wrap;font:inherit">${safeMailText(selected.body_text)}</pre>`;
 });
@@ -319,11 +431,14 @@ $effect(() => {
 
 $effect(() => {
   void accountId;
-  void loadFolders();
+  void loadFolders().then(() => syncAccount(true));
+  const timer = setInterval(() => void syncAccount(true), AUTO_SYNC_MS);
+  return () => clearInterval(timer);
 });
 
 $effect(() => {
   void folderId;
+  selected = null;
   void loadMessages();
 });
 </script>
@@ -459,12 +574,24 @@ $effect(() => {
           placeholder={t('communications.mail.ui.write_your_message', 'Write your message…')}
           bind:value={composeBody}
         ></textarea>
+        <div class="flex flex-wrap gap-2 items-center text-xs">
+          <label class="btn btn-ghost btn-xs gap-1">
+            <Paperclip size={12} /> {t('communications.mail.ui.attach', 'Attach')}
+            <input type="file" multiple class="hidden" onchange={(e) => void attachFiles(e)} />
+          </label>
+          {#each composeFiles as f (f.file_id)}
+            <span class="badge badge-ghost gap-1">
+              {f.filename}
+              <button type="button" aria-label="Remove" onclick={() => (composeFiles = composeFiles.filter((x) => x.file_id !== f.file_id))}><X size={10} /></button>
+            </span>
+          {/each}
+        </div>
       </div>
       <div class="p-3 border-t border-base-300 flex justify-end gap-2">
         <button type="button" class="btn btn-ghost btn-sm" onclick={() => (composing = false)}>Cancel</button>
         <button type="button" class="btn btn-primary btn-sm gap-1" disabled={sending} onclick={() => void sendMail()}>
           <Send size={14} />
-          {t('communications.mail.compose', 'Compose')}
+          {t('communications.mail.ui.send', 'Send')}
         </button>
       </div>
     {:else if loadingMessage}
@@ -525,7 +652,9 @@ $effect(() => {
               <button
                 type="button"
                 class="btn btn-ghost btn-xs"
-                onclick={() => void downloadAttachment(att.id, att.filename)}
+                disabled={downloading !== null}
+                title={downloading === att.id ? t('communications.mail.ui.downloading', 'Downloading…') : ''}
+                onclick={() => void downloadAttachment(att)}
               >
                 <Paperclip size={10} />
                 {att.filename}
