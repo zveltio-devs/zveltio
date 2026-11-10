@@ -164,7 +164,10 @@ d('revision masking (L37, migration 077)', () => {
     expect(one.json().record).not.toHaveProperty('salary');
     const list = await call('GET', `/api/data/${COLLECTION}?as_of=${before}`, member);
     expect(list.status).toBe(200);
-    expect(list.body).not.toContain('5000');
+    // Per record, not a substring of the body: a random uuid can contain "5000".
+    for (const r of list.json().records as Record<string, unknown>[]) {
+      expect(r).not.toHaveProperty('salary');
+    }
     const godOne = await call('GET', `/api/data/${COLLECTION}/${recordId}?as_of=${before}`, god);
     expect(Number(godOne.json().record.salary)).toBe(5000);
   });
