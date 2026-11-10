@@ -39,7 +39,7 @@ import { ensureDeno } from '../../lib/extensions/deno.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { DDLManager, jobQueue } from '../../lib/data/index.js';
 import { getStorage } from '../../lib/storage/index.js';
-import { type FileActor, storeFile } from '../../lib/stored-files.js';
+import { type FileActor, servedAs, storeFile } from '../../lib/stored-files.js';
 import { createRequestScopedDb, DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { getAuth } from '../../lib/auth.js';
@@ -432,7 +432,6 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     expect(await bad({ read: Array.from({ length: 33 }, () => crypto.randomUUID()) })).toBe(400);
     expect(await bad({ read: ['not-a-uuid'] })).toBe(400);
     expect(await bad({ read: [], extra: 1 })).toBe(400);
-    expect(await bad({ write: { name: 'run.exe', maxBytes: 10 } })).toBe(400);
     const tooBig = { name: 'a.pdf', maxBytes: JOB_FILE_LIMITS.callBytes + 1 };
     expect(await bad({ write: tooBig })).toBe(413);
     expect(await queued('bad')).toBe(0);
@@ -600,7 +599,7 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
         view: true,
         $files: {
           read: [made.colleagueShared],
-          write: { name: 'report.pdf', maxBytes: 100 },
+          write: { name: 'reply.eml', maxBytes: 100 },
         },
       }),
     );
@@ -611,13 +610,16 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     expect(r).toMatchObject({
       id,
       tenant_id: DEFAULT_TENANT_ID,
-      original_name: 'report.pdf',
+      original_name: 'reply.eml',
       visibility: 'personal',
       folder_id: null,
       created_by: author.userId,
       created_by_api_key: null,
     });
     expect(Number(r!.size)).toBe(50);
+    // Any type is stored (ADR 0033); one off the inline list is only a download.
+    expect(r!.mimetype).toBe('application/octet-stream');
+    expect(servedAs(r!.original_name, r!.mimetype).inline).toBe(false);
     expect((await getStorage().get(r!.storage_path))?.bytes.byteLength).toBe(50);
     // The action's audit row names what was handed.
     const audit = await until(
@@ -629,12 +631,12 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
               await sql<{ metadata: { files?: unknown } }>`
               SELECT metadata FROM zv_audit_log WHERE event_type = 'extension.action.executed'
                AND resource_id = ${`${EXT}:send`}
-               AND metadata->'files'->>'write' = 'report.pdf'`.execute(trx)
+               AND metadata->'files'->>'write' = 'reply.eml'`.execute(trx)
             ).rows,
         ),
       (rows) => rows.length > 0,
     );
-    expect(audit[0]!.metadata.files).toEqual({ read: [made.colleagueShared], write: 'report.pdf' });
+    expect(audit[0]!.metadata.files).toEqual({ read: [made.colleagueShared], write: 'reply.eml' });
   }, 60_000);
 
   // Verified 9.

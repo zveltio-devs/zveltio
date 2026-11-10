@@ -13,6 +13,7 @@ import {
   maxUploadBytes,
   readableFile,
   removeFile,
+  servedAs,
   storeFile,
 } from '../lib/stored-files.js';
 import { paging } from '../lib/utils.js';
@@ -160,8 +161,12 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (!file) return c.json({ error: 'File not found' }, 404);
 
     // Time-limited URL: S3 → aws4fetch presigned GET; local → HMAC-signed
-    // /files URL. Both honour the 1h expiry.
-    const signedUrl = await storage.signedUrl(file.storage_path, 3600);
+    // /files URL. Both honour the 1h expiry, and serve the file as `servedAs`.
+    const signedUrl = await storage.signedUrl(
+      file.storage_path,
+      3600,
+      servedAs(file.original_name, file.mimetype),
+    );
 
     return c.json({ url: signedUrl, expires_in: 3600 });
   });

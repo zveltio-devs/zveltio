@@ -488,6 +488,18 @@ scope (see [POST /api/api-keys](#post-apiapi-keys)).
 
 Upload a file (multipart `file`, optional `folder_id`, `public=true`).
 
+Any file type is accepted. A file is served inline (displayed by the browser)
+only when its extension is one of the inline types (images, PDF, text, CSV,
+JSON, XML, audio, video, office documents, archives) **and** its bytes are that
+kind: the recorded `mimetype` comes from the content, not the client. Every
+other file — `.html`, `.eml`, `.ics`, a file with no extension, a `.png` whose
+bytes are not a PNG — is only ever served as a download, on every URL the
+engine hands out (`url`, `GET /api/storage/:id/signed-url`, a public URL):
+`Content-Type: application/octet-stream`, `Content-Disposition: attachment`
+with the original name, `X-Content-Type-Options: nosniff` and
+`Content-Security-Policy: sandbox`. An SVG is sanitised on upload and served
+under a sandboxing CSP.
+
 ### GET /api/storage
 
 List files in storage.

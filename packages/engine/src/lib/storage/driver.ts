@@ -47,6 +47,14 @@ export interface StorageObject {
 export interface PutOptions {
   /** MIME type to persist + serve (already content-sniffed by the caller). */
   contentType?: string;
+  /** `Content-Disposition` to persist + serve: `attachment; …` for a download-only file. */
+  contentDisposition?: string;
+}
+
+/** How a signed URL's response is to be served, when it is a download (`servedAs`). */
+export interface ServeOverride {
+  contentType: string;
+  disposition?: string;
 }
 
 export interface StorageDriver {
@@ -80,8 +88,13 @@ export interface StorageDriver {
    * A time-limited URL for the object. For `s3` this is an aws4fetch presigned
    * GET; for `local` it is `/files/<key>?exp=…&sig=…` (HMAC-verified by the
    * serving route).
+   *
+   * `served` with a `disposition` makes the response a download whatever the
+   * object's own metadata says: `s3` signs `response-content-type` and
+   * `response-content-disposition` into the URL; `local` needs nothing, as
+   * `/files` decides each response itself.
    */
-  signedUrl(key: string, expiresInSec: number): Promise<string>;
+  signedUrl(key: string, expiresInSec: number, served?: ServeOverride): Promise<string>;
 
   /**
    * A time-limited URL that accepts a PUT, or null when this store has no such
