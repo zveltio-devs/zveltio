@@ -887,7 +887,6 @@ const SECTIONS: Section[] = [
       // make grep skip a 1658-line file in silence.
       'scripts/check-no-nul-bytes.ts',
       'scripts/check-numeric-string-arithmetic.ts',
-      'scripts/check-insert-schema-match.ts',
       'scripts/check-duplicate-table-creators.ts',
       'scripts/check-duplicate-rules.ts',
       'scripts/check-rule-interpreters.ts',

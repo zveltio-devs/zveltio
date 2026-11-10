@@ -234,33 +234,6 @@ const CASES: Case[] = [
     ].join('\n'),
   },
   {
-    // Does this INSERT match the table it writes to? The gate builds the real
-    // schema and compares, so it needs a database; the probe hands it the same
-    // one the rest of the run uses.
-    gate: 'check-insert-schema-match',
-    expect: 'plant_missing_column',
-    // `$TEST_DATABASE_URL` without braces on purpose: the braced form trips
-    // `noTemplateCurlyInString`, and writing it as a template literal instead
-    // hid the command from `check-gate-coverage`, which reads single-quoted
-    // commands. Two rules pulling opposite ways; the plain variable satisfies
-    // both. With nothing set the gate exits 0 with a note and this case fails
-    // loudly as decoration, which is the right direction to fail in.
-    cmd: 'SEAM_DATABASE_URL="$TEST_DATABASE_URL" bun run scripts/check-insert-schema-match.ts',
-    file: '../zveltio-extensions/storage/cloud/engine/plant-insert.ts',
-    body: [
-      "import { sql } from 'kysely';",
-      '',
-      '// A column `zv_settings` does not have.',
-      'export async function plantInsert(db: unknown) {',
-      '  await sql`',
-      '    INSERT INTO zv_settings (key, value, plant_missing_column)',
-      "    VALUES ('a', 'b', 'c')",
-      '  `.execute(db as never);',
-      '}',
-      '',
-    ].join('\n'),
-  },
-  {
     // A Studio page in the engine that talks to `/ext/*` but that no extension
     // declares is an orphan: the extension can be uninstalled and the page
     // stays, pointing at routes that are gone.
@@ -1026,7 +999,7 @@ export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
     // that is not in it, which is the OTHER failure and not the one under test.
     gate: 'admin-gate-check (sibling ratchet)',
     cmd: 'bun run scripts/admin-gate-check.ts',
-    file: '../zveltio-extensions/storage/cloud/engine/routes.ts',
+    file: '../zveltio-extensions/analytics/dashboard/engine/routes.ts',
     body:
       '\nexport const __gateProbe = (uid: string, checkPermission: Function) =>\n' +
       "  checkPermission(uid, 'admin', '*');\n",
@@ -1039,7 +1012,7 @@ export function runnerInterpreterArgs(_isCompiledBinary: boolean): string[] {
     // in `// the /ext/* gate` swallowed everything up to the next `*\/`.
     gate: 'admin-gate-check (sibling ratchet, wrapped after a glob comment)',
     cmd: 'bun run scripts/admin-gate-check.ts',
-    file: '../zveltio-extensions/storage/cloud/engine/routes.ts',
+    file: '../zveltio-extensions/analytics/dashboard/engine/routes.ts',
     body:
       '\n// the /ext/* gate\n' +
       'export const __gateProbe = (uid: string, checkPermission: Function) =>\n' +

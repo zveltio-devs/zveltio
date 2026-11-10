@@ -168,74 +168,6 @@ export interface ZvBackupsTable {
   schedule_id: string | null;
 }
 
-export interface ZvCloudAccessLogsTable {
-  id: Generated<string>;
-  file_id: string;
-  user_id: string | null;
-  ip: string | null;
-  action: 'view' | 'download' | 'upload' | 'delete' | 'share' | 'version';
-  share_token: string | null;
-  user_agent: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvCloudFileVersionsTable {
-  id: Generated<string>;
-  file_key: string;
-  bucket: Generated<string>;
-  version: Generated<number>;
-  size: Generated<number>;
-  content_type: string | null;
-  etag: string | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvCloudRetentionPoliciesTable {
-  id: Generated<string>;
-  name: string;
-  folder_path: string | null;
-  file_extension: string | null;
-  max_versions: Generated<number>;
-  delete_after_days: number | null;
-  archive_after_days: number | null;
-  is_active: Generated<boolean>;
-  created_by: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvCloudSharesTable {
-  id: Generated<string>;
-  token: Generated<string>;
-  file_key: string;
-  bucket: Generated<string>;
-  filename: string | null;
-  content_type: string | null;
-  password_hash: string | null;
-  max_downloads: number | null;
-  download_count: Generated<number>;
-  expires_at: Date | null;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
-export interface ZvCloudTrashTable {
-  id: Generated<string>;
-  file_key: string;
-  original_path: string;
-  bucket: Generated<string>;
-  size: Generated<number>;
-  content_type: string | null;
-  deleted_by: string | null;
-  deleted_at: Generated<Date>;
-  purge_after: Generated<Date>;
-  tenant_id: Generated<string | null>;
-}
-
 export interface ZvDashboardsTable {
   id: Generated<string>;
   name: string;
@@ -477,13 +409,6 @@ export interface ZvLicenseAuditTable {
   ip: string | null;
   user_agent: string | null;
   details: Generated<unknown>;
-}
-
-export interface ZvMediaFavoritesTable {
-  user_id: string;
-  file_id: string;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvMediaFileTagsTable {
@@ -774,13 +699,6 @@ export interface ZvStorageQuotasTable {
   quota_bytes: Generated<number>;
   used_bytes: Generated<number>;
   updated_at: Generated<Date>;
-  id: Generated<string | null>;
-  role_name: string | null;
-  max_file_size_bytes: Generated<number>;
-  allowed_extensions: Generated<string[]>;
-  created_by: string | null;
-  created_at: Generated<Date>;
-  tenant_id: Generated<string | null>;
 }
 
 export interface ZvSyncTombstonesTable {
@@ -1134,11 +1052,6 @@ export interface DbSchema {
   zv_backup_schedules: ZvBackupSchedulesTable;
   zv_backup_uploads: ZvBackupUploadsTable;
   zv_backups: ZvBackupsTable;
-  zv_cloud_access_logs: ZvCloudAccessLogsTable;
-  zv_cloud_file_versions: ZvCloudFileVersionsTable;
-  zv_cloud_retention_policies: ZvCloudRetentionPoliciesTable;
-  zv_cloud_shares: ZvCloudSharesTable;
-  zv_cloud_trash: ZvCloudTrashTable;
   zv_dashboards: ZvDashboardsTable;
   zv_default_grant_revocations: ZvDefaultGrantRevocationsTable;
   zv_doc_templates: ZvDocTemplatesTable;
@@ -1157,7 +1070,6 @@ export interface DbSchema {
   zv_instances: ZvInstancesTable;
   zv_invitations: ZvInvitationsTable;
   zv_license_audit: ZvLicenseAuditTable;
-  zv_media_favorites: ZvMediaFavoritesTable;
   zv_media_file_tags: ZvMediaFileTagsTable;
   zv_media_files: ZvMediaFilesTable;
   zv_media_folders: ZvMediaFoldersTable;

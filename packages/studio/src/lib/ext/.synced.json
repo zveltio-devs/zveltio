@@ -5,7 +5,8 @@
     "geospatial/postgis",
     "mail",
     "pages",
-    "projects/management"
+    "projects/management",
+    "storage/cloud"
   ],
   "libs": [
     "ai",
