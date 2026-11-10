@@ -424,7 +424,7 @@ export class ExtensionLoader {
   ): Promise<void> {
     // Body extracted to lib/extensions/load.ts (H-04 split) — the full
     // per-extension load pipeline (dir resolution, Studio-only short-circuit,
-    // manifest/tier/entry phases, WASM-or-import, migrations, field types,
+    // manifest/tier/entry phases, worker-or-import, migrations, field types,
     // then finalizeExtensionLoad). Thin delegator so callers stay unchanged.
     await loadExtensionFromDir(this, extName, app, ctx, basePath, migrate);
     // Every load — boot, enable, another replica's, a reload — reaches the

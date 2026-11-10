@@ -205,9 +205,9 @@
     },
     "runtime": {
       "type": "string",
-      "enum": ["js", "wasm"],
+      "enum": ["js"],
       "default": "js",
-      "description": "Extension runtime. `js` = ESM module loaded via dynamic import. `wasm` = experimental capability-bound WebAssembly host. WASM remains experimental in v2 and is not on the Phase 1 critical path."
+      "description": "Extension runtime. `js` = ESM module, run inline or in the extension runner. The only runtime: `wasm` is refused since the WASM host was removed."
     },
     "integrity": {
       "type": "object",

@@ -37,8 +37,10 @@ describe('ManifestSchema — version + enums', () => {
     expect(ManifestSchema.safeParse({ name: 'x', version: 'v1.0.0' }).success).toBe(false);
   });
 
-  it('constrains the runtime enum', () => {
-    expect(ManifestSchema.safeParse({ name: 'x', runtime: 'wasm' }).success).toBe(true);
+  it('accepts only the js runtime', () => {
+    expect(ManifestSchema.safeParse({ name: 'x', runtime: 'js' }).success).toBe(true);
+    // The WASM host is gone (DR-13); a manifest still asking for it is refused.
+    expect(ManifestSchema.safeParse({ name: 'x', runtime: 'wasm' }).success).toBe(false);
     expect(ManifestSchema.safeParse({ name: 'x', runtime: 'python' }).success).toBe(false);
   });
 });

@@ -482,7 +482,7 @@ const SECTIONS: Section[] = [
   {
     id: 'B03',
     track: 'B — engine subsystems',
-    title: 'Worker and WASM isolation',
+    title: 'Worker isolation',
     focus:
       'The SQL allowlist, the reserved connection, the role with no grants. Allowlist, never denylist.',
     match: [
@@ -493,8 +493,6 @@ const SECTIONS: Section[] = [
       `${E}lib/worker-extension-protocol.ts`,
       `${E}lib/worker-extension-ctx.ts`,
       `${E}lib/extensions/worker-sql-policy.ts`,
-      `${E}lib/extensions/extension-sandbox.ts`,
-      `${E}lib/wasm-extension-host.ts`,
       `${E}lib/extensions/deno.ts`,
       `${E}lib/extensions/job-runner.ts`,
       `${E}lib/extensions/tcp-relay.ts`,

@@ -48,7 +48,7 @@ internet-facing unauthenticated data surface is modelling the wrong system.
 | Row and column access | `lib/tenancy/entity-access.ts`, `column-permissions.ts`, `row-rule-policy.ts` |
 | Session / auth | Better-Auth, wired in `lib/auth.ts` |
 | Per-request middleware | `middleware/` — tenant guard, membership, rate limit, URL validation |
-| Extension loading and sandbox | `lib/extensions/` — `load.ts`, `register.ts`, `extension-sandbox.ts`, `capabilities.ts` |
+| Extension loading and sandbox | `lib/extensions/` — `load.ts`, `register.ts`, `capabilities.ts` |
 | SSRF validation | `lib/security/url-validator.ts` (`assertPublicUrl`), used by `edge-functions/safe-fetch.ts` |
 | Worker SQL policy | `lib/extensions/worker-sql-policy.ts` |
 

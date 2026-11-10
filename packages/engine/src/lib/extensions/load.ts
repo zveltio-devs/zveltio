@@ -5,7 +5,7 @@
  * of the loader class: resolve the extension directory, short-circuit
  * Studio/client-only extensions, run the three pure validation phases
  * (`resolveManifest` / `enforcePublisherTier` / `resolveEntryPath`), take the
- * WASM-or-import branch, run migrations + field types, build the allowed-tables
+ * worker-or-import branch, run migrations + field types, build the allowed-tables
  * set, then hand off to `finalizeExtensionLoad` (register.ts) for the
  * route-register core.
  *
@@ -254,15 +254,8 @@ export async function loadExtensionFromDir(
       }
       return;
     }
-    const {
-      manifest,
-      migrationsLimit,
-      extCategory,
-      extRuntime,
-      manifestMeta,
-      absentOptional,
-      absentWarning,
-    } = manifestPhase.value;
+    const { manifest, migrationsLimit, extCategory, manifestMeta, absentOptional, absentWarning } =
+      manifestPhase.value;
     if (absentWarning !== null) console.warn(absentWarning);
     // The manifest this code runs with is the claim on record (resource-grants.ts).
     await recordManifest(ctx.db, extName, extDir).catch((err: Error) => {
@@ -275,33 +268,13 @@ export async function loadExtensionFromDir(
       loader.manifestMeta.set(extName, manifestMeta);
     }
 
-    // WASM runtime path — if the manifest opts in, load the `.wasm`
-    // extension through `WasmExtensionHost`. Returns a synthetic
-    // `ZveltioExtension` whose register() invokes the WASM module's
-    // exported register inside the capability-bound sandbox. The rest
-    // of the loader treats it the same as a JS extension.
-    //
-    // Note today's WASM ABI is small (log, db_*, fetch_*, crypto*,
-    // env_read, fs_*). Route registration from inside WASM isn't yet
-    // wired through the imports table — that arrives with the
-    // companion tooling wave. So WASM extensions today are
-    // compute-only or background-only. JS first-party extensions
-    // continue to handle the HTTP surface.
     // marketplace-policy.md §2 publisher-tier gate, BEFORE the runtime is
     // chosen below.
     //
-    // It used to sit inside the inline branch, which meant it governed exactly
-    // one of the three runtimes. A manifest with `runtime: "wasm"` took the
-    // branch below and returned before ever reaching it, so a community-tier
-    // WASM extension loaded and registered without the gate having an opinion —
-    // the one decision whose entire job is to say whether untrusted code may
-    // run in this process. (The comment in the worker branch still claimed the
-    // gate "sends community extensions down this branch"; it is below that
-    // branch and sends nothing anywhere. It refuses.)
-    //
-    // Hoisting changes nothing for the other two: the helper already returns ok
-    // for `isolation: 'worker'`, so the inline and worker paths see the same answer they saw before, just
-    // sooner.
+    // It used to sit inside the inline branch, so a runtime that took its own
+    // branch returned before reaching it. A non-worker extension is refused
+    // here unless its tier is first-party; a worker-isolated, bundled one is
+    // loaded by the runner below and never imported in this process.
     const tierPhase = await enforcePublisherTier(extName, manifest);
     if (!tierPhase.ok) {
       if (tierPhase.logLevel !== 'none') {
@@ -322,32 +295,7 @@ export async function loadExtensionFromDir(
     }
 
     let extension: ZveltioExtension;
-    if (extRuntime === 'wasm') {
-      const wasmPath = join(extDir, 'engine', 'extension.wasm');
-      if (!existsSync(wasmPath)) {
-        loader.lastLoadError.set(
-          extName,
-          `manifest.runtime = "wasm" but engine/extension.wasm is missing`,
-        );
-        return;
-      }
-      const { loadWasmExtension } = await import('../wasm-extension-host.js');
-      const wasm = await loadWasmExtension(wasmPath, { extName });
-      // Synthetic ZveltioExtension that proxies into the WASM handle.
-      extension = {
-        name: extName,
-        category: extCategory,
-        mountStrategy: 'global',
-        async register(_app, _ctx) {
-          // WASM register() runs inside the sandbox. It can't bind
-          // Hono routes today; that requires a routing-bridge ABI.
-          // Compute / background work happens here.
-          await wasm.register();
-        },
-      };
-      // Keep a reference so reloads + unloads can call shutdown().
-      (extension as ZveltioExtension & { __wasmHandle?: unknown }).__wasmHandle = wasm;
-    } else if (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true) {
+    if (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true) {
       // Worker-isolated path — deliberately does NOT import the entry module.
       //
       // `enforcePublisherTier` above REFUSES a community (untrusted,

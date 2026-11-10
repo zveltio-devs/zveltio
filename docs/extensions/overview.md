@@ -81,7 +81,6 @@ of date — capabilities that used to live in core and moved out keep their old
 |---|---|---|
 | `inline` | First-party, reviewed extensions | In-process. Trusted code. |
 | `worker` | Community extensions | A process of its own — in production on the extension runner, under a uid of its own that cannot read the engine's files or environment, refused when no runner answers — with a restricted SQL allowlist limited to user tables and the extension's own namespace, a reserved connection with a statement timeout, and a database role with no access to the authentication tables. |
-| WASM | Available, opt-in | Strict isolation. |
 
 The runner is an operating-system boundary, not an adversarially-tested
 sandbox — install community extensions with the same judgement you would apply

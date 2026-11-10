@@ -62,8 +62,8 @@ Other top-level directories:
   Core routes are registered via `registerCoreRoutes` in `routes/index.ts`.
 - `lib/` — domain modules: `data/` (collections, DDL), `tenancy/` (RLS,
   tenant manager, request-scoped DB), `extensions/` (loader, runtime),
-  `flows/` (automation), `runtime/`, `storage/`, `security/`, plus worker/WASM
-  extension hosts (`worker-extension-*.ts`, `wasm-extension-host.ts`).
+  `flows/` (automation), `runtime/`, `storage/`, `security/`, plus the worker
+  extension host (`worker-extension-*.ts`).
 - `db/` — Kysely setup, migrations (`db/migrations/`), `migrate.ts`
   (`bun run db:init`), auto-migrate, generated schema.
 - `middleware/` — auth gates, tenant resolution, rate limiting.
@@ -248,7 +248,7 @@ root):
   transaction/tenant-safety invariants.
 - `check:shared-keys`, `ext:i18n-ownership` — i18n message-key consistency
   between engine, Studio, and extensions.
-- `catch:fabricated`, `ext:ambient`, `ext:seam` — extension-sandbox and
+- `catch:fabricated`, `ext:ambient`, `ext:seam` — extension-boundary and
   error-handling honesty checks.
 - `release:gate:dry` — dry-run of the full release gate.
 - `audit:gates` — the meta-gate, and the one to know about: it plants a
@@ -304,8 +304,7 @@ generated).
   no in-thread worker. Production refuses `process` and refuses the extension
   when no runner answers. Their SQL crosses to the engine: an allowlist of user
   tables + own `zv_<ext>_*` namespace, one transaction per request,
-  `zveltio_worker` DB role with no grants on Better-Auth tables. Optional WASM
-  runtime for strict isolation.
+  `zveltio_worker` DB role with no grants on Better-Auth tables.
 - Extension dev loop, manifest v2 schema, and publishing:
   `docs/extensions/developer-guide.md` (§12 covers the local loop).
   Scaffold with `zveltio extension create <name>`.

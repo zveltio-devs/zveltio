@@ -452,7 +452,6 @@ because it boots many engines against one Postgres — see the note at the top o
 |----------|---------|-------------|
 | `REGISTRY_URL` | `https://registry.zveltio.com` | Extension registry. Point it at `http://127.0.0.1:9` in tests so nothing dials the real one. |
 | `ZVELTIO_CATALOG_PATH` | bundled catalogue | Path to a `catalog.json` to use instead of the bundled one. |
-| `EXTENSION_POLICIES_JSON` | — | Inline JSON of per-extension sandbox policies, for deployments that cannot ship a file. |
 | `ZVELTIO_EXTENSION_DEV_RELOAD` | unset | Enables `POST /__zveltio_dev_reload`, used by `zveltio extension dev`. Never in production. |
 | `ZVELTIO_IMPORT_LOGS_CONTRACT` | unset | Arms the import-logs reconciler, which is opt-in by design. |
 | `ZVELTIO_TRACE_SQL_ERRORS` | unset | `1` logs the full SQL of every failing statement. Statements may contain data. |
