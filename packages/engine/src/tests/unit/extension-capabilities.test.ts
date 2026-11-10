@@ -20,6 +20,7 @@ import {
   isKnownCapability,
   isLegacyLabel,
 } from '../../lib/extensions/capabilities.js';
+import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 
 function fakeInternals() {
   return {
@@ -170,11 +171,17 @@ describe('INTERNALS_CAPABILITY coverage', () => {
       'enqueueDDLJob',
       'runEdgeFunction',
       'sendNotification',
-      'moveToTrash',
       'generatePDFAsync',
       'introspectSchema',
     ]) {
       expect(INTERNALS_CAPABILITY[member]).toBeTruthy();
     }
+  });
+
+  it('retired moveToTrash: no member trashes a file past the caller rule (ADR 0034 Q2)', () => {
+    // It trashed any file of the running tenant, whoever called; deletion is
+    // `/api/storage` (or a route's `host.files`) under `mayDeleteFile`.
+    expect('moveToTrash' in buildExtensionInternals()).toBe(false);
+    expect(INTERNALS_CAPABILITY.moveToTrash).toBeUndefined();
   });
 });

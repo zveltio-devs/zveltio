@@ -63,6 +63,17 @@ describe('ZveltioClient URL building', () => {
     expect(urls).toEqual(['https://engine.test/api/storage?folder_id=invoices%26limit%3D9999']);
   });
 
+  it('reaches a file visibility and the own quota under /api/storage', async () => {
+    const urls = captureUrls();
+    const client = createZveltioClient({ baseUrl: 'https://engine.test' });
+    await client.storage.setVisibility('a/b', 'tenant');
+    await client.storage.quota();
+    expect(urls).toEqual([
+      'https://engine.test/api/storage/a%2Fb',
+      'https://engine.test/api/storage/quota',
+    ]);
+  });
+
   it('sends the upload folder under the field name the engine reads', async () => {
     let body: FormData | undefined;
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {

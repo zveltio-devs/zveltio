@@ -8,11 +8,14 @@
 
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { requireInstanceAdmin } from '../../lib/tenancy/index.js';
+import { isGodUser, requireInstanceAdmin } from '../../lib/tenancy/index.js';
+import { requireStepUp } from '../../lib/step-up.js';
+import { toNumber } from '../../lib/numeric.js';
 import { decryptField, encryptField, isEncryptedValue } from '../../lib/data/index.js';
 import { auditLog } from '../../lib/audit.js';
-import { validateStorageEndpoint } from '../../lib/security/index.js';
+import { clientIpForAudit, validateStorageEndpoint } from '../../lib/security/index.js';
 import { probeLocal, probeS3, setStorageOverlay, storageConfig } from '../../lib/storage/index.js';
+import { DEFAULT_QUOTA_BYTES } from '../../lib/storage-quota.js';
 
 const SETTINGS_KEY = 'storage_config';
 
@@ -52,6 +55,69 @@ function normalizeOverlay(body: unknown) {
 }
 
 export function registerStorageAdminRoutes(app: Hono, db: Database): void {
+  /**
+   * PUT /api/admin/storage-quotas/:userId — `{ quota_bytes }`: a user's storage
+   * quota (lib/storage-quota.ts), a whole number of bytes, or null for the
+   * default. `zv_storage_quotas` is keyed by user with no tenant, so a quota
+   * binds the user in every firm: god only, confirmed by a step-up for this
+   * user (as the extension installs are), and audited with the value it replaced.
+   */
+  app.put('/storage-quotas/:userId', async (c) => {
+    const actor = c.get('user') as { id: string };
+    if (!(await isGodUser(actor.id))) return c.json({ error: 'Forbidden' }, 403);
+    const body = (await c.req.json().catch(() => null)) as { quota_bytes?: unknown } | null;
+    const quotaBytes = body?.quota_bytes;
+    if (
+      quotaBytes !== null &&
+      (typeof quotaBytes !== 'number' || !Number.isSafeInteger(quotaBytes) || quotaBytes < 0)
+    ) {
+      return c.json(
+        { error: 'quota_bytes must be a whole number of bytes, 0 or more, or null' },
+        400,
+      );
+    }
+    const userId = c.req.param('userId');
+    const confirmedBy = await requireStepUp(c, `storage.quota:${userId}`);
+    if (confirmedBy instanceof Response) return confirmedBy;
+    const target = await db
+      .selectFrom('user')
+      .select('id')
+      .where('id', '=', userId)
+      .executeTakeFirst();
+    if (!target) return c.json({ error: 'User not found' }, 404);
+
+    const prev = await db
+      .selectFrom('zv_storage_quotas')
+      .select('quota_bytes')
+      .where('user_id', '=', userId)
+      .executeTakeFirst();
+    if (quotaBytes === null) {
+      await db.deleteFrom('zv_storage_quotas').where('user_id', '=', userId).execute();
+    } else {
+      await db
+        .insertInto('zv_storage_quotas')
+        .values({ user_id: userId, quota_bytes: quotaBytes, used_bytes: 0 })
+        .onConflict((oc) =>
+          oc.column('user_id').doUpdateSet({ quota_bytes: quotaBytes, updated_at: new Date() }),
+        )
+        .execute();
+    }
+    await auditLog(db, {
+      type: 'storage.quota_changed',
+      tenantId: null,
+      userId: actor.id,
+      resourceType: 'storage_quota',
+      resourceId: userId,
+      metadata: {
+        quota_bytes: quotaBytes,
+        previous: prev ? toNumber(prev.quota_bytes, 0, 'quota_bytes') : null,
+        confirmed_by: confirmedBy,
+      },
+      ip: clientIpForAudit(c) ?? undefined,
+    });
+    return c.json({ user_id: userId, quota_bytes: quotaBytes ?? DEFAULT_QUOTA_BYTES });
+  });
+
   // GET /api/admin/storage/config — current effective config, secrets masked.
   app.get('/storage/config', async (c) => {
     const cfg = storageConfig();

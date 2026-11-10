@@ -317,8 +317,9 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
 
   /**
    * Storage helpers. A client made with `apiKey` needs a key holding the `$storage`
-   * scope — `{ collection: '$storage', actions: ['read', 'create', 'delete'] }`; a
-   * `*` collection does not include it, and the engine answers 403 without it.
+   * scope — `{ collection: '$storage', actions: ['read', 'create', 'update', 'delete'] }`
+   * (`update` for `setVisibility`); a `*` collection does not include it, and the
+   * engine answers 403 without it.
    */
   readonly storage = {
     upload: (file: File, folder?: string) => {
@@ -332,6 +333,13 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
     list: (folder?: string) =>
       this.get(`/api/storage${folder ? `?folder_id=${encodeURIComponent(folder)}` : ''}`),
     delete: (key: string) => this.delete(`/api/storage/${encodeURIComponent(key)}`),
+    /** Who sees a file: its uploader alone (`personal`) or its tenant. Whoever may delete it. */
+    setVisibility: (id: string, visibility: 'personal' | 'tenant') =>
+      this.patch<{ file: Record<string, unknown> }>(`/api/storage/${encodeURIComponent(id)}`, {
+        visibility,
+      }),
+    /** The caller's own stored bytes and allowance (a key's are its issuer's). */
+    quota: () => this.get<{ used_bytes: number; quota_bytes: number }>('/api/storage/quota'),
   } as const;
 }
 

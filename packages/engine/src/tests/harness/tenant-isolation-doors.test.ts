@@ -122,6 +122,8 @@ const DOORS: Record<string, Coverage> = {
   'GET /api/storage': at('storage-tenant-isolation.test.ts'),
   'GET /api/storage/:id': at('storage-tenant-isolation.test.ts'),
   'DELETE /api/storage/:id': at('storage-tenant-isolation.test.ts'),
+  'PATCH /api/storage/:id': at('storage-visibility-quota.test.ts'),
+  'GET /api/storage/quota': at('storage-visibility-quota.test.ts'),
   'GET /api/storage/:id/signed-url': here,
   'GET /api/storage/:id/transform': here,
   'GET /api/storage/folders': here,

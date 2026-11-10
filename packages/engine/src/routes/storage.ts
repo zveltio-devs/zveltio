@@ -2,7 +2,12 @@ import { type Context, Hono } from 'hono';
 import { guardSessionOrKey } from '../lib/admin-guard.js';
 import { type RequestUser, rowAuthorId, STORAGE_SCOPE } from '../lib/data/index.js';
 import type { Database } from '../db/index.js';
-import { applyFileVisibility } from '../lib/media-visibility.js';
+import {
+  applyFileVisibility,
+  FILE_VISIBILITIES,
+  type FileVisibility,
+} from '../lib/media-visibility.js';
+import { checkStorageQuota } from '../lib/storage-quota.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { getStorage } from '../lib/storage/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
@@ -14,6 +19,7 @@ import {
   readableFile,
   removeFile,
   servedAs,
+  setFileVisibility,
   storeFile,
 } from '../lib/stored-files.js';
 import { paging } from '../lib/utils.js';
@@ -33,10 +39,20 @@ export function storageRoutes(db: Database, auth: any): Hono {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const badId = (c: any) => !UUID_RE.test(c.req.param('id'));
-  // A session, or an API key holding `$storage` for what the method does.
+  // A session, or an API key holding `$storage` for what the method does: the
+  // verb every engine route derives from it. A PATCH (who sees a file) is
+  // `update`, not `delete`: sharing a file is not destroying it, and a key
+  // trusted to clean up should not be one that can publish to the firm.
   app.use('*', async (c, next) => {
     const m = c.req.method;
-    const action = m === 'GET' || m === 'HEAD' ? 'read' : m === 'DELETE' ? 'delete' : 'create';
+    const action =
+      m === 'GET' || m === 'HEAD'
+        ? 'read'
+        : m === 'DELETE'
+          ? 'delete'
+          : m === 'PATCH'
+            ? 'update'
+            : 'create';
     const user = await guardSessionOrKey(c, auth, db, STORAGE_SCOPE, action);
     if (user instanceof Response) return user;
     c.set('user', user);
@@ -144,6 +160,14 @@ export function storageRoutes(db: Database, auth: any): Hono {
     }
   });
 
+  // GET /quota — the caller's own usage and allowance (lib/storage-quota.ts), as
+  // an upload counts them: a key's are its issuer's. Before GET /:id.
+  app.get('/quota', async (c) => {
+    const actor = await actorOf(c);
+    const q = await checkStorageQuota(reqDb(c, db), actor.tenantId, actor.author, 0);
+    return c.json({ used_bytes: q.usedBytes, quota_bytes: q.quotaBytes });
+  });
+
   // GET /:id — Get file metadata
   app.get('/:id', async (c) => {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
@@ -241,6 +265,25 @@ export function storageRoutes(db: Database, auth: any): Hono {
         'Content-Length': String(outBytes.byteLength),
       },
     });
+  });
+
+  // PATCH /:id — change who sees a file, `{ visibility: 'personal' | 'tenant' }`:
+  // whoever may delete it (`setFileVisibility`), with DELETE's 404 and 403.
+  app.patch('/:id', async (c) => {
+    if (badId(c)) return c.json({ error: 'File not found' }, 404);
+    const body = (await c.req.json().catch(() => null)) as { visibility?: unknown } | null;
+    const visibility = body?.visibility as FileVisibility;
+    if (!FILE_VISIBILITIES.includes(visibility)) {
+      return c.json({ error: `visibility must be one of: ${FILE_VISIBILITIES.join(', ')}` }, 400);
+    }
+    const changed = await setFileVisibility(
+      reqDb(c, db),
+      await actorOf(c),
+      c.req.param('id'),
+      visibility,
+    );
+    if (!('file' in changed)) return c.json(changed.body, changed.status);
+    return c.json({ file: changed.file });
   });
 
   // DELETE /:id — Delete file (owner or admin only)

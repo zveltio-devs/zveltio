@@ -78,7 +78,6 @@ export const CAPABILITY_MEMBERS = {
   asSystem: 'data:system',
   enqueue: 'data:system',
   sendNotification: 'notifications',
-  moveToTrash: 'files',
   generatePDFAsync: 'documents',
   runEdgeFunction: 'edge-functions',
 } as const satisfies Record<string, (typeof EXTENSION_CAPABILITIES)[number]>;

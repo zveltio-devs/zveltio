@@ -24,6 +24,8 @@ export type AuditEventType =
   | 'user.created'
   | 'user.profile_updated'
   | 'settings.changed'
+  /** God set or removed a user's storage quota (routes/admin/storage-routes.ts). */
+  | 'storage.quota_changed'
   | 'god_mode.used'
   | 'extension.loaded'
   | 'extension.load_failed'
