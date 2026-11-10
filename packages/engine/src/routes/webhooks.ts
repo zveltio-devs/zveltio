@@ -28,18 +28,35 @@ import { WEBHOOK_DLQ_KEY } from '../lib/webhook-worker.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { paging } from '../lib/utils.js';
 
-const WebhookSchema = z.object({
+// The fields, with no defaults. A PATCH validates against these, partial:
+// zod 4 applies a `.default()` inside `.partial()`, so a PATCH naming only the
+// URL wrote `collections: []` (every collection), `active: true`, the default
+// method, headers, retries and timeout over the stored ones.
+const WebhookFields = z.object({
   name: z.string().min(1),
   url: z.string().url(),
-  method: z.enum(['POST', 'PUT', 'PATCH']).default('POST'),
-  headers: z.record(z.string(), z.string()).default({}),
+  method: z.enum(['POST', 'PUT', 'PATCH']),
+  headers: z.record(z.string(), z.string()),
   events: z.array(z.string()).min(1),
-  collections: z.array(z.string()).default([]),
-  active: z.boolean().default(true),
+  collections: z.array(z.string()),
+  active: z.boolean(),
   secret: z.string().optional(),
-  retry_attempts: z.number().int().min(0).max(10).default(3),
-  timeout: z.number().int().min(1000).max(30000).default(5000),
+  retry_attempts: z.number().int().min(0).max(10),
+  timeout: z.number().int().min(1000).max(30000),
 });
+
+/** A new webhook: the fields, with the defaults a create fills in. */
+const WebhookSchema = WebhookFields.extend({
+  method: WebhookFields.shape.method.default('POST'),
+  headers: WebhookFields.shape.headers.default({}),
+  collections: WebhookFields.shape.collections.default([]),
+  active: WebhookFields.shape.active.default(true),
+  retry_attempts: WebhookFields.shape.retry_attempts.default(3),
+  timeout: WebhookFields.shape.timeout.default(5000),
+});
+
+/** An edit: only the fields it names, never a default. */
+export const WebhookPatchSchema = WebhookFields.partial();
 
 function generateWebhookSecret(): string {
   const bytes = new Uint8Array(32);
@@ -249,7 +266,7 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   });
 
   // PATCH /:id — Update webhook
-  app.patch('/:id', zValidator('json', WebhookSchema.partial()), async (c) => {
+  app.patch('/:id', zValidator('json', WebhookPatchSchema), async (c) => {
     const data = c.req.valid('json');
     // SSRF protection on URL update
     if (data.url) {
