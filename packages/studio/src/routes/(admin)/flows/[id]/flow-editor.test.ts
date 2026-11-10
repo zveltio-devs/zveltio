@@ -43,6 +43,7 @@ vi.mock('#lib/api.js', () => ({
     })),
     patch,
   },
+  heldRoles: vi.fn(async () => ['member', 'tenant_member']),
 }));
 vi.mock('#lib/stores/toast.svelte.js', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 

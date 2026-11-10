@@ -2,13 +2,25 @@
  * webhooks.ts — Valkey queue path + encrypted secret decrypt failure.
  */
 
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import * as fieldCrypto from '../../lib/data/field-crypto.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
 import { initTenantManager } from '../../lib/tenancy/index.js';
-import { WebhookManager, _settleWebhookDeliveries } from '../../lib/webhooks.js';
+import {
+  _setReadAsRoleForTests,
+  WebhookManager,
+  _settleWebhookDeliveries,
+} from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
+
+// The record as the webhook's role reads it (ADR 0004), passed through: a
+// canned database has no Casbin to resolve the role with.
+let restoreReadAs = () => {};
+beforeAll(() => {
+  restoreReadAs = _setReadAsRoleForTests(async (_tenant, _role, _collection, record) => record);
+});
+afterAll(() => restoreReadAs());
 
 beforeEach(() => {
   _setCacheForTests(null);
@@ -33,6 +45,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-cache',
+        run_as_role: 'tenant_member',
         url: 'https://93.184.216.34/queued',
         method: 'POST',
         events: ['record.created'],
@@ -63,6 +76,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-enc',
+        run_as_role: 'tenant_member',
         url: 'https://93.184.216.34/enc',
         method: 'POST',
         events: ['*'],
@@ -110,6 +124,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-nonstring',
+        run_as_role: 'tenant_member',
         url: 'https://93.184.216.34/ns',
         method: 'POST',
         events: ['*'],
@@ -138,6 +153,7 @@ describe('WebhookManager.trigger — cache + secrets', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh-scoped',
+        run_as_role: 'tenant_member',
         url: 'https://93.184.216.34/scoped',
         method: 'POST',
         events: ['record.created'],

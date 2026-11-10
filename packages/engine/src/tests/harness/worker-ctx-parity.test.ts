@@ -157,7 +157,7 @@ d('a worker extension gets the inline ctx contract', () => {
     const { app: engine, db: tdb } = await getTestApp();
     await ruleObjects(tdb, RES);
     db = tdb;
-    const godCookie = await createGodSession(engine, db);
+    const godCookie = await createGodSession(engine, db, { runAsRole: false });
     godId = (
       await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god' LIMIT 1`.execute(db)
     ).rows[0]!.id;

@@ -15,8 +15,8 @@ const CALL = /getRlsFilters\(|\.applyAll\(|\.isAllowed\(|getColumnAccess\(|\.res
 
 /** Direct calls allowed per file, and why. */
 const ALLOWED: Record<string, number> = {
-  // The gate itself.
-  'lib/data/read-scope.ts': 5,
+  // The gate itself, and its role-principal twin for outbound payloads (ADR 0004).
+  'lib/data/read-scope.ts': 6,
   // Writes: PUT/PATCH/DELETE before-row checks (`update`/`delete`, managed and
   // virtual) and the writable-column checks. The GET handler goes through the gate.
   'lib/data/handlers/single.ts': 16,

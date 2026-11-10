@@ -19,6 +19,7 @@ import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
+import { DEFAULT_RUN_AS_ROLE, rolePrincipal, runWithDomain } from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const { executeStep } = _internalForTests;
@@ -45,7 +46,9 @@ const HARNESS_TENANT = '00000000-0000-0000-0000-0000000000ff';
  * the executor's own SET LOCAL ROLE left this suite green.
  */
 async function runAsQueryDbStep(db: Database, query: string, tenantId = HARNESS_TENANT) {
-  const r = await executeStep(db, { type: 'query_db', config: { query } }, {}, {}, tenantId);
+  const r = await executeStep(db, { type: 'query_db', config: { query } }, {}, {}, tenantId, () =>
+    runWithDomain(tenantId, () => rolePrincipal(DEFAULT_RUN_AS_ROLE)),
+  );
   return { rows: r.output };
 }
 

@@ -353,6 +353,26 @@ export async function rowActor(
   return { id: author, email: author && withEmail ? await issuerEmail(author) : '' };
 }
 
+/**
+ * The row rules binding a role principal (ADR 0004, `rolePrincipal`): matched on
+ * its roles, `user_role` its column role, `user_id` and `user_email` nobody's.
+ * `bypass` is its `data:view_all`, which stands every rule down as for a session.
+ */
+export async function principalRlsFilters(
+  collection: string,
+  principal: { role: string; roles: string[]; bypass: boolean },
+): Promise<RuleFilter[]> {
+  if (principal.bypass) return [];
+  const policies = await loadPolicies(collection);
+  if (policies.length === 0) return [];
+  return rulesFor(policies, {
+    id: '',
+    email: '',
+    role: principal.role,
+    roles: new Set(principal.roles),
+  });
+}
+
 /** Who a row rule's value sources resolve against, and the roles it is matched on. */
 export interface RowActor {
   id: string;

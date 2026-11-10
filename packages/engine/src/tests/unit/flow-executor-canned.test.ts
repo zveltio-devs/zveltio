@@ -10,6 +10,12 @@ import type { Database } from '../../db/index.js';
 import { executeFlow, _internalForTests } from '../../lib/flows/flow-executor.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
+/** A flow's role as `rolePrincipal` would give it, granting every read (ADR 0004). */
+const runAs = async () => ({
+  allows: () => true,
+  identity: { userId: '', email: '', role: 'member', roles: ['member'], bypass: false },
+});
+
 const { executeStep } = _internalForTests;
 
 const RUN_INSERT = /INSERT INTO zv_flow_runs/i;
@@ -21,7 +27,7 @@ function dbForFlow(steps: unknown[], runId = 'run-1'): CannedDb {
   const db = new CannedDb();
   db.when(RUN_INSERT, [{ id: runId }]);
   db.when(STEPS_SELECT, steps);
-  db.when(TENANT_LOOKUP, [{ tenant_id: 'tenant-1' }]);
+  db.when(TENANT_LOOKUP, [{ tenant_id: 'tenant-1', run_as_role: 'member' }]);
   db.whenAffected(RUN_UPDATE, 1);
   return db;
 }
@@ -430,6 +436,8 @@ describe('executeStep — CannedDb branches', () => {
       },
       {},
       {},
+      undefined,
+      runAs,
     );
     expect(output).toEqual([{ n: 1 }]);
   });
@@ -440,6 +448,8 @@ describe('executeStep — CannedDb branches', () => {
       expect(q.parameters[0]).toBe('tenant-99');
       return [];
     });
+    // The flow's role, published around the query (ADR 0004).
+    db.when(/json_object_agg|json_each_text/i, []);
     db.when(/statement_timeout/i, []);
     db.when(/SELECT id, name FROM zvd_contacts/i, [
       { id: 'c1', name: 'Ada' },
@@ -456,6 +466,7 @@ describe('executeStep — CannedDb branches', () => {
       // Tenant is now threaded explicitly by executeFlow (the flow's OWN tenant),
       // not derived from caller-supplied flowContext.trigger.tenantId.
       'tenant-99',
+      runAs,
     );
     expect(output).toEqual([
       { id: 'c1', name: 'Ada' },

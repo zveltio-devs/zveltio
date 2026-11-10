@@ -18,8 +18,12 @@ import { sql } from 'kysely';
 import { toJsonb } from '../jsonb.js';
 import type { Database } from '../../db/index.js';
 import {
+  asIdentityOn,
   DEFAULT_TENANT_ID,
   grantHoldsIn,
+  rolePrincipal,
+  type RolePrincipal,
+  runWithDomain,
   withEveryTenant,
   withTenantIsolation,
 } from '../tenancy/index.js';
@@ -130,6 +134,11 @@ async function executeStep(
   // NOT derived from caller-supplied trigger data, which a caller could set to another
   // tenant's id to read/export across tenants.
   flowTenantId: string = DEFAULT_TENANT_ID,
+  // The role the flow runs as (ADR 0004): every collection read below goes
+  // through its grants, row rules and column rules. Required: a step with no
+  // principal is the bypass this replaced. Resolved on first use, so a flow
+  // that reads nothing asks nothing of Casbin.
+  principal?: () => Promise<RolePrincipal>,
 ): Promise<{
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   output: any;
@@ -191,6 +200,7 @@ async function executeStep(
         }
       }
 
+      const runAs = await requirePrincipal(principal);
       // Execute with statement_timeout to prevent long-running queries.
       // SET LOCAL only takes effect inside a transaction, AND `.execute(db)`
       // can hand out a different pool connection per call — so the timeout
@@ -240,7 +250,9 @@ async function executeStep(
         }
         await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(trx);
         await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
-        return sql.raw(cfg.query as string).execute(trx);
+        // As the flow's role: the collection-permission and row-rule policies
+        // bind this role too (ADR 0004).
+        return asIdentityOn(trx, runAs.identity, () => sql.raw(cfg.query as string).execute(trx));
       });
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       return { output: (result as any).rows };
@@ -425,13 +437,24 @@ async function executeStep(
       // rows come through `selectReadable` (the masking view, named columns,
       // never a stale `SELECT *` plan); and what leaves is what any outbound
       // payload carries (`afterWrite`): no unserved column, no ciphertext.
+      //
+      // And as the flow's role (ADR 0004): with no actor the masking view and
+      // the row rules stood down, so the CSV carried what a column or row rule
+      // hides from the very admin who wrote the flow. Casbin is asked here for
+      // the message; the collection-permission policy refuses it anyway.
       const def = await DDLManager.getCollection(db, rawCollection);
       if (!def) throw new Error(`export_collection: "${cfg.collection}" is not a collection`);
+      const runAs = await requirePrincipal(principal);
+      if (!runAs.allows(rawCollection, 'read')) {
+        throw new Error(`export_collection: the flow's role may not read "${rawCollection}"`);
+      }
       const tableName = DDLManager.getTableName(rawCollection);
       const { unserved, sealed } = withheldColumns(def);
       const withheld = new Set([...unserved, ...sealed]);
-      const rows = await withTenantIsolation(flowTenantId, async (trx) =>
-        (await selectReadable(trx, tableName)).limit(limit).execute(),
+      const rows = await withTenantIsolation(
+        flowTenantId,
+        async (trx) => (await selectReadable(trx, tableName)).limit(limit).execute(),
+        { identity: runAs.identity },
       );
 
       const columns: string[] | undefined = cfg.columns?.length
@@ -499,6 +522,13 @@ async function executeStep(
           `${EXECUTABLE_STEP_TYPES.join(', ')}.`,
       );
   }
+}
+
+function requirePrincipal(
+  principal: (() => Promise<RolePrincipal>) | undefined,
+): Promise<RolePrincipal> {
+  if (!principal) throw new Error('Flow step has no role to run as (ADR 0004)');
+  return principal();
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -575,22 +605,32 @@ export async function executeFlow(
   // found no row, so a flow this connection cannot see — its firm gone from
   // `zv_tenants`, a lookup that errored — ran its steps with the default firm's
   // data. Not knowing whose flow it is means not running it.
+  //
+  // And the role it runs as (ADR 0004), resolved in that firm. None — the role
+  // was deleted (`deleteRole` clears it) — or one that cannot be resolved
+  // refuses the run: a flow with no principal is the bypass ADR 0004 closed.
   let flowTenantId: string | undefined;
+  let role: string | null | undefined;
   let lookupError = 'the flow row is not visible';
   try {
     const tRow = await withEveryTenant(db, (trx) =>
-      sql<{ tenant_id: string }>`
-      SELECT tenant_id::text AS tenant_id FROM zv_flows WHERE id = ${flowId}
+      sql<{ tenant_id: string; run_as_role: string | null }>`
+      SELECT run_as_role, tenant_id::text AS tenant_id FROM zv_flows WHERE id = ${flowId}
     `.execute(trx),
     );
     flowTenantId = tRow.rows[0]?.tenant_id || undefined;
+    role = tRow.rows[0]?.run_as_role;
+    if (flowTenantId && !role) {
+      lookupError = 'it has no run_as_role: its role was deleted; save it with a role';
+    }
   } catch (err) {
     lookupError = String(err);
   }
-  if (!flowTenantId) {
-    const error =
-      `Flow ${flowId}: cannot resolve the tenant it runs as (${lookupError}) — ` +
-      'refusing to run it as the default tenant.';
+  if (!flowTenantId || !role) {
+    const error = flowTenantId
+      ? `Flow ${flowId}: cannot resolve the role it runs as (${lookupError}) — refusing to run it.`
+      : `Flow ${flowId}: cannot resolve the tenant it runs as (${lookupError}) — ` +
+        'refusing to run it as the default tenant.';
     await sql`
       UPDATE zv_flow_runs
       SET status = 'failed', error = ${error}, finished_at = NOW()
@@ -606,6 +646,11 @@ export async function executeFlow(
     return { runId, status: 'failed', output: {}, error };
   }
 
+  const runAsRole = role;
+  const tenant = flowTenantId;
+  let resolved: Promise<RolePrincipal> | undefined;
+  const principal = () => (resolved ??= runWithDomain(tenant, () => rolePrincipal(runAsRole)));
+
   try {
     const skipped = new Set<string>();
     for (const [index, step] of steps.entries()) {
@@ -618,7 +663,7 @@ export async function executeFlow(
             'flow.step.id': step.id || step.name || 'unknown',
             'flow.step.type': step.type,
           },
-          () => executeStep(db, step, output, flowContext, flowTenantId),
+          () => executeStep(db, step, output, flowContext, flowTenantId, principal),
         );
         output = result.output;
         if (result.logs?.length) stepLogs[step.id] = result.logs;

@@ -120,7 +120,8 @@ export interface RlsIdentity {
   /**
    * An anonymous request: no user, but an actor all the same — the tenant's
    * `public` role — so the policies hold it to that role's grants rather than
-   * standing down as they do for the engine's own work.
+   * standing down as they do for the engine's own work. A flow's role is the
+   * same kind of actor (ADR 0004, `rolePrincipal`).
    */
   anonymous?: boolean;
 }

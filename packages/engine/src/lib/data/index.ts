@@ -52,7 +52,13 @@ export { serializeRecord } from './shape.js';
 //   - `readScope` so every read path outside the data handlers (sync pull,
 //     `?expand=`, the realtime doors) asks the one read gate instead of picking
 //     a subset of row policies, alters, entity access and column permissions.
-export { inOrder, readScope, recordReadable, type ReadScope } from './read-scope.js';
+export {
+  inOrder,
+  principalRecord,
+  readScope,
+  recordReadable,
+  type ReadScope,
+} from './read-scope.js';
 //   - `readableRevisions` so both revision lists (`/api/revisions`,
 //     `/api/admin/revisions`) ask the record's read gate the same way.
 export { readableRevisions, revertPatch, shapeRevisionData } from './revisions-read.js';

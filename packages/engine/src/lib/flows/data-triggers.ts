@@ -1,8 +1,12 @@
 import { getDb, type Database } from '../../db/index.js';
+import { principalRecord } from '../data/index.js';
 import {
   DEFAULT_TENANT_ID,
   getCurrentTenantTrx,
   onAfterCommit,
+  rolePrincipal,
+  type RolePrincipal,
+  runWithDomain,
   withTenantIsolation,
 } from '../tenancy/index.js';
 import { executeFlow } from './flow-executor.js';
@@ -76,14 +80,44 @@ async function fireDataFlows(
         .execute(),
     );
 
+    const principals = new Map<string, Promise<RolePrincipal>>();
     for (const flow of flows) {
       const cfg = (
         typeof flow.trigger_config === 'string'
           ? JSON.parse(flow.trigger_config)
           : (flow.trigger_config ?? {})
       ) as { collection?: string };
-      if (cfg.collection === collection) {
-        executeFlow(db, flow.id, { collection, event, record }).catch(console.error);
+      if (cfg.collection !== collection) continue;
+      // The record as the flow's role reads it (ADR 0004): `trigger_data` is
+      // kept on the run and a step can send it on, so it carried every column
+      // the writer could write. A record the role may not read fires nothing,
+      // as a realtime subscriber is not told of a row it cannot see. With no
+      // role (deleted) the run is refused by `executeFlow`, and says so.
+      const role = flow.run_as_role;
+      if (!role) {
+        executeFlow(db, flow.id, { collection, event }).catch(console.error);
+        continue;
+      }
+      try {
+        let principal = principals.get(role);
+        if (!principal) {
+          principal = runWithDomain(tenant, () => rolePrincipal(role));
+          principals.set(role, principal);
+        }
+        const seen = await principalRecord(
+          db,
+          collection,
+          await principal,
+          record as Record<string, unknown>,
+        );
+        if (seen === null) continue;
+        executeFlow(db, flow.id, { collection, event, record: seen }).catch(console.error);
+      } catch (err) {
+        console.error(
+          `[flows] flow ${flow.id} on "${event}" of ${collection} did not run: its role "${role}" ` +
+            'could not read the record:',
+          err instanceof Error ? err.message : err,
+        );
       }
     }
   } catch (err) {

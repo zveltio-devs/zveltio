@@ -5,7 +5,7 @@ import { beforeNavigate } from '$app/navigation';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
-import { api } from '#lib/api.js';
+import { api, heldRoles } from '#lib/api.js';
 import { toast } from '#lib/stores/toast.svelte.js';
 import {
   ArrowLeft,
@@ -51,6 +51,8 @@ interface Flow {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   trigger_config: Record<string, any>;
   is_active: boolean;
+  /** ADR 0004: the role it runs as; null once that role was deleted. */
+  run_as_role: string | null;
   steps: Step[];
 }
 
@@ -59,6 +61,11 @@ let flow = $state<Flow | null>(null);
 let loading = $state(true);
 let saving = $state(false);
 let saveError = $state('');
+/** The roles this editor holds, plus the flow's own: what it may be saved to run as. */
+let roles = $state<string[]>([]);
+let roleOptions = $derived(
+  flow?.run_as_role && !roles.includes(flow.run_as_role) ? [flow.run_as_role, ...roles] : roles,
+);
 
 /**
  * Everything on this screen is edited in memory and only reaches the engine on
@@ -85,7 +92,12 @@ let showAddStep = $state(false);
 let dragIdx = $state<number | null>(null);
 let dragOverIdx = $state<number | null>(null);
 
-onMount(() => loadFlow());
+onMount(() => {
+  loadFlow();
+  heldRoles()
+    .then((r) => (roles = r))
+    .catch(() => (roles = []));
+});
 
 async function loadFlow() {
   loading = true;
@@ -111,6 +123,7 @@ async function saveFlow() {
       name: flow.name,
       description: flow.description,
       steps: flow.steps,
+      ...(flow.run_as_role ? { run_as_role: flow.run_as_role } : {}),
     });
     if (edits === sent) dirty = false;
     toast.success(m['common.saved']());
@@ -264,6 +277,14 @@ function updateStepName(name: string) {
           {#if flow.trigger_config?.expression}
             <p class="text-xs font-mono text-base-content/65 mt-1">{flow.trigger_config.expression}</p>
           {/if}
+        </div>
+        <div class="form-control">
+          <label class="label py-0" for="sidebar-flow-role"><span class="label-text text-xs">{m['flows.runAsRole']()}</span></label>
+          <select id="sidebar-flow-role" class="select select-xs" bind:value={flow.run_as_role} onchange={touch}>
+            {#if !flow.run_as_role}<option value={null} disabled>—</option>{/if}
+            {#each roleOptions as role (role)}<option value={role}>{role}</option>{/each}
+          </select>
+          <p class="text-xs text-base-content/65 mt-1">{m['flows.runAsRoleHint']()}</p>
         </div>
         <div>
           <p class="text-xs font-semibold text-base-content/65 uppercase tracking-wide mb-1">{m['flowEdit.steps']()}</p>

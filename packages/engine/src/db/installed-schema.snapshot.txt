@@ -425,6 +425,7 @@ table zv_flows
   col last_run_at                    timestamp with time zone
   col name                           text NOT NULL
   col next_run_at                    timestamp with time zone
+  col run_as_role                    text DEFAULT 'tenant_member'::text
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col trigger_config                 jsonb NOT NULL DEFAULT '{}'::jsonb
   col trigger_type                   text NOT NULL DEFAULT 'manual'::text
@@ -9004,6 +9005,7 @@ table zvd_webhooks
   col method                         text DEFAULT 'POST'::text
   col name                           text NOT NULL
   col retry_attempts                 integer DEFAULT 3
+  col run_as_role                    text DEFAULT 'tenant_member'::text
   col secret                         text
   col tenant_id                      uuid DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col timeout                        integer DEFAULT 5000

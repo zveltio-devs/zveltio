@@ -2,18 +2,46 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { getCache } from './runtime/index.js';
 import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
-import { maybeDecrypt } from './data/index.js';
+import { maybeDecrypt, principalRecord } from './data/index.js';
 import { DEFAULT_TENANT_ID } from './route-db.js';
 import { toJsonb } from './jsonb.js';
 import { withSavepoint } from './savepoint.js';
 import {
   getCurrentTenantTrx,
   onAfterCommit,
+  rolePrincipal,
+  runWithDomain,
   withEveryTenant,
   withTenantIsolation,
 } from './tenancy/index.js';
 
 let _db: Database | null = null;
+
+/**
+ * What one subscription's role reads of a record (ADR 0004). Replaced only by
+ * the canned-database unit tests, which have no Casbin to resolve a role with.
+ */
+let readAsRole = async (
+  tenant: string,
+  role: string,
+  collection: string,
+  record: Record<string, unknown>,
+): Promise<Record<string, unknown> | null> =>
+  principalRecord(
+    _db as Database,
+    collection,
+    await runWithDomain(tenant, () => rolePrincipal(role)),
+    record,
+  );
+
+/** Test-only: replace `readAsRole`; returns the restorer. */
+export function _setReadAsRoleForTests(fn: typeof readAsRole): () => void {
+  const previous = readAsRole;
+  readAsRole = fn;
+  return () => {
+    readAsRole = previous;
+  };
+}
 
 /**
  * Give every unsigned webhook a signing secret, once, at boot.
@@ -204,9 +232,7 @@ export const WebhookManager = {
       // (migration 028), and on the bare pool a non-superuser database shows the
       // default firm's webhooks only — every other firm's never fired.
       //
-      // Committed before anything is queued: the outcome is written to the
-      // delivery row by id from another connection, which cannot see it earlier.
-      const matching = await withTenantIsolation(tenant, async (trx) => {
+      const hooks = await withTenantIsolation(tenant, async (trx) => {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         const matchResult = await sql<any>`
           SELECT * FROM zvd_webhooks
@@ -220,8 +246,36 @@ export const WebhookManager = {
               OR collections @> ARRAY['*']::text[]
             )
         `.execute(trx);
+        return matchResult.rows;
+      });
+
+      // Each subscription sees the record as its role reads it (ADR 0004): its
+      // grants, row rules and column rules. The payload carried every column
+      // the writer could write, to an endpoint outside. A record the role may
+      // not read is not announced at all, as a realtime subscriber is not told
+      // of a row it cannot see; a webhook whose role was deleted delivers
+      // nothing until it is saved with a role again. Resolved off the
+      // transaction: these read the pool, and a second connection held behind
+      // a first is the pool-size deadlock.
+      const seen: Array<{ wh: (typeof hooks)[number]; record: Record<string, unknown> }> = [];
+      for (const wh of hooks) {
+        const role = wh.run_as_role as string | null;
+        if (!role) continue;
+        const record = await readAsRole(tenant, role, collection, data).catch((err: unknown) => {
+          console.warn(
+            `[webhooks] ${wh.id}: its role "${role}" could not read the ${event} on ${collection}; not delivered:`,
+            err instanceof Error ? err.message : err,
+          );
+          return null;
+        });
+        if (record) seen.push({ wh, record });
+      }
+
+      // Committed before anything is queued: the outcome is written to the
+      // delivery row by id from another connection, which cannot see it earlier.
+      const matching = await withTenantIsolation(tenant, async (trx) => {
         const out = [];
-        for (const wh of matchResult.rows) {
+        for (const { wh, record } of seen) {
           // Create a delivery record immediately so the entry exists regardless of
           // HTTP delivery timing. Updated with status/error/delivered_at after
           // delivery. Non-fatal — a missing record won't block the webhook queue —
@@ -237,7 +291,7 @@ export const WebhookManager = {
                   payload: toJsonb({
                     event,
                     collection,
-                    data,
+                    data: record,
                     timestamp: new Date().toISOString(),
                   }),
                   url: wh.url,
@@ -253,13 +307,13 @@ export const WebhookManager = {
             },
             () => null,
           );
-          out.push({ wh, deliveryId });
+          out.push({ wh, record, deliveryId });
         }
         return out;
       });
 
       const cache = getCache();
-      for (const { wh, deliveryId } of matching) {
+      for (const { wh, record, deliveryId } of matching) {
         // Decrypt the signing secret in memory before queueing. The DB
         // column stores the AES-256-GCM ciphertext (enc:v1:...) — if
         // it were plaintext, anyone with read access to zvd_webhooks
@@ -293,7 +347,7 @@ export const WebhookManager = {
           retryAttempts: wh.retry_attempts ?? 3,
           event,
           collection,
-          data,
+          data: record,
           timestamp: new Date().toISOString(),
           attempt: 0,
         };

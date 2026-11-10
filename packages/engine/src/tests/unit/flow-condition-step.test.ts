@@ -16,7 +16,7 @@ function dbForFlow(steps: unknown[]): CannedDb {
   const db = new CannedDb();
   db.when(/INSERT INTO zv_flow_runs/i, [{ id: 'run-1' }]);
   db.when(/SELECT \* FROM zv_flow_steps/i, steps);
-  db.when(/tenant_id FROM zv_flows/i, [{ tenant_id: 'tenant-1' }]);
+  db.when(/tenant_id FROM zv_flows/i, [{ tenant_id: 'tenant-1', run_as_role: 'member' }]);
   db.whenAffected(/UPDATE zv_flow_runs/i, 1);
   return db;
 }

@@ -314,6 +314,8 @@ export interface ZvFlowsTable {
   last_run_at: Date | null;
   next_run_at: Date | null;
   created_by: string | null;
+  /** ADR 0004: the role it runs as; NULL once that role was deleted. */
+  run_as_role: Generated<string | null>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -849,6 +851,8 @@ export interface ZvdWebhooksTable {
   timeout: number;
   created_by: string | null;
   tenant_id: Generated<string>;
+  /** ADR 0004: the role its payloads are read as; NULL once that role was deleted. */
+  run_as_role: Generated<string | null>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }

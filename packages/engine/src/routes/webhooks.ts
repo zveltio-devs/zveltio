@@ -19,7 +19,7 @@ import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
-import { isTenantAdmin } from '../lib/tenancy/index.js';
+import { holdsRole, isTenantAdmin, DEFAULT_RUN_AS_ROLE } from '../lib/tenancy/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
@@ -43,6 +43,8 @@ const WebhookFields = z.object({
   secret: z.string().optional(),
   retry_attempts: z.number().int().min(0).max(10),
   timeout: z.number().int().min(1000).max(30000),
+  // ADR 0004: the role its payloads are read as.
+  run_as_role: z.string().min(1),
 });
 
 /** A new webhook: the fields, with the defaults a create fills in. */
@@ -53,10 +55,25 @@ const WebhookSchema = WebhookFields.extend({
   active: WebhookFields.shape.active.default(true),
   retry_attempts: WebhookFields.shape.retry_attempts.default(3),
   timeout: WebhookFields.shape.timeout.default(5000),
+  // The tenant's member role when none is chosen.
+  run_as_role: WebhookFields.shape.run_as_role.default(DEFAULT_RUN_AS_ROLE),
 });
 
 /** An edit: only the fields it names, never a default. */
 export const WebhookPatchSchema = WebhookFields.partial();
+
+/**
+ * A webhook's role must be one its saver holds in this tenant (ADR 0004), on
+ * every save: re-pointing a webhook that reads as a role the editor lacks
+ * sends that role's view to the editor's URL. `null` (deleted) asks nothing.
+ */
+async function refuseRunAsRole(userId: string, role: string | null): Promise<Response | null> {
+  if (role === null || (await holdsRole(userId, role))) return null;
+  return Response.json(
+    { error: `run_as_role "${role}": a webhook reads as a role you hold in this tenant` },
+    { status: 403 },
+  );
+}
 
 function generateWebhookSecret(): string {
   const bytes = new Uint8Array(32);
@@ -237,6 +254,8 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     const user = c.get('user') as any;
     const data = c.req.valid('json');
+    const roleDenial = await refuseRunAsRole(user.id, data.run_as_role);
+    if (roleDenial) return roleDenial;
 
     // SSRF protection: reject URLs targeting internal/private networks
     try {
@@ -268,6 +287,18 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   // PATCH /:id — Update webhook
   app.patch('/:id', zValidator('json', WebhookPatchSchema), async (c) => {
     const data = c.req.valid('json');
+    const current = await reqDb(c, db)
+      .selectFrom('zvd_webhooks')
+      .select('run_as_role')
+      .where('id', '=', c.req.param('id'))
+      .where('tenant_id', '=', tenantId(c))
+      .executeTakeFirst();
+    if (!current) return c.json({ error: 'Webhook not found' }, 404);
+    const roleDenial = await refuseRunAsRole(
+      (c.get('user') as { id: string }).id,
+      data.run_as_role ?? current.run_as_role,
+    );
+    if (roleDenial) return roleDenial;
     // SSRF protection on URL update
     if (data.url) {
       try {

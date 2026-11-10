@@ -62,6 +62,11 @@ function run(table: string, rows: Record<string, unknown>[], config: Record<stri
       { type: 'export_collection', config },
       {},
       {},
+      undefined,
+      async () => ({
+        allows: () => true,
+        identity: { userId: '', email: '', role: 'member', roles: ['member'], bypass: false },
+      }),
     ),
   };
 }

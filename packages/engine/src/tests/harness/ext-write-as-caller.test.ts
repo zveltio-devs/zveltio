@@ -312,10 +312,16 @@ d('an extension writes records as the request caller, and only as them', () => {
     // The gate copied the session user as better-auth returned it — no role —
     // while `authenticate` gives a REST caller theirs.
     const seen: Array<string | undefined> = [];
-    entityAccessRegistry.registerAs(WRITER, `zvd_${C}`, (_r: unknown, u: { role?: string }) => {
-      seen.push(u.role);
-      return u.role === 'member' ? 'allow' : 'deny';
-    });
+    // The write's own checks only: a webhook or data trigger on the collection
+    // reads the written record as its role (ADR 0004), and asks `view`.
+    entityAccessRegistry.registerAs(
+      WRITER,
+      `zvd_${C}`,
+      (_r: unknown, u: { role?: string }, op: string) => {
+        if (op !== 'view') seen.push(u.role);
+        return u.role === 'member' ? 'allow' : 'deny';
+      },
+    );
     try {
       expect(
         (await post(`/ext/${WRITER}/write`, { label: 'role-u' }, { cookie: member.cookie })).status,

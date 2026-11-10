@@ -19,9 +19,13 @@ import {
   asEveryTenant,
   asTenant,
   createGodSession,
+  dropTestCollection,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { DDLManager } from '../../lib/data/index.js';
+
+const THINGS = `things_${Date.now()}`;
 import { WebhookManager } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
@@ -43,6 +47,12 @@ d('webhooks tenant isolation (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    // A real collection: a webhook or a data trigger reads its record as its
+    // role (ADR 0004), and a role reads collections only.
+    await DDLManager.createCollection(db, {
+      name: THINGS,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
     cookie = await createGodSession(app, db);
     WebhookManager.init(db);
 
@@ -73,6 +83,7 @@ d('webhooks tenant isolation (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await dropTestCollection(db, THINGS).catch(() => {});
     for (const id of [FOREIGN_ID, FOREIGN_DISPATCH_ID, MINE_DISPATCH_ID, myId].filter(Boolean)) {
       await asEveryTenant(db, (trx) =>
         trx.deleteFrom('zvd_webhook_deliveries').where('webhook_id', '=', id).execute(),
@@ -184,7 +195,7 @@ d('webhooks tenant isolation (in-process)', () => {
     // Fire an event as the DEFAULT tenant.
     await WebhookManager.trigger(
       'insert',
-      'things',
+      THINGS,
       { id: '00000000-0000-4000-8000-0000000000ab' },
       DEFAULT_TENANT_ID,
     );

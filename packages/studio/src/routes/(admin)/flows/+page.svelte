@@ -1,7 +1,7 @@
 <script lang="ts">
 import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
-import { api } from '#lib/api.js';
+import { api, defaultRunAsRole, heldRoles } from '#lib/api.js';
 import {
   Play,
   Pause,
@@ -56,6 +56,9 @@ let triggerType = $state('manual');
 let triggerCollection = $state('');
 let triggerCron = $state('0 * * * *');
 let isActive = $state(true);
+/** ADR 0004: the roles this user holds, and the one the new flow runs as. */
+let roles = $state<string[]>([]);
+let runAsRole = $state('');
 
 onMount(loadFlows);
 
@@ -84,6 +87,12 @@ function openModal() {
   isActive = true;
   formError = '';
   showModal = true;
+  heldRoles()
+    .then((r) => {
+      roles = r;
+      runAsRole = defaultRunAsRole(r);
+    })
+    .catch(() => (roles = []));
 }
 
 async function createFlow() {
@@ -106,6 +115,7 @@ async function createFlow() {
       trigger_type: triggerType,
       trigger_config: triggerConfig,
       is_active: isActive,
+      ...(runAsRole ? { run_as_role: runAsRole } : {}),
     });
     flows = [data.flow, ...flows];
     showModal = false;
@@ -340,6 +350,14 @@ function formatRelative(dateStr?: string): string {
  />
  </div>
  {/if}
+
+ <div class="form-control">
+ <label class="label" for="flow-run-as"><span class="label-text font-medium">{m['flows.runAsRole']()}</span></label>
+ <select id="flow-run-as" class="select" bind:value={runAsRole}>
+ {#each roles as role (role)}<option value={role}>{role}</option>{/each}
+ </select>
+ <span class="label-text-alt text-xs text-base-content/65 mt-1">{m['flows.runAsRoleHint']()}</span>
+ </div>
 
  <label class="flex items-center gap-2 cursor-pointer">
  <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" bind:checked={isActive} />

@@ -10,11 +10,19 @@
  * network, no Postgres, no Valkey (getCache() returns null in the unit env).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { initTenantManager } from '../../lib/tenancy/index.js';
-import { WebhookManager } from '../../lib/webhooks.js';
+import { _setReadAsRoleForTests, WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
+
+// The record as the webhook's role reads it (ADR 0004), passed through: a
+// canned database has no Casbin to resolve the role with.
+let restoreReadAs = () => {};
+beforeAll(() => {
+  restoreReadAs = _setReadAsRoleForTests(async (_tenant, _role, _collection, record) => record);
+});
+afterAll(() => restoreReadAs());
 
 let originalFetch: typeof fetch;
 let lastReq: { url: string; init?: RequestInit } | null;
@@ -204,6 +212,7 @@ describe('WebhookManager.trigger', () => {
     db.when(/from zvd_webhooks/i, [
       {
         id: 'wh1',
+        run_as_role: 'tenant_member',
         url: 'https://93.184.216.34/trigger',
         method: 'POST',
         events: ['*'],

@@ -20,9 +20,11 @@ import { triggerDataFlows } from '../../lib/flows/index.js';
 import {
   asEveryTenant,
   asTenant,
+  dropTestCollection,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { DDLManager } from '../../lib/data/index.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
@@ -64,6 +66,12 @@ d('flow executor tenant isolation (in-process)', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    // A real collection: a webhook or a data trigger reads its record as its
+    // role (ADR 0004), and a role reads collections only.
+    await DDLManager.createCollection(db, {
+      name: PROBE_COLLECTION,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
     // A real firm: `zv_flows` is under the tenant policy (migration 027), and the
     // executor finds a flow's firm through a reach made of the firms that exist.
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
@@ -73,6 +81,7 @@ d('flow executor tenant isolation (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await dropTestCollection(db, PROBE_COLLECTION).catch(() => {});
     for (const id of created) {
       await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`.execute(db).catch(() => {});
       await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});
