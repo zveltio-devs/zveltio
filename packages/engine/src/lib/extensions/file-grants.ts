@@ -179,7 +179,8 @@ async function enqueuerNow(
   return fileActorOf(user, tenantId);
 }
 
-const describe = (f: StoredFile): HostFile => ({
+/** A stored file as `host.files` answers it. */
+export const hostFile = (f: StoredFile): HostFile => ({
   id: f.id,
   name: f.original_name,
   contentType: f.mimetype,
@@ -279,7 +280,7 @@ export function jobFiles(o: {
       }
       room('get', obj.bytes.byteLength);
       run.bytes += obj.bytes.byteLength;
-      return { ...describe(file), bytes: obj.bytes };
+      return { ...hostFile(file), bytes: obj.bytes };
     },
     put: async (bytes) => {
       need('put');
@@ -304,7 +305,7 @@ export function jobFiles(o: {
         // An earlier attempt's put committed (a job with egress commits each
         // call): the same file, stored and counted once.
         const earlier = await row(o.jobId, false);
-        if (earlier) return describe(earlier);
+        if (earlier) return hostFile(earlier);
         run.bytes += bytes.byteLength;
         // In a savepoint, so a refused insert does not abort the run's
         // transaction; with no actor, as 115's insert policy refuses a
@@ -323,7 +324,7 @@ export function jobFiles(o: {
         if (!('file' in r)) throw refused('put', r);
         const path = r.file.storage_path;
         if (storage.isConfigured()) o.onRollback(() => storage.delete(path));
-        return describe(r.file);
+        return hostFile(r.file);
       } catch (err) {
         run.put = false;
         throw err;

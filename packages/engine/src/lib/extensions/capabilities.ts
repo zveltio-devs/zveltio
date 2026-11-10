@@ -113,7 +113,8 @@ export const CAPABILITIES = [
   'notifications',
   /**
    * Stored files: `moveToTrash`, and a job's `host.files` — get the files its
-   * user handed it, put the one they asked for (ADR 0032).
+   * user handed it, put the one they asked for (ADR 0032); a route's
+   * `host.files`, put and delete as its caller (ADR 0034).
    */
   'files',
   /** Render PDFs and HTML templates. */

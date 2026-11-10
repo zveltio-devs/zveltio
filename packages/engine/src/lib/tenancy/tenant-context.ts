@@ -117,6 +117,8 @@ export interface RequestActor {
  */
 interface AfterCommitQueue {
   jobs: Array<() => void | Promise<void>>;
+  /** What a rollback undoes outside the database (`onAfterRollback`). */
+  undo: Array<() => void | Promise<void>>;
   state: 'open' | 'committed' | 'rolled-back';
   /** The context the jobs run in: the one outside the transaction's. */
   outer: TenantStore | undefined;
@@ -184,7 +186,7 @@ export function runWithTenantTrx<T>(trx: Database, tenantId: string, fn: () => T
       domain: existing?.domain ?? tenantId,
       trx,
       trxTenant: tenantId,
-      afterCommit: { jobs: [], state: 'open', outer: existing },
+      afterCommit: { jobs: [], undo: [], state: 'open', outer: existing },
     },
     fn,
   );
@@ -346,14 +348,26 @@ export function onAfterCommit(fn: () => void | Promise<void>): void {
   // 'rolled-back': dropped, like everything queued before the rollback.
 }
 
+/**
+ * Run `fn` if the current transaction rolls back: what it wrote outside the
+ * database (an extension route's stored bytes, ADR 0034) goes with its rows.
+ * Outside a transaction, or once it committed, nothing is undone.
+ */
+export function onAfterRollback(fn: () => void | Promise<void>): void {
+  const current = store.getStore();
+  const queue = current?.trx ? current.afterCommit : undefined;
+  if (queue?.state === 'open') queue.undo.push(fn);
+  else if (queue?.state === 'rolled-back') void runAfterCommitJob(fn);
+}
+
 /** The queue of the transaction in the current context. For `withTenantIsolation`. */
 export function currentAfterCommitQueue(): AfterCommitQueue | undefined {
   return store.getStore()?.afterCommit;
 }
 
 /**
- * Mark the transaction settled and take what it queued — empty after a
- * rollback. Synchronous with the state change, so a job queued from here on is
+ * Mark the transaction settled and take what it queued: after a rollback, only
+ * what `onAfterRollback` queued. Synchronous with the state change, so a job queued from here on is
  * run or dropped by `onAfterCommit` itself and none falls between the two.
  */
 export function settleAfterCommit(
@@ -361,9 +375,10 @@ export function settleAfterCommit(
   committed: boolean,
 ): Array<() => void | Promise<void>> {
   queue.state = committed ? 'committed' : 'rolled-back';
-  const jobs = queue.jobs;
+  const { jobs, undo } = queue;
   queue.jobs = [];
-  return committed ? jobs : [];
+  queue.undo = [];
+  return committed ? jobs : undo;
 }
 
 /**

@@ -324,6 +324,13 @@ export default defineExtension(['data:write', 'data:system'], {
   job does; the rest stay the caller's. A worker-isolated route has no
   `ctx.internals`, so it always acts as its caller. Secrets of a collection the extension owns come back decrypted
   either way.
+- An inline route also has `ctx.host(c).files` (ADR 0034, `files` capability):
+  `put(name, bytes, { folderId? })` stores a private file of the caller and
+  `delete(id)` deletes one, exactly as `/api/storage` would for that user or API
+  key (a key needs `$storage` `create` / `delete`), always as the caller, also
+  inside `asSystem`. A throw from the route rolls back a put with its bytes; a
+  delete's bytes go once the request commits. A public route has no files.
+  Absent on a worker-isolated route. Engines from 3.0.0-beta.110.
 
 ### Inbound webhooks: a public route enqueues, a job writes
 

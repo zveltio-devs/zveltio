@@ -1740,6 +1740,36 @@ export interface JobTcpStream {
  */
 export interface RouteHost {
   collections: HostCollections;
+  /**
+   * Stored files as the route's caller (ADR 0034); needs the `files`
+   * capability. Inline routes only: absent on a worker-isolated route.
+   * Engines from 3.0.0-beta.110.
+   */
+  files?: CallerFiles;
+}
+
+/**
+ * Stored files as the request's caller: what `/api/storage` would let the same
+ * user or API key do (a key needs `$storage` `create` / `delete`), through the
+ * same checks, in the request's transaction. A throw from the route rolls back
+ * a `put` with its bytes; a `delete`'s bytes go only once the request commits.
+ * On one of the extension's `publicRoutes` there is no caller, and every call
+ * throws 403. A refusal throws with `/api/storage`'s status.
+ */
+export interface CallerFiles {
+  /**
+   * Store `bytes` as a new private file of the caller named `name` (any type;
+   * served inline only when it is an inline type, ADR 0033), in `folderId` when
+   * given (a folder of the request's tenant, else 404). Counted against the
+   * caller's quota (413 over it, or past `MAX_UPLOAD_BYTES`).
+   */
+  put(name: string, bytes: Uint8Array, options?: { folderId?: string }): Promise<HostFile>;
+  /**
+   * Delete a file the caller uploaded, or any file of the tenant for a tenant
+   * admin: 404 for a file they cannot read, 403 for one they can read but not
+   * delete.
+   */
+  delete(id: string): Promise<void>;
 }
 
 // ─── Studio extension API (available via window.__zveltio in IIFE bundles) ───

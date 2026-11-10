@@ -1600,7 +1600,9 @@ export async function withTenantIsolation<T>(
   try {
     result = await run;
   } catch (err) {
-    if (afterCommit) settleAfterCommit(afterCommit, false);
+    for (const undo of afterCommit ? settleAfterCommit(afterCommit, false) : []) {
+      await runAfterCommitJob(undo);
+    }
     throw err;
   }
   // One failed follow-up must not take the request's answer with it: the
