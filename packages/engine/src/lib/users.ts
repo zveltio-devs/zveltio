@@ -228,7 +228,7 @@ export async function deleteTenantlessUsers(
       }),
     );
   } catch (err) {
-    if (queue) settleAfterCommit(queue, false);
+    for (const undo of queue ? settleAfterCommit(queue, false) : []) await runAfterCommitJob(undo);
     throw err;
   }
   for (const job of queue ? settleAfterCommit(queue, true) : []) await runAfterCommitJob(job);

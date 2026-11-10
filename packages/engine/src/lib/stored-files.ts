@@ -619,12 +619,14 @@ export async function storeFile(
  *
  * The bytes go first: when that fails the row stays, as the only record that
  * would let anyone find the orphaned bytes, which the signed URL from upload
- * still serves.
+ * still serves. With `bytesLater` the row goes first and the bytes are handed
+ * to it, to remove once the row's transaction commits (ADR 0034).
  */
 export async function removeFile(
   db: Database,
   actor: FileActor,
   id: string,
+  bytesLater?: (remove: () => Promise<void>) => void,
 ): Promise<{ ok: true } | FileRefusal> {
   const file = UUID_RE.test(id) ? await selectFile(db, actor.tenantId, id) : undefined;
   if (!file || !mayReadFile(file, actor.principalId, actor.seesAll, actor.tenantId)) {
@@ -634,7 +636,7 @@ export async function removeFile(
     return { status: 403, body: { error: 'Forbidden' } };
   }
   const storage = getStorage();
-  if (storage.isConfigured()) {
+  if (!bytesLater && storage.isConfigured()) {
     try {
       await storage.delete(file.storage_path);
     } catch (err) {
@@ -647,5 +649,10 @@ export async function removeFile(
     .where('id', '=', file.id)
     .where('tenant_id', '=', actor.tenantId)
     .execute();
+  // Only once the row is gone: a failed delete must not take the bytes with it.
+  if (bytesLater && storage.isConfigured()) {
+    const path = file.storage_path;
+    bytesLater(() => storage.delete(path));
+  }
   return { ok: true };
 }

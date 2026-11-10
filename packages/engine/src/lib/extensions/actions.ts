@@ -37,6 +37,7 @@ import { CapabilityDeniedError, holdsCapability } from './capabilities.js';
 import { actionWrites, type ExtensionContext, type ExtensionInternals } from './internals.js';
 import { enqueueJob, extensionPrincipal, jobData } from './jobs.js';
 import { admitFileGrant, type FileGrant } from './file-grants.js';
+import { callerFiles } from './caller-files.js';
 import { systemCollectionsFor } from './as-system.js';
 import {
   asIdentityOn,
@@ -738,5 +739,7 @@ export function routeHost(
         if (r?.trx) await secretReveal(r.trx, r.tenantId, extName)(collection, records);
       },
     ),
+    // ADR 0034: always as the caller, `asSystem` or not; none on a public route.
+    files: callerFiles(c, extName),
   };
 }
