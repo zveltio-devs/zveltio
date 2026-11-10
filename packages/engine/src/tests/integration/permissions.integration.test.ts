@@ -97,6 +97,13 @@ beforeAll(async () => {
       fields: [{ name: 'title', type: 'text' }],
     }),
   });
+  // A rule needs its object (migration 116), and the collection is created by
+  // the DDL queue after the request answers: wait for its row before granting.
+  for (let i = 0; i < 100; i++) {
+    const row = await sql`SELECT 1 FROM zvd_collections WHERE name = ${COLLECTION}`.execute(db);
+    if (row.rows.length > 0) break;
+    await Bun.sleep(200);
+  }
 }, 30_000);
 
 afterAll(async () => {
