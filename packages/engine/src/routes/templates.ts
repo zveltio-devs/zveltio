@@ -22,7 +22,7 @@ import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
-import { DDLManager, ExistingRulesError, SYSTEM_COLUMNS } from '../lib/data/index.js';
+import { DDLManager, SYSTEM_COLUMNS } from '../lib/data/index.js';
 import { fieldTypeRegistry, writtenByBody, writtenByRefusal } from '../lib/data/index.js';
 import { enqueueDDLJob } from '../lib/data/index.js';
 import { dynamicInsert } from '../db/dynamic.js';
@@ -162,7 +162,6 @@ export function templatesRoutes(db: Database, auth: any): Hono {
             .max(20)
             .optional(),
           skip_existing: z.boolean().default(true),
-          adopt_rules: z.boolean().optional(),
         })
         .optional(),
     ),
@@ -173,7 +172,6 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       const body = (await c.req.json().catch(() => ({}))) as {
         prefix?: string;
         skip_existing?: boolean;
-        adopt_rules?: boolean;
       };
       const prefix = body.prefix?.replace(/_$/, '') ?? '';
       const skipExisting = body.skip_existing !== false;
@@ -199,7 +197,7 @@ export function templatesRoutes(db: Database, auth: any): Hono {
       // before any DDL is enqueued so we never leave half-installed
       // collections with phantom metadata in zvd_collections.
       for (const coll of renamed) {
-        const reserved = await DDLManager.reservedName(db, coll.name);
+        const reserved = await DDLManager.reservedName(coll.name);
         if (reserved) return c.json({ error: reserved }, 409);
         for (const f of coll.fields) {
           if (!fieldTypeRegistry.has(f.type)) {
@@ -221,15 +219,6 @@ export function templatesRoutes(db: Database, auth: any): Hono {
 
       const ordered = sortByDependencies(renamed);
 
-      // Every collection checked before the first is written, like the names
-      // above: rules already naming one would take effect on it (A13).
-      if (body.adopt_rules !== true) {
-        const rules = await DDLManager.existingRules(
-          db,
-          ordered.map((c) => c.name),
-        );
-        if (rules.length > 0) return c.json(new ExistingRulesError(rules).body(), 409);
-      }
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
       const created: { name: string; job_id: string | null; status: 'queued' | 'skipped' }[] = [];
@@ -253,8 +242,6 @@ export function templatesRoutes(db: Database, auth: any): Hono {
         const payload = {
           name: coll.name,
           display_name: coll.display_name,
-          // Checked above, before anything was written.
-          adoptRules: true,
           fields: coll.fields.map((f) => ({
             name: f.name,
             type: f.type,

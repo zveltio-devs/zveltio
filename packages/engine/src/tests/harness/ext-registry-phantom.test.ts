@@ -3,9 +3,9 @@
  *
  * Before: `PUT /api/marketplace/:name/config` and `POST /:name/disable` upserted
  * a registry row with `is_installed = true` for any name, one never installed
- * included. That row has no manifest on disk, so every collection create and
- * drop failed closed (`nonCollectionObjects`), and so did every other
- * extension's purge, until someone purged the phantom.
+ * included. That row has no manifest on disk, so every default grant failed
+ * closed, and so did every other extension's purge, until someone purged the
+ * phantom.
  *
  * And a purge of an extension whose own manifest cannot be read takes only
  * `$ext:<name>`, which no other extension can claim: another unreadable
@@ -19,7 +19,6 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { purgeExtensionData } from '../../lib/extensions/migration-runner.js';
-import { nonCollectionObjects } from '../../lib/tenancy/resource-grants.js';
 import { getEnforcer } from '../../lib/tenancy/permissions.js';
 import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -77,8 +76,6 @@ d('a registry row without an install', () => {
     });
     expect(res.status).toBe(404);
     expect(await row(GHOST)).toEqual([]);
-    // What the phantom broke: every collection create and drop.
-    await expect(nonCollectionObjects(db)).resolves.toBeInstanceOf(Set);
   });
 
   it('disable on a name never installed is a no-op and writes no row', async () => {

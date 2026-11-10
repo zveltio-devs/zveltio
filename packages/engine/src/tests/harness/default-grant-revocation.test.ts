@@ -23,6 +23,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -71,6 +73,7 @@ d('a revoked default grant stays revoked', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, EXT_RES);
     god = await createGodSession(app, db);
     await DDLManager.createCollection(db, {
       name: COLL,
@@ -81,6 +84,7 @@ d('a revoked default grant stays revoked', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, EXT_RES);
     await sql`DELETE FROM zvd_permissions WHERE v0 = ${ROLE} OR v2 IN (${COLL}, ${DROPPED}, ${EXT_RES}, ${LATER_RES})`.execute(
       db,
     );
@@ -116,15 +120,10 @@ d('a revoked default grant stays revoked', () => {
     expect(await held('tenant_member', EXT_RES, 'execute')).toBe(false);
   });
 
-  it('revoking a default whose resource is not here yet keeps it revoked once it arrives', async () => {
-    // An extension installed later: the delete removes no rule, as a schema apply's
-    // would not, and the revocation is recorded all the same.
-    expect(await held('tenant_member', LATER_RES, 'execute')).toBe(false);
-    expect((await policy('DELETE', 'tenant_member', LATER_RES, 'execute')).status).toBe(200);
-    expect(await revoked('tenant_member', LATER_RES, 'execute')).toBe(true);
-    await materializeDefaultGrants(db, [LATER_RES], { extension: true });
-    expect(await held('tenant_member', LATER_RES, 'execute')).toBe(false);
-    expect(await inModel('tenant_member', LATER_RES, 'execute')).toBe(false);
+  it('revoking a default on a resource that does not exist is refused (ADR 0002)', async () => {
+    // An extension's collection exists once it is installed: install, then revoke.
+    expect((await policy('DELETE', 'tenant_member', LATER_RES, 'execute')).status).toBe(422);
+    expect(await revoked('tenant_member', LATER_RES, 'execute')).toBe(false);
   });
 
   it('granting the triple again explicitly clears the revocation, and the grant stays', async () => {

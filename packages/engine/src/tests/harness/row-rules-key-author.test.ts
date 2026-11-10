@@ -152,7 +152,6 @@ d('a key is its author to a row rule (ADR 0028)', () => {
     _setInlineForTests(true);
     await DDLManager.createCollection(db, {
       name: C,
-      adoptRules: true,
       fields: ['title', 'owner_email', 'note', 'status'].map((name) => ({
         name,
         type: 'text',

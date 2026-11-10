@@ -128,7 +128,7 @@ d('permission matrix actions match what the engine checks', () => {
     const grant = await app.request('/api/permissions/policies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: god },
-      body: JSON.stringify({ subject: ROLE, resource: `${COLLECTION}_res`, action: 'execute' }),
+      body: JSON.stringify({ subject: ROLE, resource: COLLECTION, action: 'execute' }),
     });
     expect(grant.status).toBe(200);
     // The screen saves every grant it loaded, so one it refuses makes it unsavable.
@@ -148,7 +148,7 @@ d('permission matrix actions match what the engine checks', () => {
     expect(bulk.status).toBe(200);
   });
 
-  it('offers what an installed extension declares, with execute, and a declared collection once, with execute', async () => {
+  it('offers a collection an installed extension declares once, with execute, and no v1 resource that is no collection', async () => {
     const ext = `permmatrix_ext_${Date.now()}`;
     const declared = `${ext}_res`;
     const root = mkdtempSync(join(tmpdir(), 'permmatrix-ext-'));
@@ -170,12 +170,8 @@ d('permission matrix actions match what the engine checks', () => {
       const { resources } = (await res.json()) as {
         resources: Array<{ name: string; type: string; actions: string[] }>;
       };
-      expect(resources.find((r) => r.name === declared)).toEqual({
-        name: declared,
-        display_name: declared,
-        type: 'extension',
-        actions: ['read', 'create', 'update', 'delete', 'execute'],
-      } as never);
+      // No rule can name it (migration 116), so the matrix does not offer it.
+      expect(resources.some((r) => r.name === declared)).toBe(false);
       // Listed once, as the collection — and with execute, which the extension's
       // actions gated on it ask for.
       expect(

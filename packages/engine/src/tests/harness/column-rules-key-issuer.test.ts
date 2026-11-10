@@ -75,7 +75,6 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
     ({ db } = await getTestApp());
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [field('title'), field('secret')],
     } as never);
     recordId = (

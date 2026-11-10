@@ -28,7 +28,12 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 import {
   checkPermission,
   clearLocalPermissionCache,
@@ -58,6 +63,7 @@ d('materializeDefaultGrants while requests are in flight', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, 'contacts', `reload_new_${tag}`);
     await makeMember(probeUser);
     await makeMember(reader);
     await materializeDefaultGrants(db, ['contacts']);
@@ -68,6 +74,7 @@ d('materializeDefaultGrants while requests are in flight', () => {
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, 'contacts', `reload_new_${tag}`);
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${collection}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v0 IN (${probeUser}, ${reader}) OR v2 LIKE ${`reload_%${tag}`}`.execute(
       db,

@@ -38,18 +38,15 @@ const B = `${S}b`;
 const C = `${S}c`;
 /** Recorded at one version, then an older one is on disk. */
 const V = `${S}v`;
-const A_RES = `${S}_ares`;
+/** A collection A keeps closed (v1 `sensitiveResources`). */
 const A_SENS = `${S}_asens`;
-const B_RES = `${S}_bres`;
-/** C's resource, never a collection. */
-const C_RES = `${S}_cres`;
 /** A collection carrying a name C claims; A's DOWN drops it. */
 const C_SHARED = `${S}_cshared`;
 const A_COLL = `${S}_acoll`;
 const B_COLL = `${S}_bcoll`;
 const FREE = `${S}_free`;
-const COLLECTIONS = [A_COLL, B_COLL, C_SHARED, FREE, C_RES];
-const OBJECTS = [`$ext:${A}`, `$ext:${B}`, A_RES, A_SENS, B_RES, C_RES, C_SHARED];
+const COLLECTIONS = [A_COLL, B_COLL, C_SHARED, FREE, A_SENS];
+const OBJECTS = [`$ext:${A}`, `$ext:${B}`, A_SENS, C_SHARED];
 
 d('an extension whose files are gone keeps its recorded claim', () => {
   let db: Database;
@@ -85,14 +82,14 @@ d('an extension whose files are gone keeps its recorded claim', () => {
     savedDir = process.env.EXTENSIONS_DIR;
     process.env.EXTENSIONS_DIR = extRoot;
     // Before any extension claims a name.
-    for (const name of [A_COLL, B_COLL, C_SHARED]) await create(name);
-    await register(A, true, { resources: [A_RES], sensitiveResources: [A_SENS] });
-    await register(B, true, { resources: [B_RES] });
-    await register(C, false, { resources: [C_RES, C_SHARED] });
+    for (const name of [A_COLL, B_COLL, C_SHARED, A_SENS]) await create(name);
+    await register(A, true, { sensitiveResources: [A_SENS] });
+    await register(B, true, {});
+    await register(C, false, { resources: [C_SHARED] });
     await down(A, [A_COLL, C_SHARED]);
     await down(B, [B_COLL]);
     const e = await getEnforcer();
-    for (const obj of [`$ext:${A}`, `$ext:${B}`, A_RES, B_RES, C_SHARED]) {
+    for (const obj of [`$ext:${A}`, `$ext:${B}`, C_SHARED]) {
       await e.addPolicy(...rule(obj));
     }
     // What a boot does first (loadAll, the reconcile): the files are still there.
@@ -124,12 +121,6 @@ d('an extension whose files are gone keeps its recorded claim', () => {
     expect(await isCollection(FREE)).toBe(false);
   });
 
-  it('a name an installed or soft-uninstalled extension claims stays reserved', async () => {
-    await expect(create(A_RES)).rejects.toThrow(/reserved/);
-    await expect(create(C_RES)).rejects.toThrow(/reserved/);
-    expect(await isCollection(C_RES)).toBe(false);
-  });
-
   it('the sensitive-default repair runs', async () => {
     await sql`DELETE FROM zv_settings WHERE key = ${SENSITIVE_DEFAULTS_REPAIRED}`.execute(db);
     await (await getEnforcer()).addPolicy(...rule(A_SENS));
@@ -141,23 +132,20 @@ d('an extension whose files are gone keeps its recorded claim', () => {
     ).toHaveLength(1);
   });
 
-  it('both are purged, each taking its own claimed rules and nothing C claims', async () => {
+  it('both are purged, each taking its $ext rules and the rules of the collections it drops', async () => {
     await purgeExtensionData(A, db);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${A}`.execute(db);
     expect(await isCollection(A_COLL)).toBe(false);
     expect(await isCollection(C_SHARED)).toBe(false);
     expect(await held(`$ext:${A}`)).toBe(false);
-    // Known from the record, not the files: A's v1 resource goes with it.
-    expect(await held(A_RES)).toBe(false);
-    // A soft-uninstalled extension's claim survives a drop of that name.
-    expect(await held(C_SHARED)).toBe(true);
-    expect(await held(B_RES)).toBe(true);
+    // A dropped collection's rules go with it, whatever another extension claims.
+    expect(await held(C_SHARED)).toBe(false);
+    expect(await held(`$ext:${B}`)).toBe(true);
 
     await purgeExtensionData(B, db);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${B}`.execute(db);
     expect(await isCollection(B_COLL)).toBe(false);
     expect(await held(`$ext:${B}`)).toBe(false);
-    expect(await held(B_RES)).toBe(false);
   });
 
   it('an older manifest on disk does not replace a newer one on record', async () => {

@@ -51,9 +51,6 @@ d('virtual collection row policies (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     godCookie = await createGodSession(app, db);
-    ({ cookie: memberCookie } = await createMemberSession(app, db, {
-      grants: [{ collection: COLLECTION, actions: ['read', 'update', 'delete'] }],
-    }));
     await db
       .insertInto('zvd_collections')
       .values({
@@ -81,6 +78,9 @@ d('virtual collection row policies (in-process)', () => {
         ]),
       })
       .execute();
+    ({ cookie: memberCookie } = await createMemberSession(app, db, {
+      grants: [{ collection: COLLECTION, actions: ['read', 'update', 'delete'] }],
+    }));
     DDLManager.invalidateCache(COLLECTION);
 
     const policy = await app.request('/api/admin/rls', {

@@ -30,7 +30,7 @@ d('DELETE /api/users/:id with a role name', () => {
   let member: string;
   const tag = crypto.randomUUID().slice(0, 8);
   const ROLE = `editor_${tag}`;
-  const RES = `editor_res_${tag}`;
+  const RES = 'data';
 
   const rows = async () =>
     (

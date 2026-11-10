@@ -125,6 +125,7 @@ import m106 from './sql/112_validation_rule_forget_every_tenant.sql' with { type
 import m107 from './sql/113_drop_ai_residue.sql' with { type: 'text' };
 import m108 from './sql/114_retire_search_extension.sql' with { type: 'text' };
 import m109 from './sql/115_media_files_user_rls.sql' with { type: 'text' };
+import m110 from './sql/116_rules_need_their_object.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -238,4 +239,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '113_drop_ai_residue.sql': m107,
   '114_retire_search_extension.sql': m108,
   '115_media_files_user_rls.sql': m109,
+  '116_rules_need_their_object.sql': m110,
 };

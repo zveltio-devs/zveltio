@@ -38,11 +38,6 @@ d('virtual PATCH response column mask (in-process)', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
-    // Deny-by-default: without an explicit grant this user is refused 403,
-    // which is not the restriction under test and reads like a pass.
-    ({ cookie: memberCookie } = await createMemberSession(app, db, {
-      grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update', 'delete'] }],
-    }));
 
     await db
       .insertInto('zvd_collections')
@@ -65,6 +60,11 @@ d('virtual PATCH response column mask (in-process)', () => {
         ]),
       })
       .execute();
+    // Deny-by-default: without an explicit grant this user is refused 403,
+    // which is not the restriction under test and reads like a pass.
+    ({ cookie: memberCookie } = await createMemberSession(app, db, {
+      grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update', 'delete'] }],
+    }));
     DDLManager.invalidateCache(COLLECTION);
 
     const perm = await db

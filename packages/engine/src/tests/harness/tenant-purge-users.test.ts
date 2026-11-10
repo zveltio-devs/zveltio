@@ -18,8 +18,10 @@ import { deleteTenantlessUsers } from '../../lib/users.js';
 import {
   createGodSession,
   createMemberSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -71,6 +73,7 @@ d('tenant purge — delete_users', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, `hpu_${SFX}`);
     god = await createGodSession(app, db);
     godId = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
       .rows[0]!.id;
@@ -115,6 +118,7 @@ d('tenant purge — delete_users', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, `hpu_${SFX}`);
     await sql`DELETE FROM zv_api_keys WHERE id = ANY (${keyIds})`.execute(db).catch(() => {});
     for (const t of [T, U, N]) {
       await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${t.id}`.execute(db).catch(() => {});

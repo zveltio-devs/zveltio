@@ -14,10 +14,18 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { reconcilePolicies } from '../../lib/tenancy/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const tag = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+/** Rule objects: the database refuses a rule on an object that does not exist (migration 116). */
+const OBJECTS = [`pmlu_late_${tag}`];
 const ROLE = `pmlu_role_${tag}`;
 
 type Matrix = {
@@ -49,6 +57,7 @@ d('the matrix save from a stale load', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, ...OBJECTS);
     god = await createGodSession(app, db);
     const res = await app.request('/api/admin/roles', {
       method: 'POST',
@@ -61,6 +70,7 @@ d('the matrix save from a stale load', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, ...OBJECTS);
     await sql`DELETE FROM zvd_permissions WHERE v0 = ${ROLE}`.execute(db);
     await db.deleteFrom('zv_roles').where('name', '=', ROLE).execute();
     await reconcilePolicies();

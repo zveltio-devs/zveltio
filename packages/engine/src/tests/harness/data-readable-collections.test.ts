@@ -40,7 +40,6 @@ d('GET /api/data lists what the caller may read', () => {
     DDLManager.createCollection(db, {
       name,
       displayName: 'Readable',
-      adoptRules: true,
       fields: ['title', 'salary', 'locked'].map((f) => ({
         name: f,
         type: 'text',

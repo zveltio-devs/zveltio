@@ -12,7 +12,6 @@ import {
   ChevronRight,
   ArrowRight,
   Database,
-  Globe,
   Puzzle,
 } from '@lucide/svelte';
 import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
@@ -24,7 +23,7 @@ import { toast } from '#lib/stores/toast.svelte.js';
 type Resource = {
   name: string;
   display_name: string;
-  type: 'collection' | 'extension' | 'zone';
+  type: 'collection' | 'extension';
   actions: string[];
 };
 
@@ -80,18 +79,7 @@ const extensionResources = $derived(
         r.name.toLowerCase().includes(matrixFilter.toLowerCase()),
     ),
 );
-const zones = $derived(
-  resources
-    .filter((r) => r.type === 'zone')
-    .filter(
-      (r) =>
-        !matrixFilter ||
-        r.display_name.toLowerCase().includes(matrixFilter.toLowerCase()) ||
-        r.name.toLowerCase().includes(matrixFilter.toLowerCase()),
-    ),
-);
 const totalCollections = $derived(resources.filter((r) => r.type === 'collection').length);
-const totalZones = $derived(resources.filter((r) => r.type === 'zone').length);
 // A collection an extension declares also carries `execute` (its actions);
 // the column shows only when one listed does, empty where a row has none.
 const COLLECTION_ACTIONS = ['read', 'create', 'update', 'delete'];
@@ -290,7 +278,7 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
       {#if selectedRole}
       <div class="space-y-6">
 
-        {#if totalCollections + totalZones > 8}
+        {#if totalCollections > 8}
           <SearchBar
             value={matrixFilter}
             onchange={(v) => (matrixFilter = v)}
@@ -389,50 +377,6 @@ const selectedRole = $derived(roles.find((r) => r.id === selectedRoleId));
                       onchange={() => toggle(selectedRole.id, res.name, action)}
                     />
                     {/if}
-                  </td>
-                  {/each}
-                </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        {/if}
-
-        <!-- Zones section -->
-        {#if zones.length > 0}
-        <div>
-          <div class="flex items-center gap-2 mb-3">
-            <Globe size={15} class="text-base-content/65" />
-            <span class="text-sm font-semibold text-base-content/65 uppercase tracking-wider">
-              {matrixFilter
-                ? m['permissions.zonesFiltered']({ count: zones.length, total: totalZones })
-                : m['permissions.zonesCount']({ count: zones.length })}
-            </span>
-          </div>
-
-          <div class="border border-base-300 rounded-xl overflow-x-auto">
-            <table class="table table-sm w-full">
-              <thead class="bg-base-200">
-                <tr>
-                  <th class="w-1/3">{m['permissions.zone']()}</th>
-                  <th class="text-center text-info">{m['permissions.read']()}</th>
-                  <th class="text-center text-warning">{m['permissions.write']()}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each zones as res}
-                <tr class="hover">
-                  <td class="font-medium">{res.display_name}</td>
-                  {#each res.actions as action}
-                  <td class="text-center">
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-sm checkbox-primary"
-                      aria-label={m['permissions.actionOnResource']({ action, resource: res.display_name })}
-                      checked={has(selectedRole.id, res.name, action)}
-                      onchange={() => toggle(selectedRole.id, res.name, action)}
-                    />
                   </td>
                   {/each}
                 </tr>

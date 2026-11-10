@@ -535,6 +535,10 @@ for (const [driver, transport] of LEGS) {
                   VALUES ('a', ${DEFAULT_TENANT}::uuid), ('b', ${DEFAULT_TENANT}::uuid)`),
         );
       await seed();
+      // A rule names an existing object (migration 116): the extension's own
+      // object is registered as a collection with no table.
+      await db$(sql`INSERT INTO zvd_collections (name, display_name, fields)
+                    VALUES (${res}, ${res}, '[]'::jsonb) ON CONFLICT (name) DO NOTHING`);
       const grants: Array<[string, string]> = [
         [res, 'read'],
         ...['read', 'create', 'update', 'delete'].map((a): [string, string] => [coll, a]),
@@ -688,6 +692,7 @@ for (const [driver, transport] of LEGS) {
         // role defaults the engine seeds on create); then the two accounts.
         await db$(sql`DELETE FROM zvd_permissions
                       WHERE v0 = ${out.memberId as string} OR v2 IN (${coll}, ${res})`);
+        await db$(sql`DELETE FROM zvd_collections WHERE name = ${res}`);
         await db$(sql`DELETE FROM zv_tenant_users WHERE user_id = ${out.memberId as string}`);
         await db$(
           sql`DELETE FROM "user" WHERE id IN (${out.memberId as string}, ${out.godId as string})`,

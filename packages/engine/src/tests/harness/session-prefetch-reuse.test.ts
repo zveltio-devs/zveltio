@@ -22,8 +22,10 @@ import { _wsPermCacheForTests, websocketHandler } from '../../routes/ws.js';
 import {
   createGodSession,
   createMemberSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
+  ruleObjects,
   wsUpgradeData,
 } from '../../testing/app-harness.js';
 
@@ -54,6 +56,7 @@ d('session prefetch reuse', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, 'spr_stream');
     tenant.id = crypto.randomUUID();
     tenant.slug = `spr-${tenant.id.slice(0, 8)}`;
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
@@ -77,6 +80,7 @@ d('session prefetch reuse', () => {
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, 'spr_stream');
     api.getSession = original;
     if (savedEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = savedEnv;

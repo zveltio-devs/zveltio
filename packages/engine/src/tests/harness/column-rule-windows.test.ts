@@ -31,6 +31,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -84,6 +86,7 @@ d('column rules reach the database with their commit (L37)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, RULED, RENAMED, GHOSTED);
     god = await createGodSession(app, db);
     ({ userId: memberId } = await createMemberSession(app, db, {
       grants: [RULED, RENAMED, GHOSTED].map((collection) => ({
@@ -96,12 +99,13 @@ d('column rules reach the database with their commit (L37)', () => {
       [RENAMED, [text('title'), text('secret')]],
       [GHOSTED, [text('title'), { ...text('pw'), type: 'password' }]],
     ] as const) {
-      await DDLManager.createCollection(db, { name, adoptRules: true, fields } as never);
+      await DDLManager.createCollection(db, { name, fields } as never);
     }
   });
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, RULED, RENAMED, GHOSTED);
     cancelPendingCleanups();
     await db
       .deleteFrom('zvd_column_permissions')

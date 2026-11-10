@@ -25,7 +25,13 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hcolperm_${Date.now()}`;
@@ -89,12 +95,12 @@ d('column permissions resolve the real role (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     godCookie = await createGodSession(app, db);
     ({ cookie: memberCookie, userId: memberUserId } = await memberSession(app, db));
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'salary', type: 'text', required: false, unique: false, indexed: false },
@@ -110,6 +116,7 @@ d('column permissions resolve the real role (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`
       .execute(db)
       .catch(() => {});

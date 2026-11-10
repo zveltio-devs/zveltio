@@ -23,7 +23,13 @@ import { DDLManager } from '../../lib/data/index.js';
 import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { ROW_RULE_POLICY } from '../../lib/tenancy/row-rule-policy.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hlrlssf_${Date.now()}`;
@@ -40,6 +46,7 @@ d('data list — two row conditions on one field (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     godCookie = await createGodSession(app, db);
 
     const email = `harness-samefield-${Date.now()}@test.local`;
@@ -67,7 +74,6 @@ d('data list — two row conditions on one field (in-process)', () => {
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'bucket', type: 'text', required: false, unique: false, indexed: false },
@@ -103,6 +109,7 @@ d('data list — two row conditions on one field (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     for (const id of policyIds) {
       await sql`DELETE FROM zvd_rls_policies WHERE id = ${id}::uuid`.execute(db).catch(() => {});
     }

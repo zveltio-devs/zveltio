@@ -12,8 +12,10 @@ import {
   createGodSession,
   createMemberSession,
   dropTestCollection,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import {
@@ -516,6 +518,7 @@ d("a branch table keeps its public namesake's column protections (in-process)", 
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     cookie = await createGodSession(app, db);
     ({ cookie: member, userId: memberId } = await createMemberSession(app, db, {
       grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update', 'delete'] }],
@@ -523,7 +526,6 @@ d("a branch table keeps its public namesake's column protections (in-process)", 
     const { DDLManager } = await import('../../lib/data/index.js');
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'label', type: 'text', required: true, unique: false, indexed: false },
         { name: 'pw', type: 'password', required: false, unique: false, indexed: false },
@@ -568,6 +570,7 @@ d("a branch table keeps its public namesake's column protections (in-process)", 
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     if (branchId) await db.deleteFrom('zv_schema_branches').where('id', '=', branchId).execute();
     if (schema) await sql`DROP SCHEMA IF EXISTS ${sql.id(schema)} CASCADE`.execute(db);
     await db

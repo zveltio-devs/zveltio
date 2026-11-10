@@ -43,6 +43,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -170,6 +172,7 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
+    await ruleObjects(db, RES, RES2);
     _setInlineForTests(true);
     const owner = { extension: EXT, defaultGrants: true };
     const other = { extension: OTHER, defaultGrants: true };
@@ -425,6 +428,7 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES, RES2);
     invalidateActivationCache();
     await unregisterJobs(EXT);
     if (!db) return;

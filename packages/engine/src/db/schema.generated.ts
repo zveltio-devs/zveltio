@@ -192,6 +192,14 @@ export interface ZvDefaultGrantRevocationsTable {
   revoked_at: Generated<Date>;
 }
 
+export interface ZvDefaultGrantRevocationsPruned116Table {
+  role: string;
+  resource: string;
+  action: string;
+  revoked_at: Date | null;
+  pruned_at: Generated<Date>;
+}
+
 export interface ZvDocTemplatesTable {
   id: Generated<string>;
   name: string;
@@ -908,6 +916,19 @@ export interface ZvdPermissionsPruned034Table {
   pruned_at: Generated<Date>;
 }
 
+export interface ZvdPermissionsPruned116Table {
+  id: Generated<string>;
+  ptype: string;
+  v0: string | null;
+  v1: string | null;
+  v2: string | null;
+  v3: string | null;
+  v4: string | null;
+  v5: string | null;
+  created_at: Date | null;
+  pruned_at: Generated<Date>;
+}
+
 export interface ZvdPushTokensTable {
   id: Generated<string>;
   user_id: string;
@@ -1054,6 +1075,7 @@ export interface DbSchema {
   zv_backups: ZvBackupsTable;
   zv_dashboards: ZvDashboardsTable;
   zv_default_grant_revocations: ZvDefaultGrantRevocationsTable;
+  zv_default_grant_revocations_pruned_116: ZvDefaultGrantRevocationsPruned116Table;
   zv_doc_templates: ZvDocTemplatesTable;
   zv_edge_function_logs: ZvEdgeFunctionLogsTable;
   zv_edge_functions: ZvEdgeFunctionsTable;
@@ -1110,6 +1132,7 @@ export interface DbSchema {
   zvd_permissions_pruned_012: ZvdPermissionsPruned012Table;
   zvd_permissions_pruned_033: ZvdPermissionsPruned033Table;
   zvd_permissions_pruned_034: ZvdPermissionsPruned034Table;
+  zvd_permissions_pruned_116: ZvdPermissionsPruned116Table;
   zvd_push_tokens: ZvdPushTokensTable;
   zvd_push_tokens_superseded_013: ZvdPushTokensSuperseded013Table;
   zvd_relations: ZvdRelationsTable;

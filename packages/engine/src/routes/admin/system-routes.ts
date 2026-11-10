@@ -16,15 +16,15 @@ import { apiKeyUsable, escapeLike, memberKeyScopeRefusal } from '../../lib/data/
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
-import { DDLManager, ExistingRulesError, readableRevisions } from '../../lib/data/index.js';
+import { DDLManager, readableRevisions } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
 import { reqDb, tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import { exportSchema, SCHEMA_FORMAT } from '../../lib/schema-artifact/export.js';
-import { planSchema, SchemaFileError } from '../../lib/schema-artifact/plan.js';
+import { SchemaFileError } from '../../lib/schema-artifact/plan.js';
 import {
-  appliedMigrations,
   applySchema,
+  planInstanceSchema,
   SchemaApplyRefused,
 } from '../../lib/schema-artifact/apply.js';
 import type { RequestUser } from '../data.js';
@@ -439,11 +439,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   app.post('/schema/plan', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { files?: unknown } | null;
     try {
-      const steps = planSchema(
-        await exportSchema(db),
-        body?.files as Record<string, unknown>,
-        await appliedMigrations(db),
-      );
+      const steps = await planInstanceSchema(db, body?.files as Record<string, unknown>);
       return c.json({ format: SCHEMA_FORMAT, steps });
     } catch (err) {
       if (err instanceof SchemaFileError) return c.json({ error: err.message }, 400);
@@ -459,13 +455,11 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     const body = (await c.req.json().catch(() => null)) as {
       files?: unknown;
       allowDestructive?: unknown;
-      adopt_rules?: unknown;
     } | null;
     const user = c.get('user' as never) as { id?: string } | undefined;
     try {
       const steps = await applySchema(db, body?.files as Record<string, unknown>, user?.id, {
         allowDestructive: body?.allowDestructive === true,
-        adoptRules: body?.adopt_rules === true,
       });
       return c.json({ format: SCHEMA_FORMAT, steps });
     } catch (err) {
@@ -473,7 +467,6 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       if (err instanceof SchemaApplyRefused) {
         return c.json({ error: err.message, steps: err.steps }, 409);
       }
-      if (err instanceof ExistingRulesError) return c.json(err.body(), 409);
       throw err;
     }
   });

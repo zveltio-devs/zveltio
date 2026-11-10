@@ -1190,8 +1190,8 @@ export function registerMarketplaceRoutes(
 
     return withExtensionLock(db, name, async () => {
       // An update, never an upsert: only an install makes a row. A row for a name
-      // never installed has no manifest, and that stops every collection create
-      // and drop, and every other extension's purge (`nonCollectionObjects`).
+      // never installed has no manifest, and that stops every default grant
+      // (`claimsOfOthers`).
       await db
         .updateTable('zv_extension_registry')
         .set({ is_enabled: false })

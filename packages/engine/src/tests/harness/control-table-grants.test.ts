@@ -193,9 +193,7 @@ d('control tables are read-only to the request roles', () => {
   it("a tenant transaction cannot drop a role's policies through a user named after it", async () => {
     const { withTenantIsolation, DEFAULT_TENANT_ID } = await import('../../lib/tenancy/index.js');
     await sql`INSERT INTO zvd_permissions (ptype, v0, v1, v2, v3)
-              VALUES ('p', 'ctl-role', '*', 'ctl-things', 'read') ON CONFLICT DO NOTHING`.execute(
-      db,
-    );
+              VALUES ('p', 'ctl-role', '*', 'data', 'read') ON CONFLICT DO NOTHING`.execute(db);
     let result = 'ALLOWED';
     try {
       await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {

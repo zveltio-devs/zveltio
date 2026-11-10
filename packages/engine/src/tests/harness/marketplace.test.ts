@@ -92,15 +92,15 @@ d('extension marketplace routes (in-process)', () => {
   });
 
   // The files go, so the registry row and the directory override go with them:
-  // an installed extension with no manifest on disk stops every collection
-  // create and drop in the files that run after this one (`nonCollectionObjects`).
+  // an installed extension with no manifest on disk stops every default grant
+  // in the files that run after this one (`claimsOfOthers`).
   afterAll(async () => {
     globalThis.fetch = originalFetch;
     // The registry list fetched through the mocked fetch is cached for minutes;
     // a later file's install would look its extension up in this file's mock.
     _resetCatalogCacheForTests();
     // The ghost's too, should a route ever write one again: a row with no manifest
-    // fails every later collection create and drop closed (`nonCollectionObjects`).
+    // fails every later default grant closed (`claimsOfOthers`).
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${HELLO_EXT}, ${GHOST})`.execute(db);
     if (TEMP_EXT_BASE) {
       rmSync(TEMP_EXT_BASE, { recursive: true, force: true });

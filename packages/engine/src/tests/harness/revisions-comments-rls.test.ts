@@ -19,6 +19,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -64,6 +66,7 @@ d('record comments honour the read gate (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     godCookie = await createGodSession(app, db);
     ({ cookie: readerCookie } = await createMemberSession(app, db, {
       grants: [{ collection: COLLECTION, actions: ['read'] }],
@@ -77,14 +80,11 @@ d('record comments honour the read gate (in-process)', () => {
       grants: [
         { collection: 'admin', actions: ['*'] },
         { collection: COLLECTION, actions: ['read', 'update'] },
-        // An orphan grant: the collection is gone, its history is not.
-        { collection: GHOST, actions: ['read'] },
       ],
     }));
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'bucket', type: 'text', required: false, unique: false, indexed: false },
@@ -137,6 +137,7 @@ d('record comments honour the read gate (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     await sql`DELETE FROM zv_record_comments WHERE collection = ${COLLECTION}`
       .execute(db)
       .catch(() => {});
@@ -362,7 +363,7 @@ d('record comments honour the read gate (in-process)', () => {
     expect(res.status).toBe(404);
   });
 
-  it('does not list the history of a dropped collection through an orphan grant', async () => {
+  it('does not list the history of a dropped collection, whose grants went with it', async () => {
     for (const base of ['/api/revisions', '/api/admin/revisions']) {
       const rows = await listAs(editorCookie, 'limit=200', base);
       expect(JSON.stringify(rows)).not.toContain('ghost-data');

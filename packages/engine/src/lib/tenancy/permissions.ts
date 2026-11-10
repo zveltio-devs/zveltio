@@ -624,11 +624,13 @@ async function deleteRecordingRevokes(conditions: RawBuilder<unknown>[]): Promis
 /**
  * Revoke the default grant (role, '*', resource, action) as DELETE
  * /api/permissions/policies does, and keep the revocation even where this
- * instance holds no such rule: a schema apply carries a revocation to an
- * instance whose resource is not there yet (an extension installed later),
- * where the adapter's delete removes nothing and so records nothing. Recorded
- * first, so a `materializeDefaultGrants` running in between skips the triple
- * instead of writing it back after the delete.
+ * instance holds no such rule (a schema apply's collection whose defaults are
+ * not written yet), where the adapter's delete removes nothing and so records
+ * nothing. The resource must exist: the database refuses a revocation on
+ * anything else (migration 116), so an extension is installed before a schema
+ * apply revokes on its collections (ADR 0002). Recorded first, so a
+ * `materializeDefaultGrants` running in between skips the triple instead of
+ * writing it back after the delete.
  */
 export async function revokeDefaultGrant(
   role: string,
@@ -743,9 +745,11 @@ export async function initPermissions(db: Database): Promise<void> {
  * The Casbin objects the engine itself asks about that are not collections:
  * `admin` (`requireInstanceAdmin`, `isTenantAdmin`, every extension's
  * `checkPermission(uid, 'admin', '*')`) and `data` (`view_all`,
- * `view_all_columns`). Collections share the object column with them — see
- * `nonCollectionObjects`. `engine-casbin-objects.test.ts` holds this to the
- * literals the engine's `checkPermission` calls name.
+ * `view_all_columns`). Collections share the object column with them, so no
+ * collection takes one of these names (`DDLManager.reservedName`); migration
+ * 116 admits rules on them, `*` and `$edge` beside collections and `$ext:<name>`.
+ * `engine-casbin-objects.test.ts` holds this to the literals the engine's
+ * `checkPermission` calls name.
  */
 export const ENGINE_CASBIN_OBJECTS: readonly string[] = ['admin', 'data'];
 

@@ -13,12 +13,20 @@
  * wildcard. A permission set built on it would have denied everything.
  */
 
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { __allowViaSet, getEnforcer, reconcilePolicies } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
+/** Rule objects: the database refuses a rule on an object that does not exist (migration 116). */
+const EQUIV = `equiv_${Date.now()}`;
+const EQUIV_RES = `equiv_res_${Date.now()}`;
 const d = harnessAvailable() ? describe : describe.skip;
 
 type Case = { subject: string; domain: string; resource: string; action: string };
@@ -61,8 +69,13 @@ d('resolved permission set matches enforce()', () => {
   let db: Database;
   const cases: Case[] = [];
 
+  afterAll(async () => {
+    await forgetRuleObjects(db, EQUIV, EQUIV_RES);
+  });
+
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, EQUIV, EQUIV_RES);
     // See `oracle`: without this, the oracle is a stale model, not casbin.
     await reconcilePolicies();
 
@@ -206,7 +219,7 @@ d('resolved permission set matches enforce()', () => {
     // `true` to everything satisfies without the grant ever mattering.
     const subject = `equiv_user_${Date.now()}`;
     const domain = '*';
-    const resource = `equiv_${Date.now()}`;
+    const resource = EQUIV;
     await e.addRoleForUser(subject, 'member', domain);
 
     const agree = async (label: string) => {
@@ -273,7 +286,7 @@ d('resolved permission set matches enforce()', () => {
   it('a grant in one tenant answers for that tenant and that action only', async () => {
     const e = await getEnforcer();
     const subject = `equiv_sub_${Date.now()}`;
-    const resource = `equiv_res_${Date.now()}`;
+    const resource = EQUIV_RES;
     const tenantA = '00000000-0000-4000-8000-0000000000a1';
     const tenantB = '00000000-0000-4000-8000-0000000000b2';
     const verdict = async (domain: string, action: string) => {

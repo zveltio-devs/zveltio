@@ -19,6 +19,8 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -55,6 +57,7 @@ d('data bulk RLS (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     godCookie = await createGodSession(app, db);
     ({ cookie: memberCookie } = await createMemberSession(app, db, {
       grants: [{ collection: COLLECTION, actions: ['read', 'update', 'delete'] }],
@@ -62,7 +65,6 @@ d('data bulk RLS (in-process)', () => {
 
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'bucket', type: 'text', required: false, unique: false, indexed: false },
@@ -88,6 +90,7 @@ d('data bulk RLS (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     if (policyId) {
       await sql`DELETE FROM zvd_rls_policies WHERE id = ${policyId}::uuid`
         .execute(db)

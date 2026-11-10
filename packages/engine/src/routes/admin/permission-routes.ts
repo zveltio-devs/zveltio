@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { withAdvisoryLock } from '../../db/advisory-lock.js';
 import {
@@ -67,36 +66,11 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
     return c.json({ collections });
   });
 
-  // GET /resources — All permission-addressable resources: collections + zones.
-  // Collections use actions: view, create, update, delete.
-  // Zones use actions: read, write (portal/intranet access model).
+  // GET /resources — what a rule can name besides `*` and the engine's admin
+  // objects: every collection, and `$edge` (migration 116 refuses the rest).
   app.get('/resources', async (c) => {
     const collections = await DDLManager.getCollections(db);
-
-    // Zones are RETIRED, so this reads the table only where one still exists.
-    // `content/zones` was never a real extension name; the portal architecture
-    // became `content/pages`, which migrates out of `zvd_zones` rather than
-    // keeping it. The engine no longer creates the table either, so on every
-    // install made from here on the list is empty — which is correct. Only a
-    // database upgraded from an older engine still has rows to offer.
-    //
-    // The table is checked for, not queried and caught: the request runs in a
-    // transaction, and a SELECT on a missing table (42P01) aborts it, so every
-    // statement after it — the extension resources below — failed too.
-    let zones: Array<{ slug: string; name: string }> = [];
-    const hasZones = await sql<{ ok: boolean }>`
-      SELECT to_regclass('public.zvd_zones') IS NOT NULL AS ok
-    `.execute(db);
-    if (hasZones.rows[0]?.ok) {
-      zones = (
-        await sql<{ slug: string; name: string }>`
-          SELECT slug, name FROM zvd_zones ORDER BY name ASC
-        `.execute(db)
-      ).rows;
-    }
-    const collectionNames = new Set(collections.map((col) => col.name));
-    const declared = await listDeclaredResources(db);
-    const declaredSet = new Set(declared);
+    const declared = new Set(await listDeclaredResources(db));
     const resources = [
       ...collections.map((col) => ({
         name: col.name,
@@ -104,40 +78,19 @@ export function registerPermissionRoutes(app: Hono, db: Database): void {
         type: 'collection' as const,
         // The names the data handlers ask Casbin for. This said `view`, which no
         // check asks for: every tick of it granted nothing (migration 015). A
-        // collection an extension also declares can gate its actions, which ask
-        // `execute`: without it here the matrix could not show or revoke that.
-        actions: declaredSet.has(col.name)
+        // collection an extension's action is gated on asks `execute`: without
+        // it here the matrix could not show or revoke that.
+        actions: declared.has(col.name)
           ? ['read', 'create', 'update', 'delete', 'execute']
           : ['read', 'create', 'update', 'delete'],
       })),
-      // What installed extensions declare in `manifest.resources`, other than a
-      // collection already listed above (CRM declares its own collections). An
-      // extension route asks for these, and an extension action asks `execute`,
-      // which tenant_member holds by default: without this section the matrix
-      // could neither show nor revoke it.
-      ...declared
-        .filter((name) => !collectionNames.has(name))
-        .sort()
-        .map((name) => ({
-          name,
-          display_name: name,
-          type: 'extension' as const,
-          actions: ['read', 'create', 'update', 'delete', 'execute'],
-        })),
-      // `/api/fn/:name` asks `execute` on it (routes/edge-functions.ts); listed
-      // with the extension resources, since the functions are the extension's.
+      // `/api/fn/:name` asks `execute` on it (routes/edge-functions.ts).
       {
         name: EDGE_SCOPE,
         display_name: 'Edge functions',
         type: 'extension' as const,
         actions: ['execute'],
       },
-      ...zones.map((z) => ({
-        name: z.slug,
-        display_name: z.name,
-        type: 'zone' as const,
-        actions: ['read', 'write'],
-      })),
     ];
     return c.json({ resources });
   });

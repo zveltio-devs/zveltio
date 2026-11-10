@@ -5,8 +5,9 @@
  * operator who took `tenant_member` read away on one instance exported a file
  * that said nothing about it, and applying that file elsewhere kept the access.
  * The role's `revokedDefaults` now carries it: export lists it, plan shows it,
- * apply revokes it through the enforcer — before the resource exists, too — and
- * a file that no longer lists it restores the default.
+ * apply revokes it through the enforcer — on a collection the same files
+ * create, too — and a file that no longer lists it restores the default. A
+ * revocation on an object the instance will not have is refused (ADR 0002).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
@@ -14,7 +15,6 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { serialize } from '../../lib/schema-artifact/export.js';
-import { materializeDefaultGrants } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
   dropTestCollection,
@@ -112,27 +112,26 @@ d('schema files carry revoked default grants', () => {
     expect(await steps(restored)).toEqual([]);
   });
 
-  it('revokes on a fresh instance, where the collection and the resource do not exist yet', async () => {
+  it('revokes on a fresh instance, on the collection the files create', async () => {
     expect((await policy('DELETE', COLL, 'update')).status).toBe(200);
     const files = await pull();
     const roles = JSON.parse(files['roles.json']);
     const member = roles.roles.find((r: { name: string }) => r.name === 'tenant_member');
     // Sorted by resource, as the export writes them: '-' sorts before '_'.
     member.revokedDefaults.unshift({ resource: EXT_RES, actions: ['execute'] });
-    const desired = { ...files, 'roles.json': serialize(roles) };
+    const ahead = { ...files, 'roles.json': serialize(roles) };
 
     // Fresh: no collection, no grant, no revocation.
     await dropTestCollection(db, COLL);
     await forget();
-    expect((await apply(desired)).status).toBe(200);
+    // An extension's object before it is installed: install first, then apply.
+    expect((await apply(ahead)).status).toBe(409);
+    expect(await DDLManager.tableExists(db, COLL)).toBe(false);
+    expect(await state(EXT_RES, 'execute')).toEqual({ held: false, revoked: false });
+
+    expect((await apply(files)).status).toBe(200);
     expect(await state(COLL, 'update')).toEqual({ held: false, revoked: true });
     expect(await state(COLL, 'read')).toEqual({ held: true, revoked: false });
-    expect(await state(EXT_RES, 'execute')).toEqual({ held: false, revoked: true });
-    expect(await pull()).toEqual(desired);
-
-    // The extension installed later does not get the revoked default back.
-    await materializeDefaultGrants(db, [EXT_RES], { extension: true });
-    expect(await state(EXT_RES, 'execute')).toEqual({ held: false, revoked: true });
-    expect(await state(EXT_RES, 'read')).toEqual({ held: true, revoked: false });
+    expect(await pull()).toEqual(files);
   });
 });

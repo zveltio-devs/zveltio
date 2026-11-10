@@ -23,6 +23,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -101,13 +103,13 @@ d('row rules reach the database with their commit', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, RULED);
     god = await createGodSession(app, db);
     ({ userId: memberId } = await createMemberSession(app, db, {
       grants: [{ collection: RULED, actions: ['read'] }],
     }));
     await DDLManager.createCollection(db, {
       name: RULED,
-      adoptRules: true,
       fields: [{ name: 'owner', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     await sql`
@@ -119,6 +121,7 @@ d('row rules reach the database with their commit', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, RULED);
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${RULED}`.execute(db).catch(() => {});
     await dropTestCollection(db, RULED).catch(() => {});
   });

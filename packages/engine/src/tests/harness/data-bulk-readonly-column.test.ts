@@ -16,6 +16,8 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -30,6 +32,7 @@ d('bulk read-only column enforcement (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     cookie = await createGodSession(app, db);
     // Deny-by-default: without an explicit grant this user is refused 403,
     // which is not the restriction under test and reads like a pass.
@@ -38,7 +41,6 @@ d('bulk read-only column enforcement (in-process)', () => {
     }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'secret', type: 'text', required: false, unique: false, indexed: false },
@@ -62,6 +64,7 @@ d('bulk read-only column enforcement (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     if (colPermId) {
       await db
         .deleteFrom('zvd_column_permissions')

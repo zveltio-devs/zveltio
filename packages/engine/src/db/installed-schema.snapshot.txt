@@ -4,7 +4,7 @@
 # A diff here is a real change to what a customer gets; read it before
 # committing it. See the header of that script for why this file exists.
 #
-# tables: 594
+# tables: 596
 
 table account
   col accessToken                    text
@@ -241,6 +241,14 @@ table zv_default_grant_revocations
   col revoked_at                     timestamp with time zone NOT NULL DEFAULT now()
   col role                           text NOT NULL
   pk  zv_default_grant_revocations_pkey PRIMARY KEY (role, resource, action)
+
+table zv_default_grant_revocations_pruned_116
+  col action                         text NOT NULL
+  col pruned_at                      timestamp with time zone NOT NULL DEFAULT now()
+  col resource                       text NOT NULL
+  col revoked_at                     timestamp with time zone
+  col role                           text NOT NULL
+  pk  zv_default_grant_revocations_pruned_116_pkey PRIMARY KEY (role, resource, action)
 
 table zv_doc_templates
   col counter                        integer NOT NULL DEFAULT 0
@@ -6236,6 +6244,19 @@ table zvd_permissions_pruned_034
   col v4                             text
   col v5                             text
   pk  zvd_permissions_pruned_034_pkey PRIMARY KEY (id)
+
+table zvd_permissions_pruned_116
+  col created_at                     timestamp with time zone
+  col id                             uuid NOT NULL
+  col pruned_at                      timestamp with time zone NOT NULL DEFAULT now()
+  col ptype                          text NOT NULL
+  col v0                             text
+  col v1                             text
+  col v2                             text
+  col v3                             text
+  col v4                             text
+  col v5                             text
+  pk  zvd_permissions_pruned_116_pkey PRIMARY KEY (id)
 
 table zvd_plan_changes
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
