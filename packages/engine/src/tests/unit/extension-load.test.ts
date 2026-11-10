@@ -14,7 +14,7 @@ import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
-/** Minimal valid WASM exporting register(). */
+/** Minimal valid WASM exporting register() — present so the refusal is not about a missing artifact. */
 const WASM_EXPORTS_REGISTER = new Uint8Array([
   0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 7, 12, 1, 8, 114, 101, 103, 105, 115,
   116, 101, 114, 0, 0, 10, 4, 1, 2, 0, 11,
@@ -94,41 +94,28 @@ describe('loadExtensionFromDir', () => {
     expect(loader.loaded.has('bad-compat')).toBe(false);
   });
 
-  it('refuses a community wasm extension at the publisher-tier gate', async () => {
-    // The gate decides whether untrusted code may run in this process, and it
-    // used to sit inside the inline branch — so a manifest declaring
-    // `runtime: "wasm"` took its own branch and returned before ever reaching
-    // it. A community-tier WASM extension loaded with the gate having no
-    // opinion. No override here on purpose: this is the default posture.
+  it('refuses a wasm runtime manifest, even worker-isolated and bundled (DR-13)', async () => {
+    // `isolation: "worker"` + `bundled: true` is what lets the publisher-tier
+    // gate pass a community extension, because the runner is meant to be the
+    // boundary. A `runtime: "wasm"` manifest with that block passed the gate and
+    // then took the WASM branch, instantiating the module in the engine
+    // process: an uncatalogued (community) extension loaded in-process. The
+    // host is gone; the manifest is refused before any gate is asked.
     const base = tmpExt({
-      'wasm-community/manifest.json': JSON.stringify({
-        name: 'wasm-community',
+      'wasm-x/manifest.json': JSON.stringify({
+        name: 'wasm-x',
         version: '1.0.0',
         runtime: 'wasm',
+        engine: { isolation: 'worker', bundled: true, entry: 'engine/index.js' },
       }),
-      'wasm-community/engine/index.js': 'export default {};',
+      'wasm-x/engine/index.js': 'export default { name: "wasm-x", async register() {} };',
     });
+    writeFileSync(join(base, 'wasm-x/engine/extension.wasm'), WASM_EXPORTS_REGISTER);
     const loader = fakeLoader();
-    await loadExtensionFromDir(loader, 'wasm-community', app, loader.ctx, base);
-    expect(loader.loaded.has('wasm-community')).toBe(false);
-    expect(loader.lastLoadError.get('wasm-community')).toMatch(/isolation|community/i);
-  });
-
-  it('records lastLoadError when wasm runtime is declared but .wasm is missing', async () => {
-    // The override isolates what this case is about — the missing artifact —
-    // now that the tier gate runs before the runtime is chosen.
-    _setInlineForTests(true);
-    const base = tmpExt({
-      'wasm-miss/manifest.json': JSON.stringify({
-        name: 'wasm-miss',
-        version: '1.0.0',
-        runtime: 'wasm',
-      }),
-      'wasm-miss/engine/index.js': 'export default {};',
-    });
-    const loader = fakeLoader();
-    await loadExtensionFromDir(loader, 'wasm-miss', app, loader.ctx, base);
-    expect(loader.lastLoadError.get('wasm-miss')).toContain('extension.wasm is missing');
+    await loadExtensionFromDir(loader, 'wasm-x', app, loader.ctx, base);
+    expect(loader.loaded.has('wasm-x')).toBe(false);
+    expect(loader.modules.has('wasm-x')).toBe(false);
+    expect(loader.lastLoadError.get('wasm-x')).toMatch(/invalid manifest\.json.*runtime/s);
   });
 
   it('loads a bundled inline extension when inline third-party override is set', async () => {
@@ -156,23 +143,6 @@ describe('loadExtensionFromDir', () => {
     const res = await app.request('/ext/inline-probe/ok');
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('loaded');
-  });
-
-  it('loads a wasm runtime extension when extension.wasm is present', async () => {
-    _setInlineForTests(true);
-    const base = tmpExt({
-      'wasm-ok/manifest.json': JSON.stringify({
-        name: 'wasm-ok',
-        version: '1.0.0',
-        runtime: 'wasm',
-      }),
-      'wasm-ok/engine/index.js': 'export default {}',
-    });
-    writeFileSync(join(base, 'wasm-ok/engine/extension.wasm'), WASM_EXPORTS_REGISTER);
-    const loader = fakeLoader();
-    await loadExtensionFromDir(loader, 'wasm-ok', app, loader.ctx, base);
-    expect(loader.loaded.has('wasm-ok')).toBe(true);
-    expect(loader.modules.has('wasm-ok')).toBe(true);
   });
 
   it('warns when the module has no register() function', async () => {

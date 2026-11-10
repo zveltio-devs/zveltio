@@ -67,8 +67,6 @@ export interface ManifestResolution {
   migrationsLimit: number;
   /** Extension category (manifest.category or 'custom'). */
   extCategory: string;
-  /** Runtime selector ('js' | 'wasm'). */
-  extRuntime: 'js' | 'wasm';
   /**
    * When non-null, the caller should `manifestMeta.set(extName, ...)` with
    * this payload. Computed here (including embedPageSchemas) so the phase is
@@ -102,7 +100,6 @@ export async function resolveManifest(
 ): Promise<PhaseResult<ManifestResolution>> {
   let migrationsLimit: number = DEFAULT_QUOTAS.migrationsMax;
   let extCategory = 'custom';
-  let extRuntime: 'js' | 'wasm' = 'js';
   let manifest: ExtensionManifest | null = null;
   let manifestMeta: ManifestMeta | null = null;
   let absentOptional: string[] = [];
@@ -123,7 +120,6 @@ export async function resolveManifest(
       };
     }
     if (typeof manifest.category === 'string') extCategory = manifest.category;
-    if (manifest.runtime === 'wasm') extRuntime = 'wasm';
 
     // Engine version compatibility
     const compat = isCompatible(
@@ -286,7 +282,6 @@ export async function resolveManifest(
       manifest,
       migrationsLimit,
       extCategory,
-      extRuntime,
       manifestMeta,
       absentOptional,
       absentWarning,

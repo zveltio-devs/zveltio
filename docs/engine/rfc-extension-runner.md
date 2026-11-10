@@ -91,8 +91,7 @@ is a serialisable message:
 The proposal:
 - **Framing:** length-prefixed JSON over a socketpair or stdio pipe created at
   spawn. No listening port, and no filesystem socket the extension could share.
-- **Protocol version** in `init`, alongside the existing `WASM_HOST_ABI_VERSION`
-  practice. A mismatch refuses to start.
+- **Protocol version** in `init`. A mismatch refuses to start.
 - **Authentication:** the channel is created by the engine and inherited only by
   that child, so the channel itself is the identity. Every message the engine
   receives is attributed to the extension the runner was spawned for, never to a
@@ -631,8 +630,10 @@ runner.
 
 ## Alternatives considered
 
-**WebAssembly for every third-party extension** (`lib/wasm-extension-host.ts`).
-This gives the strongest in-process isolation, but today:
+**WebAssembly for every third-party extension** (the former
+`lib/wasm-extension-host.ts`, since removed: an in-process host that
+nothing used, and whose `runtime: "wasm"` manifest path bypassed the
+publisher-tier gate). This gives the strongest in-process isolation, but today:
 - the host cannot bind HTTP routes; there is no routing ABI;
 - `fetch` is a stub;
 - there is no SDK or toolchain.

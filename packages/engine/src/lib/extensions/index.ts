@@ -24,10 +24,9 @@ export { listRunnableActions } from './actions.js';
 export * from './extension-marketplace-routes.js';
 export * from './extension-paths.js';
 export * from './extension-registry.js';
-export * from './extension-sandbox.js';
 export * from './extension-utils.js';
 
 // `_internalForTests` is a test-only hook exported by both extension-context and
-// extension-sandbox; tests import it via deep paths, so the barrel value is
+// extension-loader; tests import it via deep paths, so the barrel value is
 // unused. Re-export one explicitly to resolve the `export *` ambiguity.
 export { _internalForTests } from './extension-context.js';

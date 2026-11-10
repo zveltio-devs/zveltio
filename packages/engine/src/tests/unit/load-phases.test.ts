@@ -34,12 +34,11 @@ function tmpExt(files: Record<string, string>): string {
 }
 
 describe('resolveManifest', () => {
-  it('no manifest.json → ok with defaults (manifest null, js, custom)', async () => {
+  it('no manifest.json → ok with defaults (manifest null, custom)', async () => {
     const r = await resolveManifest('ext', tmpExt({}), db);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.manifest).toBeNull();
-      expect(r.value.extRuntime).toBe('js');
       expect(r.value.extCategory).toBe('custom');
     }
   });
@@ -62,13 +61,12 @@ describe('resolveManifest', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('valid minimal manifest → ok, category/runtime reflected', async () => {
+  it('valid minimal manifest → ok, category reflected', async () => {
     const dir = tmpExt({
       'manifest.json': JSON.stringify({
         name: 'probe',
         version: '1.0.0',
         category: 'analytics',
-        runtime: 'wasm',
       }),
     });
     const r = await resolveManifest('probe', dir, db);
@@ -76,8 +74,16 @@ describe('resolveManifest', () => {
     if (r.ok) {
       expect(r.value.manifest?.name).toBe('probe');
       expect(r.value.extCategory).toBe('analytics');
-      expect(r.value.extRuntime).toBe('wasm');
     }
+  });
+
+  it('runtime "wasm" → PhaseFail (the WASM host is gone)', async () => {
+    const dir = tmpExt({
+      'manifest.json': JSON.stringify({ name: 'probe', version: '1.0.0', runtime: 'wasm' }),
+    });
+    const r = await resolveManifest('probe', dir, db);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.lastLoadError).toMatch(/invalid manifest\.json.*runtime/s);
   });
 
   it('engine-incompatible manifest → PhaseFail', async () => {

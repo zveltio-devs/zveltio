@@ -384,14 +384,14 @@ export const ManifestSchema = z
       })
       .optional(),
     /**
-     * Extension runtime. `"js"` (default) loads via dynamic
-     * import of `engine/index.ts`. `"wasm"` loads via `WasmExtensionHost`
-     * — the engine reads `engine/extension.wasm` and runs it inside a
-     * capability-bound WebAssembly instance. WASM extensions get real
-     * isolation (separate linear memory, no V8 heap access) at the cost
-     * of a small ABI surface; see `docs/extensions/developer-guide.md` §16.
+     * Extension runtime. `"js"` is the only one: an ESM module, run inline or
+     * in the extension runner. `"wasm"` is refused — the in-process WASM host
+     * it selected was removed (rfc-extension-runner.md, Alternatives
+     * considered), and while it existed a `runtime: "wasm"` manifest with
+     * `engine.isolation: "worker"` passed the publisher-tier gate and then
+     * ran in the engine process.
      */
-    runtime: z.enum(['js', 'wasm']).default('js').optional(),
+    runtime: z.literal('js').default('js').optional(),
     /**
      * v2 engine block. When present with `bundled: true`, the loader
      * imports `engine.entry` (a pre-built `.js` artifact) directly
