@@ -1,238 +1,25 @@
 import { type Context, Hono } from 'hono';
 import { guardSessionOrKey } from '../lib/admin-guard.js';
-import {
-  apiKeyRowId,
-  isApiKeyPrincipal,
-  type RequestUser,
-  rowAuthorId,
-  STORAGE_SCOPE,
-} from '../lib/data/index.js';
+import { type RequestUser, rowAuthorId, STORAGE_SCOPE } from '../lib/data/index.js';
 import type { Database } from '../db/index.js';
-import { isTenantAdmin } from '../lib/tenancy/index.js';
-import { applyFileVisibility, mayDeleteFile, mayReadFile } from '../lib/media-visibility.js';
+import { applyFileVisibility } from '../lib/media-visibility.js';
 import { writeRateLimit } from '../middleware/rate-limit.js';
 import { getStorage } from '../lib/storage/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
-import { checkStorageQuota } from '../lib/storage-quota.js';
+import {
+  type FileActor,
+  fileActorOf,
+  folderVisible,
+  maxUploadBytes,
+  readableFile,
+  removeFile,
+  storeFile,
+} from '../lib/stored-files.js';
 import { paging } from '../lib/utils.js';
 
-// Object storage goes through the pluggable driver (lib/storage): `local`
-// filesystem by default, `s3` (aws4fetch) when S3_ENDPOINT is set.
-
-// Extract image width/height from raw bytes — avoids pulling in `image-size`
-// or similar. Supports PNG (IHDR chunk), JPEG (SOF markers), GIF89a/GIF87a,
-// and WebP (VP8/VP8L/VP8X).
-function extractImageDimensions(
-  buffer: Buffer,
-  mimeType: string,
-): { width?: number; height?: number } {
-  try {
-    if (mimeType === 'image/png') {
-      // PNG: IHDR chunk at bytes 8-28; width at 16-19 (BE), height at 20-23 (BE).
-      if (buffer.length >= 24) {
-        return {
-          width: buffer.readUInt32BE(16),
-          height: buffer.readUInt32BE(20),
-        };
-      }
-    } else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
-      // JPEG: scan for SOF0-SOF3 markers (0xFF 0xC0..0xC3), skipping other segments.
-      let i = 2;
-      while (i < buffer.length - 8) {
-        if (buffer[i] !== 0xff) break;
-        const marker = buffer[i + 1];
-        if (marker >= 0xc0 && marker <= 0xc3) {
-          return {
-            height: buffer.readUInt16BE(i + 5),
-            width: buffer.readUInt16BE(i + 7),
-          };
-        }
-        const segLen = buffer.readUInt16BE(i + 2);
-        if (segLen < 2) break; // malformed
-        i += 2 + segLen;
-      }
-    } else if (mimeType === 'image/gif') {
-      // GIF: logical screen descriptor at bytes 6-9 (LE).
-      if (buffer.length >= 10) {
-        return {
-          width: buffer.readUInt16LE(6),
-          height: buffer.readUInt16LE(8),
-        };
-      }
-    } else if (mimeType === 'image/webp') {
-      // WebP: RIFF header, then WEBP FourCC, then VP8/VP8L/VP8X chunk.
-      if (
-        buffer.length >= 30 &&
-        buffer.toString('ascii', 0, 4) === 'RIFF' &&
-        buffer.toString('ascii', 8, 12) === 'WEBP'
-      ) {
-        const chunkType = buffer.toString('ascii', 12, 16);
-        if (chunkType === 'VP8 ' && buffer.length >= 30) {
-          // Lossy VP8: 14-bit width/height at bytes 26-29 (LE, minus 1 each).
-          return {
-            width: (buffer.readUInt16LE(26) & 0x3fff) + 1,
-            height: (buffer.readUInt16LE(28) & 0x3fff) + 1,
-          };
-        } else if (chunkType === 'VP8L' && buffer.length >= 26 && buffer[20] === 0x2f) {
-          // Lossless VP8L: packed 28-bit fields (14 bits each) starting at byte 21.
-          const bits = buffer.readUInt32LE(21);
-          return {
-            width: (bits & 0x3fff) + 1,
-            height: ((bits >> 14) & 0x3fff) + 1,
-          };
-        } else if (chunkType === 'VP8X' && buffer.length >= 30) {
-          // Extended VP8X: 24-bit LE width-1 at bytes 24-26, height-1 at 27-29.
-          const w = buffer.readUIntLE(24, 3) + 1;
-          const h = buffer.readUIntLE(27, 3) + 1;
-          return { width: w, height: h };
-        }
-      }
-    }
-  } catch {
-    /* parsing error — skip, leave dimensions undefined */
-  }
-  return {};
-}
-
-/**
- * Strip script/event-handler nodes out of an SVG string.
- *
- * An SVG with `<script>` or `<foreignObject>` content executes when the
- * browser renders it inline. Even an `<img src="...svg">` can run scripts
- * if the SVG is served from the same origin. We delete the dangerous
- * subtrees and scrub every `on*` attribute before storage.
- *
- * We deliberately use a regex sweep rather than parsing the SVG: bringing
- * in a DOM parser on every upload is heavy, and the cases we need to kill
- * are stable. False positives (e.g. an SVG with a `<title>` that happens
- * to contain the literal word "script") are not destructive — the worst
- * case is a stripped attribute, not a corrupted file.
- */
-/**
- * Schemes an SVG link may carry. Anything else — including anything this
- * function cannot confidently read — becomes `#`.
- */
-function isSafeSvgUrl(raw: string): boolean {
-  // Decode what a browser decodes before it resolves the scheme: HTML entities
-  // (numeric and the few named ones that matter) and control characters, which
-  // are ignored inside a scheme.
-  const decoded = raw
-    .replace(/&#x([0-9a-f]+);?/gi, (_m, hex: string) =>
-      String.fromCodePoint(Number.parseInt(hex, 16)),
-    )
-    .replace(/&#(\d+);?/g, (_m, dec: string) => String.fromCodePoint(Number.parseInt(dec, 10)))
-    .replace(/&colon;/gi, ':')
-    .replace(/&NewLine;/gi, '\n')
-    .replace(/&Tab;/gi, '\t')
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point
-    .replace(/[\u0000-\u0020\u00a0\ufeff]/g, '')
-    .toLowerCase();
-  if (decoded === '') return true;
-  // Relative, fragment and root-relative references carry no scheme at all.
-  if (/^[#/.?]/.test(decoded)) return true;
-  const scheme = /^([a-z][a-z0-9+.-]*):/.exec(decoded);
-  if (!scheme) return true; // a bare path such as `logo.png`
-  return scheme[1] === 'http' || scheme[1] === 'https' || scheme[1] === 'mailto';
-}
-
-/** Exported for the regression suite — the sweep is the whole defence for SVG. */
-export function sanitizeSvgString(svg: string): string {
-  let s = svg;
-  // Strip <script>...</script>
-  s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
-  // Strip <script .../> self-closing
-  s = s.replace(/<script\b[^>]*\/>/gi, '');
-  // Strip <foreignObject> — can embed arbitrary HTML, including <iframe>
-  s = s.replace(/<foreignObject\b[^>]*>[\s\S]*?<\/foreignObject>/gi, '');
-  // Strip all on* event handler attributes (onload, onclick, …)
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g, '');
-  // Every href is checked against an ALLOWLIST of schemes rather than a list of
-  // bad ones. The denylist here matched the literal strings `javascript:`,
-  // `data:` and `vbscript:`, and an SVG carrying
-  // `xlink:href="java&#10;script:alert(1)"` went through untouched — the browser
-  // decodes the entity, the regex does not. Measured, with the three payloads
-  // below surviving byte for byte. A denylist over an open namespace is the
-  // shape this codebase has been bitten by repeatedly; this is the same fix.
-  s = s.replace(
-    /(\bhref|\bxlink:href)\s*=\s*("|')([^"']*)\2/gi,
-    (whole, attr: string, quote: string, value: string) =>
-      isSafeSvgUrl(value) ? whole : `${attr}=${quote}#${quote}`,
-  );
-  // SMIL can set an attribute the sanitiser just cleaned: `<set
-  // attributeName="xlink:href" to="javascript:…">` and the `<animate>` form of
-  // it both re-point a link at script AFTER load, so neither is reachable by
-  // looking at href attributes. Only the animations that target a URL attribute
-  // are removed; an ordinary animated SVG keeps working.
-  s = s.replace(
-    /<(set|animate|animateTransform|animateMotion)\b[^>]*\battributeName\s*=\s*("|')\s*(?:xlink:)?href\s*\2[^>]*>(?:[\s\S]*?<\/\1\s*>)?/gi,
-    '',
-  );
-  // Strip <use href="data:..."> — Chrome and Firefox both allow script:
-  // execution through external SVG references.
-  s = s.replace(
-    /<use\b[^>]*\b(?:href|xlink:href)\s*=\s*(?:"|')\s*(?:javascript|data|vbscript):/gi,
-    '<use ',
-  );
-  return s;
-}
-
-const MIME_BY_EXT: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  gif: 'image/gif',
-  webp: 'image/webp',
-  avif: 'image/avif',
-  svg: 'image/svg+xml',
-  pdf: 'application/pdf',
-  txt: 'text/plain',
-  md: 'text/plain',
-  csv: 'text/csv',
-  json: 'application/json',
-  xml: 'application/xml',
-  mp4: 'video/mp4',
-  webm: 'video/webm',
-  mov: 'video/quicktime',
-  avi: 'video/x-msvideo',
-  mp3: 'audio/mpeg',
-  wav: 'audio/wav',
-  ogg: 'audio/ogg',
-  flac: 'audio/flac',
-  zip: 'application/zip',
-  tar: 'application/x-tar',
-  gz: 'application/gzip',
-  '7z': 'application/x-7z-compressed',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  xls: 'application/vnd.ms-excel',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  doc: 'application/msword',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  ppt: 'application/vnd.ms-powerpoint',
-};
-
-/**
- * Detect a file's real MIME from its magic bytes, ignoring the
- * client-supplied `file.type`. A user can rename `evil.html` to `safe.png`
- * and trick the browser into rendering it as HTML if we trust the header;
- * checking the actual bytes catches that. Falls back to the extension
- * allowlist mapping when we don't have a magic-byte signature for the
- * file type (e.g. plain text formats).
- */
-function detectMimeFromMagic(buf: Buffer, ext: string): string | null {
-  if (buf.length >= 4) {
-    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47)
-      return 'image/png';
-    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
-    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38)
-      return 'image/gif';
-    if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46)
-      return 'application/pdf';
-    if (buf[0] === 0x50 && buf[1] === 0x4b) return MIME_BY_EXT[ext] ?? 'application/zip';
-    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46)
-      return 'image/webp'; // RIFF — could be WAV/AVI too, prefer ext
-  }
-  return MIME_BY_EXT[ext] ?? null;
-}
+// The checks every stored file passes live in lib/stored-files.ts, which a
+// job's `host.files` shares (ADR 0032).
+export { sanitizeSvgString } from '../lib/stored-files.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function storageRoutes(db: Database, auth: any): Hono {
@@ -245,22 +32,6 @@ export function storageRoutes(db: Database, auth: any): Hono {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const badId = (c: any) => !UUID_RE.test(c.req.param('id'));
-  // A folder named in a write must be one this request can see. The foreign
-  // key is checked by Postgres outside row-level security, so it accepted
-  // another tenant's folder id: the new row hung under B's folder, and the
-  // 201-versus-error answer told A which of B's folder ids exist.
-  const folderVisible = async (c: Context, rdb: Database, id: unknown) =>
-    typeof id === 'string' &&
-    UUID_RE.test(id) &&
-    Boolean(
-      await rdb
-        .selectFrom('zv_media_folders')
-        .select('id')
-        .where('id', '=', id)
-        .where('tenant_id', '=', tenantId(c))
-        .executeTakeFirst(),
-    );
-
   // A session, or an API key holding `$storage` for what the method does.
   app.use('*', async (c, next) => {
     const m = c.req.method;
@@ -271,15 +42,9 @@ export function storageRoutes(db: Database, auth: any): Hono {
     await next();
   });
 
-  // Who sees and deletes every file in the tenant. A key is never a tenant
-  // admin itself; its exemption is `rls_bypass`, the data path's rule (see
-  // `guardSessionOrKey`), and only while its issuer is one.
-  const seesAllFiles = async (user: RequestUser): Promise<boolean> => {
-    if (!isApiKeyPrincipal(user)) return isTenantAdmin(user.id);
-    // The session's own question, asked of the issuer in this request's tenant.
-    const issuer = user.authorUserId;
-    return user.rlsBypass === true && !!issuer && isTenantAdmin(issuer);
-  };
+  // The request's user, as `lib/stored-files.ts` takes them.
+  const actorOf = (c: Context): Promise<FileActor> =>
+    fileActorOf(c.get('user') as RequestUser, tenantId(c));
 
   // GET / — List files
   app.get('/', async (c) => {
@@ -288,11 +53,11 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const { limit: parsedLimit, offset } = paging(page, limit, 50, 200);
 
     // Only what this user may read in this tenant — see lib/media-visibility.ts.
-    const listUser = c.get('user') as RequestUser;
+    const actor = await actorOf(c);
     let query = applyFileVisibility(
       effectiveDb.selectFrom('zv_media_files').selectAll().orderBy('created_at', 'desc'),
-      listUser.id,
-      await seesAllFiles(listUser).catch(() => false),
+      actor.principalId,
+      actor.seesAll,
       tenantId(c),
     );
 
@@ -307,18 +72,12 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // F1 FIX: Rate-limit uploads to 60/min per user (same as writeRateLimit) to prevent
   // disk/storage quota exhaustion from rapid automated uploads.
   app.post('/upload', writeRateLimit, async (c) => {
-    const user = c.get('user') as RequestUser;
-    // Files are recorded, and counted against a quota, as the key's issuer.
-    const author = rowAuthorId(user);
-    const storage = getStorage();
-
     const formData = await c.req.formData();
     const file = formData.get('file') as File | null;
-
     if (!file) return c.json({ error: 'No file provided' }, 400);
 
-    // Enforce upload size limit (default 50 MB, configurable via MAX_UPLOAD_BYTES env var)
-    const maxBytes = parseInt(process.env.MAX_UPLOAD_BYTES ?? '') || 50 * 1024 * 1024;
+    // Refused before its bytes are read; `storeFile` asks again of the bytes.
+    const maxBytes = maxUploadBytes();
     if (file.size > maxBytes) {
       return c.json(
         {
@@ -328,159 +87,18 @@ export function storageRoutes(db: Database, auth: any): Hono {
       );
     }
 
-    // And the cumulative quota, which is a different question from per-file
-    // size. This route writes the same `zv_media_files` rows as the media
-    // upload and counts against the same allowance, but checked only the line
-    // above — so a user at their limit could keep uploading indefinitely by
-    // coming through here instead, as long as each file was small enough.
-    const quota = await checkStorageQuota(reqDb(c, db), tenantId(c), author, file.size);
-    if (!quota.ok) {
-      return c.json(
-        {
-          error: 'Storage quota exceeded',
-          used_bytes: quota.usedBytes,
-          quota_bytes: quota.quotaBytes,
-        },
-        413,
-      );
-    }
-
-    const folderId = formData.get('folder_id') as string | null;
-    // Before anything is stored: a refused folder must not leave an object behind.
-    const uploadDb = (c.get('tenantTrx') as Database | null) ?? db;
-    if (folderId && !(await folderVisible(c, uploadDb, folderId))) {
-      return c.json({ error: 'Folder not found' }, 404);
-    }
     // Files are private by default (served only via a signed, expiring URL). Pass
     // `public=true` to store under the public namespace and get a bare public URL
     // (e.g. a company logo shown on the site). Business documents stay private.
-    const isPublicUpload = formData.get('public') === 'true';
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // Validate extension against allowlist
-    const ALLOWED_EXTENSIONS = new Set([
-      'jpg',
-      'jpeg',
-      'png',
-      'gif',
-      'webp',
-      'avif',
-      'svg',
-      'pdf',
-      'txt',
-      'md',
-      'csv',
-      'xlsx',
-      'xls',
-      'docx',
-      'doc',
-      'pptx',
-      'ppt',
-      'mp4',
-      'webm',
-      'mov',
-      'avi',
-      'mp3',
-      'wav',
-      'ogg',
-      'flac',
-      'zip',
-      'tar',
-      'gz',
-      '7z',
-      'json',
-      'xml',
-    ]);
-
-    const rawExt = (file.name.split('.').pop() ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!rawExt || !ALLOWED_EXTENSIONS.has(rawExt)) {
-      return c.json(
-        {
-          error: `File type ".${rawExt}" is not allowed. Allowed types: ${[...ALLOWED_EXTENSIONS].join(', ')}`,
-        },
-        400,
-      );
-    }
-
-    // SVG sanitization — an SVG with embedded <script> or <foreignObject>
-    // executes JavaScript when the browser renders it from our origin,
-    // which is XSS. We strip script/handler nodes server-side before the
-    // file is ever written to storage. Rejecting outright would break the
-    // common "upload your company logo" path, so we sanitize instead.
-    let safeBytes = buffer;
-    let detectedMime: string | null = null;
-    if (rawExt === 'svg') {
-      try {
-        const raw = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-        const cleaned = sanitizeSvgString(raw);
-        safeBytes = Buffer.from(cleaned, 'utf-8');
-        detectedMime = 'image/svg+xml';
-      } catch (err) {
-        return c.json({ error: `SVG could not be parsed: ${(err as Error).message}` }, 400);
-      }
-    }
-
-    // Magic-bytes detection — client-supplied file.type is trusted only
-    // as a hint; the actual Content-Type we record comes from the file
-    // content so a renamed `.png` can't be served as `text/html`.
-    if (!detectedMime) detectedMime = detectMimeFromMagic(buffer, rawExt) ?? file.type;
-
-    const filename = `${crypto.randomUUID()}.${rawExt}`;
-    const storagePath = `${isPublicUpload ? 'public/' : ''}uploads/${new Date().getFullYear()}/${filename}`;
-
-    let url: string | undefined;
-
-    if (storage.isConfigured()) {
-      try {
-        await storage.put(storagePath, safeBytes, { contentType: detectedMime });
-      } catch (err) {
-        return c.json({ error: `Storage upload failed: ${(err as Error).message}` }, 502);
-      }
-      // Public uploads get a bare URL; private ones a signed, expiring one. The
-      // stored `storage_path` is the source of truth — callers refresh access via
-      // GET /api/storage/:id/signed-url when a private link expires.
-      url = isPublicUpload
-        ? storage.publicUrl(storagePath)
-        : await storage.signedUrl(storagePath, 24 * 3600);
-    }
-
-    let width: number | undefined;
-    let height: number | undefined;
-    if (detectedMime.startsWith('image/')) {
-      const dims = extractImageDimensions(safeBytes, detectedMime);
-      width = dims.width;
-      height = dims.height;
-    }
-
-    const record = await uploadDb
-      .insertInto('zv_media_files')
-      .values({
-        folder_id: folderId || null,
-        filename,
-        original_name: file.name,
-        // Trust the server-detected content type, not the client header —
-        // a renamed `.html` would otherwise be served as `text/html`.
-        mimetype: detectedMime,
-        size: safeBytes.length,
-        storage_path: storagePath,
-        url,
-        width,
-        height,
-        created_by: author,
-        // The key itself, so it can find its private uploads again.
-        created_by_api_key: isApiKeyPrincipal(user) ? apiKeyRowId(user.id) : null,
-        tenant_id: tenantId(c),
-        // A public upload is served from a bare URL with no authentication at
-        // all, so hiding it from a listing would be theatre — and it is what a
-        // record's file/image field stores, since a private signed URL expires
-        // in an hour. A private upload belongs to whoever made it.
-        visibility: isPublicUpload ? ('tenant' as const) : ('personal' as const),
-      })
-      .returningAll()
-      .executeTakeFirst();
-
-    return c.json({ file: record }, 201);
+    const stored = await storeFile(reqDb(c, db), await actorOf(c), {
+      name: file.name,
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      folderId: formData.get('folder_id') as string | null,
+      isPublic: formData.get('public') === 'true',
+      typeHint: file.type,
+    });
+    if (!('file' in stored)) return c.json(stored.body, stored.status);
+    return c.json({ file: stored.file }, 201);
   });
 
   // GET /folders — List folders (must be before GET /:id to prevent route conflict)
@@ -502,7 +120,7 @@ export function storageRoutes(db: Database, auth: any): Hono {
     const { name, parent_id } = await c.req.json();
 
     if (!name) return c.json({ error: 'Folder name required' }, 400);
-    if (parent_id && !(await folderVisible(c, foldersWriteDb, parent_id))) {
+    if (parent_id && !(await folderVisible(foldersWriteDb, tenantId(c), parent_id))) {
       return c.json({ error: 'Folder not found' }, 404);
     }
 
@@ -528,24 +146,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // GET /:id — Get file metadata
   app.get('/:id', async (c) => {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
-    const metaDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const file = await metaDb
-      .selectFrom('zv_media_files')
-      .selectAll()
-      .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantId(c))
-      .executeTakeFirst();
-
+    const file = await readableFile(reqDb(c, db), await actorOf(c), c.req.param('id'));
     if (!file) return c.json({ error: 'File not found' }, 404);
-
-    // Readable by this user? 404 rather than 403 — whether a colleague's
-    // private file exists is itself something they did not share.
-    const readUser = c.get('user') as RequestUser;
-    if (
-      !mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false), tenantId(c))
-    ) {
-      return c.json({ error: 'File not found' }, 404);
-    }
     return c.json({ file });
   });
 
@@ -554,30 +156,12 @@ export function storageRoutes(db: Database, auth: any): Hono {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
     const storage = getStorage();
     if (!storage.isConfigured()) return c.json({ error: 'Storage not configured' }, 503);
-    const signedDb = (c.get('tenantTrx') as Database | null) ?? db;
-
-    const file = await signedDb
-      .selectFrom('zv_media_files')
-      .selectAll()
-      .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantId(c))
-      .executeTakeFirst();
-
+    const file = await readableFile(reqDb(c, db), await actorOf(c), c.req.param('id'));
     if (!file) return c.json({ error: 'File not found' }, 404);
-
-    // Readable by this user? 404 rather than 403 — whether a colleague's
-    // private file exists is itself something they did not share.
-    const readUser = c.get('user') as RequestUser;
-    if (
-      !mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false), tenantId(c))
-    ) {
-      return c.json({ error: 'File not found' }, 404);
-    }
 
     // Time-limited URL: S3 → aws4fetch presigned GET; local → HMAC-signed
     // /files URL. Both honour the 1h expiry.
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const signedUrl = await storage.signedUrl((file as any).storage_path, 3600);
+    const signedUrl = await storage.signedUrl(file.storage_path, 3600);
 
     return c.json({ url: signedUrl, expires_in: 3600 });
   });
@@ -585,27 +169,10 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // GET /:id/transform — On-the-fly image resize/convert using imagescript (no native deps)
   app.get('/:id/transform', async (c) => {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
-    const transformDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const file = await transformDb
-      .selectFrom('zv_media_files')
-      .selectAll()
-      .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantId(c))
-      .executeTakeFirst();
-
+    const file = await readableFile(reqDb(c, db), await actorOf(c), c.req.param('id'));
     if (!file) return c.json({ error: 'File not found' }, 404);
 
-    // Readable by this user? 404 rather than 403 — whether a colleague's
-    // private file exists is itself something they did not share.
-    const readUser = c.get('user') as RequestUser;
-    if (
-      !mayReadFile(file, readUser.id, await seesAllFiles(readUser).catch(() => false), tenantId(c))
-    ) {
-      return c.json({ error: 'File not found' }, 404);
-    }
-
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const mime: string = (file as any).mimetype || '';
+    const mime = file.mimetype || '';
     if (!mime.startsWith('image/')) return c.json({ error: 'Not an image' }, 400);
 
     const { w, h, format, quality, fit } = c.req.query();
@@ -621,10 +188,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
     // Fetch source bytes
     let sourceBytes: Uint8Array;
     const storage = getStorage();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    if (storage.isConfigured() && (file as any).storage_path) {
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      const obj = await storage.get((file as any).storage_path).catch(() => null);
+    if (storage.isConfigured() && file.storage_path) {
+      const obj = await storage.get(file.storage_path).catch(() => null);
       if (!obj) return c.json({ error: 'Failed to fetch source file' }, 502);
       sourceBytes = obj.bytes;
     } else {
@@ -676,41 +241,8 @@ export function storageRoutes(db: Database, auth: any): Hono {
   // DELETE /:id — Delete file (owner or admin only)
   app.delete('/:id', async (c) => {
     if (badId(c)) return c.json({ error: 'File not found' }, 404);
-    const user = c.get('user') as RequestUser;
-    const deleteDb = (c.get('tenantTrx') as Database | null) ?? db;
-    const storage = getStorage();
-    const file = await deleteDb
-      .selectFrom('zv_media_files')
-      .selectAll()
-      .where('id', '=', c.req.param('id'))
-      .where('tenant_id', '=', tenantId(c))
-      .executeTakeFirst();
-
-    if (!file) return c.json({ error: 'File not found' }, 404);
-
-    // I5: use checkPermission() instead of user.role — Better-Auth may not populate role on session
-    if (!mayDeleteFile(file, user.id, await seesAllFiles(user), tenantId(c))) {
-      return c.json({ error: 'Forbidden' }, 403);
-    }
-
-    if (storage.isConfigured()) {
-      try {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        await storage.delete((file as any).storage_path);
-      } catch (err) {
-        // Keep the row: it is the only record that would let anyone find the
-        // orphaned bytes, which the signed URL from upload still serves.
-        console.error('storage: delete failed', c.req.param('id'), err);
-        return c.json({ error: 'Failed to delete file from storage' }, 500);
-      }
-    }
-
-    await deleteDb
-      .deleteFrom('zv_media_files')
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      .where('id', '=', (file as any).id)
-      .where('tenant_id', '=', tenantId(c))
-      .execute();
+    const removed = await removeFile(reqDb(c, db), await actorOf(c), c.req.param('id'));
+    if (!('ok' in removed)) return c.json(removed.body, removed.status);
     return c.json({ success: true });
   });
 

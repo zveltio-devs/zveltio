@@ -299,7 +299,7 @@ your `ctx`, not inside your own code.
 | `data:write` | `createRecord`, `updateRecord`, `deleteRecord` — write a collection record through the data API's own handlers (access check, column permissions, row policies, alters, entity access, hooks, revisions, webhooks, flows, realtime) as the caller the engine authenticated for the request `c` you pass. There is no identity parameter; outside that request they throw. |
 | `data:system` | `asSystem(collections, fn, { reason })` — run `fn` as the system inside the running tenant for the named collections (`['products']`): collection permissions stand down for `ctx.db` during the call, tenant isolation and the table guard do not. Only inside a tenant's work (a request, or a job in `withTenantIsolation`). Every call writes an `extension.as_system` audit row when it settles, with the extension, the user, the collections, the reason and the outcome (`ok`/`error`); `{ actor: (result) => 'scim_token:' + result.id }` adds who called, from `fn`'s result, as `metadata.claimed_actor` — the extension's word, never the row's user. For work that is more than the caller may do — stock a customer cannot edit, a counter a public form bumps; what can be said as a permission (the `public` role reading published rows, creating form responses) belongs in the permissions instead. Also `enqueue(c, job, input)`: queue a job from the handler of a `publicRoutes` entry the job lists in `fromPublicRoutes`, in the request's transaction and tenant, with no author (an inbound webhook; ADR 0018, see authoring.md). |
 | `notifications` | `sendNotification`. |
-| `files` | `moveToTrash`. |
+| `files` | `moveToTrash`; a job's `host.files` — the stored files its user handed it (ADR 0032, below). |
 | `documents` | `generatePDF`, `generatePDFAsync`, `renderTemplate`. |
 | `edge-functions` | `runEdgeFunction`. |
 | `introspection` | `introspectSchema`, `extensionRegistry`, `runQualityScan`. |
@@ -394,10 +394,62 @@ await s.close();
 calls `await s.startTls()` after the protocol's `STARTTLS` exchange; refused
 while the server's plaintext is unread) or `none`. The certificate is always
 verified against `host`. A run opens at most 4 streams and moves at most
-64 MiB over them; what it writes also crosses the run's 16 MiB channel as
-base64, so about 12 MiB of writes per run. A stream idle for 60 s is closed;
+64 MiB over them; what it writes no longer counts against the run's 16 MiB
+channel (ADR 0031). A stream idle for 60 s is closed;
 every stream closes when the run ends. A rebinding applies to the next
 `connect`, not to a stream already open. Engines from 3.0.0-beta.109.
+
+**Stored files** (ADR 0032). A job reaches only the stored files its user
+hands it, in the action request, and the extension never names them. The
+caller adds `$files` beside the action's input:
+
+```ts
+// POST /ext/<ext>/actions/send — Studio, an API key, an MCP client
+{ "draftId": "…", "$files": { "read": ["<file id>", "…"] } }
+// POST /ext/<ext>/actions/download
+{ "partId": "…", "$files": { "write": { "name": "report.pdf", "maxBytes": 2400000 } } }
+```
+
+The engine takes `$files` out before your input schema sees the body and checks
+it as the caller before your action runs: each `read` id must be a file they
+may read through `/api/storage/:id` (else 404), at most 32 uuids (else 400);
+`write.name` must be a type `/api/storage/upload` accepts (400) and `maxBytes`
+at most 32 MiB (413); a member key also needs `$storage` `read` for `read` and
+`create` for `write` (403). A refused call runs no code and queues nothing.
+The action's audit row records the ids and the name. The type is `ActionFiles`.
+
+The action hands the grant to exactly one job, and never sees or picks an id:
+
+```ts
+const id = await host.enqueue('send', { draftId }, { files: true });
+// the job's id — also the id of the file the job may `put`
+```
+
+`{ files: true }` throws when the request carried no `$files`, for a second
+job in the same call, and in an action run by another action
+(`host.actions.run`, which refuses `$files` in its input with 400). A public
+route's job and a job enqueued without it have no files.
+
+```ts
+const f = await host.files.get(fileId); // { id, name, contentType, size, bytes }, or null
+const saved = await host.files.put(bytes); // stored under the granted name; saved.id is the job id
+```
+
+`get` reads only a granted id (any other throws 403 `file_not_granted`, even
+your user's own file), and is asked again on every call as your user would be
+asked by `/api/storage/:id` now: a file trashed, moved or made private since,
+or an API key revoked, expired or narrowed since, reads as `null`. `put` stores
+the one file of `write`, once (a second throws 409): private, recorded as your
+user's own upload (`created_by`, and the key that called, if any), counted
+against their quota (413 over it, 413 past `maxBytes`). A retried job's `put`
+answers the file an earlier attempt stored, so a job with egress, whose calls
+commit one by one, never stores it twice; in a job with no egress a failed run
+takes the file and its bytes with it. There is no delete and no listing. Every
+call also needs `files` (403 `capability_required`). A call moves at most
+32 MiB and a run 64 MiB, `put` and `get` together; the bytes cross the channel
+as base64 apart from its 16 MiB, so budget `memoryMb` at about five times your
+largest file. Inline jobs get the same `host.files`. Engines from
+3.0.0-beta.109.
 
 ---
 

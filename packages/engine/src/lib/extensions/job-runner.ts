@@ -20,7 +20,8 @@
  *
  * Ceilings, each of which kills the child (SIGKILL) and fails the run: the
  * wall clock (`timeoutSeconds`), memory, 1,000 host calls,
- * 16 MiB of stdout, a malformed line. Memory is bounded three ways because no
+ * 16 MiB of stdout besides the bytes a call carries, 192 MiB of those, a line
+ * over 48 MiB, a malformed line. Memory is bounded three ways because no
  * one way is enough: `--max-old-space-size` caps the V8 heap but not
  * ArrayBuffers; a cgroup caps everything where there is one (a local scope,
  * the runner unit's MemoryMax); and the process that spawned the child reads
@@ -47,7 +48,17 @@ export const RUNNER_LIMITS = {
    * small ones. The relay's byte ceiling and the wall clock bound them too.
    */
   streamCalls: 20_000,
+  /** Everything the job writes but the payloads `payloadBytes` counts. */
   stdoutBytes: 16 * 1024 * 1024,
+  /**
+   * The base64 payload of `files.put` and `tcp.write` (ADR 0031), counted apart:
+   * what each carries is bounded by its own budget (64 MiB of files, 64 MiB of
+   * tcp per run), which a 16 MiB channel would cap at 12. This bounds what the
+   * engine reads for calls those budgets then refuse.
+   */
+  payloadBytes: 192 * 1024 * 1024,
+  /** One line while it is read: a call's payload (32 MiB of file, base64) and its envelope. */
+  lineBytes: 48 * 1024 * 1024,
   /** Deno's own resident size before a job allocates anything, added to `memoryMb`. */
   runtimeMb: 64,
   stderrTail: 2048,
@@ -60,6 +71,18 @@ export const RUNNER_LIMITS = {
  * the wall clock, and a limit at `timeoutSeconds` killed runs before it fired.
  */
 const cpuSeconds = (timeoutSeconds: number) => 2 * timeoutSeconds;
+
+/**
+ * A payload's bytes, from canonical base64 only. `Buffer.from(…, 'base64')`
+ * skips what it cannot read, so a malformed payload would be stored as some
+ * other bytes rather than refused.
+ */
+export function fromBase64Strict(text: string, what: string): Buffer {
+  if (text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) {
+    throw new Error(`${what} must be base64`);
+  }
+  return Buffer.from(text, 'base64');
+}
 
 /** The host calls a job may make; nothing else reaches the engine. */
 export const HOST_CALLS = [
@@ -75,6 +98,8 @@ export const HOST_CALLS = [
   'tcp.write',
   'tcp.startTls',
   'tcp.close',
+  'files.put',
+  'files.get',
 ] as const;
 export type HostCall = (typeof HOST_CALLS)[number];
 
@@ -114,7 +139,12 @@ const b64 = (u8) => {
   for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
   return btoa(s);
 };
-const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const unb64 = (s) => {
+  const bin = atob(s);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+};
 const pending = new Map();
 let next = 0;
 const call = (name, args) =>
@@ -156,6 +186,14 @@ const host = Object.freeze({
       });
     },
   }),
+  // The stored files its user handed it (ADR 0032), checked by the engine.
+  files: Object.freeze({
+    put: (bytes) => call('files.put', [b64(bytes)]),
+    get: async (id) => {
+      const f = await call('files.get', [id]);
+      return f === null ? null : { ...f, bytes: unb64(f.bytes) };
+    },
+  }),
   // The engine performs it (ADR 0022 decision 3): this process opens no socket.
   fetch: async (input, init) => {
     const req = new Request(input, init);
@@ -195,6 +233,8 @@ let buf = '';
 let started = false;
 for await (const chunk of Deno.stdin.readable.pipeThrough(new TextDecoderStream())) {
   buf += chunk;
+  // A file's bytes come as one long line: look for its end only in a chunk that has one.
+  if (!chunk.includes('\\n')) continue;
   let nl;
   while ((nl = buf.indexOf('\\n')) >= 0) {
     const m = JSON.parse(buf.slice(0, nl));
@@ -581,6 +621,7 @@ function supervise(r: RunnerRun, proc: JobProc): Promise<void> {
     let calls = 0;
     let streamCalls = 0;
     let stdoutBytes = 0;
+    let payloadBytes = 0;
     const inFlight = new Set<Promise<void>>();
 
     const kill = (why: string) => {
@@ -637,6 +678,23 @@ function supervise(r: RunnerRun, proc: JobProc): Promise<void> {
       }
       if (m === null || typeof m !== 'object')
         return kill('the job wrote a line that is not a message');
+      // A file's or a stream's bytes count apart from the channel (ADR 0031).
+      const carried = !Array.isArray(m.args)
+        ? undefined
+        : m.call === 'files.put'
+          ? m.args[0]
+          : m.call === 'tcp.write'
+            ? m.args[1]
+            : undefined;
+      const payload = typeof carried === 'string' ? carried.length : 0;
+      payloadBytes += payload;
+      stdoutBytes += Buffer.byteLength(line) + 1 - payload;
+      if (payloadBytes > RUNNER_LIMITS.payloadBytes) {
+        return kill(`more than ${RUNNER_LIMITS.payloadBytes} bytes of file and stream payload`);
+      }
+      if (stdoutBytes > RUNNER_LIMITS.stdoutBytes) {
+        return kill(`more than ${RUNNER_LIMITS.stdoutBytes} bytes on stdout`);
+      }
       if (proc.remote && m.runner && typeof m.runner === 'object') {
         // The last one wins: the runner's own comes after the child's stdout ends.
         const s = m.runner as Record<string, unknown>;
@@ -678,16 +736,19 @@ function supervise(r: RunnerRun, proc: JobProc): Promise<void> {
       const decoder = new TextDecoder();
       let buf = '';
       for await (const chunk of proc.stdout) {
-        stdoutBytes += chunk.byteLength;
-        if (stdoutBytes > RUNNER_LIMITS.stdoutBytes) {
-          kill(`more than ${RUNNER_LIMITS.stdoutBytes} bytes on stdout`);
-          break;
-        }
-        buf += decoder.decode(chunk, { stream: true });
-        for (let nl = buf.indexOf('\n'); nl >= 0; nl = buf.indexOf('\n')) {
-          const line = buf.slice(0, nl);
-          buf = buf.slice(nl + 1);
+        // Counted per line, in `onLine`; a line still being read is bounded here.
+        const text = decoder.decode(chunk, { stream: true });
+        let from = 0;
+        for (let nl = text.indexOf('\n'); nl >= 0 && !failure; nl = text.indexOf('\n', from)) {
+          const line = buf + text.slice(from, nl);
+          buf = '';
+          from = nl + 1;
           if (line) onLine(line);
+        }
+        buf += text.slice(from);
+        if (buf.length > RUNNER_LIMITS.lineBytes) {
+          kill(`a line of more than ${RUNNER_LIMITS.lineBytes} bytes on stdout`);
+          break;
         }
       }
     })();

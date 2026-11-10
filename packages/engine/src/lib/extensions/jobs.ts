@@ -28,6 +28,7 @@ import type { z } from 'zod';
 import type {
   ExtensionJob,
   HostCollections,
+  HostFiles,
   RequestUser,
   UpdateExpect,
   ZveltioExtension,
@@ -71,8 +72,15 @@ import {
 } from './actions.js';
 import { EGRESS_LIMITS, parseRequest, performEgress } from '../edge-functions/egress.js';
 import { EGRESS_PREFIX, readGranted, slotBindings } from './consent.js';
+import { type FileGrant, jobFiles } from './file-grants.js';
 import { ensureDeno } from './deno.js';
-import { type HostCall, jobPlacement, runInDeno, runnerAnswers } from './job-runner.js';
+import {
+  fromBase64Strict,
+  type HostCall,
+  jobPlacement,
+  runInDeno,
+  runnerAnswers,
+} from './job-runner.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 
 export interface CompiledJob {
@@ -106,6 +114,13 @@ interface JobPayload {
   enqueuedBy: string;
   /** The `"user"` row the job's writes are authored by (`rowAuthorId` of the enqueuer). */
   author: string | null;
+  /**
+   * The stored files the enqueuing user handed this job in the action request
+   * (ADR 0032), checked as them then and again at each call. Absent: none.
+   * Written by the engine on its own role, which neither the job nor
+   * `zveltio_rls` can reach, so it is as trusted as the fields above.
+   */
+  files?: FileGrant;
   input: unknown;
 }
 
@@ -118,6 +133,8 @@ const registered = new Map<
   {
     jobs: ReadonlyMap<string, CompiledJob>;
     system: boolean;
+    /** Holds `files`: its jobs reach the stored files their user hands them (ADR 0032). */
+    files: boolean;
     unload: AbortController;
   }
 >();
@@ -262,6 +279,7 @@ export function registerJobs(
   registered.set(extName, {
     jobs,
     system: capabilities.includes('data:system'),
+    files: capabilities.includes('files'),
     unload: new AbortController(),
   });
   // Subscribed on first use, not at import: in the compiled binary this module
@@ -398,7 +416,8 @@ function work(boss: JobQueue, extName: string): void {
 /**
  * `ActionHost.enqueue`: queue `job` for `extName` in the request transaction.
  * Refused unless the action lists the job in `enqueues`, the extension holds
- * `data:system`, and `input` matches the job's schema.
+ * `data:system`, and `input` matches the job's schema. `files`: the request's
+ * `$files`, which the action passes to this one job (ADR 0032).
  */
 export async function enqueueJob(
   extName: string,
@@ -406,12 +425,23 @@ export async function enqueueJob(
   action: { name: string; enqueues: ReadonlySet<string> },
   job: string,
   input: unknown,
+  files?: FileGrant,
 ): Promise<string> {
   const refuse = (why: string): never => {
     throw new Error(`action "${action.name}" could not enqueue job "${job}": ${why}`);
   };
   if (!action.enqueues.has(job)) refuse('its manifest does not list it in enqueues');
-  return sendJob(extName, job, input, refuse, p.trx, p.tenantId, p.user.id, rowAuthorId(p.user));
+  return sendJob(
+    extName,
+    job,
+    input,
+    refuse,
+    p.trx,
+    p.tenantId,
+    p.user.id,
+    rowAuthorId(p.user),
+    files,
+  );
 }
 
 /**
@@ -452,6 +482,7 @@ export async function enqueueFromPublicRoute(
   if (!beforeRequestTransactionEnds(() => held)) refuse('its request is over');
   try {
     const enqueuedBy = `ext:${extName}:route`;
+    // No user, so no files (ADR 0032): nobody handed any.
     const id = await sendJob(extName, job, input, refuse, req.trx, req.tenantId, enqueuedBy, null);
     const { trx } = req;
     // `sendJob` refused a request without one; a failed audit INSERT must not abort the request.
@@ -485,6 +516,7 @@ async function sendJob(
   tenantId: string | null,
   enqueuedBy: string,
   author: string | null,
+  files?: FileGrant,
 ): Promise<string> {
   const reg = registered.get(extName);
   const def = reg?.jobs.get(job);
@@ -502,7 +534,13 @@ async function sendJob(
   const queue = working.get(jobQueueName(extName, job));
   if (!queue) return refuse('its queue is not being worked');
   await queue.ready;
-  const payload: JobPayload = { tenantId, enqueuedBy, author, input: parsed.data };
+  const payload: JobPayload = {
+    tenantId,
+    enqueuedBy,
+    author,
+    ...(files ? { files } : {}),
+    input: parsed.data,
+  };
   // pg-boss's own INSERT, on the request transaction: committed or rolled back
   // with it. As the engine's role — `zveltio_rls` holds nothing on `pgboss`, and
   // granting it would let any tenant statement queue the engine's DDL jobs.
@@ -596,21 +634,51 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
     // Outside any tenant context (`work`), so the transaction's domain is this
     // tenant, not one inherited from wherever pg-boss resumed.
     const { runner } = def;
+    // This attempt's `host.files` (ADR 0032), across its transactions: the byte
+    // budget, and whether it has put its one file.
+    const fileRun = { bytes: 0, put: false };
     // In `tenantId`'s transaction, as the job's principal: the run's, or one per call.
-    const inTenant = <T>(fn: (c: HostCollections) => Promise<T>) =>
-      withTenantIsolation(tenantId, async (trx) => {
-        await publishApiKeyActor(user.id, false, user.scopes, undefined, '', issuer, author);
-        return fn(
-          hostCollections(
-            `job "${job}"`,
-            def,
-            jobData(user, trx, tenantId, extName),
-            secretReveal(trx, tenantId, extName),
-          ),
-        );
-      });
+    // A put's bytes follow the transaction: removed if it rolls back.
+    const inTenant = async <T>(fn: (h: JobCallHost) => Promise<T>): Promise<T> => {
+      const effects = txEffects();
+      let out: T;
+      try {
+        out = await withTenantIsolation(tenantId, async (trx) => {
+          await publishApiKeyActor(user.id, false, user.scopes, undefined, '', issuer, author);
+          return fn({
+            collections: hostCollections(
+              `job "${job}"`,
+              def,
+              jobData(user, trx, tenantId, extName),
+              secretReveal(trx, tenantId, extName),
+            ),
+            files: jobFiles({
+              extName,
+              held: reg.files,
+              trx,
+              tenantId,
+              jobId: id,
+              enqueuedBy: data.enqueuedBy,
+              author: data.author,
+              grant: data.files,
+              run: fileRun,
+              onRollback: effects.afterRollback,
+            }),
+          });
+        });
+      } catch (err) {
+        await effects.settle(false);
+        throw err;
+      }
+      await effects.settle(true);
+      return out;
+    };
+    // At most two file calls of a run at once: each holds its bytes whole.
+    const fileCalls = limiter(Number.POSITIVE_INFINITY, 2, 'file calls');
+    const call = (h: JobCallHost, name: HostCall, args: unknown[]) =>
+      name.startsWith('files.') ? fileCalls(() => jobCall(h, name, args)) : jobCall(h, name, args);
     if (!runner) {
-      await inTenant((collections) => def.run!(input, { collections, timezone }));
+      await inTenant(({ collections, files }) => def.run!(input, { collections, timezone, files }));
       return;
     }
     const deno = await ensureDeno();
@@ -629,11 +697,11 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
       });
     // No egress: one transaction for the run, as inline. A failure rolls it all back.
     if (runner.egress.length === 0 && runner.egressSlots.length === 0) {
-      await inTenant((collections) =>
+      await inTenant((h) =>
         run((name, args) =>
           name === 'fetch'
             ? Promise.reject(new Error('this job declares no egress'))
-            : hostCall(collections, name, args),
+            : call(h, name, args),
         ),
       );
       return;
@@ -711,15 +779,17 @@ async function runJob(extName: string, job: string, id: string, data: JobPayload
           const granted = await readGranted(getDb(), extName);
           return slotBindings(granted, new Set([slot])).get(slot)?.authorities ?? [];
         }
-        const p = dbCalls(async () => {
-          const now = await getDb()
-            .selectFrom('zv_tenants')
-            .select('status')
-            .where('id', '=', tenantId)
-            .executeTakeFirst();
-          if (now?.status !== 'active') throw new Error(`tenant ${tenantId} is no longer active`);
-          return inTenant((collections) => hostCall(collections, name, args));
-        });
+        const p = (name.startsWith('files.') ? fileCalls : passThrough)(() =>
+          dbCalls(async () => {
+            const now = await getDb()
+              .selectFrom('zv_tenants')
+              .select('status')
+              .where('id', '=', tenantId)
+              .executeTakeFirst();
+            if (now?.status !== 'active') throw new Error(`tenant ${tenantId} is no longer active`);
+            return inTenant((h) => jobCall(h, name, args));
+          }),
+        );
         writing.add(p);
         void p.finally(() => writing.delete(p)).catch(() => undefined);
         return p;
@@ -792,6 +862,9 @@ let tcpRelayModule: Promise<typeof import('./tcp-relay.js')> | null = null;
 const loadTcpRelay = () => (tcpRelayModule ??= import('./tcp-relay.js'));
 /** Tests: whether any run has loaded the relay. */
 export const _tcpRelayLoadedForTests = (): boolean => tcpRelayModule !== null;
+
+/** A `limiter` that limits nothing. */
+const passThrough = <T>(fn: () => Promise<T>): Promise<T> => fn();
 
 /** Seconds one fetch may take, its body included. */
 const FETCH_TIMEOUT_S = 30;
@@ -918,7 +991,60 @@ export async function hostCall(c: HostCollections, name: HostCall, a: unknown[])
     case 'tcp.startTls':
     case 'tcp.close':
       throw new Error('this job declares no tcp slot');
+    case 'files.put':
+    case 'files.get':
+      throw new Error(`${name} is not a collection call`);
   }
+}
+
+/** What one host call of a run reaches, in the transaction it runs in. */
+interface JobCallHost {
+  collections: HostCollections;
+  files: HostFiles;
+}
+
+/** One Deno runner call: `files.*` to `h.files`, its bytes as base64 on the channel; the rest to `hostCall`. */
+async function jobCall(h: JobCallHost, name: HostCall, a: unknown[]): Promise<unknown> {
+  if (!name.startsWith('files.')) return hostCall(h.collections, name, a);
+  const str = (i: number, what: string): string => {
+    if (typeof a[i] !== 'string') throw new Error(`${name}: ${what} must be a string`);
+    return a[i] as string;
+  };
+  switch (name) {
+    case 'files.put':
+      return h.files.put(fromBase64Strict(str(0, 'bytes'), 'files.put: bytes'));
+    case 'files.get': {
+      const f = await h.files.get(str(0, 'id'));
+      return f && { ...f, bytes: Buffer.from(f.bytes).toString('base64') };
+    }
+  }
+  throw new Error(`${name} is not a files call`);
+}
+
+/**
+ * What a transaction's rollback undoes outside it (a put's bytes), run once it
+ * settles; one registered after a rollback runs at once, after a commit never.
+ */
+function txEffects() {
+  type Fn = () => Promise<unknown>;
+  let state: 'open' | 'committed' | 'rolled-back' = 'open';
+  const queued: Fn[] = [];
+  const run = (fns: Fn[]) =>
+    Promise.all(
+      fns.map((fn) =>
+        fn().catch((err: Error) => console.warn('[ext-jobs] host.files:', err?.message ?? err)),
+      ),
+    );
+  return {
+    afterRollback: (fn: Fn) => {
+      if (state === 'open') queued.push(fn);
+      else if (state === 'rolled-back') void run([fn]);
+    },
+    settle: async (committed: boolean) => {
+      state = committed ? 'committed' : 'rolled-back';
+      if (!committed) await run(queued);
+    },
+  };
 }
 
 /**

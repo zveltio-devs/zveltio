@@ -414,7 +414,10 @@ engine's own work — the trash purge, a public share link, tenant purge — whi
 publishes no identity. "Owns" is `created_by = zveltio.user_id` for a session,
 `created_by_api_key` for a member key (not its issuer's files: `user_id` stays
 the key). An extension job owns no file, not even its author's (ADR 0028
-decision 4). The storage quota is summed by
+decision 4): a file its user handed it is read, and the one file it
+stores is inserted, as the engine's own work, with `zveltio.actor` off for that
+statement and back on after, then checked in code as that user (ADR 0032). The
+storage quota is summed by
 `zveltio_media_used_bytes(tenant, user)`, which stands these policies down for
 its one statement: a key is charged for its issuer's private files it may not
 see. Folders, tags and share links keep the tenant policy alone.

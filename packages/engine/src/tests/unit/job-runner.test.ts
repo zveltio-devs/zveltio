@@ -17,7 +17,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ensureDeno, othersWritable, unzipSingle } from '../../lib/extensions/deno.js';
 import {
+  fromBase64Strict,
   RUNNER_BOOTSTRAP,
+  RUNNER_LIMITS,
   jobPlacement,
   parseJobHeader,
   runInDeno,
@@ -221,6 +223,72 @@ for (const t of ['process', 'runner'] as const) {
         expect(performance.now() - t).toBeLessThan(6000);
       }, 20_000);
 
+      it("a file's bytes cross the channel apart from its 16 MiB of stdout (ADR 0031)", async () => {
+        let got = -1;
+        const out = await run(
+          job(`
+            const f = await host.files.put(new Uint8Array(20 << 20).fill(7));
+            const back = await host.files.get(f.id);
+            if (back.bytes.length !== 20 << 20 || back.bytes[12345] !== 7) throw new Error('lost the bytes');
+          `),
+          {
+            memoryMb: 512,
+            timeoutSeconds: 30,
+            call: async (n, a) => {
+              if (n !== 'files.put')
+                return { id: 'f1', bytes: Buffer.alloc(20 << 20, 7).toString('base64') };
+              got = Buffer.from(a[0] as string, 'base64').length;
+              return { id: 'f1' };
+            },
+          },
+        );
+        expect(out).toBe('ok');
+        expect(got).toBe(20 << 20);
+      }, 60_000);
+
+      it('a line past 48 MiB, and payloads past their own ceiling', async () => {
+        expect(
+          await run(
+            job(
+              `for (let i = 0; i < 50; i++) await Deno.stdout.write(new Uint8Array(1 << 20).fill(97));`,
+            ),
+            { timeoutSeconds: 30 },
+          ),
+        ).toMatch(/a line of more than 50331648 bytes/);
+        const saved = RUNNER_LIMITS.payloadBytes;
+        RUNNER_LIMITS.payloadBytes = 1 << 20;
+        try {
+          expect(
+            await run(
+              job(`for (let i = 0; i < 4; i++) await host.files.put(new Uint8Array(300 << 10));`),
+            ),
+          ).toMatch(/more than 1048576 bytes of file and stream payload/);
+        } finally {
+          RUNNER_LIMITS.payloadBytes = saved;
+        }
+      }, 60_000);
+
+      // ADR 0032: a job never deletes stored files; the call is unknown, as any other.
+      it('files.delete is answered as an unknown call', async () => {
+        const asked: string[] = [];
+        const out = await run(
+          job(`
+            if (host.files.delete !== undefined) throw new Error('host.files.delete exists');
+            const line = JSON.stringify({ id: 99, call: 'files.delete', args: ['x'] }) + '\\n';
+            await Deno.stdout.write(new TextEncoder().encode(line));
+            await new Promise((r) => setTimeout(r, 2000));
+          `),
+          {
+            call: async (n) => {
+              asked.push(n);
+              return null;
+            },
+          },
+        );
+        expect(out).toMatch(/malformed host call/);
+        expect(asked).toEqual([]);
+      }, 20_000);
+
       it('unload', async () => {
         const ac = new AbortController();
         setTimeout(() => ac.abort(), 300);
@@ -231,6 +299,15 @@ for (const t of ['process', 'runner'] as const) {
     });
   });
 }
+
+describe('payload bytes (ADR 0031)', () => {
+  it('are canonical base64 or refused, never decoded into other bytes', () => {
+    expect([...fromBase64Strict('aGk=', 'x')]).toEqual([104, 105]);
+    for (const bad of ['a@b=', 'aGk', 'aG k=', 'aGk=aGk=']) {
+      expect(() => fromBase64Strict(bad, 'files.put: bytes')).toThrow(/must be base64/);
+    }
+  });
+});
 
 describe('the process itself', () => {
   it('a child whose stdin closes exits', async () => {

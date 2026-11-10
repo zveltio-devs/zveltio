@@ -1541,8 +1541,14 @@ export interface ActionHost {
    * an `input` its schema accepts — anything else throws. Written in the request
    * transaction: the job exists only if the request commits. Needs `data:system`.
    * Resolves to the job's id.
+   *
+   * `{ files: true }` hands this one job the stored files the user handed the
+   * request in `$files` (ADR 0032): it throws when the request carried none, for
+   * a second job of the same call, and in an action run by another action. Only
+   * `true`: no form of `enqueue` takes ids. The id it resolves to is also the id
+   * of the file the job may `put`. Engines from 3.0.0-beta.109.
    */
-  enqueue(job: string, input: unknown): Promise<string>;
+  enqueue(job: string, input: unknown, options?: { files?: true }): Promise<string>;
   /**
    * Run an action of an extension this one depends on (ADR 0014). The calling
    * action's manifest entry lists it in `calls` as `<extension>.<action>`; the
@@ -1603,7 +1609,7 @@ export type ExtensionJob = (input: unknown, host: JobHost) => Promise<void>;
  * A worker-isolated extension's jobs run in the engine's Deno runner (ADR
  * 0022), with no permissions: `engine/jobs.ts` default-exports them by name and
  * `zveltio extension pack` bundles it as `engine/jobs.js`. The host is the same,
- * each call a message to the engine; nothing else (network, files, environment)
+ * each call a message to the engine; nothing else (network, the file system, environment)
  * is reachable. The manifest's `memoryMb` (default 128) and `timeoutSeconds`
  * (default 60; at most 60, or 900 with egress) bound each run there. A job that
  * declares `egress` runs there too, first-party or not.
@@ -1643,6 +1649,60 @@ export interface JobHost {
     slot: (name: string) => Promise<string[]>;
     connect?: (slot: string, options: JobTcpOptions) => Promise<JobTcpStream>;
   };
+  /**
+   * The stored files its user handed it (ADR 0032), and nothing else; needs the
+   * `files` capability. A job handed none — enqueued without `files: true`, by
+   * a public route, or by an action another action ran — has none.
+   * Engines from 3.0.0-beta.109.
+   */
+  files?: HostFiles;
+}
+
+/**
+ * `$files`, beside an action's input in `POST /ext/<ext>/actions/<action>`: the
+ * stored files the caller hands the job the action enqueues with
+ * `{ files: true }` (ADR 0032). The engine takes it out before the input schema
+ * and checks it as the caller first: each `read` id one they may read
+ * (`/api/storage/:id`, else 404), at most 32; `write.name` an upload type
+ * `/api/storage/upload` accepts; `write.maxBytes` at most 32 MiB. A member key
+ * also needs `$storage` `read` for `read`, `create` for `write`. Only an HTTP
+ * call carries it: `host.actions.run` refuses it with 400.
+ */
+export interface ActionFiles {
+  read?: string[];
+  write?: { name: string; maxBytes: number };
+}
+
+/**
+ * A job's stored files: those its user handed it, checked again as that user on
+ * every call (a revoked key, a file trashed or made private since, reads as
+ * `null`). A call moves at most 32 MiB and a run 64 MiB, `put` and `get`
+ * together; a refusal throws with its status.
+ */
+export interface HostFiles {
+  /**
+   * A file of `ActionFiles.read`, with its bytes, or `null` when it is gone or
+   * its user may no longer read it. Any other id throws 403 `file_not_granted`.
+   */
+  get(id: string): Promise<(HostFile & { bytes: Uint8Array }) | null>;
+  /**
+   * Store the one file of `ActionFiles.write`: under its name, private, recorded
+   * as its user's own upload and counted against their quota; Studio serves it
+   * at `/api/storage/<id>`. Its id is the job's id, and a retried job's put
+   * answers the file an earlier attempt stored. Throws 403 without a write
+   * grant, 413 past `maxBytes` or over quota, 409 for a second put.
+   */
+  put(bytes: Uint8Array): Promise<HostFile>;
+}
+
+/** A stored file, as `HostFiles` describes it. */
+export interface HostFile {
+  id: string;
+  /** The name it was stored under (`original_name`). */
+  name: string;
+  /** The content type the engine detected from its bytes. */
+  contentType: string;
+  size: number;
 }
 
 /** Where `host.egress.connect` opens a stream (ADR 0026 amendment). */
