@@ -18,8 +18,10 @@ import type { Database } from '../../db/index.js';
 import {
   createGodSession,
   createMemberSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 import { getEnforcer } from '../../lib/tenancy/index.js';
 
@@ -45,11 +47,13 @@ d('role hierarchy excludes user assignments (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, `hier-col-${tag}`);
     cookie = await createGodSession(app, db);
     ({ userId } = await createMemberSession(app, db));
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, `hier-col-${tag}`);
     await sql`
       DELETE FROM zvd_permissions WHERE v1 IN (${ROLE}, ${PARENT}) OR v0 = ${CHILD}
     `.execute(db);

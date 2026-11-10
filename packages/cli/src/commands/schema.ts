@@ -85,7 +85,6 @@ async function postSchema(
   route: 'plan' | 'apply',
   files: Record<string, string>,
   allowDestructive = false,
-  adoptRules = false,
 ): Promise<Step[]> {
   const res = await fetch(`${engineUrl}/api/admin/schema/${route}`, {
     method: 'POST',
@@ -93,23 +92,11 @@ async function postSchema(
       Authorization: `Bearer ${process.env.ZVELTIO_API_KEY || ''}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ files, allowDestructive, ...(adoptRules ? { adopt_rules: true } : {}) }),
+    body: JSON.stringify({ files, allowDestructive }),
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as {
-      detail?: string;
-      code?: string;
-      errors?: Array<{ subject: string; domain: string; object: string; action: string }>;
-    } | null;
+    const body = (await res.json().catch(() => null)) as { detail?: string } | null;
     console.error(`Schema ${route} failed: ${res.status} ${body?.detail ?? res.statusText}`);
-    if (body?.code === 'existing_rules') {
-      for (const r of body.errors ?? []) {
-        console.error(`  ${r.object}: ${r.subject} ${r.action} in ${r.domain}`);
-      }
-      console.error(
-        '  Delete these rules, or rerun with --adopt-rules to keep them on the new collection.',
-      );
-    }
     if (res.status === 401 || res.status === 403) {
       console.error('  Set ZVELTIO_API_KEY to a key of an instance admin.');
     }
@@ -158,7 +145,6 @@ export async function schemaApplyCommand(opts: {
   url?: string;
   yes?: boolean;
   allowDestructive?: boolean;
-  adoptRules?: boolean;
 }) {
   const dir = opts.dir || './schema';
   const engineUrl = opts.url || process.env.ZVELTIO_URL || 'http://localhost:3000';
@@ -186,12 +172,6 @@ export async function schemaApplyCommand(opts: {
       return;
     }
   }
-  const applied = await postSchema(
-    engineUrl,
-    'apply',
-    files,
-    opts.allowDestructive,
-    opts.adoptRules,
-  );
+  const applied = await postSchema(engineUrl, 'apply', files, opts.allowDestructive);
   console.log(`Applied ${applied.length} change(s).`);
 }

@@ -38,6 +38,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { toJsonb } from '../../lib/jsonb.js';
@@ -171,6 +173,7 @@ d('extension jobs run after the request commits, in its tenant, as the extension
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
+    await ruleObjects(db, RES);
     _setInlineForTests(true);
     await DDLManager.createCollection(db, {
       name: C,
@@ -315,6 +318,7 @@ d('extension jobs run after the request commits, in its tenant, as the extension
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     await unregisterJobs(EXT);
     await unregisterJobs(NOSYS);

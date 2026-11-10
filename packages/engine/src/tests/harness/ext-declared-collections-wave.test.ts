@@ -31,7 +31,6 @@ import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { planExtensionSchema } from '../../lib/schema-artifact/apply.js';
-import { nonCollectionObjects } from '../../lib/tenancy/resource-grants.js';
 import {
   createSteppedUpGod,
   dropTestCollection,
@@ -209,13 +208,11 @@ d('ADR 0012 pilot gaps: seeded names, required keys, relation defaults, Studio-o
   it('A: no seeded rule is left on a business name, and a declared `projects` is created', async () => {
     await extensionLoader.unload(NAME).catch(() => undefined);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
-    // What a registered extension still claims (v1 `resources`) is its own, until the wave.
-    const claimed = await nonCollectionObjects(db);
     const left = await sql<{ v2: string }>`
       SELECT DISTINCT v2 FROM zvd_permissions
        WHERE ptype = 'p' AND v2 IN (${sql.join(SEEDED)})
          AND v2 NOT IN (SELECT name FROM zvd_collections)`.execute(db);
-    expect(left.rows.map((r) => r.v2).filter((n) => !claimed.has(n))).toEqual([]);
+    expect(left.rows).toEqual([]);
 
     // Not `reset()`: dropping the fixture deletes the rules on its name, the ones under test.
     await sql`INSERT INTO zv_extension_registry (name, display_name, is_installed, is_enabled)

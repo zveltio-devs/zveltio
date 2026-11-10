@@ -499,9 +499,8 @@ async function tenantIsolationPolicies(db: Database): Promise<Map<string, string
  *
  * Without `only` (a purge: the extension is leaving), the same transaction
  * drops the collections it owns (`zvd_collections.owner_extension`, ADR 0012)
- * with every rule naming them, and deletes the rules on its own objects —
- * `$ext:<name>` and its v1 resources, see `deleteExtensionObjectRules`; its own
- * manifest is not required. Throws `OwnedCollectionsReferencedError`, dropping
+ * with every rule naming them, and deletes the rules on its own object,
+ * `$ext:<name>` (`deleteExtensionObjectRules`); its manifest is not required. Throws `OwnedCollectionsReferencedError`, dropping
  * nothing, while an operator's column holds a key into an owned collection.
  *
  * Throws DownMissingError listing the migrations that have no DOWN section.
@@ -559,13 +558,13 @@ export async function purgeExtensionData(
     const after = new Set(await collectionsWithTable(trx));
     const out: [string, string[][]][] = [];
     for (const name of before.filter((n) => !after.has(n))) {
-      out.push([name, await DDLManager.dropInTransaction(trx, name, { gone: true, leaving })]);
+      out.push([name, await DDLManager.dropInTransaction(trx, name, { gone: true })]);
     }
     // ADR 0012: the collections it owns go with it, after its DOWNs (which may
     // have held a key into one), with every rule naming them.
     // Forced: the only keys left into them are their own and their junctions'.
     for (const name of leaving ? await ownedCollectionsToDrop(trx, leaving) : []) {
-      out.push([name, await DDLManager.dropInTransaction(trx, name, { force: true, leaving })]);
+      out.push([name, await DDLManager.dropInTransaction(trx, name, { force: true })]);
     }
     // After the drops: a name is a collection's only while the collection stands.
     const own = leaving ? await deleteExtensionObjectRules(trx, leaving) : [];

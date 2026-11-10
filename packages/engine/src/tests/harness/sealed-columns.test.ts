@@ -33,6 +33,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
   syncPull,
 } from '../../testing/app-harness.js';
 
@@ -113,6 +115,7 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION, REFERRER, LATER);
     god = await createGodSession(app, db);
     ({ cookie: member, userId: memberId } = await createMemberSession(app, db, {
       grants: [COLLECTION, REFERRER, LATER].map((collection) => ({
@@ -122,12 +125,10 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
     }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [{ ...text('title'), required: true }, password('pw')],
     } as never);
     await DDLManager.createCollection(db, {
       name: REFERRER,
-      adoptRules: true,
       fields: [
         text('label'),
         {
@@ -147,6 +148,7 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION, REFERRER, LATER);
     for (const c of [REFERRER, LATER, COLLECTION]) await dropTestCollection(db, c).catch(() => {});
   });
 
@@ -329,7 +331,6 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
   it('seals a password field added to a collection that had none, in the ADD', async () => {
     await DDLManager.createCollection(db, {
       name: LATER,
-      adoptRules: true,
       fields: [text('title')],
     } as never);
     const LATER_TABLE = `zvd_${LATER}`;

@@ -54,6 +54,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -252,6 +254,7 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
+    await ruleObjects(db, RES);
     _setInlineForTests(true);
     await ensureDeno();
     await DDLManager.createCollection(db, {
@@ -383,6 +386,7 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
   }, 180_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     for (const e of [EXT, DEP, NOFILES, DENO]) await unregisterJobs(e);
     if (extDir) rmSync(extDir, { recursive: true, force: true });

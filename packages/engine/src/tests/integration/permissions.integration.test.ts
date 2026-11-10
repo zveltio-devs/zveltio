@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { forgetRuleObjects, ruleObjects } from '../../testing/app-harness.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const TEST_PORT = process.env.TEST_PORT || '3099';
@@ -97,6 +98,10 @@ beforeAll(async () => {
       fields: [{ name: 'title', type: 'text' }],
     }),
   });
+  // A rule needs its object (migration 116). The request above does not
+  // reliably leave a collection row behind on this lane (it has never been
+  // checked), so the object is registered here, as the harness does.
+  await ruleObjects(db, COLLECTION);
 }, 30_000);
 
 afterAll(async () => {
@@ -107,6 +112,8 @@ afterAll(async () => {
     const enforcer = await getEnforcer();
     await enforcer.removeFilteredPolicy(0, employeeUserId).catch(() => {});
   }
+
+  await forgetRuleObjects(db, COLLECTION).catch(() => {});
 
   // Drop test collection
   await fetch(`${BASE_URL}/api/collections/${COLLECTION}`, {

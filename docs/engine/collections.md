@@ -32,11 +32,11 @@ added: a collection that needs a `status` declares it, usually as an `enum`
 migration 085 keeps the `active | draft | archived` `status` column it was
 given, registered by 085 as such a field.
 
-If access rules already name the collection — granted before it existed, or
-left by an earlier collection of that name — the create answers `409` with
-`code: "existing_rules"` and the rules in `errors`, and creates nothing. Delete
-them, or repeat the request with `"adopt_rules": true` to keep them on the new
-collection.
+An access rule names an object that exists: `*`, an engine object (`admin`,
+`data`, `$edge`), a registered extension's `$ext:<name>`, or an existing
+collection; the database refuses any other (migration 116). So a new collection
+starts with its default grants and nothing else, and dropping a collection
+deletes all its rules and revoked defaults, in every tenant.
 
 ## Field Types
 

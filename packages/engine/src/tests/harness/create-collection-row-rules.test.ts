@@ -103,7 +103,6 @@ d('a new collection carries the row rules already written', () => {
     await DDLManager.createCollection(db, {
       name: QUEUED,
       fields: [field],
-      adoptRules: true,
     } as never);
     await seed(QUEUED);
     expect(await seen(QUEUED)).toEqual([ALICE]);

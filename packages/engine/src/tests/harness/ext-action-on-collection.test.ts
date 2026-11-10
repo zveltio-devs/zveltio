@@ -33,11 +33,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/permissions.js';
-import {
-  listDeclaredResources,
-  nonCollectionObjects,
-  recordManifest,
-} from '../../lib/tenancy/resource-grants.js';
+import { listDeclaredResources, recordManifest } from '../../lib/tenancy/resource-grants.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import {
   createGodSession,
@@ -172,11 +168,10 @@ d('an extension action gated on a collection it declares', () => {
     expect(await res.json()).toEqual({ result: 'ran' });
   });
 
-  it('is the collection’s rule: reconciled, offered in the role editor, not reserved', async () => {
+  it('is the collection’s rule: reconciled and offered in the role editor', async () => {
     const declared = await listDeclaredResources(db);
     expect(declared).toContain(G);
     expect(declared).not.toContain(GHOST);
-    expect((await nonCollectionObjects(db)).has(G)).toBe(false);
 
     const res = await engine.request('/api/admin/resources', { headers: { cookie: god } });
     const { resources } = (await res.json()) as {

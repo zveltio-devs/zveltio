@@ -36,6 +36,7 @@ async function cleanupTestRows() {
   await sql`DELETE FROM zvd_permissions WHERE v0 LIKE 'rbactest_%' OR v1 LIKE 'rbactest_%'`
     .execute(db)
     .catch(() => {});
+  await sql`DELETE FROM zvd_collections WHERE name = 'rbactest_posts'`.execute(db).catch(() => {});
 }
 
 beforeAll(async () => {
@@ -63,6 +64,11 @@ beforeAll(async () => {
 
   const { getEnforcer } = perms;
   const e = await getEnforcer();
+  // A rule names an existing object (migration 116).
+  await sql`INSERT INTO zvd_collections (name, display_name, fields)
+            VALUES ('rbactest_posts', 'rbactest_posts', '[]'::jsonb) ON CONFLICT (name) DO NOTHING`.execute(
+    db,
+  );
   await e.addPolicy('rbactest_editor', '*', 'rbactest_posts', 'read');
   await e.addRoleForUser('rbactest_bob', 'rbactest_editor', '*');
   await e.addPolicy('rbactest_admin', A, '*', '*');

@@ -174,7 +174,7 @@ d('schema dev writer', () => {
     process.env.NODE_ENV = 'development';
     let jobId: string;
     try {
-      jobId = await enqueueDDLJob(db, 'create_collection', { ...def, adoptRules: true });
+      jobId = await enqueueDDLJob(db, 'create_collection', def);
     } finally {
       if (before.env === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = before.env;

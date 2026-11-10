@@ -29,10 +29,17 @@ import {
 } from '../../lib/tenancy/index.js';
 import { _setCacheForTests, getCache } from '../../lib/runtime/index.js';
 import type Redis from 'ioredis';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
+/** Rule objects: the database refuses a rule on an object that does not exist (migration 116). */
+const OBJECTS = [`grant_${STAMP}`, `promoted_${STAMP}`, `demoted_${STAMP}`, `bound_named_${STAMP}`];
 
 d('permission memo (in-process, no shared cache)', () => {
   let db: Database;
@@ -42,6 +49,7 @@ d('permission memo (in-process, no shared cache)', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, ...OBJECTS);
     // A subject invented here, not the first row of `user`.
     //
     // `checkPermission` short-circuits on `isGodUser` before it ever reaches the
@@ -62,7 +70,8 @@ d('permission memo (in-process, no shared cache)', () => {
     _setCacheForTests(null);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await forgetRuleObjects(db, ...OBJECTS);
     _setCacheForTests(savedCache);
   });
 

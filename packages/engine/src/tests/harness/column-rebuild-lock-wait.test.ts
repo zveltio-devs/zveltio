@@ -74,7 +74,6 @@ d('column guard / masking view / row-rule rebuild: a lock wait is bounded', () =
     ({ db } = await getTestApp());
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: false, unique: false, indexed: false },
         { name: 'note', type: 'text', required: false, unique: false, indexed: false },

@@ -32,6 +32,8 @@ import {
   createGodSession,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -103,6 +105,7 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, RES);
     cookie = await createGodSession(app, db);
     await sql`
       INSERT INTO "user" (id, name, email, "emailVerified", role, "createdAt", "updatedAt")
@@ -127,6 +130,7 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, RES);
     for (const id of flowIds) {
       await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`.execute(db).catch(() => {});
       await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});

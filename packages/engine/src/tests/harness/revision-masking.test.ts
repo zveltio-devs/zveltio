@@ -28,6 +28,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -91,6 +93,7 @@ d('revision masking (L37, migration 077)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     definer = !(await connectedAsSuperuser(db));
     god = await createGodSession(app, db);
     ({ cookie: member, userId: memberId } = await createMemberSession(app, db, {
@@ -98,7 +101,6 @@ d('revision masking (L37, migration 077)', () => {
     }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [field('title'), field('salary', 'number'), field('notes')],
     } as never);
     const rule = await putColumnPermission(db, {
@@ -126,6 +128,7 @@ d('revision masking (L37, migration 077)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     if (ruleId) await deleteColumnPermission(db, ruleId).catch(() => {});
     await dropTestCollection(db, COLLECTION).catch(() => {});
   });

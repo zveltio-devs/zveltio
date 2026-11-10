@@ -25,7 +25,12 @@ import type { Database } from '../../db/index.js';
 import { parseMigrationFile } from '../../db/migrations/index.js';
 import { rerunMigration } from '../fixtures/rerun-migration.js';
 import { getEnforcer, reconcilePolicies } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 // better-auth ids are 32 alphanumerics; so, deliberately, is the role edge.
@@ -57,6 +62,7 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, RESOURCE);
     const file = Bun.file(
       new URL('../../db/migrations/sql/017_prune_deleted_user_grants.sql', import.meta.url),
     );
@@ -104,6 +110,7 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RESOURCE);
     await sql`DELETE FROM zvd_permissions WHERE v0 = ANY(${SUBJECTS}) OR v2 = ${RESOURCE}`
       .execute(db)
       .catch(() => {});
@@ -180,6 +187,7 @@ d('migration 017 trigger: a deleted user row takes its Casbin rows with it', () 
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, RES);
     for (const id of [GONE, KEPT]) {
       await sql`
         INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
@@ -203,6 +211,7 @@ d('migration 017 trigger: a deleted user row takes its Casbin rows with it', () 
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     await sql`DELETE FROM zvd_permissions WHERE v0 IN (${GONE}, ${KEPT}, ${ROLE}) OR v2 = ${RES}`
       .execute(db)
       .catch(() => {});

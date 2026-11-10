@@ -16,8 +16,10 @@ import { getEnforcer } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
   createMemberSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -62,6 +64,7 @@ d('orphaned Casbin rows (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, RES);
     cookie = await createGodSession(app, db);
     member = await createMemberSession(app, db, {
       grants: [{ collection: RES, actions: ['read'] }],
@@ -85,6 +88,7 @@ d('orphaned Casbin rows (in-process)', () => {
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     bus.publish = origPublish;
     await sql`DELETE FROM zvd_permissions WHERE v0 LIKE ${`%${tag}%`} OR v1 LIKE ${`%${tag}%`} OR v2 = ${RES}`.execute(
       db,

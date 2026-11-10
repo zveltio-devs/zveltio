@@ -65,8 +65,8 @@ d('a firm that switched an extension off is not served by it (in-process)', () =
     invalidateActivationCache();
   });
 
-  // An installed row with no files on disk stops every collection create and
-  // drop after this file (`nonCollectionObjects`).
+  // An installed row with no files on disk stops every default grant after
+  // this file (`claimsOfOthers`).
   afterAll(async () => {
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${SUB}, ${GLOB})`.execute(db);
     invalidateActivationCache();

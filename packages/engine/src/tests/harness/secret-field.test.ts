@@ -37,6 +37,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() && process.env.FIELD_ENCRYPTION_KEY ? describe : describe.skip;
@@ -124,6 +126,7 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
+    await ruleObjects(db, RES);
     _setInlineForTests(true);
     await DDLManager.createCollection(
       db,
@@ -215,6 +218,7 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     await unregisterJobs(EXT);
     if (!db) return;

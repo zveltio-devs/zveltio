@@ -15,7 +15,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -65,10 +71,12 @@ d('RBAC role + permission management (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, 'zvd_harness');
     cookie = await createGodSession(app, db);
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, 'zvd_harness');
     if (db) {
       await sql`DELETE FROM zvd_permissions WHERE v0 IN (${CHILD}, ${PARENT}) OR v1 IN (${CHILD}, ${PARENT})`
         .execute(db)

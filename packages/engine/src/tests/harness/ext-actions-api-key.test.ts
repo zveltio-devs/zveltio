@@ -33,6 +33,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
@@ -81,6 +83,7 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
+    await ruleObjects(db, RES);
     _setInlineForTests(true);
     godCookie = await createGodSession(engine, db);
     godId = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
@@ -168,6 +171,7 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;
     for (const id of keys) await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);

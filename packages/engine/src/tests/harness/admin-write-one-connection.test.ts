@@ -20,8 +20,10 @@ import { invalidateGodCache } from '../../lib/tenancy/index.js';
 import {
   createMemberSession,
   createSteppedUpGod,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -58,6 +60,7 @@ d('an admin write needs one connection (in-process)', () => {
   beforeAll(async () => {
     const booted = await getTestApp();
     db = booted.db;
+    await ruleObjects(db, `${S}_coll`);
     ({ app, cookie, stepUp } = await createSteppedUpGod(booted.app, db));
   });
 
@@ -65,6 +68,7 @@ d('an admin write needs one connection (in-process)', () => {
   afterAll(async () => {
     _setConnectionTracing(false);
     if (!db) return;
+    await forgetRuleObjects(db, `${S}_coll`);
     await sql`DELETE FROM "user" WHERE id LIKE ${`${S}%`}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v0 LIKE ${`${S}%`}`.execute(db);
   }, 60_000);

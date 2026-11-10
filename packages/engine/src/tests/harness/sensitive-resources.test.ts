@@ -33,10 +33,16 @@
  * the row back and asks what it means.
  */
 
-import { afterAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import { DDLManager } from '../../lib/data/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  dropTestCollection,
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 import {
   checkPermission,
   invalidateUserPermCache,
@@ -50,6 +56,9 @@ import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 const d = harnessAvailable() ? describe : describe.skip;
 
 const TENANT = '00000000-0000-0000-0000-000000000001';
+const LIVE_WIDGETS = `live_widgets_${Date.now()}`;
+/** Rule objects: the database refuses a rule on an object that does not exist (migration 116). */
+const OBJECTS = ['payroll', 'lab_results', 'medical_records', LIVE_WIDGETS];
 
 /** Give `userId` a tenant role in the default tenant's domain. */
 async function grantRole(
@@ -97,7 +106,11 @@ d('sensitive resources', () => {
     }
     return ORDINARY;
   };
+  beforeAll(async () => {
+    await ruleObjects((await getTestApp()).db, ...OBJECTS);
+  });
   afterAll(async () => {
+    await forgetRuleObjects((await getTestApp()).db, ...OBJECTS);
     if (created) await dropTestCollection((await getTestApp()).db, ORDINARY);
   });
 
@@ -286,7 +299,7 @@ d('sensitive resources', () => {
     const user = await makeUser(db, 'live-grant');
     await grantRole(db, user, 'tenant_member');
 
-    const resource = `live_widgets_${Date.now()}`;
+    const resource = LIVE_WIDGETS;
     await runWithDomain(TENANT, async () => {
       expect(await checkPermission(user, resource, 'read')).toBe(false);
     });

@@ -20,6 +20,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -54,6 +56,7 @@ d('an API key is held to its issuer’s column rules', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, C);
     god = await createGodSession(app, db);
     const godId = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
       .rows[0]!.id;
@@ -62,7 +65,6 @@ d('an API key is held to its issuer’s column rules', () => {
     });
     await DDLManager.createCollection(db, {
       name: C,
-      adoptRules: true,
       fields: ['title', 'salary', 'locked', 'keynote'].map((name) => ({
         name,
         type: 'text',
@@ -113,6 +115,7 @@ d('an API key is held to its issuer’s column rules', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, C);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE 'akcol-%'`.execute(db);
     await db.deleteFrom('zvd_column_permissions').where('collection_name', '=', C).execute();
     await invalidateColumnPermCache(C);

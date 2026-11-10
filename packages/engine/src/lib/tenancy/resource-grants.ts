@@ -36,7 +36,6 @@ import { toJsonb } from '../jsonb.js';
 import { consentKeptBy } from '../manifest-capabilities.js';
 import {
   DEFAULT_ROLE_GRANTS,
-  ENGINE_CASBIN_OBJECTS,
   EXTENSION_RESOURCE_GRANTS,
   forgetDeletedPolicies,
   getEnforcer,
@@ -477,8 +476,7 @@ export async function existingCollections(
 
 /**
  * The existing collections an installed extension's action is gated on: they
- * get `execute` like a declared resource, but stay collections — never in
- * `nonCollectionObjects`, so their rules live and die with them.
+ * get `execute`, and their rules live and die with them.
  */
 export async function listActionCollections(db: Database): Promise<string[]> {
   const { gated } = await declaredBy(db, await installedExtensions(db));
@@ -554,120 +552,39 @@ async function declaredBy(
 
 /**
  * What every extension with data left (a registry row: installed or soft
- * uninstalled) claims, `leaving` aside. Throws when one has no manifest on
- * record: an unknown set must refuse a name, not allow it, and must not let a
- * drop or a purge take rules it cannot attribute.
+ * uninstalled) claims. Throws when one has no manifest on record: what it keeps
+ * closed (`sensitiveResources`) is unknown, so no default may be granted.
  */
-async function claimsOfOthers(db: Database, leaving?: string) {
-  const names = (await registeredExtensions(db)).filter((n) => n !== leaving);
-  const claims = await declaredBy(db, names);
+async function claimsOfOthers(db: Database) {
+  const claims = await declaredBy(db, await registeredExtensions(db));
   if (claims.unreadable.length > 0) {
     throw new Error(
       `Extension(s) with no manifest on record: ${claims.unreadable.join('; ')}. What they ` +
-        'claim is unknown, so no collection can be created or dropped and no other ' +
-        'extension purged: put their files back and restart the engine, or purge them.',
+        'keep closed is unknown, so no default grant is written: put their files back and ' +
+        'restart the engine, or purge them.',
     );
   }
   return claims;
 }
 
 /**
- * Every Casbin object that is not only a collection: the engine's own
- * (`ENGINE_CASBIN_OBJECTS`) and the `manifest.resources` of each extension with
- * data left, installed or soft uninstalled: its rules stay with its data, and a
- * reinstall claims the name again.
- *
- * Collections share the policy's object column with these. A collection may not
- * be created under one of them, and dropping a collection that already shares
- * one keeps the rules: they also guard something that is not the collection.
- *
- * Throws when the registry cannot be read, or one of those extensions has no
- * manifest on record (`claimsOfOthers`). That stops every collection create and
- * drop until it is recorded or purged, as the boot reconcile grants nothing
- * (`reconcileDefaultGrants`).
- *
- * `leaving`: the extension being purged. Its claim is not read: its objects go
- * with it (`deleteExtensionObjectRules`).
- */
-export async function nonCollectionObjects(db: Database, leaving?: string): Promise<Set<string>> {
-  const { out } = await claimsOfOthers(db, leaving);
-  return new Set([...ENGINE_CASBIN_OBJECTS, ...out, ...(await retiredZoneSlugs(db))]);
-}
-
-/**
  * Delete the `p` rules, and the revoked defaults, on extension `name`'s own
- * objects, as its purge does (extension model v3: rules on extension objects
- * are removed on purge). Resolves the rules deleted, for `forgetDeletedPolicies`
- * once the caller commits.
+ * object, `$ext:<name>`, as its purge does (ADR 0002: rules on extension
+ * objects are removed on purge). Resolves the rules deleted, for
+ * `forgetDeletedPolicies` once the caller commits.
  *
- * Its objects: `$ext:<name>`, and the v1 `resources` and `sensitiveResources`
- * of its recorded manifest that no collection carries and nothing else claims —
- * another extension whose data is still there, installed or soft uninstalled
- * (resources, sensitiveResources, an action's `permission.resource`), an engine
- * object, a retired zone. A collection's rules are the collection's, an
- * action-gated `execute` included: its drop takes them. Role links (`g`) name no
- * object and stay.
- *
- * Without a manifest on record only `$ext:<name>` is known, and that is said.
- * With one, throws as `nonCollectionObjects` when another such extension has
- * none: what it claims is unknown, so nothing may be taken from it.
+ * A rule names an existing object (migration 116), so the extension has no
+ * other: its collections' rules, an action-gated `execute` included, go with
+ * their drop. Role links (`g`) name no object and stay.
  */
 export async function deleteExtensionObjectRules(db: Database, name: string): Promise<string[][]> {
-  const own = await declaredBy(db, [name]);
-  if (own.unreadable.length > 0) {
-    console.warn(
-      `[resource-grants] purge of ${name}: ${own.unreadable.join('; ')}, so the rules on ` +
-        'its v1 resources could not be identified and stay; only $ext:' +
-        `${name} is removed.`,
-    );
-  }
-  // Without its manifest there is nothing to take but `$ext:<name>`, which no
-  // other extension can claim: another unknown claim does not refuse it.
-  // It did, and two extensions without files each refused the other's purge.
-  const taken = own.unreadable.length > 0 ? new Set<string>() : await claimedByOthers(db, name);
-  // A manifest is free strings: never `*` or an engine `$` object (`$edge`, `$rpc`).
-  const candidates = [...new Set([...own.out, ...own.sensitive])].filter(
-    (r) => r !== '*' && !r.startsWith('$') && !taken.has(r),
-  );
-  const collections = new Set(await existingCollections(db, candidates));
-  const objects = [`$ext:${name}`, ...candidates.filter((r) => !collections.has(r))];
-  await sql`DELETE FROM zv_default_grant_revocations
-             WHERE resource IN (${sql.join(objects)})`.execute(db);
+  const object = `$ext:${name}`;
+  await sql`DELETE FROM zv_default_grant_revocations WHERE resource = ${object}`.execute(db);
   const { rows } = await sql<Record<`v${0 | 1 | 2 | 3 | 4 | 5}`, string | null>>`
-    DELETE FROM zvd_permissions WHERE ptype = 'p' AND v2 IN (${sql.join(objects)})
+    DELETE FROM zvd_permissions WHERE ptype = 'p' AND v2 = ${object}
     RETURNING v0, v1, v2, v3, v4, v5`.execute(db);
   return rows.map((r) =>
     [r.v0, r.v1, r.v2, r.v3, r.v4, r.v5].filter((v): v is string => v !== null),
-  );
-}
-
-/**
- * What `deleteExtensionObjectRules` may not take from `name`: the engine's
- * objects, a retired zone, and what every other extension with data left
- * claims. Throws when one of them has no manifest on record.
- */
-async function claimedByOthers(db: Database, name: string): Promise<Set<string>> {
-  const { out, gated, sensitive } = await claimsOfOthers(db, name);
-  return new Set([
-    ...ENGINE_CASBIN_OBJECTS,
-    ...(await retiredZoneSlugs(db)),
-    ...out,
-    ...gated,
-    ...sensitive,
-  ]);
-}
-
-/**
- * Zone slugs, where a database upgraded from an older engine still has
- * `zvd_zones`: rules granted on a zone name it as their object, as they would a
- * collection.
- */
-async function retiredZoneSlugs(db: Database): Promise<string[]> {
-  const { rows } = await sql<{ present: boolean }>`
-    SELECT to_regclass('public.zvd_zones') IS NOT NULL AS present`.execute(db);
-  if (!rows[0]?.present) return [];
-  return (await sql<{ slug: string }>`SELECT slug FROM zvd_zones`.execute(db)).rows.map(
-    (r) => r.slug,
   );
 }
 
@@ -679,7 +596,9 @@ async function retiredZoneSlugs(db: Database): Promise<string[]> {
  */
 export async function listDeclaredResources(db: Database): Promise<string[]> {
   const { out, gated } = await declaredInstalled(db);
-  return [...new Set([...out, ...(await existingCollections(db, gated))])];
+  // A rule names an existing object (migration 116): a v1 resource that is no
+  // collection gets none.
+  return existingCollections(db, [...out, ...gated]);
 }
 
 /**

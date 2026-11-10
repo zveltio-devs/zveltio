@@ -36,6 +36,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() && process.env.FIELD_ENCRYPTION_KEY ? describe : describe.skip;
@@ -78,6 +80,7 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
+    await ruleObjects(db, RES);
     _setInlineForTests(true);
     await applyDeclaredCollections(db, EXT, file('text'), true);
     for (const n of [1, 2]) {
@@ -146,6 +149,7 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);

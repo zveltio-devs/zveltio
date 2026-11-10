@@ -11,6 +11,7 @@ declare module 'hono' {
   }
 }
 import type { Database } from '../db/index.js';
+import { sqlState } from '../db/bun-sql-quirks.js';
 import {
   checkPermission,
   getEnforcer,
@@ -419,6 +420,26 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
     },
   );
 
+  /**
+   * Runs a rule write; a 422 when the database refuses it because `resource`
+   * names no object (migration 116), which the global handler would answer 500.
+   * The write is on the pool, not the request transaction, so nothing aborts.
+   */
+  const noSuchObject = async (resource: string, write: () => Promise<unknown>) => {
+    try {
+      await write();
+      return null;
+    } catch (err) {
+      if (sqlState(err) !== '23503') throw err;
+      return Response.json(
+        {
+          error: `${resource} is not *, an engine object, a registered extension or an existing collection`,
+        },
+        { status: 422 },
+      );
+    }
+  };
+
   // POST /policies — Add a policy
   app.post(
     '/policies',
@@ -436,7 +457,10 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const admin = c.get('adminUser') as any;
       const e = await getEnforcer();
-      await e.addPolicy(subject, '*', resource, action);
+      const refused = await noSuchObject(resource, () =>
+        e.addPolicy(subject, '*', resource, action),
+      );
+      if (refused) return refused;
       await invalidateAllPermissionCaches();
       // F2 FIX: Audit trail for policy creation.
       auditLog(db, {
@@ -469,10 +493,13 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
       const { subject, resource, action } = c.req.valid('json');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const admin = c.get('adminUser') as any;
-      // A default grant absent here (its resource not there yet) is still revoked,
-      // as a schema apply revokes it: removing no rule records nothing.
+      // A default grant absent here (not written yet) is still revoked, as a
+      // schema apply revokes it: removing no rule records nothing.
       if (isDefaultGrant(subject, resource, action)) {
-        await revokeDefaultGrant(subject, resource, action);
+        const refused = await noSuchObject(resource, () =>
+          revokeDefaultGrant(subject, resource, action),
+        );
+        if (refused) return refused;
       } else {
         await (await getEnforcer()).removePolicy(subject, '*', resource, action);
       }

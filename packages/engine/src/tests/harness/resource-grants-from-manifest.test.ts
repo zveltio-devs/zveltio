@@ -23,12 +23,18 @@ import {
   listKnownResources,
   syncManifestsFromDisk,
 } from '../../lib/tenancy/resource-grants.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
 const EXT_NAME = `audit/sweeptest-${STAMP}`;
 const NOVEL_RESOURCE = `sweeptest_resource_${STAMP}`;
+const JUNK_OK = `junk_ok_${STAMP}`;
 
 d('listDeclaredResources reads manifest.resources (in-process)', () => {
   let db: Database;
@@ -37,6 +43,9 @@ d('listDeclaredResources reads manifest.resources (in-process)', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    // A declared resource counts only as a collection: a rule names nothing else
+    // (migration 116). The test's subject is reading them, not creating them.
+    await ruleObjects(db, NOVEL_RESOURCE, JUNK_OK);
     extRoot = mkdtempSync(join(tmpdir(), 'ext-resources-'));
     mkdirSync(join(extRoot, EXT_NAME), { recursive: true });
     writeFileSync(
@@ -60,7 +69,8 @@ d('listDeclaredResources reads manifest.resources (in-process)', () => {
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT_NAME}`.execute(db);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await forgetRuleObjects(db, NOVEL_RESOURCE, JUNK_OK);
     if (savedDir === undefined) delete process.env.EXTENSIONS_DIR;
     else process.env.EXTENSIONS_DIR = savedDir;
     if (extRoot) rmSync(extRoot, { recursive: true, force: true });
@@ -187,7 +197,7 @@ d('listDeclaredResources reads manifest.resources (in-process)', () => {
     // A hand-edited manifest is input: a number, an empty string or an object
     // in the list must not become a resource name the reconcile grants on.
     const junk = `audit/junk-${STAMP}`;
-    const good = `junk_ok_${STAMP}`;
+    const good = JUNK_OK;
     mkdirSync(join(extRoot, junk), { recursive: true });
     writeFileSync(
       join(extRoot, junk, 'manifest.json'),

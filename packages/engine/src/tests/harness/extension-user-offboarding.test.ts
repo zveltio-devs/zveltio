@@ -100,13 +100,13 @@ d('extension offboarding through ctx.internals', () => {
   it('deleteUser of an id that is no user touches nothing', async () => {
     const ghost = `ghost_${crypto.randomUUID().slice(0, 8)}`;
     const e = await getEnforcer();
-    await e.addPolicy(ghost, '*', `${ghost}_res`, 'read'); // a role, say
+    await e.addPolicy(ghost, '*', 'data', 'read'); // a role, say
     try {
       const deleted = await asRequest((trx) =>
         internals.deleteUser(trx, ghost, { actor: 'scim:token-1', reason: 'scim.deprovision' }),
       );
       expect(deleted).toBe(false);
-      expect(await e.getFilteredPolicy(0, ghost)).toEqual([[ghost, '*', `${ghost}_res`, 'read']]);
+      expect(await e.getFilteredPolicy(0, ghost)).toEqual([[ghost, '*', 'data', 'read']]);
       const audit = await sql`SELECT 1 FROM zv_audit_log WHERE resource_id = ${ghost}`.execute(db);
       expect(audit.rows).toHaveLength(0);
     } finally {

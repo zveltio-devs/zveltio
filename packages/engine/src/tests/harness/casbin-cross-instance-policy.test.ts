@@ -37,11 +37,30 @@ import {
   materializeDefaultGrants,
 } from '../../lib/tenancy/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const tag = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+/** Rule objects: the database refuses a rule on an object that does not exist (migration 116). */
+const OBJECTS = [
+  `xi_new_${tag}`,
+  `xi_other_${tag}`,
+  `xi_other6_${tag}`,
+  `xi_res1_${tag}`,
+  `xi_res2_${tag}`,
+  `xi_res3a_${tag}`,
+  `xi_res3b_${tag}`,
+  `xi_res5_${tag}`,
+  `xi_res6_${tag}`,
+  `xi_res7_${tag}`,
+  `xi_res8_${tag}`,
+];
 
 let scans = 0;
 
@@ -95,6 +114,7 @@ d('policy changes cross instances', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, ...OBJECTS);
     savedCache = getCache();
     _setCacheForTests(null);
     bus.publish = async (payload) => {
@@ -103,6 +123,7 @@ d('policy changes cross instances', () => {
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, ...OBJECTS);
     bus.publish = origPublish;
     _setCacheForTests(savedCache);
     await sql`DELETE FROM zvd_permissions WHERE v0 LIKE ${`%${tag}%`} OR v2 LIKE ${`%${tag}%`}`.execute(

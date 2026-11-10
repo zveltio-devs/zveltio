@@ -5,7 +5,6 @@ import {
   DDLManager,
   CollectionSchema,
   dropMaskView,
-  ExistingRulesError,
   FieldSchema,
   hasWrittenBy,
   sealColumns,
@@ -227,7 +226,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
     // Before the metadata row: the queued CREATE would refuse it and leave that
     // row behind as a ghost collection.
-    const reserved = await DDLManager.reservedName(db, data.name);
+    const reserved = await DDLManager.reservedName(data.name);
     if (reserved) return c.json({ error: reserved }, 409);
 
     // Reject duplicate names immediately
@@ -240,10 +239,6 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       return c.json({ error: `Collection '${data.name}' already exists` }, 409);
     }
 
-    // Rules already naming it would take effect on it unannounced (A13).
-    const rules = data.adoptRules ? [] : await DDLManager.existingRules(db, [data.name]);
-    if (rules.length > 0) return c.json(new ExistingRulesError(rules).body(), 409);
-
     // Register metadata immediately so GET /:name works without waiting
     // for the DDL job. pg-boss has its own connection pool, so we can't
     // wrap both calls in one Kysely transaction — instead we
@@ -253,9 +248,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
     try {
       await DDLManager.registerMetadata(db, data);
       metadataRegistered = true;
-      // Checked above; a rule written from here on is written for the collection,
-      // which already shows in the list (the drop attributes it the same way).
-      const jobId = await enqueueDDLJob(db, 'create_collection', { ...data, adoptRules: true });
+      const jobId = await enqueueDDLJob(db, 'create_collection', data);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user') as any;
       await auditLog(db, {

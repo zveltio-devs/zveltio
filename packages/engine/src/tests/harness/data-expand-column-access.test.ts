@@ -16,6 +16,8 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -33,6 +35,7 @@ d('expand column access (in-process)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, PARENT, CHILD);
     cookie = await createGodSession(app, db);
     // Deny-by-default: without an explicit grant this user is refused 403,
     // which is not the restriction under test and reads like a pass.
@@ -50,12 +53,10 @@ d('expand column access (in-process)', () => {
     // Parent has a column the role can't read.
     await DDLManager.createCollection(db, {
       name: PARENT,
-      adoptRules: true,
       fields: [textField('title'), textField('secret')],
     } as never);
     await DDLManager.createCollection(db, {
       name: CHILD,
-      adoptRules: true,
       fields: [
         textField('title'),
         {
@@ -108,6 +109,7 @@ d('expand column access (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, PARENT, CHILD);
     if (colPermId) {
       await db
         .deleteFrom('zvd_column_permissions')

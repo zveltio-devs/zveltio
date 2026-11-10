@@ -93,6 +93,40 @@ export class SchemaApplyRefused extends Error {
   }
 }
 
+/**
+ * The plan that makes this instance match `files` (`planSchema`), with every
+ * grant and revoked default on an object the instance will not have left
+ * without an op: apply refuses the plan before any step runs (ADR 0002 step 5),
+ * where the database would refuse the rule (migration 116) after the steps
+ * before it ran. The instance will have the collections its files declare, and
+ * every object the database admits now (`zveltio_rule_object_exists`) but an
+ * instance collection the files leave out.
+ */
+export async function planInstanceSchema(
+  db: Database,
+  files: Record<string, unknown>,
+): Promise<PlanStep[]> {
+  const current = await exportSchema(db);
+  const steps = planSchema(current, files, await appliedMigrations(db));
+  const object = (s: PlanStep) =>
+    s.op?.kind === 'grant' || s.op?.kind === 'revokeDefault' ? s.op.resource : undefined;
+  const asked = [...new Set(steps.map(object).filter((o): o is string => o !== undefined))];
+  if (asked.length === 0) return steps;
+  const collection = (path: string) => /^collections\/([^/]+)\.json$/.exec(path)?.[1] ?? [];
+  const declared = new Set(Object.keys(files).flatMap(collection));
+  const exported = new Set(Object.keys(current).flatMap(collection));
+  const { rows } = await sql<{ o: string }>`
+    SELECT o FROM (VALUES ${sql.join(asked.map((o) => sql`(${o})`))}) AS v(o)
+     WHERE zveltio_rule_object_exists(o)`.execute(db);
+  const target = new Set([...declared, ...rows.map((r) => r.o).filter((o) => !exported.has(o))]);
+  return steps.map((s) => {
+    const o = object(s);
+    if (o === undefined || target.has(o)) return s;
+    const { op: _refused, ...step } = s;
+    return { ...step, action: `${s.action} (${o} is no collection this instance will have)` };
+  });
+}
+
 /** Migration id → checksum, for every schema migration this instance ran. */
 export async function appliedMigrations(db: Database): Promise<Map<string, string>> {
   const rows = await sql<{ id: string; checksum: string }>`
@@ -147,7 +181,6 @@ async function prepare(
   db: Database,
   step: PlanStep,
   op: ApplyOp,
-  adoptRules: boolean,
   owner: string | undefined,
 ): Promise<Prepared> {
   const target = `${step.target} ${step.action}`;
@@ -171,9 +204,6 @@ async function prepare(
             : `${target}: a collection or table named ${definition.name} exists outside the schema files`,
         );
       }
-      // The request decides, not the file: rules naming it would take effect
-      // on it (A13). Checked here, before any step runs.
-      await DDLManager.refuseExistingRules(db, [definition.name], adoptRules);
       // ADR 0012: an extension's setting. An instance withholds a default with
       // roles.json `revokedDefaults`.
       const { defaultGrants } = op.definition;
@@ -186,7 +216,7 @@ async function prepare(
       }
       return {
         ...op,
-        definition: { ...definition, adoptRules: true },
+        definition,
         defaultGrants: defaultGrants !== false,
       };
     }
@@ -768,22 +798,20 @@ export async function planExtensionSchema(
 
 /**
  * Makes the instance match `files` and returns the steps it ran. Throws
- * `SchemaFileError` for a malformed or invalid file, `SchemaApplyRefused`
- * for a plan with a step it cannot run and `ExistingRulesError` for a new
- * collection rules already name (unless `adoptRules`); in each case nothing is
- * changed.
+ * `SchemaFileError` for a malformed or invalid file and `SchemaApplyRefused`
+ * for a plan with a step it cannot run; in either case nothing is changed.
  */
 export async function applySchema(
   db: Database,
   files: Record<string, unknown>,
   userId: string | undefined,
-  opts: { allowDestructive?: boolean; adoptRules?: boolean; owner?: string } = {},
+  opts: { allowDestructive?: boolean; owner?: string } = {},
 ): Promise<PlanStep[]> {
   const { owner } = opts;
   return withAdvisoryLock(db, 'zveltio:schema-apply', async () => {
     const steps = owner
       ? await planExtensionSchema(db, owner, files)
-      : planSchema(await exportSchema(db), files, await appliedMigrations(db));
+      : await planInstanceSchema(db, files);
     const refused = steps.filter((s) => !s.op);
     if (refused.length) throw new SchemaApplyRefused(refused);
     // Every destructive step left has an op, so it comes from a migration
@@ -795,7 +823,7 @@ export async function applySchema(
 
     const ops: Prepared[] = [];
     for (const step of steps) {
-      ops.push(await prepare(db, step, step.op as ApplyOp, opts.adoptRules === true, owner));
+      ops.push(await prepare(db, step, step.op as ApplyOp, owner));
     }
     // Not one transaction: CREATE INDEX CONCURRENTLY refuses a transaction
     // block. A step that fails leaves the ones before it applied; the next

@@ -31,6 +31,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -114,6 +116,7 @@ d('masking views (L37 layer 3, migration 075)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     definer = !(await connectedAsSuperuser(db));
     god = await createGodSession(app, db);
     ({ cookie: member, userId: memberId } = await createMemberSession(app, db, {
@@ -121,7 +124,6 @@ d('masking views (L37 layer 3, migration 075)', () => {
     }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [field('title'), field('salary', 'number'), field('notes')],
     } as never);
     await hide('salary');
@@ -146,6 +148,7 @@ d('masking views (L37 layer 3, migration 075)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     for (const id of ruleIds) await deleteColumnPermission(db, id).catch(() => {});
     await dropTestCollection(db, COLLECTION).catch(() => {});
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db).catch(() => {});
@@ -375,15 +378,8 @@ d('masking views (L37 layer 3, migration 075)', () => {
     // `applyExpand` reads the related rows through `readSource`, as a record
     // read does: the same prepared-plan hazard (0A000), and the same masking.
     const CHILD = `hmaskc_${STAMP}`;
-    const { cookie: reader } = await createMemberSession(app, db, {
-      grants: [
-        { collection: COLLECTION, actions: ['read'] },
-        { collection: CHILD, actions: ['read'] },
-      ],
-    });
     await DDLManager.createCollection(db, {
       name: CHILD,
-      adoptRules: true,
       fields: [
         {
           ...field('ref', 'm2o'),
@@ -391,6 +387,12 @@ d('masking views (L37 layer 3, migration 075)', () => {
         },
       ],
     } as never);
+    const { cookie: reader } = await createMemberSession(app, db, {
+      grants: [
+        { collection: COLLECTION, actions: ['read'] },
+        { collection: CHILD, actions: ['read'] },
+      ],
+    });
     try {
       const child = await call('POST', `/api/data/${CHILD}`, god, { ref: recordId });
       expect(child.status).toBe(201);

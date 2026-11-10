@@ -18,7 +18,13 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { reconcileDefaultGrants, recordManifest } from '../../lib/tenancy/resource-grants.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -67,6 +73,7 @@ d('sensitiveResources of an installed, disabled extension', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, RES_A);
     extRoot = mkdtempSync(join(tmpdir(), 'ext-sensdis-'));
     for (const [name, m] of [
       [EXT_A, manifest(EXT_A, [RES_A], COLL_A)],
@@ -80,6 +87,7 @@ d('sensitiveResources of an installed, disabled extension', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES_A);
     if (savedDir === undefined) delete process.env.EXTENSIONS_DIR;
     else process.env.EXTENSIONS_DIR = savedDir;
     if (extRoot) rmSync(extRoot, { recursive: true, force: true });

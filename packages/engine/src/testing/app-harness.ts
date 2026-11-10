@@ -532,6 +532,39 @@ export async function dropTestCollection(db: Database, name: string): Promise<vo
 }
 
 /**
+ * Registers `names` in `zvd_collections`, without a table, so a test that is
+ * about rules rather than data may write rules on them: the database refuses a
+ * rule on an object that does not exist (migration 116). A name that is
+ * already a collection is left as it is. `forgetRuleObjects` removes them.
+ */
+export async function ruleObjects(db: Database, ...names: string[]): Promise<void> {
+  for (const name of names) {
+    await sql`INSERT INTO zvd_collections (name, display_name, fields)
+              VALUES (${name}, ${name}, '[]'::jsonb) ON CONFLICT (name) DO NOTHING`.execute(db);
+  }
+}
+
+/** Undoes `ruleObjects`: the rows with no table, and every rule and revoked default on them. */
+export async function forgetRuleObjects(db: Database, ...names: string[]): Promise<void> {
+  if (names.length === 0) return;
+  const tableless = (
+    await sql<{ name: string }>`
+      SELECT name FROM zvd_collections
+       WHERE name IN (${sql.join(names)}) AND to_regclass(quote_ident('zvd_' || name)) IS NULL`.execute(
+      db,
+    )
+  ).rows.map((r) => r.name);
+  if (tableless.length === 0) return;
+  await sql`DELETE FROM zvd_permissions WHERE ptype = 'p' AND v2 IN (${sql.join(tableless)})`.execute(
+    db,
+  );
+  await sql`DELETE FROM zv_default_grant_revocations WHERE resource IN (${sql.join(tableless)})`.execute(
+    db,
+  );
+  await sql`DELETE FROM zvd_collections WHERE name IN (${sql.join(tableless)})`.execute(db);
+}
+
+/**
  * The socket data `/api/ws` hands to `websocketHandler.open`, from the real
  * upgrade through a stand-in `server` — so a probe socket carries the principal
  * the realtime sweep re-asks. `undefined` when the upgrade was refused.

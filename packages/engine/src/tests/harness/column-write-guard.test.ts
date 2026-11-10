@@ -24,6 +24,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -69,13 +71,13 @@ d('column write guard in the database (L37, migration 072)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     god = await createGodSession(app, db);
     ({ cookie: member, userId: memberId } = await createMemberSession(app, db, {
       grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update', 'delete'] }],
     }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'secret', type: 'text', required: false, unique: false, indexed: false },
@@ -117,6 +119,7 @@ d('column write guard in the database (L37, migration 072)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     await db
       .deleteFrom('zvd_column_permissions')
       .where('collection_name', '=', COLLECTION)

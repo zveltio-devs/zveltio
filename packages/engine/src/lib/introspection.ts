@@ -134,16 +134,15 @@ export async function introspectSchema(
   const results: IntrospectedTable[] = [];
   let wrote = false;
   // Dynamic, as in ddl-manager: both modules import back into this layer.
-  const { nonCollectionObjects } = await import('./tenancy/index.js');
-  const reserved = await nonCollectionObjects(db);
+  const { ENGINE_CASBIN_OBJECTS } = await import('./tenancy/index.js');
 
   for (const { table_name } of tablesResult.rows) {
     // Skip platform tables and excluded patterns
     if (isPlatformTable(table_name)) continue;
     if (excludePatterns.some((p) => table_name.includes(p))) continue;
-    // A collection under a non-collection permission object's name would be
-    // read by grants written for that object — refused as createCollection does.
-    if (reserved.has(table_name)) {
+    // A collection under an engine object's name would be read by grants
+    // written for that object — refused as createCollection does.
+    if (ENGINE_CASBIN_OBJECTS.includes(table_name)) {
       console.warn(
         `[introspection] skipped "${table_name}": it names a permission object that is not a collection`,
       );

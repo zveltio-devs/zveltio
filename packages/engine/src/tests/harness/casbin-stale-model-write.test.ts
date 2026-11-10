@@ -18,11 +18,18 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { realtimeBus, type RealtimeBusMessage } from '../../lib/runtime/index.js';
 import { getEnforcer, reconcilePolicies } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetRuleObjects,
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const tag = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+/** Rule objects: the database refuses a rule on an object that does not exist (migration 116). */
+const OBJECTS = [`sm_absent_${tag}`, `sm_res_${tag}`];
 
 d('a write through a stale model', () => {
   let db: Database;
@@ -56,6 +63,7 @@ d('a write through a stale model', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, ...OBJECTS);
     bus.publish = async (payload) => {
       sent.push(payload);
     };
@@ -63,6 +71,7 @@ d('a write through a stale model', () => {
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, ...OBJECTS);
     bus.publish = origPublish;
     await sql`DELETE FROM zvd_permissions WHERE v0 LIKE ${`%${tag}%`} OR v2 LIKE ${`%${tag}%`}`.execute(
       db,

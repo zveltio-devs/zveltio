@@ -103,6 +103,14 @@ manifest to collections and actions. Ownership then becomes a column the
 engine writes when it creates a declared collection, so nothing has to infer
 it from a manifest. Entry 4 ships with it.
 
+**Status 2026-11-10.** The wave is done. The engine refuses a rule on
+anything that is not `*`, an engine object, a registered extension's
+`$ext:<name>` or an existing collection (migration 116), a drop deletes all of
+the collection's rules, and `since`, `keepGrants`, `nonCollectionObjects` and
+`adopt_rules` are deleted (ADR 0002 step 5). Still open: the manifest schema
+still accepts `resources` and `sensitiveResources` (a `resources` entry that is
+no collection now gets no grant), and entry 4's refusal.
+
 ## 4. An action gated on a collection the extension does not own — breaking
 
 **What happened.** Entry 3's additive rule lets an action's

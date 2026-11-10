@@ -116,12 +116,6 @@ function syncTombstoneTrigger(tableName: string): string {
   );
 }
 
-/** `nonCollectionObjects`, imported late: tenancy imports back into this layer. */
-async function nonCollectionObjectsNow(db: Database, leaving?: string): Promise<Set<string>> {
-  const { nonCollectionObjects } = await import('../tenancy/index.js');
-  return nonCollectionObjects(db, leaving);
-}
-
 /**
  * The tables holding rules that name a field by its column: column permissions,
  * row rules, validation rules and their groups — as (table, collection column,
@@ -298,7 +292,6 @@ export const CollectionSchema = z.preprocess(
     if (o.is_managed != null && o.isManaged == null) o.isManaged = o.is_managed;
     if (o.is_system != null && o.isSystem == null) o.isSystem = o.is_system;
     if (o.schema_locked != null && o.schemaLocked == null) o.schemaLocked = o.schema_locked;
-    if (o.adopt_rules != null && o.adoptRules == null) o.adoptRules = o.adopt_rules;
     return o;
   },
   z.object({
@@ -333,8 +326,6 @@ export const CollectionSchema = z.preprocess(
     isManaged: z.boolean().optional(),
     isSystem: z.boolean().optional(),
     schemaLocked: z.boolean().optional(),
-    /** Create even though Casbin rules already name it; they take effect on it (`ExistingRulesError`). */
-    adoptRules: z.boolean().optional(),
     /** Every field, create and delete written only by its extension's actions and jobs. */
     writtenBy: z.literal('actions').optional(),
   }),
@@ -350,39 +341,6 @@ export type CollectionInput = Omit<CollectionDefinition, 'fields'> & {
 export interface CollectionOwner {
   extension: string;
   defaultGrants: boolean;
-}
-
-/** A Casbin policy row naming a collection that does not exist yet. */
-export interface ExistingRule {
-  ptype: string;
-  subject: string;
-  domain: string;
-  object: string;
-  action: string;
-}
-
-/**
- * A create refused because rules already name the collection (A13). A grant
- * written before the create, or kept by a drop because it predates the dropped
- * collection, would take effect on the new one unannounced. Only the caller can
- * decide: delete the rules, or create with `adopt_rules: true`.
- */
-export class ExistingRulesError extends Error {
-  readonly status = 409;
-  readonly code = 'existing_rules';
-  constructor(readonly rules: ExistingRule[]) {
-    const names = [...new Set(rules.map((r) => r.object))].join(', ');
-    super(
-      `Access rules already name ${names}, and a new collection would take them on: ` +
-        rules.map((r) => `${r.subject} ${r.action} ${r.object} in ${r.domain}`).join('; ') +
-        '. Delete them, or create it with adopt_rules: true to accept them.',
-    );
-  }
-
-  /** The 409 body every create route answers with; the rules ride in the envelope's `errors`. */
-  body() {
-    return { error: this.message, code: this.code, errors: this.rules };
-  }
 }
 
 // ─── In-memory metadata cache ──────────────────────────────────────────────────
@@ -659,9 +617,8 @@ export class DDLManager {
     }
     const validated = CollectionSchema.parse(definition);
     if (!owner && hasWrittenBy(validated)) throw new Error(writtenByNeedsOwner(validated.name));
-    const reserved = await this.reservedName(db, validated.name);
+    const reserved = await this.reservedName(validated.name);
     if (reserved) throw new Error(reserved);
-    await this.refuseExistingRules(db, [validated.name], validated.adoptRules);
 
     for (const field of validated.fields) {
       if (!fieldTypeRegistry.has(field.type)) {
@@ -919,8 +876,8 @@ export class DDLManager {
   // table that already exists. The boot reconcile picks it up.
   static async grantDefaults(db: Database, name: string): Promise<void> {
     try {
-      // Under an engine or extension object's name, the defaults would grant on that.
-      if (await this.reservedName(db, name)) return;
+      // Under an engine object's name, the defaults would grant on that.
+      if (await this.reservedName(name)) return;
       const { materializeDefaultGrants, listActionCollections } = await import(
         '../tenancy/index.js'
       );
@@ -962,62 +919,20 @@ export class DDLManager {
   }
 
   /**
-   * Why `name` cannot be a collection, or null. Collections share the Casbin
-   * object column with the objects in `nonCollectionObjects`: under one of those
-   * names a collection was read by grants written for something else, and
-   * dropping it deleted them (a collection called `data` took every
-   * `data:view_all` grant on the instance with it).
+   * Why `name` cannot be a collection, or null: an engine object
+   * (`ENGINE_CASBIN_OBJECTS`). Collections share the Casbin object column with
+   * them, so a collection called `data` would be read by every `data` grant.
    */
-  static async reservedName(db: Database, name: string): Promise<string | null> {
-    if (!(await nonCollectionObjectsNow(db)).has(name)) return null;
+  static async reservedName(name: string): Promise<string | null> {
+    const { ENGINE_CASBIN_OBJECTS } = await import('../tenancy/index.js');
+    if (!ENGINE_CASBIN_OBJECTS.includes(name)) return null;
     return `"${name}" is reserved: it names a permission object that is not a collection.`;
-  }
-
-  /**
-   * The Casbin rules that would take effect on a collection created as `name`:
-   * `p` rows whose object is exactly the name, in any domain. Not `*` (a total
-   * grant covers every object, and is a role, not a decision about this one),
-   * not the `data:<name>` form no check has asked since migration 001, not `g`
-   * rows (they name roles and domains, never an object). Row rules and column
-   * permissions only restrict, so a leftover one grants nothing. A name whose
-   * table exists is skipped: its rules are already in effect, not waiting.
-   */
-  static async existingRules(db: Database, names: string[]): Promise<ExistingRule[]> {
-    if (names.length === 0) return [];
-    return db
-      .selectFrom('zvd_permissions')
-      .select([
-        'ptype',
-        sql<string>`coalesce(v0, '')`.as('subject'),
-        sql<string>`coalesce(v1, '')`.as('domain'),
-        sql<string>`v2`.as('object'),
-        sql<string>`coalesce(v3, '')`.as('action'),
-      ])
-      .where('ptype', '=', 'p')
-      .where('v2', 'in', names)
-      .where(sql<boolean>`to_regclass(quote_ident('zvd_' || v2)) IS NULL`)
-      .orderBy('v2')
-      .orderBy('v1')
-      .orderBy('v0')
-      .orderBy('v3')
-      .execute();
-  }
-
-  /** Throws `ExistingRulesError` when rules name any of `names`, unless they are adopted. */
-  static async refuseExistingRules(
-    db: Database,
-    names: string[],
-    adopt: boolean | undefined,
-  ): Promise<void> {
-    if (adopt === true) return;
-    const rules = await this.existingRules(db, names);
-    if (rules.length > 0) throw new ExistingRulesError(rules);
   }
 
   // ── dropCollection ───────────────────────────────────────────────────────────
 
   /**
-   * Drop a collection, its junction tables and the rules written for it.
+   * Drop a collection, its junction tables and every rule on it (ADR 0002 rule 2).
    *
    * A caller that owns a transaction (the DDL queue) runs `dropInTransaction`
    * and passes the rules it returns to `forgetDroppedCollection` once it has
@@ -1025,9 +940,6 @@ export class DDLManager {
    * does — the grants are gone from the table but not from the live permission
    * model. Handed a transaction, this does the drop and leaves memory to that
    * reconcile.
-   *
-   * Its Casbin rules stay when its name is also an object that is not a
-   * collection (`reservedName`): they guard that object too.
    */
   static async dropCollection(
     db: Database,
@@ -1089,11 +1001,8 @@ export class DDLManager {
   static async dropInTransaction(
     db: Database,
     name: string,
-    /**
-     * `gone`: the table was already dropped (an extension's DOWN SQL); clear the rest.
-     * `leaving`: the extension being purged, whose manifest is not consulted.
-     */
-    opts: { force?: boolean; gone?: boolean; leaving?: string },
+    /** `gone`: the table was already dropped (an extension's DOWN SQL); clear the rest. */
+    opts: { force?: boolean; gone?: boolean },
   ): Promise<string[][]> {
     const tableName = this.getTableName(name);
 
@@ -1111,22 +1020,6 @@ export class DDLManager {
           `Retry with force=true to DROP ... CASCADE.`,
       );
     }
-
-    // Before anything is dropped: a registry that cannot be read must stop the
-    // drop, not let it delete rules it cannot attribute. A collection made under
-    // a reserved name before the reservation, or one an extension adopted under
-    // a resource it declares, shares its rules with that object; they stay.
-    const keepGrants = (await nonCollectionObjectsNow(db, opts.leaving)).has(name);
-    // A rule older than the collection was not written for it: an extension
-    // object its manifest does not declare, an uninstalled extension's grant, a
-    // grant made before the create. Rules naming it share the object column, so
-    // only this tells them apart. No registry row: nothing can be attributed.
-    const registered = await db
-      .selectFrom('zvd_collections')
-      // As text: a Date keeps milliseconds, and the column has microseconds.
-      .select(sql<string>`created_at::text`.as('since'))
-      .where('name', '=', name)
-      .executeTakeFirst();
 
     // Drop m2m junction tables before dropping the main table
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -1217,26 +1110,16 @@ export class DDLManager {
     // Everything else keyed by the name goes with it, in the same transaction.
     // Left behind, a collection created again under this name inherited it all:
     // a grant made in any tenant's domain on the old collection read the new one,
-    // and the old row rules, hidden columns and validation applied to it.
-    const deleted =
-      keepGrants || !registered
-        ? []
-        : await db
-            .deleteFrom('zvd_permissions')
-            .where('ptype', '=', 'p')
-            .where('v2', '=', name)
-            .where('created_at', '>=', sql<Date>`${registered.since}::timestamptz`)
-            .returning(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
-            .execute();
-    // And the default grants an operator revoked on it, by the same rule: a
-    // collection created again under this name is a new resource and gets its
-    // defaults, as it gets none of the old one's explicit grants.
-    if (!keepGrants && registered) {
-      await sql`DELETE FROM zv_default_grant_revocations
-                 WHERE resource = ${name} AND revoked_at >= ${registered.since}::timestamptz`.execute(
-        db,
-      );
-    }
+    // and the old row rules, hidden columns and validation applied to it. A rule
+    // names an existing object (migration 116), so every rule on the name, in
+    // every domain, and every default revoked on it is this collection's.
+    const deleted = await db
+      .deleteFrom('zvd_permissions')
+      .where('ptype', '=', 'p')
+      .where('v2', '=', name)
+      .returning(['v0', 'v1', 'v2', 'v3', 'v4', 'v5'])
+      .execute();
+    await sql`DELETE FROM zv_default_grant_revocations WHERE resource = ${name}`.execute(db);
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${name}`.execute(db);
     await db.deleteFrom('zvd_column_permissions').where('collection_name', '=', name).execute();
     await db.deleteFrom('zv_validation_rules').where('collection', '=', name).execute();

@@ -28,8 +28,10 @@ import {
 } from '../../routes/ws.js';
 import {
   createMemberSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
+  ruleObjects,
   wsUpgradeData,
 } from '../../testing/app-harness.js';
 import type { ReadScope } from '../../lib/data/read-scope.js';
@@ -51,6 +53,23 @@ const openScope = (table: string): ReadScope => ({
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const tag = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+/** Rule objects: the database refuses a rule on an object that does not exist (migration 116). */
+const OBJECTS = [
+  `rc_other5_${tag}`,
+  `rc_other8_${tag}`,
+  `rc_res1_${tag}`,
+  `rc_res2_${tag}`,
+  `rc_res3_${tag}`,
+  `rc_res4_${tag}`,
+  `rc_res5_${tag}`,
+  `rc_res5b_${tag}`,
+  `rc_res7_${tag}`,
+  `rc_res7a_${tag}`,
+  `rc_res7b_${tag}`,
+  `rc_res7k_${tag}`,
+  `rc_res8_${tag}`,
+  `rc_res8b_${tag}`,
+];
 
 d('policy reconcile', () => {
   let db: Database;
@@ -73,6 +92,7 @@ d('policy reconcile', () => {
   beforeAll(async () => {
     const { app, db: testDb } = await getTestApp();
     db = testDb;
+    await ruleObjects(db, ...OBJECTS);
     // A live session for the hand-built sockets: the sweep closes one without.
     const member = await createMemberSession(app, db);
     principal = (await wsUpgradeData(app, { cookie: member.cookie }))?.principal;
@@ -84,6 +104,7 @@ d('policy reconcile', () => {
   });
 
   afterAll(async () => {
+    await forgetRuleObjects(db, ...OBJECTS);
     bus.publish = origPublish;
     await sql`DELETE FROM zvd_permissions WHERE v0 LIKE ${`%${tag}%`} OR v2 LIKE ${`%${tag}%`}`.execute(
       db,

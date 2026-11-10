@@ -33,6 +33,8 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
@@ -153,6 +155,7 @@ d('a worker extension gets the inline ctx contract', () => {
 
   beforeAll(async () => {
     const { app: engine, db: tdb } = await getTestApp();
+    await ruleObjects(tdb, RES);
     db = tdb;
     const godCookie = await createGodSession(engine, db);
     godId = (
@@ -271,6 +274,7 @@ d('a worker extension gets the inline ctx contract', () => {
   }, 180_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     await getWorkerHost(app).stopAll();
     for (const [k, v] of [['ZVELTIO_EXT_TRANSPORT', saved.transport]] as const) {
       if (v === undefined) delete process.env[k];

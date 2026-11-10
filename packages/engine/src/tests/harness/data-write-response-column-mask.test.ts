@@ -23,6 +23,8 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -50,13 +52,13 @@ d('write responses omit columns the caller may not read', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
+    await ruleObjects(db, COLLECTION);
     god = await createGodSession(app, db);
     ({ cookie: member } = await createMemberSession(app, db, {
       grants: [{ collection: COLLECTION, actions: ['read', 'create', 'update'] }],
     }));
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [
         { name: 'title', type: 'text', required: true, unique: false, indexed: false },
         { name: 'secret', type: 'text', required: false, unique: false, indexed: false },
@@ -102,6 +104,7 @@ d('write responses omit columns the caller may not read', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await forgetRuleObjects(db, COLLECTION);
     await db
       .deleteFrom('zvd_column_permissions')
       .where('collection_name', '=', COLLECTION)

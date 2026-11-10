@@ -63,7 +63,6 @@ d('flow export_collection reads as REST serves', () => {
               ON CONFLICT (id) DO NOTHING`.execute(db);
     await DDLManager.createCollection(db, {
       name: COLL,
-      adoptRules: true,
       fields: [field('title'), field('pw', 'password')],
     } as never);
     for (const [tenant, title] of [

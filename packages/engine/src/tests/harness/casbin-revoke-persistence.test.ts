@@ -20,9 +20,9 @@
  * `some(where p.eft == allow)`, so once the old row is back the widest grant
  * wins and the demotion is undone.
  */
-import { describe, expect, it, beforeAll, afterEach } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
-import { getTestApp } from '../../testing/app-harness.js';
+import { forgetRuleObjects, getTestApp, ruleObjects } from '../../testing/app-harness.js';
 import { getEnforcer } from '../../lib/tenancy/index.js';
 
 const URL = process.env.TEST_DATABASE_URL;
@@ -31,6 +31,10 @@ describe.skipIf(!URL)('revoking a role reaches the database', () => {
   let db: any;
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, 'invoices');
+  });
+  afterAll(async () => {
+    await forgetRuleObjects(db, 'invoices');
   });
 
   const USER = `revoke-probe-${crypto.randomUUID()}`;

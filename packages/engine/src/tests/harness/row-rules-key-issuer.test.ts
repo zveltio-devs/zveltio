@@ -130,7 +130,6 @@ d("a key's row rules are its own AND its issuer's", () => {
     ({ app, db } = await getTestApp());
     await DDLManager.createCollection(db, {
       name: COLLECTION,
-      adoptRules: true,
       fields: [field('title'), field('bucket'), field('owner')],
     } as never);
 

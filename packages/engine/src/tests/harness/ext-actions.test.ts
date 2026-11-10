@@ -31,6 +31,8 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/permissions.js';
@@ -129,6 +131,7 @@ d('extension actions run as the caller, in the request transaction', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
+    await ruleObjects(db, RES);
     _setInlineForTests(true);
     await DDLManager.createCollection(db, {
       name: C,
@@ -287,6 +290,7 @@ d('extension actions run as the caller, in the request transaction', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${NOCAP}, ${REFUSED}, ${NOTRX}, ${SENSEXT})`.execute(

@@ -909,10 +909,12 @@ export async function finalizeExtensionLoad(
   const declaredResources = manifest?.resources ?? [];
   if (declaredResources.length > 0 || gatedCollections.length > 0) {
     try {
-      const targets = [
+      // A rule names an existing object (migration 116): a v1 resource that is
+      // no collection gets none.
+      const targets = await existingCollections(ctx.db, [
         ...declaredResources,
-        ...(await existingCollections(ctx.db, gatedCollections)),
-      ];
+        ...gatedCollections,
+      ]);
       const written = await materializeDefaultGrants(ctx.db, targets, {
         extension: true,
       });
@@ -1251,8 +1253,6 @@ const DDL_READS = new Set([
   'isEngineJunction',
   'getTableDependents',
   'reservedName',
-  'existingRules',
-  'refuseExistingRules',
   'getRelations',
   'getCollections',
   'getCollection',

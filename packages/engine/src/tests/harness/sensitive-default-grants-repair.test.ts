@@ -27,7 +27,12 @@ import {
   repairSensitiveDefaultGrants,
 } from '../../lib/tenancy/resource-grants.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  getTestApp,
+  harnessAvailable,
+  ruleObjects,
+  forgetRuleObjects,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -78,6 +83,7 @@ d('repair of default grants on sensitive names', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
+    await ruleObjects(db, SECRET, PLAIN);
     extRoot = mkdtempSync(join(tmpdir(), 'ext-sensrep-'));
     mkdirSync(join(extRoot, EXT), { recursive: true });
     writeFileSync(
@@ -97,6 +103,7 @@ d('repair of default grants on sensitive names', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, SECRET, PLAIN);
     if (extRoot) rmSync(extRoot, { recursive: true, force: true });
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${EXT_NO_FILES})`.execute(

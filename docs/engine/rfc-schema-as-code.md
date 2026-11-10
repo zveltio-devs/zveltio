@@ -174,12 +174,16 @@ The file holds everything that belongs to one collection:
   ```
 
   The plan shows `revoke default posts update` for an entry the instance does
-  not have, and apply revokes it through the enforcer and records it, even
-  where the resource does not exist yet (an extension installed later does not
-  get it back). An entry the instance has and the file does not is
+  not have, and apply revokes it through the enforcer and records it, also on
+  a collection the same files create. An entry the instance has and the file does not is
   `restore default`: apply grants it again, which clears the revocation. Since
   format 3; a format-2 file, which cannot say it, is refused rather than read
   as "restore every revoked default".
+- A grant, a restored default or a revoked default on an object the instance
+  will not have — not `*`, an engine object, a registered extension's
+  `$ext:<name>`, a collection it keeps or one the files create — has no op,
+  so apply refuses the plan before any step runs (ADR 0002 step 5). An
+  extension's collections exist once it is installed: install it, then apply.
 - The roles the defaults go to (`tenant_member`, `tenant_viewer`) are implied
   too: a plan never creates or removes them. Absent from the file, such a role
   has no grants and no revoked defaults.

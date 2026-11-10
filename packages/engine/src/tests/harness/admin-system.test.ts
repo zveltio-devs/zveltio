@@ -86,7 +86,6 @@ d('admin system routes (in-process)', () => {
     const name = `hstats_${Date.now()}`;
     await DDLManager.createCollection(db, {
       name,
-      adoptRules: true,
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     try {

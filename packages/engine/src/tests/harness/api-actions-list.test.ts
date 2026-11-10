@@ -20,7 +20,13 @@ import { getAuth } from '../../lib/auth.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
+} from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
@@ -82,6 +88,7 @@ d('GET /api/actions lists exactly the actions the caller may run', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
+    await ruleObjects(db, RES);
     _setInlineForTests(true);
     app = new Hono();
     app.use('/ext/*', sessionPrefetch(getAuth(), db));
@@ -130,6 +137,7 @@ d('GET /api/actions lists exactly the actions the caller may run', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;
     for (const id of keys) await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);

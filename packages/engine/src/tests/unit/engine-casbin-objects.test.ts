@@ -3,8 +3,9 @@
  * `checkPermission` calls name — derived from the source, not remembered.
  *
  * A collection may not take one of those names (`DDLManager.reservedName`), and
- * a drop keeps their rules. An object added to a call here but not to the set
- * would be one a collection could be created under again, and drop again.
+ * migration 116 admits rules on them. An object added to a call here but not to
+ * the set would be one a collection could be created under, and whose rules
+ * the database refuses.
  */
 import { describe, expect, it } from 'bun:test';
 import { join } from 'node:path';

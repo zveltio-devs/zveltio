@@ -31,6 +31,8 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  forgetRuleObjects,
+  ruleObjects,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -116,6 +118,7 @@ d('a worker service answers checkPermission as the calling request', () => {
 
   beforeAll(async () => {
     const { app: engine, db: tdb } = await getTestApp();
+    await ruleObjects(tdb, RES);
     db = tdb;
     const godCookie = await createGodSession(engine, db);
     godId = (
@@ -172,6 +175,7 @@ d('a worker service answers checkPermission as the calling request', () => {
   }, 120_000);
 
   afterAll(async () => {
+    await forgetRuleObjects(db, RES);
     await getWorkerHost(app).stopAll();
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved.transport;
