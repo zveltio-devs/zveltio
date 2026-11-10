@@ -91,29 +91,32 @@ export function registerStorageAdminRoutes(app: Hono, db: Database): void {
       .select('quota_bytes')
       .where('user_id', '=', userId)
       .executeTakeFirst();
-    if (quotaBytes === null) {
-      await db.deleteFrom('zv_storage_quotas').where('user_id', '=', userId).execute();
-    } else {
-      await db
-        .insertInto('zv_storage_quotas')
-        .values({ user_id: userId, quota_bytes: quotaBytes, used_bytes: 0 })
-        .onConflict((oc) =>
-          oc.column('user_id').doUpdateSet({ quota_bytes: quotaBytes, updated_at: new Date() }),
-        )
-        .execute();
-    }
-    await auditLog(db, {
-      type: 'storage.quota_changed',
-      tenantId: null,
-      userId: actor.id,
-      resourceType: 'storage_quota',
-      resourceId: userId,
-      metadata: {
-        quota_bytes: quotaBytes,
-        previous: prev ? toNumber(prev.quota_bytes, 0, 'quota_bytes') : null,
-        confirmed_by: confirmedBy,
-      },
-      ip: clientIpForAudit(c) ?? undefined,
+    // The quota and its audit row land together, or neither does.
+    await db.transaction().execute(async (trx) => {
+      if (quotaBytes === null) {
+        await trx.deleteFrom('zv_storage_quotas').where('user_id', '=', userId).execute();
+      } else {
+        await trx
+          .insertInto('zv_storage_quotas')
+          .values({ user_id: userId, quota_bytes: quotaBytes, used_bytes: 0 })
+          .onConflict((oc) =>
+            oc.column('user_id').doUpdateSet({ quota_bytes: quotaBytes, updated_at: new Date() }),
+          )
+          .execute();
+      }
+      await auditLog(trx, {
+        type: 'storage.quota_changed',
+        tenantId: null,
+        userId: actor.id,
+        resourceType: 'storage_quota',
+        resourceId: userId,
+        metadata: {
+          quota_bytes: quotaBytes,
+          previous: prev ? toNumber(prev.quota_bytes, 0, 'quota_bytes') : null,
+          confirmed_by: confirmedBy,
+        },
+        ip: clientIpForAudit(c) ?? undefined,
+      });
     });
     return c.json({ user_id: userId, quota_bytes: quotaBytes ?? DEFAULT_QUOTA_BYTES });
   });
