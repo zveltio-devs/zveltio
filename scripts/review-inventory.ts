@@ -474,6 +474,7 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/jobs.ts`,
       // A job's stored files: only those its user handed it (ADR 0032).
       `${E}lib/extensions/file-grants.ts`,
+      `${E}lib/extensions/caller-files.ts`,
       `${E}lib/extensions/broadcast.ts`,
       `${E}lib/engine-handle.ts`,
     ],
