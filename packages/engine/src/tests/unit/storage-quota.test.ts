@@ -16,7 +16,7 @@ const USER = 'u-1';
 
 function db(used: number, quotaRow?: { quota_bytes: number }): CannedDb {
   const d = new CannedDb();
-  d.when(/from "zv_media_files"/i, [{ total: String(used) }]);
+  d.when(/zveltio_media_used_bytes/i, [{ total: String(used) }]);
   d.when(/from "zv_storage_quotas"/i, quotaRow ? [quotaRow] : []);
   return d;
 }
@@ -54,37 +54,28 @@ describe('checkStorageQuota', () => {
   it('treats a missing usage sum as zero', async () => {
     // SUM() over no rows is NULL, which is what a brand-new user gets.
     const d = new CannedDb();
-    d.when(/from "zv_media_files"/i, [{ total: null }]);
+    d.when(/zveltio_media_used_bytes/i, [{ total: null }]);
     d.when(/from "zv_storage_quotas"/i, []);
     const r = await check(d, 1);
     expect(r.usedBytes).toBe(0);
     expect(r.ok).toBe(true);
   });
 
-  it('counts only this tenant’s files', async () => {
+  it('counts only this tenant’s files, for this user', async () => {
+    // What is counted — live files, the user's, the tenant's — is the SQL
+    // function's (migration 115); media-files-user-rls.test.ts runs it.
     const d = db(0, { quota_bytes: 1000 });
     await check(d, 1);
-    const usage = d.executed(/from "zv_media_files"/i)[0];
-    expect(usage?.sql).toMatch(/"tenant_id"/);
-    expect(usage?.parameters).toContain(TENANT);
+    const usage = d.executed(/zveltio_media_used_bytes/i)[0];
+    expect(usage?.parameters).toEqual([TENANT, USER]);
   });
 
-  it('omits the tenant filter on a single-tenant install', async () => {
+  it('passes no tenant on a single-tenant install', async () => {
     // `tenantId` is null there, and `where tenant_id = NULL` matches nothing —
     // which would report every user as having used zero bytes.
     const d = db(0, { quota_bytes: 1000 });
     await check(d, 1, null);
-    const usage = d.executed(/from "zv_media_files"/i)[0];
-    expect(usage?.sql).not.toMatch(/"tenant_id"/);
-  });
-
-  it('counts only the user’s own live files', async () => {
-    // Soft-deleted files have been given back; charging for them would make
-    // the quota unrecoverable.
-    const d = db(0, { quota_bytes: 1000 });
-    await check(d, 1);
-    const usage = d.executed(/from "zv_media_files"/i)[0];
-    expect(usage?.sql).toMatch(/"created_by"/);
-    expect(usage?.sql).toMatch(/"deleted_at" is null/i);
+    const usage = d.executed(/zveltio_media_used_bytes/i)[0];
+    expect(usage?.parameters).toEqual([null, USER]);
   });
 });

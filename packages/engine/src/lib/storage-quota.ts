@@ -7,6 +7,7 @@
  * not a quota — that dual-door bug is why `/api/media` was removed from core.
  */
 
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { toNumber } from './numeric.js';
 
@@ -31,16 +32,13 @@ export async function checkStorageQuota(
   userId: string | null,
   incomingBytes: number,
 ): Promise<QuotaCheck> {
-  let usage = db
-    .selectFrom('zv_media_files')
-    .select(({ fn }) => fn.sum('size').as('total'))
-    // NULL: a key whose issuer is gone — its files share one authorless allowance.
-    .where('created_by', userId === null ? 'is' : '=', userId)
-    .where('deleted_at', 'is', null);
-  if (tenantId) usage = usage.where('tenant_id', '=', tenantId);
+  // Through the function (115): a key may not SEE its issuer's private files,
+  // which count all the same. NULL user: a key whose issuer is gone.
+  const usage = sql<{ total: string | null }>`
+    SELECT zveltio_media_used_bytes(${tenantId}::uuid, ${userId}::text) AS total`.execute(db);
 
   const [usageResult, quotaRecord] = await Promise.all([
-    usage.executeTakeFirst(),
+    usage.then((r) => r.rows[0]),
     db.selectFrom('zv_storage_quotas').selectAll().where('user_id', '=', userId).executeTakeFirst(),
   ]);
 

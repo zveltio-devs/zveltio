@@ -208,7 +208,13 @@ set_config('zveltio.issuer_user_role',  <role> | '',   true)
 set_config('zveltio.issuer_user_roles', <role,role…> | '', true)
 set_config('zveltio.actor',             'on' | 'off',  true)
 set_config('zveltio.rls_bypass',        'on' | 'off',  true)
+set_config('zveltio.files_all',         'on' | 'off',  true)
 ```
+
+`files_all` is `on` for whoever `/api/storage` lets see every stored file of the
+tenant: a session that is a tenant admin (`isTenantAdmin`), a key with
+`rls_bypass` whose issuer is one. Never for a job, never inside a worker
+extension's statement. The `zv_media_files` policies read it (migration 115).
 
 `issuer_role` is set for an API key only: its issuer's role, whose column rules
 bind the key as well as `api_key`'s. The column write guard, the masking views
@@ -391,6 +397,27 @@ acts.
 These are not `tenant_isolation_*` on purpose: the boot reconciler rewrites
 every policy of that name to one `FOR ALL` policy (with the two restrictive
 ones above beside it), and would put the root fallback back on the column.
+
+### Stored files: who inside the tenant
+
+`zv_media_files` carries, beside its tenant policy, four RESTRICTIVE ones
+(migration 115) that are `lib/media-visibility.ts` in the database:
+
+| Command | Passes when |
+|---|---|
+| SELECT, UPDATE | sees all, or `visibility = 'tenant'`, or the caller owns the row |
+| DELETE | sees all, or the caller owns the row |
+| INSERT | no actor, or the row is recorded as the caller's upload |
+
+"Sees all" is `files_all` above, or no actor (`zveltio.actor` not `on`): the
+engine's own work — the trash purge, a public share link, tenant purge — which
+publishes no identity. "Owns" is `created_by = zveltio.user_id` for a session,
+`created_by_api_key` for a member key (not its issuer's files: `user_id` stays
+the key). An extension job owns no file, not even its author's (ADR 0028
+decision 4). The storage quota is summed by
+`zveltio_media_used_bytes(tenant, user)`, which stands these policies down for
+its one statement: a key is charged for its issuer's private files it may not
+see. Folders, tags and share links keep the tenant policy alone.
 
 ---
 

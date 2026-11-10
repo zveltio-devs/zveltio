@@ -1781,7 +1781,7 @@ function workerSettings(scope: InvokeScope | undefined): [string, string][] {
   // and the worker saw what an anonymous caller of the tenant sees.
   //
   // Deliberately NOT carried: the caller's exemptions (`rls_bypass`,
-  // `columns_all`) and a reach wider than this tenant
+  // `files_all`, `columns_all`) and a reach wider than this tenant
   // (`visible_tenants`). All only widen, and this code is the extension the platform chose not
   // to trust; it keeps the single-tenant, rules-apply view it always had.
   // A reach NARROWER than the tenant is carried: a caller whose assignments
@@ -1809,6 +1809,7 @@ function workerSettings(scope: InvokeScope | undefined): [string, string][] {
     // An anonymous request is an actor too: the tenant's `public` role (R1).
     ['zveltio.actor', id?.userId || id?.anonymous ? 'on' : 'off'],
     ['zveltio.rls_bypass', 'off'],
+    ['zveltio.files_all', 'off'],
     ['zveltio.columns_all', 'off'],
     // What collection permissions (R1) check — the caller's own grants, so a
     // worker's query gets no collection its caller could not touch.

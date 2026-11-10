@@ -28,6 +28,7 @@ import {
   collectionGrantsFor,
   DEFAULT_TENANT_ID,
   getCurrentTenantTrx,
+  isTenantAdmin,
   keyIssuerAllows,
   requireInstanceAdmin,
   runWithDomain,
@@ -459,7 +460,9 @@ export async function validateApiKey(
     // And whom its row rules' `user_id`/`user_email` resolve to: the issuer
     // (ADR 0028), `''` for a key with none.
     const key = { id: `apikey:${apiKey.id}`, authorUserId: issuer ?? null };
-    const [issuerGrants, issuerBypasses, issuerRole, issuerRows, author] = issuer
+    // And every stored file of the tenant, as `/api/storage` grants it: a bypass
+    // key whose issuer is a tenant admin (`seesAllFiles`, migration 115).
+    const [issuerGrants, issuerBypasses, issuerRole, issuerRows, author, filesAll] = issuer
       ? await Promise.all([
           collectionGrantsFor(issuer),
           apiKey.rls_bypass === true
@@ -470,8 +473,9 @@ export async function validateApiKey(
             .then((exempt) => (exempt ? '' : principalRole(issuer))),
           keyIssuerRowActor(key),
           rowActor(key),
+          apiKey.rls_bypass === true ? isTenantAdmin(issuer).catch(() => false) : false,
         ])
-      : [{ all: false, grants: '' }, false, '', null, { id: '', email: '' }];
+      : [{ all: false, grants: '' }, false, '', null, { id: '', email: '' }, false];
     await publishApiKeyActor(
       `apikey:${apiKey.id}`,
       apiKey.rls_bypass === true && issuerBypasses,
@@ -480,6 +484,7 @@ export async function validateApiKey(
       issuerRole,
       issuerRowIdentity(issuerRows),
       author,
+      filesAll,
     );
   }
 

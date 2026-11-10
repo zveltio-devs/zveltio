@@ -112,6 +112,12 @@ export interface RlsIdentity {
    */
   rowActor?: { id: string; email: string };
   /**
+   * Sees every stored file of the tenant, as `/api/storage` decides it: a
+   * tenant admin's session, a key with `rlsBypass` whose issuer is one. Read by
+   * the `zv_media_files` policies (migration 115) as `zveltio.files_all`.
+   */
+  filesAll?: boolean;
+  /**
    * An anonymous request: no user, but an actor all the same — the tenant's
    * `public` role — so the policies hold it to that role's grants rather than
    * standing down as they do for the engine's own work.
@@ -1471,6 +1477,7 @@ export async function withTenantIsolation<T>(
       role: opts?.identity?.role ?? '',
       roles: (opts?.identity?.roles ?? []).join(','),
       bypass: opts?.identity?.bypass ?? false,
+      filesAll: opts?.identity?.filesAll ?? false,
       grants: opts?.identity?.collectionGrants ?? '',
       all: opts?.identity?.collectionAll ?? false,
       columnsAll: opts?.identity?.columnsAll ?? false,
@@ -1544,6 +1551,7 @@ export async function withTenantIsolation<T>(
              set_config('zveltio.issuer_user_roles', ${identity.issuer.roles}, true),
              set_config('zveltio.actor', ${hasActor ? 'on' : 'off'}, true),
              set_config('zveltio.rls_bypass', ${identity.bypass ? 'on' : 'off'}, true),
+             set_config('zveltio.files_all', ${identity.filesAll ? 'on' : 'off'}, true),
              set_config('zveltio.collection_grants', ${identity.grants}, true),
              set_config('zveltio.collection_all', ${identity.all ? 'on' : 'off'}, true),
              set_config('zveltio.columns_all', ${identity.columnsAll ? 'on' : 'off'}, true),
@@ -1639,6 +1647,7 @@ export async function asIdentityOn<T>(
     'zveltio.issuer_user_roles': issuer.roles,
     'zveltio.actor': identity.userId !== '' || identity.anonymous === true ? 'on' : 'off',
     'zveltio.rls_bypass': identity.bypass ? 'on' : 'off',
+    'zveltio.files_all': identity.filesAll ? 'on' : 'off',
     'zveltio.collection_grants': identity.collectionGrants ?? '',
     'zveltio.collection_all': identity.collectionAll ? 'on' : 'off',
     'zveltio.columns_all': identity.columnsAll ? 'on' : 'off',

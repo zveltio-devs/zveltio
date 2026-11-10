@@ -65,10 +65,11 @@ d('media tables under tenant RLS', () => {
     await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
               VALUES (${OTHER}::uuid, ${userId}, 'member')`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
+      // Shared with the firm: a personal file is its uploader's alone (115).
       const file = await asTenant(db, tenant, (trx) =>
         sql<{ id: string }>`
-        INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id)
-        VALUES (${STAMP}, ${STAMP}, 'text/plain', ${`harness/${STAMP}`}, ${tenant}::uuid)
+        INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id, visibility)
+        VALUES (${STAMP}, ${STAMP}, 'text/plain', ${`harness/${STAMP}`}, ${tenant}::uuid, 'tenant')
         RETURNING id::text AS id`.execute(trx),
       );
       const tag = await asTenant(db, tenant, (trx) =>
