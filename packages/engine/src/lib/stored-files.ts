@@ -15,8 +15,8 @@
 
 import type { Database } from '../db/index.js';
 import { apiKeyRowId, isApiKeyPrincipal, type RequestUser, rowAuthorId } from './data/index.js';
-import { mayDeleteFile, mayReadFile } from './media-visibility.js';
-import { getStorage } from './storage/index.js';
+import { type FileVisibility, mayDeleteFile, mayReadFile } from './media-visibility.js';
+import { getStorage, isPublicKey } from './storage/index.js';
 import { checkStorageQuota } from './storage-quota.js';
 import { isTenantAdmin } from './tenancy/index.js';
 
@@ -406,7 +406,7 @@ export async function fileActorOf(
 
 /** A refusal, as `/api/storage` answers it. */
 export interface FileRefusal {
-  status: 400 | 403 | 404 | 413 | 500 | 502 | 503;
+  status: 400 | 403 | 404 | 409 | 413 | 500 | 502 | 503;
   body: { error: string } & Record<string, unknown>;
 }
 
@@ -614,8 +614,58 @@ export async function storeFile(
 }
 
 /**
- * Delete file `id`: its uploader, or a tenant admin. A file the actor cannot
- * read is 404, as `readableFile` answers: a 403 would tell them it exists.
+ * The file `id` when `actor` may delete it, or change who sees it: its uploader,
+ * or a tenant admin (`mayDeleteFile`). A file the actor cannot read is 404, as
+ * `readableFile` answers: a 403 would tell them it exists. One they can read
+ * but not delete is 403.
+ */
+async function deletableFile(
+  db: Database,
+  actor: FileActor,
+  id: string,
+): Promise<{ file: StoredFile } | FileRefusal> {
+  const file = UUID_RE.test(id) ? await selectFile(db, actor.tenantId, id) : undefined;
+  if (!file || !mayReadFile(file, actor.principalId, actor.seesAll, actor.tenantId)) {
+    return { status: 404, body: { error: 'File not found' } };
+  }
+  if (!mayDeleteFile(file, actor.principalId, actor.seesAll, actor.tenantId)) {
+    return { status: 403, body: { error: 'Forbidden' } };
+  }
+  return { file };
+}
+
+/**
+ * Change who sees file `id` (`media-visibility.ts`): whoever may delete it,
+ * `deletableFile`. Sharing a file and destroying it are both its owner's
+ * decisions. A file in a public namespace stays `tenant`: its bare URL serves
+ * it to anyone, so `personal` would hide it from a listing and from nobody else.
+ */
+export async function setFileVisibility(
+  db: Database,
+  actor: FileActor,
+  id: string,
+  visibility: FileVisibility,
+): Promise<{ file: StoredFile } | FileRefusal> {
+  const found = await deletableFile(db, actor, id);
+  if (!('file' in found)) return found;
+  if (visibility === 'personal' && isPublicKey(found.file.storage_path)) {
+    return {
+      status: 409,
+      body: { error: 'A public file is served to anyone from its URL; it cannot be made personal' },
+    };
+  }
+  const file = await db
+    .updateTable('zv_media_files')
+    .set({ visibility, updated_at: new Date() })
+    .where('id', '=', found.file.id)
+    .where('tenant_id', '=', actor.tenantId)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  return { file };
+}
+
+/**
+ * Delete file `id`, under `deletableFile`.
  *
  * The bytes go first: when that fails the row stays, as the only record that
  * would let anyone find the orphaned bytes, which the signed URL from upload
@@ -628,13 +678,9 @@ export async function removeFile(
   id: string,
   bytesLater?: (remove: () => Promise<void>) => void,
 ): Promise<{ ok: true } | FileRefusal> {
-  const file = UUID_RE.test(id) ? await selectFile(db, actor.tenantId, id) : undefined;
-  if (!file || !mayReadFile(file, actor.principalId, actor.seesAll, actor.tenantId)) {
-    return { status: 404, body: { error: 'File not found' } };
-  }
-  if (!mayDeleteFile(file, actor.principalId, actor.seesAll, actor.tenantId)) {
-    return { status: 403, body: { error: 'Forbidden' } };
-  }
+  const found = await deletableFile(db, actor, id);
+  if (!('file' in found)) return found;
+  const { file } = found;
   const storage = getStorage();
   if (!bytesLater && storage.isConfigured()) {
     try {

@@ -896,12 +896,6 @@ export interface ExtensionInternals<DB = unknown> {
   extensionRegistry: any;
   /** Queue an HTML→PDF render via the worker pool. */
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
-  /**
-   * Move a file to the trash bucket (soft delete with TTL): `(db, fileId, deletedBy)`.
-   * Only a file of the tenant the request or job runs as; outside one it rejects.
-   */
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  moveToTrash: (...args: any[]) => Promise<unknown>;
   /** Enqueue an asynchronous DDL job (Ghost Tables, large alters). */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   enqueueDDLJob: (...args: any[]) => Promise<unknown>;

@@ -94,7 +94,6 @@ import type { ReadScope } from '../data/index.js';
 import { buildCondition } from '../../db/dynamic.js';
 import { extensionRegistry } from './extension-registry.js';
 import { generatePDFAsync } from '../pdf-queue.js';
-import { moveToTrash } from '../cloud/trash.js';
 import { engineHandle } from '../engine-handle.js';
 import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
@@ -493,9 +492,6 @@ export interface ExtensionInternals {
   runEdgeFunction: typeof runEdgeFunction;
   extensionRegistry: typeof extensionRegistry;
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
-  /** Soft-delete a media file of the tenant the work runs as — never one named
-   *  by an argument; a fourth argument is not read. Gated `files`. */
-  moveToTrash: (db: Database, fileId: string, deletedBy: string) => Promise<void>;
   enqueueDDLJob: typeof enqueueDDLJob;
   /**
    * Synchronous literal-host SSRF check. Throws on a blocked URL, returns
@@ -922,20 +918,6 @@ function buildUnboundInternals(): ExtensionInternals {
     runEdgeFunction,
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],
-    // The tenant is the host's: the domain the request or job runs as. The
-    // helper's tenant filter was an optional fourth argument the catalogue never
-    // passed, and it is the only boundary where the row policy does not bind.
-    moveToTrash: (db: Database, fileId: string, deletedBy: string) => {
-      const tenant = getCurrentDomainOrNull();
-      if (!tenant) {
-        return Promise.reject(
-          new Error('ctx.internals.moveToTrash: no tenant runs here, so there is no file to trash'),
-        );
-      }
-      // Engine SQL on a fixed table, tenant-pinned; its `"user"` lookup for
-      // `deleted_by` is the engine's, which the extension's handle refuses.
-      return moveToTrash(engineHandle(db), fileId, deletedBy, tenant);
-    },
     maybeEncrypt,
     maybeDecrypt,
     // Adapted rather than passed straight through, so the bag matches the SDK

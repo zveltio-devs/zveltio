@@ -34,6 +34,8 @@ const MANDATORY: ReadonlySet<string> = new Set([
   // H-07 split (register-fn pattern; auditLog() calls preserved). Keys track the
   // new owning file. audit-inventory.ts now recurses into routes/admin/.
   'system-routes.ts:POST /migrate',
+  // A storage quota binds a user in every tenant; god sets it (ADR 0034 Q3).
+  'storage-routes.ts:PUT /storage-quotas/:userId',
   // The SQL editor. It lived in config-routes.ts as a second implementation
   // that shadowed the dedicated one — mounted at /api/admin, it matched
   // POST /api/admin/sql before routes/index.ts:447 ever saw the request, so the

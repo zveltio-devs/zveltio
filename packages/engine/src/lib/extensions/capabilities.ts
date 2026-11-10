@@ -38,8 +38,8 @@
  */
 // 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`),
 // 5: `identity:provision`, 6: `audit:read`, 7: `auth:users` also reads (exportUserData),
-// 8: `data:system`
-export const CAPABILITY_CONTRACT_VERSION = 8;
+// 8: `data:system`, 9: `files` no longer covers `moveToTrash`, retired (ADR 0034 Q2)
+export const CAPABILITY_CONTRACT_VERSION = 9;
 
 /**
  * Every capability an extension may declare.
@@ -112,9 +112,9 @@ export const CAPABILITIES = [
   /** Send notifications to users. */
   'notifications',
   /**
-   * Stored files: `moveToTrash`, and a job's `host.files` — get the files its
-   * user handed it, put the one they asked for (ADR 0032); a route's
-   * `host.files`, put and delete as its caller (ADR 0034).
+   * Stored files: a job's `host.files` — get the files its user handed it, put
+   * the one they asked for (ADR 0032); a route's `host.files`, put and delete
+   * as its caller (ADR 0034).
    */
   'files',
   /** Render PDFs and HTML templates. */
@@ -249,8 +249,6 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   enqueue: 'data:system',
   // Messaging
   sendNotification: 'notifications',
-  // Files
-  moveToTrash: 'files',
   // Rendering
   generatePDFAsync: 'documents',
   // Compute

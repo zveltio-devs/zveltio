@@ -504,9 +504,31 @@ under a sandboxing CSP.
 
 List files in storage.
 
+### GET /api/storage/quota
+
+The caller's own usage and allowance in this tenant:
+`{ "used_bytes": 1024, "quota_bytes": 5368709120 }`. A key's are its issuer's.
+An upload that would pass `quota_bytes` is refused with 413.
+
+### PATCH /api/storage/:id
+
+Change who sees a file: `{ "visibility": "personal" }` (its uploader alone) or
+`{ "visibility": "tenant" }` (everyone in the tenant). Allowed to whoever may
+delete the file, with the same answers: 404 for a file the caller cannot read,
+403 for one they can read but did not upload (a tenant admin may change any).
+A file uploaded with `public=true` is served to anyone from its URL, so it
+cannot be made `personal` (409). A key needs `$storage` `update`.
+
 ### DELETE /api/storage/:id
 
 Delete a file.
+
+### PUT /api/admin/storage-quotas/:userId
+
+Set a user's storage quota, `{ "quota_bytes": 10737418240 }`; `null` puts the
+default (5 GiB) back. A quota binds the user in every tenant, so only god may set
+it, with a step-up for `storage.quota:<userId>`; each change is audited
+(`storage.quota_changed`, with the value it replaced).
 
 ---
 
@@ -932,9 +954,10 @@ the schema — `GET /api/collections`, `GET /api/collections/:name` and the
 realtime `$schema` channel — and nothing else, while its issuer is an instance
 administrator. It must be named: a `*` collection does not include it.
 
-`{ "collection": "$storage", "actions": ["read", "create", "delete"] }` lets a
-key use `/api/storage`: `read` lists and fetches files (metadata, signed URL,
-transform), `create` uploads and makes folders, `delete` deletes. It too must be
+`{ "collection": "$storage", "actions": ["read", "create", "update", "delete"] }`
+lets a key use `/api/storage`: `read` lists and fetches files (metadata, signed
+URL, transform, the quota), `create` uploads and makes folders, `update` changes
+a file's visibility, `delete` deletes. It too must be
 named. A key's uploads are recorded as the person who issued it. A key owns no
 file: without `rls_bypass` it sees only files shared with the tenant and
 deletes none; with it, it sees and deletes every file in its tenant, as a

@@ -558,7 +558,6 @@ ctx.internals.generatePDFAsync        // Queue HTML→PDF render
 ctx.internals.enqueue                 // Queue a job from a public route (data:system, ADR 0018)
 ctx.internals.renderTemplate          // Synchronous {{var}} interpolation
 ctx.internals.generatePDF             // Inline HTML→PDF render
-ctx.internals.moveToTrash             // Soft-delete a file with TTL
 ctx.internals.DataLoaderRegistry      // GraphQL N+1 batching
 ctx.internals.checkQueryDepth         // GraphQL query-depth validator
 ```

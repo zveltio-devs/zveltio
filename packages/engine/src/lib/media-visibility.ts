@@ -27,6 +27,10 @@
 
 import { apiKeyRowId } from './data/index.js';
 
+/** Who sees a file: its uploader alone, or everyone in its tenant (`zv_media_files.visibility`). */
+export const FILE_VISIBILITIES = ['personal', 'tenant'] as const;
+export type FileVisibility = (typeof FILE_VISIBILITIES)[number];
+
 /** The only shape this needs from a query builder. */
 interface Filterable<Q> {
   // biome-ignore lint/suspicious/noExplicitAny: Kysely's expression builder, over a runtime table
