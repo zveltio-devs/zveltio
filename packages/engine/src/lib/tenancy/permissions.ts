@@ -16,7 +16,7 @@ import {
   onAfterCommit,
   runWithoutTenantTrx,
 } from './tenant-context.js';
-import { DEFAULT_TENANT_ID, type RlsIdentity } from './tenant-manager.js';
+import { DEFAULT_TENANT_ID, type RlsIdentity, withEveryTenant } from './tenant-manager.js';
 import { withSavepoint } from '../savepoint.js';
 
 // Cache TTLs
@@ -271,7 +271,11 @@ export async function collectionGrantsFor(
 ): Promise<{ all: boolean; grants: string }> {
   // Unguarded: a failed god lookup throws, and the caller refuses the request.
   if (subject !== 'public' && (await lookupGod(subject))) return { all: true, grants: '' };
-  const perms = await effectivePermissions(subject, getCurrentDomain());
+  return encodeGrants(await effectivePermissions(subject, getCurrentDomain()));
+}
+
+/** A resolved set as the collection-permission policies read it (R1). */
+function encodeGrants(perms: EffectivePermissions): { all: boolean; grants: string } {
   const parts = [
     ...[...perms.anyAction].map((o) => `${o}:*`),
     ...[...perms.exact].map((k) => k.replace('\u0000', ':')),
@@ -1034,6 +1038,90 @@ export async function publicRlsIdentity(): Promise<RlsIdentity> {
     collectionAll: collections.all,
     anonymous: true,
   };
+}
+
+/**
+ * The principal a flow, a webhook or a data trigger runs as (ADR 0004): an
+ * account holding `role` in the running tenant and the baseline `member` every
+ * account holds — no wider than anyone its author could hand the role to, and
+ * no user. So a row rule's `user_id` and `user_email` own nothing for it (as for
+ * an authorless job, ADR 0028), its column role is `member` as `resolveUserRole`
+ * answers for such an account, and its grants, bypass and column exemption are
+ * the two roles' (and what they inherit). `identity` is what the database reads
+ * (`withTenantIsolation`, `asIdentityOn`); `allows` the same set in the engine.
+ *
+ * Asked inside `runWithDomain(<the flow's tenant>)`. A role table that cannot be
+ * read throws: a principal missing a grant is not one missing a restriction.
+ */
+export async function rolePrincipal(role: string): Promise<{
+  identity: RlsIdentity;
+  allows: (resource: string, action: string) => boolean;
+}> {
+  const domain = getCurrentDomain();
+  const e = await getEnforcer();
+  const subjects = [role, MEMBER_ROLE];
+  const sets = await Promise.all(subjects.map((s) => effectivePermissions(s, domain)));
+  const unread = sets.find((p) => p.unread !== undefined)?.unread;
+  if (unread !== undefined) throw unread;
+  const perms: EffectivePermissions = {
+    all: sets.some((p) => p.all),
+    exact: new Set(sets.flatMap((p) => [...p.exact])),
+    anyAction: new Set(sets.flatMap((p) => [...p.anyAction])),
+  };
+  // As `effectivePermissions` walks them: the chains, and rows the model has not loaded.
+  const roles = new Set(subjects);
+  for (const s of subjects) {
+    for (const direct of [s, ...(await unloadedRoles(e, s, domain))]) {
+      roles.add(direct);
+      for (const r of await e.getImplicitRolesForUser(direct, domain)) roles.add(r);
+    }
+  }
+  const allows = (resource: string, action: string) => allowedBy(perms, resource, action);
+  const { all, grants } = encodeGrants(perms);
+  return {
+    allows,
+    identity: {
+      userId: '',
+      email: '',
+      role: MEMBER_ROLE,
+      roles: [...roles],
+      bypass: allows('data', 'view_all'),
+      columnsAll: allows('data', 'view_all_columns'),
+      collectionGrants: grants,
+      collectionAll: all,
+      anonymous: true,
+    },
+  };
+}
+
+export type RolePrincipal = Awaited<ReturnType<typeof rolePrincipal>>;
+
+/**
+ * The role a flow or webhook saved without one runs as, and the one migration
+ * 117 gave the existing rows: the tenant's member role (ADR 0004). The saver
+ * must hold it like any other.
+ */
+export const DEFAULT_RUN_AS_ROLE = 'tenant_member';
+
+/**
+ * Whether `userId` may save a flow or webhook to run as `role` in the running
+ * tenant (ADR 0004): a role it holds, directly or through a role it holds.
+ *
+ * A tenant admin (a god included) may pick any role: they can assign
+ * themselves any role in the tenant anyway, so asking them to hold it first
+ * protects nothing, and on a fresh install it left nobody able to save a flow
+ * or a webhook at all (owner, 2026-11-10). The run still reads as the chosen
+ * role, never as the admin.
+ */
+export async function holdsRole(userId: string, role: string): Promise<boolean> {
+  if (await isTenantAdmin(userId)) return true;
+  const domain = getCurrentDomain();
+  const e = await getEnforcer();
+  const held = new Set(await getUserRoles(userId));
+  for (const r of [...held]) {
+    for (const inherited of await e.getImplicitRolesForUser(r, domain)) held.add(inherited);
+  }
+  return held.has(role);
 }
 
 /** The baseline Casbin role every account is given (`g <user> member *`). */
@@ -2177,6 +2265,24 @@ export async function getUserNames(userIds: string[]): Promise<Record<string, st
  * migration's `dropRole` both run this.
  */
 export async function deleteRole(db: Database, name: string): Promise<void> {
+  // First, so a failure leaves the role standing: every flow and webhook that
+  // ran as it runs as nothing until saved with a role again (ADR 0004). A role
+  // re-created under the name must not inherit them — see below.
+  await withEveryTenant(db, async (trx) => {
+    for (const table of ['zv_flows', 'zvd_webhooks']) {
+      const { rows } = await sql<{ t: string }>`
+        SELECT DISTINCT tenant_id::text AS t FROM ${sql.table(table)} WHERE run_as_role = ${name}
+      `.execute(trx);
+      for (const { t } of rows) {
+        // The tenant policy's WITH CHECK admits a write for the current tenant only.
+        await sql`SELECT set_config('zveltio.current_tenant', ${t}, true)`.execute(trx);
+        await sql`
+          UPDATE ${sql.table(table)} SET run_as_role = NULL
+           WHERE run_as_role = ${name} AND tenant_id = ${t}::uuid
+        `.execute(trx);
+      }
+    }
+  });
   const e = await getEnforcer();
   await e.deletePermissionsForUser(name);
   await e.deleteRole(name);

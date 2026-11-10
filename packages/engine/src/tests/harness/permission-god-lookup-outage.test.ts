@@ -41,7 +41,7 @@ d('a god lookup that fails', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
-    godCookie = await createGodSession(app, db);
+    godCookie = await createGodSession(app, db, { runAsRole: false });
     godId = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
       .rows[0]!.id;
     await DDLManager.createCollection(db, {

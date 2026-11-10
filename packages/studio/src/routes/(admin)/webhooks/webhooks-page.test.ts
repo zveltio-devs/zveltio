@@ -31,6 +31,8 @@ const { list, update } = vi.hoisted(() => ({
 vi.mock('#lib/api.js', () => ({
   webhooksApi: { list, update, create: vi.fn(), delete: vi.fn(), test: vi.fn() },
   collectionsApi: { list: vi.fn(async () => ({ collections: [] })) },
+  heldRoles: vi.fn(async () => ['member', 'tenant_member']),
+  defaultRunAsRole: () => 'tenant_member',
 }));
 vi.mock('#lib/stores/toast.svelte.js', () => ({
   toast: { error: vi.fn(), success: vi.fn(), undoable: vi.fn() },

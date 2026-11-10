@@ -365,6 +365,7 @@ export interface ZvFlowsTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: Generated<string | null>;
+  run_as_role: Generated<string | null>;
 }
 
 export interface ZvImportLogsTable {
@@ -1059,6 +1060,7 @@ export interface ZvdWebhooksTable {
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
   tenant_id: Generated<string | null>;
+  run_as_role: Generated<string | null>;
 }
 
 export interface DbSchema {

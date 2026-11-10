@@ -30,9 +30,11 @@ import {
   asTenant,
   createGodSession,
   createMemberSession,
+  dropTestCollection,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { DDLManager } from '../../lib/data/index.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -173,15 +175,24 @@ d('zv_flows under tenant RLS', () => {
   }, 30_000);
 
   it('a record hook fires the writing firm’s flow', async () => {
-    const collection = `${STAMP}_hook`;
-    const flow = await seedFlow(OTHER, 'hook', 'on_create', { collection });
-    await triggerDataFlows(plain, collection, 'insert', { id: 'r1' }, OTHER);
-    let runs: Awaited<ReturnType<typeof runsOf>> = [];
-    for (let i = 0; i < 50 && runs.every((r) => r.status === 'running'); i++) {
-      await Bun.sleep(100);
-      runs = await runsOf(flow);
+    // A real collection: the flow reads the record as its role (ADR 0004).
+    const collection = `hook_${STAMP}`;
+    await DDLManager.createCollection(db, {
+      name: collection,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
+    try {
+      const flow = await seedFlow(OTHER, 'hook', 'on_create', { collection });
+      await triggerDataFlows(plain, collection, 'insert', { id: 'r1' }, OTHER);
+      let runs: Awaited<ReturnType<typeof runsOf>> = [];
+      for (let i = 0; i < 50 && runs.every((r) => r.status === 'running'); i++) {
+        await Bun.sleep(100);
+        runs = await runsOf(flow);
+      }
+      expect(runs).toEqual([{ status: 'success', tenant: OTHER }]);
+    } finally {
+      await dropTestCollection(db, collection).catch(() => {});
     }
-    expect(runs).toEqual([{ status: 'success', tenant: OTHER }]);
   }, 30_000);
 
   it('the flow routes create, list, edit, run and delete in a non-default firm', async () => {

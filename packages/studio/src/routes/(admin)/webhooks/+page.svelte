@@ -3,7 +3,7 @@ import { m } from '#lib/i18n.svelte.js';
 import { page } from '$app/state';
 import { replaceState } from '$app/navigation';
 import { onMount } from 'svelte';
-import { webhooksApi, collectionsApi } from '#lib/api.js';
+import { webhooksApi, collectionsApi, defaultRunAsRole, heldRoles } from '#lib/api.js';
 import { Webhook, LoaderCircle, Trash2 } from '@lucide/svelte';
 import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
 import Modal from '#lib/components/common/Modal.svelte';
@@ -61,8 +61,14 @@ const emptyForm = () => ({
   secret: '',
   retry_attempts: 3,
   timeout: 5000,
+  // ADR 0004: the role its payloads are read as; one this user holds.
+  run_as_role: '',
 });
 let form = $state(emptyForm());
+let roles = $state<string[]>([]);
+let roleOptions = $derived(
+  form.run_as_role && !roles.includes(form.run_as_role) ? [form.run_as_role, ...roles] : roles,
+);
 
 const ALL_EVENTS = [
   'data.create',
@@ -74,7 +80,12 @@ const ALL_EVENTS = [
   'user.logout',
 ];
 
-onMount(load);
+onMount(() => {
+  load();
+  heldRoles()
+    .then((r) => (roles = r))
+    .catch(() => (roles = []));
+});
 
 async function load() {
   loading = true;
@@ -100,7 +111,7 @@ async function load() {
 
 function openCreate() {
   editTarget = null;
-  form = emptyForm();
+  form = { ...emptyForm(), run_as_role: defaultRunAsRole(roles) };
   showModal = true;
 }
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -121,6 +132,7 @@ function openEdit(wh: any) {
     secret: '',
     retry_attempts: wh.retry_attempts ?? 3,
     timeout: wh.timeout ?? 5000,
+    run_as_role: wh.run_as_role ?? '',
   };
   showModal = true;
 }
@@ -141,7 +153,11 @@ async function save() {
   saving = true;
   try {
     // `undefined` when untouched, so the engine keeps the stored secret.
-    const payload = { ...form, secret: form.secret.trim() || undefined };
+    const payload = {
+      ...form,
+      secret: form.secret.trim() || undefined,
+      run_as_role: form.run_as_role || undefined,
+    };
     editTarget
       ? await webhooksApi.update(editTarget.id, payload)
       : await webhooksApi.create(payload);
@@ -185,6 +201,7 @@ async function remove(id: string, name: string) {
               secret: undefined,
               retry_attempts: snapshot.retry_attempts,
               timeout: snapshot.timeout,
+              run_as_role: snapshot.run_as_role ?? undefined,
             });
             await load();
             if (snapshot.secret) toast.error(m['wh.restoredNoSecret']({ name }));
@@ -345,6 +362,14 @@ async function testWebhook(id: string) {
  </label>
  <input id="webhook-timeout" type="number" class="input" bind:value={form.timeout} min="1000" max="30000" step="500" />
  </div>
+ </div>
+ <div class="form-control">
+ <label class="label" for="webhook-run-as"><span class="label-text">{m['wh.runAsRole']()}</span></label>
+ <select id="webhook-run-as" class="select" bind:value={form.run_as_role}>
+ {#if !form.run_as_role}<option value="" disabled>—</option>{/if}
+ {#each roleOptions as role (role)}<option value={role}>{role}</option>{/each}
+ </select>
+ <span class="label-text-alt text-xs text-base-content/65 mt-1">{m['wh.runAsRoleHint']()}</span>
  </div>
  <div class="form-control">
  <p class="label"><span class="label-text">{m['wh.eventsRequired']()}</span></p>

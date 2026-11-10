@@ -33,6 +33,7 @@ import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import {
+  DEFAULT_RUN_AS_ROLE,
   DEFAULT_TENANT_ID,
   getEnforcer,
   grantMemberRole,
@@ -206,14 +207,17 @@ export const superuserTitle = (title: string, url: string | null): string =>
 export async function createGodSession(
   app: Hono,
   db: Database,
-  opts: { factor?: boolean } = {},
+  opts: { factor?: boolean; runAsRole?: boolean } = {},
 ): Promise<string> {
-  return opts.factor === false ? signUpGod(app, db) : (await godWithPasskey(app, db)).cookie;
+  const runAs = opts.runAsRole !== false;
+  return opts.factor === false
+    ? signUpGod(app, db, runAs)
+    : (await godWithPasskey(app, db, runAs)).cookie;
 }
 
 /** A god whose session has a soft passkey and an open configuration window. */
-async function godWithPasskey(app: Hono, db: Database) {
-  const cookie = await signUpGod(app, db);
+async function godWithPasskey(app: Hono, db: Database, runAsRole = true) {
+  const cookie = await signUpGod(app, db, runAsRole);
   return { cookie, ...(await openConfigWindow(app, cookie, 'HarnessGod123!')) };
 }
 
@@ -231,7 +235,7 @@ async function openConfigWindow(app: Hono, cookie: string, password: string) {
   return { pk, req, origin, passkeyStepUp };
 }
 
-async function signUpGod(app: Hono, db: Database): Promise<string> {
+async function signUpGod(app: Hono, db: Database, runAsRole = true): Promise<string> {
   const email = `harness-god-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
   const password = 'HarnessGod123!';
 
@@ -280,6 +284,16 @@ async function signUpGod(app: Hono, db: Database): Promise<string> {
   // them this, none of them the code under test.
   // A demoted god is a member, which only Casbin says (`g <user> member *`).
   for (const row of demoted.rows) await grantMemberRole(row.id);
+  // A god holds no role by being god, and a flow or webhook is saved as a role
+  // its saver holds (ADR 0004): the default one, in every firm, so the suites
+  // that save one without naming a role keep doing so. `runAsRole: false` for a
+  // suite about what a god holds once Casbin alone answers (a demotion, an
+  // outage): this role's grants would answer for it.
+  const e = await getEnforcer();
+  for (const row of runAsRole ? granted.rows : []) {
+    await e.addRoleForUser(row.id, DEFAULT_RUN_AS_ROLE, '*');
+    await invalidateUserPermCache(row.id);
+  }
   for (const row of [...demoted.rows, ...granted.rows]) {
     await invalidateGodCache(row.id);
   }

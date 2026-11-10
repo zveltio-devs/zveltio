@@ -74,6 +74,14 @@ beforeAll(async () => {
   await sql`UPDATE "user" SET role = 'member' WHERE role = 'god'`.execute(db);
   await sql`UPDATE "user" SET role = 'god' WHERE id = ${userId}`.execute(db);
   godCookie = await openConfigWindowOver(BASE_URL, await signIn(email, pass), pass);
+  // A webhook is saved as a role its saver holds (ADR 0004), and a god holds
+  // none by being god: the default one, which reads the test collection.
+  const assigned = await fetch(`${BASE_URL}/api/permissions/roles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: godCookie },
+    body: JSON.stringify({ userId, role: 'tenant_member' }),
+  });
+  expect(assigned.ok).toBe(true);
 
   // Create test collection
   await fetch(`${BASE_URL}/api/collections`, {

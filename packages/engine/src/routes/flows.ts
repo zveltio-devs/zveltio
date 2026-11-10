@@ -5,7 +5,13 @@ import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
 import { EXECUTABLE_STEP_TYPES, executeFlow, nextCronRun } from '../lib/flows/index.js';
 import { validateStepConfig } from '../lib/flows/index.js';
-import { isTenantAdmin, requireInstanceAdmin, withTenantIsolation } from '../lib/tenancy/index.js';
+import {
+  holdsRole,
+  isTenantAdmin,
+  DEFAULT_RUN_AS_ROLE,
+  requireInstanceAdmin,
+  withTenantIsolation,
+} from '../lib/tenancy/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { toJsonb } from '../lib/jsonb.js';
 import { guardAdmin } from '../lib/admin-guard.js';
@@ -158,6 +164,18 @@ async function assertStepTypesAllowed(
   );
 }
 
+/**
+ * The role a flow runs as (ADR 0004) must be one its saver holds in this
+ * tenant: no one grants a flow more than they have. Asked on every save, an
+ * edit included — changing the steps of a flow that runs as a role the editor
+ * lacks is authoring as that role. `null` (the role was deleted) asks nothing:
+ * such a flow does not run until it is saved with a role.
+ */
+async function refuseRunAsRole(userId: string, role: string | null): Promise<string | null> {
+  if (role === null || (await holdsRole(userId, role))) return null;
+  return `run_as_role "${role}": a flow runs as a role you hold in this tenant`;
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function flowsRoutes(poolDb: Database, auth: any): Hono {
   const app = new Hono();
@@ -259,6 +277,8 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
         trigger: TriggerSchema,
         steps: z.array(StepSchema).default([]),
         is_active: z.boolean().default(true),
+        // ADR 0004. The tenant's member role when none is chosen.
+        run_as_role: z.string().min(1).default(DEFAULT_RUN_AS_ROLE),
       }),
     ),
     async (c) => {
@@ -267,6 +287,8 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
 
       const stepDenial = await assertStepTypesAllowed(user.id, body.steps);
       if (stepDenial) return c.json({ error: stepDenial }, 403);
+      const roleDenial = await refuseRunAsRole(user.id, body.run_as_role);
+      if (roleDenial) return c.json({ error: roleDenial }, 403);
 
       // Validate each step's config before persisting anything.
       for (const step of body.steps) {
@@ -291,6 +313,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
             trigger_config: toJsonb(toTriggerConfig(body.trigger)),
             next_run_at: firstRun(body.trigger),
             created_by: user.id,
+            run_as_role: body.run_as_role,
           })
           .returningAll()
           .executeTakeFirst();
@@ -311,6 +334,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
           name: body.name,
           trigger_type: body.trigger.type,
           step_count: body.steps.length,
+          run_as_role: body.run_as_role,
         },
       });
 
@@ -330,6 +354,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
         trigger: TriggerSchema.optional(),
         steps: z.array(StepSchema).optional(),
         is_active: z.boolean().optional(),
+        run_as_role: z.string().min(1).optional(),
       }),
     ),
     async (c) => {
@@ -339,11 +364,27 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
 
       const stepDenial = await assertStepTypesAllowed(patchUser.id, body.steps);
       if (stepDenial) return c.json({ error: stepDenial }, 403);
+      if (!UUID_RE.test(flowId)) return c.json({ error: 'Flow not found' }, 404);
+      const current = await inTenant(c, (t) =>
+        t
+          .selectFrom('zv_flows')
+          .select('run_as_role')
+          .where('id', '=', flowId)
+          .where('tenant_id', '=', tenantOf(c))
+          .executeTakeFirst(),
+      );
+      if (!current) return c.json({ error: 'Flow not found' }, 404);
+      const roleDenial = await refuseRunAsRole(
+        patchUser.id,
+        body.run_as_role ?? current.run_as_role,
+      );
+      if (roleDenial) return c.json({ error: roleDenial }, 403);
 
       const updates: Record<string, unknown> = { updated_at: new Date() };
       if (body.name !== undefined) updates.name = body.name;
       if (body.description !== undefined) updates.description = body.description;
       if (body.is_active !== undefined) updates.is_active = body.is_active;
+      if (body.run_as_role !== undefined) updates.run_as_role = body.run_as_role;
       if (body.trigger !== undefined) {
         updates.trigger_type = body.trigger.type;
         updates.trigger_config = toJsonb(toTriggerConfig(body.trigger));
@@ -523,12 +564,14 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
     const flow = await inTenant(c, (t) =>
       t
         .selectFrom('zv_flows')
-        .select(['id'])
+        .select(['id', 'run_as_role'])
         .where('id', '=', flowId)
         .where('tenant_id', '=', tenantOf(c))
         .executeTakeFirst(),
     );
     if (!flow) return c.json({ error: 'Flow not found' }, 404);
+    const roleDenial = await refuseRunAsRole(user.id, flow.run_as_role);
+    if (roleDenial) return c.json({ error: roleDenial }, 403);
 
     // Append at the end — fetch current max step_order first.
     const last = await poolDb
@@ -565,12 +608,17 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
     const owner = await inTenant(c, (t) =>
       t
         .selectFrom('zv_flows')
-        .select(['id'])
+        .select(['id', 'run_as_role'])
         .where('id', '=', flowId)
         .where('tenant_id', '=', tenantOf(c))
         .executeTakeFirst(),
     );
     if (!owner) return c.json({ error: 'Step not found' }, 404);
+    const roleDenial = await refuseRunAsRole(
+      (c.get('user') as { id: string }).id,
+      owner.run_as_role,
+    );
+    if (roleDenial) return c.json({ error: roleDenial }, 403);
 
     const existing = await poolDb
       .selectFrom('zv_flow_steps')
@@ -624,12 +672,17 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
     const owner = await inTenant(c, (t) =>
       t
         .selectFrom('zv_flows')
-        .select(['id'])
+        .select(['id', 'run_as_role'])
         .where('id', '=', flowId)
         .where('tenant_id', '=', tenantOf(c))
         .executeTakeFirst(),
     );
     if (!owner) return c.json({ error: 'Step not found' }, 404);
+    const roleDenial = await refuseRunAsRole(
+      (c.get('user') as { id: string }).id,
+      owner.run_as_role,
+    );
+    if (roleDenial) return c.json({ error: roleDenial }, 403);
 
     await poolDb.transaction().execute(async (trx) => {
       const removed = await trx

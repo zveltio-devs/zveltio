@@ -80,7 +80,7 @@ d('a user role change reaches open subscriptions', () => {
 
   /** A god, holding `member@*` as well, with a socket subscribed to COL. */
   async function godWithSocket() {
-    const cookie = await createGodSession(app, db);
+    const cookie = await createGodSession(app, db, { runAsRole: false });
     const { id: userId } = await db
       .selectFrom('user')
       .select('id')

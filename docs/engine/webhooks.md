@@ -53,6 +53,7 @@ Content-Type: application/json
   "secret": "your-webhook-secret",
   "retry_attempts": 3,
   "timeout": 5000,
+  "run_as_role": "tenant_member",
   "headers": {
     "X-Custom-Header": "value"
   }
@@ -70,6 +71,13 @@ Content-Type: application/json
 | `retry_attempts` | number | `3` | Max delivery attempts (0–10) |
 | `timeout` | number | `5000` | Request timeout in ms |
 | `headers` | object | `{}` | Custom headers to include |
+| `run_as_role` | string | `tenant_member` | The Casbin role the payload is read as. You may only pick a role you hold in this tenant (403 otherwise), on create and on every later edit. |
+
+> **What a delivery carries:** the record as `run_as_role` reads it — that
+> role's grants, row rules and column rules. A record the role may not read is
+> not delivered at all; a column a column rule hides from it is left out. When
+> the role is deleted the webhook delivers nothing until it is saved with a role
+> again.
 
 > **Security note:** Subsequent `GET /api/webhooks/:id` calls return the secret masked as `••••••••`. Store the secret securely at creation time.
 
@@ -122,7 +130,7 @@ Every webhook delivery sends a `POST` request (or your configured method) with t
 | `event` | `insert` / `update` / `delete` |
 | `collection` | Collection name (e.g., `orders`) |
 | `timestamp` | ISO 8601 UTC timestamp |
-| `data` | Full record snapshot (for delete: `{ id }` only) |
+| `data` | The record as the webhook's `run_as_role` reads it (for delete: `{ id }` only) |
 
 ### Headers sent
 

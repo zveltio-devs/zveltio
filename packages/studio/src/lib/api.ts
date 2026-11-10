@@ -343,6 +343,17 @@ export const webhooksApi = {
   deliveries: (id: string) => api.get<{ deliveries: any[] }>(`/api/webhooks/${id}/deliveries`),
 };
 
+/**
+ * The roles the signed-in user holds here (`GET /api/me`): what a flow or a
+ * webhook may be saved to run as (ADR 0004). The engine checks it again.
+ */
+export const heldRoles = async (): Promise<string[]> =>
+  (await api.get<{ user: { roles?: string[] } }>('/api/me')).user.roles ?? [];
+
+/** The role a new flow or webhook preselects: the tenant's member role when held. */
+export const defaultRunAsRole = (roles: string[]): string =>
+  roles.includes('tenant_member') ? 'tenant_member' : (roles[0] ?? '');
+
 export const importApi = {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   jobs: () => api.get<{ jobs: any[] }>('/ext/data/import/jobs'),

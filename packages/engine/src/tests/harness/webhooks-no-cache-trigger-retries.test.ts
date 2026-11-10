@@ -10,7 +10,8 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { DDLManager } from '../../lib/data/index.js';
+import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import { WebhookManager, _settleWebhookDeliveries } from '../../lib/webhooks.js';
 import { getCache } from '../../lib/runtime/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
@@ -30,6 +31,12 @@ d('trigger retries on the no-cache path (in-process)', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     WebhookManager.init(db);
+    // A real collection: a webhook or a data trigger reads its record as its
+    // role (ADR 0004), and a role reads collections only.
+    await DDLManager.createCollection(db, {
+      name: COLLECTION,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
     await db
       .insertInto('zvd_webhooks')
       .values({
@@ -56,6 +63,7 @@ d('trigger retries on the no-cache path (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await dropTestCollection(db, COLLECTION).catch(() => {});
     await db
       .deleteFrom('zvd_webhook_deliveries')
       .where('webhook_id', '=', WEBHOOK_ID)

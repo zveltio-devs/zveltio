@@ -22,6 +22,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
+import {
+  DEFAULT_RUN_AS_ROLE,
+  DEFAULT_TENANT_ID,
+  rolePrincipal,
+  runWithDomain,
+} from '../../lib/tenancy/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const { executeStep } = _internalForTests;
@@ -34,7 +40,9 @@ const d = harnessAvailable() ? describe : describe.skip;
  * tested Postgres, not the executor.
  */
 async function runAsQueryDbStep(db: Database, query: string, tenantId?: string) {
-  const r = await executeStep(db, { type: 'query_db', config: { query } }, {}, {}, tenantId);
+  const r = await executeStep(db, { type: 'query_db', config: { query } }, {}, {}, tenantId, () =>
+    runWithDomain(tenantId ?? DEFAULT_TENANT_ID, () => rolePrincipal(DEFAULT_RUN_AS_ROLE)),
+  );
   return { rows: r.output };
 }
 

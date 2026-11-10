@@ -13,7 +13,13 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { _settleWebhookDeliveries, WebhookManager } from '../../lib/webhooks.js';
-import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { DDLManager } from '../../lib/data/index.js';
+import {
+  asTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TAG = `${Date.now()}${Math.floor(Math.random() * 1e6)}`;
@@ -45,6 +51,12 @@ d('webhook dispatch: which hooks match', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     WebhookManager.init(db);
+    // A real collection: a webhook or a data trigger reads its record as its
+    // role (ADR 0004), and a role reads collections only.
+    await DDLManager.createCollection(db, {
+      name: COLLECTION,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
     await hook('inactive', false, [COLLECTION]);
     await hook('null-collections', true, null);
     await hook('star-collections', true, ['*']);
@@ -62,6 +74,7 @@ d('webhook dispatch: which hooks match', () => {
 
   afterAll(async () => {
     if (!db) return;
+    await dropTestCollection(db, COLLECTION).catch(() => {});
     await _settleWebhookDeliveries();
     for (const id of Object.values(ids)) {
       await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${id}::uuid`.execute(db);

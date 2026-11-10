@@ -26,8 +26,10 @@ import {
   getColumnAccess,
   getRlsFilters,
   matchesRlsFilters,
+  principalRlsFilters,
   principalRole,
   type ColumnAccess,
+  type RolePrincipal,
 } from '../tenancy/index.js';
 
 export type RlsFilter = Awaited<ReturnType<typeof getRlsFilters>>[number];
@@ -90,13 +92,46 @@ export async function readScope(
   given: ReadUser,
   authType: 'session' | 'api_key' | 'anonymous',
 ): Promise<ReadScope> {
-  const table = DDLManager.getTableName(collection);
   const role = await principalRole(given.id);
   const user = { ...given, role };
   const rls = await getRlsFilters(collection, user, authType);
+  return scopeOf(db, collection, user, rls, await getColumnAccess(db, collection, role, user));
+}
+
+/**
+ * What a role principal (ADR 0004: a flow, a webhook, a data trigger) reads of
+ * one record that did not come through a query — a write's outbound payload:
+ * `null` when Casbin, a row rule or an extension gate hides it from the role,
+ * otherwise the record minus the columns the role may not read. The payload is
+ * that role's, never the writer's.
+ */
+export async function principalRecord(
+  db: Database,
+  collection: string,
+  principal: RolePrincipal,
+  record: Record<string, unknown>,
+): Promise<Record<string, unknown> | null> {
+  if (!principal.allows(collection, 'read')) return null;
+  const { identity } = principal;
+  const user = { id: '', email: '', role: identity.role };
+  const granted = identity.columnsAll
+    ? { hidden: new Set<string>(), readOnly: new Set<string>() }
+    : await getColumnAccess(db, collection, identity.role);
+  const rls = await principalRlsFilters(collection, identity);
+  const scope = await scopeOf(db, collection, user, rls, granted);
+  return (await scope.admits(record)) ? scope.shape(record) : null;
+}
+
+async function scopeOf(
+  db: Database,
+  collection: string,
+  user: ReadUser,
+  rls: RlsFilter[],
+  granted: ColumnAccess,
+): Promise<ReadScope> {
+  const table = DDLManager.getTableName(collection);
   // A field no one is served (`password`) is hidden from every reader.
   const { unserved, sealed } = withheldColumns(await DDLManager.getCollection(db, collection));
-  const granted = await getColumnAccess(db, collection, role, user);
   const columns: ColumnAccess =
     unserved.length === 0
       ? granted
