@@ -877,6 +877,10 @@ table zv_media_files
   pk  zv_media_files_pkey PRIMARY KEY (id)
   ck  zv_media_files_visibility_check CHECK ((visibility = ANY (ARRAY['tenant'::text, 'personal'::text])))
   rls enabled forced
+  pol media_files_user_delete RESTRICTIVE FOR d USING (( SELECT zveltio_media_sees_all() AS zveltio_media_sees_all) OR (created_by = ( SELECT zveltio_media_owner() AS zveltio_media_owner)) OR (created_by_api_key = ( SELECT zveltio_media_owner_key() AS zveltio_media_owner_key))) CHECK -
+  pol media_files_user_insert RESTRICTIVE FOR a USING - CHECK (( SELECT (COALESCE(current_setting('zveltio.actor'::text, true), ''::text) <> 'on'::text)) OR (created_by = ( SELECT zveltio_media_owner() AS zveltio_media_owner)) OR (created_by_api_key = ( SELECT zveltio_media_owner_key() AS zveltio_media_owner_key)))
+  pol media_files_user_select RESTRICTIVE FOR r USING (( SELECT zveltio_media_sees_all() AS zveltio_media_sees_all) OR (visibility = 'tenant'::text) OR (created_by = ( SELECT zveltio_media_owner() AS zveltio_media_owner)) OR (created_by_api_key = ( SELECT zveltio_media_owner_key() AS zveltio_media_owner_key))) CHECK -
+  pol media_files_user_update RESTRICTIVE FOR w USING (( SELECT zveltio_media_sees_all() AS zveltio_media_sees_all) OR (visibility = 'tenant'::text) OR (created_by = ( SELECT zveltio_media_owner() AS zveltio_media_owner)) OR (created_by_api_key = ( SELECT zveltio_media_owner_key() AS zveltio_media_owner_key))) CHECK (( SELECT zveltio_media_sees_all() AS zveltio_media_sees_all) OR (visibility = 'tenant'::text) OR (created_by = ( SELECT zveltio_media_owner() AS zveltio_media_owner)) OR (created_by_api_key = ( SELECT zveltio_media_owner_key() AS zveltio_media_owner_key)))
   pol tenant_isolation_zv_media_files FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_media_folders

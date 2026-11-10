@@ -51,12 +51,14 @@ d('ctx.internals.moveToTrash stays inside the running tenant', () => {
   let extDb: Database;
   const files: Record<string, string> = {};
 
+  // The member's own uploads: a personal file of anyone else is not theirs to
+  // trash whatever the tenant (migration 115).
   const fileIn = async (tenant: string, label: string) =>
     (
       await asTenant(db, tenant, (trx) =>
         sql<{ id: string }>`
-        INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id)
-        VALUES (${label}, ${label}, 'text/plain', ${label}, ${tenant}::uuid)
+        INSERT INTO zv_media_files (filename, original_name, mimetype, storage_path, tenant_id, created_by)
+        VALUES (${label}, ${label}, 'text/plain', ${label}, ${tenant}::uuid, ${member.userId})
         RETURNING id`.execute(trx),
       )
     ).rows[0]!.id;
