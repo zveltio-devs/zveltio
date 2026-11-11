@@ -12,7 +12,8 @@ import { Glob } from 'bun';
 import { join } from 'node:path';
 
 const SRC = join(import.meta.dir, '../..');
-const CACHE = /getCache|runtime\/cache|ioredis|valkey|\b(?:[lr]push|lmpop|lrange|lrem|zadd)\b|['"`]webhook:/i;
+const CACHE =
+  /getCache|runtime\/cache|ioredis|valkey|\b(?:[lr]push|lmpop|lrange|lrem|zadd)\b|['"`]webhook:/i;
 
 describe('webhooks do not use Valkey', () => {
   it('no webhook source file reaches the cache', async () => {

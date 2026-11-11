@@ -1,5 +1,5 @@
 /**
- * Which of a firm's webhooks the dispatcher picks for an event.
+ * Which of a firm's webhooks an event is queued for.
  *
  * Every webhook test seeds `active: true` and `collections: []`, so deleting
  * `active = true` from the match, or either of the "every collection" readings
@@ -12,7 +12,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
-import { _settleWebhookDeliveries, WebhookManager } from '../../lib/webhooks.js';
+import { enqueueWebhookEvent, WEBHOOK_QUEUE } from '../../lib/webhooks.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
   asTenant,
@@ -50,7 +51,6 @@ d('webhook dispatch: which hooks match', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    WebhookManager.init(db);
     // A real collection: a webhook or a data trigger reads its record as its
     // role (ADR 0004), and a role reads collections only.
     await DDLManager.createCollection(db, {
@@ -75,7 +75,8 @@ d('webhook dispatch: which hooks match', () => {
   afterAll(async () => {
     if (!db) return;
     await dropTestCollection(db, COLLECTION).catch(() => {});
-    await _settleWebhookDeliveries();
+    await sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE}
+               AND data->>'webhookId' = ANY(${Object.values(ids)})`.execute(db);
     for (const id of Object.values(ids)) {
       await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${id}::uuid`.execute(db);
       await sql`DELETE FROM zvd_webhooks WHERE id = ${id}::uuid`.execute(db);
@@ -84,16 +85,19 @@ d('webhook dispatch: which hooks match', () => {
   });
 
   it('fires active hooks for the collection, by name, NULL or *; not inactive or other ones', async () => {
-    await WebhookManager.trigger(
-      'insert',
-      COLLECTION,
-      { id: '00000000-0000-4000-8000-0000000000ab' },
-      DEFAULT_TENANT_ID,
+    // One delivery job per matching hook, queued in the write's transaction (ADR 0035).
+    await withTenantIsolation(DEFAULT_TENANT_ID, (trx) =>
+      enqueueWebhookEvent(trx, DEFAULT_TENANT_ID, {
+        id: crypto.randomUUID(),
+        event: 'insert',
+        collection: COLLECTION,
+        data: { id: '00000000-0000-4000-8000-0000000000ab' },
+        timestamp: new Date().toISOString(),
+      }),
     );
-    await _settleWebhookDeliveries();
     const fired = await sql<{ webhook_id: string }>`
-      SELECT webhook_id::text AS webhook_id FROM zvd_webhook_deliveries
-       WHERE webhook_id = ANY(${Object.values(ids)}::uuid[])
+      SELECT data->>'webhookId' AS webhook_id FROM pgboss.job
+       WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ANY(${Object.values(ids)})
     `.execute(db);
     const names = Object.entries(ids)
       .filter(([, id]) => fired.rows.some((r) => r.webhook_id === id))

@@ -89,8 +89,8 @@ export async function initCache(): Promise<Redis | null> {
         : '';
     throw new Error(
       `Cannot connect to Valkey at ${redactUrl(process.env.VALKEY_URL)}: ${reason}.${hint} ` +
-        'Valkey is required: permission and identity caches, rate limiting and webhook ' +
-        'delivery all depend on it. To run exactly one instance without it, set ' +
+        'Valkey is required: permission and identity caches and rate limiting ' +
+        'depend on it. To run exactly one instance without it, set ' +
         'ZVELTIO_SINGLE_INSTANCE=1 and unset VALKEY_URL.',
       { cause: err },
     );
@@ -100,7 +100,7 @@ export async function initCache(): Promise<Redis | null> {
 
 /**
  * Test-only: inject (or clear) the cache singleton so cache-backed modules
- * (webhook-worker, rate-limiter, query-cache) can be unit-tested against a fake
+ * (rate-limiter, query-cache) can be unit-tested against a fake
  * Redis without a live Valkey. Pass null to reset.
  */
 export function _setCacheForTests(cache: Redis | null): void {

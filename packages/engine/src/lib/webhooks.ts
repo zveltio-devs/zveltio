@@ -182,7 +182,10 @@ function ensureQueue(boss: JobQueue): Promise<void> {
 
 // One lookup per collection and event per transaction: a bulk write of 500 rows
 // asks once.
-const lookups = new WeakMap<object, Map<string, Promise<{ id: string; retry_attempts: number }[]>>>();
+const lookups = new WeakMap<
+  object,
+  Map<string, Promise<{ id: string; retry_attempts: number }[]>>
+>();
 
 const refuse = (why: string): never => {
   throw problem(
@@ -214,7 +217,10 @@ export async function enqueueWebhookEvent(
 async function enqueueOn(trx: Database, tenant: string, change: ChangeEvent): Promise<void> {
   const key = `${tenant}\u0000${change.event}\u0000${change.collection}`;
   let byKey = lookups.get(trx);
-  if (!byKey) lookups.set(trx, (byKey = new Map()));
+  if (!byKey) {
+    byKey = new Map();
+    lookups.set(trx, byKey);
+  }
   let found = byKey.get(key);
   if (!found) {
     found = sql<{ id: string; retry_attempts: number | null }>`
@@ -406,10 +412,16 @@ export function startWebhookWorker(): void {
   onJobQueueStart(async (boss) => {
     await ensureQueue(boss);
     // Outside whatever context pg-boss resumes its loop in (see ddl-queue's `work`).
-    await boss.work<WebhookJob, void, { includeMetadata: true }>(
-      WEBHOOK_QUEUE,
-      { includeMetadata: true },
-      ([j]) =>
+    // Ten at once and a 1 s poll, as the old cache worker did: one slow endpoint
+    // (up to its 30 s timeout) must not hold every other delivery behind it.
+    const options = {
+      includeMetadata: true,
+      localConcurrency: 10,
+      pollingIntervalSeconds: 1,
+      // A backlog is fetched without that pause, which caps a worker at one job per poll.
+      burstWhenReadyExceeds: 10,
+    } as const;
+    await boss.work<WebhookJob, void, typeof options>(WEBHOOK_QUEUE, options, ([j]) =>
       runOutsideTenantContext(() => runWebhookJob(j!)),
     );
   });

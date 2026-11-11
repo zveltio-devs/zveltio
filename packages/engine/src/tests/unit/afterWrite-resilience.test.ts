@@ -8,15 +8,19 @@ import { afterWrite } from '../../lib/data/write-pipeline.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { _resetForTests } from '../../lib/runtime/realtime-bus.js';
 import * as wsModule from '../../routes/ws.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 afterEach(() => {
   _resetForTests();
+  initTenantManager(null as unknown as Database);
 });
 
 describe('afterWrite — swallowed revision failures', () => {
   it('still broadcasts and emits when the revision insert fails', async () => {
     const db = new CannedDb();
+    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
+    initTenantManager(db.kysely as unknown as Database);
     db.fail(/insert into "zv_revisions"/i, new Error('revision table missing'));
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
     const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});

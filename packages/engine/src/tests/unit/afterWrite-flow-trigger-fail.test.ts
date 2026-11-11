@@ -9,15 +9,19 @@ import { engineEvents } from '../../lib/runtime/index.js';
 import { _resetForTests } from '../../lib/runtime/realtime-bus.js';
 import * as flowsModule from '../../lib/flows/index.js';
 import * as wsModule from '../../routes/ws.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 afterEach(() => {
   _resetForTests();
+  initTenantManager(null as unknown as Database);
 });
 
 describe('afterWrite — flow trigger resilience', () => {
   it('logs when triggerDataFlows rejects but still emits engine events', async () => {
     const db = new CannedDb();
+    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
+    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
     const flowSpy = spyOn(flowsModule, 'triggerDataFlows').mockRejectedValue(

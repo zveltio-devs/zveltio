@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  drainWebhookJobs,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hwhbulkupd_${Date.now()}`;
@@ -91,7 +96,7 @@ d('webhook trigger via bulk update (in-process)', () => {
     });
     expect(res.status).toBe(200);
 
-    await new Promise((r) => setTimeout(r, 300));
+    await drainWebhookJobs(db);
 
     const deliveries = await sql<{ count: string }>`
       SELECT count(*)::text AS count FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}

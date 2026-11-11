@@ -16,7 +16,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { executeFlow, triggerDataFlows } from '../../lib/flows/index.js';
-import { WebhookManager } from '../../lib/webhooks.js';
+import { enqueueWebhookEvent } from '../../lib/webhooks.js';
 import {
   createRlsPolicy,
   deleteRlsPolicy,
@@ -25,11 +25,13 @@ import {
   getEnforcer,
   invalidateUserPermCache,
   putColumnPermission,
+  withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
   asEveryTenant,
   asTenant,
   createGodSession,
+  drainWebhookJobs,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -184,12 +186,16 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
     globalThis.fetch = (async () =>
       ({ ok: true, status: 200, text: async () => 'ok' }) as Response) as unknown as typeof fetch;
     try {
-      await WebhookManager.trigger(
-        'insert',
-        COLL,
-        { id: recordId, title: 'visible-title', secret: 'classified', owner: 'nobody' },
-        TENANT,
+      await withTenantIsolation(TENANT, (trx) =>
+        enqueueWebhookEvent(trx, TENANT, {
+          id: crypto.randomUUID(),
+          event: 'insert',
+          collection: COLL,
+          data: { id: recordId, title: 'visible-title', secret: 'classified', owner: 'nobody' },
+          timestamp: new Date().toISOString(),
+        }),
       );
+      await drainWebhookJobs(db);
     } finally {
       globalThis.fetch = realFetch;
     }

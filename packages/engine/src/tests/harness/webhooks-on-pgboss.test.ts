@@ -15,17 +15,23 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _setBossForTests } from '../../lib/data/ddl-queue.js';
-import { afterWrite, DDLManager, jobQueue } from '../../lib/data/index.js';
+import { afterWrite, DDLManager, jobQueue, maybeEncrypt } from '../../lib/data/index.js';
 import { currentAfterCommitQueue, withTenantIsolation } from '../../lib/tenancy/index.js';
-import { _runWebhookJobs, runWebhookJob, WEBHOOK_QUEUE, type WebhookJob } from '../../lib/webhooks.js';
+import { runWebhookJob, WEBHOOK_QUEUE, type WebhookJob } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { asEngineRole } from '../../lib/role-window.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  drainWebhookJobs,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = `whpb_${Date.now()}`;
 const C = `${STAMP}_c`;
 const QUIET = `${STAMP}_quiet`;
+const SECRET = `whpb-secret-${STAMP}`;
 
 type Job = { id: string; state: string; data: WebhookJob };
 
@@ -37,8 +43,8 @@ d('webhooks on pg-boss (ADR 0035)', () => {
   let originalFetch: typeof fetch;
   let answer = 200;
   /** Envelopes POSTed for this file's collection. */
-  const sent: Array<{ id: string; sequence: number; event: string; data: { title?: string } }> =
-    [];
+  const sent: Array<{ id: string; sequence: number; event: string; data: { title?: string } }> = [];
+  const signatures: string[] = [];
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
@@ -50,16 +56,19 @@ d('webhooks on pg-boss (ADR 0035)', () => {
       } as never);
     }
     const row = await sql<{ id: string }>`
-      INSERT INTO zvd_webhooks (tenant_id, name, url, events, collections, retry_attempts)
+      INSERT INTO zvd_webhooks (tenant_id, name, url, events, collections, retry_attempts, secret)
       VALUES (${DEFAULT_TENANT_ID}::uuid, ${STAMP}, 'https://93.184.216.34/whpb',
-              ARRAY['*']::text[], ARRAY[${C}]::text[], 1)
+              ARRAY['*']::text[], ARRAY[${C}]::text[], 1, ${await maybeEncrypt(SECRET, true)})
       RETURNING id::text AS id`.execute(db);
     hook = row.rows[0]!.id;
 
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
       const body = String(init?.body ?? '');
-      if (body.includes(C)) sent.push(JSON.parse(body));
+      if (body.includes(C)) {
+        sent.push(JSON.parse(body));
+        signatures.push(new Headers(init?.headers).get('x-zveltio-signature') ?? '');
+      }
       return { status: answer, ok: answer < 400, text: async () => 'x' } as Response;
     }) as unknown as typeof fetch;
   }, 60_000);
@@ -103,14 +112,7 @@ d('webhooks on pg-boss (ADR 0035)', () => {
          WHERE webhook_id = ${hook}::uuid AND event_id = ${eventId}::uuid`.execute(db)
     ).rows;
 
-  /** Run every due job, retries made due at once, until none is left to run. */
-  async function drain(): Promise<void> {
-    for (let i = 0; i < 10; i++) {
-      await sql`UPDATE pgboss.job SET start_after = now()
-                 WHERE name = ${WEBHOOK_QUEUE} AND state = 'retry'`.execute(db);
-      if ((await _runWebhookJobs()) === 0) return;
-    }
-  }
+  const drain = () => drainWebhookJobs(db);
 
   it('(a) a write whose transaction rolls back leaves no job row', async () => {
     await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
@@ -165,6 +167,9 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     const got = sent.filter((s) => s.data.title === 'crashed');
     expect(got).toHaveLength(1);
     expect(got[0]!.id).toBe(job!.data.eventId);
+    // Signed with the secret read from the row at delivery; the job never held it.
+    expect(signatures.at(-1)).toMatch(/^sha256=[0-9a-f]{64}$/);
+    expect(JSON.stringify(job)).not.toContain(SECRET);
     expect(await deliveriesOf(job!.data.eventId)).toEqual([
       { attempt: 1, max_attempts: 1, delivered: true, status: 200 },
     ]);
@@ -260,7 +265,9 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     const count = async (title: string) =>
       (
         await sql<{ n: number }>`
-          SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`.execute(db)
+          SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`.execute(
+          db,
+        )
       ).rows[0]!.n;
 
     _setBossForTests(null);
