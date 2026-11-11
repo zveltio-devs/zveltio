@@ -233,7 +233,7 @@ come from Casbin alone, `member` included); the policies read that set. A statem
 | the engine's own work with no actor (boot, jobs, reconcilers) | all |
 | an extension's statement in a request | the requesting user's grants |
 | a worker-isolated extension's statement in a request | the requesting user's grants — never the bypass, never another tenant |
-| an extension's statement with no actor (a hook, a timer) | nothing — unless the extension holds `data:system`, whose jobs in `withTenantIsolation` are system inside the tenant |
+| an extension's work with no caller (its own `ctx.internals.withTenantIsolation`, a per-tenant schedule, a listener, a worker statement outside a request) | nothing — unless the extension holds `data:system`, whose work in `withTenantIsolation` is system inside the tenant. It is an actor with no identity (see below) |
 | inside `ctx.internals.asSystem(collections, fn)` | those collections (capability `data:system`, audited) |
 | an extension listed in `ZVELTIO_COLLECTION_RLS_EXEMPT` | all — a temporary bridge, warned at boot, removed at 3.0.0 GA |
 
@@ -420,6 +420,21 @@ rules, so a job never sees a row its author could not (ADR 0028, ADR 0027 §3).
 A job with no author — enqueued by a public route — has no issuer half and is
 bounded by its manifest; `user_id`/`user_email` own no row for it. Only row
 rules work this way: a job's grants are its manifest's declared collections.
+**Extension work with no caller is an actor with no identity (ADR 0040).** An
+extension's own `ctx.internals.withTenantIsolation`, a per-tenant schedule, a
+listener, a worker statement outside a request and an inline service such a
+worker calls all run with the actor present and empty: user id and email `''`,
+no role, as a job with no author. A rule on `user_id`, `user_email` or
+`user_role` therefore keeps no row for that work: it reads none, an insert is
+refused, an update or delete touches none. `author neq user_id` is decided on
+`''` by the rule's operator, so that work cannot decide a row either. A
+`static:` rule binds as for anyone. `data:system` and
+`ZVELTIO_COLLECTION_RLS_EXEMPT` answer the collection question only; neither
+gives the rows a row rule withholds. An extension that must write a row on a
+user's behalf does it as that user: an action, `asSystem` inside a route, or a
+job with an author. Only the engine's own work (tenant purge, boot reconcile)
+has no actor.
+
 The database applies the same two halves, as one RESTRICTIVE policy per
 command: `zv_row_rules` (`SELECT`, the only one that reads the exemption),
 `zv_row_rules_insert`, `zv_row_rules_update` and `zv_row_rules_delete`. A write
