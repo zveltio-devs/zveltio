@@ -12,12 +12,16 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import type { Hono } from 'hono';
+import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _setBossForTests } from '../../lib/data/ddl-queue.js';
 import { DDLManager, type JobQueue, jobQueue } from '../../lib/data/index.js';
+import { bulkCreate, bulkDelete } from '../../lib/data/handlers/bulk.js';
+import type { RequestUser } from '../../lib/data/types.js';
+import { problemOnError } from '../../lib/problem.js';
 import { WEBHOOK_QUEUE, type WebhookJob } from '../../lib/webhooks.js';
+import { syncRoutes } from '../../routes/sync.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -192,5 +196,59 @@ d('bulk and sync webhook events (ADR 0035 slice 3)', () => {
     expect(ok.status).toBe(200);
     expect(await titles('sp-ok')).toEqual(['sp-ok']);
     expect(await jobsFor('sp-ok')).toHaveLength(1);
+  }, 30_000);
+
+  it('a batch that arrives with no request transaction gets one: refused, it leaves no row', async () => {
+    // The handlers mounted without the tenant middleware, as in single-tenant
+    // mode: no `tenantTrx`, so each must open its own transaction.
+    const session = await app.request('/api/auth/get-session', { headers: { cookie: god } });
+    const user = ((await session.json()) as { user: RequestUser }).user;
+    const bare = new Hono();
+    bare.onError(problemOnError);
+    bare.use(async (c, next) => {
+      c.set('user', user);
+      c.set('authType', 'session');
+      c.set('tenantTrx', null);
+      await next();
+    });
+    bare.post('/data/:collection/bulk', (c) => bulkCreate(c, db));
+    bare.delete('/data/:collection/bulk', (c) => bulkDelete(c, db));
+    bare.route('/sync', syncRoutes(db, null));
+    const send = (method: string, path: string, body: unknown) => () =>
+      bare.request(path, {
+        method,
+        headers: { 'Content-Type': 'application/json', cookie: god },
+        body: JSON.stringify(body),
+      });
+    const create = send('POST', `/data/${C}/bulk`, {
+      records: Array.from({ length: N }, (_, i) => ({ title: `nt-${i}` })),
+    });
+
+    await expectRefused(create);
+    expect(await titles('nt-')).toEqual([]);
+    // The control: with the queue running the batch commits with its jobs.
+    expect((await create()).status).toBe(201);
+    expect(await jobsFor('nt-')).toHaveLength(N);
+
+    const ids = (
+      await sql<{ id: string }>`
+        SELECT id::text AS id FROM ${sql.table(`zvd_${C}`)} WHERE title LIKE 'nt-%'`.execute(db)
+    ).rows.map((r) => r.id);
+    await expectRefused(send('DELETE', `/data/${C}/bulk`, { ids }));
+    expect(await titles('nt-')).toHaveLength(N);
+
+    await expectRefused(
+      send('POST', '/sync/push', {
+        operations: [
+          {
+            collection: C,
+            recordId: crypto.randomUUID(),
+            operation: 'create',
+            payload: { title: 'nt-sync' },
+          },
+        ],
+      }),
+    );
+    expect(await titles('nt-sync')).toEqual([]);
   }, 30_000);
 });
