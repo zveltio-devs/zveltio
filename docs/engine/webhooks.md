@@ -22,12 +22,21 @@ Complete guide for configuring, consuming, and debugging webhooks.
 
 Webhooks allow Zveltio to notify external systems when data changes. When an event occurs (record created, updated, deleted), Zveltio:
 
-1. Finds all active webhooks matching the event + collection
-2. Queues them via Valkey (`webhook:queue`)
-3. A background worker delivers them with HMAC-SHA256 signatures
-4. Failed deliveries retry with exponential backoff
+1. Finds the active webhooks matching the event and collection, inside the write's transaction
+2. Queues one delivery job per webhook in that same transaction (pg-boss, in Postgres)
+3. A worker delivers each with an HMAC-SHA256 signature
+4. Failed deliveries retry with exponential backoff, then land in the dead-letter list
 
-Retries need Valkey, which is **required in production** — the engine refuses to start without it. On a development box without one, webhooks fire-and-forget with no retry.
+### Delivery guarantee
+
+- **The write and its events commit together or not at all.** A write that rolls back queues nothing. A write that commits has queued its events, so an engine that crashes right after still delivers them when a worker starts. This holds for single writes, bulk and sync.
+- **A webhook receives the writes whose transaction could see it**: that is what "from the moment it was saved" means.
+- **A write whose event cannot be queued fails.** If the job queue is down while a webhook matches, the write answers `503` and no row is written. A collection with no matching webhook does not need the queue.
+- **Delivery is at least once.** A receiver can get the same event twice (a retry after a response that was lost, a replay). Deduplicate on the envelope's `id`.
+- **Delivery has no order.** A retry reorders events. For two events about one record, keep the one with the higher `sequence`.
+- **What is delivered is decided at delivery time.** The job reads the webhook again when it runs: one disabled or deleted since delivers nothing, and the record is shaped as the webhook's `run_as_role` reads it then.
+
+Webhooks do not use Valkey.
 
 ---
 
@@ -113,6 +122,8 @@ Every webhook delivery sends a `POST` request (or your configured method) with t
 
 ```json
 {
+  "id": "0b0f4c1e-5a50-4c36-9d5e-2f3f0c8a7d11",
+  "sequence": 48211,
   "event": "insert",
   "collection": "orders",
   "timestamp": "2026-03-14T12:00:00.000Z",
@@ -127,6 +138,8 @@ Every webhook delivery sends a `POST` request (or your configured method) with t
 
 | Field | Description |
 |-------|-------------|
+| `id` | One UUID per write: the same for every webhook that receives it, every retry and every replay. Deduplicate on it. |
+| `sequence` | A number taken in the write's transaction. Two writes to one record carry increasing values, in commit order. It has gaps and says nothing about two different records. |
 | `event` | `insert` / `update` / `delete` |
 | `collection` | Collection name (e.g., `orders`) |
 | `timestamp` | ISO 8601 UTC timestamp |
@@ -211,38 +224,55 @@ def verify_signature(raw_body: bytes, signature: str, secret: str) -> bool:
 
 ## Retry Logic
 
-When Valkey is configured, failed deliveries are retried automatically with exponential backoff:
-
-| Attempt | Delay |
-|---------|-------|
-| 1st retry | 1 second |
-| 2nd retry | 2 seconds |
-| 3rd retry | 4 seconds |
-| (n-th retry) | 2^(n-1) seconds |
+A failed delivery is retried by the job queue with exponential backoff, starting at one second, up to the webhook's `retry_attempts`.
 
 A delivery is considered **failed** if:
 - HTTP status is not 2xx
-- Request times out (default: 5000ms)
+- Request times out (default: 5000ms, at most 30 seconds)
 - Network error occurs
 
-After all retry attempts are exhausted, the delivery is marked `failed` in the delivery log. No dead-letter queue by default — monitor via delivery logs.
+### Dead-letter list
 
-### Without Valkey
+A delivery whose attempts are exhausted is abandoned and listed:
 
-Only reachable outside production, or behind the deliberate
-`ZVELTIO_SINGLE_INSTANCE=1` single-instance mode: the engine refuses to start in production with
-`VALKEY_URL` unset. In that state webhooks are fire-and-forget with no retry and
-no dead-letter queue — a delivery that fails once is simply lost.
+```bash
+GET /api/webhooks/dlq?limit=50
+```
 
-This is one of several reasons the cache is a requirement rather than a
-recommendation; the sharper one is that permission invalidation travels through
-it. See `CONFIGURATION.md`.
+```json
+{
+  "entries": [
+    {
+      "deliveryId": "uuid",
+      "webhookId": "uuid",
+      "eventId": "uuid",
+      "sequence": 48211,
+      "event": "insert",
+      "collection": "orders",
+      "data": { "id": "…" },
+      "timestamp": "2026-03-14T12:00:00.000Z",
+      "url": "https://your-service.com/hooks/zveltio",
+      "method": "POST",
+      "attempt": 4,
+      "status": 500,
+      "error": null
+    }
+  ]
+}
+```
+
+```bash
+POST /api/webhooks/dlq/replay
+# → { "replayed": 3 }
+```
+
+Replay queues every abandoned delivery of the tenant again, with the full retry budget and the same event `id`, so a receiver that did get it once can tell. The list lives in Postgres (`zvd_webhook_deliveries`); there is no size cap to configure.
 
 ---
 
 ## Delivery Logs
 
-Every delivery attempt is recorded. View logs in Studio → Webhooks → [webhook name] → Delivery Logs.
+There is one delivery row per webhook and event; each attempt writes its outcome over it. View them in Studio → Webhooks → [webhook name] → Delivery Logs.
 
 ### List deliveries
 
@@ -257,34 +287,22 @@ Response:
     {
       "id": "uuid",
       "webhook_id": "uuid",
-      "event": "insert",
-      "collection": "orders",
+      "event_id": "uuid",
+      "payload": { "id": "…", "sequence": 48211, "event": "insert", "collection": "orders", "data": {}, "timestamp": "…" },
       "url": "https://your-service.com/hooks/zveltio",
-      "status": "success",
-      "status_code": 200,
+      "method": "POST",
+      "status": 200,
       "attempt": 1,
-      "request_body": "{ ... }",
+      "max_attempts": 3,
       "response_body": "{ \"ok\": true }",
-      "duration_ms": 142,
+      "error": null,
       "delivered_at": "2026-03-14T12:00:00.000Z"
     }
   ]
 }
 ```
 
-| Status | Description |
-|--------|-------------|
-| `success` | HTTP 2xx received |
-| `failed` | All retry attempts exhausted |
-| `pending` | Queued, not yet attempted |
-
-### Retry a failed delivery
-
-```bash
-POST /api/webhooks/:id/deliveries/:deliveryId/retry
-```
-
-Forces an immediate re-delivery regardless of retry count.
+`status` is the HTTP status of the last attempt (`null` when no response came). `delivered_at` is set once an attempt succeeded. A row with `delivered_at` null and `attempt` above `max_attempts` is abandoned: it is in the dead-letter list.
 
 ---
 
@@ -317,7 +335,8 @@ Authorization: Bearer <admin-token>
 | `POST` | `/api/webhooks/:id/rotate-secret` | Rotate signing secret |
 | `POST` | `/api/webhooks/:id/test` | Send test payload with signature |
 | `GET` | `/api/webhooks/:id/deliveries` | List delivery history |
-| `POST` | `/api/webhooks/:id/deliveries/:deliveryId/retry` | Retry a delivery |
+| `GET` | `/api/webhooks/dlq` | List abandoned deliveries |
+| `POST` | `/api/webhooks/dlq/replay` | Queue every abandoned delivery again |
 
 ---
 

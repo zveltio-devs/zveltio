@@ -224,6 +224,10 @@ That includes a caller who can read the row because they hold `data:view_all`:
 the exemption covers reads only (see
 [Authorization](./authorization.md#row-level-security-rls)).
 
+A write to a collection a webhook subscribes to queues its events in the same
+transaction. If the job queue cannot take them, the write answers `503` and
+nothing is written (see [Webhooks](./webhooks.md#delivery-guarantee)).
+
 ### GET /api/data/:collection
 
 List records with filtering and pagination.
@@ -850,9 +854,15 @@ Send a synthetic `event: "test"` payload to verify your endpoint is reachable (i
 
 Get delivery log for a webhook.
 
-### POST /api/webhooks/:id/deliveries/:deliveryId/retry
+### GET /api/webhooks/dlq
 
-Retry a failed delivery.
+List deliveries whose retry attempts are exhausted (`?limit=`, default 50, at most 500).
+
+### POST /api/webhooks/dlq/replay
+
+Queue every abandoned delivery again, with the same event `id` and a full retry budget. Answers `{ "replayed": <count> }`.
+
+Delivery is at least once and unordered; the envelope's `id` and `sequence` are for the receiver. See [Webhooks](./webhooks.md#delivery-guarantee).
 
 ---
 

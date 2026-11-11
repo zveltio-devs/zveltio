@@ -102,7 +102,9 @@ A write to a collection goes through the **write pipeline**
 4. Pre-write extension hooks.
 5. Field encryption for fields marked `encrypted: true`.
 6. The statement itself, inside the request's tenant transaction.
-7. Post-write hooks, audit log, event bus, realtime broadcast, webhooks.
+7. Post-write hooks, audit log, `record.*` listeners and webhook events
+   (delivery jobs queued in the same transaction); realtime broadcast after
+   commit.
 
 Reads go through `query-parse.ts` (filters, sorting, pagination) and
 `query-alter.ts` (extension query rewriting), then row-level checks:
@@ -125,7 +127,7 @@ Started at the end of `bootstrap()` and worth knowing about when debugging
 | Realtime bus | WebSocket and SSE fan-out, presence |
 | Cron runner | Extension-declared cron jobs |
 | Flow scheduler | Time-triggered automation flows |
-| Webhook worker | Asynchronous delivery with retry and a dead-letter queue |
+| Webhook delivery | A pg-boss job per webhook and event, queued with the write; retries and the dead-letter list are the queue's |
 | Backup scheduler | Scheduled database backups |
 | Garbage collector | Expired sessions, trash, orphaned uploads |
 | Memory monitor | Heap pressure reporting |

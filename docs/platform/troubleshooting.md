@@ -231,7 +231,7 @@ docker compose restart nginx
 1. Check webhook delivery logs in Studio under **Webhooks → Logs**
 2. Verify destination server is reachable from the engine container
 3. Check that the webhook secret matches on both sides
-4. Review retry settings — failed webhooks retry up to 5 times with exponential backoff
+4. Review the webhook's `retry_attempts` (default 3, at most 10): a failed delivery retries with exponential backoff, then is listed in `GET /api/webhooks/dlq`; `POST /api/webhooks/dlq/replay` queues it again
 
 ## Getting Help
 

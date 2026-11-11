@@ -422,7 +422,6 @@ for the same reason:
 | `STORAGE_DIR` | `STORAGE_LOCAL_DIR`, else `$CWD/storage` | Root of the `local` storage driver. |
 | `MAX_UPLOAD_BYTES` | `52428800` (50 MB) | Largest accepted upload; the request cap is this plus 5 MB of envelope. |
 | `MAX_EXT_BODY_BYTES` | the import limit | Largest request body an `/ext/*` route may receive. |
-| `WEBHOOK_DLQ_MAX` | `1000` | How many abandoned webhook deliveries the dead-letter queue keeps. |
 | `REQUEST_LOG_SAMPLE_RATE` | `1` | Fraction of non-error requests written to the request log. Errors are always logged. |
 | `SLOW_QUERY_THRESHOLD_MS` | driver default | Queries slower than this are recorded. `0` records every query — useful in CI, expensive in production. |
 | `OPENAPI_PUBLIC` | unset | `true` serves `/api/openapi.json` without authentication. |
