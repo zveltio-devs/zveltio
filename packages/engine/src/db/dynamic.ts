@@ -44,8 +44,7 @@ async function withLockTimeout(
   // whoever first routes a field change through the queue.
   //
   // `SET LOCAL` is transaction-scoped either way, so the caller's transaction
-  // gets exactly the timeout it asked for. Same short-circuit as `runAtomic`
-  // in `lib/data/write-pipeline.ts`, which was written for this reason.
+  // gets exactly the timeout it asked for.
   if ((db as unknown as { isTransaction?: boolean }).isTransaction) {
     await sql.raw(`SET LOCAL lock_timeout = '${timeout}'`).execute(db);
     await fn(db);

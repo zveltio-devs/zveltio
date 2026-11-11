@@ -15,7 +15,14 @@ import { DDLManager } from '../../lib/data/index.js';
 import { dataApiWriteDetached } from '../../lib/data/api-write.js';
 import type { RequestUser } from '../../lib/data/types.js';
 import { queryAlterRegistry } from '../../lib/data/query-alter.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hqaexpect_${Date.now()}`;
@@ -29,18 +36,27 @@ d('PATCH expect on a hidden row (in-process)', () => {
   const ids: Record<string, string> = {};
 
   let user: RequestUser;
-  // `expect` reaches the data API through the extension host alone.
+  // `expect` reaches the data API through the extension host alone, in the
+  // caller's tenant transaction.
   const patch = (id: string, label: string, expected: string) =>
-    dataApiWriteDetached('update', db, {
-      collection: COLLECTION,
-      id,
-      body: async () => ({ label }),
-      user,
-      authType: 'session',
-      trx: undefined,
-      tenantId: null,
-      expect: { label: [expected] },
-    });
+    withTenantIsolation(
+      DEFAULT_TENANT_ID,
+      (trx) =>
+        dataApiWriteDetached('update', db, {
+          collection: COLLECTION,
+          id,
+          body: async () => ({ label }),
+          user,
+          authType: 'session',
+          trx,
+          tenantId: DEFAULT_TENANT_ID,
+          expect: { label: [expected] },
+        }),
+      {
+        userId: user.id,
+        identity: { ...ALL_COLLECTIONS_ACTOR, userId: user.id, anonymous: false },
+      },
+    );
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());

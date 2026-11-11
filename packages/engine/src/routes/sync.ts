@@ -32,7 +32,7 @@ import {
 import {
   DDLManager,
   afterWrite,
-  runAtomic,
+  writeTransaction,
   processInput,
   readScope,
   rowAuthorId,
@@ -270,18 +270,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
    * Body: { operations: [{ collection, recordId, operation, payload, clientTimestamp }] }
    * Response: { results: [{ recordId, status: 'ok' | 'conflict' | 'error', serverVersion, serverData? }] }
    */
-  // The rows and their change events commit together (ADR 0035): a push that
-  // arrives with no request transaction gets one, as `replaceRecord` does.
-  app.post('/push', (c) =>
-    c.get('tenantTrx')
-      ? push(c)
-      : runAtomic(db, (trx) => {
-          c.set('tenantTrx', trx);
-          return push(c);
-        }),
-  );
+  app.post('/push', push);
 
   async function push(c: Context): Promise<Response> {
+    // The rows and their change events commit together (ADR 0035), in the
+    // request's transaction.
+    writeTransaction(c.get('tenantTrx'));
     const body = await c.req.json().catch(() => null);
     if (!body || !Array.isArray(body.operations)) {
       return c.json({ error: 'Invalid body: expected { operations: [...] }' }, 400);
@@ -443,7 +437,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // serves the latest revision's `data` as the record.
     const writer = c.get('user') as { id: string; authorUserId?: string | null };
     const syncTid = tenantId(c);
-    // Every written row's change event (webhooks, flows), enqueued as one batch below.
+    // Every written row's webhook event, enqueued as one batch below.
     const events: ChangeEvent[] = [];
     const written = (
       table: string,
@@ -464,7 +458,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         events,
         // As the bulk handler does: the row has landed, so a failed side effect
         // is logged, not reported as a failed write the client would retry.
-        // Not the event enqueue: that is the push's own failure, below.
+        // Not the webhook enqueue: that is the push's own failure, below.
       }).catch((err: Error) => {
         console.warn(`[sync] afterWrite(${action}, ${table}/${recordId}) failed:`, err.message);
       });

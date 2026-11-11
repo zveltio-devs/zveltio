@@ -13,28 +13,40 @@ import * as wsModule from '../../routes/ws.js';
 import * as realtimeModule from '../../routes/realtime.js';
 import { realtimeBus } from '../../lib/runtime/realtime-bus.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { runWithTenantTrx } from '../../lib/tenancy/tenant-context.js';
 
 afterEach(() => {
   _resetForTests();
 });
 
 describe('runAtomic', () => {
-  it('reuses an executor that is already a transaction', async () => {
+  it("runs in the context's tenant transaction", async () => {
     const trx = { isTransaction: true } as unknown as Database;
     let sawTrx = false;
-    const result = await runAtomic(trx, async (t) => {
-      sawTrx = t === trx;
-      return 42;
-    });
+    const result = await runWithTenantTrx(trx, 'tenant', () =>
+      runAtomic(trx, async (t) => {
+        sawTrx = t === trx;
+        return 42;
+      }),
+    );
     expect(result).toBe(42);
     expect(sawTrx).toBe(true);
   });
 
-  it('opens a transaction on a pool executor', async () => {
+  // It opened one of its own on the pool: not the context's, so its after-commit
+  // work ran before the COMMIT and its listeners met the pool.
+  it("refuses a pool, and a transaction that is not the context's", async () => {
     const db = new CannedDb();
-    db.when(/select 1/i, [{ ok: true }]);
-    const result = await runAtomic(db.kysely as unknown as Database, async () => 'ok');
-    expect(result).toBe('ok');
+    const run = () => 'ran' as const;
+    await expect(runAtomic(db.kysely as unknown as Database, async () => run())).rejects.toThrow(
+      /tenant transaction/,
+    );
+    const other = { isTransaction: true } as unknown as Database;
+    await expect(runAtomic(other, async () => run())).rejects.toThrow(/tenant transaction/);
+    const trx = { isTransaction: true } as unknown as Database;
+    await expect(
+      runWithTenantTrx(trx, 'tenant', () => runAtomic(other, async () => run())),
+    ).rejects.toThrow(/tenant transaction/);
   });
 });
 
