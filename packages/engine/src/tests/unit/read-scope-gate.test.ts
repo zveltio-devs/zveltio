@@ -19,8 +19,9 @@ const ALLOWED: Record<string, number> = {
   'lib/data/read-scope.ts': 6,
   // Writes: PUT/PATCH/DELETE before-row checks (`update`/`delete`, managed and
   // virtual) and the writable-column checks. The GET handler goes through the gate.
-  'lib/data/handlers/single.ts': 16,
-  'lib/data/handlers/bulk.ts': 8,
+  // Plus each write's own row rules, which the read exemption does not lift (ADR 0037).
+  'lib/data/handlers/single.ts': 20,
+  'lib/data/handlers/bulk.ts': 10,
   // Handed to extensions as `ctx.internals`, which make their own reads.
   'lib/extensions/internals.ts': 2,
   // Push: writes. Pull goes through the gate.

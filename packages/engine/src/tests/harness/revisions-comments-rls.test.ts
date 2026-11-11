@@ -114,6 +114,10 @@ d('record comments honour the read gate (in-process)', () => {
       VALUES (${GHOST}, ${crypto.randomUUID()}, 'update', ${JSON.stringify({ secret: 'ghost-data' })}::text::jsonb,
               '00000000-0000-0000-0000-000000000001'::uuid)`.execute(db);
 
+    // Written before the rule: since ADR 0037 it binds a god's writes too.
+    openId = await post('open', 'open');
+    hiddenId = await post('hidden', 'restricted');
+
     const policy = await app.request('/api/admin/rls', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: godCookie },
@@ -130,8 +134,6 @@ d('record comments honour the read gate (in-process)', () => {
     policyId = ((await policy.json()) as { policy: { id: string } }).policy.id;
     await invalidateRlsCache(COLLECTION);
 
-    openId = await post('open', 'open');
-    hiddenId = await post('hidden', 'restricted');
     expect((await comment(godCookie, hiddenId, 'salary review: 120k')).status).toBe(201);
   });
 
@@ -279,12 +281,14 @@ d('record comments honour the read gate (in-process)', () => {
   });
 
   it('does not show the delete revision of a row hidden when it was deleted', async () => {
-    const doomed = await post('doomed', 'restricted');
-    const del = await app.request(`/api/data/${COLLECTION}/${doomed}`, {
-      method: 'DELETE',
-      headers: { cookie: godCookie },
-    });
-    expect(del.status).toBe(200);
+    // No caller deletes a restricted row under the rule, a god included (ADR
+    // 0037): its delete revision is written as `afterWrite` writes one.
+    const doomed = crypto.randomUUID();
+    await sql`
+      INSERT INTO zv_revisions (collection, record_id, action, data, tenant_id)
+      VALUES (${COLLECTION}, ${doomed}, 'delete',
+              ${JSON.stringify({ id: doomed, title: 'doomed', bucket: 'restricted' })}::text::jsonb,
+              '00000000-0000-0000-0000-000000000001'::uuid)`.execute(db);
     const revId = await revisionOf(doomed, 'delete');
     const res = await app.request(`/api/revisions/${revId}`, { headers: { cookie: editorCookie } });
     expect(res.status).toBe(404);

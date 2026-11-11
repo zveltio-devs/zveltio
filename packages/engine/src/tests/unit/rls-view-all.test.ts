@@ -53,6 +53,14 @@ describe('RLS override via data:view_all', () => {
     expect(await getRlsFilters('contacts', { id: 'u-auditor' }, 'session')).toEqual([]);
   });
 
+  it('lifts them for a read only: every write meets the rules (ADR 0037)', async () => {
+    for (const op of ['create', 'update', 'delete'] as const) {
+      expect(await getRlsFilters('contacts', { id: 'u-auditor' }, 'session', op)).toEqual([
+        { field: 'owner_id', condition: { op: 'eq', value: 'u-auditor' } },
+      ]);
+    }
+  });
+
   it('keeps row filters for a role holding only data:read', async () => {
     const filters = await getRlsFilters('contacts', { id: 'u-reader' }, 'session');
     expect(filters).toHaveLength(1);

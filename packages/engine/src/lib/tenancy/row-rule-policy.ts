@@ -60,8 +60,13 @@ export interface RowRule {
 }
 
 export interface GeneratedPolicy {
-  /** `USING (...)` body, or null when nothing is enforceable. */
+  /** The `SELECT` policy's `USING (...)` body, or null when nothing is enforceable. */
   predicate: string | null;
+  /**
+   * The write policies' body (`INSERT`, `UPDATE`, `DELETE`): the same rules
+   * without the caller's exemption (ADR 0037). Null exactly when `predicate` is.
+   */
+  write: string | null;
   /** Rules it cannot express — each enforced as `false` — with the reason. */
   skipped: Array<{ rule: RowRule; reason: string }>;
   /** Columns the predicate names: Postgres will not drop one while the policy stands. */
@@ -304,7 +309,7 @@ export function buildRowRulePredicate(
     issuerTerms.push(issuerApplicable(rule, conditionFor(ISSUER)));
   }
 
-  if (terms.length === 0) return { predicate: null, skipped, columns: [] };
+  if (terms.length === 0) return { predicate: null, write: null, skipped, columns: [] };
 
   // The exemption is a published decision, not a role-name comparison in the
   // predicate. The engine already works out whether this session is exempt —
@@ -319,8 +324,15 @@ export function buildRowRulePredicate(
   const issuer =
     `((SELECT coalesce(current_setting('zveltio.issuer_rows', true), '') = '') OR ` +
     `((SELECT current_setting('zveltio.issuer_rows', true) = 'on') AND ${issuerTerms.join(' AND ')}))`;
+  const bound = `(${[...terms, issuer].join(' AND ')})`;
+  // The exemption is a READ exemption (ADR 0037): a write stands down only for
+  // the engine's own work, the exemption with no actor — tenant purge. Every
+  // request, key, job and worker statement publishes an actor.
+  const noActor = `(SELECT current_setting('zveltio.actor', true) IS DISTINCT FROM 'on')`;
+  const engineOwn = `(${exempt} AND ${noActor})`;
   return {
-    predicate: `${exempt} OR (${[...terms, issuer].join(' AND ')})`,
+    predicate: `${exempt} OR ${bound}`,
+    write: `${engineOwn} OR ${bound}`,
     skipped,
     columns: [...columns],
   };
@@ -517,8 +529,24 @@ export async function lockRowRules(trx: Database, mode: 'write' | 'shared'): Pro
   else await sql`SELECT pg_advisory_xact_lock_shared(hashtext('zveltio:row-rules'))`.execute(trx);
 }
 
-/** Policy name for a collection's row rules. One per table, replaced wholesale. */
+/**
+ * Policy name for a collection's row rules on `SELECT`; the write policies are
+ * named after it (`ROW_RULE_POLICIES`). One set per table, replaced wholesale.
+ */
 export const ROW_RULE_POLICY = 'zv_row_rules';
+
+/**
+ * One RESTRICTIVE policy per command (ADR 0037): the exemption reaches `SELECT`
+ * alone. Not FOR ALL with the exemption in `USING` only — a `DELETE` has no new
+ * row to check, so that left delete exempt (measured). `SELECT … FOR UPDATE`
+ * meets the `UPDATE` policy, as Postgres applies it.
+ */
+const ROW_RULE_POLICIES = (table: string, g: GeneratedPolicy): string[] => [
+  `CREATE POLICY ${ROW_RULE_POLICY} ON ${table} AS RESTRICTIVE FOR SELECT USING (${g.predicate})`,
+  `CREATE POLICY ${ROW_RULE_POLICY}_insert ON ${table} AS RESTRICTIVE FOR INSERT WITH CHECK (${g.write})`,
+  `CREATE POLICY ${ROW_RULE_POLICY}_update ON ${table} AS RESTRICTIVE FOR UPDATE USING (${g.write}) WITH CHECK (${g.write})`,
+  `CREATE POLICY ${ROW_RULE_POLICY}_delete ON ${table} AS RESTRICTIVE FOR DELETE USING (${g.write})`,
+];
 
 /**
  * Put a collection's row rules onto its table, or take them off.
@@ -569,31 +597,16 @@ async function rebuildRowRulePolicy(
      WHERE is_enabled AND (collection = ${collection} OR collection = '*')
   `.execute(db);
 
-  const { predicate, skipped } = buildRowRulePredicate(rules.rows, types);
+  const generated = buildRowRulePredicate(rules.rows, types);
+  const { predicate, skipped } = generated;
 
   // Dropped first either way: a collection whose last rule was deleted must not
-  // keep enforcing it.
-  await sql.raw(`DROP POLICY IF EXISTS ${ROW_RULE_POLICY} ON ${safe}`).execute(db);
+  // keep enforcing it. `zv_row_rules` is also the FOR ALL policy before ADR 0037.
+  for (const name of ['', '_insert', '_update', '_delete']) {
+    await sql.raw(`DROP POLICY IF EXISTS ${ROW_RULE_POLICY}${name} ON ${safe}`).execute(db);
+  }
   if (predicate) {
-    // `WITH CHECK` written out, not inherited. This changes NOTHING at runtime.
-    //
-    // A policy with no `WITH CHECK` uses its `USING` predicate for writes too,
-    // so the rule already applied to INSERT and UPDATE. Measured rather than
-    // assumed, on the old form without the clause:
-    //
-    //   INSERT INTO probe (owner) VALUES ('somebody-else');
-    //   ERROR:  new row violates row-level security policy "p" for table "probe"
-    //
-    // So this is documentation written in code, not a repair — worth saying,
-    // because the diff looks like a repair. The write rule now sits where the
-    // read rule is, so the next reader can change one without discovering the
-    // other by accident.
-    await sql
-      .raw(
-        `CREATE POLICY ${ROW_RULE_POLICY} ON ${safe} AS RESTRICTIVE ` +
-          `USING (${predicate}) WITH CHECK (${predicate})`,
-      )
-      .execute(db);
+    for (const ddl of ROW_RULE_POLICIES(safe, generated)) await sql.raw(ddl).execute(db);
   }
 
   if (skipped.length > 0) {
@@ -631,7 +644,7 @@ async function rowRuleCollections(db: Database): Promise<string[]> {
      WHERE EXISTS (SELECT 1 FROM zvd_rls_policies p WHERE p.is_enabled AND p.collection = '*')
     UNION
     SELECT substr(pp.tablename, 5) FROM pg_policies pp
-     WHERE pp.schemaname = 'public' AND pp.policyname = ${ROW_RULE_POLICY}
+     WHERE pp.schemaname = 'public' AND starts_with(pp.policyname, ${ROW_RULE_POLICY})
        AND starts_with(pp.tablename, 'zvd_')
   `.execute(db);
   return rows.rows.map((r) => r.name);

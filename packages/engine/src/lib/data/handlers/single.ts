@@ -55,6 +55,7 @@ import {
   engineRead,
   hasTransitionRules,
   validateTransitions,
+  ROW_RULE_WRITE_REFUSAL,
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
@@ -134,11 +135,16 @@ async function virtualWriteRefusal(
 ): Promise<Response | null> {
   const scope = await readScope(db, w.collection, w.user, w.authType);
   const entity = entityAccessRegistry.hasChecksFor(scope.table);
-  if (scope.rls.length === 0 && !scope.altersRestrict && !entity) return null;
+  // The write's own rules (ADR 0037): no database policy stands behind an upstream row.
+  const writeRules = await getRlsFilters(w.collection, w.user, w.authType, op);
+  if (scope.rls.length === 0 && writeRules.length === 0 && !scope.altersRestrict && !entity) {
+    return null;
+  }
   const before = scope.altersRestrict ? null : await virtualGetOne(config, w.id);
   if (!before || (scope.rls.length > 0 && !matchesRlsFilters(before, scope.rls))) {
     return c.json({ error: 'Record not found' }, 404);
   }
+  if (!matchesRlsFilters(before, writeRules)) return c.json(ROW_RULE_WRITE_REFUSAL, 403);
   if (entity && !(await entityAccessRegistry.isAllowed(scope.table, before, w.user, op))) {
     return c.json({ error: 'Forbidden' }, 403);
   }
@@ -482,6 +488,14 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
     () => beforeQuery.executeTakeFirst(),
   );
   if (!beforeRow) return c.json({ error: 'Record not found' }, 404);
+  if (
+    !matchesRlsFilters(
+      beforeRow,
+      await getRlsFilters(collection, user, c.get('authType'), 'update'),
+    )
+  ) {
+    return c.json(ROW_RULE_WRITE_REFUSAL, 403);
+  }
 
   // Entity-access enforcement: a row visible to query-alter still needs
   // explicit permission to be modified. 403 distinguishes "you cannot
@@ -637,11 +651,14 @@ export async function patchRecord(
   let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
   beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, w.authType));
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
+  const writeRules = await getRlsFilters(collection, user, w.authType, 'update');
   const readBefore = async (): Promise<DynamicRecord | Response> => {
     const row = await engineRead<DynamicRecord | undefined>(canRead, effectiveDb, collection, () =>
       beforeQuery.executeTakeFirst(),
     );
     if (!row) return c.json({ error: 'Record not found' }, 404);
+    // Before the `FOR UPDATE` below, which meets the database's UPDATE policy.
+    if (!matchesRlsFilters(row, writeRules)) return c.json(ROW_RULE_WRITE_REFUSAL, 403);
     if (!(await entityAccessRegistry.isAllowed(tableName, row, user, 'update'))) {
       return c.json({ error: 'Forbidden' }, 403);
     }
@@ -816,6 +833,9 @@ export async function deleteRecord(
   );
 
   if (!existing) return c.json({ error: 'Record not found' }, 404);
+  if (!matchesRlsFilters(existing, await getRlsFilters(collection, user, w.authType, 'delete'))) {
+    return c.json(ROW_RULE_WRITE_REFUSAL, 403);
+  }
 
   if (!(await entityAccessRegistry.isAllowed(tableName, existing, user, 'delete'))) {
     return c.json({ error: 'Forbidden' }, 403);

@@ -198,7 +198,9 @@ d('a purge drops the collections the extension owns, with all their rules', () =
       collection: ITEMS,
       role: 'tenant_member',
       filter_field: 'title',
-      filter_value_source: 'static:x',
+      // The god below holds `tenant_member`, and a rule binds its writes too
+      // (ADR 0037): so the rule keeps the row it then writes.
+      filter_value_source: 'static:kept',
     });
     expect(rule.status).toBe(201);
     const perm = await call('POST', '/api/admin/column-permissions', {

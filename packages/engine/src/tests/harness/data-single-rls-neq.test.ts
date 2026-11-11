@@ -76,6 +76,21 @@ d('data single RLS neq (in-process)', () => {
       ],
     } as never);
 
+    // Written before the rule: since ADR 0037 it binds a god's writes too.
+    const post = (body: Record<string, string>) =>
+      app.request(`/api/data/${COLLECTION}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: godCookie },
+        body: JSON.stringify(body),
+      });
+
+    openId = ((await (await post({ title: 'open', bucket: 'open' })).json()) as { id: string }).id;
+    hiddenId = (
+      (await (await post({ title: 'hidden', bucket: 'restricted' })).json()) as {
+        id: string;
+      }
+    ).id;
+
     const policy = await app.request('/api/admin/rls', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: godCookie },
@@ -92,19 +107,6 @@ d('data single RLS neq (in-process)', () => {
     policyId = ((await policy.json()) as { policy: { id: string } }).policy.id;
     await invalidateRlsCache(COLLECTION);
 
-    const post = (body: Record<string, string>) =>
-      app.request(`/api/data/${COLLECTION}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', cookie: godCookie },
-        body: JSON.stringify(body),
-      });
-
-    openId = ((await (await post({ title: 'open', bucket: 'open' })).json()) as { id: string }).id;
-    hiddenId = (
-      (await (await post({ title: 'hidden', bucket: 'restricted' })).json()) as {
-        id: string;
-      }
-    ).id;
     expect(openId).toBeTruthy();
     expect(hiddenId).toBeTruthy();
   });

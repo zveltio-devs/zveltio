@@ -74,6 +74,19 @@ d('a member-keyed row rule applies to a self-registered member over REST', () =>
     await (await getEnforcer()).addPolicy(userId, '*', COLLECTION, 'read');
     await invalidateUserPermCache(userId);
 
+    // Written before the rule: the god holds `member`, and since ADR 0037 a
+    // rule binds a god's writes too.
+    const post = async (body: Record<string, string>) => {
+      const res = await app.request(`/api/data/${COLLECTION}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: godCookie },
+        body: JSON.stringify(body),
+      });
+      return ((await res.json()) as { id: string }).id;
+    };
+    mineId = await post({ title: 'mine', owner: userId });
+    theirsId = await post({ title: 'theirs', owner: 'someone-else' });
+
     const rule = await app.request('/api/admin/rls', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: godCookie },
@@ -88,16 +101,6 @@ d('a member-keyed row rule applies to a self-registered member over REST', () =>
     expect(rule.status).toBe(201);
     await invalidateRlsCache(COLLECTION);
 
-    const post = async (body: Record<string, string>) => {
-      const res = await app.request(`/api/data/${COLLECTION}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', cookie: godCookie },
-        body: JSON.stringify(body),
-      });
-      return ((await res.json()) as { id: string }).id;
-    };
-    mineId = await post({ title: 'mine', owner: userId });
-    theirsId = await post({ title: 'theirs', owner: 'someone-else' });
     expect(mineId).toBeTruthy();
     expect(theirsId).toBeTruthy();
   });

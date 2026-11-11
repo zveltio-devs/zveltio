@@ -31,6 +31,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  insertPastRowRules,
   wsUpgradeData,
 } from '../../testing/app-harness.js';
 
@@ -78,13 +79,8 @@ d('REST and realtime resolve the same roles for the read gate', () => {
     await (await getEnforcer()).addRoleForUser(reviewer.userId, CASBIN_ROLE, '*');
     await invalidateUserPermCache(reviewer.userId);
 
-    await sql`
-      INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
-      VALUES (${COLLECTION}, 'member', 'owner', 'eq', 'user_id', true),
-             (${COLLECTION}, ${CASBIN_ROLE}, 'title', 'eq', 'static:reviewed', true)
-    `.execute(db);
-    await invalidateRlsCache(COLLECTION);
-
+    // Written before the rules: the god holds `member`, and since ADR 0037 a
+    // rule binds a god's writes too.
     const rows: Array<[string, Record<string, string>]> = [
       ['memberOwn', { title: 'draft', owner: member.userId }],
       ['reviewerOwnReviewed', { title: 'reviewed', owner: reviewer.userId }],
@@ -102,6 +98,13 @@ d('REST and realtime resolve the same roles for the read gate', () => {
       written.push(row);
       expect(ids[key]).toBeTruthy();
     }
+
+    await sql`
+      INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
+      VALUES (${COLLECTION}, 'member', 'owner', 'eq', 'user_id', true),
+             (${COLLECTION}, ${CASBIN_ROLE}, 'title', 'eq', 'static:reviewed', true)
+    `.execute(db);
+    await invalidateRlsCache(COLLECTION);
   });
 
   afterEach(async () => {
@@ -235,14 +238,8 @@ d('REST and realtime resolve the same roles for the read gate', () => {
       seen.push(u.role);
       return u.role === 'member' ? 'allow' : 'deny';
     });
-    const own = async () => {
-      const res = await app.request(`/api/data/${COLLECTION}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', cookie: god },
-        body: JSON.stringify({ title: 'w', owner: member.userId }),
-      });
-      return ((await res.json()) as { id: string }).id;
-    };
+    // The member's row, which the god holding `member` may not write (ADR 0037).
+    const own = () => insertPastRowRules(db, COLLECTION, { title: 'w', owner: member.userId });
     const send = async (path: string, method: string, body?: unknown) => {
       const res = await app.request(`/api/data/${COLLECTION}${path}`, {
         method,

@@ -561,11 +561,13 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // The session user, shaped for getRlsFilters. `role` is defaulted where the
     // session is read at the top of this route, so it is always present.
     const syncUser = () => c.get('user') as { id: string; email?: string; role: string };
-    const syncRlsFilters = async (coll: string) => {
-      const hit = rlsCache.get(coll);
+    // The write's rules, not the read's: the exemption reads every row and
+    // writes none past a rule (ADR 0037).
+    const syncRlsFilters = async (coll: string, op: 'update' | 'delete') => {
+      const hit = rlsCache.get(`${op}:${coll}`);
       if (hit) return hit;
-      const filters = await getRlsFilters(coll, syncUser(), c.get('authType') ?? 'session');
-      rlsCache.set(coll, filters);
+      const filters = await getRlsFilters(coll, syncUser(), c.get('authType') ?? 'session', op);
+      rlsCache.set(`${op}:${coll}`, filters);
       return filters;
     };
 
@@ -586,7 +588,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
             // Same SAVEPOINT reason as the create branch above: one failed
             // statement would otherwise abort the request's transaction and
             // every later operation in the push with it.
-            const updateFilters = await syncRlsFilters(collection);
+            const updateFilters = await syncRlsFilters(collection, 'update');
             const touched = await withSavepoint(
               effectiveDb,
               'sync_push_update',
@@ -625,7 +627,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           }
 
           case 'delete': {
-            const deleteFilters = await syncRlsFilters(collection);
+            const deleteFilters = await syncRlsFilters(collection, 'delete');
             const removed = await withSavepoint(
               effectiveDb,
               'sync_push_delete',

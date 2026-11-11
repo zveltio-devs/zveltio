@@ -525,6 +525,17 @@ export function describeWriteRefusal(message: string): string {
   );
 }
 
+/**
+ * A row the caller may read and may not write under its row rules (ADR 0037):
+ * the refusal the database's write policy is the backstop for, said by the
+ * handler on the before-row — not "Record not found", not a silent no-op.
+ */
+export const ROW_RULE_WRITE_REFUSAL = {
+  error: 'row_level_security_violation',
+  message: "The collection's row rules do not allow this caller to write this row.",
+  code: '42501',
+} as const;
+
 /** Whether this error is the database refusing a row, whatever raised it. */
 export function isRlsRefusal(err: unknown): boolean {
   return (

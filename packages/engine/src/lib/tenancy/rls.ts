@@ -232,11 +232,18 @@ async function dropRlsCaches(collection: string): Promise<void> {
   await invalidateQueryCacheForCollection(collection);
 }
 
+/** What a caller does to a row, as a row rule is asked about it. */
+export type RowRuleOperation = 'read' | 'create' | 'update' | 'delete';
+
 /**
  * Returns extra filter conditions to inject into a query for the given user.
  * Returns an empty array when no policies match (no restriction applied).
  *
  * Multiple matching policies are ANDed together (most restrictive wins).
+ *
+ * `operation` decides whether the exemption counts: `data:view_all`, and a key's
+ * `rlsBypass` under it, exempt a READ only (ADR 0037). A write meets the rules
+ * that apply to the caller, god included — as the database's write policies do.
  */
 export async function getRlsFilters(
   collection: string,
@@ -248,6 +255,7 @@ export async function getRlsFilters(
     authorUserId?: string | null;
   },
   authType: 'session' | 'api_key' | 'anonymous',
+  operation: RowRuleOperation = 'read',
 ): Promise<RuleFilter[]> {
   // This used to read `user.role === 'god' || authType === 'api_key'`. Both
   // halves were wrong, in opposite directions.
@@ -267,21 +275,7 @@ export async function getRlsFilters(
   // because RLS values resolve from `user_id`/`user_email` and a key's identity
   // is the synthetic `apikey:<uuid>` — enforcing an identity policy against a
   // key returns zero rows, silently, which is a worse failure than a broad one.
-  if (authType === 'api_key') {
-    // `=== true` for the reason spelled out in lib/data/auth.ts: this is the
-    // second reader of the same flag, and the two must not disagree about what
-    // an absent value means. `rlsBypass` is optional on the type, so `!== false`
-    // handed a full bypass to any caller that simply never set it.
-    // And only while its issuer holds the session's exemption: a key never
-    // exceeds the person it acts for (`keyIssuerAllows`).
-    if (
-      user.rlsBypass === true &&
-      (await keyIssuerAllows(user, 'data', 'view_all').catch(() => false))
-    )
-      return [];
-  } else if (await checkPermission(user.id, 'data', 'view_all').catch(() => false)) {
-    return [];
-  }
+  if (operation === 'read' && (await readsEveryRow(user, authType))) return [];
 
   const policies = await loadPolicies(collection);
   if (policies.length === 0) return [];
@@ -336,6 +330,24 @@ export async function getRlsFilters(
   return result;
 }
 
+/** The read exemption: `data:view_all`, or a key's `rlsBypass` while its issuer holds it. */
+async function readsEveryRow(
+  user: { id: string; rlsBypass?: boolean; authorUserId?: string | null },
+  authType: 'session' | 'api_key' | 'anonymous',
+): Promise<boolean> {
+  if (authType !== 'api_key')
+    return checkPermission(user.id, 'data', 'view_all').catch(() => false);
+  // `=== true` for the reason spelled out in lib/data/auth.ts: this is the
+  // second reader of the same flag, and the two must not disagree about what
+  // an absent value means. `rlsBypass` is optional on the type, so `!== false`
+  // handed a full bypass to any caller that simply never set it.
+  // And only while its issuer holds the session's exemption: a key never
+  // exceeds the person it acts for (`keyIssuerAllows`).
+  return (
+    user.rlsBypass === true && (await keyIssuerAllows(user, 'data', 'view_all').catch(() => false))
+  );
+}
+
 /**
  * Whom a row rule's `user_id` and `user_email` resolve to for `user` (ADR 0028):
  * a session itself; a key principal its author (`authorUserId`: a member key's
@@ -356,7 +368,8 @@ export async function rowActor(
 /**
  * The row rules binding a role principal (ADR 0004, `rolePrincipal`): matched on
  * its roles, `user_role` its column role, `user_id` and `user_email` nobody's.
- * `bypass` is its `data:view_all`, which stands every rule down as for a session.
+ * `bypass` is its `data:view_all`, which stands every rule down as for a session:
+ * these are READ filters (ADR 0037); its writes meet the database's write policies.
  */
 export async function principalRlsFilters(
   collection: string,

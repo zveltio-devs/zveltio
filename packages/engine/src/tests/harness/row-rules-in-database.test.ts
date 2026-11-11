@@ -252,6 +252,60 @@ d('row rules are enforced by the database (in-process)', () => {
     });
   });
 
+  describe('the exemption is a read exemption (ADR 0037)', () => {
+    afterAll(clearRules);
+    const exempt = asUser(ALICE, { bypass: true });
+
+    /** Rows `text` returned as `identity`, or the SQLSTATE that refused it. */
+    const run = (identity: RlsIdentity | undefined, text: string, engineOwn = false) =>
+      withTenantIsolation(
+        tenant,
+        async (trx) => {
+          // The engine's own work: the exemption with no actor (tenant purge).
+          if (engineOwn)
+            await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
+          return (await sql.raw(text).execute(trx)).rows.length;
+        },
+        { userId: identity?.userId ?? null, identity },
+      ).catch((err: { errno?: string }) => err.errno ?? String(err));
+
+    it("reads every row and writes no other user's", async () => {
+      await setRule();
+      expect((await forgottenWhere(exempt)).length).toBe(4);
+      const insert = `INSERT INTO ${TABLE} (tenant_id, title, created_by) VALUES ('${tenant}', 'planted', '${BOB}') RETURNING id`;
+      expect(await run(exempt, insert)).toBe('42501');
+      // A delete has no new row to check: the per-command USING decides it.
+      expect(
+        await run(exempt, `UPDATE ${TABLE} SET code = 9 WHERE title = 'bob-1' RETURNING id`),
+      ).toBe(0);
+      expect(await run(exempt, `DELETE FROM ${TABLE} WHERE title = 'bob-1' RETURNING id`)).toBe(0);
+      // Nor moves its own row out of the rule.
+      expect(
+        await run(
+          exempt,
+          `UPDATE ${TABLE} SET created_by = '${BOB}' WHERE title = 'alice-1' RETURNING id`,
+        ),
+      ).toBe('42501');
+      expect(
+        await run(exempt, `UPDATE ${TABLE} SET code = 5 WHERE title = 'alice-1' RETURNING id`),
+      ).toBe(1);
+      expect(await forgottenWhere(exempt)).toEqual(['alice-1', 'alice-2', 'bob-1', 'orphan']);
+    });
+
+    it("stands down for the engine's own work, the exemption with no actor", async () => {
+      // A `static:` rule binds where there is no actor; only decision 3 lets tenant purge past it.
+      await setRule({ field: 'bucket', op: 'eq', source: 'static:alpha' });
+      const roundTrip =
+        `WITH ins AS (INSERT INTO ${TABLE} (tenant_id, title, bucket) VALUES ('${tenant}', 'engine', 'gamma') RETURNING id) ` +
+        `SELECT id FROM ins`;
+      expect(await run(undefined, roundTrip)).toBe('42501');
+      expect(await run(undefined, roundTrip, true)).toBe(1);
+      expect(
+        await run(undefined, `DELETE FROM ${TABLE} WHERE title = 'engine' RETURNING id`, true),
+      ).toBe(1);
+    });
+  });
+
   it('hides every row for a rule it cannot express, and says which', async () => {
     // A jsonb column is not castable, so the generator cannot compare it. It
     // used to LEAVE THE RULE OUT — and in a RESTRICTIVE policy a term left out

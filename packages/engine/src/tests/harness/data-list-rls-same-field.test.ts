@@ -80,6 +80,16 @@ d('data list — two row conditions on one field (in-process)', () => {
       ],
     } as never);
 
+    // Written before the rules: since ADR 0037 they bind a god's writes too.
+    for (const bucket of ['open', 'secret', 'draft']) {
+      const res = await app.request(`/api/data/${COLLECTION}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', cookie: godCookie },
+        body: JSON.stringify({ title: bucket, bucket }),
+      });
+      expect(res.status).toBe(201);
+    }
+
     for (const hidden of ['secret', 'draft']) {
       const res = await app.request('/api/admin/rls', {
         method: 'POST',
@@ -96,15 +106,6 @@ d('data list — two row conditions on one field (in-process)', () => {
       policyIds.push(((await res.json()) as { policy: { id: string } }).policy.id);
     }
     await invalidateRlsCache(COLLECTION);
-
-    for (const bucket of ['open', 'secret', 'draft']) {
-      const res = await app.request(`/api/data/${COLLECTION}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', cookie: godCookie },
-        body: JSON.stringify({ title: bucket, bucket }),
-      });
-      expect(res.status).toBe(201);
-    }
   });
 
   afterAll(async () => {

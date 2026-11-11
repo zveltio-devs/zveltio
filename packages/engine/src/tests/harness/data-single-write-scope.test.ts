@@ -26,6 +26,7 @@ import {
   getTestApp,
   harnessAvailable,
   forgetRuleObjects,
+  insertPastRowRules,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -72,15 +73,10 @@ d('data single writes honour the read scope (in-process)', () => {
   let memberUserId = '';
   let policyId = '';
 
-  const post = async (bucket: string): Promise<string> => {
-    const res = await app.request(`/api/data/${COLLECTION}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie: godCookie },
-      body: JSON.stringify({ title: 'original', bucket }),
-    });
-    expect(res.status).toBe(201);
-    return ((await res.json()) as { id: string }).id;
-  };
+  // Past the rule: since ADR 0037 it binds a god's writes too, and a hidden
+  // bucket is one no caller may write.
+  const post = (bucket: string): Promise<string> =>
+    insertPastRowRules(db, COLLECTION, { title: 'original', bucket });
 
   const write = (cookie: string, method: 'PUT' | 'PATCH' | 'DELETE', id: string) =>
     app.request(`/api/data/${COLLECTION}/${id}`, {
@@ -176,7 +172,7 @@ d('data single writes honour the read scope (in-process)', () => {
     it(`${method} of a row a query alter hides is 404 and changes nothing`, async () => {
       const hiddenId = await post('restricted');
       queryAlterRegistry.registerAs(ALTER_OWNER, TABLE, openOnly);
-      // God: row rules do not apply, so only the alter can refuse.
+      // God reads past the row rule, so only the alter can hide the row.
       expect((await write(godCookie, method, hiddenId)).status).toBe(404);
       expect(await titleOf(hiddenId)).toBe('original');
     });
