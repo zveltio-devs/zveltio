@@ -18,6 +18,7 @@ import { registerCoreFieldTypes } from '../../field-types/index.js';
 import { engineEvents } from '../../lib/runtime/event-bus.js';
 import { initPermissions, initRls } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
+import { runWithTenantTrx } from '../../lib/tenancy/tenant-context.js';
 
 const POLICY_ROWS = [
   { ptype: 'p', v0: 'admin', v1: '*', v2: '*', v3: '*', v4: null, v5: null },
@@ -43,7 +44,13 @@ function makeApp(db: CannedDb, user: unknown = USER): Hono {
   const app = new Hono();
   const withUser = (fn: (c: never, d: Database) => Promise<Response>) => (c: any) => {
     c.set('user', user as never);
-    return fn(c as never, asDb(db));
+    // In a tenant transaction, as `tenantMiddleware` runs a data route.
+    return asDb(db)
+      .transaction()
+      .execute((trx) => {
+        c.set('tenantTrx', trx);
+        return runWithTenantTrx(trx, 'tenant', () => fn(c as never, asDb(db)));
+      });
   };
   app.post('/:collection/bulk', withUser(bulkCreate));
   app.patch('/:collection/bulk', withUser(bulkUpdate));

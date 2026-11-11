@@ -7,7 +7,7 @@
  *  - `processInput`   — validate + deserialize + encrypt incoming field values
  *  - `mapPgError` / `handlePgErrors` — translate Postgres SQLSTATEs into 4xx
  *  - `afterWrite`     — revision log + webhook + realtime + cache + flows + events
- *  - `getVirtualConfig`, `getDb`, `runAtomic`, `isUuid`
+ *  - `getVirtualConfig`, `getDb`, `writeTransaction`, `runAtomic`, `isUuid`
  *
  * Every branch, string, SQLSTATE mapping and side-effect ordering is
  * byte-identical to the pre-split inline helpers — zero behaviour change.
@@ -37,7 +37,7 @@ import { sqlState } from '../../db/bun-sql-quirks.js';
 import { columnGuardRefusal, ProblemException } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
 import { readableColumns, readSource, withEngineColumns } from '../../db/dynamic.js';
-import { onAfterCommit, withCollectionRead } from '../tenancy/index.js';
+import { getCurrentTenantTrx, onAfterCommit, withCollectionRead } from '../tenancy/index.js';
 import type { VirtualConfig } from '../virtual-collection-adapter.js';
 
 /** Returns the tenant-isolated transaction DB when in multi-tenant mode, else
@@ -96,16 +96,33 @@ export function engineRead<T>(
 }
 
 /**
- * Run `fn` atomically. When `executor` is already a transaction (the per-request
- * tenant transaction, always present on /api/data routes), reuse it — Bun SQL
- * has no nested transactions, so calling `.transaction()` on it would error.
- * Otherwise open a fresh transaction on the pool.
+ * The transaction a data API write runs in: the tenant transaction its caller
+ * opened and the async context holds — the request's (`tenantMiddleware`) or a
+ * job's (`withTenantIsolation`). Only that one carries the caller's tenant,
+ * identity and RLS role, runs `onAfterCommit` work after its COMMIT, and is
+ * what `ctx.db` in a `record.*` listener resolves to.
+ *
+ * A write handed anything else is refused, never given a transaction of its
+ * own. One was, on the pool (ADR 0035 slice 1), and it was none of those
+ * things: the realtime broadcasts, the bus and the cache invalidation ran
+ * before its COMMIT — for rows a refused enqueue then rolled back — listeners
+ * met the pool, and the data flows lost the race to the COMMIT and never ran.
+ * No caller reaches the data API without its transaction; this keeps it so.
  */
-export function runAtomic<T>(executor: Database, fn: (trx: Database) => Promise<T>): Promise<T> {
-  if ((executor as unknown as { isTransaction?: boolean }).isTransaction) {
-    return fn(executor);
-  }
-  return executor.transaction().execute(fn);
+export function writeTransaction(trx: Database | null | undefined): Database {
+  if (trx && trx === getCurrentTenantTrx()) return trx;
+  throw new Error(
+    "A data API write runs in its caller's tenant transaction (the request's, or a job's " +
+      'withTenantIsolation), and it was handed none: refused.',
+  );
+}
+
+/** Run `fn` in the write's transaction (`writeTransaction`). */
+export async function runAtomic<T>(
+  executor: Database | null | undefined,
+  fn: (trx: Database) => Promise<T>,
+): Promise<T> {
+  return fn(writeTransaction(executor));
 }
 
 // RFC 4122 UUID (any version). Short-circuiting here turns an otherwise

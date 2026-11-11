@@ -32,7 +32,7 @@ import {
 import {
   DDLManager,
   afterWrite,
-  runAtomic,
+  writeTransaction,
   processInput,
   readScope,
   rowAuthorId,
@@ -270,18 +270,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
    * Body: { operations: [{ collection, recordId, operation, payload, clientTimestamp }] }
    * Response: { results: [{ recordId, status: 'ok' | 'conflict' | 'error', serverVersion, serverData? }] }
    */
-  // The rows and their webhook events commit together (ADR 0035): a push that
-  // arrives with no request transaction gets one, as `replaceRecord` does.
-  app.post('/push', (c) =>
-    c.get('tenantTrx')
-      ? push(c)
-      : runAtomic(db, (trx) => {
-          c.set('tenantTrx', trx);
-          return push(c);
-        }),
-  );
+  app.post('/push', push);
 
   async function push(c: Context): Promise<Response> {
+    // The rows and their webhook events commit together (ADR 0035), in the
+    // request's transaction.
+    writeTransaction(c.get('tenantTrx'));
     const body = await c.req.json().catch(() => null);
     if (!body || !Array.isArray(body.operations)) {
       return c.json({ error: 'Invalid body: expected { operations: [...] }' }, 400);
