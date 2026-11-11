@@ -1143,7 +1143,7 @@
   "rls.allRolesOpt": "* (wszystkie role)",
   "rls.banner1": "Polityki są oceniane po Casbin (kontrola dostępu do kolekcji).",
   "rls.banner2": "Każda pasująca polityka dodaje klauzulę WHERE do zapytań tej roli.",
-  "rls.banner3": "Użytkownicy god i klucze API pomijają RLS.",
+  "rls.banner3": "Posiadacz data:view_all (god) odczytuje każdy wiersz. Zapisy zawsze podlegają regułom: reguła dla * obowiązuje także administratorów.",
   "rls.currentUserEmail": "E-mail bieżącego użytkownika",
   "rls.currentUserId": "ID bieżącego użytkownika",
   "rls.currentUserRole": "Rola bieżącego użytkownika",

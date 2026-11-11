@@ -511,9 +511,19 @@ The second is a product layer that **compiles into** RESTRICTIVE Postgres
 policies, alongside the engine-side filtering. The generated form:
 
 ```sql
-CREATE POLICY zv_row_rules ON "zvd_<name>" AS RESTRICTIVE
-  USING (<predicate>) WITH CHECK (<predicate>);
+CREATE POLICY zv_row_rules        ON "zvd_<name>" AS RESTRICTIVE FOR SELECT USING (<exempt OR rules>);
+CREATE POLICY zv_row_rules_insert ON "zvd_<name>" AS RESTRICTIVE FOR INSERT WITH CHECK (<rules>);
+CREATE POLICY zv_row_rules_update ON "zvd_<name>" AS RESTRICTIVE FOR UPDATE USING (<rules>) WITH CHECK (<rules>);
+CREATE POLICY zv_row_rules_delete ON "zvd_<name>" AS RESTRICTIVE FOR DELETE USING (<rules>);
 ```
+
+One policy per command, because the exemption (`zveltio.rls_bypass`, published
+for a holder of `data:view_all`) covers reads only (ADR 0037). A single `FOR ALL`
+policy with the exemption in `USING` alone was measured and refused: a delete
+has no new row to check, so delete stayed exempt. The write policies stand down
+only when `rls_bypass` is on **and** `zveltio.actor` is not, a state only the
+engine's own work (tenant purge) produces. `SELECT … FOR UPDATE` meets the
+`UPDATE` policy.
 
 `RESTRICTIVE` combines with AND over the permissive tenant policy — so it cannot
 widen anything, only narrow.
@@ -583,8 +593,9 @@ layer that exists for the handler that forgot its filters.
 A key is not known when `tenantMiddleware` publishes identity — it is resolved
 in the handler. `validateApiKey` publishes the actor itself, **not its callers**:
 there are two callers, and the second (`routes/edge-functions.ts`) used the
-result only as a boolean. A key can be exempted from row rules, per key
-(`zv_api_keys.rls_bypass`), and the exemption is read from `zveltio.rls_bypass` —
+result only as a boolean. A key can be exempted from row rules on reads, per key
+(`zv_api_keys.rls_bypass`; its writes meet the rules as its issuer's do, ADR
+0037), and the exemption is read from `zveltio.rls_bypass` —
 a published decision, not a role-name comparison inside a predicate.
 
 ---
