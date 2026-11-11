@@ -125,13 +125,29 @@ export interface RlsIdentity {
    */
   filesAll?: boolean;
   /**
-   * An anonymous request: no user, but an actor all the same — the tenant's
-   * `public` role — so the policies hold it to that role's grants rather than
-   * standing down as they do for the engine's own work. A flow's role is the
-   * same kind of actor (ADR 0004, `rolePrincipal`).
+   * An actor with no user, so the policies hold it rather than standing down as
+   * they do for the engine's own work: an anonymous request — the tenant's
+   * `public` role, held to that role's grants; a flow's role (ADR 0004,
+   * `rolePrincipal`); extension work with no caller (`NO_CALLER`).
    */
   anonymous?: boolean;
 }
+
+/**
+ * Extension work with no caller (ADR 0040): its own `ctx.internals.withTenantIsolation`,
+ * a per-tenant cron, a listener. An actor, with no identity — user id and email
+ * `''`, no role, no grant — so a rule on a caller value matches no row, as for a
+ * job with no author (ADR 0028), while a `static:` rule and collection
+ * permissions answer as they did. "No actor" is the engine's own work alone.
+ */
+export const NO_CALLER: RlsIdentity = {
+  userId: '',
+  email: '',
+  role: '',
+  roles: [],
+  bypass: false,
+  anonymous: true,
+};
 import {
   activeMembership,
   encodeTenantSet,

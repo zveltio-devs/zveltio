@@ -430,7 +430,7 @@ d('tenant archive + purge', () => {
     expect(await rowsOf(DEFAULT_TENANT_ID)).toEqual(others.def);
   }, 60_000);
 
-  it('purges the rows a `static:` row rule covers: its own work is no caller (ADR 0037)', async () => {
+  it('purges the rows a `static:` and a per-actor row rule cover: its own work is no caller (ADR 0037, 0040)', async () => {
     await sql`INSERT INTO zv_tenants (id, slug, name) VALUES (${S.id}, ${S.slug}, 'hpt')`.execute(
       db,
     );
@@ -443,6 +443,15 @@ d('tenant archive + purge', () => {
       filter_field: 'title',
       filter_op: 'eq',
       filter_value_source: 'static:r1',
+    });
+    // A per-actor rule keeps every row (none has an author) from every actor,
+    // extension work with no caller included (ADR 0040) — not from the purge.
+    const own = await createRlsPolicy({
+      collection: COLL,
+      role: '*',
+      filter_field: 'created_by',
+      filter_op: 'eq',
+      filter_value_source: 'user_id',
     });
     try {
       await sql`UPDATE zv_tenants SET status = 'deleted' WHERE id = ${S.id}`.execute(db);
@@ -457,6 +466,7 @@ d('tenant archive + purge', () => {
       });
       expect(left.rows[0]?.n).toBe(0);
     } finally {
+      await deleteRlsPolicy(own.id);
       await deleteRlsPolicy(rule.id);
     }
   }, 60_000);
