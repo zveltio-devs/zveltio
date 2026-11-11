@@ -15,7 +15,6 @@
  */
 
 import { Hono } from 'hono';
-import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
@@ -23,8 +22,7 @@ import { holdsRole, isTenantAdmin, DEFAULT_RUN_AS_ROLE } from '../lib/tenancy/in
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
-import { getCache } from '../lib/runtime/index.js';
-import { WEBHOOK_DLQ_KEY } from '../lib/webhook-worker.js';
+import { enqueueReplay, type WebhookJob } from '../lib/webhooks.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { paging } from '../lib/utils.js';
 
@@ -125,105 +123,99 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     return { ...webhook, secret: webhook.secret ? MASK : null };
   }
 
-  // ── Dead-letter queue ───────────────────────────────────────────────────
+  // ── Dead-letter list ────────────────────────────────────────────────────
   //
-  // Deliveries that exhausted their retries used to be dropped where they
-  // stood. They are now kept, which is only half the job: a queue nobody can
-  // read is a log file with extra steps. These two endpoints are the other
-  // half — see what was abandoned, and send it again once the endpoint is
-  // back.
-  //
-  // Filtered to this tenant's own webhooks so one tenant's admin cannot read
-  // another's payloads out of a cache key they happen to share.
-  //
-  // Filtered by `webhookId`, not by URL. A URL is not an ownership claim: it is
-  // a value any tenant can type into its own webhook, so registering a webhook
-  // at the URL another tenant already uses used to hand over that tenant's
-  // abandoned payloads — which carry the record data of the write that fired
-  // them — and let `replay` remove them from the DLQ and re-send them.
-  // The id comes from `zvd_webhooks` on both sides and cannot be claimed.
-
-  /** This tenant's webhooks by id — the DLQ is a flat Redis list, not a table. */
-  async function ownWebhooks(c: Context): Promise<Map<string, { secret: string | null }>> {
-    const rows = await reqDb(c, db)
-      .selectFrom('zvd_webhooks')
-      .select(['id', 'secret'])
-      .where('tenant_id', '=', tenantId(c))
-      .execute();
-    return new Map(rows.map((r) => [r.id as string, { secret: (r.secret as string) ?? null }]));
-  }
-
-  /** An entry as it sits in the DLQ. `secret` is never one of its fields. */
-  type DlqEntry = { webhookId?: string } & Record<string, unknown>;
-
-  function parseEntry(raw: string): DlqEntry | null {
-    try {
-      const parsed = JSON.parse(raw) as DlqEntry;
-      return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
+  // A delivery whose job used its last retry (ADR 0035): its row says so, with
+  // the attempt past `max_attempts` and nothing delivered. Read through the
+  // request's tenant, so one firm's admin sees and replays its own only. Rows
+  // written before the delivery queue moved to pg-boss carry no event id and
+  // cannot be replayed as an event; they are not listed.
+  const deadLetters = (c: Parameters<typeof reqDb>[0], limit?: number) => {
+    let q = reqDb(c, db)
+      .selectFrom('zvd_webhook_deliveries as d')
+      .innerJoin('zvd_webhooks as w', 'w.id', 'd.webhook_id')
+      .select([
+        'd.id',
+        'd.webhook_id',
+        'd.event_id',
+        'd.payload',
+        'd.url',
+        'd.method',
+        'd.attempt',
+        'd.status',
+        'd.error',
+        'd.created_at',
+        'w.retry_attempts',
+      ])
+      .where('d.tenant_id', '=', tenantId(c))
+      .where('d.event_id', 'is not', null)
+      .where('d.delivered_at', 'is', null)
+      .whereRef('d.attempt', '>', 'd.max_attempts')
+      .orderBy('d.created_at', 'desc');
+    if (limit) q = q.limit(limit);
+    return q.execute();
+  };
 
   // GET /dlq — abandoned deliveries, newest first. Declared before `/:id` so
   // the param route does not capture "dlq".
   app.get('/dlq', async (c) => {
-    const cache = getCache();
-    if (!cache) return c.json({ entries: [], available: false });
     const limit = Math.min(parseInt(c.req.query('limit') ?? '50') || 50, 500);
-    const raw: string[] = await cache.lrange(WEBHOOK_DLQ_KEY, 0, limit - 1).catch(() => []);
-    const mine = await ownWebhooks(c);
-    const entries = raw
-      .map(parseEntry)
-      .filter((e): e is DlqEntry => e !== null && !!e.webhookId && mine.has(e.webhookId))
-      // `secret` is stripped before an entry reaches the DLQ, but an entry
-      // abandoned by an older worker still carries it and every other handler
-      // here masks the signing secret. Dropped on the way out too.
-      .map(({ secret: _secret, ...rest }) => rest);
+    const rows = await deadLetters(c, limit);
+    const entries = rows.map((r) => {
+      const p = r.payload as Record<string, unknown>;
+      return {
+        deliveryId: r.id,
+        webhookId: r.webhook_id,
+        eventId: r.event_id,
+        sequence: p.sequence,
+        event: p.event,
+        collection: p.collection,
+        data: p.data,
+        timestamp: p.timestamp,
+        url: r.url,
+        method: r.method,
+        attempt: r.attempt,
+        status: r.status,
+        error: r.error,
+      };
+    });
     return c.json({ entries, available: true });
   });
 
-  // POST /dlq/replay — put abandoned deliveries back on the queue.
+  // POST /dlq/replay — a new job for each abandoned delivery, with the full
+  // retry budget again: the endpoint being back is a new situation. The same
+  // event id, so a receiver that did get it once can tell. The row's attempt
+  // goes back to 0 in the same transaction, so it leaves the list as its job
+  // is queued, and the job writes its outcome over it.
   app.post('/dlq/replay', async (c) => {
-    const cache = getCache();
-    if (!cache) return c.json({ error: 'Cache unavailable' }, 503);
-    const raw: string[] = await cache.lrange(WEBHOOK_DLQ_KEY, 0, -1).catch(() => []);
-    const mine = await ownWebhooks(c);
-    let replayed = 0;
-    for (const item of raw) {
-      const parsed = parseEntry(item);
-      if (!parsed?.webhookId) continue;
-      const owner = mine.get(parsed.webhookId);
-      if (!owner) continue;
-      // The DLQ does not store the signing secret, so a replay that just
-      // re-queued the entry would deliver UNSIGNED — the receiver's verification
-      // would fail, or worse, it accepts unsigned and nothing reports it.
-      // Re-read and decrypt it from the webhook row instead.
-      let secret: string | null = null;
-      if (owner.secret) {
-        try {
-          const plain = await maybeDecrypt(owner.secret, true);
-          secret = typeof plain === 'string' ? plain : null;
-        } catch (err) {
-          console.warn(
-            `[webhooks] replay: could not decrypt the secret for ${parsed.webhookId}:`,
-            (err as Error).message,
-          );
-        }
-      }
-      // `attempt: 0` so the replay gets the full retry budget again rather
-      // than one last try — the endpoint being back is a new situation.
-      // `tenantId` because an entry abandoned before migration 028 has none, and
-      // the outcome is written as the delivery's firm — which is this one.
-      const { failedAt: _failedAt, secret: _stale, ...payload } = parsed as Record<string, unknown>;
-      await cache.rpush(
-        'webhook:queue',
-        JSON.stringify({ ...payload, secret, attempt: 0, tenantId: tenantId(c) }),
+    const trx = reqDb(c, db);
+    const rows = await deadLetters(c);
+    for (const r of rows) {
+      const p = r.payload as Omit<WebhookJob, 'tenantId' | 'webhookId' | 'eventId'> & {
+        id: string;
+      };
+      await enqueueReplay(
+        trx,
+        {
+          tenantId: tenantId(c),
+          webhookId: r.webhook_id,
+          eventId: r.event_id as string,
+          sequence: p.sequence,
+          event: p.event,
+          collection: p.collection,
+          data: p.data,
+          timestamp: p.timestamp,
+        },
+        r.retry_attempts ?? 3,
       );
-      await cache.lrem(WEBHOOK_DLQ_KEY, 1, item);
-      replayed++;
+      await trx
+        .updateTable('zvd_webhook_deliveries')
+        .set({ attempt: 0 })
+        .where('id', '=', r.id)
+        .where('tenant_id', '=', tenantId(c))
+        .execute();
     }
-    return c.json({ replayed });
+    return c.json({ replayed: rows.length });
   });
 
   // GET / — List all webhooks

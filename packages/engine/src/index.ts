@@ -52,8 +52,7 @@ import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
 import { realtimeBus } from './lib/runtime/index.js';
-import { WebhookManager } from './lib/webhooks.js';
-import { webhookWorker } from './lib/webhook-worker.js';
+import { startWebhookWorker, WebhookManager } from './lib/webhooks.js';
 import { getWorkerHostIfInitialized } from './lib/worker-extension-host.js';
 import { cancelPendingCleanups, sweepGhostOrphans } from './lib/data/index.js';
 import { contractImportLogs } from './lib/data/index.js';
@@ -538,7 +537,7 @@ if (_cmd === 'create-god') {
  * and static file handlers.  Called once at startup and again after each
  * extension enable/disable to swap _currentApp (zero-downtime hot-reload).
  *
- * Stateful singletons (db, auth, webhookWorker, flowScheduler, …) are NOT
+ * Stateful singletons (db, auth, flowScheduler, …) are NOT
  * re-created — they live in _bootstrapCtx and are reused across rebuilds.
  */
 // Auto-activate content/pages on first start if:
@@ -1589,7 +1588,7 @@ async function bootstrap() {
   }
 
   // ═══ Background workers (fire-and-forget) ═══
-  webhookWorker.start(1000);
+  startWebhookWorker();
   console.log('✅ Webhook worker started');
 
   await flowScheduler.start(db);
@@ -1704,7 +1703,6 @@ async function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
   _heartbeat?.stop();
   cronRunner.stop();
-  webhookWorker.stop();
   flowScheduler.stop();
   cancelPendingCleanups();
   stopPolicyReconcile();
