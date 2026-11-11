@@ -13,6 +13,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { realtimeBus, type RealtimeBusMessage } from '../../lib/runtime/index.js';
 import {
+  accessGeneration,
   checkPermission,
   clearLocalPermissionCache,
   getEnforcer,
@@ -39,6 +40,10 @@ import type { ReadScope } from '../../lib/data/read-scope.js';
 /** A read gate that admits every row and hides no column. */
 const openScope = (table: string): ReadScope => ({
   table,
+  // Current whenever asked: these probes are not about a rule change.
+  get generation() {
+    return accessGeneration();
+  },
   rls: [],
   columns: { hidden: new Set(), readOnly: new Set() },
   altersRestrict: false,

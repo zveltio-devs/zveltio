@@ -35,7 +35,14 @@ import {
 } from '../lib/data/index.js';
 import { problem } from '../lib/problem.js';
 import { tenantId } from '../lib/route-db.js';
-import { buildShapeDefinition, shapeSearchParams, shapeTenantReach } from '../lib/tenancy/index.js';
+import { busDeaf } from '../lib/runtime/index.js';
+import {
+  accessGeneration,
+  buildShapeDefinition,
+  realtimeScopeCurrent,
+  shapeSearchParams,
+  shapeTenantReach,
+} from '../lib/tenancy/index.js';
 
 interface ElectricConfig {
   electricUrl: string;
@@ -103,6 +110,9 @@ export function electricRoutes(
   });
 
   async function shape(c: Context, interrupted: AbortSignal): Promise<Response> {
+    // Before any check (ADR 0036 decision 2): rows read under rules that changed
+    // since are not delivered — see `current` below.
+    const generation = accessGeneration();
     const principal = await authenticate(c, auth, db);
     if (!principal) return c.json({ error: 'Unauthorized' }, 401);
     const config = readConfig();
@@ -115,6 +125,13 @@ export function electricRoutes(
         },
         503,
       );
+    }
+
+    // This instance cannot hear a rule change made on another: it serves no rows.
+    if (busDeaf()) {
+      const err = problem('electric.paused', 503, 'Sync is paused on this instance; retry.');
+      err.retryAfter = 1;
+      throw err;
     }
 
     const query = new URL(c.req.url).searchParams;
@@ -161,29 +178,37 @@ export function electricRoutes(
     for (const [k, v] of query) if (k !== 'collection') upstream.searchParams.set(k, v);
     upstream.searchParams.set('secret', config.secret);
 
+    // A sweep ended it, or a rule changed while it waited: nothing new, up to
+    // date where it was, so the client polls again at once and that poll is
+    // checked as it now stands.
+    const upToDate = () => {
+      const same: Record<string, string> = { 'cache-control': 'private, no-store' };
+      for (const [h, q] of [
+        ['electric-offset', 'offset'],
+        ['electric-handle', 'handle'],
+        ['electric-cursor', 'cursor'],
+      ] as const) {
+        const v = query.get(q);
+        if (v !== null) same[h] = v;
+      }
+      same['access-control-expose-headers'] = ELECTRIC_HEADERS.join(',');
+      return c.json([{ headers: { control: 'up-to-date' } }], 200, same);
+    };
+    const current = () => realtimeScopeCurrent(generation);
+
     let res: Response;
     try {
       res = await fetch(upstream, { signal: AbortSignal.any([c.req.raw.signal, interrupted]) });
     } catch (err) {
       // The client went away mid-poll: nobody is left to answer.
       if (c.req.raw.signal.aborted) return new Response(null, { status: 499 });
-      // A sweep ended it: nothing new, up to date where it was, so the client
-      // polls again at once and that poll is checked as it now stands.
-      if (interrupted.aborted) {
-        const same: Record<string, string> = { 'cache-control': 'private, no-store' };
-        for (const [h, q] of [
-          ['electric-offset', 'offset'],
-          ['electric-handle', 'handle'],
-          ['electric-cursor', 'cursor'],
-        ] as const) {
-          const v = query.get(q);
-          if (v !== null) same[h] = v;
-        }
-        same['access-control-expose-headers'] = ELECTRIC_HEADERS.join(',');
-        return c.json([{ headers: { control: 'up-to-date' } }], 200, same);
-      }
+      if (interrupted.aborted) return upToDate();
       console.warn('[electric] upstream unreachable:', (err as Error).message);
       throw problem('electric.unreachable', 503, 'The Electric service is unreachable.');
+    }
+    if (!current()) {
+      await res.body?.cancel();
+      return upToDate();
     }
     // 409 is the protocol's `must-refetch`: the handle no longer matches this
     // caller's shape (rebuilt, or someone else's). Named, so a client tells it
@@ -224,7 +249,16 @@ export function electricRoutes(
       const v = res.headers.get(h);
       if (v !== null) headers[h] = v;
     }
-    return c.body(res.body as ReadableStream, res.status as 200, headers);
+    // Checked per chunk too: a change while the body streams cuts it short.
+    const body = res.body?.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, ctl) {
+          if (current()) ctl.enqueue(chunk);
+          else ctl.error(new Error('rules changed while the shape streamed'));
+        },
+      }),
+    );
+    return c.body((body ?? null) as ReadableStream, res.status as 200, headers);
   }
 
   return app;

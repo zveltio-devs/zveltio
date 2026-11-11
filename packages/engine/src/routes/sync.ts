@@ -15,7 +15,7 @@ import {
   selectReadable,
 } from '../lib/data/index.js';
 import { guardSession } from '../lib/admin-guard.js';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { sql } from 'kysely';
 import { getAuth } from '../lib/auth.js';
 import type { Database } from '../db/index.js';
@@ -32,6 +32,7 @@ import {
 import {
   DDLManager,
   afterWrite,
+  runAtomic,
   processInput,
   readScope,
   rowAuthorId,
@@ -41,6 +42,7 @@ import {
 } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
+import { type ChangeEvent, enqueueWebhookEvent } from '../lib/webhooks.js';
 import { asEngineRole } from '../lib/role-window.js';
 import { SYNC_TOMBSTONE_RETENTION_DAYS } from '../lib/runtime/index.js';
 
@@ -268,7 +270,18 @@ export function syncRoutes(db: Database, _auth: any): Hono {
    * Body: { operations: [{ collection, recordId, operation, payload, clientTimestamp }] }
    * Response: { results: [{ recordId, status: 'ok' | 'conflict' | 'error', serverVersion, serverData? }] }
    */
-  app.post('/push', async (c) => {
+  // The rows and their webhook events commit together (ADR 0035): a push that
+  // arrives with no request transaction gets one, as `replaceRecord` does.
+  app.post('/push', (c) =>
+    c.get('tenantTrx')
+      ? push(c)
+      : runAtomic(db, (trx) => {
+          c.set('tenantTrx', trx);
+          return push(c);
+        }),
+  );
+
+  async function push(c: Context): Promise<Response> {
     const body = await c.req.json().catch(() => null);
     if (!body || !Array.isArray(body.operations)) {
       return c.json({ error: 'Invalid body: expected { operations: [...] }' }, 400);
@@ -430,6 +443,8 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // serves the latest revision's `data` as the record.
     const writer = c.get('user') as { id: string; authorUserId?: string | null };
     const syncTid = tenantId(c);
+    // Every written row's webhook event, enqueued as one batch below.
+    const events: ChangeEvent[] = [];
     const written = (
       table: string,
       recordId: string,
@@ -446,8 +461,10 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         userId: writer.id,
         author: rowAuthorId(writer),
         tenantId: syncTid,
+        events,
         // As the bulk handler does: the row has landed, so a failed side effect
         // is logged, not reported as a failed write the client would retry.
+        // Not the webhook enqueue: that is the push's own failure, below.
       }).catch((err: Error) => {
         console.warn(`[sync] afterWrite(${action}, ${table}/${recordId}) failed:`, err.message);
       });
@@ -710,8 +727,12 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       }
     }
 
+    // One lookup per collection and event, one batch of jobs, outside every
+    // per-operation catch: an event that cannot be queued refuses the whole
+    // push (503) and rolls back its rows (ADR 0035).
+    await enqueueWebhookEvent(effectiveDb, syncTid, events);
     return c.json({ results });
-  });
+  }
 
   /**
    * POST /api/sync/pull

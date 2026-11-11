@@ -34,6 +34,7 @@ import {
   getEnforcer,
   invalidateUserPermCache,
   isGodUser,
+  accessGeneration,
   permissionGeneration,
 } from '../../lib/tenancy/index.js';
 import { _wsPermCacheForTests, broadcastEvent, websocketHandler } from '../../routes/ws.js';
@@ -165,7 +166,9 @@ d('a user role change reaches open subscriptions', () => {
       conn.subscriptions.add(ch);
       indexSubscription(ch, probes.at(-1)!);
     }
-    conn.access.set(COL, stale.access);
+    // Current in B's generation: in one process the demotion's sweep moved the
+    // shared generation, which on a real B only the bus message below moves.
+    conn.access.set(COL, { ...stale.access, generation: accessGeneration() });
     wsPermCache
       .get(ws)!
       .set(COL, { allowed: true, checkedAt: Date.now(), gen: permissionGeneration() });
