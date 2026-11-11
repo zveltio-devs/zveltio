@@ -156,6 +156,17 @@ function sendOwedRecycle(): void {
   announcePoolRecycle();
 }
 
+/**
+ * A started bus lost its connection: a rule changed on another instance cannot
+ * reach this one, so it delivers no record events (ADR 0036 decision 2) until
+ * the reconnect sweep. Never set without a bus: a single instance has none to lose.
+ */
+let deaf = false;
+
+export function busDeaf(): boolean {
+  return deaf;
+}
+
 // Per-process origin id so we can filter our own echoed messages.
 export const ORIGIN_ID = `eng-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -382,14 +393,26 @@ function onBusReconnected(): void {
     .catch((err: Error) => {
       console.error('[realtime-bus] extension resync after reconnect failed:', err.message);
     });
-  import('../tenancy/index.js')
-    .then((m) => {
+  resumeDelivery();
+}
+
+/** Ends the pause with the sweep, and keeps trying: a failure here must not leave it deaf for good. */
+function resumeDelivery(): void {
+  import('../tenancy/index.js').then(
+    (m) => {
+      // In the same tick as the sweep's generation bump: every scope resolved
+      // before the outage stays silent until the sweep re-resolves it.
+      deaf = false;
       m.revalidateSockets();
-      return m.reconcilePolicies();
-    })
-    .catch((err: Error) => {
-      console.error('[realtime-bus] policy reconcile after reconnect failed:', err.message);
-    });
+      m.reconcilePolicies().catch((err: Error) => {
+        console.error('[realtime-bus] policy reconcile after reconnect failed:', err.message);
+      });
+    },
+    (err: Error) => {
+      console.error('[realtime-bus] realtime still paused after reconnect, retrying:', err.message);
+      setTimeout(resumeDelivery, 1_000).unref?.();
+    },
+  );
 }
 
 function attachIoredisErrorHandler(client: Redis, label: string): void {
@@ -422,6 +445,8 @@ class ValkeyRealtimeBus implements RealtimeBus {
     });
     attachIoredisErrorHandler(this.subscriber, 'subscriber');
     attachIoredisErrorHandler(this.publisher, 'publisher');
+    // Configured and not listening yet: a start that fails leaves it so.
+    deaf = true;
     await this.subscriber.connect();
     await this.publisher.connect();
 
@@ -438,12 +463,18 @@ class ValkeyRealtimeBus implements RealtimeBus {
     await this.subscriber.subscribe(CHANNEL_NAME);
     // `ready` fires again on every reconnect (ioredis resubscribes by itself).
     this.subscriber.on('ready', onBusReconnected);
+    this.subscriber.on('close', () => {
+      if (this._running) deaf = true;
+    });
     this._running = true;
+    deaf = false;
     sendOwedRecycle();
     console.log(`✅ Realtime bus: Valkey PUB/SUB on ${CHANNEL_NAME} (origin=${ORIGIN_ID})`);
   }
 
   async stop(): Promise<void> {
+    this._running = false;
+    deaf = false;
     if (this.subscriber) {
       try {
         await this.subscriber.unsubscribe(CHANNEL_NAME);
@@ -465,7 +496,6 @@ class ValkeyRealtimeBus implements RealtimeBus {
       }
       this.publisher = null;
     }
-    this._running = false;
   }
 
   async publish(payload: Omit<RealtimeBusMessage, 'originId'>): Promise<void> {
@@ -523,6 +553,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
   private scheduleListenReconnect(reason: string): void {
     if (this.stopping || this.retryTimer) return;
     this._running = false;
+    deaf = true;
     // Capped at 30 s: every NOTIFY sent while down is lost, and the resync on
     // return covers them only once it runs.
     const delay = Math.min(1_000 * 2 ** this.retryAttempt, 30_000);
@@ -598,6 +629,7 @@ class PgNotifyRealtimeBus implements RealtimeBus {
     this.stopHeartbeat();
     if (client) await client.end().catch(() => {});
     this._running = false;
+    deaf = false;
     this.retryAttempt = 0;
     this.stopping = false;
   }
@@ -673,6 +705,7 @@ export function realtimeBus(): RealtimeBus {
 
 export function _resetForTests(): void {
   _instance = null;
+  deaf = false;
 }
 
 export const _ORIGIN_ID = ORIGIN_ID;

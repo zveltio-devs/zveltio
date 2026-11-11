@@ -3,7 +3,11 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { clearLocalPermissionCache, permissionGeneration } from '../../lib/tenancy/index.js';
+import {
+  accessGeneration,
+  clearLocalPermissionCache,
+  permissionGeneration,
+} from '../../lib/tenancy/index.js';
 import {
   broadcastEvent,
   websocketHandler,
@@ -15,6 +19,10 @@ import type { ReadScope } from '../../lib/data/read-scope.js';
 /** A read gate that admits every row and hides no column. */
 const openScope = (table: string): ReadScope => ({
   table,
+  // Current whenever asked: these probes are not about a rule change.
+  get generation() {
+    return accessGeneration();
+  },
   rls: [],
   columns: { hidden: new Set(), readOnly: new Set() },
   altersRestrict: false,

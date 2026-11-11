@@ -16,6 +16,7 @@ import {
   isGodUser,
   isTenantAdmin,
   permissionGeneration,
+  realtimeScopeCurrent,
   requireInstanceAdmin,
   revalidateSockets,
   runWithDomain,
@@ -266,11 +267,15 @@ async function resolveSocketAccess(conn: WSConnection, collection: string): Prom
   // unsubscribe — or from a refused subscribe — missed every rule and alter
   // change since, and the resubscribe delivered (or refused) by it.
   const scope = await lookupSocketAccess(conn, collection);
-  conn.access.set(collection, scope);
   // An alter restricts which rows this reader sees, and an event is a row with
   // no query to apply it to: refuse the subscription rather than deliver what
   // the API would hide, or silently deliver nothing.
-  return !scope.altersRestrict;
+  if (scope.altersRestrict) {
+    conn.access.delete(collection);
+    return false;
+  }
+  conn.access.set(collection, scope);
+  return true;
 }
 
 function lookupSocketAccess(conn: WSConnection, collection: string): Promise<ReadScope> {
@@ -330,6 +335,15 @@ async function socketIsSchemaAdmin(conn: WSConnection): Promise<boolean> {
 /** Read for a collection, schema admin for `SCHEMA_CHANNEL`. Throws on a failed lookup. */
 function socketMayHear(ws: object, conn: WSConnection, name: string): Promise<boolean> {
   return name === SCHEMA_CHANNEL ? socketIsSchemaAdmin(conn) : socketMayReadCached(ws, conn, name);
+}
+
+/** No channel of `channel`'s collection left: its scope goes, so no sweep keeps a stale one. */
+function forgetUnsubscribed(conn: WSConnection, channel: unknown): void {
+  if (typeof channel !== 'string') return;
+  const collection = channel.split(':')[0];
+  if (![...conn.subscriptions].some((ch) => ch.split(':')[0] === collection)) {
+    conn.access.delete(collection!);
+  }
 }
 
 /** The subscribe gate: a lookup that throws denies the subscription. */
@@ -558,6 +572,7 @@ export const websocketHandler = {
           if (Array.isArray(msg.collections)) {
             const allowed: string[] = [];
             const denied: string[] = [];
+            let resweep = false;
             for (const col of msg.collections) {
               if (col === '*') {
                 denied.push(col);
@@ -569,7 +584,11 @@ export const websocketHandler = {
                 continue;
               }
 
+              // Before the check: a sweep that ran between it and the
+              // registration below could not see this subscription.
+              const sweep = sweepGeneration();
               const canRead = await socketMaySubscribe(ws, conn, collectionName);
+              if (sweep !== sweepGeneration()) resweep = true;
 
               if (canRead) {
                 conn.subscriptions.add(col);
@@ -577,9 +596,11 @@ export const websocketHandler = {
                 allowed.push(col);
               } else {
                 denied.push(col);
+                forgetUnsubscribed(conn, col);
               }
             }
             ws.send(JSON.stringify({ type: 'subscribed', collections: allowed, denied }));
+            if (resweep) revalidateSockets('all', false);
           } else if (typeof msg.channel === 'string') {
             // `*:insert` too: it passed a god's permission check and was stored,
             // but fan-out matches channels by collection, so it never delivered.
@@ -593,12 +614,15 @@ export const websocketHandler = {
               break;
             }
             const collectionName = msg.channel.split(':')[0];
+            const sweep = sweepGeneration();
             const canRead = await socketMaySubscribe(ws, conn, collectionName);
             if (canRead) {
               conn.subscriptions.add(msg.channel);
               indexSubscription(msg.channel, ws.data.id);
               ws.send(JSON.stringify({ type: 'subscribed', channel: msg.channel }));
+              if (sweep !== sweepGeneration()) revalidateSockets('all', false);
             } else {
+              forgetUnsubscribed(conn, msg.channel);
               ws.send(
                 JSON.stringify({
                   type: 'error',
@@ -615,11 +639,13 @@ export const websocketHandler = {
             for (const col of msg.collections) {
               conn.subscriptions.delete(col);
               unindexSubscription(col, ws.data.id);
+              forgetUnsubscribed(conn, col);
             }
             ws.send(JSON.stringify({ type: 'unsubscribed', collections: msg.collections }));
           } else if (typeof msg.channel === 'string') {
             conn.subscriptions.delete(msg.channel);
             unindexSubscription(msg.channel, ws.data.id);
+            forgetUnsubscribed(conn, msg.channel);
             ws.send(JSON.stringify({ type: 'unsubscribed', channel: msg.channel }));
           }
           break;
@@ -713,10 +739,13 @@ export function broadcastEvent(
       //
       // No entry means nothing resolved what this socket may see, so it gets
       // nothing — not everything. Subscribing always resolves one; this is the
-      // backstop for a path that someday does not.
+      // backstop for a path that someday does not. A scope from before the
+      // latest rule change, or while the bus is down, delivers nothing either.
       const scope = conn.access.get(collection);
-      if (!scope) continue;
+      if (!scope || !realtimeScopeCurrent(scope.generation)) continue;
       inOrder(conn, scope.admits(data), () => {
+        // Again at send: one queued behind an async verdict may outlive its scope.
+        if (!realtimeScopeCurrent(scope.generation)) return;
         const visible = scope.shape(data);
         const body =
           visible === data

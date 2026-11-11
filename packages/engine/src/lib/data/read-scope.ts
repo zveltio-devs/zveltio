@@ -20,6 +20,7 @@ import { queryAlterRegistry } from './query-alter.js';
 import { dynamicDb, isUuid, selectReadable } from './write-pipeline.js';
 import { withheldColumns } from './shape.js';
 import {
+  accessGeneration,
   applyColumnAccess,
   applyRlsFilters,
   entityAccessRegistry,
@@ -38,6 +39,11 @@ type ReadUser = Parameters<typeof getRlsFilters>[1];
 export interface ReadScope {
   /** The physical table the alters and entity checks are registered against. */
   table: string;
+  /**
+   * `accessGeneration()` when resolution began. A realtime door delivers by
+   * this scope only while it is current (`realtimeScopeCurrent`).
+   */
+  generation: number;
   /** Row policies, for readers that render them themselves (`?as_of=` in SQL). */
   rls: RlsFilter[];
   columns: ColumnAccess;
@@ -92,10 +98,13 @@ export async function readScope(
   given: ReadUser,
   authType: 'session' | 'api_key' | 'anonymous',
 ): Promise<ReadScope> {
+  // Before any lookup: one that straddles a change is resolved as already stale.
+  const generation = accessGeneration();
   const role = await principalRole(given.id);
   const user = { ...given, role };
   const rls = await getRlsFilters(collection, user, authType);
-  return scopeOf(db, collection, user, rls, await getColumnAccess(db, collection, role, user));
+  const columns = await getColumnAccess(db, collection, role, user);
+  return scopeOf(db, collection, user, rls, columns, generation);
 }
 
 /**
@@ -118,13 +127,14 @@ export async function principalRecord(
   admitted = false,
 ): Promise<Record<string, unknown> | null> {
   if (!principal.allows(collection, 'read')) return null;
+  const generation = accessGeneration();
   const { identity } = principal;
   const user = { id: '', email: '', role: identity.role };
   const granted = identity.columnsAll
     ? { hidden: new Set<string>(), readOnly: new Set<string>() }
     : await getColumnAccess(db, collection, identity.role);
   const rls = await principalRlsFilters(collection, identity);
-  const scope = await scopeOf(db, collection, user, rls, granted);
+  const scope = await scopeOf(db, collection, user, rls, granted, generation);
   return admitted || (await scope.admits(record)) ? scope.shape(record) : null;
 }
 
@@ -134,6 +144,7 @@ async function scopeOf(
   user: ReadUser,
   rls: RlsFilter[],
   granted: ColumnAccess,
+  generation: number,
 ): Promise<ReadScope> {
   const table = DDLManager.getTableName(collection);
   // A field no one is served (`password`) is hidden from every reader.
@@ -151,6 +162,7 @@ async function scopeOf(
 
   return {
     table,
+    generation,
     rls,
     columns,
     get altersRestrict() {
