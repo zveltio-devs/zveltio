@@ -25,16 +25,13 @@ import type { DbSchema } from '../../db/schema.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
-import {
-  WebhookManager,
-  _settleWebhookDeliveries,
-  repairUnsignedWebhooksAtBoot,
-} from '../../lib/webhooks.js';
+import { WebhookManager, repairUnsignedWebhooksAtBoot } from '../../lib/webhooks.js';
 import {
   asEveryTenant,
   asTenant,
   createGodSession,
   createMemberSession,
+  drainWebhookJobs,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
@@ -170,7 +167,7 @@ d('zvd_webhooks under tenant RLS', () => {
 
   it('a write in a non-default firm fires its webhook, recorded and retried as that firm', async () => {
     const hook = await seedWebhook(OTHER, 'hook', null);
-    await _settleWebhookDeliveries();
+    await drainWebhookJobs(db);
     hits = 0;
 
     // The real caller: the data route's afterWrite, inside the request transaction.
@@ -180,7 +177,7 @@ d('zvd_webhooks under tenant RLS', () => {
       body: JSON.stringify({ title: 'probe' }),
     });
     expect([200, 201]).toContain(res.status);
-    await _settleWebhookDeliveries();
+    await drainWebhookJobs(db);
     expect(hits).toBe(2); // the first try plus the one retry
 
     // The outcome is written after the attempt, not awaited by it.

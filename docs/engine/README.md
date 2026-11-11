@@ -64,7 +64,7 @@ packages/engine/src/
 | `cloud/` | `document-indexer` (text extraction), `trash` |
 
 Top-level files in `lib/` carry the rest: `audit.ts`, `auth.ts`, `webhooks.ts`,
-`webhook-worker.ts`, `notifications.ts`, `push-notifications.ts`,
+`notifications.ts`, `push-notifications.ts`,
 `validation-engine.ts`, `startup-guards.ts`, `health-registry.ts`,
 `service-registry.ts`, `problem.ts`, `worker-extension-host.ts`.
 

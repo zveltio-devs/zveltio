@@ -52,8 +52,7 @@ import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
 import { realtimeBus } from './lib/runtime/index.js';
-import { WebhookManager } from './lib/webhooks.js';
-import { webhookWorker } from './lib/webhook-worker.js';
+import { startWebhookWorker, WEBHOOK_QUEUE, WebhookManager } from './lib/webhooks.js';
 import { getWorkerHostIfInitialized } from './lib/worker-extension-host.js';
 import { cancelPendingCleanups, sweepGhostOrphans } from './lib/data/index.js';
 import { contractImportLogs } from './lib/data/index.js';
@@ -538,7 +537,7 @@ if (_cmd === 'create-god') {
  * and static file handlers.  Called once at startup and again after each
  * extension enable/disable to swap _currentApp (zero-downtime hot-reload).
  *
- * Stateful singletons (db, auth, webhookWorker, flowScheduler, …) are NOT
+ * Stateful singletons (db, auth, flowScheduler, …) are NOT
  * re-created — they live in _bootstrapCtx and are reused across rebuilds.
  */
 // Auto-activate content/pages on first start if:
@@ -1085,20 +1084,22 @@ rm studio.tar.gz</pre>
     try {
       const db = _bootstrapCtx?.db;
       if (db) {
-        // Every firm: both tables are under the tenant policy (migration 028),
+        // The delivery jobs not yet run (ADR 0035): pg-boss's table, no firm's.
+        const pending = await sql<{ n: string }>`
+          SELECT count(*)::text AS n FROM pgboss.job
+           WHERE name = ${WEBHOOK_QUEUE} AND state IN ('created', 'retry')
+        `.execute(db);
+        // Every firm: `zvd_webhooks` is under the tenant policy (migration 028),
         // and on the bare pool a non-superuser database counts the default only.
-        const [pending, subs] = await withEveryTenant(db, async (trx) => [
-          await sql<{ n: string }>`
-            SELECT count(*)::text AS n FROM zvd_webhook_deliveries WHERE delivered_at IS NULL
-          `.execute(trx),
-          await sql<{ n: string }>`
+        const subs = await withEveryTenant(db, (trx) =>
+          sql<{ n: string }>`
             SELECT count(*)::text AS n FROM zvd_webhooks WHERE active = true
           `.execute(trx),
-        ]);
+        );
         lines.push(
           ...gaugeLine(
             'webhook_queue_pending',
-            'Undelivered webhook deliveries',
+            'Webhook delivery jobs waiting to run (created or retrying)',
             Number(pending.rows[0]?.n ?? 0),
           ),
           ...gaugeLine(
@@ -1589,7 +1590,7 @@ async function bootstrap() {
   }
 
   // ═══ Background workers (fire-and-forget) ═══
-  webhookWorker.start(1000);
+  startWebhookWorker();
   console.log('✅ Webhook worker started');
 
   await flowScheduler.start(db);
@@ -1704,7 +1705,6 @@ async function shutdown() {
   console.log('\n🛑 Shutting down gracefully...');
   _heartbeat?.stop();
   cronRunner.stop();
-  webhookWorker.stop();
   flowScheduler.stop();
   cancelPendingCleanups();
   stopPolicyReconcile();

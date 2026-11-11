@@ -29,6 +29,8 @@ afterEach(() => {
 });
 
 const basePayload = {
+  id: 'e1',
+  sequence: 1,
   url: 'https://93.184.216.34/clamp',
   event: 'record.created',
   collection: 'contacts',
@@ -45,7 +47,7 @@ describe('WebhookManager.deliver — timeout clamp', () => {
     [2_500, 2_500],
     [9_999_999, 30_000],
   ])('timeout %p waits %p ms', async (timeout, expected) => {
-    const ok = await WebhookManager.deliver({ ...basePayload, timeout });
+    const { ok } = await WebhookManager.deliver({ ...basePayload, timeout });
     expect(ok).toBe(true);
     expect(asked).toEqual([expected]);
   });

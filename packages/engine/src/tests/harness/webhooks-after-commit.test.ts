@@ -5,11 +5,13 @@
  * transaction, and `trigger` looks up the hooks and writes the delivery rows in
  * a transaction of its OWN, then starts the delivery. So the outside world was
  * told about a record before the request had committed it — and when the commit
- * then failed, the record was gone and the POST had already left.
+ * then failed, the record was gone and the POST had already left. Since ADR 0035
+ * the event is a pg-boss job queued in the write's own transaction, so it rolls
+ * back with the row.
  *
  * The rollback here is a real one on the real route: a deferred constraint
  * trigger that refuses the row at COMMIT, after the handler — and `afterWrite`
- * — have run. The dispatcher runs on a pool whose every connection is the plain
+ * — have run. The delivery reads the record on a pool whose every connection is the plain
  * role, as in `webhooks-rls.test.ts`, and the write is in a non-default firm, so
  * the committed control also proves the firm is still carried after the commit.
  */
@@ -21,11 +23,12 @@ import type { Database } from '../../db/index.js';
 import { BunSqlDialect } from '../../db/bun-sql-dialect.js';
 import type { DbSchema } from '../../db/schema.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { WebhookManager, _settleWebhookDeliveries } from '../../lib/webhooks.js';
+import { WebhookManager, WEBHOOK_QUEUE } from '../../lib/webhooks.js';
 import {
   asEveryTenant,
   asTenant,
   createGodSession,
+  drainWebhookJobs,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
@@ -130,7 +133,12 @@ d('webhooks fire after the commit', () => {
     // The status is not asserted: the handler's 201 is already on the context
     // when the COMMIT fails, and that is a separate question from this one.
     await write('refuse');
-    await _settleWebhookDeliveries();
+    // Its job was queued in the transaction that rolled back (ADR 0035).
+    const queued = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM pgboss.job
+       WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`.execute(db);
+    expect(queued.rows[0]!.n).toBe(0);
+    await drainWebhookJobs(db);
     const kept = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.table(TABLE)}`.execute(db);
     expect(kept.rows[0]!.n).toBe(0); // the rollback is real
@@ -141,7 +149,7 @@ d('webhooks fire after the commit', () => {
   it('a write that commits delivers, as its own firm', async () => {
     const res = await write('kept');
     expect(res.status).toBe(201);
-    await _settleWebhookDeliveries();
+    await drainWebhookJobs(db);
     expect(await deliveries()).toEqual([{ tenant_id: OTHER, title: 'kept' }]);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain('"kept"');

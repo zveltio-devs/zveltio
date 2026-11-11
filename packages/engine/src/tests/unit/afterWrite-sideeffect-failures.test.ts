@@ -28,7 +28,7 @@ describe('afterWrite — side-effect resilience', () => {
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.updated', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-1',
         action: 'update',
@@ -62,7 +62,7 @@ describe('afterWrite — side-effect resilience', () => {
     } as never);
 
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-2',
         action: 'create',

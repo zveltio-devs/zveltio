@@ -379,6 +379,8 @@ export interface ZvWebhooksTable {
 export interface ZvWebhookDeliveriesTable {
   id: Generated<string>;
   webhook_id: string;
+  /** The event's id (ADR 0035); NULL on rows written before it. */
+  event_id: string | null;
   payload: unknown; // JSONB
   url: string;
   method: string;
@@ -860,6 +862,8 @@ export interface ZvdWebhooksTable {
 export interface ZvdWebhookDeliveriesTable {
   id: Generated<string>;
   webhook_id: string;
+  /** The event's id (ADR 0035); NULL on rows written before it. */
+  event_id: string | null;
   payload: unknown; // JSONB
   url: string;
   method: string;

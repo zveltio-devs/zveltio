@@ -1,15 +1,21 @@
-import { sql } from 'kysely';
+import { CompiledQuery, sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { getCache } from './runtime/index.js';
+import { webhookDeliveries, webhookDeliveryDuration, webhookRetries } from './runtime/index.js';
 import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
-import { maybeDecrypt, principalRecord } from './data/index.js';
+import {
+  type JobQueue,
+  jobQueue,
+  maybeDecrypt,
+  onJobQueueStart,
+  principalRecord,
+} from './data/index.js';
 import { DEFAULT_TENANT_ID } from './route-db.js';
 import { toJsonb } from './jsonb.js';
-import { withSavepoint } from './savepoint.js';
+import { problem, ProblemException } from './problem.js';
+import { asEngineRole } from './role-window.js';
 import {
-  getCurrentTenantTrx,
-  onAfterCommit,
   rolePrincipal,
+  runOutsideTenantContext,
   runWithDomain,
   withEveryTenant,
   withTenantIsolation,
@@ -26,12 +32,14 @@ let readAsRole = async (
   role: string,
   collection: string,
   record: Record<string, unknown>,
+  admitted: boolean,
 ): Promise<Record<string, unknown> | null> =>
   principalRecord(
     _db as Database,
     collection,
     await runWithDomain(tenant, () => rolePrincipal(role)),
     record,
+    admitted,
   );
 
 /** Test-only: replace `readAsRole`; returns the restorer. */
@@ -126,71 +134,425 @@ async function repairUnsigned(db: Database): Promise<number> {
   return repaired;
 }
 
-/**
- * Deliveries dispatched without a cache queue, still running.
- *
- * `trigger` returns as soon as it has handed each payload to `deliver`, which
- * is the right behaviour — a write must not wait on someone else's HTTP
- * endpoint. It left tests with nothing to await, so they polled a wall clock
- * instead: first a 50ms sleep, which failed on CI at 52.27ms, then a 2s
- * deadline, which failed on CI at 2007ms. Each fix widened the window and kept
- * the race.
- */
-const _inFlight = new Set<Promise<unknown>>();
+/** The pg-boss queue every webhook delivery is a job on (ADR 0035). */
+export const WEBHOOK_QUEUE = 'webhook.deliver';
 
 /**
- * Resolve once every cache-less delivery started so far has finished.
- *
- * Test-only. Production never needs it: with a cache the payload goes to the
- * queue and the worker owns it from there.
+ * A completed delivery's job is kept one hour, not the seven days of the DDL
+ * queues: its payload is a record snapshot, and the delivery row already keeps
+ * what was sent. Created and retrying jobs keep the 30 days of `QUEUE_RETENTION`
+ * (a literal: `data/index.js` imports this module, so its binding is not yet set).
  */
-export async function _settleWebhookDeliveries(): Promise<void> {
-  // A loop rather than one `Promise.all`: a delivery can start another, and
-  // awaiting the first snapshot would return with the second still running.
-  while (_inFlight.size > 0) {
-    await Promise.all([..._inFlight]);
+export const WEBHOOK_QUEUE_RETENTION = {
+  deleteAfterSeconds: 60 * 60,
+  retentionSeconds: 30 * 24 * 60 * 60,
+};
+
+/** One delivery job's payload. Never the signing secret: it is read from the row at delivery. */
+export interface WebhookJob {
+  tenantId: string;
+  webhookId: string;
+  eventId: string;
+  sequence: number;
+  event: string;
+  collection: string;
+  /** The outbound record (no unserved, no sealed columns), before its role's view. */
+  data: Record<string, unknown>;
+  timestamp: string;
+  /**
+   * `data` is already the role's view, stored by an earlier attempt (`POST
+   * /dlq/replay`): its row rules are not asked again of a view that may lack
+   * the columns they read. The read grant and the columns are.
+   */
+  shaped?: boolean;
+}
+
+/** The change one write announces; `id` is the write's, the same for every subscriber. */
+export interface ChangeEvent {
+  id: string;
+  event: string;
+  collection: string;
+  data: Record<string, unknown>;
+  timestamp: string;
+}
+
+// Created once per pg-boss instance, before the first send or work on it.
+const queues = new WeakMap<JobQueue, Promise<void>>();
+function ensureQueue(boss: JobQueue): Promise<void> {
+  let ready = queues.get(boss);
+  if (!ready) {
+    ready = boss.createQueue(WEBHOOK_QUEUE, WEBHOOK_QUEUE_RETENTION).then(() => undefined);
+    ready.catch(() => queues.delete(boss));
+    queues.set(boss, ready);
+  }
+  return ready;
+}
+
+// One lookup per collection and event per transaction: a bulk write of 500 rows
+// asks once.
+const lookups = new WeakMap<
+  object,
+  Map<string, Promise<{ id: string; retry_attempts: number }[]>>
+>();
+
+const refuse = (why: string): never => {
+  throw problem(
+    'webhooks.enqueue_failed',
+    503,
+    `the write was not made: its webhook event could not be enqueued (${why})`,
+  );
+};
+
+/**
+ * Enqueue one `webhook.deliver` job per matching subscription, on the write's
+ * own transaction (ADR 0035): the event commits with the row or not at all.
+ * As the engine's role, as `host.enqueue` does: `zveltio_rls` holds nothing on
+ * `pgboss`. No match takes no sequence value and needs no queue; a match with
+ * no queue refuses the write.
+ */
+export async function enqueueWebhookEvent(
+  db: Database,
+  tenantId: string | null,
+  change: ChangeEvent,
+): Promise<void> {
+  // Outside the write's transaction the row is already committed, and an event
+  // that then fails to queue is lost, or refused with the row in place.
+  if (!db.isTransaction) {
+    throw new Error(
+      '[webhooks] a webhook event is enqueued on the transaction of its write; none was given',
+    );
+  }
+  const tenant = tenantId ?? DEFAULT_TENANT_ID;
+  await asEngineRole(db, () => enqueueOn(db, tenant, change));
+}
+
+async function enqueueOn(trx: Database, tenant: string, change: ChangeEvent): Promise<void> {
+  const key = `${tenant}\u0000${change.event}\u0000${change.collection}`;
+  let byKey = lookups.get(trx);
+  if (!byKey) {
+    byKey = new Map();
+    lookups.set(trx, byKey);
+  }
+  let found = byKey.get(key);
+  if (!found) {
+    found = sql<{ id: string; retry_attempts: number | null }>`
+      SELECT id::text AS id, retry_attempts FROM zvd_webhooks
+      WHERE active = true
+        AND tenant_id = ${tenant}::uuid
+        AND (events @> ARRAY[${change.event}]::text[] OR events @> ARRAY['*']::text[])
+        AND (
+          collections IS NULL
+          OR cardinality(collections) = 0
+          OR collections @> ARRAY[${change.collection}]::text[]
+          OR collections @> ARRAY['*']::text[]
+        )
+    `
+      .execute(trx)
+      .then((r) => r.rows.map((h) => ({ id: h.id, retry_attempts: h.retry_attempts ?? 3 })));
+    byKey.set(key, found);
+  }
+  try {
+    const hooks = await found.catch((err: unknown) => {
+      byKey.delete(key);
+      throw err;
+    });
+    if (hooks.length === 0) return;
+    const boss = jobQueue();
+    if (!boss) return refuse('the job queue is not running');
+    await ensureQueue(boss);
+    // After the row write, so two writes to one record (serialised by its lock)
+    // take their values in commit order.
+    const seq = await sql<{ n: string }>`
+      SELECT nextval('zv_change_event_seq')::text AS n`.execute(trx);
+    const sequence = Number(seq.rows[0]!.n);
+    const ids = await boss.insert(
+      WEBHOOK_QUEUE,
+      hooks.map((h) => ({
+        data: {
+          tenantId: tenant,
+          webhookId: h.id,
+          eventId: change.id,
+          sequence,
+          event: change.event,
+          collection: change.collection,
+          data: change.data,
+          timestamp: change.timestamp,
+        } satisfies WebhookJob,
+        retryLimit: h.retry_attempts,
+        retryDelay: 1,
+        retryBackoff: true,
+      })),
+      {
+        returnId: true,
+        db: {
+          executeSql: (text, values) =>
+            trx.executeQuery(CompiledQuery.raw(text, values ?? [])) as Promise<{ rows: never[] }>,
+        },
+      },
+    );
+    if (!ids || ids.length !== hooks.length) refuse('pg-boss inserted no job');
+  } catch (err) {
+    if (err instanceof ProblemException) throw err;
+    refuse(err instanceof Error ? err.message : String(err));
   }
 }
 
-/** One delivery, as it travels through the queue and into `deliver`. */
+/** Queue a new delivery of a stored event on `trx` (`POST /dlq/replay`). */
+export async function enqueueReplay(
+  trx: Database,
+  job: WebhookJob,
+  retryLimit: number,
+): Promise<void> {
+  const boss = jobQueue();
+  if (!boss) refuse('the job queue is not running');
+  await ensureQueue(boss!);
+  await asEngineRole(trx, () =>
+    boss!.send(WEBHOOK_QUEUE, job as unknown as object, {
+      retryLimit,
+      retryDelay: 1,
+      retryBackoff: true,
+      db: {
+        executeSql: (text, values) =>
+          trx.executeQuery(CompiledQuery.raw(text, values ?? [])) as Promise<{ rows: never[] }>,
+      },
+    }),
+  );
+}
+
+/** A pg-boss job of the delivery queue, with the retry count it is on. */
+type DeliverJob = { id: string; data: WebhookJob; retryCount: number; retryLimit: number };
+
+/**
+ * Run one delivery. Reads the webhook again as its firm (gone or inactive:
+ * nothing to deliver), reads the record as the webhook's role (ADR 0004; a
+ * record that role may not read is not announced), signs with the secret read
+ * from the row, POSTs. A failed attempt throws, so pg-boss retries it with
+ * backoff up to the webhook's `retry_attempts`; the delivery row records each
+ * outcome, a throw before the POST included, so an exhausted job is listed in
+ * `GET /dlq` whatever failed.
+ */
+export async function runWebhookJob(job: DeliverJob): Promise<void> {
+  const d = job.data;
+  const envelope: Envelope = {
+    id: d.eventId,
+    sequence: d.sequence,
+    event: d.event,
+    collection: d.collection,
+    data: null,
+    timestamp: d.timestamp,
+  };
+  let target: Target = { url: '', method: 'POST', headers: {}, timeout: 5000 };
+  let secret: string | null = null;
+  try {
+    const wh = await withTenantIsolation(d.tenantId, (trx) =>
+      trx
+        .selectFrom('zvd_webhooks')
+        .selectAll()
+        .where('id', '=', d.webhookId)
+        .where('tenant_id', '=', d.tenantId)
+        .executeTakeFirst(),
+    );
+    if (!wh || !wh.active || !wh.run_as_role) return;
+    target = {
+      url: wh.url,
+      method: wh.method || 'POST',
+      headers: (wh.headers as Record<string, string> | null) ?? {},
+      timeout: wh.timeout || 5000,
+    };
+    if (!_db) throw new Error('[webhooks] not initialised');
+    envelope.data = await readAsRole(
+      d.tenantId,
+      wh.run_as_role,
+      d.collection,
+      d.data,
+      d.shaped === true,
+    );
+    if (!envelope.data) return;
+
+    const delivered = await withTenantIsolation(d.tenantId, (trx) =>
+      trx
+        .selectFrom('zvd_webhook_deliveries')
+        .select('id')
+        .where('webhook_id', '=', d.webhookId)
+        .where('event_id', '=', d.eventId)
+        .where('delivered_at', 'is not', null)
+        .executeTakeFirst(),
+    );
+    // Delivered before, by a run whose completion was lost: once is enough.
+    if (delivered) return;
+
+    if (wh.secret) {
+      const plain = await maybeDecrypt(wh.secret, true);
+      secret = typeof plain === 'string' ? plain : null;
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    await recordAttempt(job, envelope, target, {
+      ok: false,
+      status: null,
+      responseBody: null,
+      error,
+    }).catch((e: Error) =>
+      console.error(`[webhooks] could not record the failed attempt of event ${d.eventId}:`, e),
+    );
+    throw err;
+  }
+
+  const started = performance.now();
+  const outcome = await WebhookManager.deliver({
+    ...envelope,
+    url: target.url,
+    method: target.method,
+    headers: target.headers,
+    secret,
+    timeout: target.timeout,
+  });
+  webhookDeliveryDuration.observe({}, (performance.now() - started) / 1000);
+  webhookDeliveries.inc({ status: outcome.ok ? 'success' : 'failed' });
+
+  try {
+    await recordAttempt(job, envelope, target, outcome);
+  } catch (err) {
+    // Delivered: failing the job now would have pg-boss POST the event again.
+    if (!outcome.ok) throw err;
+    console.error(
+      `[webhooks] event ${d.eventId} was delivered to ${target.url}, ` +
+        'but its delivery row could not be written:',
+      err,
+    );
+  }
+  if (!outcome.ok) {
+    if (job.retryCount < job.retryLimit) webhookRetries.inc({});
+    else {
+      console.error(
+        `[webhooks] giving up on ${d.event} → ${target.url} after ${job.retryCount + 1} attempt(s); ` +
+          'it is listed in GET /api/webhooks/dlq',
+      );
+    }
+    throw new Error(
+      `webhook ${d.webhookId}: delivery failed (${outcome.error ?? `HTTP ${outcome.status}`})`,
+    );
+  }
+}
+
+/** The envelope a receiver gets; `data` is null until the role's view is taken. */
+type Envelope = Omit<
+  DeliveryPayload,
+  'data' | 'url' | 'method' | 'headers' | 'secret' | 'timeout'
+> & {
+  data: Record<string, unknown> | null;
+};
+type Target = { url: string; method: string; headers: Record<string, string>; timeout: number };
+
+/**
+ * One row per event and webhook, however often the job runs; a delivered row
+ * is final. Stores the role's view, never the record the job carries.
+ */
+async function recordAttempt(
+  job: DeliverJob,
+  envelope: Envelope,
+  target: Target,
+  outcome: DeliveryOutcome,
+): Promise<void> {
+  const d = job.data;
+  const row = {
+    payload: toJsonb(envelope),
+    url: target.url,
+    method: target.method,
+    headers: toJsonb(target.headers),
+    attempt: job.retryCount + 1,
+    max_attempts: job.retryLimit,
+    status: outcome.status,
+    response_body: outcome.responseBody,
+    error: outcome.error,
+    delivered_at: outcome.ok ? new Date() : null,
+  };
+  await withTenantIsolation(d.tenantId, (trx) =>
+    trx
+      .insertInto('zvd_webhook_deliveries')
+      .values({
+        ...row,
+        webhook_id: d.webhookId,
+        event_id: d.eventId,
+        tenant_id: d.tenantId,
+      } as never)
+      .onConflict((oc) =>
+        oc
+          .columns(['webhook_id', 'event_id'])
+          .doUpdateSet(row as never)
+          .where('zvd_webhook_deliveries.delivered_at', 'is', null),
+      )
+      .execute(),
+  );
+}
+
+/** Work the delivery queue on this instance. Boot only; tests run jobs with `_runWebhookJobs`. */
+export function startWebhookWorker(): void {
+  onJobQueueStart(async (boss) => {
+    await ensureQueue(boss);
+    // Outside whatever context pg-boss resumes its loop in (see ddl-queue's `work`).
+    // Ten at once and a 1 s poll, as the old cache worker did: one slow endpoint
+    // (up to its 30 s timeout) must not hold every other delivery behind it.
+    const options = {
+      includeMetadata: true,
+      localConcurrency: 10,
+      pollingIntervalSeconds: 1,
+      // A backlog is fetched without that pause, which caps a worker at one job per poll.
+      burstWhenReadyExceeds: 10,
+    } as const;
+    await boss.work<WebhookJob, void, typeof options>(WEBHOOK_QUEUE, options, ([j]) =>
+      runOutsideTenantContext(() => runWebhookJob(j!)),
+    );
+  });
+}
+
+/**
+ * Test-only: claim every due delivery job and run it as the worker would, until
+ * none is due. Claimed through pg-boss, so a failure is retried by pg-boss's
+ * own rules and a job runs once per claim.
+ */
+export async function _runWebhookJobs(): Promise<number> {
+  const boss = jobQueue();
+  if (!boss) return 0;
+  await ensureQueue(boss);
+  let ran = 0;
+  for (;;) {
+    const jobs = await boss.fetch<WebhookJob>(WEBHOOK_QUEUE, {
+      batchSize: 50,
+      includeMetadata: true,
+    });
+    if (jobs.length === 0) return ran;
+    for (const j of jobs) {
+      ran++;
+      await runOutsideTenantContext(() => runWebhookJob(j)).then(
+        () => boss.complete(WEBHOOK_QUEUE, j.id),
+        (err: Error) => boss.fail(WEBHOOK_QUEUE, j.id, { message: err.message }),
+      );
+    }
+  }
+}
+
+/** What one POST came to, as the delivery row records it. */
+export interface DeliveryOutcome {
+  ok: boolean;
+  status: number | null;
+  responseBody: string | null;
+  error: string | null;
+}
+
+/** One delivery's envelope and target, as `deliver` sends it. */
 export interface DeliveryPayload {
-  webhookId?: string;
-  deliveryId?: string | null;
-  /** The delivery row's firm — its outcome is written as that firm. Absent on
-   * a payload queued before migration 028, which could only be the default. */
-  tenantId?: string | null;
+  id: string;
+  sequence: number;
+  event: string;
+  collection: string;
+  data: unknown;
+  timestamp: string;
   url: string;
   method?: string;
   headers?: Record<string, string>;
   secret?: string | null;
   timeout?: number;
-  retryAttempts?: number;
-  attempt?: number;
-  event: string;
-  collection: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  data: any;
-  timestamp: string;
-}
-
-/**
- * Write to one delivery row as the row's firm. Under the tenant policy
- * (migration 028) the bare pool of a non-superuser database skips every other
- * firm's row without an error, so its outcome and retry count went nowhere.
- */
-async function recordOutcome(
-  payload: DeliveryPayload,
-  values: Record<string, unknown>,
-): Promise<void> {
-  const id = payload.deliveryId;
-  if (!_db || !id) return;
-  await withTenantIsolation(payload.tenantId ?? DEFAULT_TENANT_ID, (trx) =>
-    trx
-      .updateTable('zvd_webhook_deliveries')
-      .set(values as never)
-      .where('id', '=', id)
-      .execute(),
-  );
 }
 
 export const WebhookManager = {
@@ -198,215 +560,7 @@ export const WebhookManager = {
     _db = db;
   },
 
-  async trigger(
-    event: string,
-    collection: string,
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    data: { id: string; [key: string]: any },
-    // Tenant of the write that fired this event (threaded from afterWrite —
-    // the dispatcher runs on the GLOBAL pool, not inside the request
-    // transaction, so it can't read `current_setting('zveltio.current_tenant')`).
-    // Without this filter a write in tenant A would fire tenant B's webhooks and
-    // POST A's record data to B's endpoint (cross-tenant data exfiltration).
-    tenantId?: string | null,
-  ): Promise<void> {
-    if (!_db) return;
-    // Only once the writer's transaction has committed.
-    //
-    // The lookup and the delivery rows below run in a transaction of their OWN,
-    // so called from inside the request's they committed and the POST left
-    // while the record was still uncommitted — and a write that then rolled
-    // back had already been announced to the outside world.
-    //
-    // Re-entered from the after-commit queue, which runs outside the finished
-    // transaction. The job's promise is returned, so the request still answers
-    // only once the delivery rows exist. Outside any transaction (boot, a job,
-    // a route the tenant middleware opens none for) it runs now, as before.
-    if (getCurrentTenantTrx()) {
-      onAfterCommit(() => WebhookManager.trigger(event, collection, data, tenantId));
-      return;
-    }
-    const tenant = tenantId ?? DEFAULT_TENANT_ID;
-    try {
-      // Inside the writing firm: both tables are under the tenant policy
-      // (migration 028), and on the bare pool a non-superuser database shows the
-      // default firm's webhooks only — every other firm's never fired.
-      //
-      const hooks = await withTenantIsolation(tenant, async (trx) => {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        const matchResult = await sql<any>`
-          SELECT * FROM zvd_webhooks
-          WHERE active = true
-            AND tenant_id = ${tenant}::uuid
-            AND (events @> ARRAY[${event}]::text[] OR events @> ARRAY['*']::text[])
-            AND (
-              collections IS NULL
-              OR cardinality(collections) = 0
-              OR collections @> ARRAY[${collection}]::text[]
-              OR collections @> ARRAY['*']::text[]
-            )
-        `.execute(trx);
-        return matchResult.rows;
-      });
-
-      // Each subscription sees the record as its role reads it (ADR 0004): its
-      // grants, row rules and column rules. The payload carried every column
-      // the writer could write, to an endpoint outside. A record the role may
-      // not read is not announced at all, as a realtime subscriber is not told
-      // of a row it cannot see; a webhook whose role was deleted delivers
-      // nothing until it is saved with a role again. Resolved off the
-      // transaction: these read the pool, and a second connection held behind
-      // a first is the pool-size deadlock.
-      const seen: Array<{ wh: (typeof hooks)[number]; record: Record<string, unknown> }> = [];
-      for (const wh of hooks) {
-        const role = wh.run_as_role as string | null;
-        if (!role) continue;
-        const record = await readAsRole(tenant, role, collection, data).catch((err: unknown) => {
-          console.warn(
-            `[webhooks] ${wh.id}: its role "${role}" could not read the ${event} on ${collection}; not delivered:`,
-            err instanceof Error ? err.message : err,
-          );
-          return null;
-        });
-        if (record) seen.push({ wh, record });
-      }
-
-      // Committed before anything is queued: the outcome is written to the
-      // delivery row by id from another connection, which cannot see it earlier.
-      const matching = await withTenantIsolation(tenant, async (trx) => {
-        const out = [];
-        for (const { wh, record } of seen) {
-          // Create a delivery record immediately so the entry exists regardless of
-          // HTTP delivery timing. Updated with status/error/delivered_at after
-          // delivery. Non-fatal — a missing record won't block the webhook queue —
-          // and in a savepoint, or one refused insert aborts every later one.
-          const deliveryId = await withSavepoint(
-            trx,
-            'webhook_delivery',
-            async () => {
-              const row = await trx
-                .insertInto('zvd_webhook_deliveries')
-                .values({
-                  webhook_id: wh.id,
-                  payload: toJsonb({
-                    event,
-                    collection,
-                    data: record,
-                    timestamp: new Date().toISOString(),
-                  }),
-                  url: wh.url,
-                  method: wh.method || 'POST',
-                  headers: toJsonb((wh.headers as Record<string, string>) || {}),
-                  attempt: 1,
-                  max_attempts: wh.retry_attempts ?? 3,
-                  tenant_id: wh.tenant_id ?? tenant,
-                } as never)
-                .returning('id')
-                .executeTakeFirst();
-              return (row?.id as string | undefined) ?? null;
-            },
-            () => null,
-          );
-          out.push({ wh, record, deliveryId });
-        }
-        return out;
-      });
-
-      const cache = getCache();
-      for (const { wh, record, deliveryId } of matching) {
-        // Decrypt the signing secret in memory before queueing. The DB
-        // column stores the AES-256-GCM ciphertext (enc:v1:...) — if
-        // it were plaintext, anyone with read access to zvd_webhooks
-        // could forge valid webhook signatures and impersonate the
-        // engine to the recipient. The plaintext lives only for the
-        // duration of this delivery — Valkey queue carries it
-        // transiently, then it's GC'd.
-        let plaintextSecret: string | null = null;
-        if (wh.secret) {
-          try {
-            const decrypted = await maybeDecrypt(wh.secret, true);
-            plaintextSecret = typeof decrypted === 'string' ? decrypted : null;
-          } catch (err) {
-            console.warn(
-              `[webhooks] failed to decrypt secret for webhook ${wh.id}:`,
-              (err as Error).message,
-            );
-            plaintextSecret = null;
-          }
-        }
-
-        const payload = {
-          webhookId: wh.id,
-          deliveryId,
-          tenantId: (wh.tenant_id as string | null) ?? tenant,
-          url: wh.url,
-          method: wh.method || 'POST',
-          headers: (wh.headers as Record<string, string>) || {},
-          secret: plaintextSecret,
-          timeout: wh.timeout || 5000,
-          retryAttempts: wh.retry_attempts ?? 3,
-          event,
-          collection,
-          data: record,
-          timestamp: new Date().toISOString(),
-          attempt: 0,
-        };
-
-        if (cache) {
-          await cache.rpush('webhook:queue', JSON.stringify(payload));
-        } else {
-          // No cache — deliver in-process. Tracked so a test can await the
-          // delivery instead of racing a wall clock; see
-          // `_settleWebhookDeliveries`.
-          const p = WebhookManager._deliverWithRetries(payload).catch(() => {});
-          _inFlight.add(p);
-          void p.finally(() => _inFlight.delete(p));
-        }
-      }
-    } catch {
-      /* non-fatal */
-    }
-  },
-
-  /**
-   * Deliver, retry, and write down the abandonment — the no-cache path's
-   * equivalent of the worker plus its dead-letter queue.
-   *
-   * Without a cache this used to be one `deliver(payload).catch(() => {})`.
-   * `retryAttempts` rides on the payload and is read only by the worker, so a
-   * failed delivery was attempted once and discarded with no record anywhere:
-   * the DLQ exists only on the cache path, and a cache is not a documented
-   * requirement for webhooks. A webhook is how the outside world learns
-   * something happened here, so a silent drop is a business event that quietly
-   * did not occur.
-   *
-   * There is no queue to abandon the payload into, but there is already a row:
-   * `zvd_webhook_deliveries` carries `attempt` and `error`, so the delivery log
-   * the admin UI already reads becomes the record. The backoff matches the
-   * worker's — 1s, 2s, 4s — and `sleep` is injected so a test does not wait it out.
-   */
-  async _deliverWithRetries(
-    payload: DeliveryPayload,
-    sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
-  ): Promise<boolean> {
-    const maxAttempts = payload.retryAttempts ?? 3;
-    for (let attempt = 0; ; attempt++) {
-      const ok = await WebhookManager.deliver({ ...payload, attempt });
-      if (ok) return true;
-      if (attempt >= maxAttempts) {
-        console.error(
-          `[webhooks] giving up on ${payload.event} → ${payload.url} after ` +
-            `${attempt + 1} attempt(s); no cache is configured, so there is no dead-letter ` +
-            'queue to replay it from — the delivery row carries the final error',
-        );
-        await recordOutcome(payload, { attempt: attempt + 1 }).catch(() => {});
-        return false;
-      }
-      await sleep(2 ** attempt * 1000);
-    }
-  },
-
-  async deliver(payload: DeliveryPayload): Promise<boolean> {
+  async deliver(payload: DeliveryPayload): Promise<DeliveryOutcome> {
     let httpStatus: number | null = null;
     let responseBody: string | null = null;
     let errorMessage: string | null = null;
@@ -414,6 +568,8 @@ export const WebhookManager = {
 
     try {
       const body = JSON.stringify({
+        id: payload.id,
+        sequence: payload.sequence,
         event: payload.event,
         collection: payload.collection,
         data: payload.data,
@@ -488,14 +644,6 @@ export const WebhookManager = {
       errorMessage = err instanceof Error ? err.message : 'Request failed';
     }
 
-    // Update delivery record with outcome (non-fatal)
-    void recordOutcome(payload, {
-      status: httpStatus,
-      response_body: responseBody,
-      error: errorMessage,
-      delivered_at: ok ? new Date() : null,
-    }).catch(() => {});
-
-    return ok;
+    return { ok, status: httpStatus, responseBody, error: errorMessage };
   },
 };
