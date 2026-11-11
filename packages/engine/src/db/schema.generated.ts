@@ -332,6 +332,7 @@ export interface ZvFlowRunsTable {
   error: string | null;
   started_at: Generated<Date>;
   finished_at: Date | null;
+  event_id: string | null;
 }
 
 export interface ZvFlowStepsTable {
