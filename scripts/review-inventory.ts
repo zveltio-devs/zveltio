@@ -560,7 +560,6 @@ const SECTIONS: Section[] = [
     focus: 'HMAC signing, retry and DLQ, SSRF on the outbound URL, push token ownership.',
     match: [
       `${E}lib/webhooks.ts`,
-      `${E}lib/webhook-worker.ts`,
       `${E}routes/webhooks.ts`,
       `${E}lib/push-notifications.ts`,
       `${E}lib/web-push.ts`,

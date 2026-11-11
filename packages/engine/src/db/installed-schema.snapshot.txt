@@ -8979,6 +8979,7 @@ table zvd_webhook_deliveries
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col delivered_at                   timestamp with time zone
   col error                          text
+  col event_id                       uuid
   col headers                        jsonb DEFAULT '{}'::jsonb
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col max_attempts                   integer NOT NULL DEFAULT 3
@@ -8991,6 +8992,7 @@ table zvd_webhook_deliveries
   col webhook_id                     uuid NOT NULL
   pk  zvd_webhook_deliveries_pkey PRIMARY KEY (id)
   fk  zvd_webhook_deliveries_webhook_id_fkey FOREIGN KEY (webhook_id) REFERENCES zvd_webhooks(id) ON DELETE CASCADE
+  idx zvd_webhook_deliveries_event UNIQUE (webhook_id, event_id)
   rls enabled forced
   pol tenant_isolation_zvd_webhook_deliveries FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
 

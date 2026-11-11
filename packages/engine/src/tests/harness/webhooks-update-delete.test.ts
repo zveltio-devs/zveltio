@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  getTestApp,
+  drainWebhookJobs,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hwhud_${Date.now()}`;
@@ -90,7 +95,7 @@ d('webhook update + delete via data writes (in-process)', () => {
       body: JSON.stringify({ title: 'Updated title' }),
     });
     expect([200, 204]).toContain(res.status);
-    await new Promise((r) => setTimeout(r, 300));
+    await drainWebhookJobs(db);
     expect(await deliveryCount()).toBeGreaterThan(before);
   });
 
@@ -101,7 +106,7 @@ d('webhook update + delete via data writes (in-process)', () => {
       headers: { cookie },
     });
     expect([200, 204]).toContain(res.status);
-    await new Promise((r) => setTimeout(r, 300));
+    await drainWebhookJobs(db);
     expect(await deliveryCount()).toBeGreaterThan(before);
   });
 });

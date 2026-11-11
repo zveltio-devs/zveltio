@@ -119,6 +119,12 @@ export async function principalRecord(
   collection: string,
   principal: RolePrincipal,
   record: Record<string, unknown>,
+  /**
+   * `record` is already a view this principal was admitted to (a replayed
+   * webhook delivery): its row rules are not asked again of a record missing
+   * the columns they read. The read grant and the columns still are.
+   */
+  admitted = false,
 ): Promise<Record<string, unknown> | null> {
   if (!principal.allows(collection, 'read')) return null;
   const generation = accessGeneration();
@@ -129,7 +135,7 @@ export async function principalRecord(
     : await getColumnAccess(db, collection, identity.role);
   const rls = await principalRlsFilters(collection, identity);
   const scope = await scopeOf(db, collection, user, rls, granted, generation);
-  return (await scope.admits(record)) ? scope.shape(record) : null;
+  return admitted || (await scope.admits(record)) ? scope.shape(record) : null;
 }
 
 async function scopeOf(

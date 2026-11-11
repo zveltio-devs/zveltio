@@ -27,7 +27,7 @@ describe('afterWrite — flow trigger resilience', () => {
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.created', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-flow',
         action: 'create',
