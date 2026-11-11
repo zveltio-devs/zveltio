@@ -88,7 +88,7 @@ deliberate — each step is placed so that a failure surfaces close to its cause
 10. **Field types** — `registerCoreFieldTypes(fieldTypeRegistry)`.
 11. **Extensions** — discovery, load, migration, route mounting.
 12. **Background services** — event bus, realtime bus, cron runner, flow
-    scheduler, webhook worker, garbage collector, memory monitor.
+    scheduler, job queue workers (webhook delivery among them), garbage collector, memory monitor.
 
 Steps 9 and 11 are the ones that surprise people: **extension migrations run
 after the engine has started serving.** An extension performing `ALTER TABLE` on
