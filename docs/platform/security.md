@@ -64,6 +64,15 @@ Intentional in that shape. Enforcement lives in `withTenantIsolation`:
 `SET LOCAL ROLE zveltio_rls` plus a `set_config` GUC read by
 `zveltio_tenant_scope_ok`.
 
+**2.1a — `data:system` gives collections, not rows.** An extension holding
+`data:system` is system inside the tenant for collection permissions, marked
+and audited. It is not exempt from row rules. Where it works with no caller
+(its own `ctx.internals.withTenantIsolation`, a per-tenant schedule, a listener)
+the engine publishes an actor with no identity, so a rule on a caller value
+keeps no row and the four-eyes rule of a decision collection cannot be met by
+it (ADR 0040). Having no actor at all is the engine's own state (tenant purge,
+boot reconcile); extension code cannot reach it inside a tenant transaction.
+
 **2.2 — `/ext/*` is fail-closed at the engine, not per-extension.**
 `middleware/extension-auth-gate.ts` requires a valid session for anything under
 `/ext/<name>/*` unless the manifest declares that sub-path in `publicRoutes`. An
