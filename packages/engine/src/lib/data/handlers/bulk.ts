@@ -460,7 +460,7 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
     // single delete path says so too.
     const failed = await handlePgErrors(c, async () => {
       await runAtomic(effectiveDb, async (trx: Database) => {
-        await engineRead(canRead, trx, collection, () =>
+        const gone = await engineRead<{ id: string }[]>(canRead, trx, collection, () =>
           dynamicDb(trx)
             .deleteFrom(tableName)
             .where(
@@ -468,9 +468,19 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
               'in',
               allowed.map((r) => r.id),
             )
+            .returning('id')
             .execute(),
         );
-        await afterBulkWrite(c, trx, collection, 'delete', allowed);
+        // Only the rows this statement removed: one a concurrent delete took
+        // first has had its event already.
+        const ids = new Set(gone.map((r) => r.id));
+        await afterBulkWrite(
+          c,
+          trx,
+          collection,
+          'delete',
+          allowed.filter((r) => ids.has(r.id)),
+        );
       });
       return null;
     });
