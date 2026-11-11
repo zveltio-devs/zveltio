@@ -23,6 +23,7 @@ import {
   purgeTenant,
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
+import { createRlsPolicy, deleteRlsPolicy } from '../../lib/tenancy/rls.js';
 import {
   asTenant,
   connectedAsSuperuser,
@@ -54,6 +55,7 @@ const X = { id: crypto.randomUUID(), slug: `${A.slug}-x` };
 // The other direction: Z's legacy base schema is Y's environment `e`.
 const Y = mk('y');
 const Z = { id: crypto.randomUUID(), slug: `${Y.slug}-e` };
+const S = mk('s'); // its rows under a `static:` row rule
 
 d('tenant archive + purge', () => {
   let app: Hono;
@@ -220,7 +222,7 @@ d('tenant archive + purge', () => {
         .execute(db)
         .catch(() => {});
     }
-    const ids = [A, B, P, Q, O, X, Y, Z].map((t) => t.id);
+    const ids = [A, B, P, Q, O, X, Y, Z, S].map((t) => t.id);
     for (const id of ids) {
       await asTenant(db, id, async (trx) => {
         await sql`DELETE FROM zv_saved_queries WHERE tenant_id = ${id}`.execute(trx);
@@ -426,6 +428,37 @@ d('tenant archive + purge', () => {
     expect(await rowsOf(O.id)).toEqual({});
     expect(await rowsOf(B.id)).toEqual(others.b);
     expect(await rowsOf(DEFAULT_TENANT_ID)).toEqual(others.def);
+  }, 60_000);
+
+  it('purges the rows a `static:` row rule covers: its own work is no caller (ADR 0037)', async () => {
+    await sql`INSERT INTO zv_tenants (id, slug, name) VALUES (${S.id}, ${S.slug}, 'hpt')`.execute(
+      db,
+    );
+    await seed(S.id, 3);
+    // A `static:` rule binds where there is no actor, so `r2` and `r3` are rows
+    // no caller may delete. The purge has no actor and the exemption: decision 3.
+    const rule = await createRlsPolicy({
+      collection: COLL,
+      role: '*',
+      filter_field: 'title',
+      filter_op: 'eq',
+      filter_value_source: 'static:r1',
+    });
+    try {
+      await sql`UPDATE zv_tenants SET status = 'deleted' WHERE id = ${S.id}`.execute(db);
+      const result = await purgeTenant(owner, S.id, S.slug);
+      expect(result.deleted[TABLE]).toBe(3);
+      const left = await db.transaction().execute(async (trx) => {
+        await sql`SELECT set_config('zveltio.visible_tenants', ${S.id}, true),
+                         set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
+        return sql<{ n: number }>`
+          SELECT count(*)::int AS n FROM ${sql.id(TABLE)} WHERE tenant_id = ${S.id}::uuid
+        `.execute(trx);
+      });
+      expect(left.rows[0]?.n).toBe(0);
+    } finally {
+      await deleteRlsPolicy(rule.id);
+    }
   }, 60_000);
 
   it('refuses to run inside a request transaction, where its settings would outlive it', async () => {

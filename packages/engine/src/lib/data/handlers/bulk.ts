@@ -28,6 +28,7 @@ import {
   engineRead,
   hasTransitionRules,
   validateTransitions,
+  ROW_RULE_WRITE_REFUSAL,
 } from '../write-pipeline.js';
 import { type ChangeEvent, enqueueWebhookEvent } from '../../webhooks.js';
 import { queryAlterRegistry } from '../query-alter.js';
@@ -40,6 +41,7 @@ import {
   entityAccessRegistry,
   getRlsFilters,
   applyRlsFilters,
+  matchesRlsFilters,
   resolveUserRole,
 } from '../../tenancy/index.js';
 
@@ -234,7 +236,8 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   const effectiveDb = getDb(c, db);
   // Resolved once for the whole batch — the conditions depend on the caller,
   // not the row.
-  const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
+  const rlsFilters = await getRlsFilters(collection, user, c.get('authType'), 'read');
+  const writeRules = await getRlsFilters(collection, user, c.get('authType'), 'update');
   // Column-level write permission — mirror single patchRecord.
   const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user);
   // Update without read: the engine reads in the window, the answer names rows.
@@ -303,6 +306,11 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         );
         if (!beforeRow) {
           errors.push({ index: i, id, errors: ['Record not found'] });
+          continue;
+        }
+        // Readable under the exemption, not writable under the rules (ADR 0037).
+        if (!matchesRlsFilters(beforeRow, writeRules)) {
+          errors.push({ index: i, id, errors: [ROW_RULE_WRITE_REFUSAL.error] });
           continue;
         }
 
@@ -411,7 +419,8 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
   // ...and the extension query alters the single delete path applies to its own
   // lookup. A row hidden by an alter never enters the delete set; without this
   // the batch endpoint deleted rows `DELETE /:id` answers 404 for.
-  const deleteFilters = await getRlsFilters(collection, user, c.get('authType'));
+  const deleteFilters = await getRlsFilters(collection, user, c.get('authType'), 'read');
+  const writeRules = await getRlsFilters(collection, user, c.get('authType'), 'delete');
   const existing = await engineRead<DynamicRecord[]>(canRead, effectiveDb, collection, async () =>
     queryAlterRegistry
       .applyAll(
@@ -433,8 +442,12 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
   const allowed: DynamicRecord[] = [];
   for (const record of existing) {
     // Per-row entity-access — mirror single deleteRecord. Without it, bulk
-    // delete let a user delete rows they have no row-level access to.
-    if (!(await entityAccessRegistry.isAllowed(tableName, record, user, 'delete'))) {
+    // delete let a user delete rows they have no row-level access to. And the
+    // row rules a read exemption stood down (ADR 0037).
+    if (
+      !matchesRlsFilters(record, writeRules) ||
+      !(await entityAccessRegistry.isAllowed(tableName, record, user, 'delete'))
+    ) {
       forbidden.push(record.id);
       continue;
     }

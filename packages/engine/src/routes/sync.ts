@@ -7,7 +7,13 @@
 
 import { sqlState } from '../db/bun-sql-quirks.js';
 import { readableColumns, readSource, withEngineColumns } from '../db/dynamic.js';
-import { describeWriteRefusal, isRlsRefusal, openToken, sealToken } from '../lib/data/index.js';
+import {
+  describeWriteRefusal,
+  isRlsRefusal,
+  openToken,
+  sealToken,
+  selectReadable,
+} from '../lib/data/index.js';
 import { guardSession } from '../lib/admin-guard.js';
 import { type Context, Hono } from 'hono';
 import { sql } from 'kysely';
@@ -578,12 +584,31 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // The session user, shaped for getRlsFilters. `role` is defaulted where the
     // session is read at the top of this route, so it is always present.
     const syncUser = () => c.get('user') as { id: string; email?: string; role: string };
-    const syncRlsFilters = async (coll: string) => {
-      const hit = rlsCache.get(coll);
+    // The write's rules, not the read's: the exemption reads every row and
+    // writes none past a rule (ADR 0037).
+    const syncRlsFilters = async (coll: string, op: 'read' | 'update' | 'delete') => {
+      const hit = rlsCache.get(`${op}:${coll}`);
       if (hit) return hit;
-      const filters = await getRlsFilters(coll, syncUser(), c.get('authType') ?? 'session');
-      rlsCache.set(coll, filters);
+      const filters = await getRlsFilters(coll, syncUser(), c.get('authType') ?? 'session', op);
+      rlsCache.set(`${op}:${coll}`, filters);
       return filters;
+    };
+
+    // What an update or delete that touched nothing met (decision 4, ADR 0037):
+    // a row the caller reads and its write rules refuse is said as such; a row
+    // it cannot read, or that is gone, is a conflict as before.
+    const missed = async (coll: string, id: string): Promise<(typeof results)[number]> => {
+      const q = applyRlsFilters(
+        (await selectReadable(effectiveDb, coll)).where('id', '=', id),
+        await syncRlsFilters(coll, 'read'),
+      );
+      const run = () => q.executeTakeFirst();
+      const seen = await (readable.get(coll)
+        ? run()
+        : withCollectionRead(effectiveDb, coll.slice(4), run));
+      return seen
+        ? { recordId: id, status: 'error', error: 'row_level_security_violation' }
+        : { recordId: id, status: 'conflict' };
     };
 
     // Update and delete remain sequential
@@ -603,7 +628,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
             // Same SAVEPOINT reason as the create branch above: one failed
             // statement would otherwise abort the request's transaction and
             // every later operation in the push with it.
-            const updateFilters = await syncRlsFilters(collection);
+            const updateFilters = await syncRlsFilters(collection, 'update');
             const touched = await withSavepoint(
               effectiveDb,
               'sync_push_update',
@@ -631,7 +656,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
               },
             );
             if (!touched) {
-              results.push({ recordId, status: 'conflict' });
+              results.push(await missed(collection, recordId));
               break;
             }
             results.push({ recordId, status: 'ok', serverVersion: Date.now() });
@@ -642,7 +667,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           }
 
           case 'delete': {
-            const deleteFilters = await syncRlsFilters(collection);
+            const deleteFilters = await syncRlsFilters(collection, 'delete');
             const removed = await withSavepoint(
               effectiveDb,
               'sync_push_delete',
@@ -676,7 +701,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
               },
             );
             if (!removed) {
-              results.push({ recordId, status: 'conflict' });
+              results.push(await missed(collection, recordId));
               break;
             }
             results.push({ recordId, status: 'ok', serverVersion: Date.now() });

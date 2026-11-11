@@ -291,11 +291,12 @@ d('one rule, four interpreters (in-process)', () => {
               ${rule.filter_value_source}, true)
     `.execute(db);
     return (await (asKey
-      ? getRlsFilters(COLL, KEY, 'api_key')
+      ? getRlsFilters(COLL, KEY, 'api_key', 'read')
       : getRlsFilters(
           COLL,
           { id: SESSION.id, email: SESSION.email, role: SESSION.role },
           'session',
+          'read',
         ))) as unknown[];
   }
 

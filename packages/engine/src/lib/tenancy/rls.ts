@@ -232,11 +232,18 @@ async function dropRlsCaches(collection: string): Promise<void> {
   await invalidateQueryCacheForCollection(collection);
 }
 
+/** What a caller does to a row, as a row rule is asked about it. */
+export type RowRuleOperation = 'read' | 'create' | 'update' | 'delete';
+
 /**
  * Returns extra filter conditions to inject into a query for the given user.
  * Returns an empty array when no policies match (no restriction applied).
  *
  * Multiple matching policies are ANDed together (most restrictive wins).
+ *
+ * `operation` decides whether the exemption counts: `data:view_all`, and a key's
+ * `rlsBypass` under it, exempt a READ only (ADR 0037). A write meets the rules
+ * that apply to the caller, god included — as the database's write policies do.
  */
 export async function getRlsFilters(
   collection: string,
@@ -248,6 +255,7 @@ export async function getRlsFilters(
     authorUserId?: string | null;
   },
   authType: 'session' | 'api_key' | 'anonymous',
+  operation: RowRuleOperation,
 ): Promise<RuleFilter[]> {
   // This used to read `user.role === 'god' || authType === 'api_key'`. Both
   // halves were wrong, in opposite directions.
@@ -267,21 +275,7 @@ export async function getRlsFilters(
   // because RLS values resolve from `user_id`/`user_email` and a key's identity
   // is the synthetic `apikey:<uuid>` — enforcing an identity policy against a
   // key returns zero rows, silently, which is a worse failure than a broad one.
-  if (authType === 'api_key') {
-    // `=== true` for the reason spelled out in lib/data/auth.ts: this is the
-    // second reader of the same flag, and the two must not disagree about what
-    // an absent value means. `rlsBypass` is optional on the type, so `!== false`
-    // handed a full bypass to any caller that simply never set it.
-    // And only while its issuer holds the session's exemption: a key never
-    // exceeds the person it acts for (`keyIssuerAllows`).
-    if (
-      user.rlsBypass === true &&
-      (await keyIssuerAllows(user, 'data', 'view_all').catch(() => false))
-    )
-      return [];
-  } else if (await checkPermission(user.id, 'data', 'view_all').catch(() => false)) {
-    return [];
-  }
+  if (operation === 'read' && (await readsEveryRow(user, authType))) return [];
 
   const policies = await loadPolicies(collection);
   if (policies.length === 0) return [];
@@ -329,11 +323,30 @@ export async function getRlsFilters(
   // their id, their email. Without this half a member whose rule shows them one
   // bucket minted a key that read every bucket. The database policy applies the
   // same half (`buildRowRulePredicate`, published by `publishApiKeyActor`).
+  // An issuer's `data:view_all` lifts their half for a read only (ADR 0037).
   const issuer = await keyIssuerRowActor(user);
   if (issuer === null) result.push({ field: 'id', condition: { op: 'in', value: [] } });
-  else if (issuer !== 'exempt')
+  else if (issuer !== 'exempt' && !(operation === 'read' && issuer.readsAll))
     result.push(...rulesFor(policies, { ...issuer, roles: new Set(issuer.roles) }));
   return result;
+}
+
+/** The read exemption: `data:view_all`, or a key's `rlsBypass` while its issuer holds it. */
+async function readsEveryRow(
+  user: { id: string; rlsBypass?: boolean; authorUserId?: string | null },
+  authType: 'session' | 'api_key' | 'anonymous',
+): Promise<boolean> {
+  if (authType !== 'api_key')
+    return checkPermission(user.id, 'data', 'view_all').catch(() => false);
+  // `=== true` for the reason spelled out in lib/data/auth.ts: this is the
+  // second reader of the same flag, and the two must not disagree about what
+  // an absent value means. `rlsBypass` is optional on the type, so `!== false`
+  // handed a full bypass to any caller that simply never set it.
+  // And only while its issuer holds the session's exemption: a key never
+  // exceeds the person it acts for (`keyIssuerAllows`).
+  return (
+    user.rlsBypass === true && (await keyIssuerAllows(user, 'data', 'view_all').catch(() => false))
+  );
 }
 
 /**
@@ -356,9 +369,10 @@ export async function rowActor(
 /**
  * The row rules binding a role principal (ADR 0004, `rolePrincipal`): matched on
  * its roles, `user_role` its column role, `user_id` and `user_email` nobody's.
- * `bypass` is its `data:view_all`, which stands every rule down as for a session.
+ * `bypass` is its `data:view_all`, which stands every rule down as for a session:
+ * these are READ filters (ADR 0037); its writes meet the database's write policies.
  */
-export async function principalRlsFilters(
+export async function principalReadFilters(
   collection: string,
   principal: { role: string; roles: string[]; bypass: boolean },
 ): Promise<RuleFilter[]> {
@@ -383,8 +397,9 @@ export interface RowActor {
 
 /**
  * The issuer's half of a key's row rules: the issuer as their own session would
- * be resolved. `'exempt'` where that half stands down — the issuer holds
- * `data:view_all`, the permission that exempts their session; or the key is a
+ * be resolved. `readsAll` where the issuer holds `data:view_all`, the permission
+ * that exempts their session's READS: the half stands down for a read and binds
+ * a write, as for the issuer (ADR 0037, ADR 0010). `'exempt'` where the key is a
  * job (`apikey:job:`) with no author (a public route enqueued it), bounded by
  * its manifest alone. `null` when a member key's issuer is unknown: the caller
  * hides every row a rule covers.
@@ -401,31 +416,34 @@ export interface RowActor {
 export async function keyIssuerRowActor(key: {
   id: string;
   authorUserId?: string | null;
-}): Promise<RowActor | 'exempt' | null> {
+}): Promise<(RowActor & { readsAll: boolean }) | 'exempt' | null> {
   if (key.id.startsWith('apikey:job:') && !key.authorUserId) return 'exempt';
   const issuer = key.authorUserId;
   if (!issuer) return null;
-  if (await checkPermission(issuer, 'data', 'view_all').catch(() => false)) return 'exempt';
-  const [role, roles, email] = await Promise.all([
+  const [readsAll, role, roles, email] = await Promise.all([
+    checkPermission(issuer, 'data', 'view_all').catch(() => false),
     principalRole(issuer),
     getUserRoles(issuer),
     issuerEmail(issuer),
   ]);
-  return { id: issuer, email, role, roles };
+  return { id: issuer, email, role, roles, readsAll };
 }
 
 /**
  * `keyIssuerRowActor`'s answer as `RlsIdentity.issuer` publishes it for the
  * database policy: absent where the half stands down, `deny` for an unknown
- * issuer (no row a rule covers), `on` with the issuer otherwise.
+ * issuer (no row a rule covers), `write` for one whose reads are exempt (the
+ * half binds writes only), `on` with the issuer otherwise.
  */
 export function issuerRowIdentity(
-  actor: RowActor | 'exempt' | null,
-): { mode: 'on' | 'deny'; id: string; email: string; role: string; roles: string[] } | undefined {
+  actor: (RowActor & { readsAll: boolean }) | 'exempt' | null,
+):
+  | { mode: 'on' | 'write' | 'deny'; id: string; email: string; role: string; roles: string[] }
+  | undefined {
   if (actor === 'exempt') return undefined;
-  return actor
-    ? { mode: 'on', ...actor }
-    : { mode: 'deny', id: '', email: '', role: '', roles: [] };
+  if (!actor) return { mode: 'deny', id: '', email: '', role: '', roles: [] };
+  const { readsAll, ...issuer } = actor;
+  return { mode: readsAll ? 'write' : 'on', ...issuer };
 }
 
 /**

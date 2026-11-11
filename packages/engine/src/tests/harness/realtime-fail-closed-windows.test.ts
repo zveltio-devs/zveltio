@@ -31,6 +31,7 @@ import {
   revalidateSockets,
   sweepGeneration,
 } from '../../lib/tenancy/index.js';
+import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import * as electric from '../../routes/electric.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import * as wsModule from '../../routes/ws.js';
@@ -158,6 +159,12 @@ d('LV-11: realtime delivers at most what GET serves, and nothing in the windows'
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     god = await createGodSession(app, db);
+    // The writer of every row here holds no `member`: the rules below are
+    // members', and since ADR 0037 a rule binds a god's writes too.
+    const session = await app.request('/api/auth/get-session', { headers: { cookie: god } });
+    const godId = ((await session.json()) as { user: { id: string } }).user.id;
+    await (await getEnforcer()).deleteRoleForUser(godId, 'member', '*');
+    await invalidateUserPermCache(godId);
     for (const name of COLS) {
       await DDLManager.createCollection(db, { name, fields: FIELDS } as never);
     }

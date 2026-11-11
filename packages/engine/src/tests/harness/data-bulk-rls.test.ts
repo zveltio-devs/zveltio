@@ -20,6 +20,7 @@ import {
   getTestApp,
   harnessAvailable,
   forgetRuleObjects,
+  insertPastRowRules,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -33,15 +34,10 @@ d('data bulk RLS (in-process)', () => {
   let memberCookie = '';
   let policyId = '';
 
-  const post = async (title: string, bucket: string): Promise<string> => {
-    const res = await app.request(`/api/data/${COLLECTION}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie: godCookie },
-      body: JSON.stringify({ title, bucket }),
-    });
-    expect(res.status).toBe(201);
-    return ((await res.json()) as { id: string }).id;
-  };
+  // Past the rule: since ADR 0037 it binds a god's writes too, and a
+  // `restricted` row is one no caller may write.
+  const post = (title: string, bucket: string): Promise<string> =>
+    insertPastRowRules(db, COLLECTION, { title, bucket });
 
   // Past the row rule: on the collection's own table it is a Postgres policy too,
   // so the test reads with the exemption the engine publishes for god.

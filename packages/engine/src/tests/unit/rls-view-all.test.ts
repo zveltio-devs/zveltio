@@ -50,11 +50,19 @@ afterAll(async () => {
 
 describe('RLS override via data:view_all', () => {
   it('lifts row filters for a non-god role granted data:view_all', async () => {
-    expect(await getRlsFilters('contacts', { id: 'u-auditor' }, 'session')).toEqual([]);
+    expect(await getRlsFilters('contacts', { id: 'u-auditor' }, 'session', 'read')).toEqual([]);
+  });
+
+  it('lifts them for a read only: every write meets the rules (ADR 0037)', async () => {
+    for (const op of ['create', 'update', 'delete'] as const) {
+      expect(await getRlsFilters('contacts', { id: 'u-auditor' }, 'session', op)).toEqual([
+        { field: 'owner_id', condition: { op: 'eq', value: 'u-auditor' } },
+      ]);
+    }
   });
 
   it('keeps row filters for a role holding only data:read', async () => {
-    const filters = await getRlsFilters('contacts', { id: 'u-reader' }, 'session');
+    const filters = await getRlsFilters('contacts', { id: 'u-reader' }, 'session', 'read');
     expect(filters).toHaveLength(1);
     expect(filters[0]!.field).toBe('owner_id');
   });

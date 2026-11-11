@@ -96,6 +96,7 @@ describe('getRlsFilters with Valkey cache', () => {
       'contacts',
       { id: 'u-1', email: 'u@x.com', role: 'editor' },
       'session',
+      'read',
     );
     expect(filters).toHaveLength(1);
     expect(db.executed(/FROM zvd_rls_policies/i)).toHaveLength(0);
@@ -114,6 +115,7 @@ describe('getRlsFilters with Valkey cache', () => {
       'contacts',
       { id: 'u-1', email: 'u@x.com', role: 'editor' },
       'session',
+      'read',
     );
     expect(filters).toHaveLength(1);
     expect(db.executed(/FROM zvd_rls_policies/i).length).toBeGreaterThan(0);
@@ -128,7 +130,12 @@ describe('getRlsFilters with Valkey cache', () => {
       const db = setup();
       db.when(/FROM zvd_rls_policies/i, [POLICY]);
 
-      const filters = await getRlsFilters('contacts', { id: 'u-1', role: 'editor' }, 'session');
+      const filters = await getRlsFilters(
+        'contacts',
+        { id: 'u-1', role: 'editor' },
+        'session',
+        'read',
+      );
       expect(filters).toHaveLength(1);
     }
   });
@@ -139,7 +146,7 @@ describe('getRlsFilters with Valkey cache', () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [POLICY]);
 
-    await getRlsFilters('contacts', { id: 'u-1', role: 'editor' }, 'session');
+    await getRlsFilters('contacts', { id: 'u-1', role: 'editor' }, 'session', 'read');
     expect(store.has('rls:policies:contacts')).toBe(true);
 
     await invalidateRlsCache('contacts');
@@ -152,7 +159,12 @@ describe('getRlsFilters with Valkey cache', () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [POLICY]);
 
-    const filters = await getRlsFilters('contacts', { id: 'u-1', role: 'editor' }, 'session');
+    const filters = await getRlsFilters(
+      'contacts',
+      { id: 'u-1', role: 'editor' },
+      'session',
+      'read',
+    );
     expect(filters).toHaveLength(1);
     expect(db.executed(/FROM zvd_rls_policies/i)).toHaveLength(1);
   });

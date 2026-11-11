@@ -47,7 +47,7 @@ afterAll(async () => {
 
 describe('a failed role lookup fails closed in getRlsFilters', () => {
   it('applies the role-keyed rule when the roles resolve (the behaviour being kept)', async () => {
-    const filters = await getRlsFilters('visits', { id: 'u-agent' }, 'session');
+    const filters = await getRlsFilters('visits', { id: 'u-agent' }, 'session', 'read');
     expect(filters).toEqual([{ field: 'owner_id', condition: { op: 'eq', value: 'u-agent' } }]);
   });
 
@@ -57,7 +57,7 @@ describe('a failed role lookup fails closed in getRlsFilters', () => {
       new Error('role manager unavailable'),
     );
     try {
-      await expect(getRlsFilters('visits', { id: 'u-agent' }, 'session')).rejects.toThrow(
+      await expect(getRlsFilters('visits', { id: 'u-agent' }, 'session', 'read')).rejects.toThrow(
         /role manager unavailable/,
       );
     } finally {

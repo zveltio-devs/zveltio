@@ -501,6 +501,28 @@ export async function asKeyIssuer(userId: string): Promise<string> {
 }
 
 /**
+ * Insert `row` into `collection`'s table as the engine's own work — the
+ * exemption with no actor, the one writer a row rule stands down for (ADR 0037,
+ * tenant purge) — in the default tenant, and return its id. For a suite that
+ * needs a row its rules let no caller write: a god's POST meets them too.
+ */
+export async function insertPastRowRules(
+  db: Database,
+  collection: string,
+  row: Record<string, string>,
+): Promise<string> {
+  const cols = Object.keys(row);
+  return db.transaction().execute(async (trx) => {
+    await sql`SELECT set_config('zveltio.rls_bypass', 'on', true),
+                     set_config('zveltio.actor', 'off', true)`.execute(trx);
+    const r = await sql<{ id: string }>`
+      INSERT INTO ${sql.table(`zvd_${collection}`)} (${sql.join(cols.map((c) => sql.ref(c)))})
+      VALUES (${sql.join(cols.map((c) => row[c]))}) RETURNING id`.execute(trx);
+    return r.rows[0]!.id;
+  });
+}
+
+/**
  * Undo a collection a test created — the table AND the row that names it.
  *
  * Dropping only the table is what every test here did, and it is half the job:
