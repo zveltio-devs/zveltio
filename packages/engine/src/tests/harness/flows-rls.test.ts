@@ -20,16 +20,17 @@ import { Kysely, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { BunSqlDialect } from '../../db/bun-sql-dialect.js';
 import type { DbSchema } from '../../db/schema.js';
-import { triggerDataFlows } from '../../lib/flows/index.js';
 import { flowScheduler } from '../../lib/flows/flow-scheduler.js';
 import { executeFlow } from '../../lib/flows/flow-executor.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import {
   asEveryTenant,
   asTenant,
   createGodSession,
   createMemberSession,
+  drainFlowJobs,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -183,13 +184,17 @@ d('zv_flows under tenant RLS', () => {
     } as never);
     try {
       const flow = await seedFlow(OTHER, 'hook', 'on_create', { collection });
-      await triggerDataFlows(plain, collection, 'insert', { id: 'r1' }, OTHER);
-      let runs: Awaited<ReturnType<typeof runsOf>> = [];
-      for (let i = 0; i < 50 && runs.every((r) => r.status === 'running'); i++) {
-        await Bun.sleep(100);
-        runs = await runsOf(flow);
-      }
-      expect(runs).toEqual([{ status: 'success', tenant: OTHER }]);
+      await withTenantIsolation(OTHER, (trx) =>
+        enqueueChangeEvent(trx, OTHER, {
+          id: crypto.randomUUID(),
+          event: 'insert',
+          collection,
+          data: { id: 'r1' },
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      await drainFlowJobs(db, plain);
+      expect(await runsOf(flow)).toEqual([{ status: 'success', tenant: OTHER }]);
     } finally {
       await dropTestCollection(db, collection).catch(() => {});
     }

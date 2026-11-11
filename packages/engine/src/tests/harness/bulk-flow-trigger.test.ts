@@ -25,7 +25,14 @@ import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { runFlowJob } from '../../lib/flows/index.js';
+import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
+import {
+  createGodSession,
+  drainFlowJobs,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -103,8 +110,8 @@ d('bulk writes fire their automations (in-process)', () => {
       body: JSON.stringify({ n: 1 }),
     });
     expect(res.status).toBe(201);
-    await Bun.sleep(700);
-    expect(await runsFor()).toBeGreaterThan(before);
+    await drainFlowJobs(db);
+    expect(await runsFor()).toBe(before + 1);
   }, 30_000);
 
   it('a bulk create fires it too', async () => {
@@ -115,8 +122,47 @@ d('bulk writes fire their automations (in-process)', () => {
       body: JSON.stringify({ records: [{ n: 2 }, { n: 3 }] }),
     });
     expect(res.status).toBe(201);
-    await Bun.sleep(900);
-    // Two records, so at least two runs — and more importantly, more than none.
-    expect(await runsFor()).toBeGreaterThan(before);
+    await drainFlowJobs(db);
+    // One run per record: each is its own event.
+    expect(await runsFor()).toBe(before + 2);
   }, 30_000);
+
+  // ADR 0035 decision 6: the run row is keyed by (flow, event).
+  const redeliver = (eventId: string) =>
+    runFlowJob({
+      data: {
+        tenantId: DEFAULT_TENANT_ID,
+        flowId,
+        eventId,
+        sequence: 1,
+        event: 'insert',
+        collection: coll,
+        data: {},
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+  it('a trigger job delivered again does not run the flow again', async () => {
+    const run = await sql<{ event_id: string }>`
+      SELECT event_id::text AS event_id FROM zv_flow_runs
+       WHERE flow_id = ${flowId}::uuid AND event_id IS NOT NULL LIMIT 1
+    `.execute(db);
+    const before = await runsFor();
+    await redeliver(run.rows[0]!.event_id);
+    expect(await runsFor()).toBe(before);
+  });
+
+  it('a run its process died in is marked interrupted, not run again', async () => {
+    const eventId = crypto.randomUUID();
+    await sql`
+      INSERT INTO zv_flow_runs (flow_id, status, trigger_data, event_id)
+      VALUES (${flowId}::uuid, 'running', '{}'::jsonb, ${eventId}::uuid)
+    `.execute(db);
+    await redeliver(eventId);
+    const after = await sql<{ status: string; error: string | null }>`
+      SELECT status, error FROM zv_flow_runs
+       WHERE flow_id = ${flowId}::uuid AND event_id = ${eventId}::uuid
+    `.execute(db);
+    expect(after.rows).toEqual([{ status: 'failed', error: 'interrupted' }]);
+  });
 });

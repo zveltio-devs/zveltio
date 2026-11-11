@@ -8,7 +8,7 @@
  * its query_db/export steps as the DEFAULT tenant (cross-tenant read/export), and a
  * caller could pass `tenantId` to run a flow's data steps as ANY tenant (escalation).
  * Fix: executeFlow resolves the flow's OWN tenant_id and threads it, ignoring the
- * caller. triggerDataFlows now only fires flows of the writing tenant.
+ * caller. A write's change event only enqueues flows of the writing tenant.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -16,10 +16,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { executeFlow } from '../../lib/flows/index.js';
-import { triggerDataFlows } from '../../lib/flows/index.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import {
   asEveryTenant,
   asTenant,
+  drainFlowJobs,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -114,7 +116,7 @@ d('flow executor tenant isolation (in-process)', () => {
     expect(echoedTenant(res.output)).toBe(DEFAULT_TENANT);
   });
 
-  it('triggerDataFlows fires only the writing tenant’s flows', async () => {
+  it('a write fires only the writing tenant’s flows', async () => {
     const mineFlow = await makeFlow(db, DEFAULT_TENANT, 'on_create', {
       collection: PROBE_COLLECTION,
     });
@@ -124,20 +126,23 @@ d('flow executor tenant isolation (in-process)', () => {
     created.push(mineFlow, foreignFlow);
 
     // A write in the DEFAULT tenant must only fire the DEFAULT tenant's flow.
-    await triggerDataFlows(db, PROBE_COLLECTION, 'insert', { id: 'x' }, DEFAULT_TENANT);
+    await withTenantIsolation(DEFAULT_TENANT, (trx) =>
+      enqueueChangeEvent(trx, DEFAULT_TENANT, {
+        id: crypto.randomUUID(),
+        event: 'insert',
+        collection: PROBE_COLLECTION,
+        data: { id: 'x' },
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    await drainFlowJobs(db);
 
-    // executeFlow is fire-and-forget inside triggerDataFlows — poll for the run rows.
     const countRuns = async (flowId: string): Promise<number> => {
       const r = await sql<{ n: number }>`
         SELECT count(*)::int AS n FROM zv_flow_runs WHERE flow_id = ${flowId}
       `.execute(db);
       return r.rows[0]!.n;
     };
-    const start = Date.now();
-    while (Date.now() - start < 6000 && (await countRuns(mineFlow)) === 0) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-
     expect(await countRuns(mineFlow)).toBeGreaterThan(0); // fired
     expect(await countRuns(foreignFlow)).toBe(0); // NOT fired
   });

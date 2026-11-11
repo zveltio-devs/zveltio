@@ -60,6 +60,10 @@ export function ensureFlowQueue(boss: JobQueue): Promise<void> {
  * The tenant's active flows triggered by `event` on `collection`, read on the
  * write's own transaction (ADR 0035 decision 2): a flow receives the writes
  * whose transaction could see it.
+ *
+ * A `trigger_config` stored as a JSON string scalar (a driver that bound the
+ * text, not the object) is unwrapped, as `runFlowJob` and the old in-process
+ * trigger read it: such a flow fired before and must keep firing.
  */
 export async function triggeredFlows(
   trx: Database,
@@ -74,7 +78,9 @@ export async function triggeredFlows(
      WHERE is_active = true
        AND tenant_id = ${tenant}::uuid
        AND trigger_type = ${type}
-       AND trigger_config->>'collection' = ${collection}`.execute(trx);
+       AND (CASE WHEN jsonb_typeof(trigger_config) = 'string'
+                 THEN (trigger_config #>> '{}')::jsonb
+                 ELSE trigger_config END)->>'collection' = ${collection}`.execute(trx);
   return rows.map((r) => r.id);
 }
 
