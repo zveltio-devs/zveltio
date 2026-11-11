@@ -97,7 +97,12 @@ describe('getRlsFilters — overrides', () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy({ role: '*' })]);
     expect(
-      await getRlsFilters('contacts', { ...USER, id: 'u-god', role: 'irrelevant' }, 'session'),
+      await getRlsFilters(
+        'contacts',
+        { ...USER, id: 'u-god', role: 'irrelevant' },
+        'session',
+        'read',
+      ),
     ).toEqual([]);
   });
 
@@ -108,7 +113,7 @@ describe('getRlsFilters — overrides', () => {
     const db = setup();
     db.when(/SELECT role FROM "user"/i, [{ role: 'member' }]);
     db.when(/FROM zvd_rls_policies/i, [policy()]);
-    const filters = await getRlsFilters('contacts', { ...USER, role: 'god' }, 'session');
+    const filters = await getRlsFilters('contacts', { ...USER, role: 'god' }, 'session', 'read');
     expect(filters).toHaveLength(1);
     expect(filters[0]!.field).toBe('owner_id');
   });
@@ -127,6 +132,7 @@ describe('getRlsFilters — overrides', () => {
         'contacts',
         { ...USER, id: 'u-lookup-down' },
         'session',
+        'read',
       ).then(
         (filters) => filters,
         () => 'rejected' as const,
@@ -163,7 +169,7 @@ describe('getRlsFilters — overrides', () => {
     // Issued by a god, who holds `data:view_all` — see the next case.
     const db = setup();
     const key = { ...USER, rlsBypass: true, authorUserId: 'u-god' };
-    expect(await getRlsFilters('contacts', key, 'api_key')).toEqual([]);
+    expect(await getRlsFilters('contacts', key, 'api_key', 'read')).toEqual([]);
     expect(db.log).toHaveLength(0);
   });
 
@@ -189,14 +195,19 @@ describe('getRlsFilters — overrides', () => {
     ];
     for (const [authorUserId, expected] of issuers) {
       const key = { ...KEY, rlsBypass: true, authorUserId };
-      expect(await getRlsFilters('contacts', key, 'api_key')).toEqual(expected);
+      expect(await getRlsFilters('contacts', key, 'api_key', 'read')).toEqual(expected);
     }
   });
 
   it('a key with the flag OFF is filtered like anyone else', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy()]);
-    const filters = await getRlsFilters('contacts', { ...KEY, rlsBypass: false }, 'api_key');
+    const filters = await getRlsFilters(
+      'contacts',
+      { ...KEY, rlsBypass: false },
+      'api_key',
+      'read',
+    );
     expect(filters).toEqual([NOBODYS, DENY]);
   });
 
@@ -209,13 +220,13 @@ describe('getRlsFilters — overrides', () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy()]);
     const { rlsBypass: _omitted, ...noFlag } = { ...KEY, rlsBypass: undefined };
-    const filters = await getRlsFilters('contacts', noFlag, 'api_key');
+    const filters = await getRlsFilters('contacts', noFlag, 'api_key', 'read');
     expect(filters).toEqual([NOBODYS, DENY]);
   });
 
   it('no matching policies → no restriction', async () => {
     const db = setup();
-    expect(await getRlsFilters('contacts', USER, 'session')).toEqual([]);
+    expect(await getRlsFilters('contacts', USER, 'session', 'read')).toEqual([]);
     // the policy query includes the wildcard-collection arm
     expect(db.executed(/FROM zvd_rls_policies/i)[0]!.parameters).toContain('contacts');
   });
@@ -225,7 +236,7 @@ describe('getRlsFilters — policy matching', () => {
   it('wildcard-role policy applies and resolves user_id', async () => {
     const db = setup();
     db.when(/FROM zvd_rls_policies/i, [policy()]);
-    const filters = await getRlsFilters('contacts', USER, 'session');
+    const filters = await getRlsFilters('contacts', USER, 'session', 'read');
     expect(filters).toEqual([{ field: 'owner_id', condition: { op: 'eq', value: 'u-1' } }]);
   });
 
@@ -235,7 +246,7 @@ describe('getRlsFilters — policy matching', () => {
       policy({ id: 'p-editor', role: 'editor', filter_value_source: 'user_email' }),
       policy({ id: 'p-viewer', role: 'viewer', filter_field: 'public' }),
     ]);
-    const filters = await getRlsFilters('contacts', USER, 'session');
+    const filters = await getRlsFilters('contacts', USER, 'session', 'read');
     expect(filters).toHaveLength(1);
     expect(filters[0]).toEqual({
       field: 'owner_id',
@@ -256,7 +267,7 @@ describe('getRlsFilters — policy matching', () => {
     // every row to an API key and on both realtime doors — and owns no row: it
     // compared against '' and so handed over every row whose column was blank.
     const noEmail = { id: 'u-2', role: 'editor' };
-    const filters = await getRlsFilters('contacts', noEmail, 'session');
+    const filters = await getRlsFilters('contacts', noEmail, 'session', 'read');
     expect(filters).toEqual([
       { field: 'team', condition: { op: 'eq', value: 'member' } },
       { field: 'region', condition: { op: 'eq', value: 'eu' } },
@@ -278,7 +289,7 @@ describe('getRlsFilters — policy matching', () => {
         filter_op: 'neq',
       }),
     ]);
-    const filters = await getRlsFilters('contacts', USER, 'session');
+    const filters = await getRlsFilters('contacts', USER, 'session', 'read');
     expect(filters).toEqual([
       { field: 'owner_id', condition: { op: 'eq', value: 'u-1' } },
       { field: 'dept', condition: { op: 'neq', value: 'sales' } },
@@ -364,10 +375,10 @@ describe('the role on the caller object', () => {
       { field: 'team', condition: { op: 'eq', value: 'member' } },
       { field: 'dept', condition: { op: 'eq', value: 'x' } },
     ];
-    expect(await getRlsFilters('contacts', { id: 'u-1' }, 'session')).toEqual(expected);
-    expect(await getRlsFilters('contacts', { id: 'u-1', role: 'viewer' }, 'session')).toEqual(
-      expected,
-    );
+    expect(await getRlsFilters('contacts', { id: 'u-1' }, 'session', 'read')).toEqual(expected);
+    expect(
+      await getRlsFilters('contacts', { id: 'u-1', role: 'viewer' }, 'session', 'read'),
+    ).toEqual(expected);
   });
 
   it('an API key is `api_key` by its id, with or without the role on the object', async () => {
@@ -386,8 +397,8 @@ describe('the role on the caller object', () => {
     ];
     // Issued by `u-2`, who holds neither role: the issuer half adds nothing.
     const key = { id: 'apikey:k1', authorUserId: 'u-2' };
-    expect(await getRlsFilters('contacts', key, 'api_key')).toEqual(expected);
-    expect(await getRlsFilters('contacts', { ...key, role: 'api_key' }, 'api_key')).toEqual(
+    expect(await getRlsFilters('contacts', key, 'api_key', 'read')).toEqual(expected);
+    expect(await getRlsFilters('contacts', { ...key, role: 'api_key' }, 'api_key', 'read')).toEqual(
       expected,
     );
   });

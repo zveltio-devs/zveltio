@@ -132,8 +132,13 @@ d('a member-keyed row rule applies to a self-registered member over REST', () =>
   });
 
   it('getRlsFilters applies the rule whether or not the caller passed the role', async () => {
-    const bare = await getRlsFilters(COLLECTION, { id: userId }, 'session');
-    const withRole = await getRlsFilters(COLLECTION, { id: userId, role: 'member' }, 'session');
+    const bare = await getRlsFilters(COLLECTION, { id: userId }, 'session', 'read');
+    const withRole = await getRlsFilters(
+      COLLECTION,
+      { id: userId, role: 'member' },
+      'session',
+      'read',
+    );
     expect(bare).toEqual([{ field: 'owner', condition: { op: 'eq', value: userId } }]);
     expect(bare).toEqual(withRole);
   });
@@ -154,9 +159,14 @@ d('a member-keyed row rule applies to a self-registered member over REST', () =>
       // of the key's rules adds nothing and what is left is the key's own.
       const authorUserId = `no-roles-${crypto.randomUUID()}`;
       expect(
-        await getRlsFilters(COLLECTION, { id: key, role: 'api_key', authorUserId }, 'api_key'),
+        await getRlsFilters(
+          COLLECTION,
+          { id: key, role: 'api_key', authorUserId },
+          'api_key',
+          'read',
+        ),
       ).toEqual(expected);
-      expect(await getRlsFilters(COLLECTION, { id: key, authorUserId }, 'api_key')).toEqual(
+      expect(await getRlsFilters(COLLECTION, { id: key, authorUserId }, 'api_key', 'read')).toEqual(
         expected,
       );
     } finally {

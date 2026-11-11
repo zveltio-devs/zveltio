@@ -109,7 +109,7 @@ d("a key's row rules are its own AND its issuer's", () => {
       async () => {
         const who = await authenticate(ctxFor() as never, {} as never, db);
         const rt = realtimeIdentity(who!)!;
-        const filters = await getRlsFilters(COLLECTION, rt.user, rt.authType);
+        const filters = await getRlsFilters(COLLECTION, rt.user, rt.authType, 'read');
         return ROWS.map(([title, bucket, owner]) => ({
           title,
           bucket,
@@ -209,6 +209,7 @@ d("a key's row rules are its own AND its issuer's", () => {
       COLLECTION,
       { id: `apikey:${keyId}`, authorUserId: null, rlsBypass: false },
       'api_key',
+      'read',
     );
     const rows = ROWS.map(([title, bucket, owner]) => ({ title, bucket, owner }));
     expect(rows.filter((r) => matchesRlsFilters(r, filters))).toEqual([]);

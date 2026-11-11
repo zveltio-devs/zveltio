@@ -255,7 +255,7 @@ export async function getRlsFilters(
     authorUserId?: string | null;
   },
   authType: 'session' | 'api_key' | 'anonymous',
-  operation: RowRuleOperation = 'read',
+  operation: RowRuleOperation,
 ): Promise<RuleFilter[]> {
   // This used to read `user.role === 'god' || authType === 'api_key'`. Both
   // halves were wrong, in opposite directions.
@@ -372,7 +372,7 @@ export async function rowActor(
  * `bypass` is its `data:view_all`, which stands every rule down as for a session:
  * these are READ filters (ADR 0037); its writes meet the database's write policies.
  */
-export async function principalRlsFilters(
+export async function principalReadFilters(
   collection: string,
   principal: { role: string; roles: string[]; bypass: boolean },
 ): Promise<RuleFilter[]> {

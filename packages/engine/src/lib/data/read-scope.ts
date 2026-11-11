@@ -26,7 +26,7 @@ import {
   getColumnAccess,
   getRlsFilters,
   matchesRlsFilters,
-  principalRlsFilters,
+  principalReadFilters,
   principalRole,
   type ColumnAccess,
   type RolePrincipal,
@@ -94,7 +94,7 @@ export async function readScope(
 ): Promise<ReadScope> {
   const role = await principalRole(given.id);
   const user = { ...given, role };
-  const rls = await getRlsFilters(collection, user, authType);
+  const rls = await getRlsFilters(collection, user, authType, 'read');
   return scopeOf(db, collection, user, rls, await getColumnAccess(db, collection, role, user));
 }
 
@@ -117,7 +117,7 @@ export async function principalRecord(
   const granted = identity.columnsAll
     ? { hidden: new Set<string>(), readOnly: new Set<string>() }
     : await getColumnAccess(db, collection, identity.role);
-  const rls = await principalRlsFilters(collection, identity);
+  const rls = await principalReadFilters(collection, identity);
   const scope = await scopeOf(db, collection, user, rls, granted);
   return (await scope.admits(record)) ? scope.shape(record) : null;
 }

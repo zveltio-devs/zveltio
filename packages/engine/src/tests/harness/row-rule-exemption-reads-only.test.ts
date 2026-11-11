@@ -51,6 +51,7 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
   let god = '';
   let godId = '';
   let alice = '';
+  let aliceId = '';
   let bob = '';
   let key = '';
   /** Keys WITHOUT `rls_bypass`: the god's, and bob's (an issuer with no exemption). */
@@ -119,7 +120,9 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
     }
     // After the collections: a grant names an object that exists (migration 116).
     const grants = [OWN, DECIDE, SCOPED].map((collection) => ({ collection, actions: CRUD }));
-    alice = (await createMemberSession(app, db, { grants })).cookie;
+    const a = await createMemberSession(app, db, { grants });
+    alice = a.cookie;
+    aliceId = a.userId;
     const b = await createMemberSession(app, db, { grants });
     bob = b.cookie;
     await rule(OWN, '*', 'created_by', 'eq');
@@ -195,6 +198,40 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
       expect(await stored(OWN, aliceRow)).toBe('alice');
     });
 
+    it("is refused on a revisions revert of another user's row", async () => {
+      const rev = (
+        await sql<{ id: string }>`
+          SELECT id FROM zv_revisions WHERE collection = ${OWN} AND record_id = ${aliceRow}
+           ORDER BY created_at LIMIT 1`.execute(db)
+      ).rows[0]!.id;
+      const res = await call('POST', `/api/revisions/${rev}/revert`, god);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject(REFUSED);
+      expect(await stored(OWN, aliceRow)).toBe('alice');
+    });
+
+    it('is told so by a sync push, where a row it cannot see is a conflict', async () => {
+      const push = async (operations: unknown[]) =>
+        (
+          (await (await call('POST', '/api/sync/push', god, { operations })).json()) as {
+            results: Array<{ recordId: string; status: string; error?: string }>;
+          }
+        ).results;
+      const gone = crypto.randomUUID();
+      expect(
+        await push([
+          { collection: OWN, recordId: aliceRow, operation: 'update', payload: { title: 'S' } },
+          { collection: OWN, recordId: aliceRow, operation: 'delete', payload: {} },
+          { collection: OWN, recordId: gone, operation: 'update', payload: { title: 'S' } },
+        ]),
+      ).toEqual([
+        { recordId: aliceRow, status: 'error', error: 'row_level_security_violation' },
+        { recordId: aliceRow, status: 'error', error: 'row_level_security_violation' },
+        { recordId: gone, status: 'conflict' },
+      ]);
+      expect(await stored(OWN, aliceRow)).toBe('alice');
+    });
+
     it('still writes its own row', async () => {
       const res = await call('PATCH', `/api/data/${OWN}/${godRow}`, god, { title: 'god-2' });
       expect(res.status).toBe(200);
@@ -214,6 +251,27 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
         records: [{ title: 'approve', order_author: godId }],
       });
       expect(bulk.status).toBe(403);
+      expect(await bulk.json()).toMatchObject(REFUSED);
+    });
+
+    it('refuses an update that moves a row into the rule, or out of it', async () => {
+      const others = await create(DECIDE, bob, { title: 'others', order_author: aliceId });
+      const own = await create(DECIDE, bob, { title: 'own', order_author: godId });
+      for (const [id, to] of [
+        [others, godId],
+        [own, aliceId],
+      ] as const) {
+        const res = await call('PATCH', `/api/data/${DECIDE}/${id}`, god, {
+          title: 'MOVED',
+          order_author: to,
+        });
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject(REFUSED);
+      }
+      expect(await stored(DECIDE, others)).toBe('others');
+      expect(await stored(DECIDE, own)).toBe('own');
+      const ok = await call('PATCH', `/api/data/${DECIDE}/${others}`, god, { title: 'others-2' });
+      expect(ok.status).toBe(200);
     });
 
     it('lets another user decide it', async () => {

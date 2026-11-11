@@ -225,7 +225,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   const effectiveDb = getDb(c, db);
   // Resolved once for the whole batch — the conditions depend on the caller,
   // not the row.
-  const rlsFilters = await getRlsFilters(collection, user, c.get('authType'));
+  const rlsFilters = await getRlsFilters(collection, user, c.get('authType'), 'read');
   const writeRules = await getRlsFilters(collection, user, c.get('authType'), 'update');
   // Column-level write permission — mirror single patchRecord.
   const colAccess = await getColumnAccess(db, collection, await resolveUserRole(user), user);
@@ -424,7 +424,7 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
   // ...and the extension query alters the single delete path applies to its own
   // lookup. A row hidden by an alter never enters the delete set; without this
   // the batch endpoint deleted rows `DELETE /:id` answers 404 for.
-  const deleteFilters = await getRlsFilters(collection, user, c.get('authType'));
+  const deleteFilters = await getRlsFilters(collection, user, c.get('authType'), 'read');
   const writeRules = await getRlsFilters(collection, user, c.get('authType'), 'delete');
   const existing = await engineRead<DynamicRecord[]>(canRead, effectiveDb, collection, async () =>
     queryAlterRegistry

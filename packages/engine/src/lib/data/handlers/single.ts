@@ -478,7 +478,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
   beforeQuery = applyRlsFilters(
     beforeQuery,
-    await getRlsFilters(collection, user, c.get('authType')),
+    await getRlsFilters(collection, user, c.get('authType'), 'read'),
   );
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
   const beforeRow = await engineRead<DynamicRecord | undefined>(
@@ -649,7 +649,10 @@ export async function patchRecord(
     );
   }
   let beforeQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
-  beforeQuery = applyRlsFilters(beforeQuery, await getRlsFilters(collection, user, w.authType));
+  beforeQuery = applyRlsFilters(
+    beforeQuery,
+    await getRlsFilters(collection, user, w.authType, 'read'),
+  );
   beforeQuery = queryAlterRegistry.applyAll(beforeQuery, tableName, user);
   const writeRules = await getRlsFilters(collection, user, w.authType, 'update');
   const readBefore = async (): Promise<DynamicRecord | Response> => {
@@ -823,7 +826,10 @@ export async function deleteRecord(
   // Fetch existing for revision log, then delete atomically. Apply query
   // alters so a row hidden by an extension filter cannot be deleted by ID.
   let existingQuery = (await selectReadable(effectiveDb, tableName)).where('id', '=', id);
-  existingQuery = applyRlsFilters(existingQuery, await getRlsFilters(collection, user, w.authType));
+  existingQuery = applyRlsFilters(
+    existingQuery,
+    await getRlsFilters(collection, user, w.authType, 'read'),
+  );
   existingQuery = queryAlterRegistry.applyAll(existingQuery, tableName, user);
   const existing = await engineRead<DynamicRecord | undefined>(
     canRead,

@@ -90,7 +90,12 @@ d('row rule column index (in-process)', () => {
 
   it('the filtered read reaches the rule column index as the restricted role', async () => {
     // The filters the list handler asks for, applied the way it applies them.
-    const filters = await getRlsFilters(COLL, { id: USER, email: '', role: 'member' }, 'session');
+    const filters = await getRlsFilters(
+      COLL,
+      { id: USER, email: '', role: 'member' },
+      'session',
+      'read',
+    );
     expect(filters.length).toBe(1);
 
     const identity = { userId: USER, email: '', role: 'member', roles: ['member'], bypass: false };

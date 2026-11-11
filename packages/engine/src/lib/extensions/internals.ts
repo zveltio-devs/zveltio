@@ -928,7 +928,7 @@ function buildUnboundInternals(): ExtensionInternals {
       collection: string,
       user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
       authType: 'session' | 'api_key',
-    ) => getRlsFilters(collection, user, authType) as Promise<RlsFilter[]>,
+    ) => getRlsFilters(collection, user, authType, 'read') as Promise<RlsFilter[]>,
     applyRlsFilters: <Q>(query: Q, filters: RlsFilter[]): Q =>
       applyRlsFilters(query, filters as Parameters<typeof applyRlsFilters>[1]),
     // The handle is the host's to choose: column permissions are instance

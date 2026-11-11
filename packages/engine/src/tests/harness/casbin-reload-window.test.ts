@@ -117,7 +117,9 @@ d('materializeDefaultGrants while requests are in flight', () => {
     rm.clear = async () => {
       await origClear();
       await runWithDomain(TENANT, async () => {
-        duringRoleRebuild.push(await getRlsFilters(collection, { id: probeUser }, 'session'));
+        duringRoleRebuild.push(
+          await getRlsFilters(collection, { id: probeUser }, 'session', 'read'),
+        );
       });
     };
 
@@ -141,7 +143,7 @@ d('materializeDefaultGrants while requests are in flight', () => {
       // And one allowed resource does not answer for another.
       expect(await checkPermission(reader, 'contacts', 'read')).toBe(true);
       expect(await checkPermission(reader, 'payroll', 'read')).toBe(false);
-      expect(await getRlsFilters(collection, { id: reader }, 'session')).toEqual([
+      expect(await getRlsFilters(collection, { id: reader }, 'session', 'read')).toEqual([
         { field: 'owner', condition: { op: 'eq', value: reader } },
       ]);
     });

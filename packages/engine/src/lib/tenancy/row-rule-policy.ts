@@ -43,7 +43,7 @@
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { withLockWaitBound } from '../../db/dynamic.js';
-import { startReconcile } from './reconcile-failures.js';
+import { noteReconcile, startReconcile } from './reconcile-failures.js';
 import {
   foldsCase,
   isRuleOperator,
@@ -673,19 +673,47 @@ export async function applyRowRulePolicies(db: Database, collections: string[]):
  * them, and a feature that only protects collections created after the upgrade
  * protects the ones nobody has data in yet.
  */
-export async function reconcileRowRulePolicies(db: Database): Promise<number> {
+export async function reconcileRowRulePolicies(db: Database, retryMs = 60_000): Promise<number> {
   const record = startReconcile('row_rules');
   const names = await rowRuleCollections(db).catch((err: Error) => {
     record('*', err);
     throw err;
   });
   let n = 0;
+  const failed: string[] = [];
   for (const name of names) {
     const res = await applyRowRulePolicy(db, name).catch((err: Error) => {
-      console.warn(`[row-rules] ${name}: could not apply — ${record(name, err)}`);
+      console.error(`[row-rules] ${name}: could not apply — ${record(name, err)}`);
+      failed.push(name);
       return { applied: false, skipped: [] };
     });
     if (res.applied) n++;
   }
+  if (failed.length > 0) retryRowRulePolicies(db, failed, retryMs);
   return n;
+}
+
+/**
+ * Rebuild `names` again in `delayMs`, and again until each applies. A table the
+ * boot reconcile could not rebuild (busy past the lock bound) keeps the policy it
+ * had — on an upgrade, the FOR ALL one whose exemption writes (ADR 0037) — and
+ * nothing else would rebuild it before a rule changed. `/health` (`db_rules`)
+ * names it meanwhile; a success clears it there.
+ */
+function retryRowRulePolicies(db: Database, names: string[], delayMs: number): void {
+  setTimeout(async () => {
+    const left: string[] = [];
+    for (const name of names) {
+      try {
+        await applyRowRulePolicy(db, name);
+        noteReconcile('row_rules', name);
+      } catch (err) {
+        console.error(
+          `[row-rules] ${name}: retry could not apply — ${noteReconcile('row_rules', name, err)}`,
+        );
+        left.push(name);
+      }
+    }
+    if (left.length > 0) retryRowRulePolicies(db, left, delayMs);
+  }, delayMs).unref();
 }
