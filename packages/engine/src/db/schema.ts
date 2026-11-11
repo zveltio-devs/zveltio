@@ -349,6 +349,8 @@ export interface ZvFlowRunsTable {
   error: string | null;
   started_at: Generated<Date>;
   finished_at: Date | null;
+  /** The write's event id (ADR 0035); NULL on manual and cron runs. */
+  event_id: string | null;
 }
 
 export interface ZvFlowDlqTable {

@@ -770,3 +770,16 @@ export async function drainWebhookJobs(db: Database): Promise<void> {
     if ((await _runWebhookJobs()) === 0) return;
   }
 }
+
+/**
+ * Run every data-triggered flow job, as the worker would, until none is left
+ * (ADR 0035). `runOn` is the database the runs use; the engine's pool unless given.
+ */
+export async function drainFlowJobs(db: Database, runOn?: Database): Promise<void> {
+  const { _runFlowJobs, FLOW_QUEUE } = await import('../lib/flows/index.js');
+  for (let i = 0; i < 10; i++) {
+    await sql`UPDATE pgboss.job SET start_after = now()
+               WHERE name = ${FLOW_QUEUE} AND state = 'retry'`.execute(db);
+    if ((await _runFlowJobs(runOn)) === 0) return;
+  }
+}

@@ -16,7 +16,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { executeFlow, triggerDataFlows } from '../../lib/flows/index.js';
-import { enqueueWebhookEvent } from '../../lib/webhooks.js';
+import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import {
   createRlsPolicy,
   deleteRlsPolicy,
@@ -187,7 +187,7 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
       ({ ok: true, status: 200, text: async () => 'ok' }) as Response) as unknown as typeof fetch;
     try {
       await withTenantIsolation(TENANT, (trx) =>
-        enqueueWebhookEvent(trx, TENANT, {
+        enqueueChangeEvent(trx, TENANT, {
           id: crypto.randomUUID(),
           event: 'insert',
           collection: COLL,
@@ -236,7 +236,7 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
     }) as unknown as typeof fetch;
     try {
       await withTenantIsolation(TENANT, (trx) =>
-        enqueueWebhookEvent(trx, TENANT, {
+        enqueueChangeEvent(trx, TENANT, {
           id: crypto.randomUUID(),
           event: 'insert',
           collection: COLL,

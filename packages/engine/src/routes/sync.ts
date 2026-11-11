@@ -42,7 +42,7 @@ import {
 } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
-import { type ChangeEvent, enqueueWebhookEvent } from '../lib/webhooks.js';
+import { type ChangeEvent, enqueueChangeEvent } from '../lib/webhooks.js';
 import { asEngineRole } from '../lib/role-window.js';
 import { SYNC_TOMBSTONE_RETENTION_DAYS } from '../lib/runtime/index.js';
 
@@ -270,7 +270,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
    * Body: { operations: [{ collection, recordId, operation, payload, clientTimestamp }] }
    * Response: { results: [{ recordId, status: 'ok' | 'conflict' | 'error', serverVersion, serverData? }] }
    */
-  // The rows and their webhook events commit together (ADR 0035): a push that
+  // The rows and their change events commit together (ADR 0035): a push that
   // arrives with no request transaction gets one, as `replaceRecord` does.
   app.post('/push', (c) =>
     c.get('tenantTrx')
@@ -443,7 +443,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // serves the latest revision's `data` as the record.
     const writer = c.get('user') as { id: string; authorUserId?: string | null };
     const syncTid = tenantId(c);
-    // Every written row's webhook event, enqueued as one batch below.
+    // Every written row's change event (webhooks, flows), enqueued as one batch below.
     const events: ChangeEvent[] = [];
     const written = (
       table: string,
@@ -464,7 +464,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
         events,
         // As the bulk handler does: the row has landed, so a failed side effect
         // is logged, not reported as a failed write the client would retry.
-        // Not the webhook enqueue: that is the push's own failure, below.
+        // Not the event enqueue: that is the push's own failure, below.
       }).catch((err: Error) => {
         console.warn(`[sync] afterWrite(${action}, ${table}/${recordId}) failed:`, err.message);
       });
@@ -730,7 +730,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // One lookup per collection and event, one batch of jobs, outside every
     // per-operation catch: an event that cannot be queued refuses the whole
     // push (503) and rolls back its rows (ADR 0035).
-    await enqueueWebhookEvent(effectiveDb, syncTid, events);
+    await enqueueChangeEvent(effectiveDb, syncTid, events);
     return c.json({ results });
   }
 
