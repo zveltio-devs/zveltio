@@ -1,8 +1,12 @@
 <script lang="ts">
 /**
- * AI chat workspace — Tier-3 (request/response; streaming needs engine later).
+ * AI chat workspace — Tier-3 (request/response; no token streaming).
  *
- * Uses `/ext/ai/chats` session API. Prefill via `?q=` from the topbar prompt.
+ * Conversations and messages are the `ai_conversations` / `ai_messages`
+ * collections, read through the data API as the signed-in user. A turn is the
+ * `chat` action: it records the question and a pending answer, which the
+ * engine's job fills in; realtime (or a slow poll while an answer is pending)
+ * reloads the thread. Prefill via `?q=` from the topbar prompt.
  */
 import { page } from '$app/state';
 import { resolve } from '$app/paths';
@@ -10,17 +14,18 @@ import { goto } from '$app/navigation';
 import { MessageSquarePlus, Send, Trash2, Bot, User } from '@lucide/svelte';
 import { api } from '#lib/api.js';
 import { m } from '#lib/i18n.svelte.js';
+import { realtime } from '#lib/stores/realtime.svelte.js';
 import { toast } from '#lib/stores/toast.svelte.js';
 
-type ChatSummary = {
+type ChatSummary = { id: string; title: string | null; updated_at: string };
+type ChatMessage = {
   id: string;
-  title: string;
-  provider: string | null;
-  model: string | null;
-  updated_at: string;
+  role: 'user' | 'assistant';
+  content: string;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  error: string | null;
+  created_at: string;
 };
-
-type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };
 
 let chats = $state<ChatSummary[]>([]);
 let activeId = $state<string | null>(null);
@@ -32,17 +37,17 @@ let sending = $state(false);
 let listError = $state<string | null>(null);
 let prefillDone = $state(false);
 
+const pending = $derived(messages.some((msg) => msg.status === 'pending' || msg.status === 'running'));
 const activeTitle = $derived(
-  chats.find((c) => c.id === activeId)?.title ??
-    (m['ai.chat.newChat']?.() ?? 'New Chat'),
+  chats.find((c) => c.id === activeId)?.title || (m['ai.chat.newChat']?.() ?? 'New Chat'),
 );
 
 async function loadChats(): Promise<void> {
   loadingList = true;
   listError = null;
   try {
-    const r = await api.get<{ chats?: ChatSummary[] }>('/ext/ai/chats');
-    chats = r.chats ?? [];
+    const r = await api.get<{ records?: ChatSummary[] }>('/api/data/ai_conversations?sort=updated_at&order=desc&limit=100');
+    chats = r.records ?? [];
   } catch (err) {
     listError = err instanceof Error ? err.message : 'Failed to load chats';
     chats = [];
@@ -51,14 +56,26 @@ async function loadChats(): Promise<void> {
   }
 }
 
+/** A turn's question and answer share `created_at`: the question goes first. */
+async function loadMessages(id: string): Promise<void> {
+  const filter = encodeURIComponent(JSON.stringify({ conversation_id: { eq: id } }));
+  const r = await api.get<{ records?: ChatMessage[] }>(
+    `/api/data/ai_messages?filter=${filter}&sort=created_at&order=asc&limit=500`,
+  );
+  if (activeId !== id) return;
+  const at = (msg: ChatMessage) => Date.parse(msg.created_at);
+  messages = (r.records ?? []).sort(
+    (a, b) => at(a) - at(b) || (a.role === b.role ? 0 : a.role === 'user' ? -1 : 1),
+  );
+}
+
 async function openChat(id: string): Promise<void> {
   if (sending) return;
   activeId = id;
   loadingChat = true;
   messages = [];
   try {
-    const r = await api.get<{ chat?: { messages?: ChatMessage[] } }>(`/ext/ai/chats/${id}`);
-    messages = (r.chat?.messages ?? []).filter((msg) => msg.role !== 'system');
+    await loadMessages(id);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to open chat');
     activeId = null;
@@ -67,17 +84,14 @@ async function openChat(id: string): Promise<void> {
   }
 }
 
-async function createChat(firstMessage?: string): Promise<string | null> {
+async function createChat(firstMessage: string): Promise<string | null> {
   try {
-    const r = await api.post<{ chat?: ChatSummary }>('/ext/ai/chats', {
-      title: firstMessage?.slice(0, 60) || undefined,
-    });
-    const id = r.chat?.id;
-    if (!id) throw new Error('No chat id returned');
-    await loadChats();
-    activeId = id;
+    const r = await api.post<{ id?: string }>('/api/data/ai_conversations', { title: firstMessage.slice(0, 60) });
+    if (!r.id) throw new Error('No chat id returned');
+    activeId = r.id;
     messages = [];
-    return id;
+    await loadChats();
+    return r.id;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Could not create chat');
     return null;
@@ -88,7 +102,7 @@ async function deleteChat(id: string): Promise<void> {
   const ok = confirm(m['ai.chat.deleteMessage']?.() ?? 'Delete this chat permanently?');
   if (!ok) return;
   try {
-    await api.delete(`/ext/ai/chats/${id}`);
+    await api.delete(`/api/data/ai_conversations/${id}`);
     if (activeId === id) {
       activeId = null;
       messages = [];
@@ -101,31 +115,36 @@ async function deleteChat(id: string): Promise<void> {
 
 async function send(): Promise<void> {
   const content = draft.trim();
-  if (!content || sending) return;
-
+  if (!content || sending || pending) return;
   sending = true;
   draft = '';
-  let id = activeId;
   try {
-    if (!id) {
-      id = await createChat(content);
-      if (!id) return;
-    }
-    messages = [...messages, { role: 'user', content }];
-    const r = await api.post<{ message?: ChatMessage }>(`/ext/ai/chats/${id}/messages`, {
-      content,
-    });
-    if (r.message) {
-      messages = [...messages, r.message];
-    }
-    await loadChats();
+    const id = activeId ?? (await createChat(content));
+    if (!id) return;
+    await api.post('/ext/ai/actions/chat', { conversation_id: id, content });
+    await loadMessages(id);
   } catch (err) {
+    draft = content;
     toast.error(err instanceof Error ? err.message : 'Send failed');
-    // Keep the user message visible; they can retry.
   } finally {
     sending = false;
   }
 }
+
+// Realtime reloads the thread when the job writes the answer.
+$effect(() => {
+  const id = activeId;
+  if (!id) return;
+  return realtime.onCollection('ai_messages', () => void loadMessages(id).catch(() => {}));
+});
+
+// A slow poll while an answer is pending, for a dropped realtime connection.
+$effect(() => {
+  const id = activeId;
+  if (!id || !pending) return;
+  const t = setInterval(() => void loadMessages(id).catch(() => {}), 3000);
+  return () => clearInterval(t);
+});
 
 function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -217,7 +236,7 @@ $effect(() => {
     <header class="px-4 py-3 border-b border-base-300 flex items-center gap-2">
       <Bot size={16} class="text-primary shrink-0" />
       <h1 class="font-medium text-sm truncate">{activeTitle}</h1>
-      {#if sending}
+      {#if sending || pending}
         <span class="loading loading-spinner loading-xs ml-auto"></span>
       {/if}
     </header>
@@ -235,7 +254,7 @@ $effect(() => {
           </p>
         </div>
       {:else}
-        {#each messages as msg, i (i)}
+        {#each messages as msg (msg.id)}
           <div class="flex gap-3 {msg.role === 'user' ? 'justify-end' : ''}">
             {#if msg.role === 'assistant'}
               <div class="avatar placeholder shrink-0">
@@ -250,7 +269,13 @@ $effect(() => {
                 ? 'bg-primary text-primary-content'
                 : 'bg-base-200'}"
             >
-              {msg.content}
+              {#if msg.status === 'pending' || msg.status === 'running'}
+                <span class="loading loading-dots loading-sm opacity-60"></span>
+              {:else if msg.status === 'failed'}
+                <span class="text-error">{msg.error ?? (m['ai.chat.failed']?.() ?? 'The answer failed.')}</span>
+              {:else}
+                {msg.content}
+              {/if}
             </div>
             {#if msg.role === 'user'}
               <div class="avatar placeholder shrink-0">
@@ -277,12 +302,12 @@ $effect(() => {
         placeholder={m['ai.chat.messagePlaceholder']?.() ?? 'Type a message…'}
         bind:value={draft}
         onkeydown={onKeydown}
-        disabled={sending}
+        disabled={sending || pending}
       ></textarea>
       <button
         type="submit"
         class="btn btn-primary gap-1 shrink-0"
-        disabled={sending || !draft.trim()}
+        disabled={sending || pending || !draft.trim()}
         aria-label={m['ai.action.sendMessage']?.() ?? 'Send message'}
       >
         <Send size={16} />

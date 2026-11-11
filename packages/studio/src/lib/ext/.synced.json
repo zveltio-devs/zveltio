@@ -1,12 +1,12 @@
 {
   "routes": [
     "ai",
-    "developer/edge-functions",
     "developer/graphql",
     "geospatial/postgis",
     "mail",
     "pages",
-    "projects/management"
+    "projects/management",
+    "storage/cloud"
   ],
   "libs": [
     "ai",
@@ -14,7 +14,6 @@
     "content/pages",
     "content/pdf-viewer",
     "crm",
-    "developer/edge-functions",
     "developer/graphql",
     "finance/invoicing",
     "geospatial/postgis",
