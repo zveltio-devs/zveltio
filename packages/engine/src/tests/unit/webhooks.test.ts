@@ -11,6 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
+import { _setBossForTests } from '../../lib/data/ddl-queue.js';
 import { ProblemException } from '../../lib/problem.js';
 import { enqueueWebhookEvent, WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
@@ -200,6 +201,49 @@ describe('enqueueWebhookEvent', () => {
     expect((err as ProblemException).code).toBe('webhooks.enqueue_failed');
     expect((err as ProblemException).status).toBe(503);
     expect((err as ProblemException).message).toContain('connection reset');
+  });
+
+  it("a bulk write's events take one subscriber lookup, one nextval statement and one batch insert", async () => {
+    const db = new CannedDb();
+    db.when(/from zvd_webhooks/i, [
+      { id: 'h1', retry_attempts: 2 },
+      { id: 'h2', retry_attempts: 1 },
+    ]);
+    db.when(/nextval/i, [{ n: '7' }, { n: '8' }, { n: '9' }]);
+    const batches: Array<
+      Array<{ data: { webhookId: string; eventId: string; sequence: number } }>
+    > = [];
+    const previous = _setBossForTests({
+      createQueue: async () => undefined,
+      insert: async (_name: string, jobs: (typeof batches)[number]) => {
+        batches.push(jobs);
+        return jobs.map((_, i) => `job-${i}`);
+      },
+    });
+    try {
+      const rows = ['r1', 'r2', 'r3'].map((id, i) => ({
+        ...change,
+        id: `7d0f6c1e-0000-4000-8000-00000000001${i}`,
+        data: { id },
+      }));
+      await db.kysely
+        .transaction()
+        .execute((trx) => enqueueWebhookEvent(trx as unknown as Database, 'tenant-a', rows));
+      expect(db.executed(/from zvd_webhooks/i)).toHaveLength(1);
+      expect(db.executed(/nextval/i)).toHaveLength(1);
+      expect(batches).toHaveLength(1);
+      // Every row to every subscriber; one sequence value per row, shared by its subscribers.
+      expect(batches[0]!.map((j) => [j.data.webhookId, j.data.sequence])).toEqual([
+        ['h1', 7],
+        ['h2', 7],
+        ['h1', 8],
+        ['h2', 8],
+        ['h1', 9],
+        ['h2', 9],
+      ]);
+    } finally {
+      _setBossForTests(previous);
+    }
   });
 
   it("refuses a database that is not the write's transaction: the event would not commit with it", async () => {
