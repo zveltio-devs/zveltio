@@ -8,7 +8,6 @@ import {
   maybeDecrypt,
   onJobQueueStart,
   principalRecord,
-  QUEUE_RETENTION,
 } from './data/index.js';
 import { DEFAULT_TENANT_ID } from './route-db.js';
 import { toJsonb } from './jsonb.js';
@@ -139,11 +138,12 @@ export const WEBHOOK_QUEUE = 'webhook.deliver';
 /**
  * A completed delivery's job is kept one hour, not the seven days of the DDL
  * queues: its payload is a record snapshot, and the delivery row already keeps
- * what was sent. Created and retrying jobs keep the shared 30 days.
+ * what was sent. Created and retrying jobs keep the 30 days of `QUEUE_RETENTION`
+ * (a literal: `data/index.js` imports this module, so its binding is not yet set).
  */
 export const WEBHOOK_QUEUE_RETENTION = {
   deleteAfterSeconds: 60 * 60,
-  retentionSeconds: QUEUE_RETENTION.retentionSeconds,
+  retentionSeconds: 30 * 24 * 60 * 60,
 };
 
 /** One delivery job's payload. Never the signing secret: it is read from the row at delivery. */

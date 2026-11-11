@@ -34,7 +34,7 @@ import { normalizeFields, withheldColumns } from './shape.js';
 import type { CollectionDef } from './types.js';
 import { writtenByRefusal } from './written-by.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
-import { columnGuardRefusal } from '../problem.js';
+import { columnGuardRefusal, ProblemException } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
 import { readableColumns, readSource, withEngineColumns } from '../../db/dynamic.js';
 import { onAfterCommit, withCollectionRead } from '../tenancy/index.js';
@@ -526,6 +526,7 @@ export async function handlePgErrors<T>(c: Context, fn: () => Promise<T>): Promi
   } catch (err) {
     const mapped = mapPgError(err);
     if (mapped) return c.json(mapped.body, mapped.status);
+    if (err instanceof ProblemException) throw err; // already an answer (a refused enqueue: 503)
     // Surface the raw error shape so we can extend mapPgError() later.
     const e = err as { name?: string; code?: string; errno?: string; message?: string };
     console.warn(

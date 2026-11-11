@@ -1,28 +1,16 @@
 /**
- * Unit coverage for webhooks.ts — WebhookManager delivery + trigger.
+ * Unit coverage for webhooks.ts — WebhookManager.deliver, one POST.
  *
- * deliver() signs the payload (HMAC-SHA256), strips exploitable headers, guards
- * the target URL (SSRF), POSTs via safeFetch, and records the outcome. trigger()
- * matches active webhooks in zvd_webhooks and (no Valkey in tests) delivers
- * directly.
+ * deliver() signs the envelope (HMAC-SHA256), strips exploitable headers, guards
+ * the target URL (SSRF), POSTs via safeFetch, and reports the outcome. The job
+ * around it (lookup, delivery row, retries) is pg-boss's and is covered by the
+ * harness (ADR 0035).
  *
- * Driven with a stubbed globalThis.fetch (safeFetch wraps it) + CannedDb. No
- * network, no Postgres, no Valkey (getCache() returns null in the unit env).
+ * Driven with a stubbed globalThis.fetch (safeFetch wraps it). No network.
  */
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import type { Database } from '../../db/index.js';
-import { initTenantManager } from '../../lib/tenancy/index.js';
-import { _setReadAsRoleForTests, WebhookManager } from '../../lib/webhooks.js';
-import { CannedDb } from './fixtures/canned-db.js';
-
-// The record as the webhook's role reads it (ADR 0004), passed through: a
-// canned database has no Casbin to resolve the role with.
-let restoreReadAs = () => {};
-beforeAll(() => {
-  restoreReadAs = _setReadAsRoleForTests(async (_tenant, _role, _collection, record) => record);
-});
-afterAll(() => restoreReadAs());
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { WebhookManager } from '../../lib/webhooks.js';
 
 let originalFetch: typeof fetch;
 let lastReq: { url: string; init?: RequestInit } | null;
@@ -76,6 +64,8 @@ function sentUrl(): string | undefined {
 }
 
 const basePayload = {
+  id: '7d0f6c1e-0000-4000-8000-000000000001',
+  sequence: 42,
   url: 'https://93.184.216.34/receive',
   event: 'record.created',
   collection: 'contacts',
@@ -89,17 +79,17 @@ beforeEach(() => {
 });
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  WebhookManager.init(null as unknown as Database); // reset module _db
-  initTenantManager(null as unknown as Database);
 });
 
 describe('WebhookManager.deliver', () => {
-  it('POSTs the JSON payload and returns true on 2xx', async () => {
-    const ok = await WebhookManager.deliver({ ...basePayload });
+  it('POSTs the JSON payload and returns ok on 2xx', async () => {
+    const { ok } = await WebhookManager.deliver({ ...basePayload });
     expect(ok).toBe(true);
     expect(sentUrl()).toBe(basePayload.url);
     expect(headers()['content-type']).toBe('application/json');
     expect(JSON.parse(lastReq?.init?.body as string)).toEqual({
+      id: basePayload.id,
+      sequence: basePayload.sequence,
       event: basePayload.event,
       collection: basePayload.collection,
       data: basePayload.data,
@@ -115,6 +105,8 @@ describe('WebhookManager.deliver', () => {
     // Recompute the expected signature independently and compare exactly.
     const enc = new TextEncoder();
     const body = JSON.stringify({
+      id: basePayload.id,
+      sequence: basePayload.sequence,
       event: basePayload.event,
       collection: basePayload.collection,
       data: basePayload.data,
@@ -151,14 +143,14 @@ describe('WebhookManager.deliver', () => {
   });
 
   it('blocks an internal target URL (SSRF) and never fetches', async () => {
-    const ok = await WebhookManager.deliver({ ...basePayload, url: 'http://127.0.0.1/admin' });
+    const { ok } = await WebhookManager.deliver({ ...basePayload, url: 'http://127.0.0.1/admin' });
     expect(ok).toBe(false);
     expect(lastReq).toBeNull();
   });
 
-  it('returns false on a non-2xx response', async () => {
+  it('is not ok on a non-2xx response', async () => {
     stubFetch(500);
-    const ok = await WebhookManager.deliver({ ...basePayload });
+    const { ok } = await WebhookManager.deliver({ ...basePayload });
     expect(ok).toBe(false);
   });
 
@@ -166,7 +158,7 @@ describe('WebhookManager.deliver', () => {
     globalThis.fetch = (async () => {
       throw 'network down';
     }) as unknown as typeof fetch;
-    const ok = await WebhookManager.deliver({ ...basePayload });
+    const { ok } = await WebhookManager.deliver({ ...basePayload });
     expect(ok).toBe(false);
     expect(lastReq).toBeNull();
   });
@@ -180,53 +172,7 @@ describe('WebhookManager.deliver', () => {
           throw new Error('body unreadable');
         },
       }) as unknown as Response) as unknown as typeof fetch;
-    const ok = await WebhookManager.deliver({ ...basePayload });
+    const { ok } = await WebhookManager.deliver({ ...basePayload });
     expect(ok).toBe(true);
-  });
-
-  it('records the delivery outcome when a deliveryId + db are present', async () => {
-    const db = new CannedDb();
-    db.when(/update "zvd_webhook_deliveries"/i, []);
-    WebhookManager.init(db.kysely as unknown as Database);
-    initTenantManager(db.kysely as unknown as Database);
-
-    await WebhookManager.deliver({ ...basePayload, deliveryId: 'del-1' });
-    // The update is fire-and-forget (.catch) — let it flush.
-    await new Promise((r) => setTimeout(r, 25));
-    expect(db.executed(/update "zvd_webhook_deliveries"/i).length).toBe(1);
-  });
-});
-
-describe('WebhookManager.trigger', () => {
-  it('is a no-op when not initialized with a db', async () => {
-    WebhookManager.init(null as unknown as Database);
-    initTenantManager(null as unknown as Database);
-    await expect(
-      WebhookManager.trigger('record.created', 'c', { id: '1' }),
-    ).resolves.toBeUndefined();
-    expect(lastReq).toBeNull();
-  });
-
-  it('matches active webhooks and delivers directly when no cache is configured', async () => {
-    const db = new CannedDb();
-    db.when(/from zvd_webhooks/i, [
-      {
-        id: 'wh1',
-        run_as_role: 'tenant_member',
-        url: 'https://93.184.216.34/trigger',
-        method: 'POST',
-        events: ['*'],
-        collections: null,
-        retry_attempts: 3,
-      },
-    ]);
-    db.when(/insert into "zvd_webhook_deliveries"/i, [{ id: 'del-9' }]);
-    WebhookManager.init(db.kysely as unknown as Database);
-    initTenantManager(db.kysely as unknown as Database);
-
-    await WebhookManager.trigger('record.created', 'contacts', { id: 'r1' });
-    // No Valkey → deliver() is fire-and-forget; let it flush.
-    await new Promise((r) => setTimeout(r, 50));
-    expect(sentUrl()).toBe('https://93.184.216.34/trigger');
   });
 });
