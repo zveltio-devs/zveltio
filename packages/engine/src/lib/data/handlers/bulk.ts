@@ -5,8 +5,8 @@
  *   DELETE /:collection/bulk — bulk delete
  *
  * Each runs per-row pre-write hooks inside a single transaction (abort → per-row
- * error), then fires `afterWrite` side-effects per successful row. Byte-identical
- * to the pre-split inline handlers — zero behaviour change.
+ * error), then fires `afterWrite` side-effects per successful row and enqueues
+ * the batch's webhook events, in that same transaction (ADR 0035).
  */
 
 import type { Context } from 'hono';
@@ -29,6 +29,7 @@ import {
   hasTransitionRules,
   validateTransitions,
 } from '../write-pipeline.js';
+import { type ChangeEvent, enqueueWebhookEvent } from '../../webhooks.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { serializeRecord } from '../shape.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
@@ -45,6 +46,47 @@ import {
 /** Every key some record of a batch sends. */
 const sentKeys = (records: unknown[]): string[] =>
   records.flatMap((r) => (r && typeof r === 'object' ? Object.keys(r) : []));
+
+/**
+ * `afterWrite` for each written row, then their webhook events as one batch, on
+ * the batch's own transaction (ADR 0035).
+ *
+ * Awaited, as the single-record path already does. Not awaiting looked like the
+ * cheap choice, but an un-awaited call raced the commit and lost: measured,
+ * every bulk create logged `trigger "insert" … did not run its automations:
+ * Transaction is already committed`, so automations never fired for records
+ * created in a batch — precisely when an import or a sync uses these endpoints.
+ *
+ * The rows are written, so a failed side effect is logged, not answered. The
+ * webhook enqueue is not one of those: its failure is the write's (503,
+ * `webhooks.enqueue_failed`) and rolls the whole batch back.
+ */
+async function afterBulkWrite(
+  c: Context,
+  trx: Database,
+  collection: string,
+  action: 'create' | 'update' | 'delete',
+  records: DynamicRecord[],
+): Promise<void> {
+  const user = c.get('user');
+  const tenantId = getTenantId(c);
+  const events: ChangeEvent[] = [];
+  for (const record of records) {
+    await afterWrite(trx, {
+      collection,
+      recordId: record.id,
+      action,
+      data: record,
+      userId: user.id,
+      author: rowAuthorId(user),
+      tenantId,
+      events,
+    }).catch((err: Error) => {
+      console.warn(`[data] afterWrite(${action}, ${collection}/${record.id}) failed:`, err.message);
+    });
+  }
+  await enqueueWebhookEvent(trx, tenantId, events);
+}
 
 export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const collection = c.req.param('collection')!;
@@ -145,42 +187,11 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
         );
         created.push(record as DynamicRecord);
       }
+      await afterBulkWrite(c, trx, collection, 'create', created);
     });
     return null;
   });
   if (failed) return failed as Response;
-
-  const tid = getTenantId(c);
-  // Awaited, as the single-record path already does.
-  //
-  // Not awaiting looked like the cheap choice — these are side effects and the
-  // rows are written. But `afterWrite` hands the request's transaction to
-  // `triggerDataFlows`, and an un-awaited call races the commit and loses:
-  // measured, every bulk create logged `trigger "insert" … did not run its
-  // automations: Transaction is already committed`, while the same write through
-  // `POST /api/data/:collection` and through `PATCH` was clean.
-  //
-  // So automations never fired for records created in a batch — which is
-  // precisely when an import or a sync uses this endpoint, and the operator sees
-  // the single-record case work. The failure announced itself in the log and
-  // nowhere else.
-  //
-  // The cost is that the response waits for the fan-out of a batch rather than a
-  // row. That is the same cost the single path already pays, and the alternative
-  // is a side effect whose handle is gone before it runs.
-  for (const record of created) {
-    await afterWrite(effectiveDb, {
-      collection,
-      recordId: record.id,
-      action: 'create',
-      data: record,
-      userId: user.id,
-      author: rowAuthorId(user),
-      tenantId: tid,
-    }).catch((err: Error) => {
-      console.warn(`[data] afterWrite(create, ${collection}/${record.id}) failed:`, err.message);
-    });
-  }
 
   return c.json(
     {
@@ -346,27 +357,11 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         if (record) updated.push(record as DynamicRecord);
         else errors.push({ index: i, id, errors: ['Record not found'] });
       }
+      await afterBulkWrite(c, trx, collection, 'update', updated);
     });
     return null;
   });
   if (failed) return failed as Response;
-
-  const tid = getTenantId(c);
-  // Awaited, for the reason recorded on the create path above: an un-awaited
-  // call hands `triggerDataFlows` a transaction that commits before it runs.
-  for (const record of updated) {
-    await afterWrite(effectiveDb, {
-      collection,
-      recordId: record.id,
-      action: 'update',
-      data: record,
-      userId: user.id,
-      author: rowAuthorId(user),
-      tenantId: tid,
-    }).catch((err: Error) => {
-      console.warn(`[data] afterWrite(update, ${collection}/${record.id}) failed:`, err.message);
-    });
-  }
 
   return c.json(
     {
@@ -464,36 +459,32 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
     // A foreign key that refuses one of these rows is a 422, not a 500 -- the
     // single delete path says so too.
     const failed = await handlePgErrors(c, async () => {
-      await engineRead(canRead, effectiveDb, collection, () =>
-        dynamicDb(effectiveDb)
-          .deleteFrom(tableName)
-          .where(
-            'id',
-            'in',
-            allowed.map((r) => r.id),
-          )
-          .execute(),
-      );
+      await runAtomic(effectiveDb, async (trx: Database) => {
+        const gone = await engineRead<{ id: string }[]>(canRead, trx, collection, () =>
+          dynamicDb(trx)
+            .deleteFrom(tableName)
+            .where(
+              'id',
+              'in',
+              allowed.map((r) => r.id),
+            )
+            .returning('id')
+            .execute(),
+        );
+        // Only the rows this statement removed: one a concurrent delete took
+        // first has had its event already.
+        const ids = new Set(gone.map((r) => r.id));
+        await afterBulkWrite(
+          c,
+          trx,
+          collection,
+          'delete',
+          allowed.filter((r) => ids.has(r.id)),
+        );
+      });
       return null;
     });
     if (failed) return failed as Response;
-
-    const tid = getTenantId(c);
-    // Awaited, for the reason recorded on the create path above: an un-awaited
-    // call hands `triggerDataFlows` a transaction that commits before it runs.
-    for (const record of allowed) {
-      await afterWrite(effectiveDb, {
-        collection,
-        recordId: record.id,
-        action: 'delete',
-        data: record,
-        userId: user.id,
-        author: rowAuthorId(user),
-        tenantId: tid,
-      }).catch((err: Error) => {
-        console.warn(`[data] afterWrite(delete, ${collection}/${record.id}) failed:`, err.message);
-      });
-    }
   }
 
   return c.json(

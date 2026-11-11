@@ -209,12 +209,17 @@ const refuse = (why: string): never => {
  * As the engine's role, as `host.enqueue` does: `zveltio_rls` holds nothing on
  * `pgboss`. No match takes no sequence value and needs no queue; a match with
  * no queue refuses the write.
+ *
+ * A bulk write hands all its rows' changes at once: one lookup per collection
+ * and event, one `nextval` statement, one batch of job rows (decision 2).
  */
 export async function enqueueWebhookEvent(
   db: Database,
   tenantId: string | null,
-  change: ChangeEvent,
+  change: ChangeEvent | readonly ChangeEvent[],
 ): Promise<void> {
+  const changes = Array.isArray(change) ? change : [change as ChangeEvent];
+  if (changes.length === 0) return;
   // Outside the write's transaction the row is already committed, and an event
   // that then fails to queue is lost, or refused with the row in place.
   if (!db.isTransaction) {
@@ -223,10 +228,14 @@ export async function enqueueWebhookEvent(
     );
   }
   const tenant = tenantId ?? DEFAULT_TENANT_ID;
-  await asEngineRole(db, () => enqueueOn(db, tenant, change));
+  await asEngineRole(db, () => enqueueOn(db, tenant, changes));
 }
 
-async function enqueueOn(trx: Database, tenant: string, change: ChangeEvent): Promise<void> {
+function subscribers(
+  trx: Database,
+  tenant: string,
+  change: ChangeEvent,
+): Promise<{ id: string; retry_attempts: number }[]> {
   const key = `${tenant}\u0000${change.event}\u0000${change.collection}`;
   let byKey = lookups.get(trx);
   if (!byKey) {
@@ -250,29 +259,38 @@ async function enqueueOn(trx: Database, tenant: string, change: ChangeEvent): Pr
       .execute(trx)
       .then((r) => r.rows.map((h) => ({ id: h.id, retry_attempts: h.retry_attempts ?? 3 })));
     byKey.set(key, found);
+    found.catch(() => byKey.delete(key));
   }
+  return found;
+}
+
+async function enqueueOn(
+  trx: Database,
+  tenant: string,
+  changes: readonly ChangeEvent[],
+): Promise<void> {
   try {
-    const hooks = await found.catch((err: unknown) => {
-      byKey.delete(key);
-      throw err;
-    });
-    if (hooks.length === 0) return;
+    const matched: { change: ChangeEvent; hooks: { id: string; retry_attempts: number }[] }[] = [];
+    for (const change of changes) {
+      const hooks = await subscribers(trx, tenant, change);
+      if (hooks.length > 0) matched.push({ change, hooks });
+    }
+    if (matched.length === 0) return;
     const boss = jobQueue();
     if (!boss) return refuse('the job queue is not running');
     await ensureQueue(boss);
-    // After the row write, so two writes to one record (serialised by its lock)
-    // take their values in commit order.
+    // After the row writes, so two writes to one record (serialised by its lock)
+    // take their values in commit order; one value per event, in write order.
     const seq = await sql<{ n: string }>`
-      SELECT nextval('zv_change_event_seq')::text AS n`.execute(trx);
-    const sequence = Number(seq.rows[0]!.n);
-    const ids = await boss.insert(
-      WEBHOOK_QUEUE,
+      SELECT nextval('zv_change_event_seq')::text AS n
+        FROM generate_series(1, ${matched.length}::int)`.execute(trx);
+    const jobs = matched.flatMap(({ change, hooks }, i) =>
       hooks.map((h) => ({
         data: {
           tenantId: tenant,
           webhookId: h.id,
           eventId: change.id,
-          sequence,
+          sequence: Number(seq.rows[i]!.n),
           event: change.event,
           collection: change.collection,
           data: change.data,
@@ -282,15 +300,15 @@ async function enqueueOn(trx: Database, tenant: string, change: ChangeEvent): Pr
         retryDelay: 1,
         retryBackoff: true,
       })),
-      {
-        returnId: true,
-        db: {
-          executeSql: (text, values) =>
-            trx.executeQuery(CompiledQuery.raw(text, values ?? [])) as Promise<{ rows: never[] }>,
-        },
-      },
     );
-    if (!ids || ids.length !== hooks.length) refuse('pg-boss inserted no job');
+    const ids = await boss.insert(WEBHOOK_QUEUE, jobs, {
+      returnId: true,
+      db: {
+        executeSql: (text, values) =>
+          trx.executeQuery(CompiledQuery.raw(text, values ?? [])) as Promise<{ rows: never[] }>,
+      },
+    });
+    if (!ids || ids.length !== jobs.length) refuse('pg-boss inserted no job');
   } catch (err) {
     if (err instanceof ProblemException) throw err;
     refuse(err instanceof Error ? err.message : String(err));

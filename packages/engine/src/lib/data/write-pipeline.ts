@@ -22,7 +22,7 @@ import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { getValidationDb, getValidationRules, validateRecord } from '../validation-engine.js';
 import { maybeEncrypt } from './field-crypto.js';
-import { enqueueWebhookEvent } from '../webhooks.js';
+import { type ChangeEvent, enqueueWebhookEvent } from '../webhooks.js';
 import { broadcastEvent } from '../../routes/ws.js';
 import { realtimeBus } from '../runtime/index.js';
 import { broadcastDataEvent } from '../../routes/realtime.js';
@@ -569,9 +569,15 @@ export async function afterWrite(
      * `current_setting('zveltio.current_tenant')`.
      */
     tenantId?: string | null;
+    /**
+     * A bulk write's collector: the webhook event goes here instead of being
+     * enqueued, and the caller enqueues the batch with `enqueueWebhookEvent`
+     * on the same transaction, outside the failures it may ignore (ADR 0035).
+     */
+    events?: ChangeEvent[];
   },
 ): Promise<void> {
-  const { collection, recordId, action, data, delta, userId, author, tenantId } = opts;
+  const { collection, recordId, action, data, delta, userId, author, tenantId, events } = opts;
 
   // Revision log — awaited so callers see a consistent DB state after the write.
   // Non-fatal, and that takes a SAVEPOINT: `db` is the request's transaction,
@@ -646,13 +652,15 @@ export async function afterWrite(
   // A webhook is a job in this transaction (ADR 0035): it commits with the row,
   // and a matching subscription that cannot be queued refuses the write (503).
   // `id` is this write's, the same for every subscriber and every retry.
-  await enqueueWebhookEvent(db, tenantId ?? null, {
+  const change: ChangeEvent = {
     id: crypto.randomUUID(),
     event: eventName,
     collection,
     data: outbound,
     timestamp: new Date().toISOString(),
-  });
+  };
+  if (events) events.push(change);
+  else await enqueueWebhookEvent(db, tenantId ?? null, change);
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
   // doesn't fan out to subscribers in tenant B (collection names
   // collide across tenants on both channel namespaces).
