@@ -1722,9 +1722,14 @@ export function realtimeScopeCurrent(generation: number): boolean {
   return generation === _accessGen && !busDeaf();
 }
 
-export function revalidateSockets(scope: SweepScope = 'all'): void {
+/**
+ * `change`: false for a sweep asked for by something that is not a rule or
+ * permission change (a subscribe that straddled a sweep, a retry), which must
+ * not silence every other subscription until it ends.
+ */
+export function revalidateSockets(scope: SweepScope = 'all', change = true): void {
   _sweepGen++;
-  if (scope === 'all') _accessGen++;
+  if (scope === 'all' && change) _accessGen++;
   if (_sweep) {
     if (_sweepAgain !== 'all') _sweepAgain = scope;
     return;
@@ -1757,7 +1762,9 @@ export function revalidateSockets(scope: SweepScope = 'all'): void {
         ),
       ]).then(
         (doors) => doors.includes(true),
-        () => false, // a routes module unavailable in some unit-test graphs
+        // A door that threw re-resolved nothing: its stale scopes stay silent
+        // until a sweep does, so it is retried like a failed lookup.
+        () => true,
       );
       next = _sweepAgain;
     }
@@ -1770,12 +1777,17 @@ export function revalidateSockets(scope: SweepScope = 'all'): void {
       _sweepRetryMs = Math.min(delay * 2, SWEEP_RETRY_MAX_MS);
       _sweepRetry = setTimeout(() => {
         _sweepRetry = null;
-        revalidateSockets();
+        revalidateSockets('all', false);
       }, delay);
       _sweepRetry.unref?.();
     }
   }).finally(() => {
     _sweep = null;
+    // A request that arrived after the loop's last look, while `_sweep` was
+    // still set, queued itself and found nobody to run it. Its bump is done.
+    const again = _sweepAgain;
+    _sweepAgain = null;
+    if (again) revalidateSockets(again, false);
   });
 }
 
@@ -1811,11 +1823,18 @@ export function revalidateSocketsEverywhere(userId?: string, scope: SweepScope =
  * inside its transaction (a ban, a key's `is_active`). Not now for that one:
  * receivers would re-read the old state, and the publish took a second
  * connection while the request held one.
+ *
+ * `scope` `'all'` when what changed is what the principal may read (a key's
+ * scopes): a permission change, so every subscription is re-resolved and stays
+ * silent until it is (ADR 0036 decision 2).
  */
-export function revalidatePrincipalsEverywhere(visibleNow = false): void {
+export function revalidatePrincipalsEverywhere(
+  visibleNow = false,
+  scope: SweepScope = 'principals',
+): void {
   const inTrx = Boolean(getCurrentTenantTrx());
-  if (!inTrx || visibleNow) revalidateSocketsEverywhere(undefined, 'principals');
-  if (inTrx) onAfterCommit(() => revalidateSocketsEverywhere(undefined, 'principals'));
+  if (!inTrx || visibleNow) revalidateSocketsEverywhere(undefined, scope);
+  if (inTrx) onAfterCommit(() => revalidateSocketsEverywhere(undefined, scope));
 }
 
 /**

@@ -370,6 +370,8 @@ export function broadcastDataEvent(
       // access and column permissions, as on the REST list path. Without it the
       // stream delivered rows and columns the API would have withheld.
       const write = (scope: ReadScope) => {
+        // Again at send: one queued behind an async verdict may outlive its scope.
+        if (!realtimeScopeCurrent(scope.generation)) return;
         const visible = scope.shape(record);
         if (!matchesFilters(sub, visible)) return;
         const body =
@@ -835,7 +837,10 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
           resolve();
         });
       });
-      if (permissionGeneration() !== gen || sweepGeneration() !== sweep) revalidateSockets();
+      // Not a change of its own: no bump, which would silence every stream.
+      if (permissionGeneration() !== gen || sweepGeneration() !== sweep) {
+        revalidateSockets('all', false);
+      }
 
       // Subscribe to cache channels if cache is available
       const cache = getCache();

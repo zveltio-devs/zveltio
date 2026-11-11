@@ -121,13 +121,14 @@ export async function principalRecord(
   record: Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
   if (!principal.allows(collection, 'read')) return null;
+  const generation = accessGeneration();
   const { identity } = principal;
   const user = { id: '', email: '', role: identity.role };
   const granted = identity.columnsAll
     ? { hidden: new Set<string>(), readOnly: new Set<string>() }
     : await getColumnAccess(db, collection, identity.role);
   const rls = await principalRlsFilters(collection, identity);
-  const scope = await scopeOf(db, collection, user, rls, granted, accessGeneration());
+  const scope = await scopeOf(db, collection, user, rls, granted, generation);
   return (await scope.admits(record)) ? scope.shape(record) : null;
 }
 
