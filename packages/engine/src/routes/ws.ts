@@ -12,10 +12,12 @@ import {
 } from '../lib/data/index.js';
 import { checkWsOrigin } from '../lib/security/index.js';
 import {
+  accessGeneration,
   DEFAULT_TENANT_ID,
   isGodUser,
   isTenantAdmin,
   permissionGeneration,
+  realtimeScopeCurrent,
   requireInstanceAdmin,
   revalidateSockets,
   runWithDomain,
@@ -307,6 +309,16 @@ async function socketMayReadCached(
 }
 
 /**
+ * A rule changed while a subscribe resolved its scope, and the sweep it started
+ * may have run before the subscription was registered: the scope stays stale,
+ * and the socket silent, until a sweep re-resolves it — ask for one.
+ */
+function resweepIfStale(conn: WSConnection): void {
+  const gen = accessGeneration();
+  if ([...conn.access.values()].some((scope) => scope.generation !== gen)) revalidateSockets();
+}
+
+/**
  * The channel that carries collection create/alter/drop events. `$` cannot
  * start a collection name (`CollectionSchema` requires `^[a-z]`), so it never
  * collides with a collection's own record channel.
@@ -580,6 +592,7 @@ export const websocketHandler = {
               }
             }
             ws.send(JSON.stringify({ type: 'subscribed', collections: allowed, denied }));
+            resweepIfStale(conn);
           } else if (typeof msg.channel === 'string') {
             // `*:insert` too: it passed a god's permission check and was stored,
             // but fan-out matches channels by collection, so it never delivered.
@@ -598,6 +611,7 @@ export const websocketHandler = {
               conn.subscriptions.add(msg.channel);
               indexSubscription(msg.channel, ws.data.id);
               ws.send(JSON.stringify({ type: 'subscribed', channel: msg.channel }));
+              resweepIfStale(conn);
             } else {
               ws.send(
                 JSON.stringify({
@@ -713,9 +727,10 @@ export function broadcastEvent(
       //
       // No entry means nothing resolved what this socket may see, so it gets
       // nothing — not everything. Subscribing always resolves one; this is the
-      // backstop for a path that someday does not.
+      // backstop for a path that someday does not. A scope from before the
+      // latest rule change, or while the bus is down, delivers nothing either.
       const scope = conn.access.get(collection);
-      if (!scope) continue;
+      if (!scope || !realtimeScopeCurrent(scope.generation)) continue;
       inOrder(conn, scope.admits(data), () => {
         const visible = scope.shape(data);
         const body =

@@ -5,6 +5,7 @@ import type { Database } from '../../db/index.js';
 import { problem } from '../problem.js';
 import {
   ACCESS_RULES_CHANGED_EVENT,
+  busDeaf,
   getCache,
   POLICY_CHANGED_EVENT,
   realtimeBus,
@@ -1698,8 +1699,32 @@ export function sweepGeneration(): number {
   return _sweepGen;
 }
 
+/**
+ * Moves on every rule or permission change this instance applies or hears of
+ * (a sweep of everything, not of principals). A realtime read scope carries the
+ * value it was resolved at; see `realtimeScopeCurrent`.
+ */
+let _accessGen = 0;
+
+export function accessGeneration(): number {
+  return _accessGen;
+}
+
+/**
+ * May a realtime read scope resolved at `generation` deliver a record event now
+ * (ADR 0036 decision 2)? Not if a rule or permission changed since — the sweep
+ * re-resolves it, and until then the event is dropped, not delivered by the old
+ * rules — and not while the bus is down, when a change on another instance
+ * cannot reach this one. `GET` has neither window: Postgres applies the change
+ * with its commit.
+ */
+export function realtimeScopeCurrent(generation: number): boolean {
+  return generation === _accessGen && !busDeaf();
+}
+
 export function revalidateSockets(scope: SweepScope = 'all'): void {
   _sweepGen++;
+  if (scope === 'all') _accessGen++;
   if (_sweep) {
     if (_sweepAgain !== 'all') _sweepAgain = scope;
     return;

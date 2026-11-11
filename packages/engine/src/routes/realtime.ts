@@ -10,6 +10,7 @@ import {
   isGodUser,
   isTenantAdmin,
   permissionGeneration,
+  realtimeScopeCurrent,
   revalidateSockets,
   runWithDomain,
   sweepGeneration,
@@ -387,9 +388,13 @@ export function broadcastDataEvent(
           /* client disconnected */
         }
       };
+      // A scope from before the latest rule change, or while the bus is down,
+      // delivers nothing until the sweep re-resolves it.
       const scope = sub.access.get(collection);
       if (scope) {
-        inOrder(sub, scope.admits(record), () => write(scope));
+        if (realtimeScopeCurrent(scope.generation)) {
+          inOrder(sub, scope.admits(record), () => write(scope));
+        }
       } else if (sub.collections.length === 0) {
         // The wildcard stream: resolved on first use, under the stream's tenant.
         // A lookup that fails drops the event and is retried on the next one.
@@ -402,7 +407,7 @@ export function broadcastDataEvent(
         let resolved: ReadScope | undefined;
         const verdict = lazy.then((s) => {
           resolved = s;
-          return s.admits(record);
+          return realtimeScopeCurrent(s.generation) && s.admits(record);
         });
         inOrder(sub, verdict, () => write(resolved!));
       }
@@ -436,7 +441,11 @@ function streamStillAllowed(sub: StreamSub): Promise<boolean> {
     if (needsAdmin && !(await mayHearEverything(sub.user))) return false;
     // `checkAccess`: Casbin for a session, the scopes for a key.
     for (const col of reads) if (!(await checkAccess(sseDb!, sub.user, col, 'read'))) return false;
-    return accessKey(await sub.resolveAccess(sub.user)) === accessKey(sub.access);
+    const fresh = await sub.resolveAccess(sub.user);
+    if (accessKey(fresh) !== accessKey(sub.access)) return false;
+    // The same rules, resolved now: current again, so the stream delivers.
+    sub.access = fresh;
+    return true;
   });
 }
 
