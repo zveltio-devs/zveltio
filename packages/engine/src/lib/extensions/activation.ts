@@ -28,6 +28,7 @@ import {
   getCurrentDomain,
   getCurrentDomainOrNull,
   getCurrentTenantTrx,
+  NO_CALLER,
   runWithDomain,
   withTenantIsolation,
 } from '../tenancy/index.js';
@@ -387,11 +388,16 @@ export function guardPerTenantScheduleHandler<A extends unknown[]>(
       if (!(await isExtensionActiveForTenant(db, extName, id))) continue;
       try {
         // The domain too, not only the transaction: permission checks and the
-        // identity helpers read it, and must answer for this firm.
+        // identity helpers read it, and must answer for this firm. No caller: an
+        // actor with no identity (ADR 0040).
         await runWithDomain(id, () =>
-          withTenantIsolation(id, async () => {
-            await fn(...args);
-          }),
+          withTenantIsolation(
+            id,
+            async () => {
+              await fn(...args);
+            },
+            { identity: NO_CALLER },
+          ),
         );
       } catch (err) {
         failed.push(`${id}: ${(err as Error).message ?? String(err)}`);

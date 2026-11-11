@@ -322,7 +322,12 @@ export default defineExtension(['data:write', 'data:system'], {
   In an inline extension, inside `ctx.internals.asSystem(['settings'], fn)`
   (`data:system`, audited) the named collections act as the extension, as a
   job does; the rest stay the caller's. A worker-isolated route has no
-  `ctx.internals`, so it always acts as its caller. Secrets of a collection the extension owns come back decrypted
+  `ctx.internals`, so it always acts as its caller. Work with no caller at all
+  (`ctx.internals.withTenantIsolation` of your own, a `perTenant` schedule, a
+  listener) is an actor with no identity: a row rule on `user_id`, `user_email`
+  or `user_role` keeps no row for it, with `data:system` too (ADR 0040). To
+  write a user's row, do it in that user's request (an action, or `asSystem`
+  in a route) or in a job that user enqueued. Secrets of a collection the extension owns come back decrypted
   either way.
 - An inline route also has `ctx.host(c).files` (ADR 0034, `files` capability):
   `put(name, bytes, { folderId? })` stores a private file of the caller and

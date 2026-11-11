@@ -92,6 +92,7 @@ import {
   getResolvedMembership,
   getUserRoles,
   issuerSettings,
+  NO_CALLER,
   rowActorSettings,
   type RequestActor,
   runOutsideTenantContext,
@@ -985,7 +986,8 @@ export class WorkerExtensionHost {
       // a transaction of its own, which committed when the service returned: a
       // worker route that threw after the call kept the service's rows. Only
       // where the request holds none (an event delivery) does it open one, as
-      // that caller, for itself. No request, no tenant: unchanged.
+      // that caller, for itself — with no caller, an actor with no identity
+      // (ADR 0040). No request, no tenant: unchanged.
       // In a joined request transaction, at the caller's place in its turns: a
       // call made inside the worker's own `db.transaction()` runs in it, as the
       // statements beside it do, rather than wait for it to end.
@@ -994,7 +996,12 @@ export class WorkerExtensionHost {
         ? await run(() =>
             getCurrentTenantTrx() && getCurrentTrxTenant() === tenantId
               ? call()
-              : runWithDomain(tenantId, () => withTenantIsolation(tenantId, call, actor)),
+              : runWithDomain(tenantId, () =>
+                  withTenantIsolation(tenantId, call, {
+                    ...actor,
+                    identity: actor?.identity ?? NO_CALLER,
+                  }),
+                ),
           )
         : await run(call);
       this.post(managed, { type: 'service:ok', id: msg.id, result });
@@ -1773,7 +1780,10 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
  * joined request transaction can put the caller's own values back after.
  */
 function workerSettings(scope: InvokeScope | undefined): [string, string][] {
-  if (!scope?.tenantId) return [];
+  // Extension work is an actor, whoever the caller — none included (ADR 0040):
+  // with no identity a rule on a caller value matches no row. No tenant, no
+  // other setting: the default tenant's rows, as the predicate resolves them.
+  if (!scope?.tenantId) return [['zveltio.actor', 'on']];
   // The tenant and the caller, from the host's own record — the settings
   // `withTenantIsolation` publishes for the request, so the row rules keyed
   // on the user apply here as they do to an inline extension's `ctx.db`.
@@ -1806,8 +1816,9 @@ function workerSettings(scope: InvokeScope | undefined): [string, string][] {
     ['zveltio.issuer_user_email', issuer.email],
     ['zveltio.issuer_user_role', issuer.role],
     ['zveltio.issuer_user_roles', issuer.roles],
-    // An anonymous request is an actor too: the tenant's `public` role (R1).
-    ['zveltio.actor', id?.userId || id?.anonymous ? 'on' : 'off'],
+    // An anonymous request is an actor too: the tenant's `public` role (R1). So
+    // is no caller: no identity, no grant, no row a per-actor rule keeps (ADR 0040).
+    ['zveltio.actor', 'on'],
     ['zveltio.rls_bypass', 'off'],
     ['zveltio.files_all', 'off'],
     ['zveltio.columns_all', 'off'],
