@@ -10,19 +10,15 @@ import { engineEvents } from '../../lib/runtime/index.js';
 import * as realtimeBusModule from '../../lib/runtime/realtime-bus.js';
 import { _resetForTests } from '../../lib/runtime/realtime-bus.js';
 import * as wsModule from '../../routes/ws.js';
-import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 afterEach(() => {
-  initTenantManager(null as unknown as Database);
   _resetForTests();
 });
 
 describe('afterWrite — side-effect resilience', () => {
   it('warns when invalidateQueryCache rejects but still emits engine events', async () => {
     const db = new CannedDb();
-    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
-    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     const cacheSpy = spyOn(queryCache, 'invalidateQueryCache').mockRejectedValue(
@@ -32,7 +28,7 @@ describe('afterWrite — side-effect resilience', () => {
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.updated', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-1',
         action: 'update',
@@ -56,8 +52,6 @@ describe('afterWrite — side-effect resilience', () => {
 
   it('logs when realtimeBus.publish rejects', async () => {
     const db = new CannedDb();
-    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
-    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
     const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
@@ -68,7 +62,7 @@ describe('afterWrite — side-effect resilience', () => {
     } as never);
 
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-2',
         action: 'create',

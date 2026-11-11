@@ -49,6 +49,7 @@ import {
   handlePgErrors,
   getVirtualConfig,
   getDb,
+  runAtomic,
   getTenantId,
   selectReadable,
   isUuid,
@@ -290,6 +291,9 @@ export async function createRecord(
   db: Database,
   w: WriteRequest = routeWrite(c),
 ): Promise<Response> {
+  // The row and the events `afterWrite` enqueues commit together (ADR 0035): a
+  // caller that hands over no transaction gets one, and the write runs in it.
+  if (!w.trx) return runAtomic(db, (trx) => createRecord(c, db, { ...w, trx }));
   const { collection, user } = w;
   const author = rowAuthorId(user);
 
@@ -401,6 +405,13 @@ export async function createRecord(
 }
 
 export async function replaceRecord(c: Context, db: Database): Promise<Response> {
+  // As `createRecord`: the row and its events in one transaction.
+  if (!c.get('tenantTrx')) {
+    return runAtomic(db, (trx) => {
+      c.set('tenantTrx', trx);
+      return replaceRecord(c, db);
+    });
+  }
   const collection = c.req.param('collection')!;
   const id = c.req.param('id')!;
   const user = c.get('user');
@@ -553,6 +564,8 @@ export async function patchRecord(
   db: Database,
   w: WriteRequest = routeWrite(c),
 ): Promise<Response> {
+  // As `createRecord`: the row and its events in one transaction.
+  if (!w.trx) return runAtomic(db, (trx) => patchRecord(c, db, { ...w, trx }));
   const { collection, id, user } = w;
   const author = rowAuthorId(user);
 
@@ -769,6 +782,8 @@ export async function deleteRecord(
   db: Database,
   w: WriteRequest = routeWrite(c),
 ): Promise<Response> {
+  // As `createRecord`: the row and its events in one transaction.
+  if (!w.trx) return runAtomic(db, (trx) => deleteRecord(c, db, { ...w, trx }));
   const { collection, id, user } = w;
 
   if (!isUuid(id)) return c.json({ error: 'Record not found' }, 404);

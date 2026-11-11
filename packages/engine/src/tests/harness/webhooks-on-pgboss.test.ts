@@ -16,8 +16,15 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _setBossForTests } from '../../lib/data/ddl-queue.js';
 import { afterWrite, DDLManager, jobQueue, maybeEncrypt } from '../../lib/data/index.js';
+import { dataApiWriteDetached } from '../../lib/data/api-write.js';
+import type { RequestUser } from '../../lib/data/types.js';
 import { currentAfterCommitQueue, withTenantIsolation } from '../../lib/tenancy/index.js';
-import { runWebhookJob, WEBHOOK_QUEUE, type WebhookJob } from '../../lib/webhooks.js';
+import {
+  _setReadAsRoleForTests,
+  runWebhookJob,
+  WEBHOOK_QUEUE,
+  type WebhookJob,
+} from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { asEngineRole } from '../../lib/role-window.js';
 import {
@@ -44,7 +51,8 @@ d('webhooks on pg-boss (ADR 0035)', () => {
   let answer = 200;
   /** Envelopes POSTed for this file's collection. */
   const sent: Array<{ id: string; sequence: number; event: string; data: { title?: string } }> = [];
-  const signatures: string[] = [];
+  /** The raw body and signature header of each POST, in order. */
+  const signed: Array<{ body: string; signature: string }> = [];
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
@@ -67,7 +75,10 @@ d('webhooks on pg-boss (ADR 0035)', () => {
       const body = String(init?.body ?? '');
       if (body.includes(C)) {
         sent.push(JSON.parse(body));
-        signatures.push(new Headers(init?.headers).get('x-zveltio-signature') ?? '');
+        signed.push({
+          body,
+          signature: new Headers(init?.headers).get('x-zveltio-signature') ?? '',
+        });
       }
       return { status: answer, ok: answer < 400, text: async () => 'x' } as Response;
     }) as unknown as typeof fetch;
@@ -106,13 +117,38 @@ d('webhooks on pg-boss (ADR 0035)', () => {
 
   const deliveriesOf = async (eventId: string) =>
     (
-      await sql<{ attempt: number; max_attempts: number; delivered: boolean; status: number }>`
+      await sql<{
+        attempt: number;
+        max_attempts: number;
+        delivered: boolean;
+        status: number | null;
+      }>`
         SELECT attempt, max_attempts, delivered_at IS NOT NULL AS delivered, status
           FROM zvd_webhook_deliveries
          WHERE webhook_id = ${hook}::uuid AND event_id = ${eventId}::uuid`.execute(db)
     ).rows;
 
   const drain = () => drainWebhookJobs(db);
+
+  const count = async (title: string) =>
+    (
+      await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`.execute(db)
+    ).rows[0]!.n;
+
+  const dlq = async (eventId: string) => {
+    const res = await app.request('/api/webhooks/dlq?limit=500', { headers: { cookie: god } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      entries: Array<{ eventId: string; sequence: number; data: unknown; error: string | null }>;
+    };
+    return body.entries.filter((e) => e.eventId === eventId);
+  };
+
+  const replay = () =>
+    app.request('/api/webhooks/dlq/replay', { method: 'POST', headers: { cookie: god } });
+
+  const asRun = (j: Job) => ({ id: j.id, data: j.data, retryCount: 0, retryLimit: 1 });
 
   it('(a) a write whose transaction rolls back leaves no job row', async () => {
     await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
@@ -168,7 +204,18 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     expect(got).toHaveLength(1);
     expect(got[0]!.id).toBe(job!.data.eventId);
     // Signed with the secret read from the row at delivery; the job never held it.
-    expect(signatures.at(-1)).toMatch(/^sha256=[0-9a-f]{64}$/);
+    const last = signed.at(-1)!;
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(SECRET),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const mac = new Uint8Array(
+      await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(last.body)),
+    );
+    expect(last.signature).toBe(`sha256=${Buffer.from(mac).toString('hex')}`);
     expect(JSON.stringify(job)).not.toContain(SECRET);
     expect(await deliveriesOf(job!.data.eventId)).toEqual([
       { attempt: 1, max_attempts: 1, delivered: true, status: 200 },
@@ -188,22 +235,13 @@ d('webhooks on pg-boss (ADR 0035)', () => {
       { attempt: 2, max_attempts: 1, delivered: false, status: 500 },
     ]);
 
-    const listed = async () => {
-      const res = await app.request('/api/webhooks/dlq?limit=500', { headers: { cookie: god } });
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { entries: Array<{ eventId: string; sequence: number }> };
-      return body.entries.filter((e) => e.eventId === eventId);
-    };
+    const listed = () => dlq(eventId);
     const entries = await listed();
     expect(entries).toHaveLength(1);
     expect(entries[0]!.sequence).toBe(job!.data.sequence);
 
     answer = 200;
-    const replay = await app.request('/api/webhooks/dlq/replay', {
-      method: 'POST',
-      headers: { cookie: god },
-    });
-    expect(replay.status).toBe(200);
+    expect((await replay()).status).toBe(200);
     expect(await listed()).toEqual([]);
     await drain();
     const after = sent.filter((s) => s.id === eventId);
@@ -218,7 +256,6 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     answer = 500;
     expect((await post(C, 'twice-failing')).status).toBe(201);
     const [failing] = await jobsFor('twice-failing');
-    const asRun = (j: Job) => ({ id: j.id, data: j.data, retryCount: 0, retryLimit: 1 });
     await expect(runWebhookJob(asRun(failing!))).rejects.toThrow('delivery failed');
     await expect(runWebhookJob(asRun(failing!))).rejects.toThrow('delivery failed');
     expect(await deliveriesOf(failing!.data.eventId)).toHaveLength(1);
@@ -262,14 +299,6 @@ d('webhooks on pg-boss (ADR 0035)', () => {
 
   it('(f) with no job queue, or a refused job INSERT, a matching write is 503 and leaves no row', async () => {
     const real = jobQueue();
-    const count = async (title: string) =>
-      (
-        await sql<{ n: number }>`
-          SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`.execute(
-          db,
-        )
-      ).rows[0]!.n;
-
     _setBossForTests(null);
     try {
       const res = await post(C, 'no-queue');
@@ -302,6 +331,35 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     }
   }, 30_000);
 
+  it('(f) a write that arrives with no request transaction gets one: refused, it leaves no row', async () => {
+    // The data API's own handler, reached as an extension's internals or job
+    // would reach it, but with no transaction handed over.
+    const session = await app.request('/api/auth/get-session', { headers: { cookie: god } });
+    const user = ((await session.json()) as { user: RequestUser }).user;
+    const create = (title: string) =>
+      dataApiWriteDetached('create', db, {
+        collection: C,
+        id: '',
+        body: async () => ({ title }),
+        user,
+        authType: 'session',
+        trx: undefined,
+        tenantId: null,
+      });
+    const real = jobQueue();
+    _setBossForTests(null);
+    try {
+      expect((await create('detached-no-queue')).status).toBe(503);
+    } finally {
+      _setBossForTests(real);
+    }
+    expect(await count('detached-no-queue')).toBe(0);
+    // With the queue running, the same write commits with its job.
+    expect((await create('detached')).status).toBe(201);
+    expect(await jobsFor('detached')).toHaveLength(1);
+    await drain();
+  }, 30_000);
+
   it('(g) a write to a collection with no subscriber inserts nothing into pgboss.job', async () => {
     const since = await sql<{ t: string }>`SELECT now()::text AS t`.execute(db);
     const newJobs = async (collection: string) =>
@@ -317,5 +375,97 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     expect((await post(C, 'loud')).status).toBe(201);
     expect(await newJobs(C)).toBe(1);
     await drain();
+  }, 30_000);
+
+  it('(h) a job that throws before its POST still records the attempt, listed in /dlq once exhausted', async () => {
+    const restore = _setReadAsRoleForTests(async () => {
+      throw new Error('role lookup down');
+    });
+    try {
+      expect((await post(C, 'throws-early')).status).toBe(201);
+      await drain();
+    } finally {
+      restore();
+    }
+    const [job] = await jobsFor('throws-early');
+    expect(job?.state).toBe('failed');
+    expect(await deliveriesOf(job!.data.eventId)).toEqual([
+      { attempt: 2, max_attempts: 1, delivered: false, status: null },
+    ]);
+    const [entry] = await dlq(job!.data.eventId);
+    expect(entry?.error).toContain('role lookup down');
+    // No role's view of the record was ever taken, so there is nothing to send
+    // again: a replay leaves it listed rather than deliver an empty event.
+    expect(entry?.data).toBeNull();
+    expect((await replay()).status).toBe(200);
+    expect(await dlq(job!.data.eventId)).toHaveLength(1);
+  }, 30_000);
+
+  it('(i) a delivered POST whose delivery row cannot be written completes its job', async () => {
+    answer = 200;
+    expect((await post(C, 'row-write-fails')).status).toBe(201);
+    const [job] = await jobsFor('row-write-fails');
+    const fn = `whpb_refuse_${Date.now()}`;
+    await sql
+      .raw(`CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+              IF NEW.payload->'data'->>'title' = 'row-write-fails' THEN
+                RAISE EXCEPTION 'delivery row refused';
+              END IF;
+              RETURN NEW;
+            END $$;
+            CREATE TRIGGER ${fn} BEFORE INSERT OR UPDATE ON zvd_webhook_deliveries
+              FOR EACH ROW EXECUTE FUNCTION ${fn}()`)
+      .execute(db);
+    try {
+      // A throw here would have pg-boss POST the delivered event again.
+      await runWebhookJob(asRun(job!));
+    } finally {
+      await sql.raw(`DROP TRIGGER ${fn} ON zvd_webhook_deliveries`).execute(db);
+      await sql.raw(`DROP FUNCTION ${fn}()`).execute(db);
+    }
+    expect(sent.filter((s) => s.id === job!.data.eventId)).toHaveLength(1);
+    await sql`DELETE FROM pgboss.job WHERE id = ${job!.id}::uuid`.execute(db);
+  }, 30_000);
+
+  it('(j) two replays at once queue one job per dead letter', async () => {
+    answer = 500;
+    expect((await post(C, 'raced')).status).toBe(201);
+    await drain();
+    const [failed] = await jobsFor('raced');
+    expect(await dlq(failed!.data.eventId)).toHaveLength(1);
+    answer = 200;
+    const answers = await Promise.all([replay(), replay(), replay()]);
+    expect(answers.map((r) => r.status)).toEqual([200, 200, 200]);
+    const queued = (await jobsFor('raced')).filter((j) => j.state === 'created');
+    expect(queued).toHaveLength(1);
+    await drain();
+    expect(sent.filter((s) => s.id === failed!.data.eventId && s.data.title)).toHaveLength(3);
+  }, 30_000);
+
+  it('(k) webhook_queue_pending counts the delivery jobs waiting to run', async () => {
+    const before = process.env.METRICS_TOKEN;
+    process.env.METRICS_TOKEN = `whpb-metrics-${STAMP}`;
+    const pending = async () => {
+      const res = await app.request('/metrics', {
+        headers: { Authorization: `Bearer ${process.env.METRICS_TOKEN}` },
+      });
+      expect(res.status).toBe(200);
+      const line = /^webhook_queue_pending (\d+)$/m.exec(await res.text());
+      return Number(line?.[1]);
+    };
+    try {
+      answer = 200;
+      await drain();
+      const idle = await pending();
+      expect((await post(C, 'pending-1')).status).toBe(201);
+      expect((await post(C, 'pending-2')).status).toBe(201);
+      expect(await pending()).toBe(idle + 2);
+      await drain();
+      expect(await pending()).toBe(idle);
+    } finally {
+      if (before === undefined) delete process.env.METRICS_TOKEN;
+      else process.env.METRICS_TOKEN = before;
+    }
   }, 30_000);
 });

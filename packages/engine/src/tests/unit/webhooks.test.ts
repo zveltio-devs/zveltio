@@ -10,7 +10,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { WebhookManager } from '../../lib/webhooks.js';
+import type { Database } from '../../db/index.js';
+import { ProblemException } from '../../lib/problem.js';
+import { enqueueWebhookEvent, WebhookManager } from '../../lib/webhooks.js';
+import { CannedDb } from './fixtures/canned-db.js';
 
 let originalFetch: typeof fetch;
 let lastReq: { url: string; init?: RequestInit } | null;
@@ -174,5 +177,36 @@ describe('WebhookManager.deliver', () => {
       }) as unknown as Response) as unknown as typeof fetch;
     const { ok } = await WebhookManager.deliver({ ...basePayload });
     expect(ok).toBe(true);
+  });
+});
+
+describe('enqueueWebhookEvent', () => {
+  const change = {
+    id: '7d0f6c1e-0000-4000-8000-000000000002',
+    event: 'insert',
+    collection: 'contacts',
+    data: { id: 'r1' },
+    timestamp: '2026-07-10T00:00:00.000Z',
+  };
+
+  it('refuses the write as webhooks.enqueue_failed (503) when the subscriber lookup fails', async () => {
+    const db = new CannedDb();
+    db.fail(/from zvd_webhooks/i, new Error('connection reset'));
+    const err = await db.kysely
+      .transaction()
+      .execute((trx) => enqueueWebhookEvent(trx as unknown as Database, 'tenant-a', change))
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProblemException);
+    expect((err as ProblemException).code).toBe('webhooks.enqueue_failed');
+    expect((err as ProblemException).status).toBe(503);
+    expect((err as ProblemException).message).toContain('connection reset');
+  });
+
+  it("refuses a database that is not the write's transaction: the event would not commit with it", async () => {
+    const db = new CannedDb();
+    await expect(
+      enqueueWebhookEvent(db.kysely as unknown as Database, 'tenant-a', change),
+    ).rejects.toThrow('transaction');
+    expect(db.executed(/zvd_webhooks/i)).toHaveLength(0);
   });
 });

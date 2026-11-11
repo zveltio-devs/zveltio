@@ -21,10 +21,12 @@ describe('webhooks do not use Valkey', () => {
       (f) => !f.startsWith('tests/'),
     );
     expect(files.sort()).toEqual(['lib/webhooks.ts', 'routes/webhooks.ts']);
-    for (const f of files) {
+    // And the write path that enqueues the event (`afterWrite`), whose comments
+    // name Valkey for the realtime bus: code lines only.
+    for (const f of [...files, 'lib/data/write-pipeline.ts']) {
       const hits = (await Bun.file(join(SRC, f)).text())
         .split('\n')
-        .filter((line) => CACHE.test(line));
+        .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line) && CACHE.test(line));
       expect({ file: f, hits }).toEqual({ file: f, hits: [] });
     }
   });

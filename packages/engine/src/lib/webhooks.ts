@@ -32,12 +32,14 @@ let readAsRole = async (
   role: string,
   collection: string,
   record: Record<string, unknown>,
+  admitted: boolean,
 ): Promise<Record<string, unknown> | null> =>
   principalRecord(
     _db as Database,
     collection,
     await runWithDomain(tenant, () => rolePrincipal(role)),
     record,
+    admitted,
   );
 
 /** Test-only: replace `readAsRole`; returns the restorer. */
@@ -157,6 +159,12 @@ export interface WebhookJob {
   /** The outbound record (no unserved, no sealed columns), before its role's view. */
   data: Record<string, unknown>;
   timestamp: string;
+  /**
+   * `data` is already the role's view, stored by an earlier attempt (`POST
+   * /dlq/replay`): its row rules are not asked again of a view that may lack
+   * the columns they read. The read grant and the columns are.
+   */
+  shaped?: boolean;
 }
 
 /** The change one write announces; `id` is the write's, the same for every subscriber. */
@@ -207,11 +215,15 @@ export async function enqueueWebhookEvent(
   tenantId: string | null,
   change: ChangeEvent,
 ): Promise<void> {
+  // Outside the write's transaction the row is already committed, and an event
+  // that then fails to queue is lost, or refused with the row in place.
+  if (!db.isTransaction) {
+    throw new Error(
+      '[webhooks] a webhook event is enqueued on the transaction of its write; none was given',
+    );
+  }
   const tenant = tenantId ?? DEFAULT_TENANT_ID;
-  const run = (trx: Database) => asEngineRole(trx, () => enqueueOn(trx, tenant, change));
-  // Outside a transaction (a route that opens none) the row is already in; the
-  // lookup still needs its firm to see past the tenant policy (migration 028).
-  await (db.isTransaction ? run(db) : withTenantIsolation(tenant, run));
+  await asEngineRole(db, () => enqueueOn(db, tenant, change));
 }
 
 async function enqueueOn(trx: Database, tenant: string, change: ChangeEvent): Promise<void> {
@@ -239,12 +251,14 @@ async function enqueueOn(trx: Database, tenant: string, change: ChangeEvent): Pr
       .then((r) => r.rows.map((h) => ({ id: h.id, retry_attempts: h.retry_attempts ?? 3 })));
     byKey.set(key, found);
   }
-  const hooks = await found;
-  if (hooks.length === 0) return;
-
-  const boss = jobQueue();
-  if (!boss) return refuse('the job queue is not running');
   try {
+    const hooks = await found.catch((err: unknown) => {
+      byKey.delete(key);
+      throw err;
+    });
+    if (hooks.length === 0) return;
+    const boss = jobQueue();
+    if (!boss) return refuse('the job queue is not running');
     await ensureQueue(boss);
     // After the row write, so two writes to one record (serialised by its lock)
     // take their values in commit order.
@@ -312,67 +326,140 @@ type DeliverJob = { id: string; data: WebhookJob; retryCount: number; retryLimit
  * Run one delivery. Reads the webhook again as its firm (gone or inactive:
  * nothing to deliver), reads the record as the webhook's role (ADR 0004; a
  * record that role may not read is not announced), signs with the secret read
- * from the row, POSTs. A failed POST throws, so pg-boss retries it with backoff
- * up to the webhook's `retry_attempts`; the delivery row records each outcome.
+ * from the row, POSTs. A failed attempt throws, so pg-boss retries it with
+ * backoff up to the webhook's `retry_attempts`; the delivery row records each
+ * outcome, a throw before the POST included, so an exhausted job is listed in
+ * `GET /dlq` whatever failed.
  */
 export async function runWebhookJob(job: DeliverJob): Promise<void> {
   const d = job.data;
-  const wh = await withTenantIsolation(d.tenantId, (trx) =>
-    trx
-      .selectFrom('zvd_webhooks')
-      .selectAll()
-      .where('id', '=', d.webhookId)
-      .where('tenant_id', '=', d.tenantId)
-      .executeTakeFirst(),
-  );
-  if (!wh || !wh.active || !wh.run_as_role) return;
-  if (!_db) throw new Error('[webhooks] not initialised');
-  const record = await readAsRole(d.tenantId, wh.run_as_role, d.collection, d.data);
-  if (!record) return;
-
-  const delivered = await withTenantIsolation(d.tenantId, (trx) =>
-    trx
-      .selectFrom('zvd_webhook_deliveries')
-      .select('id')
-      .where('webhook_id', '=', d.webhookId)
-      .where('event_id', '=', d.eventId)
-      .where('delivered_at', 'is not', null)
-      .executeTakeFirst(),
-  );
-  // Delivered before, by a run whose completion was lost: once is enough.
-  if (delivered) return;
-
-  let secret: string | null = null;
-  if (wh.secret) {
-    const plain = await maybeDecrypt(wh.secret, true);
-    secret = typeof plain === 'string' ? plain : null;
-  }
-  const envelope = {
+  const envelope: Envelope = {
     id: d.eventId,
     sequence: d.sequence,
     event: d.event,
     collection: d.collection,
-    data: record,
+    data: null,
     timestamp: d.timestamp,
   };
-  const headers = (wh.headers as Record<string, string> | null) ?? {};
+  let target: Target = { url: '', method: 'POST', headers: {}, timeout: 5000 };
+  let secret: string | null = null;
+  try {
+    const wh = await withTenantIsolation(d.tenantId, (trx) =>
+      trx
+        .selectFrom('zvd_webhooks')
+        .selectAll()
+        .where('id', '=', d.webhookId)
+        .where('tenant_id', '=', d.tenantId)
+        .executeTakeFirst(),
+    );
+    if (!wh || !wh.active || !wh.run_as_role) return;
+    target = {
+      url: wh.url,
+      method: wh.method || 'POST',
+      headers: (wh.headers as Record<string, string> | null) ?? {},
+      timeout: wh.timeout || 5000,
+    };
+    if (!_db) throw new Error('[webhooks] not initialised');
+    envelope.data = await readAsRole(
+      d.tenantId,
+      wh.run_as_role,
+      d.collection,
+      d.data,
+      d.shaped === true,
+    );
+    if (!envelope.data) return;
+
+    const delivered = await withTenantIsolation(d.tenantId, (trx) =>
+      trx
+        .selectFrom('zvd_webhook_deliveries')
+        .select('id')
+        .where('webhook_id', '=', d.webhookId)
+        .where('event_id', '=', d.eventId)
+        .where('delivered_at', 'is not', null)
+        .executeTakeFirst(),
+    );
+    // Delivered before, by a run whose completion was lost: once is enough.
+    if (delivered) return;
+
+    if (wh.secret) {
+      const plain = await maybeDecrypt(wh.secret, true);
+      secret = typeof plain === 'string' ? plain : null;
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    await recordAttempt(job, envelope, target, {
+      ok: false,
+      status: null,
+      responseBody: null,
+      error,
+    }).catch((e: Error) =>
+      console.error(`[webhooks] could not record the failed attempt of event ${d.eventId}:`, e),
+    );
+    throw err;
+  }
+
   const started = performance.now();
   const outcome = await WebhookManager.deliver({
     ...envelope,
-    url: wh.url,
-    method: wh.method || 'POST',
-    headers,
+    url: target.url,
+    method: target.method,
+    headers: target.headers,
     secret,
-    timeout: wh.timeout || 5000,
+    timeout: target.timeout,
   });
   webhookDeliveryDuration.observe({}, (performance.now() - started) / 1000);
   webhookDeliveries.inc({ status: outcome.ok ? 'success' : 'failed' });
 
+  try {
+    await recordAttempt(job, envelope, target, outcome);
+  } catch (err) {
+    // Delivered: failing the job now would have pg-boss POST the event again.
+    if (!outcome.ok) throw err;
+    console.error(
+      `[webhooks] event ${d.eventId} was delivered to ${target.url}, ` +
+        'but its delivery row could not be written:',
+      err,
+    );
+  }
+  if (!outcome.ok) {
+    if (job.retryCount < job.retryLimit) webhookRetries.inc({});
+    else {
+      console.error(
+        `[webhooks] giving up on ${d.event} → ${target.url} after ${job.retryCount + 1} attempt(s); ` +
+          'it is listed in GET /api/webhooks/dlq',
+      );
+    }
+    throw new Error(
+      `webhook ${d.webhookId}: delivery failed (${outcome.error ?? `HTTP ${outcome.status}`})`,
+    );
+  }
+}
+
+/** The envelope a receiver gets; `data` is null until the role's view is taken. */
+type Envelope = Omit<
+  DeliveryPayload,
+  'data' | 'url' | 'method' | 'headers' | 'secret' | 'timeout'
+> & {
+  data: Record<string, unknown> | null;
+};
+type Target = { url: string; method: string; headers: Record<string, string>; timeout: number };
+
+/**
+ * One row per event and webhook, however often the job runs; a delivered row
+ * is final. Stores the role's view, never the record the job carries.
+ */
+async function recordAttempt(
+  job: DeliverJob,
+  envelope: Envelope,
+  target: Target,
+  outcome: DeliveryOutcome,
+): Promise<void> {
+  const d = job.data;
   const row = {
     payload: toJsonb(envelope),
-    url: wh.url,
-    method: wh.method || 'POST',
-    headers: toJsonb(headers),
+    url: target.url,
+    method: target.method,
+    headers: toJsonb(target.headers),
     attempt: job.retryCount + 1,
     max_attempts: job.retryLimit,
     status: outcome.status,
@@ -380,7 +467,6 @@ export async function runWebhookJob(job: DeliverJob): Promise<void> {
     error: outcome.error,
     delivered_at: outcome.ok ? new Date() : null,
   };
-  // One row per event and webhook, however often the job runs.
   await withTenantIsolation(d.tenantId, (trx) =>
     trx
       .insertInto('zvd_webhook_deliveries')
@@ -390,21 +476,14 @@ export async function runWebhookJob(job: DeliverJob): Promise<void> {
         event_id: d.eventId,
         tenant_id: d.tenantId,
       } as never)
-      .onConflict((oc) => oc.columns(['webhook_id', 'event_id']).doUpdateSet(row as never))
+      .onConflict((oc) =>
+        oc
+          .columns(['webhook_id', 'event_id'])
+          .doUpdateSet(row as never)
+          .where('zvd_webhook_deliveries.delivered_at', 'is', null),
+      )
       .execute(),
   );
-  if (!outcome.ok) {
-    if (job.retryCount < job.retryLimit) webhookRetries.inc({});
-    else {
-      console.error(
-        `[webhooks] giving up on ${d.event} → ${wh.url} after ${job.retryCount + 1} attempt(s); ` +
-          'it is listed in GET /api/webhooks/dlq',
-      );
-    }
-    throw new Error(
-      `webhook ${d.webhookId}: delivery failed (${outcome.error ?? `HTTP ${outcome.status}`})`,
-    );
-  }
 }
 
 /** Work the delivery queue on this instance. Boot only; tests run jobs with `_runWebhookJobs`. */

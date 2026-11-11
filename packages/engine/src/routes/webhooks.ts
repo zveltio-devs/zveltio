@@ -15,6 +15,7 @@
  */
 
 import { Hono } from 'hono';
+import { sql } from 'kysely';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
@@ -184,12 +185,28 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
   // POST /dlq/replay — a new job for each abandoned delivery, with the full
   // retry budget again: the endpoint being back is a new situation. The same
-  // event id, so a receiver that did get it once can tell. The row's attempt
-  // goes back to 0 in the same transaction, so it leaves the list as its job
-  // is queued, and the job writes its outcome over it.
+  // event id, so a receiver that did get it once can tell. Each row is claimed
+  // by setting its attempt back to 0 in the statement that finds it, so a
+  // replay running at the same time finds it no longer abandoned and queues it
+  // not again; the job writes its outcome over it.
+  //
+  // The job carries the role's view the row stored (`shaped`): the record as
+  // written is in no table an admin reads. A row whose attempt failed before
+  // that view was taken holds no record, and stays listed.
   app.post('/dlq/replay', async (c) => {
     const trx = reqDb(c, db);
-    const rows = await deadLetters(c);
+    const rows = await trx
+      .updateTable('zvd_webhook_deliveries as d')
+      .from('zvd_webhooks as w')
+      .set({ attempt: 0 })
+      .whereRef('w.id', '=', 'd.webhook_id')
+      .where('d.tenant_id', '=', tenantId(c))
+      .where('d.event_id', 'is not', null)
+      .where('d.delivered_at', 'is', null)
+      .whereRef('d.attempt', '>', 'd.max_attempts')
+      .where(sql<boolean>`jsonb_typeof(d.payload->'data') = 'object'`)
+      .returning(['d.webhook_id', 'd.event_id', 'd.payload', 'w.retry_attempts'])
+      .execute();
     for (const r of rows) {
       const p = r.payload as Omit<WebhookJob, 'tenantId' | 'webhookId' | 'eventId'> & {
         id: string;
@@ -205,15 +222,10 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
           collection: p.collection,
           data: p.data,
           timestamp: p.timestamp,
+          shaped: true,
         },
         r.retry_attempts ?? 3,
       );
-      await trx
-        .updateTable('zvd_webhook_deliveries')
-        .set({ attempt: 0 })
-        .where('id', '=', r.id)
-        .where('tenant_id', '=', tenantId(c))
-        .execute();
     }
     return c.json({ replayed: rows.length });
   });

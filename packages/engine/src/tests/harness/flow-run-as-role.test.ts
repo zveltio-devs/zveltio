@@ -209,6 +209,70 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
     expect(payload).not.toContain('classified');
   });
 
+  it('a replayed dead letter is delivered though its row rule reads a column the role does not see', async () => {
+    // The role sees a row only where `secret` (hidden from it) is "classified".
+    const rule = await createRlsPolicy({
+      collection: COLL,
+      role: 'member',
+      filter_field: 'secret',
+      filter_op: 'eq',
+      filter_value_source: 'static:classified',
+    });
+    const hook = (
+      await asTenant(db, TENANT, (trx) =>
+        sql<{ id: string }>`
+          INSERT INTO zvd_webhooks (name, url, events, collections, active, tenant_id, retry_attempts)
+          VALUES (${`runas-replay-${STAMP}`}, 'https://93.184.216.34/replay', ARRAY['insert'],
+                  ARRAY[${COLL}], true, ${TENANT}::uuid, 0)
+          RETURNING id::text AS id`.execute(trx),
+      )
+    ).rows[0]!.id;
+    const posted: string[] = [];
+    let status = 500;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      if (String(init?.body).includes(COLL)) posted.push(String(init?.body));
+      return { ok: status < 400, status, text: async () => 'x' } as Response;
+    }) as unknown as typeof fetch;
+    try {
+      await withTenantIsolation(TENANT, (trx) =>
+        enqueueWebhookEvent(trx, TENANT, {
+          id: crypto.randomUUID(),
+          event: 'insert',
+          collection: COLL,
+          data: { id: recordId, title: 'replayed-title', secret: 'classified', owner: 'nobody' },
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      await drainWebhookJobs(db);
+      expect(posted).toHaveLength(1); // admitted, its POST failed, no retry left
+
+      status = 200;
+      const res = await app.request('/api/webhooks/dlq/replay', {
+        method: 'POST',
+        headers: { cookie },
+      });
+      expect(res.status).toBe(200);
+      await drainWebhookJobs(db);
+      expect(posted).toHaveLength(2);
+      expect(posted[1]).toContain('replayed-title');
+      expect(posted[1]).not.toContain('classified');
+      const row = await asEveryTenant(db, (trx) =>
+        sql<{ delivered: boolean }>`
+          SELECT delivered_at IS NOT NULL AS delivered FROM zvd_webhook_deliveries
+           WHERE webhook_id = ${hook}`.execute(trx),
+      );
+      expect(row.rows).toEqual([{ delivered: true }]);
+    } finally {
+      globalThis.fetch = realFetch;
+      await deleteRlsPolicy(rule.id);
+      await asEveryTenant(db, async (trx) => {
+        await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${hook}`.execute(trx);
+        await sql`DELETE FROM zvd_webhooks WHERE id = ${hook}`.execute(trx);
+      });
+    }
+  });
+
   it("a data trigger's trigger_data carries the record as its role reads it", async () => {
     const flowId = await insertFlow('on_create', { collection: COLL }, [
       { type: 'condition', config: { expression: 'true' } },

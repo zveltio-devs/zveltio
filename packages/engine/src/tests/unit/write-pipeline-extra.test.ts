@@ -12,11 +12,9 @@ import { registerCoreFieldTypes } from '../../field-types/index.js';
 import * as wsModule from '../../routes/ws.js';
 import * as realtimeModule from '../../routes/realtime.js';
 import { realtimeBus } from '../../lib/runtime/realtime-bus.js';
-import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 afterEach(() => {
-  initTenantManager(null as unknown as Database);
   _resetForTests();
 });
 
@@ -34,8 +32,6 @@ describe('runAtomic', () => {
 
   it('opens a transaction on a pool executor', async () => {
     const db = new CannedDb();
-    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
-    initTenantManager(db.kysely as unknown as Database);
     db.when(/select 1/i, [{ ok: true }]);
     const result = await runAtomic(db.kysely as unknown as Database, async () => 'ok');
     expect(result).toBe('ok');
@@ -123,15 +119,13 @@ describe('afterWrite', () => {
     // SSE, to the cross-instance bus or to the engine event survived every test,
     // and each of those routes a record by tenant.
     const db = new CannedDb();
-    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
-    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const sseSpy = spyOn(realtimeModule, 'broadcastDataEvent').mockImplementation(() => {});
     const busSpy = spyOn(realtimeBus(), 'publish').mockImplementation(async () => {});
     const events: Array<{ tenantId?: string | null }> = [];
     const unsub = engineEvents.on('record.updated', (p) => events.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-9',
         action: 'update',
@@ -152,14 +146,12 @@ describe('afterWrite', () => {
 
   it('writes a revision row, broadcasts, and emits engine events on create', async () => {
     const db = new CannedDb();
-    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
-    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.created', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-1',
         action: 'create',
@@ -184,14 +176,12 @@ describe('afterWrite', () => {
 
   it('maps delete actions to delete broadcasts and record.deleted events', async () => {
     const db = new CannedDb();
-    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
-    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.deleted', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-2',
         action: 'delete',
@@ -213,14 +203,12 @@ describe('afterWrite', () => {
 
   it('maps update actions to update broadcasts and record.updated events', async () => {
     const db = new CannedDb();
-    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
-    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.updated', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-3',
         action: 'update',

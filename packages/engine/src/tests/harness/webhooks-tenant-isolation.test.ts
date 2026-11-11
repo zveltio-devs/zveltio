@@ -28,6 +28,7 @@ import { DDLManager } from '../../lib/data/index.js';
 const THINGS = `things_${Date.now()}`;
 import { enqueueWebhookEvent, WEBHOOK_QUEUE, WebhookManager } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
+import { toJsonb } from '../../lib/jsonb.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -266,7 +267,8 @@ d('webhooks tenant isolation (in-process)', () => {
             webhook_id: webhookId,
             event_id: eventId,
             tenant_id: tenant,
-            payload: JSON.stringify({ id: eventId, sequence: 1, event: 'insert', data: {} }),
+            // An object, as the job stores it: a JSON string bound to jsonb is a string scalar.
+            payload: toJsonb({ id: eventId, sequence: 1, event: 'insert', data: {} }),
             url: 'https://example.com/x',
             method: 'POST',
             attempt: 4,

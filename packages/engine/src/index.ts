@@ -52,7 +52,7 @@ import { registerCoreFieldTypes } from './field-types/index.js';
 import { registerCoreRoutes } from './routes/index.js';
 import { websocketHandler } from './routes/ws.js';
 import { realtimeBus } from './lib/runtime/index.js';
-import { startWebhookWorker, WebhookManager } from './lib/webhooks.js';
+import { startWebhookWorker, WEBHOOK_QUEUE, WebhookManager } from './lib/webhooks.js';
 import { getWorkerHostIfInitialized } from './lib/worker-extension-host.js';
 import { cancelPendingCleanups, sweepGhostOrphans } from './lib/data/index.js';
 import { contractImportLogs } from './lib/data/index.js';
@@ -1084,20 +1084,22 @@ rm studio.tar.gz</pre>
     try {
       const db = _bootstrapCtx?.db;
       if (db) {
-        // Every firm: both tables are under the tenant policy (migration 028),
+        // The delivery jobs not yet run (ADR 0035): pg-boss's table, no firm's.
+        const pending = await sql<{ n: string }>`
+          SELECT count(*)::text AS n FROM pgboss.job
+           WHERE name = ${WEBHOOK_QUEUE} AND state IN ('created', 'retry')
+        `.execute(db);
+        // Every firm: `zvd_webhooks` is under the tenant policy (migration 028),
         // and on the bare pool a non-superuser database counts the default only.
-        const [pending, subs] = await withEveryTenant(db, async (trx) => [
-          await sql<{ n: string }>`
-            SELECT count(*)::text AS n FROM zvd_webhook_deliveries WHERE delivered_at IS NULL
-          `.execute(trx),
-          await sql<{ n: string }>`
+        const subs = await withEveryTenant(db, (trx) =>
+          sql<{ n: string }>`
             SELECT count(*)::text AS n FROM zvd_webhooks WHERE active = true
           `.execute(trx),
-        ]);
+        );
         lines.push(
           ...gaugeLine(
             'webhook_queue_pending',
-            'Undelivered webhook deliveries',
+            'Webhook delivery jobs waiting to run (created or retrying)',
             Number(pending.rows[0]?.n ?? 0),
           ),
           ...gaugeLine(
