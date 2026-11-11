@@ -12,9 +12,11 @@ import { registerCoreFieldTypes } from '../../field-types/index.js';
 import * as wsModule from '../../routes/ws.js';
 import * as realtimeModule from '../../routes/realtime.js';
 import { realtimeBus } from '../../lib/runtime/realtime-bus.js';
+import { initTenantManager } from '../../lib/tenancy/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 afterEach(() => {
+  initTenantManager(null as unknown as Database);
   _resetForTests();
 });
 
@@ -32,6 +34,8 @@ describe('runAtomic', () => {
 
   it('opens a transaction on a pool executor', async () => {
     const db = new CannedDb();
+    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
+    initTenantManager(db.kysely as unknown as Database);
     db.when(/select 1/i, [{ ok: true }]);
     const result = await runAtomic(db.kysely as unknown as Database, async () => 'ok');
     expect(result).toBe('ok');
@@ -119,6 +123,8 @@ describe('afterWrite', () => {
     // SSE, to the cross-instance bus or to the engine event survived every test,
     // and each of those routes a record by tenant.
     const db = new CannedDb();
+    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
+    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const sseSpy = spyOn(realtimeModule, 'broadcastDataEvent').mockImplementation(() => {});
     const busSpy = spyOn(realtimeBus(), 'publish').mockImplementation(async () => {});
@@ -146,6 +152,8 @@ describe('afterWrite', () => {
 
   it('writes a revision row, broadcasts, and emits engine events on create', async () => {
     const db = new CannedDb();
+    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
+    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     const payloads: unknown[] = [];
@@ -176,6 +184,8 @@ describe('afterWrite', () => {
 
   it('maps delete actions to delete broadcasts and record.deleted events', async () => {
     const db = new CannedDb();
+    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
+    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     const payloads: unknown[] = [];
@@ -203,6 +213,8 @@ describe('afterWrite', () => {
 
   it('maps update actions to update broadcasts and record.updated events', async () => {
     const db = new CannedDb();
+    // The webhook lookup runs in a firm's transaction (ADR 0035); none matches here.
+    initTenantManager(db.kysely as unknown as Database);
     db.when(/insert into "zv_revisions"/i, []);
     const wsSpy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     const payloads: unknown[] = [];

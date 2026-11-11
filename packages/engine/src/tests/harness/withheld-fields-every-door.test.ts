@@ -20,6 +20,7 @@ import { websocketHandler } from '../../routes/ws.js';
 import {
   createGodSession,
   createMemberSession,
+  drainWebhookJobs,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -325,7 +326,7 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   });
 
   it('the webhook payload carries neither', async () => {
-    await Bun.sleep(300);
+    await drainWebhookJobs(db);
     const rows = await sql<{ payload: unknown }>`
       SELECT payload FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`.execute(db);
     expect(rows.rows.length).toBeGreaterThan(0);
