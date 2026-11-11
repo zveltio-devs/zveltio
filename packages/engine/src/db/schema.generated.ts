@@ -1042,6 +1042,7 @@ export interface ZvdWebhookDeliveriesTable {
   delivered_at: Date | null;
   created_at: Generated<Date>;
   tenant_id: Generated<string | null>;
+  event_id: string | null;
 }
 
 export interface ZvdWebhooksTable {

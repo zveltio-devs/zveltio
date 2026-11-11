@@ -34,6 +34,7 @@ import {
   asEveryTenant,
   createMemberSession,
   createSteppedUpGod,
+  drainWebhookJobs,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -392,12 +393,19 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
         );
         return [...revs.rows, ...dels.rows].map((r) => r.j).join('\n');
       };
+      // The deliveries are jobs (ADR 0035); the harness runs no worker.
+      await drainWebhookJobs(db);
       let before = '';
       for (let i = 0; i < 50 && !before.includes('"event": "update"'); i++) {
         before = await copies();
         await Bun.sleep(50);
       }
       expect(before).toContain('plain-value-2');
+      const delivered = await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`.execute(
+        db,
+      );
+      expect(delivered.rows[0]!.n).toBeGreaterThan(0);
 
       for (const f of ['p', 'k', 'b']) await alterField(db, R, f, { newType: 'secret' });
 

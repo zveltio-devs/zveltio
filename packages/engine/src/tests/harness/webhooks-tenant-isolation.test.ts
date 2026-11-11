@@ -26,11 +26,10 @@ import {
 import { DDLManager } from '../../lib/data/index.js';
 
 const THINGS = `things_${Date.now()}`;
-import { WebhookManager } from '../../lib/webhooks.js';
+import { enqueueWebhookEvent, WEBHOOK_QUEUE, WebhookManager } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
-import { _setCacheForTests } from '../../lib/runtime/cache.js';
-import { FakeRedis } from '../../testing/fake-redis.js';
-import { WEBHOOK_DLQ_KEY } from '../../lib/webhook-worker.js';
+import { toJsonb } from '../../lib/jsonb.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const OTHER_TENANT = '00000000-0000-0000-0000-0000000000ff';
@@ -84,6 +83,14 @@ d('webhooks tenant isolation (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     await dropTestCollection(db, THINGS).catch(() => {});
+    await sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ANY(${[
+      FOREIGN_ID,
+      FOREIGN_DISPATCH_ID,
+      MINE_DISPATCH_ID,
+      myId,
+    ]})`
+      .execute(db)
+      .catch(() => {});
     for (const id of [FOREIGN_ID, FOREIGN_DISPATCH_ID, MINE_DISPATCH_ID, myId].filter(Boolean)) {
       await asEveryTenant(db, (trx) =>
         trx.deleteFrom('zvd_webhook_deliveries').where('webhook_id', '=', id).execute(),
@@ -192,31 +199,25 @@ d('webhooks tenant isolation (in-process)', () => {
         .execute(),
     );
 
-    // Fire an event as the DEFAULT tenant.
-    await WebhookManager.trigger(
-      'insert',
-      THINGS,
-      { id: '00000000-0000-4000-8000-0000000000ab' },
-      DEFAULT_TENANT_ID,
+    // An event of the DEFAULT tenant, queued as its write's transaction queues it.
+    await withTenantIsolation(DEFAULT_TENANT_ID, (trx) =>
+      enqueueWebhookEvent(trx, DEFAULT_TENANT_ID, {
+        id: crypto.randomUUID(),
+        event: 'insert',
+        collection: THINGS,
+        data: { id: '00000000-0000-4000-8000-0000000000ab' },
+        timestamp: new Date().toISOString(),
+      }),
     );
+    const queuedFor = async (id: string) =>
+      (
+        await sql<{ n: number }>`
+          SELECT count(*)::int AS n FROM pgboss.job
+           WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${id}`.execute(db)
+      ).rows[0]!.n;
 
-    const mineDeliveries = await asEveryTenant(db, (trx) =>
-      trx
-        .selectFrom('zvd_webhook_deliveries')
-        .select('id')
-        .where('webhook_id', '=', MINE_DISPATCH_ID)
-        .execute(),
-    );
-    const foreignDeliveries = await asEveryTenant(db, (trx) =>
-      trx
-        .selectFrom('zvd_webhook_deliveries')
-        .select('id')
-        .where('webhook_id', '=', FOREIGN_DISPATCH_ID)
-        .execute(),
-    );
-
-    expect(mineDeliveries.length).toBeGreaterThan(0); // fired for the writing tenant
-    expect(foreignDeliveries.length).toBe(0); // NOT for the other tenant
+    expect(await queuedFor(MINE_DISPATCH_ID)).toBe(1); // queued for the writing tenant
+    expect(await queuedFor(FOREIGN_DISPATCH_ID)).toBe(0); // NOT for the other tenant
   });
 
   it("cross-tenant: another tenant's delivery log is not listed; mine is", async () => {
@@ -256,41 +257,50 @@ d('webhooks tenant isolation (in-process)', () => {
   });
 
   it("cross-tenant: another tenant's dead letters are neither listed nor replayed", async () => {
-    // The harness has no Valkey. FakeRedis has no lists, which these two
-    // routes use; the tenant middleware uses the rest.
-    const lists = new Map<string, string[]>();
-    const list = (k: string) => lists.get(k) ?? lists.set(k, []).get(k)!;
-    _setCacheForTests(
-      Object.assign(new FakeRedis(), {
-        lrange: async (k: string, from: number, to: number) =>
-          list(k).slice(from, to === -1 ? undefined : to + 1),
-        rpush: async (k: string, v: string) => list(k).push(v),
-        lrem: async (k: string, _n: number, v: string) => {
-          const i = list(k).indexOf(v);
-          if (i !== -1) list(k).splice(i, 1);
-          return i === -1 ? 0 : 1;
-        },
-      }) as never,
+    // A delivery whose job used its last retry, in each firm (ADR 0035).
+    const dead = async (webhookId: string, tenant: string) => {
+      const eventId = crypto.randomUUID();
+      await asTenant(db, tenant, (trx) =>
+        trx
+          .insertInto('zvd_webhook_deliveries')
+          .values({
+            webhook_id: webhookId,
+            event_id: eventId,
+            tenant_id: tenant,
+            // An object, as the job stores it: a JSON string bound to jsonb is a string scalar.
+            payload: toJsonb({ id: eventId, sequence: 1, event: 'insert', data: {} }),
+            url: 'https://example.com/x',
+            method: 'POST',
+            attempt: 4,
+            max_attempts: 3,
+          } as never)
+          .execute(),
+      );
+      return eventId;
+    };
+    const foreign = await dead(FOREIGN_ID, OTHER_TENANT);
+    const mine = await dead(myId, DEFAULT_TENANT_ID);
+
+    const res = await app.request('/api/webhooks/dlq?limit=500', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const { entries } = (await res.json()) as { entries: { eventId: string }[] };
+    const ids = entries.map((e) => e.eventId);
+    expect(ids).toContain(mine);
+    expect(ids).not.toContain(foreign);
+
+    const replay = await app.request('/api/webhooks/dlq/replay', {
+      method: 'POST',
+      headers: { cookie },
+    });
+    expect(replay.status).toBe(200);
+    const queued = await sql<{ event: string }>`
+      SELECT data->>'eventId' AS event FROM pgboss.job
+       WHERE name = ${WEBHOOK_QUEUE} AND data->>'eventId' = ANY(${[foreign, mine]})`.execute(db);
+    expect(queued.rows.map((r) => r.event)).toEqual([mine]);
+    const left = await asTenant(db, OTHER_TENANT, (trx) =>
+      sql<{ attempt: number }>`
+        SELECT attempt FROM zvd_webhook_deliveries WHERE event_id = ${foreign}::uuid`.execute(trx),
     );
-    try {
-      const foreign = JSON.stringify({ webhookId: FOREIGN_ID, failedAt: 1 });
-      const mine = JSON.stringify({ webhookId: myId, failedAt: 2 });
-      list(WEBHOOK_DLQ_KEY).push(foreign, mine);
-
-      const res = await app.request('/api/webhooks/dlq', { headers: { cookie } });
-      expect(res.status).toBe(200);
-      const { entries } = (await res.json()) as { entries: { webhookId: string }[] };
-      expect(entries.map((e) => e.webhookId)).toEqual([myId]);
-
-      const replay = await app.request('/api/webhooks/dlq/replay', {
-        method: 'POST',
-        headers: { cookie },
-      });
-      expect(((await replay.json()) as { replayed: number }).replayed).toBe(1);
-      expect(list(WEBHOOK_DLQ_KEY)).toEqual([foreign]);
-      expect(list('webhook:queue').map((e) => JSON.parse(e).webhookId)).toEqual([myId]);
-    } finally {
-      _setCacheForTests(null);
-    }
+    expect(left.rows).toEqual([{ attempt: 4 }]); // still dead, still the other firm's
   });
 });

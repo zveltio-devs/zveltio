@@ -756,3 +756,17 @@ export async function plantMagicLink(
   });
   return new URL(`/api/auth/magic-link/verify?token=${token}`, ctx.baseURL);
 }
+
+/**
+ * Run every webhook delivery job, as the worker would, until none is left
+ * (ADR 0035). The harness starts pg-boss but no webhook worker. A retry is made
+ * due at once rather than after its backoff, so a test waits on no clock.
+ */
+export async function drainWebhookJobs(db: Database): Promise<void> {
+  const { _runWebhookJobs, WEBHOOK_QUEUE } = await import('../lib/webhooks.js');
+  for (let i = 0; i < 10; i++) {
+    await sql`UPDATE pgboss.job SET start_after = now()
+               WHERE name = ${WEBHOOK_QUEUE} AND state = 'retry'`.execute(db);
+    if ((await _runWebhookJobs()) === 0) return;
+  }
+}

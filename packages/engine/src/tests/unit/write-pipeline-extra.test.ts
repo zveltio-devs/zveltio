@@ -125,7 +125,7 @@ describe('afterWrite', () => {
     const events: Array<{ tenantId?: string | null }> = [];
     const unsub = engineEvents.on('record.updated', (p) => events.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-9',
         action: 'update',
@@ -151,7 +151,7 @@ describe('afterWrite', () => {
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.created', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-1',
         action: 'create',
@@ -181,7 +181,7 @@ describe('afterWrite', () => {
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.deleted', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-2',
         action: 'delete',
@@ -208,7 +208,7 @@ describe('afterWrite', () => {
     const payloads: unknown[] = [];
     const unsub = engineEvents.on('record.updated', (p) => payloads.push(p));
     try {
-      await afterWrite(db.kysely as unknown as Database, {
+      await afterWrite((await db.kysely.startTransaction().execute()) as unknown as Database, {
         collection: 'contacts',
         recordId: 'rec-3',
         action: 'update',

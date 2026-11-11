@@ -7,7 +7,7 @@
  *  - `processInput`   — validate + deserialize + encrypt incoming field values
  *  - `mapPgError` / `handlePgErrors` — translate Postgres SQLSTATEs into 4xx
  *  - `afterWrite`     — revision log + webhook + realtime + cache + flows + events
- *  - `broadcastWebhook`, `getVirtualConfig`, `getDb`, `runAtomic`, `isUuid`
+ *  - `getVirtualConfig`, `getDb`, `runAtomic`, `isUuid`
  *
  * Every branch, string, SQLSTATE mapping and side-effect ordering is
  * byte-identical to the pre-split inline helpers — zero behaviour change.
@@ -22,7 +22,7 @@ import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { getValidationDb, getValidationRules, validateRecord } from '../validation-engine.js';
 import { maybeEncrypt } from './field-crypto.js';
-import { WebhookManager } from '../webhooks.js';
+import { enqueueWebhookEvent } from '../webhooks.js';
 import { broadcastEvent } from '../../routes/ws.js';
 import { realtimeBus } from '../runtime/index.js';
 import { broadcastDataEvent } from '../../routes/realtime.js';
@@ -34,7 +34,7 @@ import { normalizeFields, withheldColumns } from './shape.js';
 import type { CollectionDef } from './types.js';
 import { writtenByRefusal } from './written-by.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
-import { columnGuardRefusal } from '../problem.js';
+import { columnGuardRefusal, ProblemException } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
 import { readableColumns, readSource, withEngineColumns } from '../../db/dynamic.js';
 import { onAfterCommit, withCollectionRead } from '../tenancy/index.js';
@@ -302,22 +302,6 @@ export async function processInput(
   return { errors, processed };
 }
 
-/** Broadcast webhook event. */
-async function broadcastWebhook(
-  _db: Database,
-  event: string,
-  collection: string,
-  data: Record<string, unknown> & { id: string },
-  tenantId?: string | null,
-): Promise<void> {
-  // WebhookManager.trigger() handles:
-  // - matching active webhooks by event + collection (scoped to the writing tenant)
-  // - queuing via Redis (webhook:queue)
-  // - audit trail in zvd_webhook_deliveries
-  // - retry logic via webhook:retry sorted set
-  await WebhookManager.trigger(event, collection, data, tenantId);
-}
-
 /** Map Postgres SQLSTATE codes to HTTP responses with structured error bodies.
  * Without this, every constraint violation hits Hono's default error handler
  * and surfaces as 500 "Internal Server Error" plain text.
@@ -553,6 +537,7 @@ export async function handlePgErrors<T>(c: Context, fn: () => Promise<T>): Promi
   } catch (err) {
     const mapped = mapPgError(err);
     if (mapped) return c.json(mapped.body, mapped.status);
+    if (err instanceof ProblemException) throw err; // already an answer (a refused enqueue: 503)
     // Surface the raw error shape so we can extend mapPgError() later.
     const e = err as { name?: string; code?: string; errno?: string; message?: string };
     console.warn(
@@ -669,13 +654,16 @@ export async function afterWrite(
   // record API, under that API's rules (owner decision 2026-10-08).
   const outbound: Record<string, unknown> = { ...data };
   for (const k of [...unserved, ...sealed]) delete outbound[k];
-  await broadcastWebhook(
-    db,
-    eventName,
+  // A webhook is a job in this transaction (ADR 0035): it commits with the row,
+  // and a matching subscription that cannot be queued refuses the write (503).
+  // `id` is this write's, the same for every subscriber and every retry.
+  await enqueueWebhookEvent(db, tenantId ?? null, {
+    id: crypto.randomUUID(),
+    event: eventName,
     collection,
-    outbound as Record<string, unknown> & { id: string },
-    tenantId ?? null,
-  );
+    data: outbound,
+    timestamp: new Date().toISOString(),
+  });
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
   // doesn't fan out to subscribers in tenant B (collection names
   // collide across tenants on both channel namespaces).
