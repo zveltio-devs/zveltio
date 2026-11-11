@@ -67,7 +67,12 @@ import {
 // as well — so the extension shipped throwing `request.headers.forEach is not a
 // function` on every invocation. A shared name is not a contract.
 import { runEdgeFunction } from '../edge-function-runner.js';
-import { getCurrentDomainOrNull, runWithDomain, withTenantIsolation } from '../tenancy/index.js';
+import {
+  getCurrentDomainOrNull,
+  NO_CALLER,
+  runWithDomain,
+  withTenantIsolation,
+} from '../tenancy/index.js';
 import { applyColumnAccess } from '../tenancy/index.js';
 import { checkAccess, dataApiRead, dataApiWrite, readScope } from '../data/index.js';
 import type { ReadQuery } from '../data/index.js';
@@ -828,21 +833,25 @@ function enterTenantAs(
 ): ExtensionInternals['withTenantIsolation'] {
   return (tenantId, fn) => {
     const running = getCurrentDomainOrNull();
-    // A transaction of its own has no actor, so collection permissions give the
+    // A transaction of its own has no caller, so collection permissions give the
     // extension nothing there — unless it holds `data:system`, in which case the
     // whole job is system inside this tenant, marked and audited (R1, owner
-    // decision 2026-10-04).
+    // decision 2026-10-04). Its actor has no identity (ADR 0040): the mark gives
+    // collections, not the rows a per-actor row rule withholds.
     const body = system
       ? async (trx: Database) => {
           await markSystemJob(caller, trx);
           return fn(trx);
         }
       : fn;
-    if (tenantId === running) return withTenantIsolation(tenantId, body);
+    const opts = { identity: NO_CALLER };
+    if (tenantId === running) return withTenantIsolation(tenantId, body, opts);
     // Entered, the tenant is also the one the work acts AS: a nested transaction
     // keeps the enclosing domain, so permission checks and the identity helpers
     // answered for the request's tenant while the rows went to this one.
-    if (anyTenant) return runWithDomain(tenantId, () => withTenantIsolation(tenantId, body));
+    if (anyTenant) {
+      return runWithDomain(tenantId, () => withTenantIsolation(tenantId, body, opts));
+    }
     return Promise.reject(
       new Error(
         `${caller}: ctx.internals.withTenantIsolation("${tenantId}") refused — this work runs ` +

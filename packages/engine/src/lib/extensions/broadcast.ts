@@ -25,6 +25,7 @@ import {
 import {
   getCurrentDomainOrNull,
   getCurrentTrxTenant,
+  NO_CALLER,
   onAfterCommit,
   runOutsideTenantContext,
   withTenantIsolation,
@@ -53,7 +54,10 @@ export function clearExtensionBroadcasts(extName: string): void {
   missedHandlers.delete(extName);
 }
 
-/** Each handler in its own tenant transaction (none without a tenant); a failure is logged, never shared. */
+/**
+ * Each handler in its own tenant transaction (none without a tenant), as an actor
+ * with no identity (ADR 0040); a failure is logged, never shared.
+ */
 function deliver(
   extName: string,
   name: string,
@@ -65,8 +69,11 @@ function deliver(
     list.map((handler) =>
       runOutsideTenantContext(async () => {
         try {
-          if (tenantId) await withTenantIsolation(tenantId, async () => handler(data));
-          else await handler(data);
+          if (tenantId) {
+            await withTenantIsolation(tenantId, async () => handler(data), {
+              identity: NO_CALLER,
+            });
+          } else await handler(data);
         } catch (err) {
           console.error(
             `[extension-broadcast] ${extName}: "${name}" handler failed:`,

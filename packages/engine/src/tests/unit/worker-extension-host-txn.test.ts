@@ -88,6 +88,8 @@ describe('host transaction outside a request', () => {
     expect((await send({ txn: 't1', savepoint: 'release' })).type).toBe('db:ok');
     expect(ran.filter((s) => !s.includes('pg_roles') && !s.startsWith('SET LOCAL'))).toEqual([
       'BEGIN',
+      // The actor, with no identity: no caller is still an actor (ADR 0040).
+      'SELECT set_config($1, $2, true)',
       'SELECT 1',
       'SAVEPOINT zv_sp_1',
       'ROLLBACK TO SAVEPOINT zv_sp_1',
