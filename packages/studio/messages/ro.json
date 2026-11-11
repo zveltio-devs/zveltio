@@ -3201,7 +3201,7 @@
   "rls.allRolesOpt": "* (toate rolurile)",
   "rls.banner1": "Politicile sunt evaluate după Casbin (verificarea accesului la colecție).",
   "rls.banner2": "Fiecare politică potrivită injectează o clauză WHERE în interogările acelui rol.",
-  "rls.banner3": "Utilizatorii god și cheile API ocolesc RLS.",
+  "rls.banner3": "Cine deține data:view_all (un god) citește toate rândurile. Scrierile respectă mereu regulile: o regulă pentru * îi leagă și pe administratori.",
   "rls.currentUserEmail": "Emailul utilizatorului curent",
   "rls.currentUserId": "ID-ul utilizatorului curent",
   "rls.currentUserRole": "Rolul utilizatorului curent",

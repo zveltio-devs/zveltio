@@ -375,7 +375,7 @@ collection views. The engine reads it for `/api/revisions`,
 
 ## Row-Level Security (RLS)
 
-RLS adds a second authorization layer **below Casbin**: after a role is granted access to a collection, RLS policies control *which records* within that collection the user can see. Policies are implemented at the application layer and are fully visible and editable from Studio — no SQL knowledge required.
+RLS adds a second authorization layer **below Casbin**: after a role is granted access to a collection, RLS policies control *which records* within that collection the user can see and write. Policies are implemented at the application layer and are fully visible and editable from Studio — no SQL knowledge required.
 
 ### How it works
 
@@ -388,9 +388,26 @@ Request
 
 Multiple matching policies are **ANDed** together (most restrictive wins).
 
-**Bypasses:** a caller holding `data:view_all` (a god holds it) is never
-filtered, and neither is an API key with `rls_bypass` whose issuer holds
-`data:view_all`. Any other API key is filtered by its own rules (role
+**The exemption covers reads only (ADR 0037).** A caller holding
+`data:view_all` (a god holds it) reads every row whatever the row rules say, and
+so does an API key with `rls_bypass` whose issuer holds `data:view_all`, and a
+flow whose `run_as_role` holds it. Nobody is exempt on a write: an insert, an
+update and a delete meet every rule that applies to the caller, on the row as it
+is and on the row as it would become. A caller who can read a row under the
+exemption and may not write it gets `403 row_level_security_violation`, not
+"Record not found". So under `* created_by eq user_id` an administrator sees
+every row and cannot edit or delete another user's; under a decision
+collection's `* author neq user_id` (ADR 0016) a god cannot decide their own
+row.
+
+**A rule binds the roles it names.** A rule for `*` binds everyone on writes, a
+god included. A rule for `member` binds a caller who holds `member`, and every
+account does unless the role was taken from it. To let administrators edit other
+users' rows, name the roles the rule is meant for instead of `*`, and make sure
+the administrators do not hold one of them. There is no permission that writes
+past a row rule.
+
+Any other API key is filtered by its own rules (role
 `api_key`, and `*`, resolved against the key's author: `user_id` and
 `user_email` are its issuer's — ADR 0028 — or empty when it has none) AND by
 its issuer's — the rules of the issuer's roles and
@@ -403,7 +420,11 @@ rules, so a job never sees a row its author could not (ADR 0028, ADR 0027 §3).
 A job with no author — enqueued by a public route — has no issuer half and is
 bounded by its manifest; `user_id`/`user_email` own no row for it. Only row
 rules work this way: a job's grants are its manifest's declared collections.
-The database policy (`zv_row_rules`) applies the same two halves.
+The database applies the same two halves, as one RESTRICTIVE policy per
+command: `zv_row_rules` (`SELECT`, the only one that reads the exemption),
+`zv_row_rules_insert`, `zv_row_rules_update` and `zv_row_rules_delete`. A write
+policy stands down only for the engine's own work with no actor (tenant purge);
+no caller can reach that state.
 
 ### Policy structure
 

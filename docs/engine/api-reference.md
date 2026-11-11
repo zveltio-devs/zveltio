@@ -218,6 +218,12 @@ until an operator grants it `read` on a collection (403 until then). Writes
 without credentials, and any request carrying an API key the engine refuses,
 answer 401. Anonymous reads are limited per address (`anon-read` tier).
 
+A write the collection's row rules refuse (create, update, delete, bulk, sync
+push) answers `403` `{ "error": "row_level_security_violation", "code": "42501" }`.
+That includes a caller who can read the row because they hold `data:view_all`:
+the exemption covers reads only (see
+[Authorization](./authorization.md#row-level-security-rls)).
+
 A write to a collection a webhook subscribes to queues its events in the same
 transaction. If the job queue cannot take them, the write answers `503` and
 nothing is written (see [Webhooks](./webhooks.md#delivery-guarantee)).
@@ -943,7 +949,8 @@ Create an API key. The raw key is returned **only once** in the response.
 
 A key never exceeds the person who issued it. Every grant its scopes make is
 also asked of the issuer, as they are now, in the request's tenant: a
-collection action is the issuer's own `checkPermission`, `rls_bypass` holds
+collection action is the issuer's own `checkPermission`, `rls_bypass` exempts
+reads only (a write meets the row rules, ADR 0037) and holds
 only while the issuer holds `data:view_all` (and, on storage, is a tenant
 admin), column rules are the key's own (`api_key`, `*`) and its issuer's
 together, the stricter winning, row rules likewise — the key's own and the
