@@ -1143,7 +1143,7 @@
   "rls.allRolesOpt": "* (minden szerepkör)",
   "rls.banner1": "A szabályok a Casbin (gyűjtemény-hozzáférési ellenőrzés) után értékelődnek ki.",
   "rls.banner2": "Minden illeszkedő szabály WHERE feltételt szúr be az adott szerepkör lekérdezéseibe.",
-  "rls.banner3": "A god felhasználók és az API-kulcsok megkerülik az RLS-t.",
+  "rls.banner3": "A data:view_all birtokosa (egy god) minden sort olvas. Az írások mindig követik a szabályokat: a * szabály az adminisztrátorokra is érvényes.",
   "rls.currentUserEmail": "Aktuális felhasználó e-mail-címe",
   "rls.currentUserId": "Aktuális felhasználó azonosítója",
   "rls.currentUserRole": "Aktuális felhasználó szerepköre",

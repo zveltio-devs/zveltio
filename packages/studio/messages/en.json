@@ -3201,7 +3201,7 @@
   "rls.allRolesOpt": "* (all roles)",
   "rls.banner1": "Policies are evaluated after Casbin (collection access check).",
   "rls.banner2": "Each matching policy injects a WHERE clause into queries for that role.",
-  "rls.banner3": "God users and API keys bypass RLS.",
+  "rls.banner3": "A holder of data:view_all (a god) reads every row. Writes always obey the rules: a rule for * binds administrators too.",
   "rls.currentUserEmail": "Current user email",
   "rls.currentUserId": "Current user ID",
   "rls.currentUserRole": "Current user role",

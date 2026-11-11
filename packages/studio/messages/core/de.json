@@ -1143,7 +1143,7 @@
   "rls.allRolesOpt": "* (alle Rollen)",
   "rls.banner1": "Richtlinien werden nach Casbin ausgewertet (Zugriffsprüfung der Sammlung).",
   "rls.banner2": "Jede passende Richtlinie fügt den Abfragen dieser Rolle eine WHERE-Klausel hinzu.",
-  "rls.banner3": "God-Benutzer und API-Schlüssel umgehen RLS.",
+  "rls.banner3": "Wer data:view_all besitzt (ein God), liest jede Zeile. Schreibzugriffe folgen immer den Regeln: Eine Regel für * gilt auch für Administratoren.",
   "rls.currentUserEmail": "E-Mail des aktuellen Benutzers",
   "rls.currentUserId": "ID des aktuellen Benutzers",
   "rls.currentUserRole": "Rolle des aktuellen Benutzers",

@@ -3201,7 +3201,7 @@
   "rls.allRolesOpt": "* (alle rollen)",
   "rls.banner1": "Beleid wordt geëvalueerd na Casbin (toegangscontrole van de collectie).",
   "rls.banner2": "Elk passend beleid voegt een WHERE-clausule toe aan de query's van die rol.",
-  "rls.banner3": "God-gebruikers en API-sleutels omzeilen RLS.",
+  "rls.banner3": "Wie data:view_all heeft (een god) leest elke rij. Schrijfacties volgen altijd de regels: een regel voor * geldt ook voor beheerders.",
   "rls.currentUserEmail": "E-mail van huidige gebruiker",
   "rls.currentUserId": "ID van huidige gebruiker",
   "rls.currentUserRole": "Rol van huidige gebruiker",
