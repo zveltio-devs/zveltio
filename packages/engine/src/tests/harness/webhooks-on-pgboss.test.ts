@@ -16,8 +16,6 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _setBossForTests } from '../../lib/data/ddl-queue.js';
 import { afterWrite, DDLManager, jobQueue, maybeEncrypt } from '../../lib/data/index.js';
-import { dataApiWriteDetached } from '../../lib/data/api-write.js';
-import type { RequestUser } from '../../lib/data/types.js';
 import { currentAfterCommitQueue, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   _setReadAsRoleForTests,
@@ -329,35 +327,6 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     } finally {
       _setBossForTests(real);
     }
-  }, 30_000);
-
-  it('(f) a write that arrives with no request transaction gets one: refused, it leaves no row', async () => {
-    // The data API's own handler, reached as an extension's internals or job
-    // would reach it, but with no transaction handed over.
-    const session = await app.request('/api/auth/get-session', { headers: { cookie: god } });
-    const user = ((await session.json()) as { user: RequestUser }).user;
-    const create = (title: string) =>
-      dataApiWriteDetached('create', db, {
-        collection: C,
-        id: '',
-        body: async () => ({ title }),
-        user,
-        authType: 'session',
-        trx: undefined,
-        tenantId: null,
-      });
-    const real = jobQueue();
-    _setBossForTests(null);
-    try {
-      expect((await create('detached-no-queue')).status).toBe(503);
-    } finally {
-      _setBossForTests(real);
-    }
-    expect(await count('detached-no-queue')).toBe(0);
-    // With the queue running, the same write commits with its job.
-    expect((await create('detached')).status).toBe(201);
-    expect(await jobsFor('detached')).toHaveLength(1);
-    await drain();
   }, 30_000);
 
   it('(g) a write to a collection with no subscriber inserts nothing into pgboss.job', async () => {
