@@ -25,7 +25,9 @@ import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { runFlowJob } from '../../lib/flows/index.js';
+import { FLOW_QUEUE, runFlowJob } from '../../lib/flows/index.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import {
   createGodSession,
@@ -110,6 +112,14 @@ d('bulk writes fire their automations (in-process)', () => {
       body: JSON.stringify({ n: 1 }),
     });
     expect(res.status).toBe(201);
+    // The trigger is a row committed with the write: a process that dies here
+    // loses nothing, the next one finds the job.
+    const queued = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM pgboss.job
+       WHERE name = ${FLOW_QUEUE} AND state = 'created' AND data->>'flowId' = ${flowId}
+    `.execute(db);
+    expect(queued.rows[0]!.n).toBe(1);
+    expect(await runsFor()).toBe(before);
     await drainFlowJobs(db);
     expect(await runsFor()).toBe(before + 1);
   }, 30_000);
@@ -143,13 +153,35 @@ d('bulk writes fire their automations (in-process)', () => {
     });
 
   it('a trigger job delivered again does not run the flow again', async () => {
-    const run = await sql<{ event_id: string }>`
-      SELECT event_id::text AS event_id FROM zv_flow_runs
-       WHERE flow_id = ${flowId}::uuid AND event_id IS NOT NULL LIMIT 1
+    const runs = () =>
+      sql<{ event_id: string; finished_at: Date }>`
+        SELECT event_id::text AS event_id, finished_at FROM zv_flow_runs
+         WHERE flow_id = ${flowId}::uuid AND status = 'success' ORDER BY id
+      `.execute(db);
+    const before = (await runs()).rows;
+    await redeliver(before[0]!.event_id);
+    // Same rows, and none finished again: the steps were not executed twice.
+    expect((await runs()).rows).toEqual(before);
+  });
+
+  it('a write that rolls back leaves no trigger and no run', async () => {
+    const eventId = crypto.randomUUID();
+    await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+      await enqueueChangeEvent(trx, DEFAULT_TENANT_ID, {
+        id: eventId,
+        event: 'insert',
+        collection: coll,
+        data: { id: crypto.randomUUID() },
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error('rolled back');
+    }).catch(() => {});
+    await drainFlowJobs(db);
+    const left = await sql<{ n: number }>`
+      SELECT (SELECT count(*) FROM pgboss.job WHERE data->>'eventId' = ${eventId})::int
+           + (SELECT count(*) FROM zv_flow_runs WHERE event_id = ${eventId}::uuid)::int AS n
     `.execute(db);
-    const before = await runsFor();
-    await redeliver(run.rows[0]!.event_id);
-    expect(await runsFor()).toBe(before);
+    expect(left.rows[0]!.n).toBe(0);
   });
 
   it('a run its process died in is marked interrupted, not run again', async () => {
