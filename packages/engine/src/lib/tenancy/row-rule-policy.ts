@@ -320,19 +320,20 @@ export function buildRowRulePredicate(
     `(SELECT lower(coalesce(nullif(current_setting('zveltio.rls_bypass', true), ''), 'off')) ` +
     `IN ('on', 'true', '1'))`;
   // A key's issuer's half: off (`''`) for every other caller, applied while
-  // `on`, and keeping nothing in any other state (`deny`).
-  const issuer =
-    `((SELECT coalesce(current_setting('zveltio.issuer_rows', true), '') = '') OR ` +
-    `((SELECT current_setting('zveltio.issuer_rows', true) = 'on') AND ${issuerTerms.join(' AND ')}))`;
-  const bound = `(${[...terms, issuer].join(' AND ')})`;
+  // `on`, and keeping nothing in any other state (`deny`). `write` is an issuer
+  // whose reads are exempt (ADR 0037): off for a read, applied to a write.
+  const issuerRows = `(SELECT coalesce(current_setting('zveltio.issuer_rows', true), ''))`;
+  const issuerHalf = (off: string, on: string) =>
+    `(${issuerRows} IN (${off}) OR (${issuerRows} IN (${on}) AND ${issuerTerms.join(' AND ')}))`;
+  const bound = (issuer: string) => `(${[...terms, issuer].join(' AND ')})`;
   // The exemption is a READ exemption (ADR 0037): a write stands down only for
   // the engine's own work, the exemption with no actor — tenant purge. Every
   // request, key, job and worker statement publishes an actor.
   const noActor = `(SELECT current_setting('zveltio.actor', true) IS DISTINCT FROM 'on')`;
   const engineOwn = `(${exempt} AND ${noActor})`;
   return {
-    predicate: `${exempt} OR ${bound}`,
-    write: `${engineOwn} OR ${bound}`,
+    predicate: `${exempt} OR ${bound(issuerHalf("'', 'write'", "'on'"))}`,
+    write: `${engineOwn} OR ${bound(issuerHalf("''", "'on', 'write'"))}`,
     skipped,
     columns: [...columns],
   };

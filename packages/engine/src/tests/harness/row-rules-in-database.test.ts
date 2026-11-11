@@ -292,6 +292,25 @@ d('row rules are enforced by the database (in-process)', () => {
       expect(await forgottenWhere(exempt)).toEqual(['alice-1', 'alice-2', 'bob-1', 'orphan']);
     });
 
+    it("binds a key's writes, not its reads, with the rules of an issuer whose reads are exempt", async () => {
+      await clearRules();
+      await setRule({ role: 'editor' });
+      const key = (mode: 'on' | 'write'): RlsIdentity => ({
+        userId: 'apikey:k',
+        email: '',
+        role: 'api_key',
+        roles: ['api_key'],
+        bypass: false,
+        rowActor: { id: ALICE, email: '' },
+        issuer: { mode, id: ALICE, email: '', role: 'member', roles: ['editor'] },
+      });
+      expect(await forgottenWhere(key('on'))).toEqual(['alice-1', 'alice-2']);
+      expect((await forgottenWhere(key('write'))).length).toBe(4);
+      const touch = `UPDATE ${TABLE} SET code = 9 WHERE title = 'bob-1' RETURNING id`;
+      expect(await run(key('write'), touch)).toBe(0);
+      await clearRules();
+    });
+
     it("stands down for the engine's own work, the exemption with no actor", async () => {
       // A `static:` rule binds where there is no actor; only decision 3 lets tenant purge past it.
       await setRule({ field: 'bucket', op: 'eq', source: 'static:alpha' });

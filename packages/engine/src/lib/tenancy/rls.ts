@@ -323,9 +323,10 @@ export async function getRlsFilters(
   // their id, their email. Without this half a member whose rule shows them one
   // bucket minted a key that read every bucket. The database policy applies the
   // same half (`buildRowRulePredicate`, published by `publishApiKeyActor`).
+  // An issuer's `data:view_all` lifts their half for a read only (ADR 0037).
   const issuer = await keyIssuerRowActor(user);
   if (issuer === null) result.push({ field: 'id', condition: { op: 'in', value: [] } });
-  else if (issuer !== 'exempt')
+  else if (issuer !== 'exempt' && !(operation === 'read' && issuer.readsAll))
     result.push(...rulesFor(policies, { ...issuer, roles: new Set(issuer.roles) }));
   return result;
 }
@@ -396,8 +397,9 @@ export interface RowActor {
 
 /**
  * The issuer's half of a key's row rules: the issuer as their own session would
- * be resolved. `'exempt'` where that half stands down — the issuer holds
- * `data:view_all`, the permission that exempts their session; or the key is a
+ * be resolved. `readsAll` where the issuer holds `data:view_all`, the permission
+ * that exempts their session's READS: the half stands down for a read and binds
+ * a write, as for the issuer (ADR 0037, ADR 0010). `'exempt'` where the key is a
  * job (`apikey:job:`) with no author (a public route enqueued it), bounded by
  * its manifest alone. `null` when a member key's issuer is unknown: the caller
  * hides every row a rule covers.
@@ -414,31 +416,34 @@ export interface RowActor {
 export async function keyIssuerRowActor(key: {
   id: string;
   authorUserId?: string | null;
-}): Promise<RowActor | 'exempt' | null> {
+}): Promise<(RowActor & { readsAll: boolean }) | 'exempt' | null> {
   if (key.id.startsWith('apikey:job:') && !key.authorUserId) return 'exempt';
   const issuer = key.authorUserId;
   if (!issuer) return null;
-  if (await checkPermission(issuer, 'data', 'view_all').catch(() => false)) return 'exempt';
-  const [role, roles, email] = await Promise.all([
+  const [readsAll, role, roles, email] = await Promise.all([
+    checkPermission(issuer, 'data', 'view_all').catch(() => false),
     principalRole(issuer),
     getUserRoles(issuer),
     issuerEmail(issuer),
   ]);
-  return { id: issuer, email, role, roles };
+  return { id: issuer, email, role, roles, readsAll };
 }
 
 /**
  * `keyIssuerRowActor`'s answer as `RlsIdentity.issuer` publishes it for the
  * database policy: absent where the half stands down, `deny` for an unknown
- * issuer (no row a rule covers), `on` with the issuer otherwise.
+ * issuer (no row a rule covers), `write` for one whose reads are exempt (the
+ * half binds writes only), `on` with the issuer otherwise.
  */
 export function issuerRowIdentity(
-  actor: RowActor | 'exempt' | null,
-): { mode: 'on' | 'deny'; id: string; email: string; role: string; roles: string[] } | undefined {
+  actor: (RowActor & { readsAll: boolean }) | 'exempt' | null,
+):
+  | { mode: 'on' | 'write' | 'deny'; id: string; email: string; role: string; roles: string[] }
+  | undefined {
   if (actor === 'exempt') return undefined;
-  return actor
-    ? { mode: 'on', ...actor }
-    : { mode: 'deny', id: '', email: '', role: '', roles: [] };
+  if (!actor) return { mode: 'deny', id: '', email: '', role: '', roles: [] };
+  const { readsAll, ...issuer } = actor;
+  return { mode: readsAll ? 'write' : 'on', ...issuer };
 }
 
 /**

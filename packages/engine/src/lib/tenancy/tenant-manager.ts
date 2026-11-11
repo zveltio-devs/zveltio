@@ -99,11 +99,18 @@ export interface RlsIdentity {
    * matched on their roles and resolved against their id, email and role —
    * published as `zveltio.issuer_rows` = `on` and `zveltio.issuer_user_*` for
    * the row-rule policy. `deny` for a key whose issuer is unknown: every row a
-   * rule covers is hidden. Absent when no issuer rules apply — a session, a job
-   * with no author, an issuer holding `data:view_all`. A job with an author has
-   * it, resolved as that author (`keyIssuerRowActor`).
+   * rule covers is hidden. `write` for an issuer holding `data:view_all`: their
+   * rules bind the key's writes and not its reads (ADR 0037). Absent when no
+   * issuer rules apply — a session, a job with no author. A job with an author
+   * has it, resolved as that author (`keyIssuerRowActor`).
    */
-  issuer?: { mode: 'on' | 'deny'; id: string; email: string; role: string; roles: string[] };
+  issuer?: {
+    mode: 'on' | 'write' | 'deny';
+    id: string;
+    email: string;
+    role: string;
+    roles: string[];
+  };
   /**
    * A key principal's author (ADR 0028): whom a row rule's `user_id` and
    * `user_email` resolve to — a member key's issuer, a job's enqueuing user;

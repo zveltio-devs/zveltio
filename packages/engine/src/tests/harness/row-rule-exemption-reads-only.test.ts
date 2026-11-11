@@ -53,16 +53,19 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
   let alice = '';
   let bob = '';
   let key = '';
+  /** Keys WITHOUT `rls_bypass`: the god's, and bob's (an issuer with no exemption). */
+  let godKey = '';
+  let bobKey = '';
   let aliceRow = '';
   let godRow = '';
 
-  /** `auth` is a session cookie, or the bypass key itself. */
+  /** `auth` is a session cookie, or one of the keys itself. */
   const call = (method: string, path: string, auth: string, body?: unknown) =>
     app.request(path, {
       method,
       headers: {
         'Content-Type': 'application/json',
-        ...(auth === key ? { 'X-API-Key': key } : { cookie: auth }),
+        ...([key, godKey, bobKey].includes(auth) ? { 'X-API-Key': auth } : { cookie: auth }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -117,18 +120,25 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
     // After the collections: a grant names an object that exists (migration 116).
     const grants = [OWN, DECIDE, SCOPED].map((collection) => ({ collection, actions: CRUD }));
     alice = (await createMemberSession(app, db, { grants })).cookie;
-    bob = (await createMemberSession(app, db, { grants })).cookie;
+    const b = await createMemberSession(app, db, { grants });
+    bob = b.cookie;
     await rule(OWN, '*', 'created_by', 'eq');
     await rule(DECIDE, '*', 'order_author', 'neq');
     await rule(SCOPED, 'member', 'created_by', 'eq');
 
+    const mint = async (issuer: string, bypass: boolean, colls: string[]) => {
+      const raw = generateApiKey();
+      await sql`
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, rls_bypass, tenant_id, created_by)
+        VALUES (${`hex-${STAMP}`}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
+                ${JSON.stringify(colls.map((collection) => ({ collection, actions: ['*'] })))}::jsonb,
+                true, ${bypass}, ${DEFAULT_TENANT_ID}::uuid, ${issuer})`.execute(db);
+      return raw;
+    };
     // A key with `rls_bypass`, issued by the god: a row rule resolves it to them.
-    key = generateApiKey();
-    await sql`
-      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, rls_bypass, tenant_id, created_by)
-      VALUES (${`hex-${STAMP}`}, ${await hashApiKey(key)}, ${key.slice(0, 12)},
-              ${JSON.stringify([OWN, DECIDE].map((collection) => ({ collection, actions: ['*'] })))}::jsonb,
-              true, true, ${DEFAULT_TENANT_ID}::uuid, ${godId})`.execute(db);
+    key = await mint(godId, true, [OWN, DECIDE]);
+    godKey = await mint(godId, false, [SCOPED]);
+    bobKey = await mint(b.userId, false, [SCOPED]);
 
     aliceRow = await create(OWN, alice, { title: 'alice' });
     godRow = await create(OWN, god, { title: 'god' });
@@ -233,6 +243,41 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
         expect(await res.json()).toMatchObject(REFUSED);
       }
       expect(await stored(OWN, aliceRow)).toBe('alice');
+    });
+  });
+
+  describe("a key without bypass meets its issuer's rules on writes (ADR 0010)", () => {
+    it("is refused where the issuer's session is, and reads what the issuer reads", async () => {
+      const bobRow = await create(SCOPED, bob, { title: 'bob-k' });
+      // The god holds `member`: the `member` rule refuses its session's write.
+      expect(
+        (await call('PATCH', `/api/data/${SCOPED}/${bobRow}`, god, { title: 'X' })).status,
+      ).toBe(403);
+      const res = await call('PATCH', `/api/data/${SCOPED}/${bobRow}`, godKey, { title: 'KEY' });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject(REFUSED);
+      expect((await call('DELETE', `/api/data/${SCOPED}/${bobRow}`, godKey)).status).toBe(403);
+      expect(await stored(SCOPED, bobRow)).toBe('bob-k');
+      const list = await call('GET', `/api/data/${SCOPED}?limit=50`, godKey);
+      expect(list.status).toBe(200);
+      const ids = ((await list.json()) as { records: { id: string }[] }).records.map((r) => r.id);
+      expect(ids).toContain(bobRow);
+    });
+
+    it('a key of an issuer without the exemption reads and writes as before', async () => {
+      const own = await create(SCOPED, bob, { title: 'bob-own' });
+      const godOwn = await create(SCOPED, god, { title: 'god-own' });
+      const list = await call('GET', `/api/data/${SCOPED}?limit=50`, bobKey);
+      expect(list.status).toBe(200);
+      const ids = ((await list.json()) as { records: { id: string }[] }).records.map((r) => r.id);
+      expect(ids).toContain(own);
+      expect(ids).not.toContain(godOwn);
+      expect(
+        (await call('PATCH', `/api/data/${SCOPED}/${own}`, bobKey, { title: 'b2' })).status,
+      ).toBe(200);
+      expect(
+        (await call('PATCH', `/api/data/${SCOPED}/${godOwn}`, bobKey, { title: 'b3' })).status,
+      ).toBe(404);
     });
   });
 

@@ -141,14 +141,15 @@ describe('row rules as a Postgres predicate', () => {
 
   it("binds an API key with its issuer's rules too, read against the issuer", () => {
     // `getRlsFilters` ANDs the issuer's half onto a key's: the issuer's roles,
-    // the issuer's id. Off unless `issuer_rows` is `on`; `deny` keeps nothing.
-    const { predicate } = buildRowRulePredicate([rule({ role: 'editor' })], TYPES);
+    // the issuer's id. Off unless `issuer_rows` is `on`; `deny` keeps nothing;
+    // `write` (an issuer whose reads are exempt) binds the write policies only.
+    const { predicate, write } = buildRowRulePredicate([rule({ role: 'editor' })], TYPES);
     expect(predicate).toContain(
       `(NOT ((SELECT 'editor' = ANY (string_to_array(coalesce(current_setting('zveltio.issuer_user_roles', true), ''), ',')))) OR "created_by" = (SELECT nullif(current_setting('zveltio.issuer_user_id', true), '')))`,
     );
-    expect(predicate).toContain(
-      "((SELECT coalesce(current_setting('zveltio.issuer_rows', true), '') = '') OR ((SELECT current_setting('zveltio.issuer_rows', true) = 'on') AND",
-    );
+    const rows = "(SELECT coalesce(current_setting('zveltio.issuer_rows', true), ''))";
+    expect(predicate).toContain(`(${rows} IN ('', 'write') OR (${rows} IN ('on') AND`);
+    expect(write).toContain(`(${rows} IN ('') OR (${rows} IN ('on', 'write') AND`);
   });
 
   it('applies a `*` rule to everyone, with no role guard', () => {
