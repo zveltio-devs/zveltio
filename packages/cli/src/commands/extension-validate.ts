@@ -587,7 +587,8 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
           }),
         );
       }
-      sduiErrors.push(...checkViews(dir, manifest));
+      // Missing and unparsable files are reported above, for every page.
+      sduiErrors.push(...checkViews(dir, manifest).filter((e) => e.code.startsWith('VIEW_')));
       result.errors.push(...sduiErrors);
       // Only hard errors fail the run. Hardcoded-text findings are warnings:
       // they are real debt but not a defect the user can see as breakage, and a

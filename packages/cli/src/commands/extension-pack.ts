@@ -36,7 +36,7 @@ import { join, relative, resolve } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 import { resolvePackIsolation } from '../lib/pack-isolation.js';
 import { resolvePublisherTier } from '../lib/publisher-tier.js';
-import type { ValidationError } from '@zveltio/sdk/validate';
+import { SHARED_MESSAGE_KEYS, type ValidationError } from '@zveltio/sdk/validate';
 import { isViewDocument, validateView, viewNameIssues } from '@zveltio/sdk/view';
 
 // Historically this was a list of peer deps allowed to stay external —
@@ -339,42 +339,68 @@ const names = (v: unknown, key?: string): string[] =>
         .filter((x): x is string => typeof x === 'string')
     : [];
 
+/** Keys of the extension's own `studio/messages/en.json`, or undefined (checks off) without one. */
+function ownMessageKeys(dir: string): string[] | undefined {
+  try {
+    return Object.keys(
+      JSON.parse(readFileSync(join(dir, 'studio', 'messages', 'en.json'), 'utf8')),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The manifest's `zveltio.view/2` pages against the specification (ADR 0042):
- * the schema, then the rule that a view names only this extension's
- * collections and actions, and a dependency's action. A `view/1` page is not
- * checked here. The engine runs the same schema when it loads the extension.
+ * the schema, then what it cannot see — a collection or action the extension
+ * does not own (a dependency's action is allowed), a `$selected` with no
+ * earlier pane, a pane id used twice, a `navigate`/`open` to no view of the
+ * extension, a message key its `en.json` does not ship. A page file that is
+ * missing or is not JSON is an error too. A `view/1` page is not checked here.
+ * The engine runs the same schema when it loads the extension.
  */
 export function checkViews(dir: string, manifest: unknown): ValidationError[] {
   const m = (manifest ?? {}) as Record<string, unknown>;
   const pages = (m.studio as { pages?: unknown } | undefined)?.pages;
   const out: ValidationError[] = [];
+  const docs: Array<{ file: string; doc: unknown }> = [];
   for (const page of Array.isArray(pages) ? pages : []) {
     const schema = (page as { schema?: unknown } | null)?.schema;
-    const file = typeof schema === 'string' ? `studio/${schema}` : 'manifest.json';
-    let doc = schema;
-    if (typeof schema === 'string') {
-      try {
-        doc = JSON.parse(readFileSync(join(dir, 'studio', schema), 'utf8'));
-      } catch {
-        continue; // a missing or unparsable file is `extension validate`'s SDUI_SCHEMA_* error
-      }
+    if (typeof schema !== 'string') {
+      docs.push({ file: 'manifest.json', doc: schema });
+      continue;
     }
-    if (!isViewDocument(doc)) continue;
+    const file = `studio/${schema}`;
+    const abs = join(dir, 'studio', schema);
+    if (!existsSync(abs)) {
+      out.push({ code: 'SDUI_SCHEMA_MISSING', message: 'schema file not found', file });
+      continue;
+    }
+    try {
+      docs.push({ file, doc: JSON.parse(readFileSync(abs, 'utf8')) });
+    } catch (e) {
+      out.push({
+        code: 'SDUI_SCHEMA_BAD_JSON',
+        message: `not valid JSON: ${(e as Error).message}`,
+        file,
+      });
+    }
+  }
+  const views = docs.filter((d) => isViewDocument(d.doc));
+  const own = ownMessageKeys(dir);
+  const refs = {
+    collections: names(m.collections),
+    actions: names(m.actions, 'name'),
+    dependencies: [...names(m.dependencies, 'name'), ...names(m.optionalDependencies, 'name')],
+    views: views.map((d) => (d.doc as { id?: unknown }).id).filter((x) => typeof x === 'string'),
+    messageKeys: own && [...own, ...SHARED_MESSAGE_KEYS],
+  };
+  for (const { file, doc } of views) {
     const r = validateView(doc);
-    const issues = r.ok
-      ? viewNameIssues(doc, {
-          collections: names(m.collections),
-          actions: names(m.actions, 'name'),
-          dependencies: [
-            ...names(m.dependencies, 'name'),
-            ...names(m.optionalDependencies, 'name'),
-          ],
-        })
-      : r.issues;
+    const issues = r.ok ? viewNameIssues(doc, refs) : r.issues;
     for (const i of issues) {
       out.push({
-        code: r.ok ? 'VIEW_FOREIGN_NAME' : 'VIEW_INVALID',
+        code: r.ok ? 'VIEW_REFERENCE' : 'VIEW_INVALID',
         message: `${i.path || '/'} ${i.message}`,
         file,
       });
