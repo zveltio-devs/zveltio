@@ -20,6 +20,7 @@ import type {
 import CollectionSchemaPanel from '#lib/components/collections/CollectionSchemaPanel.svelte';
 import { auth } from '#lib/auth.svelte.js';
 import { toast } from '#lib/stores/toast.svelte.js';
+import { defaultFields } from '@zveltio/sdk/view';
 
 const collectionName = $derived(page.params.name ?? '');
 
@@ -90,10 +91,10 @@ const insertableFields = $derived.by<CollectionField[]>(() => {
   return fields;
 });
 
-// Table columns capped at 8 to avoid horizontal overflow
-const tableColumns = $derived(
-  customFields.filter((f) => f.type !== 'computed' && !f.is_system).slice(0, 8),
-);
+// The collection's generated default list (`@zveltio/sdk/view`, ADR 0042):
+// the columns a `view/2` list shows when it names none, so this screen and an
+// extension's generated view agree. No system or computed field, at most 8.
+const tableColumns = $derived(defaultFields(customFields, 'list'));
 
 // ── Load ──────────────────────────────────────────────────────────────────
 //

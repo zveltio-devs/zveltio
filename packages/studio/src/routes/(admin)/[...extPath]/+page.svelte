@@ -2,6 +2,10 @@
 /**
  * Declarative extension page host (SDUI).
  *
+ * A page whose schema declares `"spec": "zveltio.view/2"` is drawn by the
+ * `view/2` renderer (`#lib/view`, ADR 0042); any other schema is `view/1` and
+ * drawn as before.
+ *
  * Lowest-priority route in (admin): any /admin/<slug> NOT matched by a real
  * (baked) route lands here. If an active extension declares a schema page for
  * that slug — exact or parametric (`forms/:id`) — render it with the generic
@@ -12,6 +16,8 @@ import { extensions, refreshExtensions } from '#lib/extensions.svelte.js';
 import { validateSchema } from '#lib/sdui/validate.js';
 import SchemaPage from '#lib/sdui/SchemaPage.svelte';
 import SettingsPage from '#lib/sdui/SettingsPage.svelte';
+import ViewPage from '#lib/view/ViewPage.svelte';
+import { isViewDocument, validateView, type ViewDocument } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
 import { PackageX, TriangleAlert } from '@lucide/svelte';
 
@@ -35,13 +41,27 @@ function matchPath(pattern: string, actual: string): Record<string, string> | nu
   return params;
 }
 
+/** A `view/2` document is checked against the specification; anything else is `view/1`. */
+function check(schema: unknown) {
+  if (!isViewDocument(schema)) return validateSchema(schema);
+  const r = validateView(schema);
+  return r.ok
+    ? { ok: true as const, kind: 'view' as const, view: r.view }
+    : { ok: false as const, error: r.issues.map((i) => `${i.path || '/'} ${i.message}`).join('; ') };
+}
+
 const resolved = $derived.by(() => {
+  type Checked =
+    | ReturnType<typeof validateSchema>
+    | { ok: true; kind: 'view'; view: ViewDocument }
+    | { ok: false; error: string };
   let best: {
     score: number;
-    result: ReturnType<typeof validateSchema> & {
+    result: Checked & {
       extName: string;
       collections: string[];
       routeParams: Record<string, string>;
+      pages: { path: string; schema?: unknown }[];
     };
   } | null = null;
 
@@ -69,7 +89,8 @@ const resolved = $derived.by(() => {
       best = {
         score,
         result: {
-          ...validateSchema(pg.schema),
+          ...check(pg.schema),
+          pages: meta.studio?.pages ?? [],
           extName: meta.name as string,
           collections: meta.collections ?? [],
           routeParams,
@@ -78,6 +99,12 @@ const resolved = $derived.by(() => {
     }
   }
   return best?.result ?? null;
+});
+
+/** `$param` reads the path's `:name` segments and the query. */
+const viewParams = $derived({
+  ...Object.fromEntries(page.url.searchParams),
+  ...(resolved?.routeParams ?? {}),
 });
 </script>
 
@@ -96,6 +123,17 @@ const resolved = $derived.by(() => {
       <div class="font-semibold text-sm">{m['extPage.renderFailed']()}</div>
       <div class="text-xs opacity-80">{resolved.error}</div>
     </div>
+  </div>
+{:else if resolved.kind === 'view'}
+  <div class="p-6">
+    {#key slug}
+      <ViewPage
+        view={resolved.view}
+        ext={resolved.extName}
+        params={viewParams}
+        pages={resolved.pages}
+      />
+    {/key}
   </div>
 {:else if resolved.kind === 'settings'}
   <div class="p-6">
