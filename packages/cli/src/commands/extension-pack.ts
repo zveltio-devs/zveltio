@@ -36,6 +36,8 @@ import { join, relative, resolve } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 import { resolvePackIsolation } from '../lib/pack-isolation.js';
 import { resolvePublisherTier } from '../lib/publisher-tier.js';
+import type { ValidationError } from '@zveltio/sdk/validate';
+import { isViewDocument, validateView, viewNameIssues } from '@zveltio/sdk/view';
 
 // Historically this was a list of peer deps allowed to stay external —
 // the engine would install them at enable time into a shared
@@ -330,6 +332,57 @@ export function hashSchemaFiles(dir: string): string {
 const declaresCollections = (m: Manifest) =>
   Array.isArray(m.collections) && m.collections.length > 0;
 
+const names = (v: unknown, key?: string): string[] =>
+  Array.isArray(v)
+    ? v
+        .map((x) => (key && x && typeof x === 'object' ? (x as Record<string, unknown>)[key] : x))
+        .filter((x): x is string => typeof x === 'string')
+    : [];
+
+/**
+ * The manifest's `zveltio.view/2` pages against the specification (ADR 0042):
+ * the schema, then the rule that a view names only this extension's
+ * collections and actions, and a dependency's action. A `view/1` page is not
+ * checked here. The engine runs the same schema when it loads the extension.
+ */
+export function checkViews(dir: string, manifest: unknown): ValidationError[] {
+  const m = (manifest ?? {}) as Record<string, unknown>;
+  const pages = (m.studio as { pages?: unknown } | undefined)?.pages;
+  const out: ValidationError[] = [];
+  for (const page of Array.isArray(pages) ? pages : []) {
+    const schema = (page as { schema?: unknown } | null)?.schema;
+    const file = typeof schema === 'string' ? `studio/${schema}` : 'manifest.json';
+    let doc = schema;
+    if (typeof schema === 'string') {
+      try {
+        doc = JSON.parse(readFileSync(join(dir, 'studio', schema), 'utf8'));
+      } catch {
+        continue; // a missing or unparsable file is `extension validate`'s SDUI_SCHEMA_* error
+      }
+    }
+    if (!isViewDocument(doc)) continue;
+    const r = validateView(doc);
+    const issues = r.ok
+      ? viewNameIssues(doc, {
+          collections: names(m.collections),
+          actions: names(m.actions, 'name'),
+          dependencies: [
+            ...names(m.dependencies, 'name'),
+            ...names(m.optionalDependencies, 'name'),
+          ],
+        })
+      : r.issues;
+    for (const i of issues) {
+      out.push({
+        code: r.ok ? 'VIEW_FOREIGN_NAME' : 'VIEW_INVALID',
+        message: `${i.path || '/'} ${i.message}`,
+        file,
+      });
+    }
+  }
+  return out;
+}
+
 function readManifest(dir: string): Manifest {
   const path = join(dir, 'manifest.json');
   if (!existsSync(path)) {
@@ -364,6 +417,16 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
   const dir = resolve(opts.dir ?? process.cwd());
   const entry = join(dir, 'engine', 'index.ts');
   const outfile = join(dir, 'engine', 'index.js');
+
+  const viewErrors = existsSync(join(dir, 'manifest.json'))
+    ? checkViews(dir, readManifest(dir))
+    : [];
+  if (viewErrors.length > 0) {
+    throw new Error(
+      `views that do not match zveltio.view/2:\n` +
+        viewErrors.map((e) => `  - ${e.file}: ${e.message}`).join('\n'),
+    );
+  }
 
   if (!existsSync(entry)) {
     // A Studio-only extension has no bundle; its declared collections still
