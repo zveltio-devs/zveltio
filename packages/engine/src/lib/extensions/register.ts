@@ -82,7 +82,7 @@ import {
   mountDeclaredRoutes,
   pairRouteHandlers,
   type RouteSpec,
-} from './declared-routes.js';
+} from '../declared-routes.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import {

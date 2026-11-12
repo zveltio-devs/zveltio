@@ -41,7 +41,9 @@ export function pairRouteHandlers(
   const out = declared.map((r) => {
     const run = Object.hasOwn(handlers, r.handler) ? handlers[r.handler] : undefined;
     if (typeof run !== 'function') {
-      refuse(`manifest route ${r.method} ${r.path} names handler "${r.handler}", which routes does not export`);
+      refuse(
+        `manifest route ${r.method} ${r.path} names handler "${r.handler}", which routes does not export`,
+      );
     }
     return { method: r.method, path: r.path, handler: r.handler, run: run as RouteHandler };
   });
@@ -66,9 +68,14 @@ export function mountDeclaredRoutes(
 ): void {
   for (const r of routes) {
     app.on(r.method, r.path, async (c) => {
-      const res = await r.run(request(c), { params: c.req.param() as Record<string, string>, host: host(c) });
+      const res = await r.run(request(c), {
+        params: c.req.param() as Record<string, string>,
+        host: host(c),
+      });
       if (!(res instanceof Response)) {
-        throw new Error(`route ${r.method} ${r.path}: handler "${r.handler}" did not return a Response`);
+        throw new Error(
+          `route ${r.method} ${r.path}: handler "${r.handler}" did not return a Response`,
+        );
       }
       return res;
     });

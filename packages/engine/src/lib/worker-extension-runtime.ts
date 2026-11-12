@@ -26,7 +26,7 @@ import { HTTPException } from 'hono/http-exception';
 import { sqlState } from '../db/bun-sql-quirks.js';
 import { Turns } from '../db/trx-sequencer.js';
 import { buildWorkerCtx } from './worker-extension-ctx.js';
-import { mountDeclaredRoutes, pairRouteHandlers } from './extensions/declared-routes.js';
+import { mountDeclaredRoutes, pairRouteHandlers } from './declared-routes.js';
 import type { DeclaredRouteHost } from '@zveltio/sdk/extension';
 import type {
   HostCallOp,

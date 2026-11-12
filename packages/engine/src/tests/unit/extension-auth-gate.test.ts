@@ -133,11 +133,17 @@ describe('extensionAuthGate', () => {
   });
 
   it('decides a declared route by the route it resolves to, method and path (ADR 0039)', async () => {
-    registerExtensionPublicRoutes('sms', [], [], [{ name: 'noop', permission: { action: 'execute' } }], [
-      { method: 'POST', path: '/hook/:id', access: 'public' },
-      { method: 'GET', path: '/hook/x', access: 'caller' },
-      { method: 'POST', path: '/:a/:b', access: 'public' },
-    ]);
+    registerExtensionPublicRoutes(
+      'sms',
+      [],
+      [],
+      [{ name: 'noop', permission: { action: 'execute' } }],
+      [
+        { method: 'POST', path: '/hook/:id', access: 'public' },
+        { method: 'GET', path: '/hook/x', access: 'caller' },
+        { method: 'POST', path: '/:a/:b', access: 'public' },
+      ],
+    );
     const app = appWith(authAnon);
     app.all('/ext/sms/*', (c) => c.text('served'));
     const status = async (method: string, path: string) =>

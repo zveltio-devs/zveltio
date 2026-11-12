@@ -855,7 +855,9 @@ for (const [driver, transport] of LEGS) {
         status: 200,
         body: { id: '7', body: '{"n":1}', host: ['collections'] },
       });
-      expect(String(((out.declaredPublic as Res).body as { url: string }).url)).toEndWith(`/ext/${main}/declared/7`);
+      expect(String(((out.declaredPublic as Res).body as { url: string }).url)).toEndWith(
+        `/ext/${main}/declared/7`,
+      );
       expect(out.declaredMineAnon).toBe(401);
       expect(out.declaredMine).toEqual({ status: 200, body: { mine: true } });
       expect(out.declaredUndeclared).toBe(404);

@@ -121,7 +121,16 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       fieldTypeRegistry: { register() {} },
       internals: buildExtensionInternals(),
     } as unknown as ExtensionContext;
-    await finalizeExtensionLoad(loader(ctx), ext, ext.name, dir, app, ctx, parsed as never, new Set());
+    await finalizeExtensionLoad(
+      loader(ctx),
+      ext,
+      ext.name,
+      dir,
+      app,
+      ctx,
+      parsed as never,
+      new Set(),
+    );
   }
   const call = (ext: string, path: string, method = 'GET', cookie?: string, body?: string) =>
     app.request(`/ext/${ext}${path}`, {
@@ -207,7 +216,9 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
     await unregisterJobs(EXT);
     if (base) rmSync(base, { recursive: true, force: true });
     if (!db) return;
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${WEXT}, ${BAD})`.execute(db);
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${WEXT}, ${BAD})`.execute(
+      db,
+    );
     await sql`DELETE FROM pgboss.job WHERE name = ${jobQueueName(EXT, 'ingest')}`
       .execute(db)
       .catch(() => {});
@@ -227,7 +238,9 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       expect(body).toMatchObject({ id: '42', method: 'POST', body: 'payload' });
       expect(String(body.url)).toEndWith(`/ext/${ext}/hook/42`);
       // ADR 0039 decision 4: what a route has today, and no more.
-      expect(body.host).toEqual(label === 'inline' ? ['collections', 'enqueue', 'files'] : ['collections']);
+      expect(body.host).toEqual(
+        label === 'inline' ? ['collections', 'enqueue', 'files'] : ['collections'],
+      );
     }, 30_000);
 
     it(`${label}: a caller route is authenticated as every extension route`, async () => {
@@ -309,7 +322,12 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
     ).rejects.toThrow('"stray" is exported but no manifest route names it');
     await expect(
       load(
-        { name: `${BAD}g`, category: 'custom', routes: { a: () => new Response() }, async register() {} },
+        {
+          name: `${BAD}g`,
+          category: 'custom',
+          routes: { a: () => new Response() },
+          async register() {},
+        },
         { routes: [{ method: 'GET', path: '/a', access: 'caller', handler: 'a' }] },
       ),
     ).rejects.toThrow("declared routes need mountStrategy 'subapp'");

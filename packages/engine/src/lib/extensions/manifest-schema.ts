@@ -52,7 +52,10 @@ export const ROUTE_PATH = /^\/$|^(\/([A-Za-z0-9._~-]+|:[A-Za-z_][A-Za-z0-9_]*))+
  * gate opens, and what `fromPublicRoutes` and `forwardCredentials` may name.
  */
 export function publicRoutePaths(
-  m: { publicRoutes?: readonly string[]; routes?: readonly { path: string; access: string }[] } | null,
+  m: {
+    publicRoutes?: readonly string[];
+    routes?: readonly { path: string; access: string }[];
+  } | null,
 ): string[] {
   const declared = (m?.routes ?? []).filter((r) => r.access === 'public').map((r) => r.path);
   return [...new Set([...(m?.publicRoutes ?? []), ...declared])];

@@ -215,7 +215,9 @@ describe('ManifestSchema — extension-api v1 actions and jobs', () => {
     expect(ManifestSchema.parse(v1).routes).toEqual([]);
     expect(parse([route({})], ['/hook/:id'])).toBe(true);
     expect(parse([route({ access: 'caller' })], ['/hook/:id'])).toBe(false);
-    expect(parse([route({}), route({ method: 'GET', path: '/hook/x', access: 'caller' })])).toBe(true);
+    expect(parse([route({}), route({ method: 'GET', path: '/hook/x', access: 'caller' })])).toBe(
+      true,
+    );
     for (const bad of [
       { path: '/hook/*' },
       { path: 'hook' },
