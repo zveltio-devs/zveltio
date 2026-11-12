@@ -38,6 +38,21 @@ Webhooks allow Zveltio to notify external systems when data changes. When an eve
 
 Webhooks do not use Valkey.
 
+### Every consumer of a write
+
+A write tells five consumers that a row changed. Two must not miss a change and are jobs queued in
+the write's transaction; the others run with the write or after it, as below (ADR 0035).
+
+| Consumer | When it runs | Guarantee |
+|---|---|---|
+| `record.*` listeners (extensions) | Inside the write's transaction, one savepoint per listener | Commit or roll back with the row. |
+| Webhooks | A `webhook.deliver` job per matching webhook, queued with the write | At least once, unordered; deduplicate on `id`, keep the higher `sequence`. |
+| Flow data triggers | A `flow.trigger` job per matching flow, queued with the write | The trigger is durable: a committed write always produces a run row. A run executes at most once and is not resumed: a run whose process died is marked `failed` with error `interrupted` when its job is redelivered. |
+| WebSocket and SSE | After the COMMIT, in process | Best effort. An event can be lost (a dropped connection, a restart); after a reconnect, read the data again. |
+| Cross-instance realtime bus | After the COMMIT, Valkey pub/sub or `pg_notify` | Best effort, as above. |
+
+A write whose webhook or flow event cannot be queued answers `503` and writes nothing.
+
 ---
 
 ## Creating a Webhook

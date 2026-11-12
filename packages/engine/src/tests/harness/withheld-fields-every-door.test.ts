@@ -20,6 +20,7 @@ import { websocketHandler } from '../../routes/ws.js';
 import {
   createGodSession,
   createMemberSession,
+  drainFlowJobs,
   drainWebhookJobs,
   dropTestCollection,
   getTestApp,
@@ -202,14 +203,11 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   });
 
   it('a data flow is given neither (and keeps neither in zv_flow_runs)', async () => {
-    let runs: unknown[] = [];
-    for (let i = 0; i < 100 && runs.length === 0; i++) {
-      runs = (
-        await sql<{ trigger_data: unknown }>`
-          SELECT trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`.execute(db)
-      ).rows;
-      if (runs.length === 0) await Bun.sleep(20);
-    }
+    await drainFlowJobs(db);
+    const runs = (
+      await sql<{ trigger_data: unknown }>`
+        SELECT trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`.execute(db)
+    ).rows;
     expect(runs.length).toBe(1);
     expectWithheld(runs);
   });

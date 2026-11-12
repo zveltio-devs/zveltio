@@ -26,7 +26,7 @@ import {
 import { DDLManager } from '../../lib/data/index.js';
 
 const THINGS = `things_${Date.now()}`;
-import { enqueueWebhookEvent, WEBHOOK_QUEUE, WebhookManager } from '../../lib/webhooks.js';
+import { enqueueChangeEvent, WEBHOOK_QUEUE, WebhookManager } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
@@ -201,7 +201,7 @@ d('webhooks tenant isolation (in-process)', () => {
 
     // An event of the DEFAULT tenant, queued as its write's transaction queues it.
     await withTenantIsolation(DEFAULT_TENANT_ID, (trx) =>
-      enqueueWebhookEvent(trx, DEFAULT_TENANT_ID, {
+      enqueueChangeEvent(trx, DEFAULT_TENANT_ID, {
         id: crypto.randomUUID(),
         event: 'insert',
         collection: THINGS,

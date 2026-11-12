@@ -22,12 +22,11 @@ import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { getValidationDb, getValidationRules, validateRecord } from '../validation-engine.js';
 import { maybeEncrypt } from './field-crypto.js';
-import { type ChangeEvent, enqueueWebhookEvent } from '../webhooks.js';
+import { type ChangeEvent, enqueueChangeEvent } from '../webhooks.js';
 import { broadcastEvent } from '../../routes/ws.js';
 import { realtimeBus } from '../runtime/index.js';
 import { broadcastDataEvent } from '../../routes/realtime.js';
 import { engineEvents } from '../runtime/index.js';
-import { triggerDataFlows } from '../flows/index.js';
 import { invalidateQueryCache } from './query-cache.js';
 import { DEFAULT_TENANT_ID } from '../route-db.js';
 import { normalizeFields, withheldColumns } from './shape.js';
@@ -598,8 +597,8 @@ export async function afterWrite(
      */
     tenantId?: string | null;
     /**
-     * A bulk write's collector: the webhook event goes here instead of being
-     * enqueued, and the caller enqueues the batch with `enqueueWebhookEvent`
+     * A bulk write's collector: the change event goes here instead of being
+     * enqueued, and the caller enqueues the batch with `enqueueChangeEvent`
      * on the same transaction, outside the failures it may ignore (ADR 0035).
      */
     events?: ChangeEvent[];
@@ -609,7 +608,7 @@ export async function afterWrite(
 
   // Revision log — awaited so callers see a consistent DB state after the write.
   // Non-fatal, and that takes a SAVEPOINT: `db` is the request's transaction,
-  // and a `.catch` alone left it aborted — the next statement (the flow trigger)
+  // and a `.catch` alone left it aborted — the next statement (the event enqueue)
   // failed with 25P02 and the write answered 500 after the row was in.
   //
   // Minus the columns served to no one (`password`): `zv_revisions` is readable
@@ -677,9 +676,10 @@ export async function afterWrite(
   // record API, under that API's rules (owner decision 2026-10-08).
   const outbound: Record<string, unknown> = { ...data };
   for (const k of [...unserved, ...sealed]) delete outbound[k];
-  // A webhook is a job in this transaction (ADR 0035): it commits with the row,
-  // and a matching subscription that cannot be queued refuses the write (503).
-  // `id` is this write's, the same for every subscriber and every retry.
+  // A webhook delivery and a data-triggered flow are jobs in this transaction
+  // (ADR 0035): they commit with the row, and a match that cannot be queued
+  // refuses the write (503). `id` is this write's, the same for every webhook,
+  // every flow and every retry.
   const change: ChangeEvent = {
     id: crypto.randomUUID(),
     event: eventName,
@@ -688,7 +688,7 @@ export async function afterWrite(
     timestamp: new Date().toISOString(),
   };
   if (events) events.push(change);
-  else await enqueueWebhookEvent(db, tenantId ?? null, change);
+  else await enqueueChangeEvent(db, tenantId ?? null, change);
   // tenant id flows into WS + SSE broadcasts so a write in tenant A
   // doesn't fan out to subscribers in tenant B (collection names
   // collide across tenants on both channel namespaces).
@@ -743,16 +743,6 @@ export async function afterWrite(
       console.warn(`[data] invalidateQueryCache failed for ${collection}:`, (err as Error).message);
     }),
   );
-
-  // Trigger data_event flows (fire-and-forget — must not block the request).
-  // Scoped to the writing tenant so a write in tenant A doesn't fire tenant B's flows.
-  triggerDataFlows(
-    db,
-    collection,
-    eventName as 'insert' | 'update' | 'delete',
-    outbound,
-    tenantId ?? null,
-  ).catch((err) => console.error('[afterWrite] flow trigger failed:', err));
 
   const engineEvent =
     action === 'create'

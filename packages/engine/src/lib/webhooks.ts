@@ -10,6 +10,7 @@ import {
   principalRecord,
 } from './data/index.js';
 import { DEFAULT_TENANT_ID } from './route-db.js';
+import { ensureFlowQueue, FLOW_QUEUE, type FlowJob, triggeredFlows } from './flows/index.js';
 import { toJsonb } from './jsonb.js';
 import { problem, ProblemException } from './problem.js';
 import { asEngineRole } from './role-window.js';
@@ -188,32 +189,37 @@ function ensureQueue(boss: JobQueue): Promise<void> {
   return ready;
 }
 
+type Hook = { id: string; retry_attempts: number };
+type Subscribers = { hooks: Hook[]; flows: string[] };
+
 // One lookup per collection and event per transaction: a bulk write of 500 rows
 // asks once.
-const lookups = new WeakMap<
-  object,
-  Map<string, Promise<{ id: string; retry_attempts: number }[]>>
->();
+const lookups = new WeakMap<object, Map<string, Promise<Subscribers>>>();
 
-const refuse = (why: string): never => {
+type Consumer = 'webhooks' | 'flows';
+const refuse = (why: string, consumer: Consumer = 'webhooks'): never => {
   throw problem(
-    'webhooks.enqueue_failed',
+    `${consumer}.enqueue_failed`,
     503,
-    `the write was not made: its webhook event could not be enqueued (${why})`,
+    `the write was not made: its ${consumer === 'webhooks' ? 'webhook' : 'flow trigger'} ` +
+      `event could not be enqueued (${why})`,
   );
 };
 
 /**
- * Enqueue one `webhook.deliver` job per matching subscription, on the write's
- * own transaction (ADR 0035): the event commits with the row or not at all.
- * As the engine's role, as `host.enqueue` does: `zveltio_rls` holds nothing on
- * `pgboss`. No match takes no sequence value and needs no queue; a match with
+ * Enqueue the write's change event on its own transaction (ADR 0035): one
+ * `webhook.deliver` job per matching subscription and one `flow.trigger` job
+ * per matching data-triggered flow. The event commits with the row or not at
+ * all. As the engine's role, as `host.enqueue` does: `zveltio_rls` holds nothing
+ * on `pgboss`. No match takes no sequence value and needs no queue; a match with
  * no queue refuses the write.
  *
- * A bulk write hands all its rows' changes at once: one lookup per collection
- * and event, one `nextval` statement, one batch of job rows (decision 2).
+ * One event identity per write: the webhook and the flow jobs of a change carry
+ * the same `id` and `sequence`. A bulk write hands all its rows' changes at once:
+ * one lookup per collection and event, one `nextval` statement, one batch of job
+ * rows per queue (decision 2).
  */
-export async function enqueueWebhookEvent(
+export async function enqueueChangeEvent(
   db: Database,
   tenantId: string | null,
   change: ChangeEvent | readonly ChangeEvent[],
@@ -224,18 +230,14 @@ export async function enqueueWebhookEvent(
   // that then fails to queue is lost, or refused with the row in place.
   if (!db.isTransaction) {
     throw new Error(
-      '[webhooks] a webhook event is enqueued on the transaction of its write; none was given',
+      '[webhooks] a change event is enqueued on the transaction of its write; none was given',
     );
   }
   const tenant = tenantId ?? DEFAULT_TENANT_ID;
   await asEngineRole(db, () => enqueueOn(db, tenant, changes));
 }
 
-function subscribers(
-  trx: Database,
-  tenant: string,
-  change: ChangeEvent,
-): Promise<{ id: string; retry_attempts: number }[]> {
+function subscribers(trx: Database, tenant: string, change: ChangeEvent): Promise<Subscribers> {
   const key = `${tenant}\u0000${change.event}\u0000${change.collection}`;
   let byKey = lookups.get(trx);
   if (!byKey) {
@@ -244,48 +246,59 @@ function subscribers(
   }
   let found = byKey.get(key);
   if (!found) {
-    found = sql<{ id: string; retry_attempts: number | null }>`
-      SELECT id::text AS id, retry_attempts FROM zvd_webhooks
-      WHERE active = true
-        AND tenant_id = ${tenant}::uuid
-        AND (events @> ARRAY[${change.event}]::text[] OR events @> ARRAY['*']::text[])
-        AND (
-          collections IS NULL
-          OR cardinality(collections) = 0
-          OR collections @> ARRAY[${change.collection}]::text[]
-          OR collections @> ARRAY['*']::text[]
-        )
-    `
-      .execute(trx)
-      .then((r) => r.rows.map((h) => ({ id: h.id, retry_attempts: h.retry_attempts ?? 3 })));
+    found = (async () => {
+      const hooks = await sql<{ id: string; retry_attempts: number | null }>`
+        SELECT id::text AS id, retry_attempts FROM zvd_webhooks
+        WHERE active = true
+          AND tenant_id = ${tenant}::uuid
+          AND (events @> ARRAY[${change.event}]::text[] OR events @> ARRAY['*']::text[])
+          AND (
+            collections IS NULL
+            OR cardinality(collections) = 0
+            OR collections @> ARRAY[${change.collection}]::text[]
+            OR collections @> ARRAY['*']::text[]
+          )
+      `.execute(trx);
+      return {
+        hooks: hooks.rows.map((h) => ({ id: h.id, retry_attempts: h.retry_attempts ?? 3 })),
+        flows: await triggeredFlows(trx, tenant, change.event, change.collection),
+      };
+    })();
     byKey.set(key, found);
     found.catch(() => byKey.delete(key));
   }
   return found;
 }
 
+/** pg-boss's INSERT, run on the write's transaction. */
+const onTrx = (trx: Database) => ({
+  executeSql: (text: string, values?: unknown[]) =>
+    trx.executeQuery(CompiledQuery.raw(text, values ?? [])) as Promise<{ rows: never[] }>,
+});
+
 async function enqueueOn(
   trx: Database,
   tenant: string,
   changes: readonly ChangeEvent[],
 ): Promise<void> {
+  let consumer: Consumer = 'webhooks';
   try {
-    const matched: { change: ChangeEvent; hooks: { id: string; retry_attempts: number }[] }[] = [];
+    const matched: { change: ChangeEvent; subs: Subscribers }[] = [];
     for (const change of changes) {
-      const hooks = await subscribers(trx, tenant, change);
-      if (hooks.length > 0) matched.push({ change, hooks });
+      const subs = await subscribers(trx, tenant, change);
+      if (subs.hooks.length > 0 || subs.flows.length > 0) matched.push({ change, subs });
     }
     if (matched.length === 0) return;
+    if (!matched.some((m) => m.subs.hooks.length > 0)) consumer = 'flows';
     const boss = jobQueue();
-    if (!boss) return refuse('the job queue is not running');
-    await ensureQueue(boss);
+    if (!boss) return refuse('the job queue is not running', consumer);
     // After the row writes, so two writes to one record (serialised by its lock)
     // take their values in commit order; one value per event, in write order.
     const seq = await sql<{ n: string }>`
       SELECT nextval('zv_change_event_seq')::text AS n
         FROM generate_series(1, ${matched.length}::int)`.execute(trx);
-    const jobs = matched.flatMap(({ change, hooks }, i) =>
-      hooks.map((h) => ({
+    const hookJobs = matched.flatMap(({ change, subs }, i) =>
+      subs.hooks.map((h) => ({
         data: {
           tenantId: tenant,
           webhookId: h.id,
@@ -301,17 +314,38 @@ async function enqueueOn(
         retryBackoff: true,
       })),
     );
-    const ids = await boss.insert(WEBHOOK_QUEUE, jobs, {
-      returnId: true,
-      db: {
-        executeSql: (text, values) =>
-          trx.executeQuery(CompiledQuery.raw(text, values ?? [])) as Promise<{ rows: never[] }>,
-      },
-    });
-    if (!ids || ids.length !== jobs.length) refuse('pg-boss inserted no job');
+    const flowJobs = matched.flatMap(({ change, subs }, i) =>
+      subs.flows.map((flowId) => ({
+        data: {
+          tenantId: tenant,
+          flowId,
+          eventId: change.id,
+          sequence: Number(seq.rows[i]!.n),
+          event: change.event as FlowJob['event'],
+          collection: change.collection,
+          data: change.data,
+          timestamp: change.timestamp,
+        } satisfies FlowJob,
+        // A retry before the run row exists; after it, a redelivery runs nothing.
+        retryLimit: 3,
+        retryDelay: 1,
+        retryBackoff: true,
+      })),
+    );
+    if (hookJobs.length > 0) {
+      await ensureQueue(boss);
+      const ids = await boss.insert(WEBHOOK_QUEUE, hookJobs, { returnId: true, db: onTrx(trx) });
+      if (!ids || ids.length !== hookJobs.length) refuse('pg-boss inserted no job');
+    }
+    if (flowJobs.length > 0) {
+      consumer = 'flows';
+      await ensureFlowQueue(boss);
+      const ids = await boss.insert(FLOW_QUEUE, flowJobs, { returnId: true, db: onTrx(trx) });
+      if (!ids || ids.length !== flowJobs.length) refuse('pg-boss inserted no job', consumer);
+    }
   } catch (err) {
     if (err instanceof ProblemException) throw err;
-    refuse(err instanceof Error ? err.message : String(err));
+    refuse(err instanceof Error ? err.message : String(err), consumer);
   }
 }
 
@@ -329,10 +363,7 @@ export async function enqueueReplay(
       retryLimit,
       retryDelay: 1,
       retryBackoff: true,
-      db: {
-        executeSql: (text, values) =>
-          trx.executeQuery(CompiledQuery.raw(text, values ?? [])) as Promise<{ rows: never[] }>,
-      },
+      db: onTrx(trx),
     }),
   );
 }

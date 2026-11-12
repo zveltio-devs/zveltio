@@ -6,7 +6,7 @@
  *
  * Each runs per-row pre-write hooks inside a single transaction (abort → per-row
  * error), then fires `afterWrite` side-effects per successful row and enqueues
- * the batch's webhook events, in that same transaction (ADR 0035).
+ * the batch's change events (webhooks, flows), in that same transaction (ADR 0035).
  */
 
 import type { Context } from 'hono';
@@ -30,7 +30,7 @@ import {
   validateTransitions,
   ROW_RULE_WRITE_REFUSAL,
 } from '../write-pipeline.js';
-import { type ChangeEvent, enqueueWebhookEvent } from '../../webhooks.js';
+import { type ChangeEvent, enqueueChangeEvent } from '../../webhooks.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { serializeRecord } from '../shape.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
@@ -50,7 +50,7 @@ const sentKeys = (records: unknown[]): string[] =>
   records.flatMap((r) => (r && typeof r === 'object' ? Object.keys(r) : []));
 
 /**
- * `afterWrite` for each written row, then their webhook events as one batch, on
+ * `afterWrite` for each written row, then their change events as one batch, on
  * the batch's own transaction (ADR 0035).
  *
  * Awaited, as the single-record path already does. Not awaiting looked like the
@@ -60,8 +60,9 @@ const sentKeys = (records: unknown[]): string[] =>
  * created in a batch — precisely when an import or a sync uses these endpoints.
  *
  * The rows are written, so a failed side effect is logged, not answered. The
- * webhook enqueue is not one of those: its failure is the write's (503,
- * `webhooks.enqueue_failed`) and rolls the whole batch back.
+ * event enqueue is not one of those: its failure is the write's (503,
+ * `webhooks.enqueue_failed` or `flows.enqueue_failed`) and rolls the whole batch
+ * back.
  */
 async function afterBulkWrite(
   c: Context,
@@ -87,7 +88,7 @@ async function afterBulkWrite(
       console.warn(`[data] afterWrite(${action}, ${collection}/${record.id}) failed:`, err.message);
     });
   }
-  await enqueueWebhookEvent(trx, tenantId, events);
+  await enqueueChangeEvent(trx, tenantId, events);
 }
 
 export async function bulkCreate(c: Context, db: Database): Promise<Response> {

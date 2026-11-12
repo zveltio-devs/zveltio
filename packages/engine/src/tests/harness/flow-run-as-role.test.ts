@@ -15,8 +15,8 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { executeFlow, triggerDataFlows } from '../../lib/flows/index.js';
-import { enqueueWebhookEvent } from '../../lib/webhooks.js';
+import { executeFlow } from '../../lib/flows/index.js';
+import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import {
   createRlsPolicy,
   deleteRlsPolicy,
@@ -31,6 +31,7 @@ import {
   asEveryTenant,
   asTenant,
   createGodSession,
+  drainFlowJobs,
   drainWebhookJobs,
   dropTestCollection,
   getTestApp,
@@ -187,7 +188,7 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
       ({ ok: true, status: 200, text: async () => 'ok' }) as Response) as unknown as typeof fetch;
     try {
       await withTenantIsolation(TENANT, (trx) =>
-        enqueueWebhookEvent(trx, TENANT, {
+        enqueueChangeEvent(trx, TENANT, {
           id: crypto.randomUUID(),
           event: 'insert',
           collection: COLL,
@@ -236,7 +237,7 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
     }) as unknown as typeof fetch;
     try {
       await withTenantIsolation(TENANT, (trx) =>
-        enqueueWebhookEvent(trx, TENANT, {
+        enqueueChangeEvent(trx, TENANT, {
           id: crypto.randomUUID(),
           event: 'insert',
           collection: COLL,
@@ -277,21 +278,20 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
     const flowId = await insertFlow('on_create', { collection: COLL }, [
       { type: 'condition', config: { expression: 'true' } },
     ]);
-    await triggerDataFlows(
-      db,
-      COLL,
-      'insert',
-      { id: recordId, title: 'visible-title', secret: 'classified', owner: 'nobody' },
-      TENANT,
+    await withTenantIsolation(TENANT, (trx) =>
+      enqueueChangeEvent(trx, TENANT, {
+        id: crypto.randomUUID(),
+        event: 'insert',
+        collection: COLL,
+        data: { id: recordId, title: 'visible-title', secret: 'classified', owner: 'nobody' },
+        timestamp: new Date().toISOString(),
+      }),
     );
-    let run: { status: string; trigger_data: unknown } | undefined;
-    for (let i = 0; i < 50 && run?.status !== 'success'; i++) {
-      await new Promise((r) => setTimeout(r, 50));
-      run = (
-        await sql<{ status: string; trigger_data: unknown }>`
-          SELECT status, trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}`.execute(db)
-      ).rows[0];
-    }
+    await drainFlowJobs(db);
+    const run = (
+      await sql<{ status: string; trigger_data: unknown }>`
+        SELECT status, trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}`.execute(db)
+    ).rows[0];
     expect(run?.status).toBe('success');
     const data = JSON.stringify(run?.trigger_data);
     expect(data).toContain('visible-title');

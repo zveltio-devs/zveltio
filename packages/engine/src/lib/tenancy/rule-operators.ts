@@ -28,6 +28,14 @@
  * once and read four times. Changing what an operator means is one edit here;
  * it cannot be made in three places and forgotten in a fourth.
  *
+ * ── A new kind of rule (ADR 0036, decision 2) ──────────────────
+ *
+ * A new operator or value source is added here, to all four appliers, and to
+ * the four-interpreters suite — or a collection that uses it cannot be
+ * subscribed to by the readers it binds. Realtime delivers at most what `GET`
+ * serves; a rule the in-process applier cannot decide on one record refuses
+ * the subscription, as a query alter does. There is no third option.
+ *
  * ── The decisions, and why each is what it is ─────────────────
  *
  * **Comparison is textual.** A rule's value is ALWAYS a string: the four sources

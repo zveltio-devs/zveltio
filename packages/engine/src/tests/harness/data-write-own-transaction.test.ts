@@ -35,7 +35,12 @@ import { getCurrentTenantTrx } from '../../lib/tenancy/index.js';
 import { WEBHOOK_QUEUE } from '../../lib/webhooks.js';
 import { syncRoutes } from '../../routes/sync.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  drainFlowJobs,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = `wtrx_${Date.now()}`;
@@ -129,10 +134,8 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
     await sql`DELETE FROM zvd_collections WHERE name = ${C}`.execute(db);
   });
 
-  /** Wait for the after-commit work and the flow a write set off. */
-  const settle = async (flowRunsAtLeast: number) => {
-    for (let i = 0; i < 30 && (await runs()) < flowRunsAtLeast; i++) await Bun.sleep(100);
-  };
+  /** Run the flow jobs a write enqueued, as the worker would (ADR 0035 slice 2). */
+  const settle = () => drainFlowJobs(db);
 
   it('the control: a routed write publishes after its COMMIT, in reach of its listener and its flow', async () => {
     const before = await runs();
@@ -142,7 +145,7 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
       body: JSON.stringify({ title: 'routed' }),
     });
     expect(res.status).toBe(201);
-    await settle(before + 1);
+    await settle();
     expect(of(published, 'routed')).toEqual([{ title: 'routed', committed: true }]);
     expect(of(listened, 'routed')).toEqual([{ title: 'routed', inTrx: true }]);
     expect(await jobs('routed')).toBe(1);
@@ -163,7 +166,7 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
   it('a single write handed no tenant transaction is refused, and sets nothing off', async () => {
     const before = await runs();
     const res = await detached('detached', undefined);
-    await settle(before + 1);
+    await settle();
     expect(of(published, 'detached')).toEqual([]);
     expect(of(listened, 'detached')).toEqual([]);
     expect(res.status).toBe(500);

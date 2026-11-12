@@ -25,7 +25,16 @@ import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { FLOW_QUEUE, runFlowJob } from '../../lib/flows/index.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
+import { enqueueChangeEvent } from '../../lib/webhooks.js';
+import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
+import {
+  createGodSession,
+  drainFlowJobs,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -103,8 +112,16 @@ d('bulk writes fire their automations (in-process)', () => {
       body: JSON.stringify({ n: 1 }),
     });
     expect(res.status).toBe(201);
-    await Bun.sleep(700);
-    expect(await runsFor()).toBeGreaterThan(before);
+    // The trigger is a row committed with the write: a process that dies here
+    // loses nothing, the next one finds the job.
+    const queued = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM pgboss.job
+       WHERE name = ${FLOW_QUEUE} AND state = 'created' AND data->>'flowId' = ${flowId}
+    `.execute(db);
+    expect(queued.rows[0]!.n).toBe(1);
+    expect(await runsFor()).toBe(before);
+    await drainFlowJobs(db);
+    expect(await runsFor()).toBe(before + 1);
   }, 30_000);
 
   it('a bulk create fires it too', async () => {
@@ -115,8 +132,69 @@ d('bulk writes fire their automations (in-process)', () => {
       body: JSON.stringify({ records: [{ n: 2 }, { n: 3 }] }),
     });
     expect(res.status).toBe(201);
-    await Bun.sleep(900);
-    // Two records, so at least two runs — and more importantly, more than none.
-    expect(await runsFor()).toBeGreaterThan(before);
+    await drainFlowJobs(db);
+    // One run per record: each is its own event.
+    expect(await runsFor()).toBe(before + 2);
   }, 30_000);
+
+  // ADR 0035 decision 6: the run row is keyed by (flow, event).
+  const redeliver = (eventId: string) =>
+    runFlowJob({
+      data: {
+        tenantId: DEFAULT_TENANT_ID,
+        flowId,
+        eventId,
+        sequence: 1,
+        event: 'insert',
+        collection: coll,
+        data: {},
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+  it('a trigger job delivered again does not run the flow again', async () => {
+    const runs = () =>
+      sql<{ event_id: string; finished_at: Date }>`
+        SELECT event_id::text AS event_id, finished_at FROM zv_flow_runs
+         WHERE flow_id = ${flowId}::uuid AND status = 'success' ORDER BY id
+      `.execute(db);
+    const before = (await runs()).rows;
+    await redeliver(before[0]!.event_id);
+    // Same rows, and none finished again: the steps were not executed twice.
+    expect((await runs()).rows).toEqual(before);
+  });
+
+  it('a write that rolls back leaves no trigger and no run', async () => {
+    const eventId = crypto.randomUUID();
+    await withTenantIsolation(DEFAULT_TENANT_ID, async (trx) => {
+      await enqueueChangeEvent(trx, DEFAULT_TENANT_ID, {
+        id: eventId,
+        event: 'insert',
+        collection: coll,
+        data: { id: crypto.randomUUID() },
+        timestamp: new Date().toISOString(),
+      });
+      throw new Error('rolled back');
+    }).catch(() => {});
+    await drainFlowJobs(db);
+    const left = await sql<{ n: number }>`
+      SELECT (SELECT count(*) FROM pgboss.job WHERE data->>'eventId' = ${eventId})::int
+           + (SELECT count(*) FROM zv_flow_runs WHERE event_id = ${eventId}::uuid)::int AS n
+    `.execute(db);
+    expect(left.rows[0]!.n).toBe(0);
+  });
+
+  it('a run its process died in is marked interrupted, not run again', async () => {
+    const eventId = crypto.randomUUID();
+    await sql`
+      INSERT INTO zv_flow_runs (flow_id, status, trigger_data, event_id)
+      VALUES (${flowId}::uuid, 'running', '{}'::jsonb, ${eventId}::uuid)
+    `.execute(db);
+    await redeliver(eventId);
+    const after = await sql<{ status: string; error: string | null }>`
+      SELECT status, error FROM zv_flow_runs
+       WHERE flow_id = ${flowId}::uuid AND event_id = ${eventId}::uuid
+    `.execute(db);
+    expect(after.rows).toEqual([{ status: 'failed', error: 'interrupted' }]);
+  });
 });
