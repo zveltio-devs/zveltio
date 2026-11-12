@@ -5,7 +5,6 @@
     "geospatial/postgis",
     "mail",
     "pages",
-    "projects/management",
     "storage/cloud"
   ],
   "libs": [
@@ -17,7 +16,6 @@
     "developer/graphql",
     "finance/invoicing",
     "geospatial/postgis",
-    "projects/management",
     "storage/cloud"
   ],
   "contributions": [
