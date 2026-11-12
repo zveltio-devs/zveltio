@@ -76,6 +76,7 @@ import { loadExtensionFromDir } from './load.js';
 import { discoverExternal, getActiveExtensionNames, topoSortExtensions } from './discovery.js';
 import { noteExtensionNames } from './worker-sql-policy.js';
 import type { CompiledAction } from './actions.js';
+import type { DeclaredRoute, RouteSpec } from '../declared-routes.js';
 
 export { serviceRegistry } from '../service-registry.js';
 
@@ -291,6 +292,8 @@ interface LoadedExtension {
     dependencies?: string[];
     /** Manifest `forwardCredentials`: the only credentials its worker is handed. */
     forwardCredentials?: Record<string, string[]>;
+    /** Manifest `routes` (ADR 0039): its worker pairs and mounts them. */
+    routes?: RouteSpec[];
   };
   /**
    * Manifest `dependencies` + `optionalDependencies` as resolved at load — an
@@ -300,6 +303,10 @@ interface LoadedExtension {
   serviceDeps?: ServiceDeps;
   /** Manifest actions paired with their implementations at load, for a reload to mount. */
   actions?: ReadonlyMap<string, CompiledAction>;
+  /** Manifest `routes` paired with their handlers at load (ADR 0039), for a reload to mount. */
+  declaredRoutes?: readonly DeclaredRoute[];
+  /** Manifest `routes` with their access, for a reload to hand the `/ext/*` gate. */
+  manifestRoutes?: readonly (RouteSpec & { access: string })[];
   /** What its routes' `host.collections` reaches (ADR 0025), for a reload to hand them. */
   routes?: { reads: ReadonlySet<string>; writes: ReadonlySet<string> };
 }

@@ -1507,6 +1507,48 @@ export interface ZveltioExtension<DB = any, C extends string = Capability> {
    * throw fails the run, which is retried as the manifest's `retry` says.
    */
   jobs?: Record<string, ExtensionJob>;
+  /**
+   * The handlers of the manifest's `routes` (ADR 0039), by the name each route
+   * gives as `handler` — every one named, and no more: the engine refuses to
+   * load an extension whose two lists differ. The engine mounts each declared
+   * route under `/ext/<name>` and owns its HTTP layer: authentication (`access`),
+   * tenant, body limit, rate limit, path parameters. A path not declared does
+   * not exist. Engines from 3.0.0-beta.110; inline (`mountStrategy: 'subapp'`)
+   * and worker-isolated alike.
+   */
+  routes?: Record<string, RouteHandler>;
+}
+
+/**
+ * A declared route's handler (ADR 0039): the web-standard `Request` in, a
+ * `Response` out — no framework object crosses the contract. `request.url` is
+ * the URL the caller sent. A throw answers 500 and rolls back what the request
+ * wrote, as an uncaught error in any route.
+ */
+export type RouteHandler = (
+  request: Request,
+  ctx: RouteHandlerContext,
+) => Response | Promise<Response>;
+
+/** What a declared route's handler gets besides the request. */
+export interface RouteHandlerContext {
+  /** The `:param` segments of the declared path, by name. */
+  params: Record<string, string>;
+  /** What every extension route has (ADR 0039 decision 4): nothing more. */
+  host: DeclaredRouteHost;
+}
+
+/**
+ * `RouteHost` — the collections as the caller (ADR 0025), stored files as the
+ * caller (ADR 0034) — plus `enqueue` (ADR 0018), bound to the request.
+ */
+export interface DeclaredRouteHost extends RouteHost {
+  /**
+   * `ctx.internals.enqueue` for this request: queue one of the extension's
+   * jobs from a `public` route the job names in `fromPublicRoutes`. Needs
+   * `data:system`; absent on a worker-isolated route, as `ctx.internals` is.
+   */
+  enqueue?: (job: string, input: unknown) => Promise<string>;
 }
 
 /**

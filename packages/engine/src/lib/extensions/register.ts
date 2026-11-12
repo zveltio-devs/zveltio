@@ -70,9 +70,19 @@ import {
   runExtensionRequest,
 } from '../../middleware/extension-auth-gate.js';
 import { problem, problemOnError } from '../problem.js';
-import type { ExtensionSchedule, ZveltioExtension } from '@zveltio/sdk/extension';
+import type {
+  DeclaredRouteHost,
+  ExtensionSchedule,
+  ZveltioExtension,
+} from '@zveltio/sdk/extension';
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
+import {
+  type DeclaredRoute,
+  mountDeclaredRoutes,
+  pairRouteHandlers,
+  type RouteSpec,
+} from '../declared-routes.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import {
@@ -701,10 +711,13 @@ async function registerExtensionRoutes(
     extDir: string;
     dependencies?: string[];
     forwardCredentials?: Record<string, string[]>;
+    /** Its manifest `routes` (ADR 0039): the worker pairs and mounts them. */
+    routes?: RouteSpec[];
   } | null,
   db: Database,
   serviceDeps: ServiceDeps,
   actions: ReadonlyMap<string, CompiledAction> = new Map(),
+  declaredRoutes: readonly DeclaredRoute[] = [],
 ): Promise<void> {
   const mountStrategy = extension.mountStrategy ?? 'global';
   if (isolation) {
@@ -746,6 +759,7 @@ async function registerExtensionRoutes(
           auth: restrictedCtx.auth,
           forwardCredentials,
           declaredForwardCredentials: isolation.forwardCredentials ?? {},
+          declaredRoutes: isolation.routes ?? [],
           collections: (c, call, args) => {
             if (!restrictedCtx.host) throw new Error(`${extName}: no route host`);
             return hostCall(restrictedCtx.host(c).collections, call as HostCall, args);
@@ -767,6 +781,7 @@ async function registerExtensionRoutes(
     subApp.use('*', activationMiddlewareFor(extName, db));
     // Before `register`, so the extension's own middleware never runs for them.
     mountActions(subApp, extName, actions, restrictedCtx);
+    mountDeclaredRoutes(subApp, declaredRoutes, (c) => declaredRouteHost(c, restrictedCtx));
     const restore = propagateErrorHandler(subApp);
     try {
       await extension.register(subApp, restrictedCtx);
@@ -791,6 +806,41 @@ async function registerExtensionRoutes(
       restore();
     }
   }
+}
+
+/**
+ * An inline extension's declared routes, paired with its handlers (ADR 0039).
+ * On the sub-app, like actions: a `global` one has none to mount them on ahead
+ * of its own middleware.
+ */
+function inlineRoutes(
+  extName: string,
+  manifest: ExtensionManifest | null,
+  extension: ZveltioExtension,
+): DeclaredRoute[] {
+  const declared = manifest?.routes ?? [];
+  if (declared.length === 0 && Object.keys(extension.routes ?? {}).length === 0) return [];
+  const refuse = (why: string): never => {
+    throw new Error(`Extension "${extName}": ${why}`);
+  };
+  if (extension.mountStrategy !== 'subapp') refuse("declared routes need mountStrategy 'subapp'");
+  return pairRouteHandlers(declared, extension.routes, refuse);
+}
+
+/**
+ * A declared route's `host` (ADR 0039 decision 4): the route host every
+ * extension route has (ADR 0025, ADR 0034) and `ctx.internals.enqueue` bound to
+ * the request (ADR 0018), gated as that member is. Nothing more.
+ */
+function declaredRouteHost(c: Context, ctx: ExtensionContext): DeclaredRouteHost {
+  if (!ctx.host) throw new Error('no route host');
+  return {
+    ...ctx.host(c),
+    enqueue: (job, input) => {
+      if (!ctx.internals.enqueue) throw new Error('enqueue is not available to this extension');
+      return ctx.internals.enqueue(c, job, input);
+    },
+  };
 }
 
 /**
@@ -860,6 +910,8 @@ export async function finalizeExtensionLoad(
     manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true,
   );
   const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
+  // A worker-isolated module is not imported here: its worker pairs its routes.
+  const declaredRoutes = worker ? [] : inlineRoutes(extName, manifest, extension);
   const jobs = compileJobs(
     extName,
     manifest,
@@ -951,6 +1003,7 @@ export async function finalizeExtensionLoad(
           extDir,
           dependencies,
           forwardCredentials: manifest.forwardCredentials,
+          routes: manifest.routes,
         }
       : undefined;
   const routes = routeCollections(manifest);
@@ -993,6 +1046,7 @@ export async function finalizeExtensionLoad(
       ctx.db,
       serviceDeps,
       actions,
+      declaredRoutes,
     );
   } catch (regErr: unknown) {
     if ((regErr as Error)?.message?.includes('matcher is already built')) {
@@ -1027,9 +1081,17 @@ export async function finalizeExtensionLoad(
   // Register the extension's declared public routes with the `/ext/*` auth gate.
   // Anything NOT listed here is fail-closed (401 for anonymous callers) — see
   // middleware/extension-auth-gate.ts.
-  const publicRoutes = (manifest as { publicRoutes?: string[] } | null)?.publicRoutes ?? [];
+  // And the declared routes, each with its access (ADR 0039); `publicRoutes` is deprecated.
+  const publicRoutes = manifest?.publicRoutes ?? [];
   const apiKeyRoutes = (manifest as { apiKeyRoutes?: string[] } | null)?.apiKeyRoutes ?? [];
-  registerExtensionPublicRoutes(extName, publicRoutes, apiKeyRoutes, actions.values());
+  const manifestRoutes = manifest?.routes ?? [];
+  registerExtensionPublicRoutes(
+    extName,
+    publicRoutes,
+    apiKeyRoutes,
+    actions.values(),
+    manifestRoutes,
+  );
 
   // With the effective capabilities: an unapproved `data:system` runs no job.
   registerJobs(extName, jobs, effective);
@@ -1051,6 +1113,8 @@ export async function finalizeExtensionLoad(
     workerIsolation,
     serviceDeps,
     actions,
+    declaredRoutes,
+    manifestRoutes,
     routes,
   });
   console.log(`🔌 Extension loaded: ${extName}`);
@@ -1090,6 +1154,7 @@ export async function reRegisterExtension(
     loaded?.publicRoutes ?? [],
     loaded?.apiKeyRoutes ?? [],
     loaded?.actions?.values(),
+    loaded?.manifestRoutes,
   );
   const restrictedCtx = buildRestrictedContext(
     loader.ctx,
@@ -1120,6 +1185,7 @@ export async function reRegisterExtension(
         loader.ctx.db,
         loaded?.serviceDeps ?? new Map(),
         loaded?.actions,
+        loaded?.declaredRoutes,
       );
     }
 

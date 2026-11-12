@@ -132,6 +132,34 @@ describe('extensionAuthGate', () => {
     expect(await res.text()).toBe('hook');
   });
 
+  it('decides a declared route by the route it resolves to, method and path (ADR 0039)', async () => {
+    registerExtensionPublicRoutes(
+      'sms',
+      [],
+      [],
+      [{ name: 'noop', permission: { action: 'execute' } }],
+      [
+        { method: 'POST', path: '/hook/:id', access: 'public' },
+        { method: 'GET', path: '/hook/x', access: 'caller' },
+        { method: 'POST', path: '/:a/:b', access: 'public' },
+      ],
+    );
+    const app = appWith(authAnon);
+    app.all('/ext/sms/*', (c) => c.text('served'));
+    const status = async (method: string, path: string) =>
+      (await app.request(`/ext/sms${path}`, { method })).status;
+    expect(await status('POST', '/hook/1')).toBe(200);
+    // The caller route of the public one's shape, and the public path's other methods.
+    expect(await status('GET', '/hook/x')).toBe(401);
+    expect(await status('GET', '/hook/1')).toBe(401);
+    expect(await status('HEAD', '/hook/1')).toBe(401);
+    // One segment more is no declared route.
+    expect(await status('POST', '/hook/1/2')).toBe(401);
+    // `/:a/:b` has the action route's shape; the action is not its to open.
+    expect(await status('POST', '/actions/noop')).toBe(401);
+    expect(await status('POST', '/other/thing')).toBe(200);
+  });
+
   it('still gates a sibling of a public route', async () => {
     registerExtensionPublicRoutes('sms', ['/webhook/twilio']);
     const res = await appWith(authAnon).request('/ext/sms/config');

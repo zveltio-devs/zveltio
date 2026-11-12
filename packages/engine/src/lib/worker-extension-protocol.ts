@@ -38,6 +38,8 @@ export interface InitRequest {
   };
   /** The extension's own `ctx.config`, as `buildRestrictedContext` resolved it inline. */
   config?: unknown;
+  /** Its manifest `routes` (ADR 0039), paired with the module's `routes` handlers and served. */
+  routes?: { method: string; path: string; handler: string }[];
   /** Its manifest `dependencies` + `optionalDependencies` (`ServiceDeps`), as entries. */
   mayCall?: Array<[string, boolean]>;
   /** The service registry as `[name, owner]`; `services:snapshot` keeps it current. */
@@ -80,6 +82,8 @@ export interface RouteInvokeRequest {
   id: WorkerMessageId;
   method: string;
   path: string; // resolved path (no params)
+  /** The URL the caller sent: a declared route's handler gets it as `request.url` (ADR 0039). */
+  url?: string;
   headers: Record<string, string>;
   query: Record<string, string>;
   body?: string; // JSON or text; binary not supported in C-minimal

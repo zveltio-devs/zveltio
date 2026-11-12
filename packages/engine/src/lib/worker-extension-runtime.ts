@@ -26,6 +26,8 @@ import { HTTPException } from 'hono/http-exception';
 import { sqlState } from '../db/bun-sql-quirks.js';
 import { Turns } from '../db/trx-sequencer.js';
 import { buildWorkerCtx } from './worker-extension-ctx.js';
+import { mountDeclaredRoutes, pairRouteHandlers } from './declared-routes.js';
+import type { DeclaredRouteHost } from '@zveltio/sdk/extension';
 import type {
   HostCallOp,
   HostCallResponse,
@@ -113,6 +115,8 @@ const invocation = new AsyncLocalStorage<{
   threw?: boolean;
   /** It holds the request's transaction on the host: a route's, or one a service joined. */
   requestTxn?: boolean;
+  /** The URL the caller sent (a route's), for a declared route's `request.url`. */
+  url?: string;
 }>();
 
 /**
@@ -347,6 +351,18 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
       mayCall: fillMap(mayCall, msg.mayCall ?? []),
       owners: serviceOwners,
     });
+    // ADR 0039: the declared routes, before `register` so its own middleware never runs
+    // for them. Their handler gets the caller's URL, not this app's.
+    const declared = pairRouteHandlers(msg.routes ?? [], extension.routes, (why) => {
+      throw new Error(why);
+    });
+    mountDeclaredRoutes(
+      app,
+      declared,
+      // `host.collections` as the request's caller; no files, no enqueue (no `ctx.internals`).
+      () => (ctx.host as () => DeclaredRouteHost)(),
+      (c) => new Request(invocation.getStore()?.url ?? c.req.url, c.req.raw),
+    );
     await extension.register(app, ctx);
     await settled();
     shadowApp = app;
@@ -393,10 +409,17 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       body: msg.body,
     });
     const app = shadowApp;
-    const store: { id: string; user?: unknown; threw?: boolean; requestTxn: boolean } = {
+    const store: {
+      id: string;
+      user?: unknown;
+      threw?: boolean;
+      requestTxn: boolean;
+      url?: string;
+    } = {
       id: msg.id,
       user: msg.user,
       requestTxn: true,
+      url: msg.url,
     };
     const res = await invocation.run(store, () => app.fetch(req));
     const body = await res.text();

@@ -216,6 +216,8 @@ export interface WorkerCtxSource {
   declaredForwardCredentials?: Record<string, string[]>;
   /** One `host.collections` call of a route serving `c`, its arguments checked (ADR 0025). */
   collections?: (c: unknown, call: string, args: unknown[]) => Promise<unknown>;
+  /** The manifest's `routes` (ADR 0039): the worker pairs them with its handlers and serves them. */
+  declaredRoutes?: { method: string; path: string; handler: string }[];
 }
 
 /**
@@ -667,6 +669,7 @@ export class WorkerExtensionHost {
           extensionPath: extDir,
         },
         config: source.config,
+        routes: source.declaredRoutes ?? [],
         mayCall: [...managed.mayCall],
         services: serviceRegistry.entries(),
       });
@@ -1366,6 +1369,7 @@ export class WorkerExtensionHost {
                   id,
                   method: r.method,
                   path: subPath,
+                  url: c.req.raw.url,
                   headers,
                   query: c.req.query(),
                   body: bodyText || undefined,

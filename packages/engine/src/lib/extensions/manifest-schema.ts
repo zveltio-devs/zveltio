@@ -43,6 +43,24 @@ function inputSchemaIssue(
   }
 }
 
+/** ADR 0039: one route, `/` or literal and `:param` segments — no `*`, no family. */
+export const ROUTE_PATH = /^\/$|^(\/([A-Za-z0-9._~-]+|:[A-Za-z_][A-Za-z0-9_]*))+$/;
+
+/**
+ * The sub-paths reachable without a session: `publicRoutes` (deprecated by ADR
+ * 0039) and the declared `routes` whose access is `public`. What the `/ext/*`
+ * gate opens, and what `fromPublicRoutes` and `forwardCredentials` may name.
+ */
+export function publicRoutePaths(
+  m: {
+    publicRoutes?: readonly string[];
+    routes?: readonly { path: string; access: string }[];
+  } | null,
+): string[] {
+  const declared = (m?.routes ?? []).filter((r) => r.access === 'public').map((r) => r.path);
+  return [...new Set([...(m?.publicRoutes ?? []), ...declared])];
+}
+
 export const ManifestSchema = z
   .object({
     name: z.string().min(1),
@@ -132,11 +150,34 @@ export const ManifestSchema = z
      * endpoint that allows some queries anonymously) is declared here too — the
      * gate only enforces authentication, never authorization.
      *
+     * Deprecated by ADR 0039: declare the route in `routes` with `access:
+     * "public"`. Still read, and removed in extension-api v2.
+     *
      * NOTE: only covers routes under `/ext/<name>`. Extensions that mount on the
      * global app via `ctx.registerPublicRoute` (CDN links, user-deployed
      * webhooks) sit outside this gate by design — see the developer guide.
      */
     publicRoutes: z.array(z.string()).default([]),
+    /**
+     * ADR 0039: the routes the engine serves under `/ext/<name>`, each answered
+     * by the plain function the module exports as `routes[handler]`
+     * (`(request, { params, host }) => Response`). `access: "public"` is reached
+     * without a session, as a `publicRoutes` entry is (which this replaces);
+     * `"caller"` is authenticated as every other extension route. `path` names
+     * one route: literal and `:param` segments, no `*`.
+     */
+    routes: z
+      .array(
+        z
+          .object({
+            method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+            path: z.string().regex(ROUTE_PATH),
+            access: z.enum(['public', 'caller']),
+            handler: z.string().regex(/^[a-z][a-zA-Z0-9]*$/),
+          })
+          .strict(),
+      )
+      .default([]),
     /**
      * Routes an API key may call, besides a session: `"<METHOD> <pattern>"`,
      * patterns as in `publicRoutes` (`"POST /invoices"`, `"GET /invoices/*"`).
@@ -504,6 +545,17 @@ export const ManifestSchema = z
         }
       }
     });
+    const publicPaths = publicRoutePaths(m);
+    const seenRoutes = new Set<string>();
+    m.routes.forEach((r, i) => {
+      const issue = seenRoutes.has(`${r.method} ${r.path}`)
+        ? `route ${r.method} ${r.path} is declared twice`
+        : r.path === '/actions' || r.path.startsWith('/actions/')
+          ? `route ${r.path}: /actions is the engine's (POST /actions/<action>)`
+          : null;
+      if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['routes', i], message: issue });
+      seenRoutes.add(`${r.method} ${r.path}`);
+    });
     const jobNames = new Set<string>();
     const slotKinds = new Map<string, string>();
     m.jobs.forEach((j, i) => {
@@ -561,7 +613,7 @@ export const ManifestSchema = z
             path: ['jobs', i, 'fromPublicRoutes'],
             message: `job "${j.name}" names "${route}" in fromPublicRoutes; name one route, without "*"`,
           });
-        } else if (!m.publicRoutes.includes(route)) {
+        } else if (!publicPaths.includes(route)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['jobs', i, 'fromPublicRoutes'],
@@ -571,7 +623,7 @@ export const ManifestSchema = z
       }
     });
     for (const route of Object.keys(m.forwardCredentials)) {
-      if (!m.publicRoutes.includes(route)) {
+      if (!publicPaths.includes(route)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['forwardCredentials', route],
