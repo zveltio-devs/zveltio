@@ -118,13 +118,18 @@ d('transition rules', () => {
     const a = await create('draft');
     const b = await create('draft');
     expect((await send('PATCH', `/${b}`, { status: 'sent' })).status).toBe(200);
-    await send('PATCH', '/bulk', {
+    const res = await send('PATCH', '/bulk', {
       records: [
         { id: a, status: 'sent' },
         { id: b, status: 'cancelled' },
       ],
     });
-    expect(await stored(a)).toBe('sent');
+    // Only b is refused; the batch is all or nothing (ADR 0044), so a stays too.
+    expect(res.status).toBe(422);
+    expect(
+      ((await res.json()) as { errors: { index: number }[] }).errors.map((e) => e.index),
+    ).toEqual([1]);
+    expect(await stored(a)).toBe('draft');
     expect(await stored(b)).toBe('sent');
   });
 

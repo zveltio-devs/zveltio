@@ -368,7 +368,24 @@ Return the revision history for a single record.
 
 ## Bulk Operations
 
-All bulk endpoints operate within a single database transaction. Up to **500 records** per request. On partial errors the response is `207 Multi-Status` with per-record error details.
+All bulk endpoints operate within a single database transaction. Up to **500 records** per request.
+
+**A bulk write applies every row or none.** If the engine refuses any row — validation, a read-only column, a row rule, entity access, a missing record (one the caller cannot see counts as missing), a status transition, an extension hook's `abort` — nothing is written: no row, no revision, no realtime event, no webhook delivery, no flow trigger. Every row is checked, and the answer names every refused one, so a caller fixes them all in one round:
+
+```json
+// Response 422 (application/problem+json)
+{
+  "status": 422,
+  "code": "bulk_refused",
+  "detail": "A refused row refuses the whole batch; nothing was written",
+  "errors": [
+    { "index": 1, "errors": ["label is required"] },
+    { "index": 3, "id": "uuid-4", "errors": ["EXT_HOOK_ABORTED: quota"] }
+  ]
+}
+```
+
+`index` is the row's position in `records` (or `ids`); `id` is present for update and delete. A database error keeps its own answer (for example `409` for a duplicate) and rolls the batch back too. There is no partial mode: a caller with many independent rows sends its own batches. Side effects an extension hook caused outside the transaction (a call it made out) are the hook's own.
 
 ### POST /api/data/:collection/bulk
 
@@ -383,7 +400,7 @@ Insert multiple records.
   ]
 }
 
-// Response 201 (or 207 on partial errors)
+// Response 201
 {
   "created": 2,
   "records": [ { "id": "...", "title": "Product A", ... }, ... ],

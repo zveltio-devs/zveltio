@@ -1,5 +1,5 @@
 /**
- * Phase C — bulk PATCH validation errors per row → 207 (handlers/bulk.ts).
+ * Phase C — bulk PATCH validation error on one row → 422, nothing written (ADR 0044).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -10,9 +10,9 @@ import { DDLManager } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const COLLECTION = `hbval207_${Date.now()}`;
+const COLLECTION = `hbval422_${Date.now()}`;
 
-d('data bulk update validation 207 (in-process)', () => {
+d('data bulk update validation 422 (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
@@ -51,7 +51,7 @@ d('data bulk update validation 207 (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 207 when one row fails processInput validation and one succeeds', async () => {
+  it('returns 422 when one row fails processInput validation, and writes neither', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -65,12 +65,8 @@ d('data bulk update validation 207 (in-process)', () => {
         ],
       }),
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      updated: number;
-      errors: Array<{ index: number; errors: string[] }>;
-    };
-    expect(body.updated).toBe(1);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
     expect(body.errors).toHaveLength(1);
     expect(body.errors[0]!.index).toBe(1);
     expect(body.errors[0]!.errors.join(' ')).not.toContain('not found');
@@ -78,6 +74,6 @@ d('data bulk update validation 207 (in-process)', () => {
     const row = await sql<{ contact: string }>`
       SELECT contact FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${goodId}
     `.execute(db);
-    expect(row.rows[0]?.contact).toBe('still-valid@example.com');
+    expect(row.rows[0]?.contact).toBe('ok@example.com');
   });
 });

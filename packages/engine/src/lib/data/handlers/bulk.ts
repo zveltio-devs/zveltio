@@ -4,9 +4,11 @@
  *   PATCH  /:collection/bulk — bulk partial update
  *   DELETE /:collection/bulk — bulk delete
  *
- * Each runs per-row pre-write hooks inside a single transaction (abort → per-row
- * error), then fires `afterWrite` side-effects per successful row and enqueues
- * the batch's change events (webhooks, flows), in that same transaction (ADR 0035).
+ * Each checks every row (validation, column access, row rules, entity access,
+ * transitions, pre-write hooks) in the request's transaction, then fires
+ * `afterWrite` per row and enqueues the batch's change events (webhooks, flows)
+ * in that same transaction (ADR 0035). A batch is all or nothing (ADR 0044): one
+ * refused row refuses it, and the answer names every refused row.
  */
 
 import type { Context } from 'hono';
@@ -33,6 +35,7 @@ import {
 import { type ChangeEvent, enqueueChangeEvent } from '../../webhooks.js';
 import { queryAlterRegistry } from '../query-alter.js';
 import { serializeRecord } from '../shape.js';
+import { problem } from '../../problem.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
 import { cascadeRefusal, writtenByBody, writtenByRefusal } from '../written-by.js';
 import {
@@ -44,6 +47,23 @@ import {
   matchesRlsFilters,
   resolveUserRole,
 } from '../../tenancy/index.js';
+
+type Refusal = { index: number; id?: string; errors: string[] };
+
+/**
+ * A refused row refuses the batch (ADR 0044): 422 `bulk_refused`, every refused
+ * row in `errors`. Thrown, not returned: the tenant middleware commits a request
+ * whose handler returned, so only a throw rolls back the rows, revisions and
+ * outbox jobs written before the refusal, and drops their after-commit events.
+ */
+function refuseBatch(errors: Refusal[]): never {
+  throw problem(
+    'bulk_refused',
+    422,
+    'A refused row refuses the whole batch; nothing was written',
+    errors,
+  );
+}
 
 /** Every key some record of a batch sends. */
 const sentKeys = (records: unknown[]): string[] =>
@@ -122,20 +142,15 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   // Create without read: ids only in the answer (see `engineRead`).
   const canRead = await checkAccess(db, user, collection, 'read');
   const created: DynamicRecord[] = [];
-  const errors: Array<{ index: number; errors: string[] }> = [];
+  const errors: Refusal[] = [];
 
-  // Per-row pre-insert hook. A hook abort becomes a per-row error so the
-  // rest of the batch still proceeds. Non-abort exceptions roll back the
-  // entire transaction (something is genuinely wrong).
+  // Every row is checked, so the refusal names all of them; a hook abort is one
+  // more refused row. A non-abort exception is a fault and propagates.
   // A constraint violation inside the batch is a 4xx, as it is on the
-  // single-record routes. Unwrapped it escaped as a 500 that named neither the
-  // constraint nor the column, for the same duplicate that answers 409 through
-  // `POST /:collection`.
-  //
-  // The batch still rolls back whole: the throw leaves `runAtomic`, and Postgres
-  // has aborted the transaction by then anyway. Reporting one bad row in the
-  // per-row `errors` array and keeping the rest needs a SAVEPOINT around each
-  // row -- a real change to what this endpoint promises, and not this one.
+  // single-record routes (409 for a duplicate), and rolls the batch back: the
+  // throw leaves the handler, and Postgres has aborted the transaction anyway.
+  // After the first refusal no row is written: the batch rolls back regardless,
+  // and a write could only abort the transaction and hide the later refusals.
   const failed = await handlePgErrors(c, async () => {
     await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
@@ -184,17 +199,19 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
           continue;
         }
 
+        if (errors.length > 0) continue;
         const system = { created_by: author, updated_by: author };
         const record = await engineRead(canRead, trx, collection, () =>
           dynamicInsert(trx, tableName, finalInsert, system),
         );
         created.push(record as DynamicRecord);
       }
-      await afterBulkWrite(c, trx, collection, 'create', created);
+      if (errors.length === 0) await afterBulkWrite(c, trx, collection, 'create', created);
     });
     return null;
   });
   if (failed) return failed as Response;
+  if (errors.length > 0) refuseBatch(errors);
 
   return c.json(
     {
@@ -204,7 +221,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
         : created.map((r) => ({ id: r.id })),
       errors,
     },
-    errors.length > 0 ? 207 : 201,
+    201,
   );
 }
 
@@ -244,20 +261,13 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
   // Update without read: the engine reads in the window, the answer names rows.
   const canRead = await checkAccess(db, user, collection, 'read');
   const updated: DynamicRecord[] = [];
-  const errors: Array<{ index: number; id: string; errors: string[] }> = [];
+  const errors: Refusal[] = [];
 
-  // Per-row pre-update hook. Before-row fetched inside the transaction so
-  // a concurrent write between read and update is at least visible in the
-  // same tx snapshot. Hook abort becomes a per-row error.
-  // A constraint violation inside the batch is a 4xx, as it is on the
-  // single-record routes. Unwrapped it escaped as a 500 that named neither the
-  // constraint nor the column, for the same duplicate that answers 409 through
-  // `POST /:collection`.
-  //
-  // The batch still rolls back whole: the throw leaves `runAtomic`, and Postgres
-  // has aborted the transaction by then anyway. Reporting one bad row in the
-  // per-row `errors` array and keeping the rest needs a SAVEPOINT around each
-  // row -- a real change to what this endpoint promises, and not this one.
+  // Before-row fetched inside the transaction so a concurrent write between
+  // read and update is at least visible in the same tx snapshot. Every row is
+  // checked; a hook abort is one more refused row. A constraint violation is a
+  // 4xx as on the single-record routes, and rolls the batch back. After the
+  // first refusal no row is written (see bulkCreate).
   const failed = await handlePgErrors(c, async () => {
     await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
@@ -359,6 +369,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           continue;
         }
 
+        if (errors.length > 0) continue;
         const system = { updated_by: author };
         const record = await engineRead(canRead, trx, collection, () =>
           dynamicUpdate(trx, tableName, id, finalPatch, system),
@@ -366,11 +377,12 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         if (record) updated.push(record as DynamicRecord);
         else errors.push({ index: i, id, errors: ['Record not found'] });
       }
-      await afterBulkWrite(c, trx, collection, 'update', updated);
+      if (errors.length === 0) await afterBulkWrite(c, trx, collection, 'update', updated);
     });
     return null;
   });
   if (failed) return failed as Response;
+  if (errors.length > 0) refuseBatch(errors);
 
   return c.json(
     {
@@ -380,7 +392,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         : updated.map((r) => ({ id: r.id })),
       errors,
     },
-    errors.length > 0 ? 207 : 200,
+    200,
   );
 }
 
@@ -435,21 +447,30 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
       .execute(),
   );
 
-  // Per-row pre-delete hook. Aborted IDs drop out of the delete set and
-  // are reported back as per-row errors (so the caller can distinguish
-  // them from rows that didn't exist).
-  const aborted: Array<{ id: string; reason: string }> = [];
-  const forbidden: string[] = [];
+  // Every id is checked, so the refusal names all of them (ADR 0044): one the
+  // caller cannot see is not found, as `DELETE /:id` answers 404 for it.
+  const found = new Map(existing.map((r) => [String(r.id), r]));
+  const seen = new Set<string>();
+  const errors: Refusal[] = [];
   const allowed: DynamicRecord[] = [];
-  for (const record of existing) {
-    // Per-row entity-access — mirror single deleteRecord. Without it, bulk
-    // delete let a user delete rows they have no row-level access to. And the
-    // row rules a read exemption stood down (ADR 0037).
-    if (
-      !matchesRlsFilters(record, writeRules) ||
-      !(await entityAccessRegistry.isAllowed(tableName, record, user, 'delete'))
-    ) {
-      forbidden.push(record.id);
+  for (const [index, sent] of (body.ids as unknown[]).entries()) {
+    const id = String(sent);
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const record = found.get(key);
+    if (!record) {
+      errors.push({ index, id, errors: ['Record not found'] });
+      continue;
+    }
+    // The row rules a read exemption stood down (ADR 0037), then per-row
+    // entity-access — mirror single deleteRecord.
+    if (!matchesRlsFilters(record, writeRules)) {
+      errors.push({ index, id, errors: [ROW_RULE_WRITE_REFUSAL.error] });
+      continue;
+    }
+    if (!(await entityAccessRegistry.isAllowed(tableName, record, user, 'delete'))) {
+      errors.push({ index, id, errors: ['Forbidden'] });
       continue;
     }
     try {
@@ -461,53 +482,41 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
       });
       allowed.push(record);
     } catch (err) {
-      if (err instanceof AbortHookError) {
-        aborted.push({ id: record.id, reason: err.reason });
-      } else {
-        throw err;
-      }
+      if (!(err instanceof AbortHookError)) throw err;
+      errors.push({ index, id, errors: [`EXT_HOOK_ABORTED: ${err.reason}`] });
     }
   }
+  if (errors.length > 0) refuseBatch(errors);
 
-  if (allowed.length > 0) {
-    // A foreign key that refuses one of these rows is a 422, not a 500 -- the
-    // single delete path says so too.
-    const failed = await handlePgErrors(c, async () => {
-      await runAtomic(effectiveDb, async (trx: Database) => {
-        const gone = await engineRead<{ id: string }[]>(canRead, trx, collection, () =>
-          dynamicDb(trx)
-            .deleteFrom(tableName)
-            .where(
-              'id',
-              'in',
-              allowed.map((r) => r.id),
-            )
-            .returning('id')
-            .execute(),
-        );
-        // Only the rows this statement removed: one a concurrent delete took
-        // first has had its event already.
-        const ids = new Set(gone.map((r) => r.id));
-        await afterBulkWrite(
-          c,
-          trx,
-          collection,
-          'delete',
-          allowed.filter((r) => ids.has(r.id)),
-        );
-      });
-      return null;
+  // A foreign key that refuses one of these rows is a 422, not a 500 -- the
+  // single delete path says so too.
+  const failed = await handlePgErrors(c, async () => {
+    await runAtomic(effectiveDb, async (trx: Database) => {
+      const gone = await engineRead<{ id: string }[]>(canRead, trx, collection, () =>
+        dynamicDb(trx)
+          .deleteFrom(tableName)
+          .where(
+            'id',
+            'in',
+            allowed.map((r) => r.id),
+          )
+          .returning('id')
+          .execute(),
+      );
+      // Only the rows this statement removed: one a concurrent delete took
+      // first has had its event already.
+      const ids = new Set(gone.map((r) => r.id));
+      await afterBulkWrite(
+        c,
+        trx,
+        collection,
+        'delete',
+        allowed.filter((r) => ids.has(r.id)),
+      );
     });
-    if (failed) return failed as Response;
-  }
+    return null;
+  });
+  if (failed) return failed as Response;
 
-  return c.json(
-    {
-      deleted: allowed.length,
-      ids: allowed.map((r) => r.id),
-      ...(aborted.length > 0 ? { aborted } : {}),
-      ...(forbidden.length > 0 ? { forbidden } : {}),
-    },
-    aborted.length > 0 || forbidden.length > 0 ? 207 : 200,
-  );
+  return c.json({ deleted: allowed.length, ids: allowed.map((r) => r.id) }, 200);
 }

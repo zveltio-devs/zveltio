@@ -184,17 +184,19 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
       expect(await stored(OWN, aliceRow)).toBe('alice');
     });
 
-    it('is refused per row on bulk PATCH and bulk DELETE', async () => {
+    it('refuses the batch on bulk PATCH and bulk DELETE', async () => {
       const patch = await call('PATCH', `/api/data/${OWN}/bulk`, god, {
         records: [{ id: aliceRow, title: 'GOD' }],
       });
-      expect(patch.status).toBe(207);
+      expect(patch.status).toBe(422);
       expect(((await patch.json()) as { errors: unknown[] }).errors).toEqual([
         { index: 0, id: aliceRow, errors: ['row_level_security_violation'] },
       ]);
       const del = await call('DELETE', `/api/data/${OWN}/bulk`, god, { ids: [aliceRow] });
-      expect(del.status).toBe(207);
-      expect(((await del.json()) as { forbidden?: string[] }).forbidden).toEqual([aliceRow]);
+      expect(del.status).toBe(422);
+      expect(((await del.json()) as { errors: unknown[] }).errors).toEqual([
+        { index: 0, id: aliceRow, errors: ['row_level_security_violation'] },
+      ]);
       expect(await stored(OWN, aliceRow)).toBe('alice');
     });
 
