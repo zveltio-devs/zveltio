@@ -116,10 +116,8 @@ const SECTIONS: Section[] = [
       'packages/client/src/lib/ext/',
       `${S}routes/(admin)/ai/`,
       `${S}routes/(admin)/developer/`,
-      `${S}routes/(admin)/geospatial/`,
       `${S}routes/(admin)/mail/`,
       `${S}routes/(admin)/pages/`,
-      `${S}routes/(admin)/projects/`,
     ],
   },
   {
