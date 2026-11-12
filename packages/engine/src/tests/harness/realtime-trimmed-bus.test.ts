@@ -133,7 +133,11 @@ d('ADR 0036 decision 4: a trimmed bus message is gated on what it keeps', () => 
     return frames;
   }
 
-  async function stream(collection: string, who: { cookie: string; userId: string }, filter?: object) {
+  async function stream(
+    collection: string,
+    who: { cookie: string; userId: string },
+    filter?: object,
+  ) {
     const frames: Frame[] = [];
     const q = filter ? `&filter=${encodeURIComponent(JSON.stringify(filter))}` : '';
     const res = await app.request(`/api/realtime/stream?collection=${collection}${q}`, {

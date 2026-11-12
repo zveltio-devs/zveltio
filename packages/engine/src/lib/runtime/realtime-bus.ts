@@ -267,7 +267,10 @@ export function trimForPgNotify(
     return { ...full, data: undefined };
   }
   const id = { id: record.id ?? full.record_id };
-  const kept = { ...Object.fromEntries(keep.filter((k) => k in record).map((k) => [k, record[k]])), ...id };
+  const kept = {
+    ...Object.fromEntries(keep.filter((k) => k in record).map((k) => [k, record[k]])),
+    ...id,
+  };
   const trimmed: RealtimeBusMessage = { ...full, data: kept, trimmed: true };
   return encodedBytes(trimmed) <= PG_NOTIFY_PAYLOAD_MAX ? trimmed : { ...trimmed, data: id };
 }
@@ -278,7 +281,10 @@ async function ruleColumnsFor(collection: string): Promise<string[]> {
     // Lazily: tenancy imports this module.
     return await (await import('../tenancy/index.js')).ruleColumns(collection);
   } catch (err) {
-    console.error(`[realtime-bus] ${collection}: row-rule columns not read, trimmed to id:`, (err as Error).message);
+    console.error(
+      `[realtime-bus] ${collection}: row-rule columns not read, trimmed to id:`,
+      (err as Error).message,
+    );
     return [];
   }
 }

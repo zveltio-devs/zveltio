@@ -400,7 +400,8 @@ export function broadcastDataEvent(
       const scope = sub.access.get(collection);
       if (scope) {
         if (realtimeScopeCurrent(scope.generation)) {
-          if (withData || !scope.entityChecks) inOrder(sub, scope.admits(record), () => write(scope));
+          if (withData || !scope.entityChecks)
+            inOrder(sub, scope.admits(record), () => write(scope));
         }
       } else if (sub.collections.length === 0) {
         // The wildcard stream: resolved on first use, under the stream's tenant.
