@@ -291,17 +291,20 @@ function FileUpload() {
 ### useRealtime
 
 ```tsx
-import { useRealtime } from '@zveltio/react';
+import { useRealtime, useZveltioClient } from '@zveltio/react';
 
 function LiveOrders() {
+  const client = useZveltioClient();
   const [orders, setOrders] = useState([]);
 
   useRealtime(
     'https://api.yourapp.com',
     'orders',
     'insert', // filter by event type, or null for all events
-    (event) => {
-      setOrders(prev => [event.data, ...prev]);
+    async (event) => {
+      // `data` comes only when the engine sends it; otherwise read by `id`.
+      const order = event.data ?? (await client.collection('orders').get(event.id));
+      setOrders(prev => [order, ...prev]);
     }
   );
 
@@ -415,8 +418,11 @@ async function onFileChange(e: Event) {
 
 ```vue
 <script setup lang="ts">
-import { useRealtime } from '@zveltio/vue';
-import { ref } from 'vue';
+import { inject, ref } from 'vue';
+import type { ZveltioClient } from '@zveltio/sdk';
+import { useRealtime, ZVELTIO_CLIENT_KEY } from '@zveltio/vue';
+
+const client = inject(ZVELTIO_CLIENT_KEY) as ZveltioClient;
 
 const orders = ref<any[]>([]);
 
@@ -424,8 +430,10 @@ useRealtime(
   'https://api.yourapp.com',
   'orders',
   'insert', // filter by event type, or null for all events
-  (event) => {
-    orders.value = [event.data, ...orders.value];
+  async (event) => {
+    // `data` comes only when the engine sends it; otherwise read by `id`.
+    const order = event.data ?? (await client.collection('orders').get(event.id));
+    orders.value = [order, ...orders.value];
   },
 );
 </script>
@@ -537,8 +545,10 @@ realtime.connect();
 
 // Subscribe to a collection
 const unsubscribe = realtime.subscribe('orders', (msg) => {
-  // msg: { type: 'event', collection, event: 'insert' | 'update' | 'delete', data, timestamp }
-  console.log(msg.event, msg.data);
+  // msg: RealtimeRecordEvent — { type: 'event', collection, event, id, data?, timestamp }
+  // `id` is always set. `data` comes only when the engine sends it; without it,
+  // read the record by `id` through the data API.
+  console.log(msg.event, msg.id, msg.data);
 });
 
 // Unsubscribe

@@ -748,12 +748,17 @@ GET /api/realtime/stream?collection=documents&channel=presence:documents
   "channel": "zveltio:data:orders",
   "event": "insert",
   "collection": "orders",
+  "id": "...",
   "data": { "id": "...", "status": "new", ... },
   "timestamp": "2026-04-21T12:00:00.000Z"
 }
 ```
 
-Events: `insert`, `update`, `delete`.
+Events: `insert`, `update`, `delete`. `id` names the record and is always there. `data` is the
+record as this subscriber may read it, and only when the engine sends it — a client cannot ask for
+it and must not rely on it. Without `data`, read the record through the data API: a 404 means it is
+gone, or not yours to see. The WebSocket (`/api/ws`) sends the same record events as
+`{ "type": "event", "collection", "event", "id", "data"?, "timestamp" }`.
 
 **JavaScript client:**
 
@@ -762,8 +767,8 @@ const es = new EventSource('/api/realtime/stream?collection=orders&filter={"stat
   withCredentials: true,
 });
 es.addEventListener('data', (e) => {
-  const { event, data } = JSON.parse(e.data);
-  console.log(event, data); // "insert", { id: "...", ... }
+  const { event, id, data } = JSON.parse(e.data);
+  console.log(event, id, data); // "insert", "...", { id: "...", ... } or undefined
 });
 ```
 
