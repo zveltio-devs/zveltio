@@ -34,7 +34,8 @@ afterEach(async () => {
 });
 
 describe('SyncManager — realtime frames as the engine sends them', () => {
-  // The frame shape is `broadcastEvent` in packages/engine/src/routes/ws.ts.
+  // The frame shape is `broadcastEvent` in packages/engine/src/routes/ws.ts:
+  // `id` always, `data` only when the engine sends it (ADR 0036 decision 3).
   // The handler used to wait for `record.created` / `record_id`, names the
   // socket never sends, so no server push ever reached the local store.
   it('applies an insert and drops a delete without queueing one back', async () => {
@@ -50,11 +51,18 @@ describe('SyncManager — realtime frames as the engine sends them', () => {
       latest = records;
     });
 
-    await rt.push({ type: 'event', collection: 'posts', event: 'insert', data: { id: 'p1' } });
+    // No `data`: the manager reads the record by `id`.
+    await rt.push({ type: 'event', collection: 'posts', event: 'insert', id: 'p1' });
     expect((await store.get('posts', 'p1'))?.data).toMatchObject({ title: 'from server' });
     expect(latest.map((r) => r.id)).toEqual(['p1']);
 
-    await rt.push({ type: 'event', collection: 'posts', event: 'delete', data: { id: 'p1' } });
+    await rt.push({
+      type: 'event',
+      collection: 'posts',
+      event: 'delete',
+      id: 'p1',
+      data: { id: 'p1' },
+    });
     expect(await store.get('posts', 'p1')).toBeUndefined();
     // A queued delete here would send the server's own deletion back to it.
     expect(await store.getPendingOps()).toEqual([]);
