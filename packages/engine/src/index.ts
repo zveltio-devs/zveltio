@@ -662,6 +662,17 @@ async function buildHonoApp(): Promise<Hono> {
 
   const app = new Hono();
 
+  // ADR 0038 decision 11: `Origin: null` (a sandboxed frame, an extension's
+  // document included) never authenticates by cookie — with CROSS_DOMAIN_AUTH the
+  // cookie is SameSite=None and the browser attaches it. Dropped before anything
+  // reads it, so Better Auth, getSession and the socket upgrade all see no cookie.
+  app.use('*', async (c, next) => {
+    if (c.req.header('origin')?.trim().toLowerCase() === 'null') {
+      c.req.raw.headers.delete('cookie');
+    }
+    await next();
+  });
+
   // ── Middleware (identical to original bootstrap) ──────────────────────────
   //
   // A trailing slash used to 404 on every route in the product, uniformly:
