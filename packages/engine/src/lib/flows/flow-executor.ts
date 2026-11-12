@@ -12,6 +12,7 @@
  * Called by:
  *   - flowsRoutes POST /:id/run   (manual trigger via API)
  *   - flowScheduler._executeFlow  (cron trigger)
+ *   - runFlowJob                  (data trigger, a `flow.trigger` job)
  */
 
 import { sql } from 'kysely';
@@ -543,17 +544,22 @@ export async function executeFlow(
   flowId: string,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   triggerData: any = {},
+  /** A run row its caller already claimed (a data trigger's, keyed by its event). */
+  claimedRunId?: string,
 ): Promise<FlowRunResult> {
-  // Create run record
   let runId: string;
   try {
-    const runRow = await sql<{ id: string }>`
-      INSERT INTO zv_flow_runs (flow_id, status, trigger_data)
-      VALUES (${flowId}, 'running', ${toJsonb(triggerData)})
-      RETURNING id::text
-    `.execute(db);
-    runId = runRow.rows[0]?.id;
-    if (!runId) throw new Error('Failed to create run record');
+    const id =
+      claimedRunId ??
+      (
+        await sql<{ id: string }>`
+          INSERT INTO zv_flow_runs (flow_id, status, trigger_data)
+          VALUES (${flowId}, 'running', ${toJsonb(triggerData)})
+          RETURNING id::text
+        `.execute(db)
+      ).rows[0]?.id;
+    if (!id) throw new Error('Failed to create run record');
+    runId = id;
   } catch (err) {
     return { runId: '', status: 'failed', output: {}, error: String(err) };
   }

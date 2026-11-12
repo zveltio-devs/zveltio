@@ -42,7 +42,7 @@ import {
 } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
-import { type ChangeEvent, enqueueWebhookEvent } from '../lib/webhooks.js';
+import { type ChangeEvent, enqueueChangeEvent } from '../lib/webhooks.js';
 import { asEngineRole } from '../lib/role-window.js';
 import { SYNC_TOMBSTONE_RETENTION_DAYS } from '../lib/runtime/index.js';
 
@@ -273,7 +273,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
   app.post('/push', push);
 
   async function push(c: Context): Promise<Response> {
-    // The rows and their webhook events commit together (ADR 0035), in the
+    // The rows and their change events commit together (ADR 0035), in the
     // request's transaction.
     writeTransaction(c.get('tenantTrx'));
     const body = await c.req.json().catch(() => null);
@@ -724,7 +724,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     // One lookup per collection and event, one batch of jobs, outside every
     // per-operation catch: an event that cannot be queued refuses the whole
     // push (503) and rolls back its rows (ADR 0035).
-    await enqueueWebhookEvent(effectiveDb, syncTid, events);
+    await enqueueChangeEvent(effectiveDb, syncTid, events);
     return c.json({ results });
   }
 

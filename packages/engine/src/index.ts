@@ -57,7 +57,7 @@ import { getWorkerHostIfInitialized } from './lib/worker-extension-host.js';
 import { cancelPendingCleanups, sweepGhostOrphans } from './lib/data/index.js';
 import { contractImportLogs } from './lib/data/index.js';
 import { DDLManager } from './lib/data/index.js';
-import { flowScheduler } from './lib/flows/index.js';
+import { flowScheduler, startFlowTriggerWorker } from './lib/flows/index.js';
 import {
   applyFailClosedTenantSetting,
   initRlsEnforcementRole,
@@ -1592,6 +1592,8 @@ async function bootstrap() {
   // ═══ Background workers (fire-and-forget) ═══
   startWebhookWorker();
   console.log('✅ Webhook worker started');
+  startFlowTriggerWorker();
+  console.log('✅ Flow trigger worker started');
 
   await flowScheduler.start(db);
   console.log('✅ Flow scheduler started');

@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
-import { enqueueWebhookEvent, WEBHOOK_QUEUE } from '../../lib/webhooks.js';
+import { enqueueChangeEvent, WEBHOOK_QUEUE } from '../../lib/webhooks.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
@@ -87,7 +87,7 @@ d('webhook dispatch: which hooks match', () => {
   it('fires active hooks for the collection, by name, NULL or *; not inactive or other ones', async () => {
     // One delivery job per matching hook, queued in the write's transaction (ADR 0035).
     await withTenantIsolation(DEFAULT_TENANT_ID, (trx) =>
-      enqueueWebhookEvent(trx, DEFAULT_TENANT_ID, {
+      enqueueChangeEvent(trx, DEFAULT_TENANT_ID, {
         id: crypto.randomUUID(),
         event: 'insert',
         collection: COLLECTION,

@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { _setBossForTests } from '../../lib/data/ddl-queue.js';
 import { ProblemException } from '../../lib/problem.js';
-import { enqueueWebhookEvent, WebhookManager } from '../../lib/webhooks.js';
+import { enqueueChangeEvent, WebhookManager } from '../../lib/webhooks.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 let originalFetch: typeof fetch;
@@ -181,7 +181,7 @@ describe('WebhookManager.deliver', () => {
   });
 });
 
-describe('enqueueWebhookEvent', () => {
+describe('enqueueChangeEvent', () => {
   const change = {
     id: '7d0f6c1e-0000-4000-8000-000000000002',
     event: 'insert',
@@ -195,7 +195,7 @@ describe('enqueueWebhookEvent', () => {
     db.fail(/from zvd_webhooks/i, new Error('connection reset'));
     const err = await db.kysely
       .transaction()
-      .execute((trx) => enqueueWebhookEvent(trx as unknown as Database, 'tenant-a', change))
+      .execute((trx) => enqueueChangeEvent(trx as unknown as Database, 'tenant-a', change))
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ProblemException);
     expect((err as ProblemException).code).toBe('webhooks.enqueue_failed');
@@ -228,7 +228,7 @@ describe('enqueueWebhookEvent', () => {
       }));
       await db.kysely
         .transaction()
-        .execute((trx) => enqueueWebhookEvent(trx as unknown as Database, 'tenant-a', rows));
+        .execute((trx) => enqueueChangeEvent(trx as unknown as Database, 'tenant-a', rows));
       expect(db.executed(/from zvd_webhooks/i)).toHaveLength(1);
       expect(db.executed(/nextval/i)).toHaveLength(1);
       expect(batches).toHaveLength(1);
@@ -249,7 +249,7 @@ describe('enqueueWebhookEvent', () => {
   it("refuses a database that is not the write's transaction: the event would not commit with it", async () => {
     const db = new CannedDb();
     await expect(
-      enqueueWebhookEvent(db.kysely as unknown as Database, 'tenant-a', change),
+      enqueueChangeEvent(db.kysely as unknown as Database, 'tenant-a', change),
     ).rejects.toThrow('transaction');
     expect(db.executed(/zvd_webhooks/i)).toHaveLength(0);
   });

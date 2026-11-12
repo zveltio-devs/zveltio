@@ -391,6 +391,7 @@ table zv_flow_dlq
 
 table zv_flow_runs
   col error                          text
+  col event_id                       uuid
   col finished_at                    timestamp with time zone
   col flow_id                        uuid NOT NULL
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
@@ -401,6 +402,7 @@ table zv_flow_runs
   fk  zv_flow_runs_flow_id_fkey FOREIGN KEY (flow_id) REFERENCES zv_flows(id) ON DELETE CASCADE
   pk  zv_flow_runs_pkey PRIMARY KEY (id)
   ck  zv_flow_runs_status_check CHECK ((status = ANY (ARRAY['running'::text, 'success'::text, 'failed'::text, 'cancelled'::text])))
+  idx zv_flow_runs_event UNIQUE (flow_id, event_id)
 
 table zv_flow_steps
   col config                         jsonb NOT NULL DEFAULT '{}'::jsonb
