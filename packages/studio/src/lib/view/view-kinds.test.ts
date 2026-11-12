@@ -87,10 +87,14 @@ vi.mock('#lib/api.js', () => ({
 }));
 
 const leaflet = vi.hoisted(() => {
+  const tooltips: unknown[] = [];
   const layer = () => {
     const l: Record<string, unknown> = {};
     l.addTo = () => l;
-    l.bindTooltip = () => l;
+    l.bindTooltip = (tip: unknown) => {
+      tooltips.push(tip);
+      return l;
+    };
     l.on = () => l;
     return l;
   };
@@ -103,6 +107,7 @@ const leaflet = vi.hoisted(() => {
   };
   return {
     map,
+    tooltips,
     circleMarker: vi.fn(() => layer()),
     L: {
       map: (node: unknown) => {
@@ -293,6 +298,9 @@ describe('view/2 map', () => {
     await waitFor(() => expect(leaflet.circleMarker).toHaveBeenCalled());
     for (const call of leaflet.circleMarker.mock.calls as unknown[][])
       expect(call).toEqual([[44.43, 26.1], { radius: 7 }]);
+    // Leaflet reads a string tooltip as HTML: the label must be a text node.
+    expect(leaflet.tooltips.length).toBeGreaterThan(0);
+    for (const tip of leaflet.tooltips) expect(tip).toBeInstanceOf(HTMLElement);
   }, 60_000);
 });
 

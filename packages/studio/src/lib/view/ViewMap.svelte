@@ -65,9 +65,12 @@ $effect(() => {
     maxZoom: 19,
   }).addTo(lm);
   for (const p of placed) {
-    // A circle needs no marker image from a CDN.
+    // A circle needs no marker image from a CDN. Leaflet reads a string tooltip
+    // as HTML; record values are untrusted, so the label goes in as a text node.
+    const tip = document.createElement('span');
+    tip.textContent = String(p.row[labelField] ?? p.row.id);
     L.circleMarker([p.lat, p.lng], { radius: 7 })
-      .bindTooltip(String(p.row[labelField] ?? p.row.id))
+      .bindTooltip(tip)
       .on('click', () => pick(p.row))
       .addTo(lm);
   }
