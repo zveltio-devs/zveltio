@@ -32,6 +32,9 @@ const doc = (s: Schema, indent: string) =>
 
 function ts(s: Schema, indent = ''): string {
   if (typeof s.$ref === 'string') return s.$ref.replace('#/$defs/', '');
+  // `{ not: {} }` matches nothing: a key that must be absent.
+  if (typeof s.not === 'object' && s.not !== null && Object.keys(s.not).length === 0)
+    return 'never';
   if ('const' in s) return JSON.stringify(s.const).replace(/"/g, "'");
   if (Array.isArray(s.enum))
     return s.enum.map((e) => JSON.stringify(e).replace(/"/g, "'")).join(' | ');
@@ -50,6 +53,8 @@ function ts(s: Schema, indent = ''): string {
       const key = /^[A-Za-z_$][\w$]*$/.test(k) ? k : `'${k}'`;
       return `${doc(p, inner)}${inner}${key}${required.has(k) ? '' : '?'}: ${ts(p, inner)};`;
     });
+    // An open object (no `additionalProperties`) takes other keys too.
+    if (s.additionalProperties === undefined) lines.push(`${inner}[key: string]: unknown;`);
     return `{\n${lines.join('\n')}\n${indent}}`;
   }
   return PRIMS[s.type as string] ?? 'unknown';

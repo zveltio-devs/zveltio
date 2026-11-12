@@ -43,6 +43,10 @@ bespoke page):
 components — `SchemaPage.svelte`, `SettingsPage.svelte`, `DetailLayout.svelte`,
 `BuilderLayout.svelte`. No extension code runs in the admin bundle, there is no
 per-extension build step, and no third-party JavaScript enters the Studio.
+A schema with `"spec": "zveltio.view/2"` is drawn by `src/lib/view/` instead
+(ADR 0042): the kinds it draws, its fallbacks and the live preview at
+*Developer → View preview* are in
+[../extensions/ui-model.md](../extensions/ui-model.md#in-studio).
 
 **Without a `schema`**, the extension ships Svelte and the host copies it into
 the route tree on enable. Reserve this for genuinely unusual surfaces.

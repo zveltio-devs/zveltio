@@ -403,6 +403,46 @@ const defs: Record<string, Schema> = {
   ),
   TabsView: kind('tabs', 'Views as tabs.', { items: arrayOf(ref('View'), 1) }, ['items']),
   View: { anyOf: VIEW_KINDS.map(ref) },
+  ActionResult: {
+    description:
+      'What an action returns, as a front end reads it (ADR 0042 decision 4). An object with `view`, `file` or `reveal` is one of the closed forms; anything else is values.',
+    anyOf: [
+      closed(
+        'Opens a view (a navigation).',
+        {
+          view: ref('ViewId'),
+          params: {
+            type: 'object',
+            description: 'The parameters it is opened with (`$param`).',
+            additionalProperties: ref('Literal'),
+          },
+        },
+        ['view'],
+      ),
+      closed('Draws this view (wizards, computed screens).', { view: ref('View') }, ['view']),
+      closed('Hands the caller a stored file.', { file: { type: 'string', minLength: 1 } }, [
+        'file',
+      ]),
+      closed(
+        'Shows a value once (a key, a secret).',
+        { reveal: { type: 'string', minLength: 1 } },
+        ['reveal'],
+      ),
+      ref('ActionValues'),
+    ],
+  },
+  ActionValues: {
+    description:
+      'Values: a scalar, a list, or an object without `view`, `file` or `reveal` (a form `recalc` merges an object of them).',
+    anyOf: [
+      { type: ['string', 'number', 'boolean', 'null'] },
+      { type: 'array', items: {} },
+      {
+        type: 'object',
+        properties: { view: { not: {} }, file: { not: {} }, reveal: { not: {} } },
+      },
+    ],
+  },
 };
 
 /**

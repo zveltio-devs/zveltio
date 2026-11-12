@@ -5,6 +5,7 @@
 import { resolve } from '$app/paths';
 import {
   LayoutDashboard,
+  PanelsTopLeft,
   Database,
   Users,
   Shield,
@@ -232,6 +233,11 @@ const RAW_NAV: NavGroup[] = [
         href: resolve(`developer/validation`),
         icon: ShieldCheck,
         labelKey: 'nav.validationRules',
+      },
+      {
+        href: resolve(`developer/views`),
+        icon: PanelsTopLeft,
+        labelKey: 'nav.viewPreview',
       },
 
       {

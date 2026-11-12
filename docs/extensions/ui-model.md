@@ -117,9 +117,13 @@ What the specification holds:
   (`eq`, `neq`, `in`, `null`, ...); `in` and `not_in` take a list, `null` and
   `not_null` take no value. A value is a literal or one of the references
   `$record`, `$selected` (an earlier pane of the enclosing `split`),
-  `$selection`, `$param`, `$user`, `$today`.
+  `$selection`, `$param`, `$user`, `$today`. One list gives a field and an
+  operator once: the data API takes one value per pair (`{"total":{"gt":1,"lt":9}}`
+  is two operators on one field and fine; `gt` twice is refused).
 - **Buttons** run an action (`action`, `input`, `prompt`, `confirm`, `when`),
-  open a view (`navigate`, `params`) or save a form (`save`).
+  open a view (`navigate`, `params`) or save a form (`save`). A `prompt` asks
+  only for inputs that `input` leaves open; naming a bound one is refused. A
+  `when` holds of a record, so a toolbar button with one is not drawn.
 - **Fields** are names; a field object adds only presentation hints
   (`label`, `display`, `tones`, `readOnly`). Type, label and editor come from
   the collection.
@@ -127,16 +131,82 @@ What the specification holds:
   `fallback` (the view a front end draws when it does not know this kind).
   Only the top of a file carries `spec`; its `id` (`billing.invoices`) is what
   `navigate` and `open` name. Inside a container `id` names a pane, once.
+- **An action's result** is an `ActionResult` (`$defs/ActionResult` of the JSON
+  Schema), one of:
+
+  | Result | A front end |
+  |---|---|
+  | `{ "view": "<view id>", "params": { ... } }` | opens that view (`params` optional, literal values, read by `$param`) |
+  | `{ "view": { "type": ..., ... } }` | draws the returned view (wizards, computed screens) |
+  | `{ "file": "<file id>" }` | hands the caller the stored file |
+  | `{ "reveal": "<text>" }` | shows the value once (a key, a secret) |
+  | anything else: a scalar, a list, an object without `view`, `file` or `reveal` | values; a form's `recalc` merges an object of them |
+
+  The four forms are closed: `{ "view": "x.y", "extra": 1 }` is not values but
+  an invalid result, and a front end reports it instead of guessing.
+  `readActionResult` in `@zveltio/sdk/view` checks a result and says which it is.
 
 Validation runs in three places, against the same schema:
 
 | Where | When | What happens to an invalid view |
 |---|---|---|
-| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema; `VIEW_REFERENCE` for a collection or action the extension does not own, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json` |
+| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema, a field and operator twice in one condition list, or a `prompt` naming a bound input; `VIEW_REFERENCE` for a collection or action the extension does not own, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json` |
 | `zveltio extension pack` | when the bundle is built | the same checks, and a page file that is missing or is not JSON; the pack stops |
-| the engine | when it loads the extension | the schema only; the page is not served and the log says why. The references are the CLI's, and the engine's permission rules decide every call at run time |
+| the engine | when it loads the extension | the schema only; the page is not served and the log says why. The references and the cross-key checks above are the CLI's, and the engine's permission rules decide every call at run time |
 
 A schema without `spec` is a `view/1` schema and is treated as before.
+
+## How a front end draws a view
+
+What every renderer does the same way is plain TypeScript in
+`@zveltio/sdk/view` (`runtime.ts`), so a React or Vue front end draws a view
+and only draws it:
+
+| Function | Does |
+|---|---|
+| `resolveValue`, `resolveInput` | fill `$record`, `$selected`, `$selection`, `$param`, `$user`, `$today`; unresolved while a pane has no selection |
+| `toFilter`, `toSort` | a view's conditions and sort as the data API's JSON `filter`, `sort` and `order` |
+| `matches` | whether a row meets a `when` or `emphasisWhen` |
+| `defaultFields`, `defaultView`, `viewFields` | the generated default list, form and detail of a collection: no system or computed field, a list at most eight columns, a form without read-only ones |
+| `fallbackFor` | what to draw for a kind the front end does not draw: the view's `fallback`, else the generated list of its collection |
+| `actionPath` | `POST /ext/<extension>/actions/<name>`, or the dependency's for `<dependency>.<action>` |
+| `readActionResult` | an action's result checked against `ActionResult` (above): `navigate`, `view`, `file`, `reveal`, `values`, or `invalid` |
+
+Every call is the signed-in user's: field lists come from `GET /api/data` (the
+fields the caller may read), rows and records from the data API, actions from
+`POST /ext/<extension>/actions/<name>`, and a button whose action
+`GET /api/actions` does not list for the caller is not drawn. The engine's rules
+decide each call; the renderer only asks.
+
+### In Studio
+
+A page whose schema has `"spec": "zveltio.view/2"` is drawn by
+`packages/studio/src/lib/view/` (ADR 0042 slice 2); any other schema is `view/1`
+and drawn as before.
+
+| Kind | Studio draws |
+|---|---|
+| `list` | table, `cards` or `feed`; search, paging, selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `open` |
+| `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit`, read-only fields shown as text |
+| `detail` | the record's fields, then its `panels` with `$record` set to it |
+| `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
+| `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |
+| `board`, `timeline`, `map`, `tree`, `matrix` | not yet (ADR 0042 slice 4): the view's `fallback`, else the generated list, under a notice |
+
+Not drawn yet, each with a notice where it appears: a form's `lines`, `recalc`
+and `autosave`, a list's `realtime`, a `stat` that sums, averages or takes a
+minimum or maximum (the data API has no aggregate route; make it a server field
+or an action). A `richtext` value is shown as text, never as HTML.
+
+A row's `open` and a `navigate` go to the extension's page whose view file has
+that `id`; the page path's `:name` segments are filled from the parameters and
+the rest go in the query, and `$param` reads both. `open` passes the row as
+`id`.
+
+**Live preview.** *Developer → View preview* (`/admin/developer/views`) takes a
+`view/2` document, shows the specification's issues as you type, and draws it
+with the same renderer, on your own data and permissions. Name the extension to
+run its actions.
 
 ## A screen that needs code
 
@@ -171,16 +241,14 @@ adopted:
 
 | Topic | Today | Target (ADR 0042) |
 |---|---|---|
-| Schema format | `sduiSchema: 1` ([sdui.md](../ui/sdui.md)), types in Studio; `view/2` specified and validated (`@zveltio/sdk/view`), not yet drawn | `view/2` only, a shared specification package with JSON Schema, validated by the engine and the CLI |
+| Schema format | `sduiSchema: 1` ([sdui.md](../ui/sdui.md)), types in Studio; `view/2` specified and validated (`@zveltio/sdk/view`) and drawn by Studio; `board`, `timeline`, `map`, `tree`, `matrix` fall back to a list | `view/2` only, a shared specification package with JSON Schema, validated by the engine and the CLI |
 | Data binding | URLs (`dataSource`, `endpoint`) | names of collections and actions |
 | Styling | daisyUI class names, icon names | semantic tones |
 | Computed values | arithmetic tokens, templates, `computed` | server fields or actions |
 | Code pages (`studio/pages/+page.svelte`, "Tier-3") | 7 pages, synced into Studio at release | views; the page-builder canvas becomes a front-end package |
 | Slot widgets (`studio/src/contribute.ts`) | Svelte components | data only |
-| Renderers | Studio only | Studio, `sdk-react`, `sdk-vue` |
+| Renderers | Studio only (the shared runtime is in `@zveltio/sdk/view`) | Studio, `sdk-react`, `sdk-vue` |
 
-Until Studio draws `view/2` (ADR 0042 slice 2), a `view/2` page validates but
-is not rendered; keep writing `sduiSchema: 1` schemas for screens that must show
-today, and do not add
-new code pages: a screen you cannot express is a request for a view kind or a
-field type.
+Studio draws `view/2` pages (below) and keeps drawing `sduiSchema: 1` schemas
+until the codemod (ADR 0042 slice 3). Do not add new code pages: a screen you
+cannot express is a request for a view kind or a field type.

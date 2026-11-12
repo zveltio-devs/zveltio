@@ -140,6 +140,29 @@ describe('embedPageSchemas — view/2', () => {
     }
   });
 
+  it('the published ActionResult agrees with the SDK reader, on every fixture', async () => {
+    const { z } = await import('zod');
+    const { readActionResult } = await import('@zveltio/sdk/view');
+    const json = (await import('@zveltio/sdk/view/schema.json', { with: { type: 'json' } }))
+      .default as { $defs: Record<string, unknown> };
+    const results = JSON.parse(
+      readFileSync(join(import.meta.dir, '../../../../sdk/src/tests/fixtures/view-2.json'), 'utf8'),
+    ).actionResults as { valid: Record<string, unknown>; invalid: Record<string, unknown> };
+    const schema = z.fromJSONSchema({
+      $defs: json.$defs,
+      $ref: '#/$defs/ActionResult',
+    } as Parameters<typeof z.fromJSONSchema>[0]);
+    for (const [name, r] of Object.entries(results.valid)) {
+      expect([name, schema.safeParse(r).success]).toEqual([name, true]);
+    }
+    for (const [name, r] of Object.entries(results.invalid)) {
+      expect([name, schema.safeParse(r).success]).toEqual([name, false]);
+    }
+    for (const r of [...Object.values(results.valid), ...Object.values(results.invalid)]) {
+      expect(schema.safeParse(r).success).toBe(readActionResult(r).kind !== 'invalid');
+    }
+  });
+
   it('a schema that does not compile refuses the page with its reason, and the load goes on', async () => {
     const reason = viewRefusal(valid, { $ref: '#/$defs/Missing' });
     expect(reason).toContain('did not compile');

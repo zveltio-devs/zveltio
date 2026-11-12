@@ -8,15 +8,19 @@
  * - `viewNameIssues`: a view names only its extension's collections and
  *   actions, and a dependency's action.
  * - `view`, `$`: a typed builder that emits the JSON.
+ * - `readActionResult`: an action's result, checked against `ActionResult`.
+ * - `resolveValue`, `toFilter`, `matches`, `defaultView`, ...: what every
+ *   renderer does the same way (`runtime.ts`).
  *
  * Dependency-free: the validator interprets the subset of JSON Schema that
  * `VIEW_SCHEMA` uses, so a front end can validate in the browser.
  */
 
 import { VIEW_SCHEMA, VIEW_SPEC } from './schema.js';
-import type { Condition, Ref, Value, View, ViewId } from './types.generated.js';
+import type { ActionResult, Condition, Ref, Value, View, ViewId } from './types.generated.js';
 
 export { VIEW_SCHEMA, VIEW_SPEC } from './schema.js';
+export * from './runtime.js';
 export type * from './types.generated.js';
 
 /** A view file: a view with `spec` set at its top, and its `id` a `ViewId`. */
@@ -41,7 +45,86 @@ export function validateView(input: unknown): ViewValidation {
   }
   const issues: ViewIssue[] = [];
   check(VIEW_SCHEMA, input, '', issues);
+  if (issues.length === 0) crossChecks(input, '', issues);
   return issues.length === 0 ? { ok: true, view: input as ViewDocument } : { ok: false, issues };
+}
+
+const CONDITION_LISTS = new Set(['filter', 'when', 'emphasisWhen']);
+
+/**
+ * What the schema cannot say, checked across keys:
+ * - the data API takes one value per field and operator (`{"f":{"gt":1,"lt":9}}`),
+ *   so a condition list that gives the same pair twice cannot be sent whole: one
+ *   of the two would be dropped and the list would answer wider than written;
+ * - a button's `prompt` never names an input its `input` already binds.
+ */
+function crossChecks(v: unknown, path: string, out: ViewIssue[]): void {
+  if (Array.isArray(v)) {
+    v.forEach((x, i) => crossChecks(x, `${path}/${i}`, out));
+    return;
+  }
+  if (!isObj(v)) return;
+  // A button's `prompt` asks for what its `input` left open: never a bound key.
+  if (Array.isArray(v.prompt) && isObj(v.input)) {
+    v.prompt.forEach((name, i) => {
+      if (typeof name === 'string' && Object.hasOwn(v.input as object, name)) {
+        out.push({
+          path: `${path}/prompt/${i}`,
+          message: 'names an input the button already sets',
+        });
+      }
+    });
+  }
+  for (const [k, x] of Object.entries(v)) {
+    if (CONDITION_LISTS.has(k) && Array.isArray(x)) {
+      const seen = new Set<string>();
+      x.forEach((c, i) => {
+        const key = isObj(c) ? `${String(c.field)}\0${String(c.op)}` : '';
+        if (seen.has(key)) {
+          out.push({ path: `${path}/${k}/${i}`, message: 'repeats a field and operator' });
+        }
+        seen.add(key);
+      });
+    }
+    crossChecks(x, `${path}/${k}`, out);
+  }
+}
+
+/**
+ * How a front end reads an action's `result` (`ActionResult`, ADR 0042
+ * decision 4): `{ view: "<id>", params? }` opens that view, `{ view: {...} }`
+ * draws it, `{ file }` hands over a stored file, `{ reveal }` shows a value
+ * once, anything else is values. An object with `view`, `file` or `reveal` that
+ * is none of those forms is `invalid`: a front end shows an error, never guesses.
+ */
+export type ActionOutcome =
+  | { kind: 'navigate'; view: ViewId; params: Record<string, unknown> }
+  | { kind: 'view'; view: View }
+  | { kind: 'file'; file: string }
+  | { kind: 'reveal'; value: string }
+  | { kind: 'values'; values: unknown }
+  | { kind: 'invalid'; issues: ViewIssue[] };
+
+const ACTION_RESULT = { $ref: '#/$defs/ActionResult' };
+
+export function readActionResult(result: unknown): ActionOutcome {
+  const issues: ViewIssue[] = [];
+  check(ACTION_RESULT, result, '', issues);
+  if (issues.length === 0 && isObj(result) && isObj(result.view)) {
+    crossChecks(result.view, '/view', issues);
+  }
+  if (issues.length > 0) return { kind: 'invalid', issues };
+  const r = result as ActionResult;
+  if (isObj(r) && 'view' in r) {
+    return typeof r.view === 'string'
+      ? { kind: 'navigate', view: r.view, params: ('params' in r && r.params) || {} }
+      : { kind: 'view', view: r.view as View };
+  }
+  if (isObj(r) && 'file' in r && typeof r.file === 'string') return { kind: 'file', file: r.file };
+  if (isObj(r) && 'reveal' in r && typeof r.reveal === 'string') {
+    return { kind: 'reveal', value: r.reveal };
+  }
+  return { kind: 'values', values: result };
 }
 
 export interface ViewNames {
@@ -235,6 +318,11 @@ function accepts(schema: Schema, key: string): unknown[] {
 function check(schema: Schema, v: unknown, path: string, out: ViewIssue[]): void {
   const s = resolve(schema);
   const at = (message: string) => out.push({ path, message });
+  if (isObj(s.not)) {
+    const inner: ViewIssue[] = [];
+    check(s.not, v, path, inner);
+    if (inner.length === 0) return void at('is not allowed here');
+  }
   if ('const' in s && v !== s.const) return void at(`must be ${show(s.const)}`);
   if (Array.isArray(s.enum) && !s.enum.includes(v)) {
     return void at(`must be one of ${s.enum.map(show).join(', ')}`);
