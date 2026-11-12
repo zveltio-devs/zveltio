@@ -422,7 +422,8 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       url: msg.url,
     };
     const res = await invocation.run(store, () => app.fetch(req));
-    const body = await res.text();
+    // Bytes, not text: a binary answer (a PDF, an image) crosses unchanged.
+    const body = new Uint8Array(await res.arrayBuffer());
     const headers: Record<string, string> = {};
     res.headers.forEach((v, k) => {
       headers[k] = v;

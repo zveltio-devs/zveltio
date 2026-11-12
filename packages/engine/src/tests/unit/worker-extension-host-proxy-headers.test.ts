@@ -115,7 +115,7 @@ describe('WorkerExtensionHost — proxy header forwarding', () => {
                 type: 'route:ok',
                 id: msg.id,
                 status: 200,
-                body: 'ok',
+                body: new TextEncoder().encode('ok'),
               });
             });
           }

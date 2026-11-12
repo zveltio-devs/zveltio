@@ -13,6 +13,7 @@ import {
   getWorkerHost,
   getWorkerHostIfInitialized,
 } from '../../lib/worker-extension-host.js';
+import { encodeFrame, FrameDecoder } from '../../lib/worker-extension-transport.js';
 import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
 
 /** A fake extension process: the host's channel opener returns it. */
@@ -107,7 +108,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
       type: 'route:ok',
       id: 'inv-1',
       status: 201,
-      body: 'created',
+      body: new TextEncoder().encode('created'),
     });
     const res = await promise;
     expect(res.type).toBe('route:ok');
@@ -679,7 +680,7 @@ describe('WorkerExtensionHost — Hono proxy routes', () => {
               type: 'route:ok',
               id: msg.id,
               status: 200,
-              body: 'hello-world',
+              body: new TextEncoder().encode('hello-world'),
             });
           });
         }
@@ -690,6 +691,37 @@ describe('WorkerExtensionHost — Hono proxy routes', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('hello-world');
     expect(managed.totalRequests).toBe(1);
+  });
+
+  it('carries a binary request and response body through the frames unchanged', async () => {
+    // Bytes that are not UTF-8: a text decode turned each into U+FFFD.
+    const sent = new Uint8Array([0x25, 0x50, 0xff, 0xfe, 0x00, 0x80, 0xc3]);
+    const across = <T>(msg: T): T => new FrameDecoder().push(encodeFrame(msg))[0] as T;
+    let received: Uint8Array | undefined;
+    const app = new Hono();
+    const host = new WorkerExtensionHost(app);
+    const { managed } = makeManaged(host, {
+      name: 'bin-ext',
+      routes: [{ method: 'POST', path: '/upload' }],
+      onPost: (raw) => {
+        const msg = across(raw);
+        if (msg.type === 'route:invoke') {
+          received = msg.body;
+          queueMicrotask(() => {
+            dispatchMessage(
+              host,
+              managed,
+              across({ type: 'route:ok', id: msg.id, status: 200, body: msg.body }),
+            );
+          });
+        }
+      },
+    });
+    mountProxy(host, managed);
+    const res = await app.request('/ext/bin-ext/upload', { method: 'POST', body: sent });
+    expect(res.status).toBe(200);
+    expect([...(received ?? [])]).toEqual([...sent]);
+    expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([...sent]);
   });
 
   it('returns 503 when the worker entry was removed', async () => {

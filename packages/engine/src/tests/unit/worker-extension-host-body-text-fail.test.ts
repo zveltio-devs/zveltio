@@ -12,10 +12,10 @@ const { dispatchMessage, mountProxy, resetInvokeWaiters } = _internalForTests;
 afterEach(() => resetInvokeWaiters());
 
 describe('WorkerExtensionHost — body text read failure', () => {
-  it('forwards route:invoke with undefined body when Request.text() throws', async () => {
+  it('forwards route:invoke with undefined body when Request.arrayBuffer() throws', async () => {
     const app = new Hono();
     const host = new WorkerExtensionHost(app);
-    let capturedBody: string | undefined = 'unset';
+    let capturedBody: Uint8Array | string | undefined = 'unset';
 
     const managed = {
       name: 'body-ext',
@@ -30,7 +30,7 @@ describe('WorkerExtensionHost — body text read failure', () => {
                 type: 'route:ok',
                 id: msg.id,
                 status: 204,
-                body: '',
+                body: new TextEncoder().encode(''),
               });
             });
           }
@@ -57,7 +57,9 @@ describe('WorkerExtensionHost — body text read failure', () => {
 
     mountProxy(host, managed);
 
-    const textSpy = spyOn(Request.prototype, 'text').mockRejectedValue(new Error('body locked'));
+    const textSpy = spyOn(Request.prototype, 'arrayBuffer').mockRejectedValue(
+      new Error('body locked'),
+    );
     try {
       const res = await app.request('/ext/body-ext/ingest', {
         method: 'POST',

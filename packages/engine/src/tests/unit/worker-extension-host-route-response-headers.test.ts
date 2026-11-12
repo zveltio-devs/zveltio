@@ -27,7 +27,7 @@ describe('WorkerExtensionHost — route response headers', () => {
                 type: 'route:ok',
                 id: msg.id,
                 status: 204,
-                body: '',
+                body: new TextEncoder().encode(''),
                 headers: { 'x-worker': 'yes', 'cache-control': 'no-store' },
               });
             });
