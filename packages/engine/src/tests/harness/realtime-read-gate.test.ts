@@ -136,7 +136,7 @@ d('realtime doors honour the read gate (in-process)', () => {
   it('WS and SSE: an event names its record, and one sent without data still passes the gate', async () => {
     entityAccessRegistry.registerAs(OWNER, TABLE, deny('hidden'));
     const sent = await subscribe('rtgate_ws_nodata');
-    const sse = await stream(member.cookie, member.userId, `collections=${COLLECTION}`);
+    const sse = await stream(member.cookie, member.userId, `collection=${COLLECTION}`);
     sent.length = 0;
     const emit = (id: string, title: string, withData: boolean) => {
       broadcastEvent(COLLECTION, 'update', { id, title }, null, withData);
