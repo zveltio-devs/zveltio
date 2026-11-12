@@ -1992,6 +1992,8 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         -- tenant's writes; the engine writes it for an instance admin
         -- (ctx.internals.writeValidationRule). zvd_validation_rule_groups (091)
         -- the same: a group decides how those rules combine (writeValidationRuleGroup).
+        -- And zv_identity_links (120): a row there is a provider's reach over an
+        -- account (ADR 0039 decision 9); the engine writes it (asEngineRole).
         -- tests/harness/control-table-grants.test.ts.
         FOR t IN
           SELECT tablename FROM pg_tables
@@ -2003,7 +2005,7 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
                               'zvd_collections', 'zvd_relations',
                               'zv_schema_branches', 'zv_schema_versions',
                               'zv_schema_migrations', 'zv_migrations', 'zv_validation_rules',
-                              'zvd_validation_rule_groups')
+                              'zvd_validation_rule_groups', 'zv_identity_links')
         LOOP
           EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;

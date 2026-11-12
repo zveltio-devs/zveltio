@@ -59,6 +59,8 @@ const CONTROL_TABLES = [
   'zv_validation_rules',
   // developer/validation's, instance-wide since 091; absent unless it is installed.
   'zvd_validation_rule_groups',
+  // A provider's reach over an account (ADR 0039 decision 9): only the engine links.
+  'zv_identity_links',
 ];
 const REQUEST_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext'];
 

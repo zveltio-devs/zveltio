@@ -401,7 +401,7 @@ export async function liftOwnBan(
  * is refused `session`): on `poolDb` it was a second connection while the
  * request held one, and 2 x DB_POOL_MAX concurrent deletions hung.
  */
-async function revokeThroughCommit(db: Database, poolDb: Database, userId: string): Promise<void> {
+export async function revokeThroughCommit(db: Database, poolDb: Database, userId: string): Promise<void> {
   if (!getCurrentTenantTrx()) return revokeAllUserSessions(poolDb, userId);
   await asEngineRole(db, () => revokeAllUserSessions(db, userId));
   onAfterCommit(() => revokeAllUserSessions(poolDb, userId));
