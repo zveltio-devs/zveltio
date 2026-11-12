@@ -89,6 +89,7 @@ header — they don't contain the nonce.
 | `/api/auth/*` | Better-Auth | password / OAuth / passkey / magic-link | Built-in |
 | `/ext/auth/saml/*` | SAML 2.0 | IdP-asserted | `host.identity.signIn` (ADR 0039): the engine finds the account, opens the session and audits it |
 | `/ext/auth/ldap/*` | Bind via ldapts | Username + password | Same engine sign-in as SAML |
+| `/ext/auth/scim/v2/*` | SCIM 2.0 | Bearer token (SHA-256 stored) | `host.identity` directory (ADR 0039 decision 9): the provider reaches only the accounts it provisioned, in its tenant; audited with the provider as actor |
 | `/api/sign-in/providers` | GET | none | The sign-in providers of the extensions on in the tenant, for a front end's sign-in page |
 | `/api/api-keys/*` | session key for management | `X-API-Key` / `Authorization: Bearer zvk_…` for usage | HMAC-SHA256 of key stored, never plaintext |
 
@@ -114,7 +115,7 @@ others for the same address:
 |---|---|
 | `/ext/forms/public/*` | 20/min |
 | `/ext/storage/cloud/share/*` | 10/min (a password prompt that does not look like one) |
-| `/scim/v2/*` | 100/min (machine-to-machine, provisions in bulk) |
+| `/ext/auth/scim/v2/*` | 100/min (machine-to-machine, provisions in bulk) |
 | public edge-function invoke | 60/min |
 | `POST /api/permissions/bootstrap` | 5/15min |
 

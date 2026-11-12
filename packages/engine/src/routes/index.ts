@@ -279,12 +279,11 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Share links. `/share/:token` takes a password, so it is a login form that
   // does not look like one.
   app.use('/ext/storage/cloud/share/*', shareLinkRateLimit);
-  // SCIM. The scim extension mounts this at the ROOT through
-  // `registerPublicRoute`, so an IdP can reach the well-known path — which also
-  // means it sits outside /ext/* and never had even the 600/min ceiling. It
-  // authenticates a bearer token on every request, and until now an attacker
-  // could try them without limit.
-  app.use('/scim/v2/*', scimRateLimit);
+  // SCIM. It authenticates a bearer token on every request: without its own
+  // budget an attacker tries tokens at the /ext/* ceiling. Its declared public
+  // routes live under /ext/auth/scim/v2 since auth/scim 3.0.0 (ADR 0039); 2.x
+  // served them at the root (/scim/v2), which the engine no longer serves.
+  app.use('/ext/auth/scim/v2/*', scimRateLimit);
   // Write operations (POST/PUT/PATCH/DELETE) on data are stricter (60/min) than reads (200/min)
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/data/*', writeRateLimit);
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/sync/*', writeRateLimit);

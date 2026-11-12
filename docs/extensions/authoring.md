@@ -332,6 +332,14 @@ export default defineExtension(['data:write', 'data:system'], {
   `signInProviders` names each provider and the route that starts it; the
   engine lists them at `GET /api/sign-in/providers`. Engines from
   3.0.0-beta.113. See the developer guide, "Signing a person in".
+- A declared public route of an extension holding `identity:provision` also
+  has `host.identity`'s directory (ADR 0039 decision 9): `provision`,
+  `update`, `setActive`, `remove`, `list` and `get` over the accounts the
+  extension provisioned in the request's tenant, each keyed by the extension's
+  own `subject`; the engine keeps the link, enforces `active`, audits each act
+  with the extension as actor, and refuses everything else as not found.
+  Engines from 3.0.0-beta.114. See the developer guide, "Provisioning a
+  directory".
 
 ### Inbound webhooks: a public route enqueues, a job writes
 

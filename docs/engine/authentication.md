@@ -213,6 +213,19 @@ filled in yet is still listed; its route answers 503 until they are.
 - **`redirect`**: send the browser to `url` (optionally `?redirect=/path`, a
   relative path to land on). It comes back signed in.
 
+## Directory provisioning from extensions
+
+An identity provider that manages people — Entra ID or Okta over SCIM
+(`auth/scim`, at `/ext/auth/scim/v2`) — creates, renames, suspends and removes
+accounts through the engine (ADR 0039 decision 9). The engine keeps which
+provider created which account, per tenant: a provider reaches only the
+accounts it provisioned in its tenant, never an existing account named by its
+e-mail (`409`), a member an administrator invited, or another tenant's account.
+Suspending ends the membership of that tenant (on a single-tenant instance it
+blocks sign-in), and each act leaves an `identity.*` audit entry with the
+provider as the actor. Signing in (`signIn`) does not enrol: a person the tenant
+does not admit is refused `not_a_member`.
+
 ## Two-Factor Authentication (2FA)
 
 TOTP-based 2FA is enabled by default via the `twoFactor` plugin.
