@@ -50,6 +50,17 @@ BEGIN
 END
 $$;
 
+-- Tenant isolation, as on every tenant-scoped table (tenant-boundary gate):
+-- the engine reaches a link only inside the tenant it runs in. Placed after the
+-- carry-over above, which runs with no tenant set. Cascades from `user` and
+-- `zv_tenants` are referential actions and are not subject to row security.
+ALTER TABLE zv_identity_links ENABLE ROW LEVEL SECURITY;
+ALTER TABLE zv_identity_links FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_zv_identity_links ON zv_identity_links;
+CREATE POLICY tenant_isolation_zv_identity_links ON zv_identity_links
+  USING (zveltio_tenant_scope_ok(tenant_id))
+  WITH CHECK (zveltio_tenant_scope_ok(tenant_id));
+
 -- DOWN
 
 DROP TABLE IF EXISTS zv_identity_links;
