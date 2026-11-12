@@ -17,13 +17,13 @@ import {
   initDatabase,
 } from '../../db/index.js';
 import { _internalForTests as authTesting, getAuth, initAuth } from '../../lib/auth.js';
-import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { type CreateSsoSessionOptions, createBetterAuthSession } from '../../lib/users.js';
 import { initPermissions } from '../../lib/tenancy/index.js';
 import { initTenantManager } from '../../lib/tenancy/tenant-manager.js';
 import { _setCacheForTests, getCache, initCache } from '../../lib/runtime/index.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const VALKEY_URL = process.env.TEST_VALKEY_URL;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -39,7 +39,7 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
       createBetterAuthSession(trx, getDb(), userId, opts),
   };
   // As the extension does: `provisionUser` on the request's transaction.
-  const identity = gateInternals('auth/saml', buildExtensionInternals(), ['identity:provision']);
+  const identity = identityAs('ext:auth/saml');
   const provision = async () =>
     (await identity.provisionUser({ email: `sso-${crypto.randomUUID()}@test.local`, name: 'SSO' }))
       .user.id;

@@ -33,6 +33,7 @@ import {
 } from '../../lib/tenancy/index.js';
 import { deleteTenantlessUsers } from '../../lib/users.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const S = `ioc${Date.now()}`;
@@ -89,7 +90,7 @@ d('work that holds a transaction needs one connection', () => {
   let app: Hono;
   let db: Database;
   let ext: Database;
-  const idp = gateInternals('auth/scim', buildExtensionInternals(), ['identity:provision']);
+  const idp = identityAs('ext:auth/scim');
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());

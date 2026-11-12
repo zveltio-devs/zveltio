@@ -993,11 +993,6 @@ export interface ExtensionInternals<DB = unknown> {
     },
   ) => Promise<boolean>;
   /**
-   * End every session a user has, in the database AND the cache — `ctx.db`
-   * cannot reach either. Needs the `auth:users` capability.
-   */
-  revokeUserSessions: (userId: string) => Promise<void>;
-  /**
    * What the engine's own tables hold about a user — profile, their audit
    * rows in every tenant and at instance level, notifications, the API keys
    * they created (names, never secrets) and their approval requests — for a
@@ -1033,132 +1028,8 @@ export interface ExtensionInternals<DB = unknown> {
       requested_at: string;
     }>;
   } | null>;
-  /**
-   * `false` stops the user signing in by ANY method (password, magic link,
-   * passkey, OAuth, SSO) and revokes their sessions; `true` lets them back in
-   * with the credentials they had. Instance-wide: a user has one sign-in, not
-   * one per tenant. `db` is your transaction — pass the one that may already
-   * have written the user's row. Needs the `auth:users` capability.
-   *
-   * A ban records your extension as its source (`"user".ban_source =
-   * 'ext:<your name>'`, taken by the host, not from you). Banning an account
-   * that is already banned keeps the first source. `true` lifts ANY ban,
-   * an administrator's included — kept for extensions written before
-   * `liftOwnBan`; to undo your own ban, use `liftOwnBan`.
-   */
-  setUserActive: (db: unknown, userId: string, active: boolean) => Promise<void>;
-  /**
-   * Lift the user's ban only if YOUR extension placed it (through
-   * `setUserActive(…, false)`); resolves whether it did. A ban an
-   * administrator, another extension or raw SQL placed stays. Needs the
-   * `auth:users` capability.
-   */
-  liftOwnBan: (db: unknown, userId: string) => Promise<boolean>;
-  // ── Identity provisioning ─────────────────────────────────────────────────
-  // The engine is the only writer of `"user"`, `zv_tenant_users` and
-  // `zv_tenants`; `ctx.db` refuses all three. Every member below except
-  // `isSingleTenantInstance` needs the `identity:provision` capability.
-  // Membership is always the RUNNING tenant's — the request's or job's, or one
-  // you entered with `withTenantIsolation` (outside a request that needs
-  // `tenant:enter`). A refusal throws an error with a `code`: `no_tenant`,
-  // `no_such_user`, `user_not_owned`, `role_not_allowed`, `email_taken`,
-  // `account_exists`, `invalid_input`. Timestamps are ISO-8601 strings with microseconds, so a
-  // value read here compares exactly when passed back.
   /** Whether at most one tenant exists — then every user belongs to it. Ungated. */
   isSingleTenantInstance: () => Promise<boolean>;
-  /**
-   * The account for `email` (case-insensitive), created when there is none:
-   * verified, no password, never god, in no tenant. Works while
-   * self-registration is off. Inside `withTenantIsolation` it is created in
-   * that transaction, and a rollback takes it back. An account that already
-   * exists comes back only if the running tenant has a claim to it: a member
-   * here with no power elsewhere beyond plain membership, any account but god
-   * and the instance admins on a single-tenant instance, or a bare record (no
-   * credential, membership or grant). Anyone else is `account_exists`: they join
-   * through an invitation, which proves they control the address.
-   */
-  provisionUser: (input: { email: string; name?: string }) => Promise<{
-    user: ProvisionedUser;
-    created: boolean;
-  }>;
-  /**
-   * Users of the running tenant — a membership there, lapsed included — or
-   * every user on a single-tenant instance (`membership: null`). By creation
-   * order; `limit` defaults to 100, at most 1000.
-   */
-  listTenantUsers: (
-    db: unknown,
-    query?: { email?: string; userId?: string; limit?: number; offset?: number },
-  ) => Promise<Array<ProvisionedUser & { membership: TenantMembershipInfo | null }>>;
-  /**
-   * Rename or re-address a user the running tenant ALONE holds: a membership
-   * here (any user on a single-tenant instance), not god, not an instance admin,
-   * no membership or grant in any other tenant (`user_not_owned` otherwise).
-   * `db` is your transaction.
-   */
-  updateUserProfile: (
-    db: unknown,
-    userId: string,
-    patch: { name?: string; email?: string },
-  ) => Promise<ProvisionedUser>;
-  /**
-   * Make the user a `member` (default) or `viewer` of the running tenant, or
-   * switch between the two, with the matching tenant role. Dates are kept: a
-   * membership that ended is not reopened. An `owner`/`admin` is refused.
-   */
-  addTenantMember: (
-    db: unknown,
-    userId: string,
-    role?: 'member' | 'viewer',
-  ) => Promise<'added' | 'role_changed' | 'unchanged'>;
-  /**
-   * Remove the user from the running tenant with every role they hold in it.
-   * `orphaned`: no tenant and nothing else holds the account now — deleting it
-   * (`deleteUser`, `auth:users`) is your call. `inForceAnywhere`: a membership
-   * in force remains in some tenant. An owner or admin of the tenant (in the
-   * default tenant, an instance admin) is refused, `role_not_allowed`.
-   */
-  removeTenantMember: (
-    db: unknown,
-    userId: string,
-  ) => Promise<{ removed: boolean; orphaned: boolean; inForceAnywhere: boolean }>;
-  /**
-   * Set when the user's membership of the running tenant ends: `'now'`, an
-   * ISO-8601 instant, or `null` (open-ended). `ifInForce` changes only a
-   * membership in force; `ifValidTo` only one whose end is still exactly that
-   * value. `null` when the user is no member here. An owner or admin is
-   * refused, `role_not_allowed`.
-   */
-  setTenantMembershipEnd: (
-    db: unknown,
-    userId: string,
-    validTo: string | null,
-    guard?: { ifInForce?: boolean; ifValidTo?: string | null },
-  ) => Promise<{
-    changed: boolean;
-    previousValidTo: string | null;
-    validTo: string | null;
-    inForceAnywhere: boolean;
-  } | null>;
-}
-
-/** A user as `ctx.internals` identity provisioning returns it. */
-export interface ProvisionedUser {
-  id: string;
-  email: string;
-  name: string;
-  emailVerified: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** A user's membership of the running tenant. */
-export interface TenantMembershipInfo {
-  role: 'owner' | 'admin' | 'member' | 'viewer';
-  validFrom: string;
-  /** `null`: open-ended. */
-  validTo: string | null;
-  inForce: boolean;
 }
 
 /**
@@ -1525,10 +1396,14 @@ export interface DeclaredRouteHost extends RouteHost {
    */
   enqueue?: (job: string, input: unknown) => Promise<string>;
   /**
-   * Signing in (ADR 0039 decision 7). Callable only from a declared `public`
-   * route of an extension holding `auth:session`; anywhere else each call
-   * throws. Inline routes only: absent on a worker-isolated route. Engines from
-   * 3.0.0-beta.113.
+   * Signing in (ADR 0039 decision 7) and directory provisioning (decision 9).
+   * Signing in is callable only from a declared `public` route of an extension
+   * holding `auth:session`; the directory from a declared route of an extension
+   * holding `identity:provision` — a `public` one, or a `caller` one whose
+   * caller's author administers the tenant (ADR 0045). Anywhere else each call
+   * throws. Inline routes only: absent on a
+   * worker-isolated route. Engines from 3.0.0-beta.113; the directory from
+   * 3.0.0-beta.114.
    */
   identity?: RouteIdentity;
 }
@@ -1560,6 +1435,83 @@ export interface RouteIdentity {
    * `identifier` is what the person gave (a user name), never a secret.
    */
   signInRefused(input: { provider: string; identifier: string; reason: string }): Promise<void>;
+  /*
+   * Directory provisioning (ADR 0039 decision 9): a foreign system that manages
+   * people — an identity provider speaking SCIM — keeps the accounts it
+   * provisioned. The provider is your extension; `subject` is its own id for
+   * an account (opaque, at most 1024 characters). Callable from a declared
+   * route of an extension holding `identity:provision` (without it, each call
+   * throws `capability_required`, 403): a `public` route, which authenticates
+   * its caller itself, or a `caller` route (ADR 0045), where the caller's author
+   * — the signed-in person, or the person who issued the API key — must
+   * administer the running tenant (`admin`), else each call throws
+   * `admin_required` (403). An identity provider then authenticates with an
+   * engine API key (`zvk_…`) holding `$ext:<your name>`, listed in the
+   * manifest's `apiKeyRoutes`. The engine's rules:
+   *
+   * - you reach only the accounts YOU provisioned, in the tenant the request
+   *   runs in — another provider's, another tenant's or an account you did not
+   *   create is `no_such_user` (404);
+   * - each call is a whole act in the request's transaction, and the engine
+   *   writes its audit entry with your extension as the actor;
+   * - an existing account is never claimed by naming its e-mail
+   *   (`account_exists`, 409).
+   *
+   * A refusal throws an error whose `code` is one of `no_such_user` (404),
+   * `account_exists` / `email_taken` (409), `invalid_input` (400),
+   * `user_not_owned` (403: the account is no longer this tenant's alone — a
+   * member elsewhere, an instance admin — so its profile is not yours to
+   * change), `role_not_allowed` (403: it administers the tenant),
+   * `not_in_force` (403: its membership here ended or has not started — it can
+   * be read and removed, not changed) or `user_protected` (403), with `status`
+   * set. Engines from 3.0.0-beta.114.
+   */
+  /**
+   * Create a NEW account for `email`, make it a `member` of the running tenant
+   * and link it to `subject`. `active: false` provisions it as `setActive(false)`
+   * would leave it.
+   */
+  provision?(input: DirectoryProvisionInput): Promise<DirectoryAccount>;
+  /** Rename or re-address; only the fields that differ are written. */
+  update?(subject: string, patch: { email?: string; name?: string }): Promise<DirectoryAccount>;
+  /**
+   * `false`: on a single-tenant instance, block sign-in by every method and end
+   * the sessions; on a multi-tenant one, end the membership here, and block
+   * sign-in only when no tenant is left in force. `true` undoes what your
+   * `false` did — never an administrator's block or end date.
+   */
+  setActive?(subject: string, active: boolean): Promise<DirectoryAccount>;
+  /**
+   * Remove the account from the running tenant, ending its sessions when no
+   * tenant is left in force; the account itself goes when nothing else holds it.
+   */
+  remove?(subject: string): Promise<void>;
+  /** Your accounts in the running tenant, by creation; `limit` 100 by default, at most 1000. */
+  list?(query?: { email?: string; limit?: number; offset?: number }): Promise<DirectoryAccount[]>;
+  /** One of your accounts, or `null`. */
+  get?(subject: string): Promise<DirectoryAccount | null>;
+}
+
+export interface DirectoryProvisionInput {
+  subject: string;
+  email: string;
+  name?: string;
+  /** Defaults to `true`. */
+  active?: boolean;
+}
+
+/** An account as `host.identity`'s directory operations return it. */
+export interface DirectoryAccount {
+  subject: string;
+  /** The engine's user id. */
+  id: string;
+  email: string;
+  name: string;
+  /** Your last `setActive` AND a membership in force in the running tenant. */
+  active: boolean;
+  /** ISO-8601, microseconds. */
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SignInInput {

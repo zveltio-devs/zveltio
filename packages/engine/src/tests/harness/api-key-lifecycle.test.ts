@@ -25,6 +25,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `keylife-${crypto.randomUUID().slice(0, 8)}`;
@@ -32,7 +33,7 @@ const NAME = `keylife-${crypto.randomUUID().slice(0, 8)}`;
 d('API keys end with the lockout events (ADR 0010 item 5)', () => {
   let app: Hono;
   let db: Database;
-  const internals = gateInternals('auth/scim', buildExtensionInternals(), ['auth:users']);
+  const internals = identityAs('ext:auth/scim');
   const asRequest = <T>(fn: (trx: Database) => Promise<T>) =>
     buildExtensionInternals().withTenantIsolation(DEFAULT_TENANT_ID, fn);
 

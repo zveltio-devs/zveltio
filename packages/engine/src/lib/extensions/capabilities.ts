@@ -39,8 +39,10 @@
 // 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`),
 // 5: `identity:provision`, 6: `audit:read`, 7: `auth:users` also reads (exportUserData),
 // 8: `data:system`, 9: `files` no longer covers `moveToTrash`, retired (ADR 0034 Q2),
-// 10: `auth:session` is `host.identity`, no longer `createBetterAuthSession` (ADR 0039)
-export const CAPABILITY_CONTRACT_VERSION = 10;
+// 10: `auth:session` is `host.identity`, no longer `createBetterAuthSession` (ADR 0039),
+// 11: `identity:provision` is `host.identity`'s directory, `auth:users` no longer
+// covers `revokeUserSessions`, `setUserActive`, `liftOwnBan` (ADR 0039 decision 9)
+export const CAPABILITY_CONTRACT_VERSION = 11;
 
 /**
  * Every capability an extension may declare.
@@ -74,18 +76,18 @@ export const CAPABILITIES = [
    */
   'auth:session',
   /**
-   * Delete any user, end their sessions, stop them signing in at all, or read
-   * what the engine holds about them in every tenant (`exportUserData`). The
-   * offboarding extensions (SCIM, GDPR erasure) need it; the session table is
-   * out of reach of `ctx.db`, so this is the only way an extension can do it.
+   * Delete any user (`deleteUser`), or read what the engine holds about them in
+   * every tenant (`exportUserData`): a data-subject erasure or access request
+   * (GDPR). Directory offboarding is `identity:provision`'s, scoped to the
+   * accounts a provider provisioned (ADR 0039 decision 9).
    */
   'auth:users',
   /**
-   * Create accounts (find-or-create by email, passwordless), list the running
-   * tenant's users, rename a user that tenant alone holds, and add/remove/end
-   * memberships of the running tenant up to `member`/`viewer`. The engine is the
-   * sole writer of `"user"`, `zv_tenant_users` and `zv_tenants`; SCIM, LDAP and
-   * SAML provision through this. Never makes a god or an admin.
+   * Directory provisioning from a declared public route (`host.identity`'s
+   * `provision`, `update`, `setActive`, `remove`, `list`, `get`; ADR 0039
+   * decision 9): new accounts the extension links to its own ids, in the
+   * running tenant, as `member`. It reaches only the accounts it provisioned
+   * there; never an existing account, a god or an admin.
    */
   'identity:provision',
   /**
@@ -226,17 +228,7 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   deriveTokenHash: 'secrets',
   // Identity — "remove anyone"
   deleteUser: 'auth:users',
-  revokeUserSessions: 'auth:users',
   exportUserData: 'auth:users',
-  setUserActive: 'auth:users',
-  liftOwnBan: 'auth:users',
-  // Identity — "provision accounts and the running tenant's memberships"
-  provisionUser: 'identity:provision',
-  listTenantUsers: 'identity:provision',
-  updateUserProfile: 'identity:provision',
-  addTenantMember: 'identity:provision',
-  removeTenantMember: 'identity:provision',
-  setTenantMembershipEnd: 'identity:provision',
   // The tenant's activity trail
   readAuditActivity: 'audit:read',
   // Collection records, as the request's caller

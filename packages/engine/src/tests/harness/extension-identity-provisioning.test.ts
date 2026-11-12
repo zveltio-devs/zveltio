@@ -30,6 +30,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -53,7 +54,7 @@ const T2 = `00000000-0000-0000-0dd2-${hex}`; // somebody else's
 d('identity provisioning through ctx.internals', () => {
   let db: Database;
   let ext: Database; // what auth/scim's ctx.db is
-  const scim = gateInternals('auth/scim', buildExtensionInternals(), ['identity:provision']);
+  const scim = identityAs('ext:auth/scim');
   const bare = gateInternals('auth/scim', buildExtensionInternals(), ['auth:users']);
   const as = <R>(tenant: string, fn: (trx: Database) => Promise<R>) =>
     buildExtensionInternals().withTenantIsolation(tenant, () => fn(ext));
@@ -112,7 +113,7 @@ d('identity provisioning through ctx.internals', () => {
     ).rejects.toBeInstanceOf(ExtensionSecurityError);
   });
 
-  it('is gated identity:provision, and the acting members have no caller outside the gate', () => {
+  it('is no longer offered to extensions: `host.identity` is (ADR 0039 decision 9)', () => {
     for (const m of [
       'provisionUser',
       'listTenantUsers',
@@ -120,15 +121,10 @@ d('identity provisioning through ctx.internals', () => {
       'addTenantMember',
       'removeTenantMember',
       'setTenantMembershipEnd',
-    ] as const) {
-      expect(() => (bare[m] as (...a: unknown[]) => unknown)(db, 'u', {})).toThrow(
-        CapabilityDeniedError,
-      );
+    ]) {
+      expect((bare as unknown as Record<string, unknown>)[m]).toBeUndefined();
+      expect((buildExtensionInternals() as unknown as Record<string, unknown>)[m]).toBeUndefined();
     }
-    expect(() => buildExtensionInternals().provisionUser({ email: 'a@b.c' })).toThrow(
-      'gateInternals',
-    );
-    expect(() => buildExtensionInternals().addTenantMember(db, 'u')).toThrow('gateInternals');
   });
 
   it('provisionUser: find-or-create, verified, passwordless, never god, even with sign-up off', async () => {

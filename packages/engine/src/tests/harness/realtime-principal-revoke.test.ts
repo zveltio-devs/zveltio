@@ -36,6 +36,7 @@ import {
   harnessAvailable,
   wsUpgradeData,
 } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -47,7 +48,11 @@ d('an open realtime connection after its principal is revoked', () => {
   let god: string;
   const probes: string[] = [];
   const keyIds: string[] = [];
-  const internals = gateInternals('auth/scim', buildExtensionInternals(), ['auth:users']);
+  const gated = gateInternals('auth/scim', buildExtensionInternals(), ['auth:users']);
+  const internals = {
+    ...identityAs('ext:auth/scim'),
+    deleteUser: (...a: Parameters<typeof gated.deleteUser>) => gated.deleteUser(...a),
+  };
   const asRequest = <T>(fn: (trx: Database) => Promise<T>) =>
     buildExtensionInternals().withTenantIsolation(TENANT, fn);
 

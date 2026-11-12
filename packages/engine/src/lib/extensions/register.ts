@@ -84,6 +84,7 @@ import {
   type RouteSpec,
 } from '../declared-routes.js';
 import { registerSignInProviders, routeIdentity } from './sign-in.js';
+import { routeDirectory } from './directory.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import {
@@ -833,8 +834,10 @@ function inlineRoutes(
 /**
  * A declared route's `host` (ADR 0039 decision 4): the route host every
  * extension route has (ADR 0025, ADR 0034), `ctx.internals.enqueue` bound to
- * the request (ADR 0018), gated as that member is, and signing in (decision 7),
- * which answers on a public route of an `auth:session` holder only.
+ * the request (ADR 0018), gated as that member is, signing in (decision 7),
+ * which answers on a public route of an `auth:session` holder only, and the
+ * directory (decision 9), on a route of an `identity:provision` holder: a public
+ * one, or a caller one whose caller's author administers the tenant (ADR 0045).
  */
 function declaredRouteHost(
   c: Context,
@@ -849,7 +852,10 @@ function declaredRouteHost(
       if (!ctx.internals.enqueue) throw new Error('enqueue is not available to this extension');
       return ctx.internals.enqueue(c, job, input);
     },
-    identity: routeIdentity(c, extName, access ?? 'caller'),
+    identity: {
+      ...routeIdentity(c, extName, access ?? 'caller'),
+      ...routeDirectory(c, extName, access ?? 'caller'),
+    },
   };
 }
 

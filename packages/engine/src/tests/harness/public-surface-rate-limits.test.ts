@@ -71,6 +71,7 @@ d('pre-auth surface rate limits (in-process)', () => {
     // reached, which is this file's subject; the gate has its own tests.
     registerExtensionPublicRoutes('forms', ['/public/*']);
     registerExtensionPublicRoutes('storage/cloud', ['/share/*']);
+    registerExtensionPublicRoutes('auth/scim', ['/v2/*']);
     // Without TRUSTED_PROXY the limiter ignores X-Forwarded-For entirely — by
     // design, since an untrusted client can spoof it — and every request in
     // this file would land in one bucket per surface. The per-surface tests
@@ -107,7 +108,7 @@ d('pre-auth surface rate limits (in-process)', () => {
   });
 
   it('throttles SCIM (100/min) without punishing bulk provisioning', async () => {
-    const seen = await burst('/scim/v2/Users', SCIM_IP, 105);
+    const seen = await burst('/ext/auth/scim/v2/Users', SCIM_IP, 105);
     expect(seen).toContain(429);
     // A directory sync pushing 50 users in a minute must not trip. A limiter
     // that fires there gets removed rather than tuned.
@@ -118,7 +119,7 @@ d('pre-auth surface rate limits (in-process)', () => {
   it('one client cannot lock another out', async () => {
     const abusive = '203.0.113.90';
     const innocent = '203.0.113.91';
-    const seen = await burst('/scim/v2/Users', abusive, 105);
+    const seen = await burst('/ext/auth/scim/v2/Users', abusive, 105);
     expect(seen).toContain(429);
 
     // The in-memory branch of the limiter — the one used when no cache backend
@@ -128,7 +129,7 @@ d('pre-auth surface rate limits (in-process)', () => {
     // these surfaces are anonymous by definition, that made each new limit a
     // switch any single visitor could throw: twenty form submissions and nobody
     // else could submit for the rest of the minute.
-    expect(await hit('/scim/v2/Users', innocent)).not.toBe(429);
+    expect(await hit('/ext/auth/scim/v2/Users', innocent)).not.toBe(429);
   });
 
   it('keeps the budgets separate — exhausting one leaves the others open', async () => {
@@ -141,7 +142,7 @@ d('pre-auth surface rate limits (in-process)', () => {
     // is the regression a shared `authRateLimit` produced: ten failed SCIM
     // requests left public forms answering 429 having never been touched.
     expect(await hit('/ext/forms/public/probe', ip)).not.toBe(429);
-    expect(await hit('/scim/v2/Users', ip)).not.toBe(429);
+    expect(await hit('/ext/auth/scim/v2/Users', ip)).not.toBe(429);
   });
 
   it('leaves an unrelated path alone', async () => {

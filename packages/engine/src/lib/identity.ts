@@ -61,6 +61,8 @@ export type IdentityRefusal =
   | 'email_taken'
   | 'account_exists'
   | 'not_a_member'
+  /** A membership here the business ended or has not started: read and remove only. */
+  | 'not_in_force'
   | 'invalid_input';
 
 /** A refusal an extension can match on `code` and answer its caller with. */

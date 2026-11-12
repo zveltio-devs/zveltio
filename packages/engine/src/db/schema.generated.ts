@@ -369,6 +369,18 @@ export interface ZvFlowsTable {
   run_as_role: Generated<string | null>;
 }
 
+export interface ZvIdentityLinksTable {
+  tenant_id: string;
+  provider: string;
+  subject: string;
+  user_id: string;
+  active: Generated<boolean>;
+  suspended_at: Date | null;
+  held_valid_to: Date | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface ZvImportLogsTable {
   id: Generated<string>;
   collection: string;
@@ -1092,6 +1104,7 @@ export interface DbSchema {
   zv_flow_runs: ZvFlowRunsTable;
   zv_flow_steps: ZvFlowStepsTable;
   zv_flows: ZvFlowsTable;
+  zv_identity_links: ZvIdentityLinksTable;
   zv_import_logs: ZvImportLogsTable;
   zv_instances: ZvInstancesTable;
   zv_invitations: ZvInvitationsTable;

@@ -39,6 +39,7 @@ import {
   harnessAvailable,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
+import { liftOwnBan } from '../../lib/users.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -115,7 +116,7 @@ d('an extension racing an engine window reads only its tenant, as its own role',
           const hops = Number(c.req.query('hops') ?? 0);
           const window = async () => {
             for (let h = 0; h < hops; h++) await Promise.resolve();
-            return ctx.internals.liftOwnBan(ctx.db, crypto.randomUUID());
+            return liftOwnBan(ctx.db as never, crypto.randomUUID(), `ext:${EXT}`);
           };
           const rounds: Round[] = [];
           const failed: string[] = [];

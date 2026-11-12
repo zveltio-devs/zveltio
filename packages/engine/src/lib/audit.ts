@@ -23,6 +23,11 @@ export type AuditEventType =
   | 'user.deleted'
   | 'user.created'
   | 'user.profile_updated'
+  /** A directory provider's act on an account it provisioned (ADR 0039 decision 9, lib/extensions/directory.ts). */
+  | 'identity.provisioned'
+  | 'identity.updated'
+  | 'identity.active_set'
+  | 'identity.removed'
   | 'settings.changed'
   /** God set or removed a user's storage quota (routes/admin/storage-routes.ts). */
   | 'storage.quota_changed'

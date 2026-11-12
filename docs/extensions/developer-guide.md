@@ -294,8 +294,8 @@ your `ctx`, not inside your own code.
 | `ddl` | `ctx.internals.enqueueDDLJob` — create/alter physical tables. |
 | `secrets` | `encryptSecret` / `decryptSecret`. |
 | `auth:session` | `host.identity` on a declared public route — say who signed in at your provider; the engine finds or creates the account, refuses a disabled one, opens the session and audits it. See §5 "Signing a person in". |
-| `auth:users` | `deleteUser`, `revokeUserSessions`, `setUserActive`, `liftOwnBan`, `exportUserData` — delete any user, end their sessions, block and restore their sign-in, or read what the engine holds about them (a data-subject access request). A block records your extension as its source; `liftOwnBan` lifts only a block you placed, while `setUserActive(…, true)` lifts any. |
-| `identity:provision` | `provisionUser`, `listTenantUsers`, `updateUserProfile`, `addTenantMember`, `removeTenantMember`, `setTenantMembershipEnd` — the engine is the only writer of `"user"`, `zv_tenant_users` and `zv_tenants`. Find-or-create a verified, passwordless account (never god; an existing one only if the running tenant has a claim to it — its member, or a bare record — else `account_exists`), inside the running tenant transaction when there is one, so a rollback undoes it and the Casbin grades, which land at commit; list, join (`member`/`viewer` only), remove and date the memberships of the RUNNING tenant; rename a user that tenant alone holds. `isSingleTenantInstance` is ungated. |
+| `auth:users` | `deleteUser`, `exportUserData` — delete any user, or read what the engine holds about them: a data-subject erasure or access request. Directory offboarding is not here: it is `identity:provision`'s, scoped to the accounts a provider provisioned. |
+| `identity:provision` | `host.identity`'s directory on a declared route (a `caller` one answers only a tenant administrator or a key one issued, ADR 0045) — `provision`, `update`, `setActive`, `remove`, `list`, `get` over the accounts your extension provisioned in the request's tenant, keyed by your own id for each (`subject`). See §5 "Provisioning a directory". `isSingleTenantInstance` is ungated. |
 | `audit:read` | `readAuditActivity` — the running tenant's recent audit rows (who did what to which record, and when; no `metadata`, no `ip`). `countAuditActivity({ since, eventType?, resourceType? })`, a count over the same rows, is ungated. |
 | `data:write` | `createRecord`, `updateRecord`, `deleteRecord` — write a collection record through the data API's own handlers (access check, column permissions, row policies, alters, entity access, hooks, revisions, webhooks, flows, realtime) as the caller the engine authenticated for the request `c` you pass. There is no identity parameter; outside that request they throw. |
 | `data:system` | `asSystem(collections, fn, { reason })` — run `fn` as the system inside the running tenant for the named collections (`['products']`): collection permissions stand down for `ctx.db` during the call, tenant isolation, row rules and the table guard do not (it gives collections, never the rows a row rule withholds; where there is no caller, a rule on a caller value keeps no row, ADR 0040). Only inside a tenant's work (a request, or a job in `withTenantIsolation`). Every call writes an `extension.as_system` audit row when it settles, with the extension, the user, the collections, the reason and the outcome (`ok`/`error`); `{ actor: (result) => 'scim_token:' + result.id }` adds who called, from `fn`'s result, as `metadata.claimed_actor` — the extension's word, never the row's user. For work that is more than the caller may do — stock a customer cannot edit, a counter a public form bumps; what can be said as a permission (the `public` role reading published rows, creating form responses) belongs in the permissions instead. Also `enqueue(c, job, input)`: queue a job from the handler of a `publicRoutes` entry the job lists in `fromPublicRoutes`, in the request's transaction and tenant, with no author (an inbound webhook; ADR 0018, see authoring.md). |
@@ -753,6 +753,80 @@ export const login: RouteHandler = async (request, { host }) => {
   `register` mounts has no `identity`, and neither does a worker-isolated route.
   There is no way to open a session for a user id of your choosing.
 - Engines from 3.0.0-beta.113.
+
+### Provisioning a directory
+
+A foreign system that manages people — an identity provider speaking SCIM, a
+directory sync — keeps the accounts it provisioned through `host.identity`
+(ADR 0039 decision 9). Hold `identity:provision` and call it from a declared
+`caller` route the foreign system reaches with an engine API key (ADR 0045):
+list the route in `apiKeyRoutes`, and a tenant administrator issues the system
+a key holding `$ext:<your name>` for the route's action, which it sends as
+`Authorization: Bearer zvk_…`. The engine checks the key before your handler
+runs (401 nobody or another tenant's key, 403 a key without the scope), and
+the directory answers only a caller whose author administers the running
+tenant — the signed-in person, or the person who issued the key (`admin`, as
+the engine's own users routes); anyone else is `admin_required` (403). Your
+route checks nothing:
+
+```json
+"routes": [{ "method": "POST", "path": "/v2/Users", "access": "caller", "handler": "createUser" }],
+"apiKeyRoutes": ["POST /v2/Users"]
+```
+
+```ts
+export const createUser: RouteHandler = async (request, { host }) => {
+  const body = await request.json();
+  try {
+    const account = await host.identity!.provision!({
+      subject: crypto.randomUUID(), // your id for the account, kept by the engine
+      email: body.userName,
+      name: body.displayName,
+      active: body.active !== false,
+    });
+    return Response.json({ id: account.subject, active: account.active }, { status: 201 });
+  } catch (err) {
+    const { status = 500, code, message } = err as { status?: number; code?: string; message: string };
+    if (status >= 500) throw err;
+    return Response.json({ code, error: message }, { status });
+  }
+};
+```
+
+- **You reach only the accounts you provisioned,** in the tenant the request
+  runs in. The engine keeps the link between each account and your extension;
+  another provider's account, another tenant's, a member an administrator
+  invited — each is `no_such_user` (404) to `update`, `setActive` and
+  `remove`, `null` to `get`, and absent from `list`.
+- **`provision` creates a new account only**, verified and passwordless, makes
+  it a `member` of the running tenant and links it. An address that already has
+  an account — whoever holds it — is `account_exists` (409): an existing
+  account joins a tenant by invitation, which proves control of the address.
+- **`setActive(subject, false)`**: on a single-tenant instance it blocks sign-in
+  by every method and ends the sessions; on a multi-tenant one it ends the
+  membership here, and blocks sign-in only when no tenant is left in force.
+  `true` undoes what your `false` did, never an administrator's block or end
+  date. **`remove`** removes the membership, ends the sessions when no tenant
+  is left in force, and deletes the account when nothing else holds it.
+- A membership the business ended (or that has not started) is read and
+  removed, not changed: `update` and `setActive` throw `not_in_force` (403). An
+  account that is no longer this tenant's alone (a member elsewhere, an instance
+  admin) keeps its profile: `update` throws `user_not_owned` (403).
+- Each call is a whole act in the request's transaction, and the engine writes
+  its audit entry (`identity.provisioned`, `identity.updated`,
+  `identity.active_set`, `identity.removed`) with `ext:<your name>` as the
+  actor, and on a `caller` route the principal that called (`caller`:
+  `apikey:<id>` or the user id). A refusal throws with `code` and `status`;
+  caught, the request still commits what earlier calls wrote — throw it on to
+  roll the request back.
+- Only on a declared route of an extension holding an approved
+  `identity:provision` (else `capability_required`, 403): a `caller` route as
+  above, or a `public` route that authenticates its caller itself (ADR 0039);
+  anywhere else each call throws. Absent on a worker-isolated route. The directory internals
+  (`provisionUser`, `listTenantUsers`, `updateUserProfile`, `setUserActive`,
+  `liftOwnBan`, `addTenantMember`, `removeTenantMember`,
+  `setTenantMembershipEnd`, `revokeUserSessions`) are no longer offered.
+  Engines from 3.0.0-beta.114. `auth/scim` is the reference.
 
 ### Reading files at runtime
 
