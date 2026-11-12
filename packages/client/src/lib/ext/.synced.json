@@ -1,0 +1,6 @@
+[
+  "content/pages",
+  "content/pdf-viewer",
+  "geospatial/postgis",
+  "storage/cloud"
+]
