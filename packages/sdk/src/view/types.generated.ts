@@ -126,6 +126,10 @@ export type ListView = {
   open?: ViewId;
   /** Offer a form to add a record. */
   create?: boolean;
+  /** Offer each row's form, to change it. */
+  edit?: boolean;
+  /** Offer to delete each row, after a confirm. */
+  delete?: boolean;
   realtime?: boolean;
 };
 

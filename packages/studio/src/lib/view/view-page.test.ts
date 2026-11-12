@@ -48,6 +48,9 @@ vi.mock('#lib/api.js', () => ({
       calls.push(`GET ${collection}/${id}`);
       return rows.find((r) => r.id === id);
     },
+    delete: async (collection: string, id: string) => {
+      calls.push(`DELETE ${collection}/${id}`);
+    },
   },
 }));
 
@@ -211,6 +214,29 @@ describe('view/2 renderer', () => {
     finish({ result: null });
     await waitFor(() => expect(go().disabled).toBe(false));
     expect(post).toHaveBeenCalledTimes(1);
+  }, 60_000);
+
+  it('`edit` opens the row in the generated form; `delete` deletes it after a confirm', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { getAllByText, container } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: { type: 'list', collection: 'notes', edit: true, delete: true },
+      },
+    });
+    await waitFor(() => expect(container.textContent).toContain('Second'));
+    await fireEvent.click(getAllByText('Delete')[0] as HTMLElement);
+    expect(calls).not.toContain('DELETE notes/n1');
+    // The confirm dialog's own button is the last "Delete" on the page.
+    const confirm = await waitFor(() => {
+      const all = getAllByText('Delete');
+      if (all.length <= rows.length) throw new Error('no confirm button');
+      return all[all.length - 1] as HTMLElement;
+    });
+    await fireEvent.click(confirm);
+    await waitFor(() => expect(calls).toContain('DELETE notes/n1'));
+    await fireEvent.click(getAllByText('Edit')[1] as HTMLElement);
+    await waitFor(() => expect(calls).toContain('GET notes/n2'));
   }, 60_000);
 
   it('an action-sourced stat runs once, only if the caller may run it', async () => {

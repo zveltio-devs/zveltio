@@ -38,6 +38,7 @@ let error = $state<string | null>(null);
 let waiting = $state(false);
 let chosen = $state(new Set<string>());
 let creating = $state(false);
+let editing = $state<Row | null>(null);
 
 const limit = $derived(view.pageSize ?? 25);
 const fields = $derived(fieldHints(viewFields(view.fields, schema, 'list') as Field[]));
@@ -89,7 +90,28 @@ function openRow(row: Row) {
 const rowScope = (row: Row): ViewScope => ({ ...scope, record: row });
 const selection = $derived(rows.filter((r) => chosen.has(r.id)));
 const cards = $derived(view.present === 'cards' || view.present === 'feed');
+const rowButtons = $derived(!!view.rowActions?.length || !!view.edit || !!view.delete);
 </script>
+
+{#snippet rowControls(row: Row)}
+  <div class="flex flex-wrap gap-2">
+    <ViewButtons buttons={view.rowActions} {host} scope={rowScope(row)} size="xs" />
+    {#if view.edit}
+      <button type="button" class="btn btn-xs btn-outline" onclick={() => (editing = row)}>
+        {m['common.edit']()}
+      </button>
+    {/if}
+    {#if view.delete}
+      <button
+        type="button"
+        class="btn btn-xs btn-outline btn-error"
+        onclick={() => host.remove(view.collection, row.id)}
+      >
+        {m['common.delete']()}
+      </button>
+    {/if}
+  </div>
+{/snippet}
 
 <div class="space-y-3" data-testid="view-list">
   {#if view.search || view.create || (view.selectable && view.bulkActions?.length)}
@@ -137,8 +159,8 @@ const cards = $derived(view.present === 'cards' || view.present === 'feed');
               <div class="text-sm"><ViewValue value={row[name]} {hint} type={labels.get(name)?.type} /></div>
             {/each}
           </button>
-          {#if view.rowActions?.length}
-            <div class="px-4 pb-3"><ViewButtons buttons={view.rowActions} {host} scope={rowScope(row)} size="xs" /></div>
+          {#if rowButtons}
+            <div class="px-4 pb-3">{@render rowControls(row)}</div>
           {/if}
         </div>
       {/each}
@@ -150,7 +172,7 @@ const cards = $derived(view.present === 'cards' || view.present === 'feed');
           <tr>
             {#if view.selectable}<th class="w-8"></th>{/if}
             {#each fields as { name, hint } (name)}<th>{label(name, hint)}</th>{/each}
-            {#if view.rowActions?.length}<th></th>{/if}
+            {#if rowButtons}<th></th>{/if}
           </tr>
         </thead>
         <tbody>
@@ -180,10 +202,8 @@ const cards = $derived(view.present === 'cards' || view.present === 'feed');
               {#each fields as { name, hint } (name)}
                 <td><ViewValue value={row[name]} {hint} type={labels.get(name)?.type} /></td>
               {/each}
-              {#if view.rowActions?.length}
-                <td onclick={(e) => e.stopPropagation()}>
-                  <ViewButtons buttons={view.rowActions} {host} scope={rowScope(row)} size="xs" />
-                </td>
+              {#if rowButtons}
+                <td onclick={(e) => e.stopPropagation()}>{@render rowControls(row)}</td>
               {/if}
             </tr>
           {/each}
@@ -203,6 +223,20 @@ const cards = $derived(view.present === 'cards' || view.present === 'feed');
       {scope}
       onDone={() => {
         creating = false;
+        host.version++;
+      }}
+    />
+  </Modal>
+{/if}
+
+{#if editing}
+  <Modal open={true} title={m['common.edit']()} size="lg" onClose={() => (editing = null)}>
+    <ViewForm
+      view={{ type: 'form', collection: view.collection, record: { $record: 'id' } }}
+      {host}
+      scope={rowScope(editing)}
+      onDone={() => {
+        editing = null;
         host.version++;
       }}
     />

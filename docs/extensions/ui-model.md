@@ -124,6 +124,9 @@ What the specification holds:
   open a view (`navigate`, `params`) or save a form (`save`). A `prompt` asks
   only for inputs that `input` leaves open; naming a bound one is refused. A
   `when` holds of a record, so a toolbar button with one is not drawn.
+- **A list's own rows**: `create`, `edit` and `delete` offer the collection's
+  generated form to add a record, the same form to change a row, and a delete
+  after a confirm, all through the data API as the user.
 - **Fields** are names; a field object adds only presentation hints
   (`label`, `display`, `tones`, `readOnly`). Type, label and editor come from
   the collection.
@@ -186,7 +189,7 @@ and drawn as before.
 
 | Kind | Studio draws |
 |---|---|
-| `list` | table, `cards` or `feed`; search, paging, selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `open` |
+| `list` | table, `cards` or `feed`; search, paging, selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `edit` (the row in that form), `delete` (after a confirm), `open` |
 | `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit`, read-only fields shown as text |
 | `detail` | the record's fields, then its `panels` with `$record` set to it |
 | `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |

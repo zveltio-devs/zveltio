@@ -18,7 +18,7 @@ import {
 } from '@zveltio/sdk/view';
 import type { FormField } from '@zveltio/sdk/extension';
 import { m } from '#lib/i18n.svelte.js';
-import { api } from '#lib/api.js';
+import { api, dataApi } from '#lib/api.js';
 import { auth } from '#lib/auth.svelte.js';
 import { toast } from '#lib/stores/toast.svelte.js';
 import { createExtensionConfirm } from '#lib/utils/extension-confirm.svelte.js';
@@ -160,6 +160,28 @@ async function press(b: Button, scope: ViewScope) {
   });
 }
 
+function remove(collection: string, id: string): Promise<void> {
+  settleConfirm();
+  return new Promise<void>((resolve) => {
+    confirmDone = resolve;
+    askConfirm(
+      m['ext.confirmDelete'](),
+      async () => {
+        try {
+          await dataApi.delete(collection, id);
+          host.version++;
+          toast.success(m['common.done']());
+        } catch (e) {
+          toast.error((e as Error).message || m['common.deleteFailed']());
+        } finally {
+          settleConfirm();
+        }
+      },
+      { confirmClass: 'btn-error' },
+    );
+  });
+}
+
 function closePrompt() {
   const p = prompt;
   prompt = null;
@@ -186,6 +208,7 @@ const host = $state<ViewHost>({
   t,
   press,
   run,
+  remove,
   canRun: () => true,
   version: 0,
 });

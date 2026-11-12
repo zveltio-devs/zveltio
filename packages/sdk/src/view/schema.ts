@@ -271,6 +271,8 @@ const defs: Record<string, Schema> = {
       bulkActions: ref('Buttons'),
       open: { ...ref('ViewId'), description: 'The view a row opens.' },
       create: { type: 'boolean', description: 'Offer a form to add a record.' },
+      edit: { type: 'boolean', description: "Offer each row's form, to change it." },
+      delete: { type: 'boolean', description: 'Offer to delete each row, after a confirm.' },
       realtime: { type: 'boolean' },
     },
     ['collection'],
