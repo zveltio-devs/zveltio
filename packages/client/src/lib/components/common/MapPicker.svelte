@@ -1,4 +1,6 @@
 <script lang="ts">
+import { mapTiles } from '#lib/map-tiles.js';
+
 interface Props {
   lat?: number;
   lng?: number;
@@ -23,9 +25,8 @@ $effect(() => {
     if (mapInstance) mapInstance.remove();
 
     mapInstance = L.map(mapEl).setView([lat, lng], zoom);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
-    }).addTo(mapInstance);
+    const tiles = mapTiles();
+    if (tiles) L.tileLayer(tiles.url, { attribution: tiles.attribution }).addTo(mapInstance);
 
     const marker = L.marker([lat, lng], { draggable: !!onSelect }).addTo(mapInstance);
 

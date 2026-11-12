@@ -13,6 +13,7 @@ import {
 } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { effectiveTheme, themeSchema } from '../lib/theme.js';
+import { mapTiles } from '../lib/map-tiles.js';
 
 /**
  * Settings whose value is a credential and must never be read back.
@@ -219,6 +220,8 @@ export function settingsRoutes(db: Database, auth: any): Hono {
     // Public by nature: every page applies it before anyone signs in. Read on
     // its own, tenant over instance, rather than through the is_public rows.
     result.theme = await effectiveTheme(db, domain);
+    // Always present: null means the operator turned tiles off (ADR 0043).
+    result.map_tiles = mapTiles();
     return c.json(result);
   });
 

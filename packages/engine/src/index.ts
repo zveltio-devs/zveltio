@@ -1246,6 +1246,8 @@ async function bootstrap() {
   const { assertProductionConfig } = await import('./lib/startup-guards.js');
   assertProductionConfig();
   assertConsoleHost();
+  // Throws on an unusable ZVELTIO_MAP_TILES, rather than every map breaking in the browser.
+  (await import('./lib/map-tiles.js')).mapTiles();
 
   // 1. Database
   const db = await initDatabase();
