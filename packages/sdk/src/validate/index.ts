@@ -93,6 +93,9 @@ const KNOWN_CATEGORIES = new Set([
 const SAFE_PACKAGE_NAME = /^(@[a-z0-9-_]+\/)?[a-z0-9-_.]+$/;
 const SAFE_VERSION_RANGE = /^[\d.*^~>=<| -]+$/;
 
+/** ADR 0039: one route, `/` or literal and `:param` segments (the engine's `ROUTE_PATH`). */
+const ROUTE_PATH = /^\/$|^(\/([A-Za-z0-9._~-]+|:[A-Za-z_][A-Za-z0-9_]*))+$/;
+
 function err(code: string, message: string, file?: string): ValidationError {
   return file ? { code, message, file } : { code, message };
 }
@@ -247,6 +250,41 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
       return true;
     });
   };
+  // Declared routes (ADR 0039), as the engine's manifest schema takes them.
+  const declaredRoutes = Array.isArray(obj.routes) ? obj.routes : [];
+  if (obj.routes !== undefined && !Array.isArray(obj.routes)) {
+    out.push(err('MANIFEST_BAD_ROUTE', '"routes" must be an array'));
+  }
+  const seenRoutes = new Set<string>();
+  declaredRoutes.forEach((r, i) => {
+    const ok =
+      isObject(r) &&
+      Object.keys(r).every((k) => ['method', 'path', 'access', 'handler'].includes(k)) &&
+      ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method as string) &&
+      typeof r.path === 'string' &&
+      ROUTE_PATH.test(r.path) &&
+      !(r.path === '/actions' || r.path.startsWith('/actions/')) &&
+      (r.access === 'public' || r.access === 'caller') &&
+      typeof r.handler === 'string' &&
+      NAME.test(r.handler);
+    if (!ok) {
+      out.push(
+        err(
+          'MANIFEST_BAD_ROUTE',
+          `routes[${i}] needs method (GET|POST|PUT|PATCH|DELETE), a path of literal and :param segments outside /actions, access (public|caller) and a camelCase handler`,
+        ),
+      );
+    } else if (seenRoutes.has(`${r.method} ${r.path}`)) {
+      out.push(err('MANIFEST_BAD_ROUTE', `route ${r.method} ${r.path} is declared twice`));
+    }
+    if (isObject(r)) seenRoutes.add(`${r.method} ${r.path}`);
+  });
+  // `publicRoutes` (deprecated) and the declared public routes: what a job or
+  // `forwardCredentials` may name.
+  const publicPaths = [
+    ...(Array.isArray(obj.publicRoutes) ? obj.publicRoutes : []),
+    ...declaredRoutes.filter((r) => isObject(r) && r.access === 'public').map((r) => r.path),
+  ];
   // Declared collections (ADR 0012): names; the CLI checks each one's schema file.
   if (obj.collections !== undefined) {
     const names = Array.isArray(obj.collections) ? obj.collections : [];
@@ -321,7 +359,6 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
   const slotKinds = new Map<string, string>();
   for (const j of jobs) {
     // ADR 0018: a route that enqueues it is one the manifest declares public.
-    const publicRoutes = Array.isArray(obj.publicRoutes) ? obj.publicRoutes : [];
     for (const route of Array.isArray(j.fromPublicRoutes) ? j.fromPublicRoutes : []) {
       if (typeof route === 'string' && route.includes('*')) {
         out.push(
@@ -330,7 +367,7 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
             `job "${j.name}" names "${route}" in fromPublicRoutes; name one route, without "*"`,
           ),
         );
-      } else if (!publicRoutes.includes(route)) {
+      } else if (!publicPaths.includes(route)) {
         out.push(
           err(
             'MANIFEST_BAD_JOB',
@@ -426,14 +463,13 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
   // The host strips these from a worker's request; a public route may ask for some back.
   if (obj.forwardCredentials !== undefined) {
     const fwd = obj.forwardCredentials;
-    const publicRoutes = Array.isArray(obj.publicRoutes) ? obj.publicRoutes : [];
     if (!fwd || typeof fwd !== 'object' || Array.isArray(fwd)) {
       out.push(
         err('MANIFEST_BAD_FORWARD_CREDENTIALS', '"forwardCredentials" must map a route to headers'),
       );
     } else {
       for (const [route, names] of Object.entries(fwd)) {
-        if (!publicRoutes.includes(route)) {
+        if (!publicPaths.includes(route)) {
           out.push(
             err(
               'MANIFEST_BAD_FORWARD_CREDENTIALS',

@@ -147,6 +147,9 @@ export const ManifestSchema = z
      * endpoint that allows some queries anonymously) is declared here too — the
      * gate only enforces authentication, never authorization.
      *
+     * Deprecated by ADR 0039: declare the route in `routes` with `access:
+     * "public"`. Still read, and removed in extension-api v2.
+     *
      * NOTE: only covers routes under `/ext/<name>`. Extensions that mount on the
      * global app via `ctx.registerPublicRoute` (CDN links, user-deployed
      * webhooks) sit outside this gate by design — see the developer guide.
