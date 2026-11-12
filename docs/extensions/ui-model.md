@@ -114,25 +114,27 @@ What the specification holds:
   `<dependency>.<action>`. Every object is closed, so a `dataSource`, an
   `endpoint`, a `class` or an `icon` is refused, not ignored.
 - **Conditions** are `{ field, op, value }` with the data API's operators
-  (`eq`, `neq`, `in`, `null`, ...). A value is a literal or one of the
-  references `$record`, `$selected`, `$selection`, `$param`, `$user`,
-  `$today`.
+  (`eq`, `neq`, `in`, `null`, ...); `in` and `not_in` take a list, `null` and
+  `not_null` take no value. A value is a literal or one of the references
+  `$record`, `$selected` (an earlier pane of the enclosing `split`),
+  `$selection`, `$param`, `$user`, `$today`.
 - **Buttons** run an action (`action`, `input`, `prompt`, `confirm`, `when`),
   open a view (`navigate`, `params`) or save a form (`save`).
 - **Fields** are names; a field object adds only presentation hints
   (`label`, `display`, `tones`, `readOnly`). Type, label and editor come from
   the collection.
-- **Every view kind** accepts `title`, `actions` (its toolbar), `id` (inside a
-  container) and `fallback` (the view a front end draws when it does not know
-  this kind).
+- **Every view kind** accepts `title`, `actions` (its toolbar), `id` and
+  `fallback` (the view a front end draws when it does not know this kind).
+  Only the top of a file carries `spec`; its `id` (`billing.invoices`) is what
+  `navigate` and `open` name. Inside a container `id` names a pane, once.
 
 Validation runs in three places, against the same schema:
 
 | Where | When | What happens to an invalid view |
 |---|---|---|
-| `zveltio extension validate` | before publishing | an error (`VIEW_INVALID`; `VIEW_FOREIGN_NAME` for a collection or action the extension does not own) |
-| `zveltio extension pack` | when the bundle is built | the pack stops |
-| the engine | when it loads the extension | the page is not served; the log says why |
+| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema; `VIEW_REFERENCE` for a collection or action the extension does not own, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json` |
+| `zveltio extension pack` | when the bundle is built | the same checks, and a page file that is missing or is not JSON; the pack stops |
+| the engine | when it loads the extension | the schema only; the page is not served and the log says why. The references are the CLI's, and the engine's permission rules decide every call at run time |
 
 A schema without `spec` is a `view/1` schema and is treated as before.
 
