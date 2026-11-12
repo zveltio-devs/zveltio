@@ -108,16 +108,19 @@ class ApiClient {
 
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   private async request<T>(method: string, path: string, body?: any): Promise<T> {
+    // A FormData body goes as multipart: fetch sets the Content-Type with its
+    // boundary. Stringified, it reached the engine as `{}`.
+    const form = body instanceof FormData;
     const res = await withStepUp((stepUp) =>
       fetch(`${this.base}${path}`, {
         method,
         credentials: 'include',
         headers: {
           ...tenantHeader(),
-          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          ...(body && !form ? { 'Content-Type': 'application/json' } : {}),
           ...stepUp,
         },
-        body: body ? JSON.stringify(body) : undefined,
+        body: form ? body : body ? JSON.stringify(body) : undefined,
       }),
     );
 

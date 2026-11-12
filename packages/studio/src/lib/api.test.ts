@@ -114,6 +114,18 @@ describe('api — successful responses', () => {
     );
     vi.unstubAllGlobals();
   });
+
+  it('sends a FormData body as multipart, not as JSON', async () => {
+    // Mail attachments posted FormData through api.post; JSON.stringify turned
+    // it into `{}` and the engine answered "No file provided".
+    respond(200, {});
+    const form = new FormData();
+    form.append('file', new Blob(['x']), 'a.txt');
+    await api.post('/api/storage/upload', form);
+    const init = vi.mocked(globalThis.fetch).mock.calls[0]![1]!;
+    expect(init.body).toBe(form);
+    expect(init.headers).not.toHaveProperty('Content-Type');
+  });
 });
 
 describe('api — the error envelope', () => {
