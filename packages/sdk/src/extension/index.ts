@@ -1547,8 +1547,11 @@ export interface RouteIdentity {
    * Resolves to the account and the headers to answer with: `Set-Cookie`, and
    * `set-auth-token` for a caller that sent no session cookie. A refusal throws
    * an error whose `code` is `account_disabled` (403), `account_exists` (403: an
-   * account for that address exists and this tenant has no claim to it) or
+   * account for that address exists and this tenant has no claim to it),
+   * `not_a_member` (403: this tenant does not admit the person — a withdrawn
+   * member, or outside the default tenant an account that is not its member) or
    * `invalid_input` (400), with `status` set; the engine has audited it.
+   * Without an approved `auth:session` it throws `capability_required` (403).
    */
   signIn(input: SignInInput): Promise<SignInResult>;
   /**

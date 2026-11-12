@@ -60,6 +60,7 @@ export type IdentityRefusal =
   | 'role_not_allowed'
   | 'email_taken'
   | 'account_exists'
+  | 'not_a_member'
   | 'invalid_input';
 
 /** A refusal an extension can match on `code` and answer its caller with. */

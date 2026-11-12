@@ -19,7 +19,13 @@ import { getAuth } from '../auth.js';
 import { IdentityRefusedError, provisionUser } from '../identity.js';
 import { problem } from '../problem.js';
 import { clientIpForAudit, SignInBlockedError } from '../security/index.js';
-import { getCurrentTenantTrx } from '../tenancy/index.js';
+import { withSavepoint } from '../savepoint.js';
+import {
+  getCurrentDomainOrNull,
+  getCurrentTenantTrx,
+  membershipStanding,
+  tenantAdmits,
+} from '../tenancy/index.js';
 import { createBetterAuthSession } from '../users.js';
 import { activeForRequest } from './activation.js';
 import { holdsCapability } from './capabilities.js';
@@ -48,12 +54,14 @@ export function unregisterSignInProviders(extName: string): void {
 
 /**
  * `GET /api/sign-in/providers`: every declared provider of an extension that is
- * on for the request's tenant, with the URL that starts it. Public: a sign-in
- * page is drawn before anyone is signed in.
+ * on for the request's tenant and may sign in (`auth:session` approved), with
+ * the URL that starts it. Public: a sign-in page is drawn before anyone is
+ * signed in.
  */
 export async function listSignInProviders(c: Context, db: Database) {
   const out: { id: string; label: string; kind: string; extension: string; url: string }[] = [];
   for (const [extension, list] of [...providers].sort(([a], [b]) => a.localeCompare(b))) {
+    if (!holdsCapability(extension, 'auth:session')) continue;
     if (!(await activeForRequest(c, extension, db))) continue;
     for (const p of list) {
       out.push({
@@ -74,9 +82,10 @@ const text = (v: unknown, max: number): string | null =>
 /**
  * A declared route's `host.identity`. Each call refuses unless the route is
  * declared `public`, the `/ext/*` gate admitted this request as this
- * extension's public route, the extension holds `auth:session`, and `provider`
- * is one of its `signInProviders`: a misuse is the extension's bug, so it
- * throws (500), it does not answer the caller.
+ * extension's public route, the extension holds `auth:session` (else 403
+ * `capability_required`), and `provider` is one of its `signInProviders`: the
+ * other misuses are the extension's bug, so they throw (500), they do not answer
+ * the caller.
  */
 export function routeIdentity(c: Context, extName: string, access: string): RouteIdentity {
   const actor = `ext:${extName}`;
@@ -84,10 +93,14 @@ export function routeIdentity(c: Context, extName: string, access: string): Rout
     if (access !== 'public' || publicRouteRequest(c)?.extName !== extName) {
       throw new Error(`${extName}: host.identity answers only on a declared public route`);
     }
+    // Not the extension's bug: an administrator has not approved it (yet). The
+    // provider is not listed then, and a caller who reaches it anyway is told so.
     if (!holdsCapability(extName, 'auth:session')) {
-      throw new Error(
-        `Extension "${extName}" used host.identity without the "auth:session" capability ` +
-          '(declared in manifest.json and approved by an administrator).',
+      throw problem(
+        'capability_required',
+        403,
+        `host.identity: "${extName}" does not hold the "auth:session" capability ` +
+          '(declared in its manifest and approved by an administrator)',
       );
     }
     if (!providers.get(extName)?.some((p) => p.id === provider)) {
@@ -116,22 +129,51 @@ export function routeIdentity(c: Context, extName: string, access: string): Rout
       if (!subject) throw new Error(`${extName}: signIn needs the person's subject at ${provider}`);
       const { ip, userAgent } = request();
       const trx = getCurrentTenantTrx();
+      const tenant = getCurrentDomainOrNull();
+      // The `/ext/*` chain always opens both: the tenant that must admit the
+      // person, and the transaction that holds the session to its audit entry.
+      if (!trx || !tenant) throw new Error(`${extName}: signIn runs only inside a request`);
       let userId: string | undefined;
       try {
-        const { user } = await provisionUser(
-          { email: input.email, ...(typeof input.name === 'string' ? { name: input.name } : {}) },
-          actor,
+        // A session only for a person this tenant admits — the rule every door
+        // asks (`tenantAdmits`): a withdrawn member is refused, and an account
+        // created here that the tenant would refuse is rolled back with the
+        // refusal, not left behind with no membership anywhere.
+        const user = await withSavepoint(
+          trx,
+          'zv_sign_in',
+          async () => {
+            const { user, created } = await provisionUser(
+              {
+                email: input.email,
+                ...(typeof input.name === 'string' ? { name: input.name } : {}),
+              },
+              actor,
+            );
+            const standing = created ? 'none' : await membershipStanding(trx, user.id, tenant);
+            if (!tenantAdmits(tenant, standing)) {
+              if (!created) userId = user.id;
+              throw new IdentityRefusedError(
+                'not_a_member',
+                'This account is not a member of this tenant.',
+              );
+            }
+            return user;
+          },
+          (err) => {
+            throw err;
+          },
         );
         userId = user.id;
         // The user id is the engine's answer above, never the extension's.
-        const session = await createBetterAuthSession(trx ?? getDb(), getDb(), user.id, {
+        const session = await createBetterAuthSession(trx, getDb(), user.id, {
           ...(ip ? { ipAddress: ip } : {}),
           ...(userAgent ? { userAgent } : {}),
           replaceExisting: true,
         });
         // In the request's transaction: a user it created exists only there, and
         // the row's `user_id` references it.
-        await auditLog(trx ?? getDb(), {
+        await auditLog(trx, {
           type: 'auth.login_success',
           userId: user.id,
           resourceType: 'session',
@@ -152,7 +194,9 @@ export function routeIdentity(c: Context, extName: string, access: string): Rout
           err instanceof SignInBlockedError
             ? 'account_disabled'
             : err instanceof IdentityRefusedError &&
-                (err.code === 'account_exists' || err.code === 'invalid_input')
+                (err.code === 'account_exists' ||
+                  err.code === 'invalid_input' ||
+                  err.code === 'not_a_member')
               ? err.code
               : null;
         if (!code) throw err;
@@ -161,7 +205,9 @@ export function routeIdentity(c: Context, extName: string, access: string): Rout
           ? problem(code, 403, 'This account is disabled.')
           : code === 'account_exists'
             ? problem(code, 403, 'This provider cannot sign in to that account.')
-            : problem(code, 400, (err as Error).message);
+            : code === 'not_a_member'
+              ? problem(code, 403, (err as Error).message)
+              : problem(code, 400, (err as Error).message);
       }
     },
     async signInRefused(input) {

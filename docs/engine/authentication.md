@@ -204,7 +204,7 @@ GET /api/sign-in/providers
 ```
 
 Public, and per tenant: it lists the providers of the extensions turned on for
-the tenant the request resolves to. An extension whose own settings are not
+the tenant the request resolves to and approved for `auth:session`. An extension whose own settings are not
 filled in yet is still listed; its route answers 503 until they are.
 
 - **`credentials`**: `POST` `{ "username", "password" }` as JSON to `url`. The

@@ -734,7 +734,10 @@ export const login: RouteHandler = async (request, { host }) => {
 - `signIn` finds the account by `email` (case-insensitively) or creates a
   verified, passwordless one. An existing account the tenant has no claim to —
   god, an instance administrator, another tenant's administrator — throws
-  `account_exists` (403); a disabled one `account_disabled` (403). The engine
+  `account_exists` (403); a disabled one `account_disabled` (403); a person the
+  tenant does not admit — a withdrawn member, or outside the default tenant
+  anyone who is not its member, whom no account is created for —
+  `not_a_member` (403). The engine
   opens the session, ends the person's other sessions once the request commits,
   and writes `auth.login_success` with the provider and the subject.
 - `headers` carry the session: `Set-Cookie`, and `set-auth-token` for a caller
@@ -744,7 +747,9 @@ export const login: RouteHandler = async (request, { host }) => {
   refusal by the engine is already audited. `identifier` is what the person
   typed, never a secret.
 - Only on a declared `public` route, of an extension holding `auth:session`,
-  for a `provider` it declares; anywhere else each call throws. A route
+  for a `provider` it declares; anywhere else each call throws (without an
+  approved `auth:session`, `capability_required`, 403, and the providers are
+  not listed). A route
   `register` mounts has no `identity`, and neither does a worker-isolated route.
   There is no way to open a session for a user id of your choosing.
 - Engines from 3.0.0-beta.113.

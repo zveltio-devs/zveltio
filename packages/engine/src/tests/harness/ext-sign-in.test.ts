@@ -71,12 +71,24 @@ const login: RouteHandler = async (request, { host }) => {
   }
 };
 
+/** Signs in, then fails: the request rolls back, and the session goes with it. */
+const boom: RouteHandler = async (request, { host }) => {
+  const { email } = (await request.json()) as Rec;
+  await host.identity!.signIn({
+    provider: 'dir',
+    subject: `uid=${String(email)}`,
+    email: String(email),
+  });
+  throw new Error('after the sign-in');
+};
+
 const manifest = (permissions: string[]): Rec => ({
   permissions,
   routes: [
     { method: 'POST', path: '/login', access: 'public', handler: 'login' },
     { method: 'GET', path: '/start', access: 'public', handler: 'start' },
     { method: 'POST', path: '/mine', access: 'caller', handler: 'login' },
+    { method: 'POST', path: '/boom', access: 'public', handler: 'boom' },
   ],
   signInProviders: [
     { id: 'dir', label: 'Directory', kind: 'credentials', route: '/login' },
@@ -127,7 +139,7 @@ d('signing in is one engine operation (ADR 0039 decisions 7, 8)', () => {
     name,
     category: 'auth',
     mountStrategy: 'subapp',
-    routes: { login, start: () => new Response(null, { status: 204 }) },
+    routes: { login, boom, start: () => new Response(null, { status: 204 }) },
     async register(r, ctx) {
       // A route `register` mounts, as an extension's own Hono route: no identity there.
       (r as Hono).get('/hono', (c) =>
@@ -138,10 +150,14 @@ d('signing in is one engine operation (ADR 0039 decisions 7, 8)', () => {
       );
     },
   });
-  const post = (ext: string, path: string, body: Rec, cookie?: string) =>
+  const post = (ext: string, path: string, body: Rec, cookie?: string, tenant?: string) =>
     app.request(`/ext/${ext}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+      headers: {
+        'content-type': 'application/json',
+        ...(cookie ? { cookie } : {}),
+        ...(tenant ? { 'x-tenant-slug': tenant } : {}),
+      },
       body: JSON.stringify(body),
     });
   const sessionUser = async (setCookie: string | null) => {
@@ -270,9 +286,12 @@ d('signing in is one engine operation (ADR 0039 decisions 7, 8)', () => {
       500,
       `${EXT}: "ghost" is not one of its signInProviders`,
     ]);
+    // Not the extension's bug but an approval missing: a clean refusal, not a 500.
     const noCap = await post(NOCAP, '/login', { email, password: 'ok' });
-    expect(noCap.status).toBe(500);
-    expect(((await noCap.json()) as Rec).error).toContain('without the "auth:session" capability');
+    expect([noCap.status, ((await noCap.json()) as Rec).code]).toEqual([
+      403,
+      'capability_required',
+    ]);
     // Nothing signed in, nothing provisioned.
     for (const res of [onCaller, ghost, noCap]) expect(res.headers.get('set-cookie')).toBeNull();
     expect((await sql`SELECT 1 FROM "user" WHERE email = ${email}`.execute(db)).rows).toHaveLength(
@@ -290,7 +309,7 @@ d('signing in is one engine operation (ADR 0039 decisions 7, 8)', () => {
     });
   }, 30_000);
 
-  it('GET /api/sign-in/providers lists the providers of the extensions on in the tenant', async () => {
+  it('GET /api/sign-in/providers lists the providers of the extensions on in the tenant that may sign in', async () => {
     const list = async () =>
       (
         (await (await engine.request('/api/sign-in/providers')).json()) as { providers: Rec[] }
@@ -310,26 +329,83 @@ d('signing in is one engine operation (ADR 0039 decisions 7, 8)', () => {
         extension: EXT,
         url: `/ext/${EXT}/start`,
       },
-      {
-        id: 'dir',
-        label: 'Directory',
-        kind: 'credentials',
-        extension: NOCAP,
-        url: `/ext/${NOCAP}/login`,
-      },
-      {
-        id: 'sso',
-        label: 'Single sign-on',
-        kind: 'redirect',
-        extension: NOCAP,
-        url: `/ext/${NOCAP}/start`,
-      },
     ]);
-    await sql`UPDATE zv_extension_registry SET is_enabled = false WHERE name = ${NOCAP}`.execute(
+    // Without `auth:session` (NOCAP) a provider is a dead button: not listed.
+    await sql`UPDATE zv_extension_registry SET is_enabled = false WHERE name = ${EXT}`.execute(db);
+    invalidateActivationCache();
+    expect(await list()).toEqual([]);
+    await sql`UPDATE zv_extension_registry SET is_enabled = true WHERE name = ${EXT}`.execute(db);
+    invalidateActivationCache();
+  }, 30_000);
+
+  it('in a tenant other than the default, signs in only a person the tenant admits', async () => {
+    const T = crypto.randomUUID();
+    const slug = `sgn-t-${STAMP}`;
+    await sql`INSERT INTO zv_tenants (id, slug, name) VALUES (${T}::uuid, ${slug}, 'Sign-in T')`.execute(
       db,
     );
-    invalidateActivationCache();
-    expect((await list()).map((p) => p.extension)).toEqual([EXT, EXT]);
+    const person = async (tag: string, validTo: string | null) => {
+      const id = crypto.randomUUID();
+      const email = `${tag}-${STAMP}@sign-in.test`;
+      await sql`
+        INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
+        VALUES (${id}, ${email}, ${tag}, true, NOW(), NOW())`.execute(db);
+      await sql`
+        INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
+        VALUES (${T}::uuid, ${id}, 'member', now() - interval '2 days', ${validTo}::timestamptz)`.execute(
+        db,
+      );
+      return { id, email };
+    };
+    try {
+      const member = await person('t-member', null);
+      const lapsed = await person('t-lapsed', new Date(Date.now() - 86_400_000).toISOString());
+      const stranger = `t-stranger-${STAMP}@sign-in.test`;
+
+      const ok = await post(
+        EXT,
+        '/login',
+        { email: member.email, password: 'ok' },
+        undefined,
+        slug,
+      );
+      expect(ok.status, await ok.clone().text()).toBe(200);
+      expect(await sessionUser(ok.headers.get('set-cookie'))).toBe(member.id);
+
+      // Neither opens a session the tenant would refuse, nor leaves an account behind.
+      for (const email of [lapsed.email, stranger]) {
+        const res = await post(EXT, '/login', { email, password: 'ok' }, undefined, slug);
+        expect([res.status, ((await res.json()) as Rec).code]).toEqual([403, 'not_a_member']);
+        expect(res.headers.get('set-cookie')).toBeNull();
+        expect((await audit('auth.login_failed', email))[0]).toMatchObject({
+          reason: 'not_a_member',
+        });
+      }
+      expect(
+        (await sql`SELECT 1 FROM session WHERE "userId" = ${lapsed.id}`.execute(db)).rows,
+      ).toHaveLength(0);
+      expect(
+        (await sql`SELECT 1 FROM "user" WHERE email = ${stranger}`.execute(db)).rows,
+      ).toHaveLength(0);
+    } finally {
+      await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${T}::uuid`.execute(db);
+      await sql`DELETE FROM zv_tenants WHERE id = ${T}::uuid`.execute(db).catch(() => {});
+    }
+  }, 30_000);
+
+  it('a route that fails after signIn leaves neither the session nor the audit entry', async () => {
+    const id = crypto.randomUUID();
+    const email = `boom-${STAMP}@sign-in.test`;
+    await sql`
+      INSERT INTO "user" (id, email, name, "emailVerified", "createdAt", "updatedAt")
+      VALUES (${id}, ${email}, 'Boom', true, NOW(), NOW())`.execute(db);
+    const res = await post(EXT, '/boom', { email });
+    expect(res.status).toBe(500);
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect((await sql`SELECT 1 FROM session WHERE "userId" = ${id}`.execute(db)).rows).toHaveLength(
+      0,
+    );
+    expect(await audit('auth.login_success', email)).toEqual([]);
   }, 30_000);
 
   it('the manifest refuses a provider whose route is not a declared public route of its kind', () => {
