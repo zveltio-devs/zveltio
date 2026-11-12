@@ -325,8 +325,14 @@ function matchesSub(sub: StreamSub, collection: string, record: any): boolean {
  * Checked against the raw record, a filter on a hidden column told the
  * subscriber its value: the event arrived exactly when the guess was right.
  */
-function matchesFilters(sub: StreamSub, visible: Record<string, unknown>): boolean {
+function matchesFilters(
+  sub: StreamSub,
+  visible: Record<string, unknown>,
+  partial: boolean,
+): boolean {
   for (const f of sub.filters) {
+    // A partial record (a trimmed bus message) may lack the column: undecidable, so no.
+    if (partial && !(f.field in visible)) return false;
     const val = visible[f.field];
     if (f.op === 'eq' && val !== f.value) return false;
     if (f.op === 'neq' && val === f.value) return false;
@@ -353,7 +359,9 @@ export function broadcastDataEvent(
   withData = true,
 ): void {
   // ADR 0036 decision 3, as in `broadcastEvent`: `id` always, `data` when the
-  // engine chooses to send it. The gate and the filters still run on `record`.
+  // engine chooses to send it. The gate and the filters still run on `record`,
+  // which without data may be partial (decision 4): an entity-access check or a
+  // `?filter=` on a column it lacks cannot decide, and refuses.
   const frame = (visible: unknown) =>
     JSON.stringify({
       channel: `zveltio:data:${collection}`,
@@ -379,7 +387,7 @@ export function broadcastDataEvent(
         // Again at send: one queued behind an async verdict may outlive its scope.
         if (!realtimeScopeCurrent(scope.generation)) return;
         const visible = scope.shape(record);
-        if (!matchesFilters(sub, visible)) return;
+        if (!matchesFilters(sub, visible, !withData)) return;
         const body = !withData || visible === record ? payload : frame(visible);
         try {
           sub.stream.writeSSE({ data: body, event: 'data' });
@@ -392,7 +400,7 @@ export function broadcastDataEvent(
       const scope = sub.access.get(collection);
       if (scope) {
         if (realtimeScopeCurrent(scope.generation)) {
-          inOrder(sub, scope.admits(record), () => write(scope));
+          if (withData || !scope.entityChecks) inOrder(sub, scope.admits(record), () => write(scope));
         }
       } else if (sub.collections.length === 0) {
         // The wildcard stream: resolved on first use, under the stream's tenant.
@@ -406,7 +414,9 @@ export function broadcastDataEvent(
         let resolved: ReadScope | undefined;
         const verdict = lazy.then((s) => {
           resolved = s;
-          return realtimeScopeCurrent(s.generation) && s.admits(record);
+          return (
+            realtimeScopeCurrent(s.generation) && (withData || !s.entityChecks) && s.admits(record)
+          );
         });
         inOrder(sub, verdict, () => write(resolved!));
       }

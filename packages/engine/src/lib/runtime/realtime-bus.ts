@@ -191,6 +191,12 @@ export interface RealtimeBusMessage {
    * `null` for single-tenant deployments.
    */
   tenantId?: string | null;
+  /**
+   * A record event too large for pg_notify: `data` holds only `id` and the
+   * columns the collection's row rules read (`trimForPgNotify`). The receiver
+   * gates on it and delivers without `data`.
+   */
+  trimmed?: boolean;
 }
 
 export interface RealtimeBus {
@@ -213,6 +219,14 @@ export type PgNotifyPublisher = {
   notify: (channel: string, payload: string) => Promise<unknown>;
 };
 
+// ── Event mapping (shared by both backends) ─────────────────────────────────
+
+const EVENT_MAP: Record<string, 'insert' | 'update' | 'delete'> = {
+  'record.created': 'insert',
+  'record.updated': 'update',
+  'record.deleted': 'delete',
+};
+
 /**
  * Encoded size of a bus message in BYTES.
  *
@@ -229,29 +243,45 @@ function encodedBytes(msg: RealtimeBusMessage): number {
 }
 
 /**
- * Shrink a bus message to fit pg_notify's 8KB cap. Receivers fall back to
- * `{ id: record_id }` when `data` is absent (`dispatchToWs`), and a policy
- * change without its rules re-reads the policy table.
+ * Shrink a bus message to fit pg_notify's 8KB cap.
  *
- * One step, not two: dropping `data` leaves only ids, a collection name and a
- * timestamp, which is bounded at a few hundred bytes and always fits. The
- * previous third tier rebuilt exactly the object `{ ...full, data: undefined }`
- * already encodes to — `JSON.stringify` omits undefined values — so it could
- * never be reached.
+ * A record event keeps `id` and the `keep` columns — the ones the collection's
+ * row rules read (`ruleColumns`) — and is marked `trimmed` (ADR 0036 decision
+ * 4): the receiver decides every subscriber's rules on what is left and
+ * delivers the event without `data`. It used to drop all of `data`, and the
+ * receiver then substituted `{ id }`: a subscriber under a row rule was decided
+ * on a record without the rule's column and heard nothing, and one without a
+ * rule received `data: { id }`. If even those columns do not fit, `id` alone:
+ * a rule whose column is missing drops the row, so it fails closed.
+ *
+ * Any other message loses `data` (a policy change then re-reads the table).
  */
-export function trimForPgNotify(payload: Omit<RealtimeBusMessage, 'originId'>): RealtimeBusMessage {
+export function trimForPgNotify(
+  payload: Omit<RealtimeBusMessage, 'originId'>,
+  keep: readonly string[] = [],
+): RealtimeBusMessage {
   const full: RealtimeBusMessage = { ...payload, originId: ORIGIN_ID };
   if (encodedBytes(full) <= PG_NOTIFY_PAYLOAD_MAX) return full;
-  return { ...full, data: undefined };
+  const record = full.data as Record<string, unknown> | null | undefined;
+  if (!EVENT_MAP[full.event] || typeof record !== 'object' || record === null) {
+    return { ...full, data: undefined };
+  }
+  const id = { id: record.id ?? full.record_id };
+  const kept = { ...Object.fromEntries(keep.filter((k) => k in record).map((k) => [k, record[k]])), ...id };
+  const trimmed: RealtimeBusMessage = { ...full, data: kept, trimmed: true };
+  return encodedBytes(trimmed) <= PG_NOTIFY_PAYLOAD_MAX ? trimmed : { ...trimmed, data: id };
 }
 
-// ── Event mapping (shared by both backends) ─────────────────────────────────
-
-const EVENT_MAP: Record<string, 'insert' | 'update' | 'delete'> = {
-  'record.created': 'insert',
-  'record.updated': 'update',
-  'record.deleted': 'delete',
-};
+/** `ruleColumns`, or none when they cannot be read: the receiver then drops every rule-bound subscriber. */
+async function ruleColumnsFor(collection: string): Promise<string[]> {
+  try {
+    // Lazily: tenancy imports this module.
+    return await (await import('../tenancy/index.js')).ruleColumns(collection);
+  } catch (err) {
+    console.error(`[realtime-bus] ${collection}: row-rule columns not read, trimmed to id:`, (err as Error).message);
+    return [];
+  }
+}
 
 /**
  * Hand an inbound bus message to the local subscribers — BOTH doors.
@@ -358,9 +388,17 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   const wsEvent = EVENT_MAP[msg.event];
   if (!wsEvent) return;
   if (!msg.collection) return;
-  const data = msg.data ?? { id: msg.record_id };
-  broadcastEvent(msg.collection, wsEvent, data, msg.tenantId ?? null);
-  broadcastDataEvent(msg.collection, wsEvent, data, msg.tenantId ?? null);
+  const tenantId = msg.tenantId ?? null;
+  // Trimmed (or, from an older sender, without data): gated on what is left,
+  // delivered without `data` — never `data: { id }` (ADR 0036 decision 4).
+  if (msg.trimmed || msg.data === undefined) {
+    const partial = msg.data ?? { id: msg.record_id };
+    broadcastEvent(msg.collection, wsEvent, partial, tenantId, false);
+    broadcastDataEvent(msg.collection, wsEvent, partial, tenantId, false);
+    return;
+  }
+  broadcastEvent(msg.collection, wsEvent, msg.data, tenantId);
+  broadcastDataEvent(msg.collection, wsEvent, msg.data, tenantId);
 }
 
 /**
@@ -635,7 +673,9 @@ class PgNotifyRealtimeBus implements RealtimeBus {
   }
 
   async publish(payload: Omit<RealtimeBusMessage, 'originId'>): Promise<void> {
-    const msg = trimForPgNotify(payload);
+    let msg = trimForPgNotify(payload);
+    // Over the cap: look up which columns the row rules read, only now — rare, and a query.
+    if (msg.trimmed) msg = trimForPgNotify(payload, await ruleColumnsFor(payload.collection));
     const encoded = JSON.stringify(msg);
     const bytes = Buffer.byteLength(encoded, 'utf8');
     if (bytes > PG_NOTIFY_PAYLOAD_MAX) {

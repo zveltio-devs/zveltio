@@ -133,6 +133,16 @@ async function loadPolicies(collection: string): Promise<RlsPolicy[]> {
 }
 
 /**
+ * Every column a row rule on `collection` reads, whoever it binds (`*` rules
+ * included). What a cross-instance event too large to carry whole keeps, so the
+ * receiving instance can still decide each subscriber's rules (ADR 0036
+ * decision 4).
+ */
+export async function ruleColumns(collection: string): Promise<string[]> {
+  return [...new Set((await loadPolicies(collection)).map((p) => p.filter_field))];
+}
+
+/**
  * Invalidate RLS policy cache for a collection (call after policy CRUD).
  * `policyRebuilt`: the rule's own transaction rebuilt the policy
  * (`writeRowRules`), so only what follows the commit is left to do.
