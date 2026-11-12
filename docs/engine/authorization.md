@@ -471,6 +471,18 @@ they enqueue alike. Only the row rule's value changes: the key's roles are
 still `api_key`, and the engine still sees the key as the caller
 (`zveltio.user_id`).
 
+### Realtime delivers at most what `GET` serves
+
+For every subscriber and every event, what the WebSocket or SSE stream delivers is at most what
+`GET /api/data/:collection/:id` would serve that subscriber at that moment, with the same columns.
+When the engine cannot know that, it delivers nothing (ADR 0036).
+
+**The rule for a new kind of row rule.** A new operator or value source is either added to all four
+appliers in `lib/tenancy/rule-operators.ts` and to the four-interpreters suite
+(`tests/harness/row-rules-four-interpreters.test.ts`), or a collection that uses it cannot be
+subscribed to by the readers it binds: a gate that cannot be decided on one record refuses the
+subscription, as a query alter does.
+
 ### Common examples
 
 **Users see only their own records:**
