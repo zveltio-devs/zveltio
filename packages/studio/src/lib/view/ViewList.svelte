@@ -47,7 +47,7 @@ const params = $derived(listParams(view, scope, { page, limit, search }));
 $effect(() => {
   schemaOf(view.collection).then(
     (s) => (schema = s),
-    () => {},
+    (e: Error) => (error = e.message || m['ext.loadFailed']()),
   );
 });
 

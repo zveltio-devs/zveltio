@@ -29,7 +29,7 @@ const id = $derived(resolveValue(view.record, scope));
 $effect(() => {
   schemaOf(view.collection).then(
     (s) => (schema = s),
-    () => {},
+    (e: Error) => (error = e.message || m['ext.loadFailed']()),
   );
 });
 

@@ -84,11 +84,15 @@ async function run(action: string, input: Record<string, unknown>) {
     const outcome = readActionResult(await runAction(host.ext, action, input));
     host.version++;
     if (outcome.kind === 'navigate') return navigate(outcome.view, outcome.params);
-    if (outcome.kind === 'reveal') return void (reveal = outcome.value);
+    if (outcome.kind === 'reveal') {
+      reveal = outcome.value;
+      return;
+    }
     if (outcome.kind === 'view') {
       const checked = validateView({ ...outcome.view, spec: VIEW_SPEC });
       if (!checked.ok) return void toast.error(m['extPage.renderFailed']());
-      return void (shown = outcome.view);
+      shown = outcome.view;
+      return;
     }
     if (outcome.kind === 'file') {
       const { url } = await api.get<{ url: string }>(

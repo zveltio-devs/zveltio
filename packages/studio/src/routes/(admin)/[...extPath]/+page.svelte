@@ -47,7 +47,10 @@ function check(schema: unknown) {
   const r = validateView(schema);
   return r.ok
     ? { ok: true as const, kind: 'view' as const, view: r.view }
-    : { ok: false as const, error: r.issues.map((i) => `${i.path || '/'} ${i.message}`).join('; ') };
+    : {
+        ok: false as const,
+        error: r.issues.map((i) => `${i.path || '/'} ${i.message}`).join('; '),
+      };
 }
 
 const resolved = $derived.by(() => {
