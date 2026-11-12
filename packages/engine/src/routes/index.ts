@@ -63,7 +63,7 @@ import { requestLogMiddleware } from '../middleware/request-log.js';
 import { previewEnvMiddleware } from '../middleware/preview-env.js';
 import { tracingMiddleware } from '../middleware/tracing.js';
 import { demoModeMiddleware } from '../middleware/demo-mode.js';
-import { listSignInProviders } from '../lib/extensions/sign-in.js';
+import { listSignInProviders } from '../lib/extensions/index.js';
 import { configStepUp } from '../middleware/config-step-up.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
