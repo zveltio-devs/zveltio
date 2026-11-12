@@ -12,6 +12,11 @@
  *                           Electric types them; its live evaluator is driven
  *                           against a real Electric in electric-shapes.test.ts)
  *
+ * This suite is the gate for a new kind of row rule (ADR 0036, decision 2): a
+ * new operator or value source is added to every applier and to the cases
+ * here, or the collections that use it cannot be subscribed to by the readers
+ * it binds. See `lib/tenancy/rule-operators.ts`.
+ *
  * An independent audit found seven divergences between them, and the comment
  * above two of them claimed they were kept adjacent precisely so they could not
  * drift. Adjacency is not agreement. The real one was `neq` on a NULL column:
