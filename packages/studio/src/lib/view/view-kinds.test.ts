@@ -110,6 +110,8 @@ const bulkUpdate = vi.fn(
 );
 const create = vi.fn(async (_c: string, _d: unknown) => ({}));
 const post = vi.fn(async (_url: string, _body: unknown): Promise<unknown> => ({ result: null }));
+const OSM = { url: 'https://tiles.test/{z}/{x}/{y}.png', attribution: '© <Tiles> & co' };
+const publicSettings: { map_tiles: typeof OSM | null } = { map_tiles: OSM };
 
 vi.mock('#lib/api.js', () => ({
   api: {
@@ -199,6 +201,7 @@ vi.mock('#lib/api.js', () => ({
     },
     post: (url: string, body: unknown) => post(url, body),
   },
+  settingsApi: { getPublic: async () => ({ ...publicSettings }) },
   dataApi: {
     list: async (collection: string, params: Record<string, unknown>) => {
       calls.push(`LIST ${collection} ${JSON.stringify(params)}`);
@@ -233,12 +236,13 @@ const leaflet = vi.hoisted(() => {
     map,
     tooltips,
     circleMarker: vi.fn(() => layer()),
+    tileLayer: vi.fn((_url: string, _o: unknown) => layer()),
     L: {
       map: (node: unknown) => {
         map.getContainer = () => node;
         return map;
       },
-      tileLayer: () => layer(),
+      tileLayer: (u: string, o: unknown) => leaflet.tileLayer(u, o),
       circleMarker: (...a: unknown[]) => leaflet.circleMarker(...(a as [])),
       latLngBounds: (p: unknown) => p,
     },
@@ -253,6 +257,8 @@ beforeEach(() => {
   create.mockClear();
   post.mockClear();
   leaflet.circleMarker.mockClear();
+  leaflet.tileLayer.mockClear();
+  publicSettings.map_tiles = OSM;
 });
 afterEach(cleanup);
 
@@ -426,6 +432,20 @@ describe('view/2 map', () => {
     // Leaflet reads a string tooltip as HTML: the label must be a text node.
     expect(leaflet.tooltips.length).toBeGreaterThan(0);
     for (const tip of leaflet.tooltips) expect(tip).toBeInstanceOf(HTMLElement);
+    // The instance's tile server (ADR 0043); its attribution is text, and Leaflet reads HTML.
+    expect(leaflet.tileLayer).toHaveBeenCalledWith(OSM.url, {
+      attribution: '© &lt;Tiles&gt; &amp; co',
+      maxZoom: 19,
+    });
+  }, 60_000);
+
+  it('with tiles off, draws the list of places and asks no tile server', async () => {
+    publicSettings.map_tiles = null;
+    const { container } = await draw({ type: 'map', collection: 'places', location: 'at' });
+    await waitFor(() => expect(container.textContent).toContain('44.43000, 26.10000'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(leaflet.tileLayer).not.toHaveBeenCalled();
+    expect(container.querySelector('.h-96')).toBeNull();
   }, 60_000);
 });
 

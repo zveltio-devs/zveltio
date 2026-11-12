@@ -50,6 +50,21 @@ d('settings routes (in-process)', () => {
     expect(body).not.toHaveProperty('smtp_pass');
     expect(body).not.toHaveProperty('company_name');
     expect(typeof body.registration_enabled).toBe('boolean');
+    // ADR 0043: always present, so a front end never guesses a tile host.
+    expect(body.map_tiles).toEqual({
+      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attribution: '© OpenStreetMap contributors',
+    });
+    process.env.ZVELTIO_MAP_TILES = 'off';
+    try {
+      const off = (await (await app.request('/api/settings/public')).json()) as Record<
+        string,
+        unknown
+      >;
+      expect(off).toHaveProperty('map_tiles', null);
+    } finally {
+      delete process.env.ZVELTIO_MAP_TILES;
+    }
 
     await sql`DELETE FROM zv_settings WHERE key IN ('smtp_pass', 'company_name')`.execute(db);
   });

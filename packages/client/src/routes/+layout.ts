@@ -4,6 +4,7 @@ import type { Theme } from '@zveltio/ui/theme';
 import { loadSite } from '#lib/ext/content/pages/load.js';
 import { useDataFetch } from '#lib/ext/content/pages/query.js';
 import { engineFetch } from '#lib/engine-fetch.js';
+import { setMapTiles } from '#lib/map-tiles.js';
 
 export const ssr = false;
 export const prerender = false;
@@ -32,7 +33,12 @@ export async function load({ fetch }) {
   let base: Theme | null = null;
   try {
     if (settingsRes.status === 'fulfilled' && settingsRes.value.ok) {
-      base = ((await settingsRes.value.json()) as { theme?: Theme | null }).theme ?? null;
+      const settings = (await settingsRes.value.json()) as {
+        theme?: Theme | null;
+        map_tiles?: unknown;
+      };
+      base = settings.theme ?? null;
+      setMapTiles(settings.map_tiles);
     }
   } catch {
     /* engine not ready — degrade gracefully */

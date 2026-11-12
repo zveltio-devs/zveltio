@@ -3,10 +3,12 @@
  * `map`: the records of a collection with a `location` (`{ lat, lng }`, the
  * engine's `location` field), as points on a Leaflet map and as a list under
  * it, which is also what a reader without the map gets. A point or a list
- * entry selects its record (`$selected` of the view's `id`).
+ * entry selects its record (`$selected` of the view's `id`). With the
+ * instance's tiles off (ADR 0043) it draws the list only.
  */
 import 'leaflet/dist/leaflet.css';
 import L, { type Map as LeafletMap } from 'leaflet';
+import { type MapTiles, mapTiles } from '#lib/map-tiles.js';
 import { type MapView, viewFields, type ViewScope } from '@zveltio/sdk/view';
 import { listParams, type ViewHost, WHOLE } from './engine.js';
 import { readRows, type Row } from './rows.svelte.js';
@@ -47,11 +49,16 @@ function pick(row: Row) {
   if (view.id) host.scope.selected[view.id] = row.id;
 }
 
+let tiles = $state<MapTiles | null>(null);
+mapTiles().then((t) => {
+  tiles = t;
+});
+
 let el = $state<HTMLDivElement | null>(null);
 let map: LeafletMap | null = null;
 $effect(() => {
   const node = el;
-  if (!node) return;
+  if (!node || !tiles) return;
   // The element is new when the list was redrawn: the map goes with the old one.
   if (map && map.getContainer() !== node) {
     map.remove();
@@ -60,10 +67,7 @@ $effect(() => {
   map ??= L.map(node);
   const lm = map;
   lm.eachLayer((l) => void lm.removeLayer(l));
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap',
-    maxZoom: 19,
-  }).addTo(lm);
+  L.tileLayer(tiles.url, { attribution: tiles.attribution, maxZoom: 19 }).addTo(lm);
   for (const p of placed) {
     // A circle needs no marker image from a CDN. Leaflet reads a string tooltip
     // as HTML; record values are untrusted, so the label goes in as a text node.
@@ -86,7 +90,9 @@ $effect(() => () => {
 
 <div class="space-y-3" data-testid="view-map">
   <ViewRows rows={data} always>
-    <div bind:this={el} class="h-96 w-full rounded-box border border-base-200 z-0"></div>
+    {#if tiles}
+      <div bind:this={el} class="h-96 w-full rounded-box border border-base-200 z-0"></div>
+    {/if}
     <ul class="text-sm divide-y divide-base-200">
       {#each placed as p (p.row.id)}
         <li>
