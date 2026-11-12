@@ -523,7 +523,17 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
             .filter((a) => typeof a?.name === 'string' && /^[a-z][a-zA-Z0-9]*$/.test(a.name))
             .map((a) => `/actions/${a.name}`)
         : [];
-      const provided = [...extractEngineRoutes(readEngineSources(dir)), ...actionRoutes];
+      // And each route the manifest declares (ADR 0039), which the engine mounts itself.
+      const declaredRoutes = Array.isArray(manifestRecord?.routes)
+        ? (manifestRecord.routes as { path?: unknown }[])
+            .map((r) => r?.path)
+            .filter((p): p is string => typeof p === 'string' && p.startsWith('/'))
+        : [];
+      const provided = [
+        ...extractEngineRoutes(readEngineSources(dir)),
+        ...actionRoutes,
+        ...declaredRoutes,
+      ];
       const ownMessageKeys = readOwnMessageKeys(dir);
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const dependencies: string[] = Array.isArray((manifest as any)?.dependencies)
