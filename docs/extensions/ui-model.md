@@ -127,6 +127,12 @@ What the specification holds:
 - **A list's own rows**: `create`, `edit` and `delete` offer the collection's
   generated form to add a record, the same form to change a row, and a delete
   after a confirm, all through the data API as the user.
+- **A move or a cell edit** (`move` of a `board`, `timeline` or `tree`; `edit`
+  of a `matrix`) is a `Change`: `patch` writes the changed fields through the
+  data API as the user (a `matrix` cell with no record creates one), or the
+  named action runs with its `input` resolved against `$record` as the record
+  *after* the change, so `{ "id": { "$record": "id" }, "to": { "$record": "status" } }`
+  is the record and its new column. Without `move` or `edit` nothing moves.
 - **Fields** are names; a field object adds only presentation hints
   (`label`, `display`, `tones`, `readOnly`). Type, label and editor come from
   the collection.
@@ -194,7 +200,15 @@ and drawn as before.
 | `detail` | the record's fields, then its `panels` with `$record` set to it |
 | `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
 | `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |
-| `board`, `timeline`, `map`, `tree`, `matrix` | not yet (ADR 0042 slice 4): the view's `fallback`, else the generated list, under a notice |
+| `board` | a column per `groupBy` value (its declared choices first, in order, then any other value, then none); `card` fields, else the first default ones; `move` by dragging a card or by its "Move to" menu (ADR 0042 slice 4) |
+| `timeline` | one period at a time, with previous, today and next: `day` and `week` as an agenda, `month` (the default) as a calendar, `gantt` as a bar per record over the month; the period is part of the data API filter (with an `end`, a record whose `end` is empty is not in it); `move` by dropping a record on a day moves it, and its `end`, by whole days |
+| `tree` | the records under their `parent`, named by `label`, siblings in `order`; a record whose parent the caller cannot read is a root; `move` by dropping a node on another (never into its own descendants) or on the root line |
+| `matrix` | a grid of the `row` and `column` values the records hold (declared choices first); each cell the `value`, edited in place with `edit` (a checkbox for a boolean) |
+| `map` | the records with a `location` as points on a Leaflet map (OpenStreetMap tiles) and as a list under it; a point or an entry sets `$selected` |
+| a kind of a later `view/2` | the view's `fallback`, else the generated list, under a notice |
+
+`board`, `timeline`, `tree`, `matrix` and `map` read one page of the data API at
+its largest size (500 records) and say so when there are more.
 
 Not drawn yet, each with a notice where it appears: a form's `lines`, `recalc`
 and `autosave`, a list's `realtime`, a `stat` that sums, averages or takes a
@@ -244,7 +258,7 @@ adopted:
 
 | Topic | Today | Target (ADR 0042) |
 |---|---|---|
-| Schema format | `sduiSchema: 1` ([sdui.md](../ui/sdui.md)), types in Studio; `view/2` specified and validated (`@zveltio/sdk/view`) and drawn by Studio; `board`, `timeline`, `map`, `tree`, `matrix` fall back to a list | `view/2` only, a shared specification package with JSON Schema, validated by the engine and the CLI |
+| Schema format | `sduiSchema: 1` ([sdui.md](../ui/sdui.md)), types in Studio; `view/2` specified and validated (`@zveltio/sdk/view`) and drawn by Studio, every kind | `view/2` only, a shared specification package with JSON Schema, validated by the engine and the CLI |
 | Data binding | URLs (`dataSource`, `endpoint`) | names of collections and actions |
 | Styling | daisyUI class names, icon names | semantic tones |
 | Computed values | arithmetic tokens, templates, `computed` | server fields or actions |

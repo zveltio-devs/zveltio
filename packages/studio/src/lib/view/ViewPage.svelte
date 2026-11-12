@@ -11,6 +11,7 @@ import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import {
   type Button,
+  type Change,
   readActionResult,
   resolveInput,
   type View,
@@ -182,6 +183,29 @@ function remove(collection: string, id: string): Promise<void> {
   });
 }
 
+async function change(
+  c: Change,
+  collection: string,
+  record: Record<string, unknown>,
+  patch: Record<string, unknown>,
+) {
+  if (c !== 'patch') {
+    // The action sees the record as it is after the change (`$record`).
+    const input = resolveInput(c.input, { ...host.scope, record: { ...record, ...patch } });
+    if (!input) return void toast.error(m['view.selectFirst']());
+    return run(c.action, input);
+  }
+  try {
+    if (record.id === undefined || record.id === null)
+      await dataApi.create(collection, { ...record, ...patch });
+    else await dataApi.update(collection, String(record.id), patch);
+  } catch (e) {
+    toast.error((e as Error).message || m['common.failed']());
+  } finally {
+    host.version++;
+  }
+}
+
 function closePrompt() {
   const p = prompt;
   prompt = null;
@@ -209,6 +233,7 @@ const host = $state<ViewHost>({
   press,
   run,
   remove,
+  change,
   canRun: () => true,
   version: 0,
 });

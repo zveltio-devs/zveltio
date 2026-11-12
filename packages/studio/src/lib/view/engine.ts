@@ -7,6 +7,7 @@
 import {
   actionPath,
   type Button,
+  type Change,
   type Field,
   type SchemaField,
   toFilter,
@@ -146,6 +147,17 @@ export function toFormField(f: SchemaField, label?: string): FormField {
   };
 }
 
+/** A select or enum field's declared choices, in order; none for any other field. */
+export function choicesOf(f: SchemaField | undefined): { value: string; label: string }[] {
+  const opts = f?.options as { choices?: unknown[] } | unknown[] | null | undefined;
+  const list = Array.isArray(opts) ? opts : (opts?.choices ?? []);
+  return list.map((c) => {
+    if (typeof c !== 'object' || c === null) return { value: String(c), label: String(c) };
+    const { value, label } = c as { value: unknown; label?: unknown };
+    return { value: String(value), label: String(label ?? value) };
+  });
+}
+
 /** An action's input JSON Schema as the fields of a form. */
 export function actionInputFields(input: RunnableAction['input'] | undefined): SchemaField[] {
   const required = new Set(input?.required ?? []);
@@ -224,8 +236,96 @@ export interface ViewHost {
   remove: (collection: string, id: string) => Promise<void>;
   /** Whether the caller may run an action (`GET /api/actions`); a hint, the engine decides. */
   canRun: (action: string) => boolean;
+  /**
+   * Writes a change a view made (a board or timeline `move`, a matrix `edit`):
+   * `patch` through the data API (a record with no `id` is created), or the
+   * action with `$record` as the record after the change. Reads again after.
+   */
+  change: (
+    change: Change,
+    collection: string,
+    record: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ) => Promise<void>;
   /** Bumped after an action ran: lists and records read again. */
   version: number;
+}
+
+/**
+ * How many records a board, timeline, tree, matrix or map reads: one page at
+ * the data API's largest size. More than that shows a note, not a silent cut.
+ */
+// ponytail: one page of 500; page through the collection if a real view needs more.
+export const WHOLE = 500;
+
+/** A date or timestamp as its local day, `YYYY-MM-DD`; `null` when it is neither. */
+export function dayKey(value: unknown): string | null {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : localDay(d);
+}
+
+export function localDay(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** A `YYYY-MM-DD` day as a local midnight. */
+export const dayDate = (key: string) => new Date(`${key}T00:00:00`);
+
+/**
+ * A date or timestamp moved by whole days, in its own form: a date stays a
+ * date, a timestamp keeps its local time of day.
+ */
+export function shiftDays(value: unknown, days: number): unknown {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const d = dayDate(value);
+    d.setDate(d.getDate() + days);
+    return localDay(d);
+  }
+  if (typeof value !== 'string' && typeof value !== 'number') return value;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
+/** Whole days from `a` to `b`, both `YYYY-MM-DD`. */
+export const daysBetween = (a: string, b: string) =>
+  Math.round((dayDate(b).getTime() - dayDate(a).getTime()) / 86_400_000);
+
+/** The days a timeline shows around `anchor`: a day, a week from Monday, or a month. */
+export function period(anchor: string, scale: 'day' | 'week' | 'month' | 'gantt'): string[] {
+  const d = dayDate(anchor);
+  let n = 1;
+  if (scale === 'week') {
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    n = 7;
+  } else if (scale === 'month' || scale === 'gantt') {
+    d.setDate(1);
+    n = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  }
+  return Array.from({ length: n }, (_, i) => {
+    const x = new Date(d);
+    x.setDate(d.getDate() + i);
+    return localDay(x);
+  });
+}
+
+/** Whether `id` is `under` or one of its descendants: a tree must not take a node into itself. */
+export function isWithin(
+  id: string,
+  under: string,
+  parentOf: ReadonlyMap<string, string | null>,
+): boolean {
+  const seen = new Set<string>();
+  for (let at: string | null | undefined = under; at != null; at = parentOf.get(at)) {
+    if (at === id) return true;
+    if (seen.has(at)) return false; // a cycle already in the data: stop
+    seen.add(at);
+  }
+  return false;
 }
 
 /**
