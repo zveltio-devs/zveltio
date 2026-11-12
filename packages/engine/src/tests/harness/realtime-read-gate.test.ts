@@ -132,6 +132,29 @@ d('realtime doors honour the read gate (in-process)', () => {
     ]);
   });
 
+  // ADR 0036 decision 3: `{ type, collection, event, id, data?, timestamp }`.
+  it('WS and SSE: an event names its record, and one sent without data still passes the gate', async () => {
+    entityAccessRegistry.registerAs(OWNER, TABLE, deny('hidden'));
+    const sent = await subscribe('rtgate_ws_nodata');
+    const sse = await stream(member.cookie, member.userId, `collections=${COLLECTION}`);
+    sent.length = 0;
+    const emit = (id: string, title: string, withData: boolean) => {
+      broadcastEvent(COLLECTION, 'update', { id, title }, null, withData);
+      broadcastDataEvent(COLLECTION, 'update', { id, title }, sse.tenantId ?? null, withData);
+    };
+    emit('r1', 'with', true);
+    emit('r2', 'hidden', false);
+    emit('r3', 'without', false);
+    await settle(() => sent.length >= 2 && sse.delivered.length >= 2);
+    await Bun.sleep(20);
+    for (const frames of [sent, sse.delivered]) {
+      const events = frames.map((p) => JSON.parse(p) as { id: string; data?: unknown });
+      expect(events.map((e) => e.id)).toEqual(['r1', 'r3']);
+      expect(events[0].data).toEqual({ id: 'r1', title: 'with' });
+      expect('data' in events[1]).toBe(false);
+    }
+  });
+
   it('WS: a refusal is not cached — once the alter is gone, a resubscribe succeeds', async () => {
     queryAlterRegistry.registerAs(OWNER, TABLE, titleIsNot('hidden'));
     const sent = await subscribe('rtgate_ws_refusal');

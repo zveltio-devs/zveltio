@@ -19,8 +19,7 @@ export function useRealtime(
     realtimeRef.current = realtime;
     realtime.connect();
 
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const unsub = realtime.subscribe(collection, (data: any) => {
+    const unsub = realtime.subscribe(collection, (data) => {
       if (!event || data.event === event) {
         callbackRef.current(data);
       }

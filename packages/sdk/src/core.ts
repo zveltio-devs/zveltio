@@ -7,7 +7,7 @@
  */
 
 import type { ZveltioClient } from './client.js';
-import type { ZveltioRealtime } from './realtime.js';
+import type { RealtimeRecordEvent, ZveltioRealtime } from './realtime.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -172,9 +172,7 @@ export async function removeFile(client: ZveltioClient, fileId: string): Promise
 export function subscribeToCollection(
   realtime: ZveltioRealtime,
   collection: string,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  callback: (event: { type: string; data: any }) => void,
+  callback: (event: RealtimeRecordEvent) => void,
 ): () => void {
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  return realtime.subscribe(collection, callback as any);
+  return realtime.subscribe(collection, callback);
 }

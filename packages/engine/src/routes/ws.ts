@@ -697,6 +697,7 @@ function cleanupSocket(ws: any): void {
 /**
  * Broadcast a CRUD event to all WebSocket clients subscribed to the collection.
  * Subscription matching: '*', 'collection_name', or 'collection_name:event'.
+ * The frame is `{ type, collection, event, id, data?, timestamp }`.
  */
 export function broadcastEvent(
   collection: string,
@@ -704,8 +705,21 @@ export function broadcastEvent(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   data: any,
   tenantId: string | null = null,
+  withData = true,
 ): void {
-  const payload = JSON.stringify({ type: 'event', collection, event, data, timestamp: Date.now() });
+  // ADR 0036 decision 3: an event always names its record and may carry no
+  // data. `withData` is the engine's choice, never the client's; without it the
+  // gate still runs on `data` and the subscriber reads the record by `id`.
+  const frame = (visible: unknown) =>
+    JSON.stringify({
+      type: 'event',
+      collection,
+      event,
+      id: data?.id,
+      data: withData ? visible : undefined,
+      timestamp: Date.now(),
+    });
+  const payload = frame(data);
   const specificChannel = `${collection}:${event}`;
   const wildcardChannel = `${collection}:*`;
 
@@ -747,16 +761,7 @@ export function broadcastEvent(
         // Again at send: one queued behind an async verdict may outlive its scope.
         if (!realtimeScopeCurrent(scope.generation)) return;
         const visible = scope.shape(data);
-        const body =
-          visible === data
-            ? payload
-            : JSON.stringify({
-                type: 'event',
-                collection,
-                event,
-                data: visible,
-                timestamp: Date.now(),
-              });
+        const body = !withData || visible === data ? payload : frame(visible);
         try {
           conn.ws.send(body);
         } catch {

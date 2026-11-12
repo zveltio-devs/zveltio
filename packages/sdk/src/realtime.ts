@@ -22,10 +22,29 @@ export function openWebSocket(url: string, headers?: Record<string, string>): We
   return new WebSocket(url);
 }
 
+/**
+ * A record event, as the engine sends it on `/api/ws`.
+ *
+ * `id` is always there. `data` is the record as this subscriber may read it,
+ * and the engine alone decides whether to send it: a client cannot ask for it
+ * and must not rely on it. Without `data`, read the record through the data
+ * API — a 404 means it is gone, or not this subscriber's to see.
+ */
+export interface RealtimeRecordEvent<T = Record<string, unknown>> {
+  type: 'event';
+  collection: string;
+  event: 'insert' | 'update' | 'delete';
+  id: string;
+  data?: T;
+  timestamp: number;
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: a subscriber names its own record type
+type RecordListener = (event: RealtimeRecordEvent<any>) => void;
+
 export class ZveltioRealtime {
   private ws: WebSocket | null = null;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  private listeners: Map<string, Set<(data: any) => void>> = new Map();
+  private listeners: Map<string, Set<RecordListener>> = new Map();
   private baseUrl: string;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
@@ -99,8 +118,10 @@ export class ZveltioRealtime {
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  subscribe(collection: string, callback: (data: any) => void): () => void {
+  subscribe<T = Record<string, unknown>>(
+    collection: string,
+    callback: (event: RealtimeRecordEvent<T>) => void,
+  ): () => void {
     if (!this.listeners.has(collection)) this.listeners.set(collection, new Set());
     this.listeners.get(collection)!.add(callback);
 

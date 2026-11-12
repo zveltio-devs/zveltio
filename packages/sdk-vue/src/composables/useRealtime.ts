@@ -15,8 +15,7 @@ export function useRealtime(
     if (!baseUrl || !collection) return;
     realtime = new ZveltioRealtime(baseUrl);
     realtime.connect();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    unsub = realtime.subscribe(collection, (data: any) => {
+    unsub = realtime.subscribe(collection, (data) => {
       if (!event || data.event === event) {
         callback(data);
       }
