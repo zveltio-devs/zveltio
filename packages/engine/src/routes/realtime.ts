@@ -357,11 +357,13 @@ export function broadcastDataEvent(
   record: any,
   tenantId: string | null = null,
   withData = true,
+  partial = false,
 ): void {
   // ADR 0036 decision 3, as in `broadcastEvent`: `id` always, `data` when the
-  // engine chooses to send it. The gate and the filters still run on `record`,
-  // which without data may be partial (decision 4): an entity-access check or a
-  // `?filter=` on a column it lacks cannot decide, and refuses.
+  // engine chooses to send it. The gate and the filters still run on `record`.
+  // `partial`: `record` is only what a trimmed bus message kept (decision 4), so
+  // an entity-access check or a `?filter=` on a column it lacks cannot decide,
+  // and refuses.
   const frame = (visible: unknown) =>
     JSON.stringify({
       channel: `zveltio:data:${collection}`,
@@ -387,7 +389,7 @@ export function broadcastDataEvent(
         // Again at send: one queued behind an async verdict may outlive its scope.
         if (!realtimeScopeCurrent(scope.generation)) return;
         const visible = scope.shape(record);
-        if (!matchesFilters(sub, visible, !withData)) return;
+        if (!matchesFilters(sub, visible, partial)) return;
         const body = !withData || visible === record ? payload : frame(visible);
         try {
           sub.stream.writeSSE({ data: body, event: 'data' });
@@ -400,7 +402,7 @@ export function broadcastDataEvent(
       const scope = sub.access.get(collection);
       if (scope) {
         if (realtimeScopeCurrent(scope.generation)) {
-          if (withData || !scope.entityChecks)
+          if (!partial || !scope.entityChecks)
             inOrder(sub, scope.admits(record), () => write(scope));
         }
       } else if (sub.collections.length === 0) {
@@ -416,7 +418,7 @@ export function broadcastDataEvent(
         const verdict = lazy.then((s) => {
           resolved = s;
           return (
-            realtimeScopeCurrent(s.generation) && (withData || !s.entityChecks) && s.admits(record)
+            realtimeScopeCurrent(s.generation) && (!partial || !s.entityChecks) && s.admits(record)
           );
         });
         inOrder(sub, verdict, () => write(resolved!));

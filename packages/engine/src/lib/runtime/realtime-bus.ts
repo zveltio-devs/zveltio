@@ -399,8 +399,8 @@ function dispatchToWs(msg: RealtimeBusMessage): void | Promise<void> {
   // delivered without `data` — never `data: { id }` (ADR 0036 decision 4).
   if (msg.trimmed || msg.data === undefined) {
     const partial = msg.data ?? { id: msg.record_id };
-    broadcastEvent(msg.collection, wsEvent, partial, tenantId, false);
-    broadcastDataEvent(msg.collection, wsEvent, partial, tenantId, false);
+    broadcastEvent(msg.collection, wsEvent, partial, tenantId, false, true);
+    broadcastDataEvent(msg.collection, wsEvent, partial, tenantId, false, true);
     return;
   }
   broadcastEvent(msg.collection, wsEvent, msg.data, tenantId);

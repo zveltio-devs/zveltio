@@ -196,7 +196,7 @@ describe('dispatchToWs — observed via broadcastEvent', () => {
     const spy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     try {
       dispatchToWs(baseMsg({ event: 'record.deleted', data: undefined, tenantId: null }));
-      expect(spy).toHaveBeenCalledWith('contacts', 'delete', { id: 'r1' }, null, false);
+      expect(spy).toHaveBeenCalledWith('contacts', 'delete', { id: 'r1' }, null, false, true);
     } finally {
       spy.mockRestore();
     }

@@ -706,13 +706,14 @@ export function broadcastEvent(
   data: any,
   tenantId: string | null = null,
   withData = true,
+  partial = false,
 ): void {
   // ADR 0036 decision 3: an event always names its record and may carry no
   // data. `withData` is the engine's choice, never the client's; without it the
   // gate still runs on `data` and the subscriber reads the record by `id`.
-  // Without it `data` may also be partial — a trimmed bus message keeps only
-  // `id` and the row-rule columns (decision 4) — so a gate that reads other
-  // columns, an extension's entity-access check, cannot decide and refuses.
+  // `partial`: `data` is only what a trimmed bus message kept — `id` and the
+  // row-rule columns (decision 4) — so a gate that reads other columns, an
+  // extension's entity-access check, cannot decide and refuses.
   const frame = (visible: unknown) =>
     JSON.stringify({
       type: 'event',
@@ -760,7 +761,7 @@ export function broadcastEvent(
       // latest rule change, or while the bus is down, delivers nothing either.
       const scope = conn.access.get(collection);
       if (!scope || !realtimeScopeCurrent(scope.generation)) continue;
-      if (!withData && scope.entityChecks) continue;
+      if (partial && scope.entityChecks) continue;
       inOrder(conn, scope.admits(data), () => {
         // Again at send: one queued behind an async verdict may outlive its scope.
         if (!realtimeScopeCurrent(scope.generation)) return;
