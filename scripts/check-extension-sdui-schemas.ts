@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 /**
  * CI gate: extension SDUI schema files must declare sduiSchema + title.
+ * A `zveltio.view/2` file (ADR 0042) is checked instead by the CLI's
+ * `checkViews`, the same check `extension validate` and `pack` run.
  *
  * Scans SIBLING_ROOT (EXTENSIONS_ROOT, default: sibling ../zveltio-extensions) for
  * `studio/schemas/*.json` referenced by manifest studio.pages[].schema.
@@ -11,6 +13,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
+import { isViewDocument } from '../packages/sdk/src/view/index.ts';
+import { checkViews } from '../packages/cli/src/commands/extension-pack.ts';
 import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const ROOT = join(import.meta.dir, '..');
@@ -48,6 +52,11 @@ for (const manifestPath of findManifests(EXT_ROOT)) {
   const extDir = join(manifestPath, '..');
   const extName = manifest.name ?? relative(EXT_ROOT, extDir);
 
+  for (const e of checkViews(extDir, manifest)) {
+    console.error(`❌ ${extName}: ${e.file} ${e.code} ${e.message}`);
+    failed++;
+  }
+
   for (const page of manifest.studio?.pages ?? []) {
     if (typeof page.schema !== 'string') continue;
     const schemaPath = join(extDir, 'studio', page.schema);
@@ -67,6 +76,7 @@ for (const manifestPath of findManifests(EXT_ROOT)) {
       failed++;
       continue;
     }
+    if (isViewDocument(schema)) continue; // checkViews, above
     const version = typeof schema.sduiSchema === 'number' ? schema.sduiSchema : null;
     if (version === null) {
       console.error(`❌ ${extName}: studio/${page.schema} missing "sduiSchema"`);
