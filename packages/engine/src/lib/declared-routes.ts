@@ -16,10 +16,12 @@
 import type { Context, Hono } from 'hono';
 import type { DeclaredRouteHost, RouteHandler } from '@zveltio/sdk/extension';
 
-/** A manifest `routes` entry, as far as mounting needs it (`access` is the gate's). */
+/** A manifest `routes` entry. */
 export interface RouteSpec {
   method: string;
   path: string;
+  /** The gate's, and `host.identity`'s: it answers on a `public` route only. */
+  access?: string;
   handler: string;
 }
 
@@ -45,7 +47,7 @@ export function pairRouteHandlers(
         `manifest route ${r.method} ${r.path} names handler "${r.handler}", which routes does not export`,
       );
     }
-    return { method: r.method, path: r.path, handler: r.handler, run: run as RouteHandler };
+    return { ...r, run: run as RouteHandler };
   });
   for (const name of Object.keys(handlers)) {
     if (!declared.some((r) => r.handler === name)) {
@@ -63,14 +65,14 @@ export function pairRouteHandlers(
 export function mountDeclaredRoutes(
   app: Hono,
   routes: readonly DeclaredRoute[],
-  host: (c: Context) => DeclaredRouteHost,
+  host: (c: Context, route: DeclaredRoute) => DeclaredRouteHost,
   request: (c: Context) => Request = (c) => c.req.raw,
 ): void {
   for (const r of routes) {
     app.on(r.method, r.path, async (c) => {
       const res = await r.run(request(c), {
         params: c.req.param() as Record<string, string>,
-        host: host(c),
+        host: host(c, r),
       });
       if (!(res instanceof Response)) {
         throw new Error(

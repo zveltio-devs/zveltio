@@ -180,6 +180,26 @@ export const ManifestSchema = z
       )
       .default([]),
     /**
+     * ADR 0039 decision 8: the ways to sign in this extension offers. Each names
+     * the declared `public` route that starts it: a `credentials` provider's is a
+     * `POST` taking `{ "username", "password" }` as JSON, a `redirect` provider's
+     * a `GET` the browser is sent to. `GET /api/sign-in/providers` lists them
+     * where the extension is on, so any front end draws its sign-in page from
+     * the list. The route signs the person in with `host.identity.signIn`.
+     */
+    signInProviders: z
+      .array(
+        z
+          .object({
+            id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+            label: z.string().min(1).max(100),
+            kind: z.enum(['credentials', 'redirect']),
+            route: z.string().regex(ROUTE_PATH),
+          })
+          .strict(),
+      )
+      .default([]),
+    /**
      * Routes an API key may call, besides a session: `"<METHOD> <pattern>"`,
      * patterns as in `publicRoutes` (`"POST /invoices"`, `"GET /invoices/*"`).
      * The key must hold `{ collection: '$ext:<name>', actions: [...] }` with the
@@ -556,6 +576,21 @@ export const ManifestSchema = z
           : null;
       if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['routes', i], message: issue });
       seenRoutes.add(`${r.method} ${r.path}`);
+    });
+    const providerIds = new Set<string>();
+    m.signInProviders.forEach((p, i) => {
+      const method = p.kind === 'credentials' ? 'POST' : 'GET';
+      const issue = providerIds.has(p.id)
+        ? `sign-in provider "${p.id}" is declared twice`
+        : m.routes.some(
+              (r) => r.method === method && r.path === p.route && r.access === 'public',
+            ) && !p.route.includes(':')
+          ? null
+          : `sign-in provider "${p.id}" (${p.kind}) starts at ${method} ${p.route}, which is not a declared public route without parameters`;
+      if (issue) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['signInProviders', i], message: issue });
+      }
+      providerIds.add(p.id);
     });
     const jobNames = new Set<string>();
     const slotKinds = new Map<string, string>();

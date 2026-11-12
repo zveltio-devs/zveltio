@@ -83,6 +83,7 @@ import {
   pairRouteHandlers,
   type RouteSpec,
 } from '../declared-routes.js';
+import { registerSignInProviders, routeIdentity } from './sign-in.js';
 import type { ExtensionContext, ExtensionInternals } from './internals.js';
 import { gateInternals } from './capabilities.js';
 import {
@@ -781,7 +782,9 @@ async function registerExtensionRoutes(
     subApp.use('*', activationMiddlewareFor(extName, db));
     // Before `register`, so the extension's own middleware never runs for them.
     mountActions(subApp, extName, actions, restrictedCtx);
-    mountDeclaredRoutes(subApp, declaredRoutes, (c) => declaredRouteHost(c, restrictedCtx));
+    mountDeclaredRoutes(subApp, declaredRoutes, (c, r) =>
+      declaredRouteHost(c, restrictedCtx, extName, r.access),
+    );
     const restore = propagateErrorHandler(subApp);
     try {
       await extension.register(subApp, restrictedCtx);
@@ -829,10 +832,16 @@ function inlineRoutes(
 
 /**
  * A declared route's `host` (ADR 0039 decision 4): the route host every
- * extension route has (ADR 0025, ADR 0034) and `ctx.internals.enqueue` bound to
- * the request (ADR 0018), gated as that member is. Nothing more.
+ * extension route has (ADR 0025, ADR 0034), `ctx.internals.enqueue` bound to
+ * the request (ADR 0018), gated as that member is, and signing in (decision 7),
+ * which answers on a public route of an `auth:session` holder only.
  */
-function declaredRouteHost(c: Context, ctx: ExtensionContext): DeclaredRouteHost {
+function declaredRouteHost(
+  c: Context,
+  ctx: ExtensionContext,
+  extName: string,
+  access: string | undefined,
+): DeclaredRouteHost {
   if (!ctx.host) throw new Error('no route host');
   return {
     ...ctx.host(c),
@@ -840,6 +849,7 @@ function declaredRouteHost(c: Context, ctx: ExtensionContext): DeclaredRouteHost
       if (!ctx.internals.enqueue) throw new Error('enqueue is not available to this extension');
       return ctx.internals.enqueue(c, job, input);
     },
+    identity: routeIdentity(c, extName, access ?? 'caller'),
   };
 }
 
@@ -1097,6 +1107,7 @@ export async function finalizeExtensionLoad(
     actions.values(),
     manifestRoutes,
   );
+  registerSignInProviders(extName, manifest?.signInProviders ?? []);
 
   // With the effective capabilities: an unapproved `data:system` runs no job.
   registerJobs(extName, jobs, effective);

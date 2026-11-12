@@ -240,7 +240,7 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       expect(String(body.url)).toEndWith(`/ext/${ext}/hook/42`);
       // ADR 0039 decision 4: what a route has today, and no more.
       expect(body.host).toEqual(
-        label === 'inline' ? ['collections', 'enqueue', 'files'] : ['collections'],
+        label === 'inline' ? ['collections', 'enqueue', 'files', 'identity'] : ['collections'],
       );
     }, 30_000);
 
