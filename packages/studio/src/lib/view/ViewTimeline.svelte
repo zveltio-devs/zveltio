@@ -2,11 +2,11 @@
 /**
  * `timeline`: records on a time axis, one period at a time — an agenda of a
  * day or a week, a month calendar, or a Gantt of a month. The period is part
- * of the data API filter (`start` before its end; `end`, or `start`, inside
- * it). With `move`, a record dropped on another day moves by whole days, its
- * `end` with it, through `host.change`.
+ * of the data API filter (`periodQueries`; a record with an empty `end` is a
+ * point at its start). With `move`, a record dropped on another day, or given
+ * one in its menu, moves by whole days, its `end` with it, through `host.change`.
  */
-import { type Condition, type TimelineView, viewFields, type ViewScope } from '@zveltio/sdk/view';
+import { type TimelineView, viewFields, type ViewScope } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
 import {
   dayDate,
@@ -15,6 +15,7 @@ import {
   listParams,
   localDay,
   period,
+  periodQueries,
   shiftDays,
   type ViewHost,
   WHOLE,
@@ -36,23 +37,16 @@ const days = $derived(period(anchor, scale));
 const from = $derived(days[0]);
 const until = $derived(shiftDays(days[days.length - 1], 1) as string);
 
-/** The view's filter and the period's; a field and operator the view already sets stay the view's. */
-const filter = $derived.by((): Condition[] => {
-  const own = view.filter ?? [];
-  const add: Condition[] = [
-    { field: view.start, op: 'lt', value: until },
-    view.end
-      ? { field: view.end, op: 'gte', value: from }
-      : { field: view.start, op: 'gte', value: from },
-  ];
-  return [...own, ...add.filter((c) => !own.some((o) => o.field === c.field && o.op === c.op))];
+const data = readRows(() => {
+  const queries = periodQueries(view.filter ?? [], view.start, view.end, from, until).map(
+    (filter) => listParams({ filter, sort: view.start }, scope, { page: 1, limit: WHOLE }),
+  );
+  return {
+    collection: view.collection,
+    params: queries.some((q) => q === null) ? null : (queries as Record<string, string | number>[]),
+    version: host.version,
+  };
 });
-
-const data = readRows(() => ({
-  collection: view.collection,
-  params: listParams({ filter, sort: view.start }, scope, { page: 1, limit: WHOLE }),
-  version: host.version,
-}));
 
 /** What names a record on the axis: its first listed field that is not a date of the axis. */
 const labelField = $derived(
@@ -139,21 +133,50 @@ const drop = (day: string) => ({
 </script>
 
 {#snippet chip(item: Item)}
-  <button
-    type="button"
-    class="badge badge-sm badge-primary badge-outline w-full justify-start truncate"
-    class:badge-soft={view.id && host.scope.selected[view.id] === item.row.id}
-    draggable={!!view.move}
-    data-record={item.row.id}
-    ondragstart={(e) => {
-      dragged = item;
-      e.dataTransfer?.setData('text/plain', item.row.id);
-    }}
-    ondragend={() => (dragged = null)}
-    onclick={() => pick(item.row)}
-  >
-    <ViewValue value={item.row[labelField]} hint={null} />
-  </button>
+  {#if view.move}
+    <!-- The keyboard's way to move: the record's menu takes a day. -->
+    <details class="dropdown w-full">
+      <summary
+        class="badge badge-sm badge-primary badge-outline w-full justify-start truncate list-none cursor-pointer"
+        class:badge-soft={view.id && host.scope.selected[view.id] === item.row.id}
+        draggable="true"
+        data-record={item.row.id}
+        ondragstart={(e) => {
+          dragged = item;
+          e.dataTransfer?.setData('text/plain', item.row.id);
+        }}
+        ondragend={() => (dragged = null)}
+        onclick={() => pick(item.row)}
+      >
+        <ViewValue value={item.row[labelField]} hint={null} />
+      </summary>
+      <div class="dropdown-content z-10 rounded-box border border-base-300 bg-base-100 p-2 shadow">
+        <input
+          type="date"
+          class="input input-xs input-bordered"
+          aria-label={m['view.moveTo']()}
+          value={item.start}
+          onchange={(e) => {
+            const input = e.currentTarget as HTMLInputElement;
+            const to = input.value;
+            // The record moves once the records read again; until then it is where it was.
+            input.value = item.start;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(to)) void moveTo(item, to);
+          }}
+        />
+      </div>
+    </details>
+  {:else}
+    <button
+      type="button"
+      class="badge badge-sm badge-primary badge-outline w-full justify-start truncate"
+      class:badge-soft={view.id && host.scope.selected[view.id] === item.row.id}
+      data-record={item.row.id}
+      onclick={() => pick(item.row)}
+    >
+      <ViewValue value={item.row[labelField]} hint={null} />
+    </button>
+  {/if}
 {/snippet}
 
 <div class="space-y-3" data-testid="view-timeline">

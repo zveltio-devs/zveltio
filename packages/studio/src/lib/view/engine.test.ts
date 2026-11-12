@@ -13,8 +13,12 @@ import {
   isWithin,
   listParams,
   period,
+  periodQueries,
+  relatedOf,
   shiftDays,
+  swapOrder,
   toFormField,
+  treeParents,
   viewHref,
 } from './engine.js';
 
@@ -192,5 +196,67 @@ describe('the slice 4 kinds: time, trees, choices', () => {
       { value: '2', label: 'Two' },
     ]);
     expect(choicesOf({ name: 't', type: 'text' })).toEqual([]);
+  });
+});
+
+describe('the slice 4 kinds: queries, order, cycles, relations', () => {
+  it('a timeline with an end asks twice: what overlaps, and what has no end', () => {
+    const own = [{ field: 'kind', op: 'eq' as const, value: 'trip' }];
+    expect(periodQueries(own, 's', undefined, '2026-11-01', '2026-12-01')).toEqual([
+      [
+        ...own,
+        { field: 's', op: 'lt', value: '2026-12-01' },
+        { field: 's', op: 'gte', value: '2026-11-01' },
+      ],
+    ]);
+    expect(periodQueries(own, 's', 'e', '2026-11-01', '2026-12-01')).toEqual([
+      [
+        ...own,
+        { field: 's', op: 'lt', value: '2026-12-01' },
+        { field: 'e', op: 'gte', value: '2026-11-01' },
+      ],
+      [
+        ...own,
+        { field: 's', op: 'lt', value: '2026-12-01' },
+        { field: 's', op: 'gte', value: '2026-11-01' },
+        { field: 'e', op: 'null' },
+      ],
+    ]);
+    // The view's own `s gte` stays the view's.
+    const mine = [{ field: 's', op: 'gte' as const, value: { $today: true as const } }];
+    expect(periodQueries(mine, 's', undefined, 'a', 'b')).toEqual([
+      [...mine, { field: 's', op: 'lt', value: 'b' }],
+    ]);
+  });
+
+  it('swapping order: each takes the other, or equal and empty ones take their positions', () => {
+    expect(swapOrder(3, 7, 0, 1)).toEqual([7, 3]);
+    expect(swapOrder(5, 5, 2, 1)).toEqual([1, 2]);
+    expect(swapOrder(null, 4, 0, 1)).toEqual([1, 0]);
+  });
+
+  it('a parent outside the rows is none, and a cycle is broken at its first record', () => {
+    const rows = [
+      { id: 'a', p: 'gone' },
+      { id: 'x', p: 'y' },
+      { id: 'y', p: 'x' },
+      { id: 'z', p: 'y' },
+    ];
+    expect(Object.fromEntries(treeParents(rows, 'p'))).toEqual({
+      a: null,
+      x: null,
+      y: 'x',
+      z: 'y',
+    });
+  });
+
+  it('a relation names its collection; any other field none', () => {
+    expect(relatedOf({ name: 'r', type: 'm2o', options: { related_collection: 'roles' } })).toBe(
+      'roles',
+    );
+    expect(
+      relatedOf({ name: 'r', type: 'text', options: { related_collection: 'roles' } }),
+    ).toBeNull();
+    expect(relatedOf({ name: 'r', type: 'reference' })).toBeNull();
   });
 });

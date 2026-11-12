@@ -8,6 +8,7 @@ import {
   actionPath,
   type Button,
   type Change,
+  type Condition,
   type Field,
   type SchemaField,
   toFilter,
@@ -16,6 +17,7 @@ import {
 } from '@zveltio/sdk/view';
 import type { FormField } from '@zveltio/sdk/extension';
 import { api, dataApi } from '#lib/api.js';
+import { labelFromRecord } from '#lib/components/collections/field-helpers.js';
 
 export interface ReadableCollection {
   name: string;
@@ -231,7 +233,7 @@ export interface ViewHost {
   /** Runs a button: an action, a navigation (a form handles `save` itself). */
   press: (b: Button, scope: ViewScope) => Promise<void>;
   /** Runs an action with this input and acts on its result. */
-  run: (action: string, input: Record<string, unknown>) => Promise<void>;
+  run: (action: string, input: Record<string, unknown>) => Promise<boolean>;
   /** Deletes a record through the data API, after a confirm. */
   remove: (collection: string, id: string) => Promise<void>;
   /** Whether the caller may run an action (`GET /api/actions`); a hint, the engine decides. */
@@ -239,23 +241,23 @@ export interface ViewHost {
   /**
    * Writes a change a view made (a board or timeline `move`, a matrix `edit`):
    * `patch` through the data API (a record with no `id` is created), or the
-   * action with `$record` as the record after the change. Reads again after.
+   * action with `$record` as the record after the change. Reads again after;
+   * `true` when the write went through.
    */
   change: (
     change: Change,
     collection: string,
     record: Record<string, unknown>,
     patch: Record<string, unknown>,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   /** Bumped after an action ran: lists and records read again. */
   version: number;
 }
 
 /**
- * How many records a board, timeline, tree, matrix or map reads: one page at
- * the data API's largest size. More than that shows a note, not a silent cut.
+ * The page a board, timeline, tree, matrix or map reads: the data API's
+ * largest. More than that shows a note and "Load more" (`readRows`).
  */
-// ponytail: one page of 500; page through the collection if a real view needs more.
 export const WHOLE = 500;
 
 /** A date or timestamp as its local day, `YYYY-MM-DD`; `null` when it is neither. */
@@ -377,4 +379,105 @@ export function elapsed(value: unknown, now = Date.now(), locale?: string): stri
     if (Math.abs(s) >= size) return fmt.format(Math.round(s / size), unit);
   }
   return fmt.format(s, 'second');
+}
+
+/**
+ * The data API queries of a timeline's period `[from, until)`, the view's own
+ * conditions kept (a field and operator the view sets stay the view's). With
+ * an `end`: what overlaps the period, and, asked apart because the data API has
+ * no OR, what starts in it with an empty `end` (a point at its start).
+ */
+export function periodQueries(
+  own: readonly Condition[],
+  start: string,
+  end: string | undefined,
+  from: string,
+  until: string,
+): Condition[][] {
+  const keep = (add: Condition[]) => [
+    ...own,
+    ...add.filter((c) => !own.some((o) => o.field === c.field && o.op === c.op)),
+  ];
+  const before: Condition = { field: start, op: 'lt', value: until };
+  const after: Condition = { field: start, op: 'gte', value: from };
+  if (!end) return [keep([before, after])];
+  return [
+    keep([before, { field: end, op: 'gte', value: from }]),
+    keep([before, after, { field: end, op: 'null' }]),
+  ];
+}
+
+/**
+ * Each record's parent in a tree: the `parent` value when that record is
+ * among the rows, else none (a root). A cycle in the data (A under B under A)
+ * has no root and would not be drawn: its first record becomes one, so every
+ * record is drawn exactly once and the drawing ends.
+ */
+export function treeParents(
+  rows: readonly { id: string; [k: string]: unknown }[],
+  parent: string,
+): Map<string, string | null> {
+  const ids = new Set(rows.map((r) => r.id));
+  const out = new Map(
+    rows.map((r) => {
+      const p = r[parent];
+      return [r.id, p != null && ids.has(String(p)) ? String(p) : null] as const;
+    }),
+  );
+  for (;;) {
+    const kids = new Map<string | null, string[]>();
+    for (const [id, p] of out) kids.set(p, [...(kids.get(p) ?? []), id]);
+    const reached = new Set<string>();
+    const todo = [...(kids.get(null) ?? [])];
+    while (todo.length) {
+      const id = todo.pop() as string;
+      if (reached.has(id)) continue;
+      reached.add(id);
+      todo.push(...(kids.get(id) ?? []));
+    }
+    const lost = rows.find((r) => !reached.has(r.id));
+    if (!lost) return out;
+    out.set(lost.id, null);
+  }
+}
+
+/**
+ * The `order` values two neighbouring siblings take to swap places: each
+ * other's when they differ and both are set; when they are equal or empty
+ * their positions among the siblings (`i`, `j`), so the swap still shows.
+ */
+export function swapOrder(a: unknown, b: unknown, i: number, j: number): [unknown, unknown] {
+  const set = (v: unknown) => v !== null && v !== undefined && v !== '';
+  return set(a) && set(b) && a !== b ? [b, a] : [j, i];
+}
+
+/** The collection a relation field points at (`m2o`, `reference`); none for any other field. */
+export function relatedOf(f: SchemaField | undefined): string | null {
+  const target = (f?.options as { related_collection?: unknown } | null | undefined)
+    ?.related_collection;
+  return (f?.type === 'm2o' || f?.type === 'reference') && typeof target === 'string'
+    ? target
+    : null;
+}
+
+/**
+ * The labels of records of `collection` by id, read through the data API as
+ * the user, 100 ids a query (a short URL). An id the caller may not read, or
+ * that is gone, has no label.
+ */
+export async function recordLabels(
+  collection: string,
+  ids: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const res = await listRecords(collection, {
+      page: 1,
+      limit: chunk.length,
+      filter: JSON.stringify({ id: { in: chunk } }),
+    });
+    for (const r of res.records) out.set(String(r.id), labelFromRecord(r));
+  }
+  return out;
 }

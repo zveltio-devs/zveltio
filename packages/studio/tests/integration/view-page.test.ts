@@ -17,6 +17,11 @@ import { api, dataApi } from '#lib/api.js';
 import ViewPage from '../../src/lib/view/ViewPage.svelte';
 
 const NAME = `it_view_${Date.now().toString(36)}`;
+/** Slice 4: a timeline with an end, and a board that moves. */
+const EVENTS = `it_events_${Date.now().toString(36)}`;
+const p2 = (n: number) => String(n).padStart(2, '0');
+const day = (d: Date) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+const TODAY = day(new Date());
 
 beforeAll(async () => {
   await api.post('/api/collections', {
@@ -31,10 +36,31 @@ beforeAll(async () => {
   await waitFor(() => dataApi.list(NAME, { limit: 1 }), { timeout: 30_000, interval: 500 });
   await dataApi.create(NAME, { title: 'Alpha note', status: 'open' });
   await dataApi.create(NAME, { title: 'Beta note', status: 'void' });
+
+  await api.post('/api/collections', {
+    name: EVENTS,
+    display_name: 'View Events',
+    fields: [
+      { name: 'title', type: 'text', required: true },
+      { name: 'status', type: 'text' },
+      { name: 'starts', type: 'date' },
+      { name: 'ends', type: 'date' },
+    ],
+  });
+  await waitFor(() => dataApi.list(EVENTS, { limit: 1 }), { timeout: 30_000, interval: 500 });
+  await dataApi.create(EVENTS, { title: 'Open ended', status: 'todo', starts: TODAY, ends: null });
+  await dataApi.create(EVENTS, { title: 'One day', status: 'todo', starts: TODAY, ends: TODAY });
+  await dataApi.create(EVENTS, {
+    title: 'Long ago',
+    status: 'done',
+    starts: '2001-01-01',
+    ends: '2001-01-02',
+  });
 }, 60_000);
 
 afterAll(async () => {
   await api.delete(`/api/collections/${NAME}`).catch(() => {});
+  await api.delete(`/api/collections/${EVENTS}`).catch(() => {});
 });
 
 afterEach(cleanup);
@@ -81,5 +107,46 @@ describe('view/2 renderer — against the engine', () => {
     await waitFor(() =>
       expect(container.querySelector('[data-testid="view-detail"]')?.textContent).toContain('void'),
     );
+  });
+
+  it('a timeline with an end shows a record whose end is empty: the engine takes both queries', async () => {
+    const { container } = render(ViewPage, {
+      props: {
+        ext: 'none',
+        view: { type: 'timeline', collection: EVENTS, start: 'starts', end: 'ends', scale: 'day' },
+      },
+    });
+    await waitFor(() => expect(container.textContent).toContain('Open ended'));
+    expect(container.textContent).toContain('One day');
+    expect(container.textContent).not.toContain('Long ago');
+  });
+
+  it('a board move writes the new column through the data API', async () => {
+    const { container } = render(ViewPage, {
+      props: {
+        ext: 'none',
+        view: {
+          type: 'board',
+          collection: EVENTS,
+          groupBy: 'status',
+          card: ['title'],
+          move: 'patch',
+        },
+      },
+    });
+    await waitFor(() => expect(container.textContent).toContain('Open ended'));
+    const card = [...container.querySelectorAll('[data-column="todo"] li')].find((li) =>
+      li.textContent?.includes('Open ended'),
+    ) as HTMLElement;
+    await fireEvent.change(card.querySelector('select') as HTMLSelectElement, {
+      target: { value: 'done' },
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-column="done"]')?.textContent).toContain('Open ended'),
+    );
+    const moved = (
+      await dataApi.list(EVENTS, { filter: JSON.stringify({ title: { eq: 'Open ended' } }) })
+    ).records[0];
+    expect(moved.status).toBe('done');
   });
 });

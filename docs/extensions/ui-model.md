@@ -201,14 +201,17 @@ and drawn as before.
 | `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
 | `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |
 | `board` | a column per `groupBy` value (its declared choices first, in order, then any other value, then none); `card` fields, else the first default ones; `move` by dragging a card or by its "Move to" menu (ADR 0042 slice 4) |
-| `timeline` | one period at a time, with previous, today and next: `day` and `week` as an agenda, `month` (the default) as a calendar, `gantt` as a bar per record over the month; the period is part of the data API filter (with an `end`, a record whose `end` is empty is not in it); `move` by dropping a record on a day moves it, and its `end`, by whole days |
-| `tree` | the records under their `parent`, named by `label`, siblings in `order`; a record whose parent the caller cannot read is a root; `move` by dropping a node on another (never into its own descendants) or on the root line |
-| `matrix` | a grid of the `row` and `column` values the records hold (declared choices first); each cell the `value`, edited in place with `edit` (a checkbox for a boolean) |
+| `timeline` | one period at a time, with previous, today and next: `day` and `week` as an agenda, `month` (the default) as a calendar, `gantt` as a bar per record over the month; the period is part of the data API filter: with an `end`, what overlaps the period and, asked apart (the data API has no OR) and merged by id, what starts in it with an empty `end`, drawn on its start day; `move` by dropping a record on a day, or by the date in its menu (the keyboard's way), moves it, and its `end`, by whole days |
+| `tree` | the records under their `parent`, named by `label`, siblings in `order`; a record whose parent the caller cannot read is a root, and a cycle in the data (A under B under A) is broken at its first record, so every record is drawn once; `move` by dropping a node on another or on the root line, or by its "Move to" menu, never into its own descendants; with `order` too, "Move up" and "Move down" swap the node's `order` with its sibling's (two writes, the second only if the first went through; two equal or empty values take their positions among the siblings, counted from 0) |
+| `matrix` | a grid of the `row` and `column` values the records hold (declared choices first); an axis on a relation (`m2o`, `reference`) shows the related records' labels, read by id through the data API as the user, and keeps the id of one the caller cannot read; each cell the `value`, edited in place with `edit` (a checkbox for a boolean) |
 | `map` | the records with a `location` as points on a Leaflet map (OpenStreetMap tiles) and as a list under it; a point or an entry sets `$selected` |
 | a kind of a later `view/2` | the view's `fallback`, else the generated list, under a notice |
 
-`board`, `timeline`, `tree`, `matrix` and `map` read one page of the data API at
-its largest size (500 records) and say so when there are more.
+`board`, `timeline`, `tree`, `matrix` and `map` read the data API a page at a
+time at its largest size (500 records). With more, they say how many are shown
+of how many and offer "Load more", which reads the next page and appends it;
+nothing reads further on its own. A re-read after a write keeps the pages
+already read.
 
 Not drawn yet, each with a notice where it appears: a form's `lines`, `recalc`
 and `autosave`, a list's `realtime`, a `stat` that sums, averages or takes a

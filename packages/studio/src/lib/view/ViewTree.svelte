@@ -3,12 +3,13 @@
  * `tree`: the records of a collection under their `parent`, named by `label`,
  * siblings in `order`. A record whose parent is not among them (one the caller
  * may not read, or none) is a root. With `move`, a node dropped on
- * another node (or on the root line) takes it as its parent through
- * `host.change`; never one of its own descendants.
+ * another node (or on the root line), or picked in its "Move to" menu, takes it
+ * as its parent through `host.change`, never one of its own descendants; with
+ * `order` too, "Move up" and "Move down" swap it with a sibling (`swapOrder`).
  */
 import { type TreeView, type ViewScope } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
-import { isWithin, listParams, type ViewHost, WHOLE } from './engine.js';
+import { isWithin, listParams, swapOrder, treeParents, type ViewHost, WHOLE } from './engine.js';
 import { readRows, type Row } from './rows.svelte.js';
 import ViewRows from './ViewRows.svelte';
 import ViewValue from './ViewValue.svelte';
@@ -26,15 +27,8 @@ const data = readRows(() => ({
   version: host.version,
 }));
 
-const ids = $derived(new Set(data.rows.map((r) => r.id)));
-const parentOf = $derived(
-  new Map(
-    data.rows.map((r) => {
-      const p = r[view.parent];
-      return [r.id, p != null && ids.has(String(p)) ? String(p) : null] as const;
-    }),
-  ),
-);
+/** Each record's parent; a cycle in the data is broken at its first record (`treeParents`). */
+const parentOf = $derived(treeParents(data.rows, view.parent));
 const children = $derived.by(() => {
   const out = new Map<string | null, Row[]>();
   for (const r of data.rows) {
@@ -53,6 +47,24 @@ async function moveUnder(row: Row, parent: string | null) {
   if (!view.move || parentOf.get(row.id) === parent) return;
   if (parent !== null && isWithin(row.id, parent, parentOf)) return;
   await host.change(view.move, view.collection, row, { [view.parent]: parent });
+}
+
+/** The node whose "Move to" menu is open: one menu at a time, not one per node. */
+let moving = $state<string | null>(null);
+/** Where a node may go: the root, or any node that is not it or one of its descendants. */
+const targets = (id: string) => data.rows.filter((r) => !isWithin(id, r.id, parentOf));
+
+/** Swaps a node with its sibling above (-1) or below (1): two writes of `order`. */
+async function step(row: Row, dir: -1 | 1) {
+  const order = view.order;
+  const sibs = children.get(parentOf.get(row.id) ?? null) ?? [];
+  const i = sibs.findIndex((r) => r.id === row.id);
+  const j = i + dir;
+  if (!view.move || !order || j < 0 || j >= sibs.length) return;
+  const [a, b] = swapOrder(sibs[i][order], sibs[j][order], i, j);
+  // The sibling is written only once the node was: a refused first write changes nothing.
+  if (await host.change(view.move, view.collection, sibs[i], { [order]: a }))
+    await host.change(view.move, view.collection, sibs[j], { [order]: b });
 }
 
 function toggle(id: string) {
@@ -118,7 +130,35 @@ const drop = (key: string, parent: string | null) => ({
           >
             <ViewValue value={row[view.label]} hint={null} />
           </button>
+          {#if view.move}
+            {#if view.order}
+              <button type="button" class="btn btn-ghost btn-xs px-1" aria-label={m['view.moveUp']()} onclick={() => step(row, -1)}>▴</button>
+              <button type="button" class="btn btn-ghost btn-xs px-1" aria-label={m['view.moveDown']()} onclick={() => step(row, 1)}>▾</button>
+            {/if}
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              aria-expanded={moving === row.id}
+              onclick={() => (moving = moving === row.id ? null : row.id)}>{m['view.moveTo']()}</button
+            >
+          {/if}
         </div>
+        {#if moving === row.id}
+          <select
+            class="select select-xs select-bordered ml-6 my-1"
+            aria-label={m['view.moveTo']()}
+            data-move={row.id}
+            value={parentOf.get(row.id) ?? ROOT}
+            onchange={(e) => {
+              const to = (e.currentTarget as HTMLSelectElement).value;
+              moving = null;
+              void moveUnder(row, to === ROOT ? null : to);
+            }}
+          >
+            <option value={ROOT}>{m['view.none']()}</option>
+            {#each targets(row.id) as t (t.id)}<option value={t.id}>{String(t[view.label] ?? t.id)}</option>{/each}
+          </select>
+        {/if}
         {#if kids && !closed.has(row.id)}{@render branch(row.id)}{/if}
       </li>
     {/each}

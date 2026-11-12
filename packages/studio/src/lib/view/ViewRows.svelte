@@ -22,10 +22,20 @@ const { rows, always = false, children }: Props = $props();
 {:else if rows.rows.length === 0 && !always}
   <p class="text-sm text-base-content/65 py-6 text-center">{m['common.noResults']()}</p>
 {:else}
-  {#if rows.total > rows.rows.length}
-    <p class="text-xs text-warning mb-2" data-testid="view-truncated">
-      {m['view.truncated']({ shown: rows.rows.length, total: rows.total })}
-    </p>
+  {#if rows.more}
+    <div class="flex items-center gap-2 mb-2" data-testid="view-truncated">
+      <p class="text-xs text-warning">
+        {m['view.truncated']({ shown: rows.rows.length, total: rows.total })}
+      </p>
+      <button
+        type="button"
+        class="btn btn-xs btn-outline"
+        disabled={rows.loading}
+        onclick={() => rows.loadMore()}
+      >
+        {m['view.loadMore']()}
+      </button>
+    </div>
   {/if}
   {@render children()}
 {/if}
