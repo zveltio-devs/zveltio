@@ -25,7 +25,7 @@ import type { Context } from 'hono';
 import { type RawBuilder, sql } from 'kysely';
 import type { DirectoryAccount, DirectoryProvisionInput } from '@zveltio/sdk/extension';
 import { type Database, getDb } from '../../db/index.js';
-import { publicRouteRequest } from '../../middleware/extension-auth-gate.js';
+import { gatePrincipal, publicRouteRequest } from '../../middleware/extension-auth-gate.js';
 import { auditLog } from '../audit.js';
 import {
   addTenantMember,
@@ -44,6 +44,7 @@ import {
   DEFAULT_TENANT_ID,
   getCurrentDomainOrNull,
   getCurrentTenantTrx,
+  isTenantAdmin,
 } from '../tenancy/index.js';
 import {
   deleteUser,
@@ -107,24 +108,54 @@ function subjectOf(v: unknown): string {
 }
 
 /**
- * A declared route's directory operations. Each call refuses unless the route
- * is declared `public` and the `/ext/*` gate admitted this request as this
- * extension's public route (else it throws: the extension's bug, 500), and the
+ * A declared route's directory operations. Each call refuses unless the
  * extension holds an approved `identity:provision` (else 403
- * `capability_required`). A refusal by the engine's rules throws a problem
- * whose `code` names it, with `status` set.
+ * `capability_required`) and the route lets it act:
+ *
+ *   - a `public` route the `/ext/*` gate admitted as this extension's: the
+ *     provider authenticates its caller itself (ADR 0039 answer (c));
+ *   - a `caller` route (ADR 0045): the caller's author administers the
+ *     request's tenant — `admin` there (`isTenantAdmin`), the rule of the
+ *     engine's own users routes (ADR 0002). For an API key the author is its
+ *     issuer (ADR 0028), so a key never provisions past the person it acts
+ *     for; the key's own scope (`$ext:<name>`) the gate already checked. A
+ *     member, or a key a member issued, is refused 403 `admin_required`.
+ *
+ * A call from anywhere else throws: the extension's bug, 500. A refusal by the
+ * engine's rules throws a problem whose `code` names it, with `status` set.
  */
 export function routeDirectory(c: Context, extName: string, access: string): RouteDirectory {
   const actor = `ext:${extName}`;
+  /** The principal of a `caller` route, named in each audit entry; one per request. */
+  let callerId: string | undefined;
+
+  /** Who called, for the audit entry: the gate's principal on a `caller` route. */
+  async function caller(name: string): Promise<string | undefined> {
+    if (access === 'public' && publicRouteRequest(c)?.extName === extName) return undefined;
+    const p = access === 'caller' ? gatePrincipal(c) : undefined;
+    if (!p) {
+      throw new Error(
+        `${extName}: host.identity.${name} answers only on a declared route the gate admitted`,
+      );
+    }
+    const author = p.authType === 'api_key' ? p.user.authorUserId : p.user.id;
+    if (!author || !(await isTenantAdmin(author))) {
+      throw problem(
+        'admin_required',
+        403,
+        `host.identity.${name}: the caller does not administer this tenant` +
+          (p.authType === 'api_key' ? " (an API key acts with its issuer's rights)" : ''),
+      );
+    }
+    return p.user.id;
+  }
 
   /** Run `op` as one act in the request's transaction and tenant. */
   async function act<T>(
     name: string,
     op: (trx: Database, tenant: string) => Promise<T>,
   ): Promise<T> {
-    if (access !== 'public' || publicRouteRequest(c)?.extName !== extName) {
-      throw new Error(`${extName}: host.identity answers only on a declared public route`);
-    }
+    callerId = await caller(name);
     if (!holdsCapability(extName, 'identity:provision')) {
       throw problem(
         'capability_required',
@@ -251,7 +282,14 @@ export function routeDirectory(c: Context, extName: string, access: string): Rou
       tenantId: tenant,
       resourceId: userId,
       resourceType: 'user',
-      metadata: { actor, provider: extName, subject, tenant_id: tenant, ...metadata },
+      metadata: {
+        actor,
+        provider: extName,
+        subject,
+        tenant_id: tenant,
+        ...(callerId ? { caller: callerId } : {}),
+        ...metadata,
+      },
     });
 
   /**

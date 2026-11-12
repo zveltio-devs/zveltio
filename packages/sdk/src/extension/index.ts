@@ -1397,9 +1397,11 @@ export interface DeclaredRouteHost extends RouteHost {
   enqueue?: (job: string, input: unknown) => Promise<string>;
   /**
    * Signing in (ADR 0039 decision 7) and directory provisioning (decision 9).
-   * Callable only from a declared `public` route of an extension holding
-   * `auth:session` (signing in) or `identity:provision` (the directory);
-   * anywhere else each call throws. Inline routes only: absent on a
+   * Signing in is callable only from a declared `public` route of an extension
+   * holding `auth:session`; the directory from a declared route of an extension
+   * holding `identity:provision` — a `public` one, or a `caller` one whose
+   * caller's author administers the tenant (ADR 0045). Anywhere else each call
+   * throws. Inline routes only: absent on a
    * worker-isolated route. Engines from 3.0.0-beta.113; the directory from
    * 3.0.0-beta.114.
    */
@@ -1437,9 +1439,15 @@ export interface RouteIdentity {
    * Directory provisioning (ADR 0039 decision 9): a foreign system that manages
    * people — an identity provider speaking SCIM — keeps the accounts it
    * provisioned. The provider is your extension; `subject` is its own id for
-   * an account (opaque, at most 1024 characters). Callable only from a declared
-   * `public` route of an extension holding `identity:provision` (without it,
-   * each call throws `capability_required`, 403). The engine's rules:
+   * an account (opaque, at most 1024 characters). Callable from a declared
+   * route of an extension holding `identity:provision` (without it, each call
+   * throws `capability_required`, 403): a `public` route, which authenticates
+   * its caller itself, or a `caller` route (ADR 0045), where the caller's author
+   * — the signed-in person, or the person who issued the API key — must
+   * administer the running tenant (`admin`), else each call throws
+   * `admin_required` (403). An identity provider then authenticates with an
+   * engine API key (`zvk_…`) holding `$ext:<your name>`, listed in the
+   * manifest's `apiKeyRoutes`. The engine's rules:
    *
    * - you reach only the accounts YOU provisioned, in the tenant the request
    *   runs in — another provider's, another tenant's or an account you did not

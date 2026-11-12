@@ -7,7 +7,9 @@
  * the accounts it provisioned, in the tenant the request runs in. Another
  * provider's account, another tenant's, an account it did not create: each is
  * refused as if it did not exist. Without the capability every call is a clean
- * 403; from a `caller` route it is the extension's bug. Each act leaves the
+ * 403. On a `caller` route (ADR 0045) the caller's author must administer the
+ * tenant: its admin and an API key it issued act, a member and a member's key
+ * are refused 403, nobody and another tenant's key 401. Each act leaves the
  * engine's audit entry with the provider as actor.
  */
 
@@ -29,9 +31,12 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
+import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
+import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/index.js';
 import {
   asEveryTenant,
   createGodSession,
+  createMemberSession,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
@@ -43,6 +48,8 @@ const OTHER = `diro${STAMP}`;
 const NOCAP = `dirn${STAMP}`;
 const SLUG = `dir-t-${STAMP}`;
 const T = crypto.randomUUID();
+/** A second ordinary tenant, whose key is foreign to T. */
+const T2 = crypto.randomUUID();
 
 type Rec = Record<string, unknown>;
 
@@ -64,6 +71,7 @@ const manifest = (permissions: string[]): Rec => ({
     { method: 'POST', path: '/dir', access: 'public', handler: 'dir' },
     { method: 'POST', path: '/mine', access: 'caller', handler: 'dir' },
   ],
+  apiKeyRoutes: ['POST /mine'],
 });
 
 d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', () => {
@@ -119,7 +127,7 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
     ext: string,
     op: string,
     args: unknown[],
-    opts: { tenant?: string; path?: string; cookie?: string } = {},
+    opts: { tenant?: string; path?: string; cookie?: string; key?: string } = {},
   ): Promise<{ status: number; out: Rec | Rec[] | null; code: string | null; error?: string }> {
     const res = await app.request(`/ext/${ext}${opts.path ?? '/dir'}`, {
       method: 'POST',
@@ -127,6 +135,7 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
         'content-type': 'application/json',
         ...(opts.tenant ? { 'x-tenant-slug': opts.tenant } : {}),
         ...(opts.cookie ? { cookie: opts.cookie } : {}),
+        ...(opts.key ? { authorization: `Bearer ${opts.key}` } : {}),
       },
       body: JSON.stringify({ op, args }),
     });
@@ -189,7 +198,10 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
       db,
     );
     await sql`DELETE FROM "user" WHERE email LIKE ${`%-${STAMP}-%@directory.test`}`.execute(db);
-    await sql`DELETE FROM zv_tenants WHERE id = ${T}::uuid`.execute(db).catch(() => {});
+    await sql`DELETE FROM zv_api_keys WHERE name = 'directory'`.execute(db);
+    await sql`DELETE FROM zv_tenants WHERE id IN (${T}::uuid, ${T2}::uuid)`
+      .execute(db)
+      .catch(() => {});
   });
 
   it('provision, get, list, update, setActive, remove: each on the account it provisioned, each audited', async () => {
@@ -323,7 +335,7 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
     expect((await call(DIR, 'remove', [subject], inT)).status).toBe(200);
   }, 30_000);
 
-  it('refuses without identity:provision (403) and from a caller route (the extension bug)', async () => {
+  it('refuses without identity:provision (403)', async () => {
     const subject = `s-${STAMP}-nocap`;
     const address = email('nocap');
     for (const op of ['provision', 'list', 'get']) {
@@ -335,19 +347,99 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
       );
       expect([op, r.status, r.code]).toEqual([op, 403, 'capability_required']);
     }
-    const onCaller = await call(DIR, 'provision', [{ subject, email: address }], {
-      ...inT,
-      path: '/mine',
-      cookie: await createGodSession(engine, db),
-    });
-    expect([onCaller.status, onCaller.error]).toEqual([
-      500,
-      `${DIR}: host.identity answers only on a declared public route`,
-    ]);
     expect(
       (await sql`SELECT 1 FROM "user" WHERE email = ${address}`.execute(db)).rows,
     ).toHaveLength(0);
   }, 30_000);
+
+  it("on a caller route the caller's author administers the tenant: admin and its key act, a member and its key do not (ADR 0045)", async () => {
+    /** A member of T, its admin when `admin`. */
+    const memberOfT = async (admin: boolean) => {
+      const m = await createMemberSession(engine, db);
+      await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+                VALUES (${T}::uuid, ${m.userId}, 'member')`.execute(db);
+      if (admin) await (await getEnforcer()).addRoleForUser(m.userId, 'tenant_admin', T);
+      await invalidateUserPermCache(m.userId);
+      return m;
+    };
+    /** A key `issuer` minted in `tenant` with `$ext:DIR` for every action. */
+    const keyOf = async (issuer: string, tenant = T, scope = `$ext:${DIR}`) => {
+      const raw = generateApiKey();
+      const row = await sql<{ id: string }>`
+        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, created_by, is_active, tenant_id)
+        VALUES ('directory', ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
+                ${JSON.stringify([{ collection: scope, actions: ['*'] }])}::jsonb, ${issuer}, true,
+                ${tenant}::uuid)
+        RETURNING id`.execute(db);
+      return { raw, id: row.rows[0]!.id };
+    };
+    const admin = await memberOfT(true);
+    const member = await memberOfT(false);
+    const adminKey = await keyOf(admin.userId);
+    const memberKey = await keyOf(member.userId);
+    const mine = { ...inT, path: '/mine' };
+    const provision = (tag: string, as: { cookie?: string; key?: string }, ext = DIR) => {
+      const subject = `s-${STAMP}-${tag}`;
+      return call(ext, 'provision', [{ subject, email: email(tag) }], { ...mine, ...as });
+    };
+
+    // The tenant's admin, by session and through a key it issued.
+    const bySession = await provision('c-admin', { cookie: admin.cookie });
+    expect(bySession.status, bySession.error).toBe(200);
+    const byKey = await provision('c-key', { key: adminKey.raw });
+    expect(byKey.status, byKey.error).toBe(200);
+    const rows = await audit(`s-${STAMP}-c-key`);
+    expect(rows).toEqual([
+      expect.objectContaining({ event_type: 'identity.provisioned', actor: `ext:${DIR}` }),
+    ]);
+    const caller = await asEveryTenant(
+      db,
+      async (trx) =>
+        (
+          await sql<{ caller: string }>`
+            SELECT metadata->>'caller' AS caller FROM zv_audit_log
+             WHERE event_type = 'identity.provisioned' AND metadata->>'subject' = ${`s-${STAMP}-c-key`}`.execute(
+            trx,
+          )
+        ).rows[0]?.caller,
+    );
+    expect(caller).toBe(`apikey:${adminKey.id}`);
+    // The provider's reach is unchanged: another provider's account is not found.
+    const theirs = `s-${STAMP}-c-theirs`;
+    expect(
+      (await call(OTHER, 'provision', [{ subject: theirs, email: email('ct') }], inT)).status,
+    ).toBe(200);
+    expect((await call(DIR, 'get', [theirs], { ...mine, key: adminKey.raw })).out).toBeNull();
+
+    // A member, and a key a member issued: the route admits them, the directory does not.
+    for (const as of [{ cookie: member.cookie }, { key: memberKey.raw }]) {
+      const r = await provision('c-member', as);
+      expect([Object.keys(as)[0], r.status, r.code]).toEqual([
+        Object.keys(as)[0],
+        403,
+        'admin_required',
+      ]);
+    }
+    // Nobody; a key bound to another tenant (even one T's admin issued); a key without the scope.
+    expect((await provision('c-anon', {})).status).toBe(401);
+    await sql`INSERT INTO zv_tenants (id, slug, name) VALUES (${T2}::uuid, ${`${SLUG}-2`}, 'Directory T2')`.execute(
+      db,
+    );
+    expect(
+      (await provision('c-foreign', { key: (await keyOf(admin.userId, T2)).raw })).status,
+    ).toBe(401);
+    expect(
+      (await provision('c-noscope', { key: (await keyOf(admin.userId, T, 'x')).raw })).status,
+    ).toBe(403);
+    // The capability still binds a caller route.
+    const nocap = await provision('c-nocap', { cookie: admin.cookie }, NOCAP);
+    expect([nocap.status, nocap.code]).toEqual([403, 'capability_required']);
+    for (const tag of ['c-member', 'c-anon', 'c-foreign', 'c-noscope', 'c-nocap']) {
+      expect(
+        (await sql`SELECT 1 FROM "user" WHERE email LIKE ${`${tag}-${STAMP}-%`}`.execute(db)).rows,
+      ).toHaveLength(0);
+    }
+  }, 60_000);
 
   it('the directory internals are no longer offered to extensions (deleteUser stays: GDPR erasure)', () => {
     const all = buildExtensionInternals() as unknown as Rec;

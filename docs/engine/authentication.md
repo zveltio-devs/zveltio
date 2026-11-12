@@ -226,6 +226,14 @@ blocks sign-in), and each act leaves an `identity.*` audit entry with the
 provider as the actor. Signing in (`signIn`) does not enrol: a person the tenant
 does not admit is refused `not_a_member`.
 
+The provider authenticates with an engine API key (ADR 0045): a tenant
+administrator issues a key holding `$ext:auth/scim` (read, create, update,
+delete) and pastes it into the identity provider as its bearer token. The key
+is checked like every key (tenant, expiry, revocation, issuer still allowed in)
+and acts as the person who issued it, so a key a plain member issued is
+refused (`403 admin_required`), and revoking the key or demoting its issuer
+stops provisioning at once.
+
 ## Two-Factor Authentication (2FA)
 
 TOTP-based 2FA is enabled by default via the `twoFactor` plugin.

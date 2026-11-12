@@ -279,10 +279,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Share links. `/share/:token` takes a password, so it is a login form that
   // does not look like one.
   app.use('/ext/storage/cloud/share/*', shareLinkRateLimit);
-  // SCIM. It authenticates a bearer token on every request: without its own
-  // budget an attacker tries tokens at the /ext/* ceiling. Its declared public
-  // routes live under /ext/auth/scim/v2 since auth/scim 3.0.0 (ADR 0039); 2.x
-  // served them at the root (/scim/v2), which the engine no longer serves.
+  // SCIM. A bearer API key on every request (ADR 0045): without its own
+  // budget an attacker tries keys at the /ext/* ceiling. Its declared routes
+  // live under /ext/auth/scim/v2 since auth/scim 3.0.0 (ADR 0039); 2.x served
+  // them at the root (/scim/v2), which the engine no longer serves.
   app.use('/ext/auth/scim/v2/*', scimRateLimit);
   // Write operations (POST/PUT/PATCH/DELETE) on data are stricter (60/min) than reads (200/min)
   app.on(['POST', 'PUT', 'PATCH', 'DELETE'], '/api/data/*', writeRateLimit);

@@ -836,7 +836,8 @@ function inlineRoutes(
  * extension route has (ADR 0025, ADR 0034), `ctx.internals.enqueue` bound to
  * the request (ADR 0018), gated as that member is, signing in (decision 7),
  * which answers on a public route of an `auth:session` holder only, and the
- * directory (decision 9), on a public route of an `identity:provision` holder.
+ * directory (decision 9), on a route of an `identity:provision` holder: a public
+ * one, or a caller one whose caller's author administers the tenant (ADR 0045).
  */
 function declaredRouteHost(
   c: Context,
