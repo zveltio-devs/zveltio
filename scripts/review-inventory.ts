@@ -426,6 +426,9 @@ const SECTIONS: Section[] = [
       `${E}routes/settings.ts`,
       // The theme validator behind the public settings and the tenant theme route.
       `${E}lib/theme.ts`,
+      // The map tile server behind the public settings (ADR 0043), and Studio's reader.
+      `${E}lib/map-tiles.ts`,
+      `${S}lib/map-tiles.ts`,
       `${E}lib/system-collections.ts`,
       `${E}lib/notifications.ts`,
       `${E}routes/templates.ts`,
