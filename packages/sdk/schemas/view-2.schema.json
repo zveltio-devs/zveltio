@@ -3,7 +3,757 @@
   "$id": "https://zveltio.com/schemas/view-2.schema.json",
   "title": "zveltio.view/2",
   "description": "An extension's view (ADR 0042): what a screen shows, bound by name to the extension's collections and actions. Each front end draws it in its own way.",
-  "$ref": "#/$defs/View",
+  "anyOf": [
+    {
+      "type": "object",
+      "description": "Rows of a collection.",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "list"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "collection": {
+          "$ref": "#/$defs/Name"
+        },
+        "fields": {
+          "$ref": "#/$defs/Fields"
+        },
+        "filter": {
+          "$ref": "#/$defs/Conditions"
+        },
+        "sort": {
+          "$ref": "#/$defs/Sort"
+        },
+        "search": {
+          "type": "boolean"
+        },
+        "present": {
+          "enum": [
+            "table",
+            "cards",
+            "feed"
+          ]
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "emphasisWhen": {
+          "$ref": "#/$defs/Conditions"
+        },
+        "selectable": {
+          "type": "boolean"
+        },
+        "rowActions": {
+          "$ref": "#/$defs/Buttons"
+        },
+        "bulkActions": {
+          "$ref": "#/$defs/Buttons"
+        },
+        "open": {
+          "$ref": "#/$defs/ViewId",
+          "description": "The view a row opens."
+        },
+        "create": {
+          "type": "boolean",
+          "description": "Offer a form to add a record."
+        },
+        "realtime": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "collection"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "description": "A form binds a collection or an action, never both.",
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "Create or edit a record of a collection.",
+          "properties": {
+            "spec": {
+              "const": "zveltio.view/2"
+            },
+            "type": {
+              "const": "form"
+            },
+            "id": {
+              "$ref": "#/$defs/ViewId",
+              "description": "Names this file for `navigate` and `open`."
+            },
+            "title": {
+              "$ref": "#/$defs/Text"
+            },
+            "actions": {
+              "$ref": "#/$defs/Buttons",
+              "description": "Toolbar actions of this view."
+            },
+            "fallback": {
+              "$ref": "#/$defs/View",
+              "description": "What a front end that does not know this view kind draws instead."
+            },
+            "collection": {
+              "$ref": "#/$defs/Name"
+            },
+            "record": {
+              "description": "The record to edit; `singleton` for a one-row collection.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "const": "singleton"
+                }
+              ]
+            },
+            "fields": {
+              "$ref": "#/$defs/Fields"
+            },
+            "sections": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A titled group of fields.",
+                "properties": {
+                  "title": {
+                    "$ref": "#/$defs/Text"
+                  },
+                  "fields": {
+                    "$ref": "#/$defs/Fields"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1
+            },
+            "lines": {
+              "type": "object",
+              "description": "Line items: records of another collection pointing at this one.",
+              "properties": {
+                "collection": {
+                  "$ref": "#/$defs/Name"
+                },
+                "fk": {
+                  "$ref": "#/$defs/Name"
+                },
+                "fields": {
+                  "$ref": "#/$defs/Fields"
+                },
+                "order": {
+                  "$ref": "#/$defs/Name"
+                }
+              },
+              "required": [
+                "collection",
+                "fk"
+              ],
+              "additionalProperties": false
+            },
+            "submit": {
+              "$ref": "#/$defs/Buttons"
+            },
+            "recalc": {
+              "$ref": "#/$defs/ActionCall",
+              "description": "Recomputes values on the server."
+            },
+            "autosave": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "spec",
+            "type",
+            "collection"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Fill an action's input; submitting runs the action.",
+          "properties": {
+            "spec": {
+              "const": "zveltio.view/2"
+            },
+            "type": {
+              "const": "form"
+            },
+            "id": {
+              "$ref": "#/$defs/ViewId",
+              "description": "Names this file for `navigate` and `open`."
+            },
+            "title": {
+              "$ref": "#/$defs/Text"
+            },
+            "actions": {
+              "$ref": "#/$defs/Buttons",
+              "description": "Toolbar actions of this view."
+            },
+            "fallback": {
+              "$ref": "#/$defs/View",
+              "description": "What a front end that does not know this view kind draws instead."
+            },
+            "action": {
+              "$ref": "#/$defs/ActionName"
+            },
+            "fields": {
+              "$ref": "#/$defs/Fields"
+            },
+            "sections": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A titled group of fields.",
+                "properties": {
+                  "title": {
+                    "$ref": "#/$defs/Text"
+                  },
+                  "fields": {
+                    "$ref": "#/$defs/Fields"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1
+            },
+            "lines": {
+              "type": "object",
+              "description": "Line items: records of another collection pointing at this one.",
+              "properties": {
+                "collection": {
+                  "$ref": "#/$defs/Name"
+                },
+                "fk": {
+                  "$ref": "#/$defs/Name"
+                },
+                "fields": {
+                  "$ref": "#/$defs/Fields"
+                },
+                "order": {
+                  "$ref": "#/$defs/Name"
+                }
+              },
+              "required": [
+                "collection",
+                "fk"
+              ],
+              "additionalProperties": false
+            },
+            "submit": {
+              "$ref": "#/$defs/Buttons"
+            },
+            "recalc": {
+              "$ref": "#/$defs/ActionCall",
+              "description": "Recomputes values on the server."
+            },
+            "autosave": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "spec",
+            "type",
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "description": "One record, in panels.",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "detail"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "collection": {
+          "$ref": "#/$defs/Name"
+        },
+        "record": {
+          "$ref": "#/$defs/Ref"
+        },
+        "fields": {
+          "$ref": "#/$defs/Fields"
+        },
+        "panels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/View"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "collection",
+        "record"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "Records grouped by a field (kanban).",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "board"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "collection": {
+          "$ref": "#/$defs/Name"
+        },
+        "groupBy": {
+          "$ref": "#/$defs/Name"
+        },
+        "card": {
+          "$ref": "#/$defs/Fields"
+        },
+        "filter": {
+          "$ref": "#/$defs/Conditions"
+        },
+        "move": {
+          "$ref": "#/$defs/Change"
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "collection",
+        "groupBy"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "Records on a time axis (calendar, Gantt).",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "timeline"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "collection": {
+          "$ref": "#/$defs/Name"
+        },
+        "start": {
+          "$ref": "#/$defs/Name"
+        },
+        "end": {
+          "$ref": "#/$defs/Name"
+        },
+        "groupBy": {
+          "$ref": "#/$defs/Name"
+        },
+        "scale": {
+          "enum": [
+            "day",
+            "week",
+            "month",
+            "gantt"
+          ]
+        },
+        "filter": {
+          "$ref": "#/$defs/Conditions"
+        },
+        "move": {
+          "$ref": "#/$defs/Change"
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "collection",
+        "start"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "Records linked to a parent.",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "tree"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "collection": {
+          "$ref": "#/$defs/Name"
+        },
+        "parent": {
+          "$ref": "#/$defs/Name"
+        },
+        "label": {
+          "$ref": "#/$defs/Name"
+        },
+        "order": {
+          "$ref": "#/$defs/Name"
+        },
+        "move": {
+          "$ref": "#/$defs/Change"
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "collection",
+        "parent",
+        "label"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "Rows by columns of a relation (checklists, grants).",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "matrix"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "collection": {
+          "$ref": "#/$defs/Name"
+        },
+        "row": {
+          "$ref": "#/$defs/Name"
+        },
+        "column": {
+          "$ref": "#/$defs/Name"
+        },
+        "value": {
+          "$ref": "#/$defs/Name"
+        },
+        "edit": {
+          "$ref": "#/$defs/Change"
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "collection",
+        "row",
+        "column",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "Records with a location.",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "map"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "collection": {
+          "$ref": "#/$defs/Name"
+        },
+        "location": {
+          "$ref": "#/$defs/Name"
+        },
+        "label": {
+          "$ref": "#/$defs/Name"
+        },
+        "filter": {
+          "$ref": "#/$defs/Conditions"
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "collection",
+        "location"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "A number.",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "stat"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "object",
+              "description": "An aggregate over a collection.",
+              "properties": {
+                "collection": {
+                  "$ref": "#/$defs/Name"
+                },
+                "aggregate": {
+                  "enum": [
+                    "count",
+                    "sum",
+                    "avg",
+                    "min",
+                    "max"
+                  ]
+                },
+                "field": {
+                  "$ref": "#/$defs/Name"
+                },
+                "filter": {
+                  "$ref": "#/$defs/Conditions"
+                }
+              },
+              "required": [
+                "collection",
+                "aggregate"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "$ref": "#/$defs/ActionCall"
+            }
+          ]
+        },
+        "format": {
+          "enum": [
+            "number",
+            "money",
+            "progress",
+            "elapsed"
+          ]
+        },
+        "tone": {
+          "$ref": "#/$defs/Tone"
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "Panes side by side; a later pane filters on `$selected` of an earlier one.",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "split"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "panes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/View"
+          },
+          "minItems": 2
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "panes"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "description": "Views as tabs.",
+      "properties": {
+        "spec": {
+          "const": "zveltio.view/2"
+        },
+        "type": {
+          "const": "tabs"
+        },
+        "id": {
+          "$ref": "#/$defs/ViewId",
+          "description": "Names this file for `navigate` and `open`."
+        },
+        "title": {
+          "$ref": "#/$defs/Text"
+        },
+        "actions": {
+          "$ref": "#/$defs/Buttons",
+          "description": "Toolbar actions of this view."
+        },
+        "fallback": {
+          "$ref": "#/$defs/View",
+          "description": "What a front end that does not know this view kind draws instead."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/View"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "spec",
+        "type",
+        "items"
+      ],
+      "additionalProperties": false
+    }
+  ],
   "$defs": {
     "Name": {
       "type": "string",
@@ -165,42 +915,105 @@
       }
     },
     "Condition": {
-      "type": "object",
-      "description": "A data API condition on one field.",
-      "properties": {
-        "field": {
-          "$ref": "#/$defs/Name"
+      "description": "A data API condition on one field; its value is shaped by the operator.",
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "Compares the field with a value.",
+          "properties": {
+            "field": {
+              "$ref": "#/$defs/Name"
+            },
+            "op": {
+              "enum": [
+                "eq",
+                "neq",
+                "lt",
+                "lte",
+                "gt",
+                "gte",
+                "like",
+                "ilike",
+                "not_contains",
+                "starts_with",
+                "ends_with",
+                "near",
+                "within"
+              ]
+            },
+            "value": {
+              "$ref": "#/$defs/Value"
+            }
+          },
+          "required": [
+            "field",
+            "op",
+            "value"
+          ],
+          "additionalProperties": false
         },
-        "op": {
-          "enum": [
-            "eq",
-            "neq",
-            "lt",
-            "lte",
-            "gt",
-            "gte",
-            "like",
-            "ilike",
-            "not_contains",
-            "starts_with",
-            "ends_with",
-            "in",
-            "not_in",
-            "null",
-            "not_null",
-            "near",
-            "within"
-          ]
+        {
+          "type": "object",
+          "description": "The field is (not) one of a list.",
+          "properties": {
+            "field": {
+              "$ref": "#/$defs/Name"
+            },
+            "op": {
+              "enum": [
+                "in",
+                "not_in"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/Literal"
+                      },
+                      {
+                        "$ref": "#/$defs/Ref"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "$ref": "#/$defs/Ref"
+                }
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "op",
+            "value"
+          ],
+          "additionalProperties": false
         },
-        "value": {
-          "$ref": "#/$defs/Value"
+        {
+          "type": "object",
+          "description": "The field is (not) empty.",
+          "properties": {
+            "field": {
+              "$ref": "#/$defs/Name"
+            },
+            "op": {
+              "enum": [
+                "null",
+                "not_null"
+              ]
+            }
+          },
+          "required": [
+            "field",
+            "op"
+          ],
+          "additionalProperties": false
         }
-      },
-      "required": [
-        "field",
-        "op"
-      ],
-      "additionalProperties": false
+      ]
     },
     "Conditions": {
       "type": "array",
@@ -395,10 +1208,6 @@
         "type": {
           "const": "list"
         },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
-        },
         "id": {
           "$ref": "#/$defs/PaneId"
         },
@@ -479,10 +1288,6 @@
           "properties": {
             "type": {
               "const": "form"
-            },
-            "spec": {
-              "const": "zveltio.view/2",
-              "description": "Set on the top-level view of a file."
             },
             "id": {
               "$ref": "#/$defs/PaneId"
@@ -582,10 +1387,6 @@
             "type": {
               "const": "form"
             },
-            "spec": {
-              "const": "zveltio.view/2",
-              "description": "Set on the top-level view of a file."
-            },
             "id": {
               "$ref": "#/$defs/PaneId"
             },
@@ -675,10 +1476,6 @@
         "type": {
           "const": "detail"
         },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
-        },
         "id": {
           "$ref": "#/$defs/PaneId"
         },
@@ -724,10 +1521,6 @@
         "type": {
           "const": "board"
         },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
-        },
         "id": {
           "$ref": "#/$defs/PaneId"
         },
@@ -771,10 +1564,6 @@
       "properties": {
         "type": {
           "const": "timeline"
-        },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
         },
         "id": {
           "$ref": "#/$defs/PaneId"
@@ -831,10 +1620,6 @@
         "type": {
           "const": "tree"
         },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
-        },
         "id": {
           "$ref": "#/$defs/PaneId"
         },
@@ -879,10 +1664,6 @@
       "properties": {
         "type": {
           "const": "matrix"
-        },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
         },
         "id": {
           "$ref": "#/$defs/PaneId"
@@ -930,10 +1711,6 @@
         "type": {
           "const": "map"
         },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
-        },
         "id": {
           "$ref": "#/$defs/PaneId"
         },
@@ -974,10 +1751,6 @@
       "properties": {
         "type": {
           "const": "stat"
-        },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
         },
         "id": {
           "$ref": "#/$defs/PaneId"
@@ -1054,10 +1827,6 @@
         "type": {
           "const": "split"
         },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
-        },
         "id": {
           "$ref": "#/$defs/PaneId"
         },
@@ -1092,10 +1861,6 @@
       "properties": {
         "type": {
           "const": "tabs"
-        },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
         },
         "id": {
           "$ref": "#/$defs/PaneId"

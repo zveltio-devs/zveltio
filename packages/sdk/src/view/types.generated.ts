@@ -40,11 +40,18 @@ export type Value = Literal | Ref | Array<Literal | Ref>;
 /** An action's input, or a view's parameters, by name. */
 export type Input = Record<string, Value>;
 
-/** A data API condition on one field. */
+/** A data API condition on one field; its value is shaped by the operator. */
 export type Condition = {
   field: Name;
-  op: 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'ilike' | 'not_contains' | 'starts_with' | 'ends_with' | 'in' | 'not_in' | 'null' | 'not_null' | 'near' | 'within';
-  value?: Value;
+  op: 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'ilike' | 'not_contains' | 'starts_with' | 'ends_with' | 'near' | 'within';
+  value: Value;
+} | {
+  field: Name;
+  op: 'in' | 'not_in';
+  value: Array<Literal | Ref> | Ref;
+} | {
+  field: Name;
+  op: 'null' | 'not_null';
 };
 
 /** All must hold. */
@@ -98,8 +105,6 @@ export type Buttons = Button[];
 /** Rows of a collection. */
 export type ListView = {
   type: 'list';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -127,8 +132,6 @@ export type ListView = {
 /** A form binds a collection or an action, never both. */
 export type FormView = {
   type: 'form';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -156,8 +159,6 @@ export type FormView = {
   autosave?: boolean;
 } | {
   type: 'form';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -186,8 +187,6 @@ export type FormView = {
 /** One record, in panels. */
 export type DetailView = {
   type: 'detail';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -203,8 +202,6 @@ export type DetailView = {
 /** Records grouped by a field (kanban). */
 export type BoardView = {
   type: 'board';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -221,8 +218,6 @@ export type BoardView = {
 /** Records on a time axis (calendar, Gantt). */
 export type TimelineView = {
   type: 'timeline';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -241,8 +236,6 @@ export type TimelineView = {
 /** Records linked to a parent. */
 export type TreeView = {
   type: 'tree';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -259,8 +252,6 @@ export type TreeView = {
 /** Rows by columns of a relation (checklists, grants). */
 export type MatrixView = {
   type: 'matrix';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -277,8 +268,6 @@ export type MatrixView = {
 /** Records with a location. */
 export type MapView = {
   type: 'map';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -294,8 +283,6 @@ export type MapView = {
 /** A number. */
 export type StatView = {
   type: 'stat';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -315,8 +302,6 @@ export type StatView = {
 /** Panes side by side; a later pane filters on `$selected` of an earlier one. */
 export type SplitView = {
   type: 'split';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */
@@ -329,8 +314,6 @@ export type SplitView = {
 /** Views as tabs. */
 export type TabsView = {
   type: 'tabs';
-  /** Set on the top-level view of a file. */
-  spec?: 'zveltio.view/2';
   id?: PaneId;
   title?: Text;
   /** Toolbar actions of this view. */

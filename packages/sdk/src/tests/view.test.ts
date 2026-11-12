@@ -1,153 +1,64 @@
 // `zveltio.view/2` (ADR 0042): the validator the CLI runs at validate and pack,
-// the builder, and the rule that a view names only what its extension owns.
+// the builder, and what the schema cannot see (names, panes, keys).
+// `fixtures/view-2.json` is shared with the engine's test, which runs the same
+// documents through its own check of the published JSON Schema.
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { $, isViewDocument, VIEW_SPEC, validateView, view, viewNameIssues } from '../view/index.js';
 
-/** A mail-like inbox: every view kind a container holds, refs, conditions, buttons. */
-const inbox = {
-  spec: VIEW_SPEC,
-  type: 'split',
-  title: 'mail.inbox',
-  actions: [
-    { action: 'sync', input: { account_id: { $selected: 'account' } } },
-    { navigate: 'mail.search', params: { account_id: { $selected: 'account' } } },
-  ],
-  panes: [
-    { id: 'account', type: 'list', collection: 'mail_accounts', fields: ['email'], sort: 'email' },
-    {
-      id: 'messages',
-      type: 'list',
-      collection: 'mail_messages',
-      filter: [{ field: 'account_id', op: 'eq', value: { $selected: 'account' } }],
-      sort: '-received_at',
-      search: true,
-      fields: ['subject', { field: 'is_starred', display: 'flag' }],
-      emphasisWhen: [{ field: 'is_read', op: 'eq', value: false }],
-      selectable: true,
-      bulkActions: [
-        {
-          action: 'setFlags',
-          label: 'mail.markRead',
-          input: { message_ids: { $selection: 'id' }, is_read: true },
-        },
-        {
-          action: 'deleteMessages',
-          input: { message_ids: { $selection: 'id' } },
-          confirm: 'mail.confirm.delete',
-          tone: 'danger',
-        },
-      ],
-    },
-    {
-      id: 'reading',
-      type: 'detail',
-      collection: 'mail_messages',
-      record: { $selected: 'messages' },
-      fields: ['subject', 'body_html'],
-      panels: [
-        {
-          type: 'form',
-          collection: 'mail_drafts',
-          record: { $param: 'draft_id' },
-          autosave: true,
-          submit: [{ save: true }, { action: 'send', input: { draft_id: { $record: 'id' } } }],
-        },
-      ],
-    },
-  ],
+// Parsed, not imported: an import would turn the `__proto__` key into a prototype.
+const fixtures = JSON.parse(
+  readFileSync(join(import.meta.dir, 'fixtures/view-2.json'), 'utf8'),
+) as {
+  valid: Record<string, unknown>;
+  invalid: Record<string, unknown>;
 };
 
 const issues = (input: unknown) => {
   const r = validateView(input);
   return r.ok ? [] : r.issues;
 };
+const paths = (input: unknown) => issues(input).map((i) => i.path);
 
 describe('validateView', () => {
-  it('accepts a valid view', () => {
-    expect(issues(inbox)).toEqual([]);
-  });
-
-  it('accepts every view kind', () => {
-    const kinds = [
-      { type: 'board', collection: 'tasks', groupBy: 'status', move: 'patch' },
-      { type: 'timeline', collection: 'tasks', start: 'due_on', scale: 'gantt' },
-      { type: 'tree', collection: 'pages', parent: 'parent_id', label: 'title' },
-      {
-        type: 'matrix',
-        collection: 'grants',
-        row: 'role',
-        column: 'widget',
-        value: 'enabled',
-        edit: { action: 'setGrant' },
-      },
-      { type: 'map', collection: 'sites', location: 'position' },
-      { type: 'stat', source: { collection: 'invoices', aggregate: 'count' }, format: 'number' },
-      { type: 'form', action: 'importCsv', fields: ['file'] },
-      { type: 'form', collection: 'settings', record: 'singleton' },
-    ];
-    expect(issues({ spec: VIEW_SPEC, type: 'tabs', items: kinds })).toEqual([]);
-  });
+  for (const [name, doc] of Object.entries(fixtures.valid)) {
+    it(`accepts: ${name}`, () => expect(issues(doc)).toEqual([]));
+  }
+  for (const [name, doc] of Object.entries(fixtures.invalid)) {
+    it(`refuses: ${name}`, () => expect(issues(doc)).not.toEqual([]));
+  }
 
   // The broken fixture: a view/1 page written as if it were view/2. Without the
   // validation every key below would reach a renderer.
-  it('refuses URLs, CSS, icons and expressions: they are not part of the vocabulary', () => {
-    const broken = {
-      spec: VIEW_SPEC,
-      type: 'list',
-      collection: 'invoices',
-      dataSource: '/api/data/invoices',
-      fields: [{ field: 'total', class: 'text-error' }],
-      rowActions: [{ action: 'pay', icon: 'credit-card' }],
-      filter: [
-        { field: 'total', op: 'eq', value: '{{ amount * 2 }}' },
-        { field: 'x', op: '>' },
-      ],
-    };
-    expect(issues(broken).map((i) => i.path)).toEqual([
+  it('names each key that is not part of the vocabulary', () => {
+    expect(paths(fixtures.invalid['view/1 habits'])).toEqual([
       '/dataSource',
       '/fields/0/class',
       '/rowActions/0/icon',
-      '/filter/1/op',
     ]);
+    expect(paths(fixtures.invalid['unknown key deep in a panel'])).toEqual([
+      '/panes/1/panels/0/endpoint',
+    ]);
+  });
+
+  it('refuses keys an object inherits', () => {
+    for (const key of ['constructor', 'toString', '__proto__']) {
+      expect(paths(fixtures.invalid[key])).toEqual([`/${key}`]);
+    }
+  });
+
+  it('shapes a condition by its operator', () => {
+    expect(paths(fixtures.invalid['in without a list'])).toEqual(['/filter/0/value']);
+    expect(paths(fixtures.invalid['null with a value'])).toEqual(['/filter/0/value']);
+    expect(paths(fixtures.invalid['eq without a value'])).toEqual(['/filter/0']);
   });
 
   it('names the kind the type names, and the missing key', () => {
-    expect(issues({ spec: VIEW_SPEC, type: 'detail', collection: 'x' })).toEqual([
+    expect(issues(fixtures.invalid['detail without a record'])).toEqual([
       { path: '', message: 'needs "record"' },
     ]);
-    expect(issues({ spec: VIEW_SPEC, type: 'gallery', collection: 'x' })[0]?.path).toBe('/type');
-  });
-
-  it('refuses names that are not names', () => {
-    expect(issues({ spec: VIEW_SPEC, type: 'list', collection: '/api/data/x' })[0]?.path).toBe(
-      '/collection',
-    );
-    expect(
-      issues({
-        spec: VIEW_SPEC,
-        type: 'list',
-        collection: 'x',
-        rowActions: [{ action: 'https://evil.example/pay' }],
-      })[0]?.path,
-    ).toBe('/rowActions/0/action');
-  });
-
-  it('a form binds a collection or an action, not both and not neither', () => {
-    expect(issues({ spec: VIEW_SPEC, type: 'form', collection: 'a', action: 'b' })).not.toEqual([]);
-    expect(issues({ spec: VIEW_SPEC, type: 'form', fields: ['a'] })).not.toEqual([]);
-  });
-
-  it('a reference is one of the closed set', () => {
-    const v = (value: unknown) => ({
-      spec: VIEW_SPEC,
-      type: 'list',
-      collection: 'x',
-      filter: [{ field: 'owner', op: 'eq', value }],
-    });
-    expect(issues(v({ $user: 'id' }))).toEqual([]);
-    expect(issues(v({ $today: true }))).toEqual([]);
-    expect(issues(v({ $env: 'SECRET' }))).not.toEqual([]);
-    expect(issues(v({ $user: 'email' }))).not.toEqual([]);
+    expect(paths(fixtures.invalid['an unknown kind'])[0]).toBe('/type');
   });
 
   it('a view/1 schema is not a view/2 document', () => {
@@ -160,12 +71,12 @@ describe('validateView', () => {
 describe('viewNameIssues', () => {
   const names = {
     collections: ['mail_accounts', 'mail_messages', 'mail_drafts'],
-    actions: ['sync', 'setFlags', 'deleteMessages', 'send'],
+    actions: ['sync', 'setFlags', 'deleteMessages', 'send', 'pay'],
     dependencies: ['crm'],
   };
 
   it('passes a view that names only its own collections and actions', () => {
-    expect(viewNameIssues(inbox, names)).toEqual([]);
+    expect(viewNameIssues(fixtures.valid.inbox, names)).toEqual([]);
   });
 
   it("refuses another extension's collection and an undeclared action; allows a dependency's action", () => {
@@ -180,6 +91,62 @@ describe('viewNameIssues', () => {
       '/rowActions/0/action',
       '/rowActions/2/action',
     ]);
+  });
+
+  it("reads an action's input as values: a key named action or collection is not a reference", () => {
+    const v = view.document(
+      view.list({
+        collection: 'mail_messages',
+        rowActions: [{ action: 'pay', input: { action: 'refund', collection: 'x' } }],
+      }),
+    );
+    expect(viewNameIssues(v, names)).toEqual([]);
+  });
+
+  it('a $selected names an earlier pane of an enclosing split; pane ids are unique', () => {
+    const v = view.document(
+      view.split({
+        actions: [{ action: 'sync', input: { a: $.selected('second') } }],
+        panes: [
+          view.list({
+            id: 'first',
+            collection: 'mail_messages',
+            filter: [$.where('a', 'eq', $.selected('second'))],
+          }),
+          view.list({
+            id: 'second',
+            collection: 'mail_messages',
+            filter: [$.where('a', 'eq', $.selected('first'))],
+          }),
+          view.detail({ id: 'first', collection: 'mail_messages', record: $.selected('nowhere') }),
+        ],
+      }),
+    );
+    expect(viewNameIssues(v, names).map((i) => i.path)).toEqual([
+      '/panes/0/filter/0/value/$selected',
+      '/panes/2/id',
+      '/panes/2/record/$selected',
+    ]);
+  });
+
+  it('navigate and open name a view of the extension; a message key must be shipped', () => {
+    const v = view.document(
+      view.list({
+        collection: 'mail_messages',
+        title: 'mail.inbox',
+        open: 'mail.thread',
+        rowActions: [
+          { navigate: 'mail.nowhere', label: 'mail.typo' },
+          { action: 'send', label: 'Send' },
+        ],
+      }),
+    );
+    const found = viewNameIssues(v, {
+      ...names,
+      views: ['mail.thread'],
+      messageKeys: ['mail.inbox'],
+    });
+    expect(found.map((i) => i.path)).toEqual(['/rowActions/0/navigate', '/rowActions/0/label']);
   });
 });
 
@@ -201,10 +168,12 @@ describe('builder', () => {
           }),
         ],
       }),
+      'mail.drafts',
     );
-    expect(JSON.parse(JSON.stringify(built))).toEqual({
+    expect(built).toEqual({
       type: 'split',
       spec: VIEW_SPEC,
+      id: 'mail.drafts',
       panes: [
         { type: 'list', id: 'account', collection: 'mail_accounts', fields: ['email'] },
         {
@@ -224,6 +193,15 @@ describe('builder', () => {
         },
       ],
     });
+    expect(issues(built)).toEqual([]);
+  });
+
+  it('drops undefined keys, as a file would not hold them', () => {
+    const sorted = false;
+    const built = view.document(
+      view.list({ collection: 'a', sort: sorted ? 'name' : undefined, rowActions: undefined }),
+    );
+    expect(Object.keys(built)).toEqual(['type', 'collection', 'spec']);
     expect(issues(built)).toEqual([]);
   });
 });
