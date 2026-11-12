@@ -31,7 +31,7 @@ Bun workspaces + Turborepo monorepo. Packages under `packages/*`:
 | `@zveltio/engine` | `packages/engine` | The server. All core logic, routes, tests. |
 | `@zveltio/studio` | `packages/studio` | SvelteKit 5 admin UI (embedded into engine). |
 | `@zveltio/client` | `packages/client` | End-user facing SvelteKit app (portals etc.). |
-| `@zveltio/sdk` | `packages/sdk` | Public SDK. Subpath exports: `./extension`, `./codegen`, `./validate`, `./testing`, `./publish`, `./build`, `./studio`, `./ddl`, `./rpc`, `./offline`. **API-stable surface** — do not break it. |
+| `@zveltio/sdk` | `packages/sdk` | Public SDK. Subpath exports: `./extension`, `./codegen`, `./validate`, `./testing`, `./publish`, `./build`, `./studio`, `./ddl`, `./rpc`, `./offline`, `./view` (+ `./view/schema.json`). **API-stable surface** — do not break it. |
 | `@zveltio/react` / `@zveltio/vue` | `packages/sdk-react`, `packages/sdk-vue` | Thin framework bindings over the SDK. |
 | `@zveltio/cli` | `packages/cli` | `zveltio` binary (commander): install, extension init/publish/validate. |
 

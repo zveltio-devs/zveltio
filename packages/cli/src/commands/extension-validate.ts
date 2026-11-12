@@ -21,8 +21,9 @@ import {
 } from '@zveltio/sdk/validate';
 import { parseSchema } from '@zveltio/sdk/codegen';
 import { OPERATOR_FIELD_PREFIX } from '@zveltio/sdk/extension';
+import { isViewDocument } from '@zveltio/sdk/view';
 import { resolvePublisherTier, tierAllowsInline } from '../lib/publisher-tier.js';
-import { hashEngineSources } from './extension-pack.js';
+import { checkViews, hashEngineSources } from './extension-pack.js';
 
 // ANSI helpers
 const c = {
@@ -557,6 +558,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
           });
           continue;
         }
+        if (isViewDocument(parsed)) continue; // checkViews, below
         sduiErrors.push(
           ...validateSduiSchema({
             schema: parsed,
@@ -585,6 +587,8 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
           }),
         );
       }
+      // Missing and unparsable files are reported above, for every page.
+      sduiErrors.push(...checkViews(dir, manifest).filter((e) => e.code.startsWith('VIEW_')));
       result.errors.push(...sduiErrors);
       // Only hard errors fail the run. Hardcoded-text findings are warnings:
       // they are real debt but not a defect the user can see as breakage, and a

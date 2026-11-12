@@ -820,6 +820,8 @@ const SECTIONS: Section[] = [
       'packages/sdk/src/studio/',
       'packages/sdk/src/ddl/',
       'packages/sdk/src/rpc/',
+      // Generates the view/2 types and JSON Schema from packages/sdk/src/view/schema.ts.
+      'scripts/gen-view-spec.ts',
     ],
   },
   {

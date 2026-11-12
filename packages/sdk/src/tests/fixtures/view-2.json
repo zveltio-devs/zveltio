@@ -1,0 +1,217 @@
+{
+  "valid": {
+    "inbox": {
+      "spec": "zveltio.view/2",
+      "id": "mail.inbox",
+      "type": "split",
+      "title": "mail.inbox",
+      "actions": [
+        { "action": "sync", "input": { "account_id": { "$selected": "account" } } },
+        { "navigate": "mail.search", "params": { "account_id": { "$selected": "account" } } }
+      ],
+      "panes": [
+        {
+          "id": "account",
+          "type": "list",
+          "collection": "mail_accounts",
+          "fields": ["email"],
+          "sort": "email"
+        },
+        {
+          "id": "messages",
+          "type": "list",
+          "collection": "mail_messages",
+          "filter": [{ "field": "account_id", "op": "eq", "value": { "$selected": "account" } }],
+          "sort": "-received_at",
+          "search": true,
+          "fields": ["subject", { "field": "is_starred", "display": "flag" }],
+          "emphasisWhen": [{ "field": "is_read", "op": "eq", "value": false }],
+          "selectable": true,
+          "bulkActions": [
+            {
+              "action": "setFlags",
+              "label": "mail.markRead",
+              "input": { "message_ids": { "$selection": "id" }, "is_read": true }
+            },
+            {
+              "action": "deleteMessages",
+              "input": { "message_ids": { "$selection": "id" } },
+              "confirm": "mail.confirm.delete",
+              "tone": "danger"
+            }
+          ]
+        },
+        {
+          "id": "reading",
+          "type": "detail",
+          "collection": "mail_messages",
+          "record": { "$selected": "messages" },
+          "fields": ["subject", "body_html"],
+          "panels": [
+            {
+              "type": "form",
+              "collection": "mail_drafts",
+              "record": { "$param": "draft_id" },
+              "autosave": true,
+              "submit": [
+                { "save": true },
+                { "action": "send", "input": { "draft_id": { "$record": "id" } } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "every kind": {
+      "spec": "zveltio.view/2",
+      "type": "tabs",
+      "items": [
+        { "type": "board", "collection": "tasks", "groupBy": "status", "move": "patch" },
+        { "type": "timeline", "collection": "tasks", "start": "due_on", "scale": "gantt" },
+        { "type": "tree", "collection": "pages", "parent": "parent_id", "label": "title" },
+        {
+          "type": "matrix",
+          "collection": "grants",
+          "row": "role",
+          "column": "widget",
+          "value": "enabled",
+          "edit": { "action": "setGrant" }
+        },
+        { "type": "map", "collection": "sites", "location": "position" },
+        {
+          "type": "stat",
+          "source": { "collection": "invoices", "aggregate": "count" },
+          "format": "number"
+        },
+        { "type": "form", "action": "importCsv", "fields": ["file"] },
+        { "type": "form", "collection": "settings", "record": "singleton" },
+        {
+          "type": "list",
+          "collection": "posts",
+          "present": "feed",
+          "fallback": { "type": "list", "collection": "posts" }
+        }
+      ]
+    },
+    "operators": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "tasks",
+      "filter": [
+        { "field": "status", "op": "in", "value": ["open", "blocked"] },
+        { "field": "owner", "op": "not_in", "value": { "$selection": "id" } },
+        { "field": "closed_at", "op": "null" },
+        { "field": "due_on", "op": "lte", "value": { "$today": true } },
+        { "field": "assignee", "op": "eq", "value": { "$user": "id" } }
+      ]
+    }
+  },
+  "invalid": {
+    "view/1 habits": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "invoices",
+      "dataSource": "/api/data/invoices",
+      "fields": [{ "field": "total", "class": "text-error" }],
+      "rowActions": [{ "action": "pay", "icon": "credit-card" }]
+    },
+    "unknown key deep in a panel": {
+      "spec": "zveltio.view/2",
+      "type": "split",
+      "panes": [
+        { "type": "list", "collection": "a" },
+        {
+          "type": "detail",
+          "collection": "a",
+          "record": { "$selected": "x" },
+          "panels": [{ "type": "list", "collection": "b", "endpoint": "/ext/x" }]
+        }
+      ]
+    },
+    "constructor": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "constructor": 1
+    },
+    "toString": { "spec": "zveltio.view/2", "type": "list", "collection": "a", "toString": "x" },
+    "__proto__": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "__proto__": { "x": 1 }
+    },
+    "spec on a nested view": {
+      "spec": "zveltio.view/2",
+      "type": "tabs",
+      "items": [{ "spec": "zveltio.view/2", "type": "list", "collection": "a" }]
+    },
+    "a dotted id on a pane": {
+      "spec": "zveltio.view/2",
+      "type": "tabs",
+      "items": [{ "id": "mail.inbox", "type": "list", "collection": "a" }]
+    },
+    "in without a list": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "filter": [{ "field": "s", "op": "in", "value": "open" }]
+    },
+    "null with a value": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "filter": [{ "field": "s", "op": "null", "value": true }]
+    },
+    "eq without a value": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "filter": [{ "field": "s", "op": "eq" }]
+    },
+    "unknown operator": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "filter": [{ "field": "s", "op": ">" }]
+    },
+    "a reference outside the set": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "filter": [{ "field": "s", "op": "eq", "value": { "$env": "SECRET" } }]
+    },
+    "a form with both": {
+      "spec": "zveltio.view/2",
+      "type": "form",
+      "collection": "a",
+      "action": "b"
+    },
+    "a form with neither": { "spec": "zveltio.view/2", "type": "form", "fields": ["a"] },
+    "a URL as a collection": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "/api/data/a"
+    },
+    "a URL as an action": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "rowActions": [{ "action": "https://evil.example/pay" }]
+    },
+    "a split of one pane": {
+      "spec": "zveltio.view/2",
+      "type": "split",
+      "panes": [{ "type": "list", "collection": "a" }]
+    },
+    "no fields": { "spec": "zveltio.view/2", "type": "list", "collection": "a", "fields": [] },
+    "page size over the cap": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "a",
+      "pageSize": 501
+    },
+    "an unknown kind": { "spec": "zveltio.view/2", "type": "gallery", "collection": "a" },
+    "detail without a record": { "spec": "zveltio.view/2", "type": "detail", "collection": "a" }
+  }
+}

@@ -138,7 +138,8 @@ Started at the end of `bootstrap()` and worth knowing about when debugging
 
 - **`@zveltio/sdk`** — the public SDK. Subpath exports: `.`, `./extension`,
   `./codegen`, `./validate`, `./testing`, `./publish`, `./build`, `./studio`,
-  `./ddl`, `./rpc`, `./offline`. **API-stable — do not break it.**
+  `./ddl`, `./rpc`, `./offline`, `./view` (the `view/2` specification,
+  [ui-model.md](../extensions/ui-model.md)). **API-stable — do not break it.**
 - **`@zveltio/react`, `@zveltio/vue`** — thin bindings over the SDK.
 - **`@zveltio/cli`** — the `zveltio` binary: `init`, `dev`, `start`, `deploy`,
   `status`, `create-god`, `migrate`, `rollback`, `update`, `install`,

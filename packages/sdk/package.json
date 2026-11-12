@@ -45,6 +45,11 @@
       "types": "./dist/rpc/index.d.ts",
       "import": "./dist/rpc/index.js"
     },
+    "./view": {
+      "types": "./dist/view/index.d.ts",
+      "import": "./dist/view/index.js"
+    },
+    "./view/schema.json": "./schemas/view-2.schema.json",
     "./offline": {
       "types": "./dist/offline/index.d.ts",
       "import": "./dist/offline/index.js"
@@ -52,6 +57,7 @@
   },
   "files": [
     "dist",
+    "schemas",
     "README.md"
   ],
   "scripts": {

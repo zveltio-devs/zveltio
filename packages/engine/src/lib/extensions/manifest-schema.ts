@@ -16,6 +16,7 @@ import { join } from 'path';
 import { z } from 'zod';
 import { CAPABILITIES, isKnownCapability } from './capabilities.js';
 import { parseEgress, SLOT_NAME_RE } from '../edge-functions/egress.js';
+import viewSchemaJson from '@zveltio/sdk/view/schema.json' with { type: 'json' };
 
 /** Request headers that carry the caller's credentials; never handed to a worker unasked. */
 export const CREDENTIAL_HEADERS = [
@@ -707,11 +708,61 @@ export type ExtensionManifest = z.infer<typeof ManifestSchema> & {
   studio?: ManifestMeta['studio'];
 };
 
+/** `zveltio.view/2` (ADR 0042), compiled on first use from the JSON Schema the SDK publishes. */
+let viewV2: z.ZodType | undefined;
+
+type Issue = { code: string; path: PropertyKey[]; message: string; errors?: Issue[][] };
+
+/** A failed union reports its closest branch (the fewest issues), at full depth. */
+function flatIssues(issues: Issue[], base: PropertyKey[] = []): Issue[] {
+  return issues.flatMap((i) =>
+    i.code === 'invalid_union' && i.errors?.length
+      ? flatIssues(
+          i.errors.reduce((a, b) => (b.length < a.length ? b : a)),
+          [...base, ...i.path],
+        )
+      : [{ ...i, path: [...base, ...i.path] }],
+  );
+}
+
+/**
+ * Why a page schema that declares `zveltio.view/2` is refused, or `null`. A
+ * `view/1` schema (no `spec`) is not checked here: it keeps rendering as before.
+ * The CLI runs the same schema at `extension validate` and `pack`; names
+ * (collections, actions, panes, message keys) are checked there and by the
+ * gates at run time, not here: the engine does not load the SDK's code.
+ *
+ * `jsonSchema` is for tests. A schema that does not compile refuses the page
+ * with that reason; it never fails the extension's load.
+ */
+export function viewRefusal(schema: unknown, jsonSchema: unknown = viewSchemaJson): string | null {
+  if ((schema as { spec?: unknown }).spec !== 'zveltio.view/2') return null;
+  let validator: z.ZodType;
+  try {
+    const compile = () => z.fromJSONSchema(jsonSchema as Parameters<typeof z.fromJSONSchema>[0]);
+    if (jsonSchema === viewSchemaJson) {
+      viewV2 ??= compile();
+      validator = viewV2;
+    } else {
+      validator = compile();
+    }
+  } catch (e) {
+    return `the view/2 schema did not compile (${(e as Error).message})`;
+  }
+  const r = validator.safeParse(schema);
+  if (r.success) return null;
+  return flatIssues(r.error.issues as unknown as Issue[])
+    .slice(0, 3)
+    .map((i) => `/${i.path.map(String).join('/')}: ${i.message}`)
+    .join('; ');
+}
+
 /**
  * For each manifest studio page that names a JSON schema file, read + parse it
  * and inline the parsed object (so /api/extensions delivers it with no extra
  * round-trip and no per-host build). Read once at load; failures degrade
- * gracefully (the page is left as-is).
+ * gracefully: a file that does not load, or a `view/2` that fails its schema,
+ * leaves the page without a schema, so nothing invalid is served.
  */
 export async function embedPageSchemas(
   extDir: string,
@@ -720,19 +771,22 @@ export async function embedPageSchemas(
   if (!studio?.pages?.length) return studio;
   const pages = await Promise.all(
     studio.pages.map(async (p) => {
-      if (typeof p.schema === 'string') {
+      let schema = p.schema;
+      if (typeof schema === 'string') {
         try {
-          const raw = await Bun.file(join(extDir, 'studio', p.schema)).text();
-          return { ...p, schema: JSON.parse(raw) as unknown, render: 'schema' as const };
+          schema = JSON.parse(await Bun.file(join(extDir, 'studio', schema)).text()) as unknown;
         } catch (e) {
           console.warn(`⚠️  Extension schema "${p.schema}" failed to load: ${(e as Error).message}`);
           return p;
         }
       }
-      if (p.schema !== undefined && p.schema !== null && typeof p.schema === 'object') {
-        return { ...p, render: 'schema' as const };
+      if (schema === undefined || schema === null || typeof schema !== 'object') return p;
+      const refused = viewRefusal(schema);
+      if (refused !== null) {
+        console.warn(`⚠️  Extension page "${p.path}" is not a valid view/2, not served: ${refused}`);
+        return { ...p, schema: undefined };
       }
-      return p;
+      return { ...p, schema, render: 'schema' as const };
     }),
   );
   return { ...studio, pages };
