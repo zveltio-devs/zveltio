@@ -5,32 +5,28 @@
  * Engine surface (packages/engine/src/routes/ws.ts):
  *   - GET /api/ws upgrades to a WS bound to the current session
  *   - Client sends `{ type: 'subscribe', collections: [...] }`
- *   - Server pushes `{ type, collection, data }` on inserts/updates/deletes
+ *   - Server pushes `{ type: 'event', collection, event, id, data?, timestamp }`
+ *     on inserts/updates/deletes. `id` is always there; `data` only when the
+ *     engine chooses to send it (ADR 0036 decision 3), so a consumer reads
+ *     the record through the data API rather than from the event.
  *
- * Two consumer patterns:
- *
- *   1. Whole-collection refresh: `realtime.onCollection(name, () => reload())`
- *      — fires on every event matching that collection. Used by list pages
- *      where the cheapest reaction is "reload the whole page".
- *
- *   2. Per-record patch: `realtime.onCollectionRecord(name, (event) => ...)`
- *      — for grids that want to apply the event in-place instead of
- *      reloading. Event is `{ type: 'insert'|'update'|'delete', record }`.
+ * Consumers: `realtime.onCollection(name, () => reload())` fires on every
+ * event of that collection; the reaction is to reload what the page shows.
  *
  * Optimistic UI plays nicely with this: the optimistic patch lands in
- * local state immediately; the WS confirmation arrives a few ms later
- * with the authoritative server-side shape, which overwrites the
- * optimistic copy. If the server rejects, the optimistic helper rolls
- * back; the WS never delivers a confirmation, so state stays consistent.
+ * local state immediately; the event that follows triggers a reload that
+ * brings the authoritative server-side shape. If the server rejects, the
+ * optimistic helper rolls back; no event follows, so state stays consistent.
  */
 
 interface RealtimeEvent {
-  type: 'insert' | 'update' | 'delete' | 'connected' | 'subscribed' | string;
+  type: 'event' | 'connected' | 'subscribed' | string;
   collection?: string;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  data?: any;
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  record?: any;
+  event?: 'insert' | 'update' | 'delete';
+  /** The record the event names; always set on a record event. */
+  id?: string;
+  /** The record, only when the engine sends it. Never rely on it. */
+  data?: Record<string, unknown>;
   channel?: string;
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   [k: string]: any;

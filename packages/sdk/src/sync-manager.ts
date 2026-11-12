@@ -162,10 +162,10 @@ export class SyncManager {
         let unsubRealtime: (() => void) | undefined;
         if (this.realtime) {
           unsubRealtime = this.realtime.subscribe(name, async (event) => {
-            // Apply update from server to local store. The engine's socket
-            // sends `{ type: 'event', event: 'insert'|'update'|'delete', data }`
-            // (routes/ws.ts `broadcastEvent`); the id lives on `data`.
-            const id = event.data?.id;
+            // Apply update from server to local store. The event names its
+            // record (`id`) and may carry no `data`; the record is read through
+            // the data API either way.
+            const id = event.id;
             if (event.type !== 'event' || !id) return;
             if (event.event === 'insert' || event.event === 'update') {
               try {

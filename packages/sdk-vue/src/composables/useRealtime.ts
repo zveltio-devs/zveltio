@@ -1,12 +1,12 @@
 import { onMounted, onUnmounted } from 'vue';
-import { ZveltioRealtime } from '@zveltio/sdk';
+import { type RealtimeRecordEvent, ZveltioRealtime } from '@zveltio/sdk';
 
 export function useRealtime(
   baseUrl: string,
   collection: string,
   event: string | null,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  callback: (data: any) => void,
+  /** `event.id` is always set; `event.data` only when the engine sends it. */
+  callback: (event: RealtimeRecordEvent) => void,
 ): void {
   let realtime: ZveltioRealtime | null = null;
   let unsub: (() => void) | null = null;
@@ -15,8 +15,7 @@ export function useRealtime(
     if (!baseUrl || !collection) return;
     realtime = new ZveltioRealtime(baseUrl);
     realtime.connect();
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    unsub = realtime.subscribe(collection, (data: any) => {
+    unsub = realtime.subscribe(collection, (data) => {
       if (!event || data.event === event) {
         callback(data);
       }

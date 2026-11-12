@@ -11,6 +11,7 @@ export type {
 export { ZveltioApiError, PROBLEM_CONTENT_TYPE } from './errors.js';
 export type { ProblemDetails } from './errors.js';
 export { ZveltioRealtime } from './realtime.js';
+export type { RealtimeRecordEvent } from './realtime.js';
 export { LocalStore } from './local-store.js';
 export { SyncManager } from './sync-manager.js';
 export type {

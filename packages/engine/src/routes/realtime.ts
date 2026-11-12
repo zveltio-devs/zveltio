@@ -350,14 +350,20 @@ export function broadcastDataEvent(
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   record: any,
   tenantId: string | null = null,
+  withData = true,
 ): void {
-  const payload = JSON.stringify({
-    channel: `zveltio:data:${collection}`,
-    event,
-    collection,
-    data: record,
-    timestamp: new Date().toISOString(),
-  });
+  // ADR 0036 decision 3, as in `broadcastEvent`: `id` always, `data` when the
+  // engine chooses to send it. The gate and the filters still run on `record`.
+  const frame = (visible: unknown) =>
+    JSON.stringify({
+      channel: `zveltio:data:${collection}`,
+      event,
+      collection,
+      id: record?.id,
+      data: withData ? visible : undefined,
+      timestamp: new Date().toISOString(),
+    });
+  const payload = frame(record);
 
   for (const [, subs] of connections) {
     for (const sub of subs) {
@@ -374,16 +380,7 @@ export function broadcastDataEvent(
         if (!realtimeScopeCurrent(scope.generation)) return;
         const visible = scope.shape(record);
         if (!matchesFilters(sub, visible)) return;
-        const body =
-          visible === record
-            ? payload
-            : JSON.stringify({
-                channel: `zveltio:data:${collection}`,
-                event,
-                collection,
-                data: visible,
-                timestamp: new Date().toISOString(),
-              });
+        const body = !withData || visible === record ? payload : frame(visible);
         try {
           sub.stream.writeSSE({ data: body, event: 'data' });
         } catch {
