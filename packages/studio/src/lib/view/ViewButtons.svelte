@@ -13,7 +13,7 @@ interface Props {
   host: ViewHost;
   scope: ViewScope;
   /** The form's save, for `{ save: true }`; without it a save button is not drawn. */
-  onSave?: () => void;
+  onSave?: () => void | Promise<void>;
   size?: 'xs' | 'sm';
 }
 const { buttons, host, scope, onSave, size = 'sm' }: Props = $props();
@@ -31,7 +31,8 @@ const shown = $derived(
   (buttons ?? []).filter((b) => {
     if ('save' in b) return !!onSave;
     if ('action' in b && !host.canRun(b.action)) return false;
-    return !b.when || (scope.record ? matches(b.when, scope.record, scope) : true);
+    // A `when` holds of a record: with none in scope (a toolbar) it cannot hold.
+    return !b.when || (!!scope.record && matches(b.when, scope.record, scope));
   }),
 );
 
@@ -42,11 +43,12 @@ function label(b: Button): string {
 }
 
 let busy = $state(false);
+/** Held until the save, or the action with its prompt and confirm, settles: no double submit. */
 async function press(b: Button) {
-  if ('save' in b) return onSave?.();
+  if (busy) return;
   busy = true;
   try {
-    await host.press(b, scope);
+    await ('save' in b ? onSave?.() : host.press(b, scope));
   } finally {
     busy = false;
   }

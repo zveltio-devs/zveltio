@@ -45,7 +45,46 @@ export function validateView(input: unknown): ViewValidation {
   }
   const issues: ViewIssue[] = [];
   check(VIEW_SCHEMA, input, '', issues);
+  if (issues.length === 0) crossChecks(input, '', issues);
   return issues.length === 0 ? { ok: true, view: input as ViewDocument } : { ok: false, issues };
+}
+
+const CONDITION_LISTS = new Set(['filter', 'when', 'emphasisWhen']);
+
+/**
+ * What the schema cannot say, checked across keys:
+ * - the data API takes one value per field and operator (`{"f":{"gt":1,"lt":9}}`),
+ *   so a condition list that gives the same pair twice cannot be sent whole: one
+ *   of the two would be dropped and the list would answer wider than written;
+ * - a button's `prompt` never names an input its `input` already binds.
+ */
+function crossChecks(v: unknown, path: string, out: ViewIssue[]): void {
+  if (Array.isArray(v)) return v.forEach((x, i) => crossChecks(x, `${path}/${i}`, out));
+  if (!isObj(v)) return;
+  // A button's `prompt` asks for what its `input` left open: never a bound key.
+  if (Array.isArray(v.prompt) && isObj(v.input)) {
+    v.prompt.forEach((name, i) => {
+      if (typeof name === 'string' && Object.hasOwn(v.input as object, name)) {
+        out.push({
+          path: `${path}/prompt/${i}`,
+          message: 'names an input the button already sets',
+        });
+      }
+    });
+  }
+  for (const [k, x] of Object.entries(v)) {
+    if (CONDITION_LISTS.has(k) && Array.isArray(x)) {
+      const seen = new Set<string>();
+      x.forEach((c, i) => {
+        const key = isObj(c) ? `${String(c.field)}\0${String(c.op)}` : '';
+        if (seen.has(key)) {
+          out.push({ path: `${path}/${k}/${i}`, message: 'repeats a field and operator' });
+        }
+        seen.add(key);
+      });
+    }
+    crossChecks(x, `${path}/${k}`, out);
+  }
 }
 
 /**
@@ -68,6 +107,9 @@ const ACTION_RESULT = { $ref: '#/$defs/ActionResult' };
 export function readActionResult(result: unknown): ActionOutcome {
   const issues: ViewIssue[] = [];
   check(ACTION_RESULT, result, '', issues);
+  if (issues.length === 0 && isObj(result) && isObj(result.view)) {
+    crossChecks(result.view, '/view', issues);
+  }
   if (issues.length > 0) return { kind: 'invalid', issues };
   const r = result as ActionResult;
   if (isObj(r) && 'view' in r) {

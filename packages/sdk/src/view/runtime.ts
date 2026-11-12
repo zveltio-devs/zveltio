@@ -92,6 +92,10 @@ export function toFilter(
       value = resolveValue(c.value as Value, s);
       if (value === undefined) return null;
     }
+    // The data API takes one value per field and operator; `validateView` refuses the pair twice.
+    if (out[c.field] && c.op in out[c.field]) {
+      throw new Error(`view/2: "${c.field}" ${c.op} is given twice in one condition list`);
+    }
     out[c.field] = { ...out[c.field], [c.op]: value };
   }
   return out;
@@ -173,6 +177,11 @@ export interface SchemaField {
 /** Field types a generated form does not offer: the engine computes them. */
 const NOT_EDITABLE = new Set(['computed']);
 
+/** Whether a form may write the field: not a system, computed or read-only one. */
+export function isEditable(f: SchemaField): boolean {
+  return !f.is_system && !NOT_EDITABLE.has(f.type) && f.readonly !== true;
+}
+
 /**
  * The fields a generated view shows: no system or computed field; a list
  * stops at eight columns so a wide collection stays readable.
@@ -183,7 +192,7 @@ export function defaultFields<F extends SchemaField>(
 ): F[] {
   const own = fields.filter((f) => !f.is_system && !NOT_EDITABLE.has(f.type));
   if (kind === 'list') return own.slice(0, 8);
-  if (kind === 'form') return own.filter((f) => f.readonly !== true);
+  if (kind === 'form') return own.filter(isEditable);
   return own;
 }
 
@@ -224,5 +233,14 @@ export function fallbackFor(view: View, drawn: ReadonlySet<string>): View | null
 export function actionPath(extension: string, action: string): string {
   const dot = action.indexOf('.');
   const [ext, name] = dot < 0 ? [extension, action] : [action.slice(0, dot), action.slice(dot + 1)];
-  return `/ext/${encodeURIComponent(ext)}/actions/${encodeURIComponent(name)}`;
+  // The manifest's rules (`ActionName`): no `.`/`..` segment, nothing to encode.
+  if (!EXTENSION_NAME.test(ext) || !ACTION.test(name)) {
+    throw new Error(`view/2: "${action}" is not an action of "${extension}" or a dependency`);
+  }
+  return `/ext/${ext}/actions/${name}`;
 }
+
+/** An extension name (`finance/quotes`): segments that start with a letter. */
+const EXTENSION_NAME = /^[a-z][a-z0-9-]*(\/[a-z][a-z0-9-]*)*$/;
+/** An action name, as the manifest's `actions[].name`. */
+const ACTION = /^[a-z][a-zA-Z0-9]*$/;

@@ -33,17 +33,23 @@ $effect(() => {
   );
 });
 
+let seq = 0;
 $effect(() => {
   const rid = id;
   void host.version;
+  const mine = ++seq;
   if (rid === undefined || rid === null) return;
   dataApi
     .get(view.collection, String(rid))
     .then((r) => {
+      // A newer selection is already loading: this record is no longer the one shown.
+      if (mine !== seq) return;
       record = r;
       error = null;
     })
-    .catch((e: Error) => (error = e.message || m['ext.loadFailed']()));
+    .catch((e: Error) => {
+      if (mine === seq) error = e.message || m['ext.loadFailed']();
+    });
 });
 
 const fields = $derived(fieldHints(viewFields(view.fields, schema, 'detail')));

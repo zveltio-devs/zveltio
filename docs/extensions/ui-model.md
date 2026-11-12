@@ -117,9 +117,13 @@ What the specification holds:
   (`eq`, `neq`, `in`, `null`, ...); `in` and `not_in` take a list, `null` and
   `not_null` take no value. A value is a literal or one of the references
   `$record`, `$selected` (an earlier pane of the enclosing `split`),
-  `$selection`, `$param`, `$user`, `$today`.
+  `$selection`, `$param`, `$user`, `$today`. One list gives a field and an
+  operator once: the data API takes one value per pair (`{"total":{"gt":1,"lt":9}}`
+  is two operators on one field and fine; `gt` twice is refused).
 - **Buttons** run an action (`action`, `input`, `prompt`, `confirm`, `when`),
-  open a view (`navigate`, `params`) or save a form (`save`).
+  open a view (`navigate`, `params`) or save a form (`save`). A `prompt` asks
+  only for inputs that `input` leaves open; naming a bound one is refused. A
+  `when` holds of a record, so a toolbar button with one is not drawn.
 - **Fields** are names; a field object adds only presentation hints
   (`label`, `display`, `tones`, `readOnly`). Type, label and editor come from
   the collection.
@@ -146,9 +150,9 @@ Validation runs in three places, against the same schema:
 
 | Where | When | What happens to an invalid view |
 |---|---|---|
-| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema; `VIEW_REFERENCE` for a collection or action the extension does not own, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json` |
+| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema, a field and operator twice in one condition list, or a `prompt` naming a bound input; `VIEW_REFERENCE` for a collection or action the extension does not own, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json` |
 | `zveltio extension pack` | when the bundle is built | the same checks, and a page file that is missing or is not JSON; the pack stops |
-| the engine | when it loads the extension | the schema only; the page is not served and the log says why. The references are the CLI's, and the engine's permission rules decide every call at run time |
+| the engine | when it loads the extension | the schema only; the page is not served and the log says why. The references and the cross-key checks above are the CLI's, and the engine's permission rules decide every call at run time |
 
 A schema without `spec` is a `view/1` schema and is treated as before.
 
@@ -185,7 +189,7 @@ and drawn as before.
 | `list` | table, `cards` or `feed`; search, paging, selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `open` |
 | `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit`, read-only fields shown as text |
 | `detail` | the record's fields, then its `panels` with `$record` set to it |
-| `stat` | `count` (the data API's total for the filter) or an action's number |
+| `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
 | `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |
 | `board`, `timeline`, `map`, `tree`, `matrix` | not yet (ADR 0042 slice 4): the view's `fallback`, else the generated list, under a notice |
 

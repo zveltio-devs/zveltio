@@ -22,27 +22,15 @@ export interface ReadableCollection {
   fields: SchemaField[];
 }
 
-let readable: Promise<Map<string, ReadableCollection>> | null = null;
-
 /**
  * The collections the caller may read, with the fields it may read
  * (`GET /api/data`): the same answer the data API gives a list, so a
- * generated view never shows a column the caller cannot see.
+ * generated view never shows a column the caller cannot see. Not cached: a
+ * sign-out, a role change or a schema change must not leave an old answer.
  */
-export function readableCollections(): Promise<Map<string, ReadableCollection>> {
-  readable ??= api
-    .get<{ collections: ReadableCollection[] }>('/api/data')
-    .then((r) => new Map(r.collections.map((c) => [c.name, c])))
-    .catch((e) => {
-      readable = null;
-      throw e;
-    });
-  return readable;
-}
-
-/** Forget the cached schema (a page change, a test). */
-export function forgetSchema(): void {
-  readable = null;
+export async function readableCollections(): Promise<Map<string, ReadableCollection>> {
+  const r = await api.get<{ collections: ReadableCollection[] }>('/api/data');
+  return new Map(r.collections.map((c) => [c.name, c]));
 }
 
 export async function schemaOf(collection: string): Promise<SchemaField[]> {
@@ -55,22 +43,9 @@ export interface RunnableAction {
   input: { properties?: Record<string, Record<string, unknown>>; required?: string[] };
 }
 
-let runnable: Promise<RunnableAction[]> | null = null;
-
-/** The actions the caller may run (`GET /api/actions`, ADR 0029). */
-export function runnableActions(): Promise<RunnableAction[]> {
-  runnable ??= api
-    .get<{ actions: RunnableAction[] }>('/api/actions')
-    .then((r) => r.actions)
-    .catch((e) => {
-      runnable = null;
-      throw e;
-    });
-  return runnable;
-}
-
-export function forgetActions(): void {
-  runnable = null;
+/** The actions the caller may run (`GET /api/actions`, ADR 0029). Not cached, as above. */
+export async function runnableActions(): Promise<RunnableAction[]> {
+  return (await api.get<{ actions: RunnableAction[] }>('/api/actions')).actions;
 }
 
 /** `pay` of `billing`, or `mail.send`: the entry `GET /api/actions` lists for it. */
@@ -149,6 +124,8 @@ export function toFormField(f: SchemaField, label?: string): FormField {
   const choices = Array.isArray(opts) ? opts : opts?.choices;
   return {
     name: f.name,
+    // The engine's type, for `formPayload`: a `json` field is edited as text.
+    fieldType: f.type,
     type: type === 'select' && !choices?.length ? 'text' : type,
     label: label ?? (typeof f.label === 'string' && f.label ? f.label : humanize(f.name)),
     required: f.required === true,
@@ -205,6 +182,16 @@ export function formPayload(
     if (v === undefined) continue;
     if (v === '') {
       if (edit) out[f.name] = null;
+      continue;
+    }
+    // `SchemaForm` shows a `json` value as JSON text (`textValue`); edited, it is
+    // text again and goes back as the value it spells. Bad JSON fails the save.
+    if (f.fieldType === 'json' && typeof v === 'string') {
+      try {
+        out[f.name] = JSON.parse(v);
+      } catch {
+        throw new Error(`${f.label ?? f.name}: not valid JSON`);
+      }
       continue;
     }
     out[f.name] = f.type === 'number' && typeof v === 'string' ? Number(v) : v;

@@ -45,6 +45,7 @@ describe('fields', () => {
   it('maps a collection field to the input SchemaForm draws', () => {
     expect(toFormField({ name: 'amount_due', type: 'decimal', required: true })).toEqual({
       name: 'amount_due',
+      fieldType: 'decimal',
       type: 'number',
       label: 'Amount Due',
       required: true,
@@ -86,6 +87,15 @@ describe('fields', () => {
     ];
     expect(formPayload({ n: '4.5', t: '' }, fields)).toEqual({ n: 4.5 });
     expect(formPayload({ n: '4.5', t: '' }, fields, true)).toEqual({ n: 4.5, t: null });
+  });
+
+  it('a json field goes back as the value its text spells, or fails the save', () => {
+    const f = [toFormField({ name: 'meta', type: 'json' })];
+    expect(f[0].type).toBe('textarea');
+    expect(formPayload({ meta: '{"a":[1,2]}' }, f)).toEqual({ meta: { a: [1, 2] } });
+    // Unedited, the loaded object goes back as it came.
+    expect(formPayload({ meta: { a: 1 } }, f)).toEqual({ meta: { a: 1 } });
+    expect(() => formPayload({ meta: '{nope' }, f)).toThrow('not valid JSON');
   });
 });
 

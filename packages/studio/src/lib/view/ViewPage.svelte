@@ -60,15 +60,25 @@ const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExte
 let prompt = $state<{
   fields: FormField[];
   values: Record<string, unknown>;
-  go: (v: Record<string, unknown>) => void;
+  go: (v: Record<string, unknown>) => Promise<void>;
+  /** Settles the `press` that opened it: after the action, or on close. */
+  done: () => void;
 } | null>(null);
+/** Settles the `press` waiting on the confirm dialog, on confirm or cancel. */
+let confirmDone: (() => void) | null = null;
+function settleConfirm() {
+  const d = confirmDone;
+  confirmDone = null;
+  d?.();
+}
 let reveal = $state<string | null>(null);
 let shown = $state<View | null>(null);
 
 function t(s?: string): string {
   if (!s) return '';
-  const fn = (m as Record<string, (() => string) | undefined>)[s];
-  return typeof fn === 'function' ? fn() : s;
+  // Own keys only: `toString` or `constructor` is literal text, not the bundle's.
+  const fn = Object.hasOwn(m, s) ? (m as Record<string, unknown>)[s] : undefined;
+  return typeof fn === 'function' ? (fn as () => string)() : s;
 }
 
 function navigate(viewId: string, p: Record<string, unknown>) {
@@ -118,20 +128,56 @@ async function press(b: Button, scope: ViewScope) {
   }
   const input = resolveInput(b.input, scope);
   if (!input) return void toast.error(m['view.selectFirst']());
-  const go = (asked: Record<string, unknown>) => {
-    const fire = () => run(b.action, { ...input, ...asked });
-    if (b.confirm)
-      askConfirm(t(b.confirm), fire, {
-        confirmClass: b.tone === 'danger' ? 'btn-error' : 'btn-primary',
-      });
-    else void fire();
+  // The view's bound input wins: a prompt never overrides what the view fixed.
+  const go = (asked: Record<string, unknown>): Promise<void> => {
+    const fire = () => run(b.action, { ...asked, ...input });
+    if (!b.confirm) return fire();
+    settleConfirm();
+    return new Promise<void>((resolve) => {
+      confirmDone = resolve;
+      askConfirm(
+        t(b.confirm),
+        async () => {
+          try {
+            await fire();
+          } finally {
+            settleConfirm();
+          }
+        },
+        { confirmClass: b.tone === 'danger' ? 'btn-error' : 'btn-primary' },
+      );
+    });
   };
-  if (!b.prompt?.length) return go({});
+  // A prompt asks only for what the view did not bind (`validateView` refuses the overlap).
+  const ask = (b.prompt ?? []).filter((name) => !Object.hasOwn(input, name));
+  if (ask.length === 0) return go({});
   const declared = actionInputFields(findAction(actions ?? [], host.ext, b.action)?.input);
-  const fields = b.prompt.map((name) =>
+  const fields = ask.map((name) =>
     toFormField(declared.find((f) => f.name === name) ?? { name, type: 'text' }),
   );
-  prompt = { fields, values: {}, go };
+  return new Promise<void>((resolve) => {
+    prompt = { fields, values: {}, go, done: resolve };
+  });
+}
+
+function closePrompt() {
+  const p = prompt;
+  prompt = null;
+  p?.done();
+}
+
+function submitPrompt() {
+  const p = prompt;
+  if (!p) return;
+  let asked: Record<string, unknown>;
+  try {
+    asked = formPayload(p.values, p.fields);
+  } catch (e) {
+    toast.error((e as Error).message);
+    return; // the dialog stays open to fix the value
+  }
+  prompt = null;
+  void p.go(asked).finally(p.done);
 }
 
 const host = $state<ViewHost>({
@@ -157,15 +203,14 @@ $effect.pre(() => {
 
 <ConfirmModal open={confirmState.open} title={confirmState.title} message={confirmState.message}
   confirmLabel={confirmState.confirmLabel} confirmClass={confirmState.confirmClass}
-  onconfirm={runConfirmAction} oncancel={cancelConfirm} />
+  onconfirm={runConfirmAction}
+  oncancel={() => {
+    cancelConfirm();
+    settleConfirm();
+  }} />
 
 {#if prompt}
-  <Modal open={true} size="md" onClose={() => (prompt = null)}
-    onSubmit={() => {
-      const p = prompt;
-      prompt = null;
-      p?.go(formPayload(p.values, p.fields));
-    }}>
+  <Modal open={true} size="md" onClose={closePrompt} onSubmit={submitPrompt}>
     <SchemaForm formId={`view:${ext}:prompt`} schema={{ id: `view:${ext}:prompt`, fields: prompt.fields }} bind:values={prompt.values} />
     <div class="flex justify-end mt-4"><button type="submit" class="btn btn-primary btn-sm">{m['common.confirm']()}</button></div>
   </Modal>

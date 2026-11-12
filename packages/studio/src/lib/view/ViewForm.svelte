@@ -6,6 +6,7 @@
  */
 import {
   type FormView,
+  isEditable,
   resolveValue,
   type SchemaField,
   viewFields,
@@ -54,10 +55,12 @@ const target = $derived.by<string | null | undefined | 'singleton'>(() => {
   return id === undefined || id === null ? undefined : String(id);
 });
 
+let seq = 0;
 $effect(() => {
   const t = target;
   const c = collection;
   void host.version;
+  const mine = ++seq;
   loading = true;
   error = null;
   const fields = c
@@ -73,12 +76,18 @@ $effect(() => {
         : dataApi.get(c, t);
   Promise.all([fields, record])
     .then(([f, r]) => {
+      // A newer target is already loading: this answer is for a record no longer shown.
+      if (mine !== seq) return;
       schema = f;
       recordId = r?.id ?? null;
       values = r ? { ...r } : {};
     })
-    .catch((e: Error) => (error = e.message || m['ext.loadFailed']()))
-    .finally(() => (loading = false));
+    .catch((e: Error) => {
+      if (mine === seq) error = e.message || m['ext.loadFailed']();
+    })
+    .finally(() => {
+      if (mine === seq) loading = false;
+    });
 });
 
 const hints = $derived(new Map(fieldHints(view.fields ?? []).map((h) => [h.name, h.hint])));
@@ -88,11 +97,15 @@ const groups = $derived(
     ? view.sections.map((s) => ({ title: s.title, fields: fieldHints(s.fields) }))
     : [{ title: undefined, fields: fieldHints(viewFields(view.fields, schema, 'form')) }],
 );
-/** Editable fields, as `SchemaForm` draws them, per section. */
+/** Whether a field of the view is shown as text: the view says so, or the engine does. */
+const shownOnly = (name: string, hint: { readOnly?: boolean } | null) =>
+  !!hint?.readOnly || (byName.has(name) && !isEditable(byName.get(name)!));
+/** Editable fields, as `SchemaForm` draws them, per section. A view naming a
+ * system, computed or read-only field shows it; it never makes it writable. */
 const editable = $derived(
   groups.map((g) =>
     g.fields
-      .filter(({ name, hint }) => !hint?.readOnly && byName.has(name))
+      .filter(({ name, hint }) => byName.has(name) && !shownOnly(name, hint))
       .map(({ name, hint }) =>
         toFormField(byName.get(name)!, hint?.label ? host.t(hint.label) : undefined),
       ),
@@ -140,7 +153,7 @@ async function save() {
     {#each groups as group, gi (gi)}
       <section class="space-y-2">
         {#if group.title}<h3 class="font-semibold text-sm">{host.t(group.title)}</h3>{/if}
-        {#each group.fields.filter((f) => f.hint?.readOnly) as { name, hint } (name)}
+        {#each group.fields.filter((f) => shownOnly(f.name, f.hint)) as { name, hint } (name)}
           <div class="text-sm">
             <span class="text-base-content/65">{hint?.label ? host.t(hint.label) : name}:</span>
             <ViewValue value={values[name]} {hint} type={byName.get(name)?.type} />

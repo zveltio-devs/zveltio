@@ -299,3 +299,13 @@ describe('api — a configuration change without a step-up', () => {
     expect(token).not.toHaveBeenCalled();
   });
 });
+
+describe('dataApi paths', () => {
+  it('a collection name or a record id is one path segment', async () => {
+    const { dataApi } = await import('./api');
+    respond(200, {});
+    await dataApi.get('../users', 'a/b?x');
+    const url = String((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]);
+    expect(url).toContain('/api/data/..%2Fusers/a%2Fb%3Fx');
+  });
+});

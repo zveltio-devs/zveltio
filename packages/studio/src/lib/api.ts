@@ -274,24 +274,27 @@ function toQueryString(params: QueryParams): string {
   return out.toString();
 }
 
+/** A collection name or a record id as one path segment: `../users` stays a name, not a path. */
+const seg = encodeURIComponent;
+
 export const dataApi = {
   list: (collection: string, params?: QueryParams) => {
     const qs = params ? `?${toQueryString(params)}` : '';
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    return api.get<{ records: any[]; pagination: any }>(`/api/data/${collection}${qs}`);
+    return api.get<{ records: any[]; pagination: any }>(`/api/data/${seg(collection)}${qs}`);
   },
   // Note: GET/POST/PATCH return the record directly (no { record: ... } wrapper)
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  get: (collection: string, id: string) => api.get<any>(`/api/data/${collection}/${id}`),
+  get: (collection: string, id: string) => api.get<any>(`/api/data/${seg(collection)}/${seg(id)}`),
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  create: (collection: string, data: any) => api.post<any>(`/api/data/${collection}`, data),
+  create: (collection: string, data: any) => api.post<any>(`/api/data/${seg(collection)}`, data),
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   update: (collection: string, id: string, data: any) =>
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    api.patch<any>(`/api/data/${collection}/${id}`, data),
-  delete: (collection: string, id: string) => api.delete(`/api/data/${collection}/${id}`),
+    api.patch<any>(`/api/data/${seg(collection)}/${seg(id)}`, data),
+  delete: (collection: string, id: string) => api.delete(`/api/data/${seg(collection)}/${seg(id)}`),
   bulkDelete: (collection: string, ids: string[]) =>
-    api.delete<{ deleted: number }>(`/api/data/${collection}/bulk`, { ids }),
+    api.delete<{ deleted: number }>(`/api/data/${seg(collection)}/bulk`, { ids }),
 };
 
 export const usersApi = {

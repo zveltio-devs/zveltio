@@ -22,7 +22,10 @@ const TONE: Record<Tone, string> = {
   danger: 'badge-error',
   muted: 'badge-ghost',
 };
-const tone = $derived(hint?.tones?.[String(value)]);
+// Own keys only: a value `constructor` or `toString` is not a tone.
+const tone = $derived(
+  hint?.tones && Object.hasOwn(hint.tones, String(value)) ? hint.tones[String(value)] : undefined,
+);
 </script>
 
 {#if value === null || value === undefined}

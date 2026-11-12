@@ -8,12 +8,14 @@ import {
   actionPath,
   defaultView,
   fallbackFor,
+  isEditable,
   matches,
   readActionResult,
   resolveInput,
   toFilter,
   toSort,
   type View,
+  validateView,
 } from '../view/index.js';
 
 const scope = {
@@ -73,6 +75,29 @@ describe('toFilter', () => {
   });
 });
 
+describe('cross-key checks', () => {
+  const doc = (v: object) => ({ spec: 'zveltio.view/2', type: 'list', collection: 'a', ...v });
+
+  it('refuses the same field and operator twice in one condition list', () => {
+    const r = validateView(doc({ filter: [$.where('total', 'gt', 1), $.where('total', 'gt', 5)] }));
+    expect(r.ok ? [] : r.issues.map((i) => i.path)).toEqual(['/filter/1']);
+    // Two operators on one field are one data API filter: allowed.
+    expect(
+      validateView(doc({ filter: [$.where('total', 'gt', 1), $.where('total', 'lt', 9)] })).ok,
+    ).toBe(true);
+    expect(() => toFilter([$.where('a', 'eq', 1), $.where('a', 'eq', 2)], scope)).toThrow();
+  });
+
+  it('refuses a prompt that names an input the button binds', () => {
+    const r = validateView(
+      doc({
+        rowActions: [{ action: 'pay', input: { id: $.record('id') }, prompt: ['id', 'note'] }],
+      }),
+    );
+    expect(r.ok ? [] : r.issues.map((i) => i.path)).toEqual(['/rowActions/0/prompt/0']);
+  });
+});
+
 describe('matches', () => {
   it('checks a row against conditions', () => {
     const row = { status: 'open', total: 5, owner: 'u1', note: null };
@@ -106,6 +131,13 @@ describe('generated defaults', () => {
     expect(defaultView('detail', 'notes', fields)).toMatchObject({ record: { $param: 'id' } });
   });
 
+  it('never makes a system, computed or read-only field writable', () => {
+    expect(isEditable({ name: 'title', type: 'text' })).toBe(true);
+    expect(isEditable({ name: 'id', type: 'uuid', is_system: true })).toBe(false);
+    expect(isEditable({ name: 'score', type: 'computed' })).toBe(false);
+    expect(isEditable({ name: 'locked', type: 'text', readonly: true })).toBe(false);
+  });
+
   it('falls back to the view’s own fallback, then to the list of its collection', () => {
     const drawn = new Set(['list', 'form']);
     const board: View = { type: 'board', collection: 'tasks', groupBy: 'status' };
@@ -120,6 +152,21 @@ describe('actions', () => {
   it('names its own extension’s action or a dependency’s', () => {
     expect(actionPath('billing', 'pay')).toBe('/ext/billing/actions/pay');
     expect(actionPath('billing', 'mail.send')).toBe('/ext/mail/actions/send');
+    // A dependency with a scoped name keeps its `/`, as its routes are mounted.
+    expect(actionPath('x', 'finance/quotes.approve')).toBe('/ext/finance/quotes/actions/approve');
+  });
+
+  it('refuses a name that would leave the action route', () => {
+    for (const [ext, action] of [
+      ['billing', '..'],
+      ['billing', '../admin.x'],
+      ['billing', 'a/../b.pay'],
+      ['..', 'pay'],
+      ['billing', 'pay/../../x'],
+      ['billing', 'mail.'],
+    ]) {
+      expect(() => actionPath(ext, action)).toThrow();
+    }
   });
 
   it('reads a result as navigation, view, file, reveal or values', () => {

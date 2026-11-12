@@ -49,12 +49,10 @@ vi.mock('#lib/api.js', () => ({
   },
 }));
 
-beforeEach(async () => {
+beforeEach(() => {
   calls.length = 0;
   post.mockClear();
-  const { forgetSchema, forgetActions } = await import('./engine.js');
-  forgetSchema();
-  forgetActions();
+  post.mockImplementation(async () => ({ result: { total: 3 } }));
 });
 afterEach(cleanup);
 
@@ -151,5 +149,96 @@ describe('view/2 renderer', () => {
     });
     await waitFor(() => expect(container.textContent).toContain('First'));
     expect(container.querySelector('[data-testid="view-not-drawn"]')).toBeTruthy();
+  }, 60_000);
+
+  it('a toolbar button with `when` has no record to hold of: hidden', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { container } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'list',
+          collection: 'notes',
+          title: 'Notes',
+          actions: [
+            { action: 'archive', label: 'Always' },
+            {
+              action: 'archive',
+              label: 'Only if',
+              when: [{ field: 'status', op: 'eq', value: 'open' }],
+            },
+          ],
+        },
+      },
+    });
+    await waitFor(() => expect(container.textContent).toContain('Always'));
+    expect(container.textContent).not.toContain('Only if');
+  }, 60_000);
+
+  it('a button is held until its confirmed action settles: no double submit', async () => {
+    let finish: (v: unknown) => void = () => {};
+    post.mockImplementation(() => new Promise((r) => (finish = r)));
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { getByText } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'list',
+          collection: 'notes',
+          title: 'Notes',
+          actions: [{ action: 'archive', label: 'Go', confirm: 'Sure?' }],
+        },
+      },
+    });
+    const go = () => getByText('Go') as HTMLButtonElement;
+    await waitFor(() => expect(go()).toBeTruthy());
+    await fireEvent.click(go());
+    // Held while the confirm dialog is open, and after it, while the action runs.
+    expect(go().disabled).toBe(true);
+    const confirm = await waitFor(() => {
+      const b = [...document.body.querySelectorAll('button')].find(
+        (x) => x.textContent?.trim() === 'Confirm',
+      );
+      if (!b) throw new Error('no confirm button');
+      return b;
+    });
+    await fireEvent.click(confirm);
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(go().disabled).toBe(true);
+    await fireEvent.click(go());
+    finish({ result: null });
+    await waitFor(() => expect(go().disabled).toBe(false));
+    expect(post).toHaveBeenCalledTimes(1);
+  }, 60_000);
+
+  it('an action-sourced stat runs once, only if the caller may run it', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { container, getByText } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'split',
+          panes: [
+            { type: 'stat', source: { action: 'archive' } },
+            { type: 'stat', source: { action: 'purge' } },
+            {
+              type: 'list',
+              collection: 'notes',
+              title: 'Notes',
+              actions: [{ action: 'archive', label: 'Bump' }],
+            },
+          ],
+        },
+      },
+    });
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][0]).toBe('/ext/notes/actions/archive');
+    // Another action ran (`host.version` moved): the stat does not run its action again.
+    await fireEvent.click(getByText('Bump'));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls.some(([u]) => u === '/ext/notes/actions/purge')).toBe(false);
+    void container;
   }, 60_000);
 });

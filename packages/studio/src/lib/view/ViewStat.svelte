@@ -1,12 +1,19 @@
 <script lang="ts">
 /**
  * `stat`: a number. `count` is the data API's total for the filter; an action
- * source is run and its number shown. `sum`, `avg`, `min` and `max` have no
+ * source the caller may run is run once per input and its number shown. `sum`, `avg`, `min` and `max` have no
  * data API route yet: the stat says so rather than adding up one page of rows.
  */
 import { resolveInput, type StatView, type Tone, type ViewScope } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
-import { listParams, listRecords, runAction, type ViewHost } from './engine.js';
+import {
+  findAction,
+  listParams,
+  listRecords,
+  runAction,
+  runnableActions,
+  type ViewHost,
+} from './engine.js';
 
 interface Props {
   view: StatView;
@@ -31,24 +38,47 @@ const unsupported = $derived(
   'collection' in view.source && view.source.aggregate !== 'count' ? view.source.aggregate : null,
 );
 
-$effect(() => {
-  void host.version;
-  const src = view.source;
-  if (unsupported) return;
-  let p: Promise<unknown>;
-  if ('collection' in src) {
-    const q = listParams({ filter: src.filter }, scope, { page: 1, limit: 1 });
-    if (!q) return;
-    p = listRecords(src.collection, q).then((r) => r.pagination?.total ?? r.records.length);
-  } else {
-    const input = resolveInput(src.input, scope);
-    if (!input) return;
-    p = runAction(host.ext, src.action, input);
-  }
+let seq = 0;
+function settle(p: Promise<unknown>) {
+  const mine = ++seq;
   p.then((v) => {
+    if (mine !== seq) return;
     value = typeof v === 'number' ? v : Number(v);
     error = null;
-  }).catch((e: Error) => (error = e.message || m['ext.loadFailed']()));
+  }).catch((e: Error) => {
+    if (mine === seq) error = e.message || m['ext.loadFailed']();
+  });
+}
+
+// A count is a read: it follows the data, so it reads again after an action ran.
+$effect(() => {
+  const src = view.source;
+  if (unsupported || !('collection' in src)) return;
+  void host.version;
+  const q = listParams({ filter: src.filter }, scope, { page: 1, limit: 1 });
+  if (q)
+    settle(listRecords(src.collection, q).then((r) => r.pagination?.total ?? r.records.length));
+});
+
+/**
+ * An action source (ADR 0042 decision 4: a computed number is an action; the
+ * spike's `stat` primitive names `{ action }`) runs once per input, and only if
+ * `GET /api/actions` lists it for the caller. Not on `host.version`: running an
+ * action because another one ran is a side effect nobody asked for.
+ */
+const actionInput = $derived(
+  'action' in view.source ? JSON.stringify(resolveInput(view.source.input, scope)) : null,
+);
+$effect(() => {
+  const src = view.source;
+  const key = actionInput;
+  if (!('action' in src) || key === null || key === 'null') return;
+  const input = JSON.parse(key) as Record<string, unknown>;
+  settle(
+    runnableActions().then((list) =>
+      findAction(list, host.ext, src.action) ? runAction(host.ext, src.action, input) : Number.NaN,
+    ),
+  );
 });
 
 function show(v: number): string {
