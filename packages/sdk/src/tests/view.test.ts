@@ -6,10 +6,11 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { $, isViewDocument, VIEW_SPEC, validateView, view, viewNameIssues } from '../view/index.js';
-
+// Parsed, not imported: an import would turn the `__proto__` key into a prototype.
+// Resolved through src/ so the copy tsc compiles into dist/tests finds it too.
 // Parsed, not imported: an import would turn the `__proto__` key into a prototype.
 const fixtures = JSON.parse(
-  readFileSync(join(import.meta.dir, 'fixtures/view-2.json'), 'utf8'),
+  readFileSync(join(import.meta.dir, '../../src/tests/fixtures/view-2.json'), 'utf8'),
 ) as {
   valid: Record<string, unknown>;
   invalid: Record<string, unknown>;
