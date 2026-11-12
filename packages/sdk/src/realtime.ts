@@ -79,8 +79,10 @@ export class ZveltioRealtime {
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        const collection = msg.collection;
-        const subs = this.listeners.get(collection);
+        // Record events only: other frames that name a collection (a schema
+        // change) are not `RealtimeRecordEvent`s.
+        if (msg.type !== 'event') return;
+        const subs = this.listeners.get(msg.collection);
         if (subs) {
           subs.forEach((fn) => {
             try {

@@ -757,8 +757,9 @@ GET /api/realtime/stream?collection=documents&channel=presence:documents
 Events: `insert`, `update`, `delete`. `id` names the record and is always there. `data` is the
 record as this subscriber may read it, and only when the engine sends it — a client cannot ask for
 it and must not rely on it. Without `data`, read the record through the data API: a 404 means it is
-gone, or not yours to see. The WebSocket (`/api/ws`) sends the same record events as
-`{ "type": "event", "collection", "event", "id", "data"?, "timestamp" }`.
+gone, or not yours to see. The WebSocket (`/api/ws`) sends record events as
+`{ "type": "event", "collection", "event", "id", "data"?, "timestamp" }`, with no `channel` and
+`timestamp` in epoch milliseconds.
 
 **JavaScript client:**
 
