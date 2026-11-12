@@ -4,7 +4,19 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.113] - 2026-11-12
+
 **BREAKING (extensions): signing in is one engine operation (ADR 0039 slice 2).** A declared public route of an extension holding `auth:session` signs a person in with `host.identity.signIn({ provider, subject, email, name })`: the engine finds or creates the account under its linking rule, refuses a disabled account (`account_disabled`), one the tenant has no claim to (`account_exists`) or a person the tenant does not admit (`not_a_member`: a withdrawn member, or outside the default tenant anyone not its member — no account is created for them), opens the session once the request commits (with its audit entry, or not at all) (ending the person's others once the request commits), writes `auth.login_success` with the provider as actor, and returns the headers to answer with (`Set-Cookie`, and `set-auth-token` for a caller that sent no session cookie). `host.identity.signInRefused` audits a refusal at the provider. `ctx.internals.createBetterAuthSession` is gone: an extension can no longer open a session for a user id of its choosing (capability contract 10). A manifest declares its `signInProviders` (`id`, `label`, `kind` `credentials` or `redirect`, the declared public route that starts it), and `GET /api/sign-in/providers` lists those of the extensions on in the request's tenant that hold an approved `auth:session` (without it, `signIn` refuses with `capability_required`, 403). Also fixes a lost audit row: an SSO extension's success entry for a first sign-in was written outside the request's transaction, so its `user_id` referenced an account not yet committed and the row was dropped. `auth/ldap` 3.0.0 and `auth/saml` 2.2.0 need this engine.
+
+**An extension worker route's request and response bodies cross the runner bridge as bytes (#1660).** They were sent as text, so a binary body (a file upload, an image, a signed payload) arrived with its invalid bytes replaced by U+FFFD. The extension test harness `mountForTest` now mounts the routes a manifest declares.
+
+**Loading an extension that declares `publicRoutes` logs a deprecation warning (#1659).** `routes` (ADR 0039) replaces it; `publicRoutes` still loads as an alias.
+
+**`extension validate` and `extension pack` check a view's field names against its collection (#1656).** A view/2 that names a field its collection does not declare is refused with `VIEW_REFERENCE`.
+
+**Studio: management 2.1.0 and postgis 2.3.0 views (#1654).** The Kanban board and the spatial explore page are view/2 views drawn by Studio (ADR 0042). `sync:ext` now removes the Studio and client copies of files an extension no longer ships (#1654, #1655).
+
+**Studio fixes.** Creating a flow sends the trigger shape the engine accepts (`trigger: { type, ... }`, cron as `expression`) (#1657). The API helpers send a `FormData` body as multipart instead of stringifying it, so mail attachments upload again (#1658).
 
 ## [3.0.0-beta.112] - 2026-11-12
 
