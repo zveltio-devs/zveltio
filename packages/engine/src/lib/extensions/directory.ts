@@ -98,7 +98,10 @@ interface LinkRow {
 
 function subjectOf(v: unknown): string {
   if (typeof v !== 'string' || v.trim() === '' || v.length > 1024 || v.includes('\0')) {
-    throw new IdentityRefusedError('invalid_input', 'A subject is a non-empty string of at most 1024 characters.');
+    throw new IdentityRefusedError(
+      'invalid_input',
+      'A subject is a non-empty string of at most 1024 characters.',
+    );
   }
   return v;
 }
@@ -115,7 +118,10 @@ export function routeDirectory(c: Context, extName: string, access: string): Rou
   const actor = `ext:${extName}`;
 
   /** Run `op` as one act in the request's transaction and tenant. */
-  async function act<T>(name: string, op: (trx: Database, tenant: string) => Promise<T>): Promise<T> {
+  async function act<T>(
+    name: string,
+    op: (trx: Database, tenant: string) => Promise<T>,
+  ): Promise<T> {
     if (access !== 'public' || publicRouteRequest(c)?.extName !== extName) {
       throw new Error(`${extName}: host.identity answers only on a declared public route`);
     }
@@ -129,11 +135,17 @@ export function routeDirectory(c: Context, extName: string, access: string): Rou
     }
     const trx = getCurrentTenantTrx();
     const tenant = getCurrentDomainOrNull();
-    if (!trx || !tenant) throw new Error(`${extName}: host.identity.${name} runs only inside a request`);
+    if (!trx || !tenant)
+      throw new Error(`${extName}: host.identity.${name} runs only inside a request`);
     try {
-      return await withSavepoint(trx, `zv_directory_${name}`, () => op(trx, tenant), (err) => {
-        throw err;
-      });
+      return await withSavepoint(
+        trx,
+        `zv_directory_${name}`,
+        () => op(trx, tenant),
+        (err) => {
+          throw err;
+        },
+      );
     } catch (err) {
       const code =
         err instanceof IdentityRefusedError || err instanceof ProtectedUserError ? err.code : null;

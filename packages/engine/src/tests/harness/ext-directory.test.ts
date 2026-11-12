@@ -102,7 +102,16 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
       forgetExtensionMessages: () => {},
       ctx,
     } as unknown as ExtensionLoader;
-    await finalizeExtensionLoad(loader, ext, name, `/tmp/${name}`, app, ctx, parsed as never, new Set());
+    await finalizeExtensionLoad(
+      loader,
+      ext,
+      name,
+      `/tmp/${name}`,
+      app,
+      ctx,
+      parsed as never,
+      new Set(),
+    );
   }
 
   /** One `host.identity` call by `ext`, in `tenant` (a slug) or the default tenant. */
@@ -176,7 +185,9 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
   afterAll(async () => {
     invalidateActivationCache();
     if (!db) return;
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${DIR}, ${OTHER}, ${NOCAP})`.execute(db);
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${DIR}, ${OTHER}, ${NOCAP})`.execute(
+      db,
+    );
     await sql`DELETE FROM "user" WHERE email LIKE ${`%-${STAMP}-%@directory.test`}`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${T}::uuid`.execute(db).catch(() => {});
   });
@@ -274,7 +285,12 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
     expect((await call(OTHER, 'get', [theirs], inT)).out).toMatchObject({ active: true });
 
     // Naming an existing account's address claims nothing.
-    const claim = await call(DIR, 'provision', [{ subject: `s-${STAMP}-claim`, email: localAddress }], inT);
+    const claim = await call(
+      DIR,
+      'provision',
+      [{ subject: `s-${STAMP}-claim`, email: localAddress }],
+      inT,
+    );
     expect([claim.status, claim.code]).toEqual([409, 'account_exists']);
     expect((await call(DIR, 'get', [`s-${STAMP}-claim`], inT)).out).toBeNull();
     // Nor does reusing a subject.
@@ -303,7 +319,12 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
     const subject = `s-${STAMP}-nocap`;
     const address = email('nocap');
     for (const op of ['provision', 'list', 'get']) {
-      const r = await call(NOCAP, op, op === 'provision' ? [{ subject, email: address }] : [subject], inT);
+      const r = await call(
+        NOCAP,
+        op,
+        op === 'provision' ? [{ subject, email: address }] : [subject],
+        inT,
+      );
       expect([op, r.status, r.code]).toEqual([op, 403, 'capability_required']);
     }
     const onCaller = await call(DIR, 'provision', [{ subject, email: address }], {
@@ -315,7 +336,9 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
       500,
       `${DIR}: host.identity answers only on a declared public route`,
     ]);
-    expect((await sql`SELECT 1 FROM "user" WHERE email = ${address}`.execute(db)).rows).toHaveLength(0);
+    expect(
+      (await sql`SELECT 1 FROM "user" WHERE email = ${address}`.execute(db)).rows,
+    ).toHaveLength(0);
   }, 30_000);
 
   it('the directory internals are no longer offered to extensions (deleteUser stays: GDPR erasure)', () => {
