@@ -22,7 +22,15 @@
  * been made three times in this repo.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
 import { join } from 'path';
 
 const CLIENT_ROOT = join(import.meta.dir, '..');
@@ -88,6 +96,21 @@ function copyTree(from: string, to: string): void {
   }
 }
 
+/**
+ * What a PREVIOUS run wrote, so a file or an extension dropped upstream does not
+ * survive as a stale copy in the host (same fix as the Studio's
+ * `sync-extensions.ts`, #1654). Only names this script recorded are ever
+ * removed; an unreadable list prunes nothing.
+ */
+const MANIFEST = join(LIB_EXT, '.synced.json');
+let previous: string[] = [];
+try {
+  if (existsSync(MANIFEST)) previous = JSON.parse(await Bun.file(MANIFEST).text()) as string[];
+} catch {
+  previous = [];
+}
+
+const syncedNames = new Set<string>();
 let synced = 0;
 for (const extRoot of EXT_ROOTS) {
   for (const extName of findExtensions(extRoot)) {
@@ -95,12 +118,25 @@ for (const extRoot of EXT_ROOTS) {
     if (!existsSync(clientDir)) continue;
 
     const dest = join(LIB_EXT, extName);
+    if (previous.includes(extName)) rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
     copyTree(clientDir, dest);
 
     console.log(`[sync-ext-client] ✓  ${extName} → src/lib/ext/${extName}/`);
+    syncedNames.add(extName);
     synced++;
   }
+}
+
+// Nothing synced (an empty or unrelated directory): keep the committed snapshot.
+if (synced > 0) {
+  for (const name of previous) {
+    if (!syncedNames.has(name)) {
+      rmSync(join(LIB_EXT, name), { recursive: true, force: true });
+      console.log(`[sync-ext-client] ✗  ${name} removed (no longer shipped)`);
+    }
+  }
+  writeFileSync(MANIFEST, JSON.stringify([...syncedNames].sort(), null, 2) + '\n');
 }
 
 console.log(`[sync-ext-client] Done — ${synced} extension client bundle(s) synced.`);
