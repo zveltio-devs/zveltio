@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.112] - 2026-11-12
+
+**Studio draws the `board`, `timeline`, `tree`, `matrix` and `map` view/2 kinds (ADR 0042 slice 4, part 1).** They no longer fall back to the generated list. Reads go through the data API as the signed-in user; a move or edit patches the record through the data API (an empty matrix cell creates one) or runs the view's declared action with `$record` set, and the engine decides every call. The map loads Leaflet only when drawn. Each view reads one page of 500 records.
+
+**The operator chooses the map tile server (ADR 0043).** `ZVELTIO_MAP_TILES` (an https URL template with `{z}/{x}/{y}`, or `off`) and `ZVELTIO_MAP_ATTRIBUTION` name it; unset keeps OpenStreetMap; an invalid value refuses boot. `GET /api/settings/public` carries `map_tiles` (`{url, attribution}` or `null`), and Studio's map view, the client MapPicker and the postgis 2.2.0 map components read it. With tiles off the map view draws its place list only.
+
 **BREAKING: a bulk data write applies every row or none (ADR 0044).** `POST`, `PATCH` and `DELETE /api/data/:collection/bulk` ran in one transaction, but only a database error rolled it back: a row the engine refused (validation, a read-only column, a row rule, entity access, a missing record, a status transition, an extension hook's `abort`) was listed with `207` and the other rows were committed, with their revisions, realtime events, webhook deliveries and flow triggers, so a caller had to work out which rows had landed and a Studio tree reorder could leave siblings half renumbered. Now one refused row refuses the batch: the answer is `422` with `code: "bulk_refused"` and `errors: [{ index, id?, errors }]` naming every refused row, not only the first, and nothing of the batch is written. A bulk delete now refuses an id it does not find, as `DELETE /:id` answers 404 for it (it used to be skipped). A database error keeps its answer (`409` for a duplicate). Success keeps `201` (create) and `200` (update, delete) with the same bodies; `207` is no longer returned, and a delete's `aborted` and `forbidden` lists are gone. There is no partial mode: a caller with many independent rows sends its own batches. Studio's bulk delete of records and the view/2 tree reorder read `422` as "nothing changed" and name the refused rows.
 
 ## [3.0.0-beta.111] - 2026-11-12
