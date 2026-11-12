@@ -8,6 +8,8 @@
  * - `viewNameIssues`: a view names only its extension's collections and
  *   actions, and a dependency's action.
  * - `view`, `$`: a typed builder that emits the JSON.
+ * - `resolveValue`, `toFilter`, `matches`, `defaultView`, `readActionResult`, ...:
+ *   what every renderer does the same way (`runtime.ts`).
  *
  * Dependency-free: the validator interprets the subset of JSON Schema that
  * `VIEW_SCHEMA` uses, so a front end can validate in the browser.
@@ -17,6 +19,7 @@ import { VIEW_SCHEMA, VIEW_SPEC } from './schema.js';
 import type { Condition, Ref, Value, View, ViewId } from './types.generated.js';
 
 export { VIEW_SCHEMA, VIEW_SPEC } from './schema.js';
+export * from './runtime.js';
 export type * from './types.generated.js';
 
 /** A view file: a view with `spec` set at its top, and its `id` a `ViewId`. */
