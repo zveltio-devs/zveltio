@@ -60,7 +60,7 @@ Moving an extension between backends is configuration, never a rewrite.
 | **Actions** | synchronous business logic ("issue invoice", "convert lead"). Declared in the manifest with a typed input, a permission and the collections they read and write. They run inside the request transaction and do no network I/O. |
 | **Jobs** | asynchronous work: network, mail, ANAF, AI, heavy compute. An action or a flow enqueues a job in a transactional **outbox**. The job runs out of the request, holds no transaction, and writes back only through the public API with a key scoped to the extension. *(Amended by ADR 0022: a no-egress job keeps one transaction, timeout ≤ 60 s; an egress job opens one per host call; nothing is written back through the public API.)* |
 | **Rules** | declarative expressions for validation, state transitions and flow conditions. No code and no runtime. |
-| **UI** | Studio pages, as today. |
+| **UI** | Data only: semantic views each front end draws its own way (ADR 0042, [ui-model.md](../extensions/ui-model.md)). |
 | **`host`** | the only way an action or job reaches the engine: `host.collections.read/insert/update/delete` with declarative filters, `host.enqueue`, `host.audit`, `host.config`, and `host.services` (the broker). The engine generates every SQL statement. **No raw SQL and no `ctx.internals` for anything but first-party code.** |
 
 ### Trust ladder

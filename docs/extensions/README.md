@@ -8,6 +8,7 @@ and scheduled jobs, and they can be disabled again.
 |---|---|
 | [developer-guide.md](developer-guide.md) | **The reference.** Mental model, manifest, engine code, migrations, hooks, services, cron, Studio pages, testing, publishing, isolation tiers |
 | [cookbook.md](cookbook.md) | Worked recipes for common tasks |
+| [ui-model.md](ui-model.md) | How an extension contributes UI: data only, each front end draws it (ADR 0042) |
 | [authoring.md](authoring.md) | Authoring conventions and review expectations |
 | [v2-candidates.md](v2-candidates.md) | Lessons for extension-api v2: breaking changes, and the v1 stopgaps v2 should own |
 | [signatures.md](signatures.md) | Ed25519 signing and verification |
