@@ -250,6 +250,16 @@ export interface ViewHost {
     record: Record<string, unknown>,
     patch: Record<string, unknown>,
   ) => Promise<boolean>;
+  /**
+   * Several such writes as one: `patch` is one bulk update of the data API
+   * (one transaction, at most 500 records); an action runs once per record and
+   * stops at the first refusal. `true` when every write went through.
+   */
+  changeMany: (
+    change: Change,
+    collection: string,
+    writes: { record: Record<string, unknown>; patch: Record<string, unknown> }[],
+  ) => Promise<boolean>;
   /** Bumped after an action ran: lists and records read again. */
   version: number;
 }
@@ -442,13 +452,30 @@ export function treeParents(
 }
 
 /**
- * The `order` values two neighbouring siblings take to swap places: each
- * other's when they differ and both are set; when they are equal or empty
- * their positions among the siblings (`i`, `j`), so the swap still shows.
+ * The `order` writes that move sibling `i` to `j` (a neighbour): the two swap
+ * values when both are set and differ; otherwise every sibling is renumbered
+ * 0..n-1 in the new order, so no value collides with another sibling's.
  */
-export function swapOrder(a: unknown, b: unknown, i: number, j: number): [unknown, unknown] {
+export function reorder<R extends Record<string, unknown>>(
+  sibs: readonly R[],
+  i: number,
+  j: number,
+  order: string,
+): { renumber: boolean; writes: { record: R; patch: Record<string, unknown> }[] } {
   const set = (v: unknown) => v !== null && v !== undefined && v !== '';
-  return set(a) && set(b) && a !== b ? [b, a] : [j, i];
+  const [a, b] = [sibs[i][order], sibs[j][order]];
+  if (set(a) && set(b) && a !== b) {
+    return {
+      renumber: false,
+      writes: [
+        { record: sibs[i], patch: { [order]: b } },
+        { record: sibs[j], patch: { [order]: a } },
+      ],
+    };
+  }
+  const next = [...sibs];
+  [next[i], next[j]] = [next[j], next[i]];
+  return { renumber: true, writes: next.map((record, k) => ({ record, patch: { [order]: k } })) };
 }
 
 /** The collection a relation field points at (`m2o`, `reference`); none for any other field. */

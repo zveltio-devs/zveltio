@@ -36,6 +36,7 @@ import {
   toFormField,
   type ViewHost,
   viewHref,
+  WHOLE,
 } from './engine.js';
 import ViewNode from './ViewNode.svelte';
 
@@ -224,6 +225,36 @@ async function change(
   }
 }
 
+async function changeMany(
+  c: Change,
+  collection: string,
+  writes: { record: Record<string, unknown>; patch: Record<string, unknown> }[],
+): Promise<boolean> {
+  if (c !== 'patch') {
+    for (const w of writes) if (!(await change(c, collection, w.record, w.patch))) return false;
+    return true;
+  }
+  // The data API's bulk limit: more is refused here, before anything is written.
+  if (writes.length > WHOLE) {
+    toast.error(m['view.tooMany']({ count: writes.length, max: WHOLE }));
+    return false;
+  }
+  try {
+    const res = await dataApi.bulkUpdate(
+      collection,
+      writes.map((w) => ({ ...w.patch, id: String(w.record.id) })),
+    );
+    if (!res.errors?.length) return true;
+    toast.error(res.errors.flatMap((e) => e.errors).join('; ') || m['common.failed']());
+    return false;
+  } catch (e) {
+    toast.error((e as Error).message || m['common.failed']());
+    return false;
+  } finally {
+    host.version++;
+  }
+}
+
 function closePrompt() {
   const p = prompt;
   prompt = null;
@@ -252,6 +283,7 @@ const host = $state<ViewHost>({
   run,
   remove,
   change,
+  changeMany,
   canRun: () => true,
   version: 0,
 });

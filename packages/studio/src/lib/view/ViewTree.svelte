@@ -5,11 +5,13 @@
  * may not read, or none) is a root. With `move`, a node dropped on
  * another node (or on the root line), or picked in its "Move to" menu, takes it
  * as its parent through `host.change`, never one of its own descendants; with
- * `order` too, "Move up" and "Move down" swap it with a sibling (`swapOrder`).
+ * `order` too, "Move up" and "Move down" swap it with a sibling in one write
+ * (`reorder`, `host.changeMany`).
  */
 import { type TreeView, type ViewScope } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
-import { isWithin, listParams, swapOrder, treeParents, type ViewHost, WHOLE } from './engine.js';
+import { toast } from '#lib/stores/toast.svelte.js';
+import { isWithin, listParams, reorder, treeParents, type ViewHost, WHOLE } from './engine.js';
 import { readRows, type Row } from './rows.svelte.js';
 import ViewRows from './ViewRows.svelte';
 import ViewValue from './ViewValue.svelte';
@@ -54,17 +56,17 @@ let moving = $state<string | null>(null);
 /** Where a node may go: the root, or any node that is not it or one of its descendants. */
 const targets = (id: string) => data.rows.filter((r) => !isWithin(id, r.id, parentOf));
 
-/** Swaps a node with its sibling above (-1) or below (1): two writes of `order`. */
+/** Swaps a node with its sibling above (-1) or below (1), in one write (`reorder`). */
 async function step(row: Row, dir: -1 | 1) {
   const order = view.order;
   const sibs = children.get(parentOf.get(row.id) ?? null) ?? [];
   const i = sibs.findIndex((r) => r.id === row.id);
   const j = i + dir;
   if (!view.move || !order || j < 0 || j >= sibs.length) return;
-  const [a, b] = swapOrder(sibs[i][order], sibs[j][order], i, j);
-  // The sibling is written only once the node was: a refused first write changes nothing.
-  if (await host.change(view.move, view.collection, sibs[i], { [order]: a }))
-    await host.change(view.move, view.collection, sibs[j], { [order]: b });
+  const { renumber, writes } = reorder(sibs, i, j, order);
+  // Renumbering needs every sibling: one on a page not read yet would collide.
+  if (renumber && data.more) return void toast.error(m['view.loadAllFirst']());
+  await host.changeMany(view.move, view.collection, writes);
 }
 
 function toggle(id: string) {

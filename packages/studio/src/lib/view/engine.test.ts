@@ -16,7 +16,7 @@ import {
   periodQueries,
   relatedOf,
   shiftDays,
-  swapOrder,
+  reorder,
   toFormField,
   treeParents,
   viewHref,
@@ -229,10 +229,29 @@ describe('the slice 4 kinds: queries, order, cycles, relations', () => {
     ]);
   });
 
-  it('swapping order: each takes the other, or equal and empty ones take their positions', () => {
-    expect(swapOrder(3, 7, 0, 1)).toEqual([7, 3]);
-    expect(swapOrder(5, 5, 2, 1)).toEqual([1, 2]);
-    expect(swapOrder(null, 4, 0, 1)).toEqual([1, 0]);
+  it('swapping order: each takes the other; equal or empty, all siblings are renumbered', () => {
+    const sibs = [
+      { id: 'a', pos: 3 },
+      { id: 'b', pos: 7 },
+      { id: 'c', pos: 7 },
+    ];
+    expect(reorder(sibs, 0, 1, 'pos')).toEqual({
+      renumber: false,
+      writes: [
+        { record: sibs[0], patch: { pos: 7 } },
+        { record: sibs[1], patch: { pos: 3 } },
+      ],
+    });
+    // Equal (or empty): every sibling renumbered 0..n-1 in the new order.
+    expect(reorder(sibs, 2, 1, 'pos')).toEqual({
+      renumber: true,
+      writes: [
+        { record: sibs[0], patch: { pos: 0 } },
+        { record: sibs[2], patch: { pos: 1 } },
+        { record: sibs[1], patch: { pos: 2 } },
+      ],
+    });
+    expect(reorder([{ pos: null }, { pos: 4 }], 0, 1, 'pos').renumber).toBe(true);
   });
 
   it('a parent outside the rows is none, and a cycle is broken at its first record', () => {

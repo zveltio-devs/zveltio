@@ -49,6 +49,7 @@ const tables: Record<string, Record<string, unknown>[]> = {
     { id: 'o2', title: 'Two', parent: null, pos: 2 },
     { id: 'o3', title: 'Child A', parent: 'o1', pos: 5 },
     { id: 'o4', title: 'Child B', parent: 'o1', pos: 5 },
+    { id: 'o5', title: 'Child C', parent: 'o1', pos: 9 },
   ],
   // A cycle in the data: x under y under x, and nothing else.
   loop: [
@@ -101,6 +102,12 @@ function answer(collection: string, params: Record<string, unknown>) {
 }
 const calls: string[] = [];
 const update = vi.fn(async (_c: string, _id: string, _d: unknown) => ({}));
+const bulkUpdate = vi.fn(
+  async (_c: string, _r: unknown[]): Promise<{ updated: number; errors: unknown[] }> => ({
+    updated: 0,
+    errors: [],
+  }),
+);
 const create = vi.fn(async (_c: string, _d: unknown) => ({}));
 const post = vi.fn(async (_url: string, _body: unknown): Promise<unknown> => ({ result: null }));
 
@@ -198,6 +205,7 @@ vi.mock('#lib/api.js', () => ({
       return answer(collection, params);
     },
     update: (c: string, id: string, d: unknown) => update(c, id, d),
+    bulkUpdate: (c: string, r: unknown[]) => bulkUpdate(c, r),
     create: (c: string, d: unknown) => create(c, d),
   },
 }));
@@ -241,6 +249,7 @@ vi.mock('leaflet', () => ({ default: leaflet.L }));
 beforeEach(() => {
   calls.length = 0;
   update.mockClear();
+  bulkUpdate.mockClear();
   create.mockClear();
   post.mockClear();
   leaflet.circleMarker.mockClear();
@@ -573,7 +582,7 @@ describe('view/2 tree, from the keyboard and in order', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith('tasks', 't3', { parent_id: 't1' }));
   }, 60_000);
 
-  it('"Move up" and "Move down" swap `order` with the sibling; equal ones take their positions', async () => {
+  it('"Move up" and "Move down": a swap is one bulk write; equal positions renumber every sibling', async () => {
     const { container, getAllByLabelText } = await draw({
       type: 'tree',
       collection: 'outline',
@@ -582,40 +591,62 @@ describe('view/2 tree, from the keyboard and in order', () => {
       order: 'pos',
       move: 'patch',
     });
-    await waitFor(() => expect(container.textContent).toContain('Child B'));
+    await waitFor(() => expect(container.textContent).toContain('Child C'));
     const button = (id: string, label: string) =>
       container.querySelector(`[data-node="${id}"] [aria-label="${label}"]`) as HTMLElement;
-    expect(getAllByLabelText('Move up')).toHaveLength(4);
+    expect(getAllByLabelText('Move up')).toHaveLength(5);
 
-    // Different positions: each takes the other's.
+    // Different positions: the two swap, in one request.
     await fireEvent.click(button('o1', 'Move down'));
-    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
-    expect(update.mock.calls).toEqual([
-      ['outline', 'o1', { pos: 2 }],
-      ['outline', 'o2', { pos: 1 }],
+    await waitFor(() => expect(bulkUpdate).toHaveBeenCalledTimes(1));
+    expect(bulkUpdate.mock.calls[0]).toEqual([
+      'outline',
+      [
+        { pos: 2, id: 'o1' },
+        { pos: 1, id: 'o2' },
+      ],
     ]);
 
-    // The same position (5 and 5): they take their places among the siblings, 0 and 1.
-    update.mockClear();
+    // The same position (5 and 5): every sibling of o1 is renumbered 0..n-1 in the new order.
+    bulkUpdate.mockClear();
     await fireEvent.click(button('o4', 'Move up'));
-    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
-    expect(update.mock.calls).toEqual([
-      ['outline', 'o4', { pos: 0 }],
-      ['outline', 'o3', { pos: 1 }],
+    await waitFor(() => expect(bulkUpdate).toHaveBeenCalledTimes(1));
+    expect(bulkUpdate.mock.calls[0]).toEqual([
+      'outline',
+      [
+        { pos: 0, id: 'o4' },
+        { pos: 1, id: 'o3' },
+        { pos: 2, id: 'o5' },
+      ],
     ]);
 
     // The first sibling has nothing above it.
-    update.mockClear();
+    bulkUpdate.mockClear();
     await fireEvent.click(button('o3', 'Move up'));
     await new Promise((r) => setTimeout(r, 20));
+    expect(bulkUpdate).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
+  }, 60_000);
 
-    // A refused first write leaves the sibling alone.
-    update.mockRejectedValueOnce(new Error('denied'));
-    await fireEvent.click(button('o2', 'Move up'));
-    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+  it('a refused bulk write writes nothing else', async () => {
+    bulkUpdate.mockRejectedValueOnce(new Error('denied'));
+    const { container } = await draw({
+      type: 'tree',
+      collection: 'outline',
+      parent: 'parent',
+      label: 'title',
+      order: 'pos',
+      move: 'patch',
+    });
+    await waitFor(() => expect(container.textContent).toContain('Two'));
+    await fireEvent.click(
+      container.querySelector('[data-node="o2"] [aria-label="Move up"]') as HTMLElement,
+    );
+    await waitFor(() => expect(bulkUpdate).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 20));
-    expect(update).toHaveBeenCalledTimes(1);
+    expect(bulkUpdate).toHaveBeenCalledTimes(1);
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
   }, 60_000);
 
   it('a cycle in the data is drawn once, broken at its first record', async () => {
