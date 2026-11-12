@@ -2,7 +2,7 @@
  * Studio page schema inlining (lib/extensions/manifest-schema.ts embedPageSchemas).
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, spyOn } from 'bun:test';
@@ -116,25 +116,34 @@ describe('embedPageSchemas — view/2', () => {
     }
   });
 
-  it('agrees with the SDK validator the CLI runs', async () => {
+  // The SDK's fixtures, valid and invalid: nested panels and panes, unknown keys
+  // at depth, inherited keys, minItems, maximum, patterns, operator shapes.
+  const fixtures = JSON.parse(
+    readFileSync(join(import.meta.dir, '../../../../sdk/src/tests/fixtures/view-2.json'), 'utf8'),
+  ) as { valid: Record<string, unknown>; invalid: Record<string, unknown> };
+
+  for (const [name, doc] of Object.entries(fixtures.valid)) {
+    it(`serves: ${name}`, () => expect(viewRefusal(doc)).toBeNull());
+  }
+  for (const [name, doc] of Object.entries(fixtures.invalid)) {
+    it(`refuses: ${name}`, () => expect(viewRefusal(doc)).not.toBeNull());
+  }
+
+  it('names the key at depth', () => {
+    expect(viewRefusal(fixtures.invalid['unknown key deep in a panel'])).toContain('endpoint');
+  });
+
+  it('agrees with the SDK validator the CLI runs, on every fixture', async () => {
     const { validateView } = await import('@zveltio/sdk/view');
-    const cases: unknown[] = [
-      valid,
-      broken,
-      { ...valid, collection: '/api/data/invoices' },
-      { spec: 'zveltio.view/2', type: 'form', collection: 'a', action: 'b' },
-      { spec: 'zveltio.view/2', type: 'form', action: 'importCsv' },
-      { spec: 'zveltio.view/2', type: 'split', panes: [valid, { ...valid, type: 'board' }] },
-      {
-        spec: 'zveltio.view/2',
-        type: 'tabs',
-        items: [{ type: 'map', collection: 'a', location: 'p' }],
-      },
-      { ...valid, filter: [{ field: 'a', op: 'eq', value: { $env: 'X' } }] },
-    ];
-    for (const c of cases) {
-      expect(viewRefusal(c) === null).toBe(validateView(c).ok);
+    for (const doc of [...Object.values(fixtures.valid), ...Object.values(fixtures.invalid)]) {
+      expect(viewRefusal(doc) === null).toBe(validateView(doc).ok);
     }
+  });
+
+  it('a schema that does not compile refuses the page with its reason, and the load goes on', async () => {
+    const reason = viewRefusal(valid, { $ref: '#/$defs/Missing' });
+    expect(reason).toContain('did not compile');
+    expect(viewRefusal(valid)).toBeNull(); // the real schema is not poisoned
   });
 
   it('leaves a view/1 schema alone', () => {

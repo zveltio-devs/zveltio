@@ -659,19 +659,49 @@ export type ExtensionManifest = z.infer<typeof ManifestSchema> & {
 /** `zveltio.view/2` (ADR 0042), compiled on first use from the JSON Schema the SDK publishes. */
 let viewV2: z.ZodType | undefined;
 
+type Issue = { code: string; path: PropertyKey[]; message: string; errors?: Issue[][] };
+
+/** A failed union reports its closest branch (the fewest issues), at full depth. */
+function flatIssues(issues: Issue[], base: PropertyKey[] = []): Issue[] {
+  return issues.flatMap((i) =>
+    i.code === 'invalid_union' && i.errors?.length
+      ? flatIssues(
+          i.errors.reduce((a, b) => (b.length < a.length ? b : a)),
+          [...base, ...i.path],
+        )
+      : [{ ...i, path: [...base, ...i.path] }],
+  );
+}
+
 /**
  * Why a page schema that declares `zveltio.view/2` is refused, or `null`. A
  * `view/1` schema (no `spec`) is not checked here: it keeps rendering as before.
- * The CLI runs the same schema at `extension validate` and `pack`.
+ * The CLI runs the same schema at `extension validate` and `pack`; names
+ * (collections, actions, panes, message keys) are checked there and by the
+ * gates at run time, not here: the engine does not load the SDK's code.
+ *
+ * `jsonSchema` is for tests. A schema that does not compile refuses the page
+ * with that reason; it never fails the extension's load.
  */
-export function viewRefusal(schema: unknown): string | null {
+export function viewRefusal(schema: unknown, jsonSchema: unknown = viewSchemaJson): string | null {
   if ((schema as { spec?: unknown }).spec !== 'zveltio.view/2') return null;
-  viewV2 ??= z.fromJSONSchema(viewSchemaJson as unknown as Parameters<typeof z.fromJSONSchema>[0]);
-  const r = viewV2.safeParse(schema);
+  let validator: z.ZodType;
+  try {
+    const compile = () => z.fromJSONSchema(jsonSchema as Parameters<typeof z.fromJSONSchema>[0]);
+    if (jsonSchema === viewSchemaJson) {
+      viewV2 ??= compile();
+      validator = viewV2;
+    } else {
+      validator = compile();
+    }
+  } catch (e) {
+    return `the view/2 schema did not compile (${(e as Error).message})`;
+  }
+  const r = validator.safeParse(schema);
   if (r.success) return null;
-  return r.error.issues
+  return flatIssues(r.error.issues as unknown as Issue[])
     .slice(0, 3)
-    .map((i) => `/${i.path.join('/')}: ${i.message}`)
+    .map((i) => `/${i.path.map(String).join('/')}: ${i.message}`)
     .join('; ');
 }
 
