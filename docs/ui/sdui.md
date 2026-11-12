@@ -1,6 +1,6 @@
 # SDUI schema reference
 
-> **This is `sduiSchema: 1`, today's format.** ADR 0042 (2026-11-12) makes views the only form of extension UI and replaces this format with `view/2`: bound by names instead of URLs, no CSS classes or expressions, a shared specification package with renderers for Svelte, React and Vue. The model and the migration table are in [ui-model.md](../extensions/ui-model.md).
+> **This is `sduiSchema: 1`, today's format.** ADR 0042 (2026-11-12) makes views the only form of extension UI and replaces this format with `view/2`: bound by names instead of URLs, no CSS classes or expressions, a shared specification package with renderers for Svelte, React and Vue. The model, the migration table and how to write a `view/2` file are in [ui-model.md](../extensions/ui-model.md); the specification is `@zveltio/sdk/view`.
 
 **Server-Driven UI (SDUI)** is how most extension admin pages ship: a JSON schema
 describes the page, the engine inlines it at manifest load, and the Studio host

@@ -400,6 +400,26 @@ const CASES: Case[] = [
     body: '\n// planted by audit-gates: the copy no longer matches its source\n',
   },
   {
+    // The view/2 types and JSON Schema are generated from
+    // packages/sdk/src/view/schema.ts (ADR 0042). Planted on a generated file,
+    // as above: a hand edit there is the drift the gate catches.
+    gate: 'gen-view-spec',
+    expect: 'view/2 spec drift',
+    cmd: 'bun run scripts/gen-view-spec.ts --check',
+    file: 'packages/sdk/src/view/types.generated.ts',
+    mode: 'append',
+    body: '\n// planted by audit-gates: the types no longer match their source\n',
+  },
+  {
+    // The second artefact: the published JSON Schema, which the engine loads.
+    gate: 'gen-view-spec (JSON Schema)',
+    expect: 'view/2 spec drift',
+    cmd: 'bun run scripts/gen-view-spec.ts --check',
+    file: 'packages/sdk/schemas/view-2.schema.json',
+    mode: 'append',
+    body: '\n',
+  },
+  {
     // What the database looks like after a real install, recorded so a change
     // to it has to be deliberate. Touch the record and the comparison fails —
     // which is the whole mechanism.
