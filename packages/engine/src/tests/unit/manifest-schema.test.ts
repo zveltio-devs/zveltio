@@ -6,7 +6,10 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { ManifestSchema } from '../../lib/extensions/manifest-schema.js';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { embedPageSchemas, ManifestSchema } from '../../lib/extensions/manifest-schema.js';
 
 describe('ManifestSchema — required + defaults', () => {
   it('accepts a minimal manifest and applies defaults', () => {
@@ -223,5 +226,42 @@ describe('ManifestSchema — studio page surface (ADR 0006)', () => {
 
   it('refuses an unknown surface', () => {
     expect(parse([{ path: '/admin/x', label: 'X', surface: 'portal' }])).toBe(false);
+  });
+});
+
+describe('ManifestSchema — studio page frame (ADR 0038)', () => {
+  const parse = (page: Record<string, unknown>) =>
+    ManifestSchema.safeParse({
+      name: 'mail/client',
+      studio: { pages: [{ path: '/admin/mail', label: 'M', ...page }] },
+    }).success;
+
+  it('takes a relative path under ui/', () => {
+    expect(parse({ frame: 'index.html' })).toBe(true);
+    expect(parse({ frame: 'inbox/index.html' })).toBe(true);
+  });
+
+  it('refuses a path that leaves ui/, an empty one, and a page that is also a schema', () => {
+    for (const frame of ['', '/index.html', '../x.html', 'a//b.html', 'a\\b.html', 7]) {
+      expect(parse({ frame })).toBe(false);
+    }
+    expect(parse({ frame: 'index.html', schema: 'schemas/m.json' })).toBe(false);
+  });
+
+  it('marks the page render: frame when the file exists, and leaves it alone when not', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'zv-frame-'));
+    try {
+      await mkdir(join(dir, 'ui'));
+      await writeFile(join(dir, 'ui', 'index.html'), '<!doctype html>');
+      const studio = await embedPageSchemas(dir, {
+        pages: [
+          { path: '/admin/a', label: 'A', frame: 'index.html' },
+          { path: '/admin/b', label: 'B', frame: 'missing.html' },
+        ],
+      });
+      expect(studio?.pages?.map((p) => p.render)).toEqual(['frame', undefined]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

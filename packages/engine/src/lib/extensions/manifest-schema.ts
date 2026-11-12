@@ -585,6 +585,21 @@ export const ManifestSchema = z
     // (ADR 0006): an App page elsewhere would mount in another extension's space.
     const pages = (m as { studio?: { pages?: unknown } }).studio?.pages;
     if (!Array.isArray(pages)) return;
+    // `frame` (ADR 0038, new in v1): a file under `ui/`, the page's built document.
+    pages.forEach((p: { frame?: unknown; schema?: unknown }, i) => {
+      if (p?.frame === undefined) return;
+      const problem =
+        p.schema !== undefined
+          ? 'a page is a schema or a frame, not both'
+          : framePathProblem(p.frame);
+      if (problem) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['studio', 'pages', i, 'frame'],
+          message: problem,
+        });
+      }
+    });
     pages.forEach((p: { path?: unknown; surface?: unknown }, i) => {
       if (p?.surface === undefined) return;
       const path = typeof p.path === 'string' ? p.path : '';
@@ -605,6 +620,16 @@ export const ManifestSchema = z
       });
     });
   });
+
+/** Why `frame` is not a relative path to a file under `ui/`; null when it is. */
+export function framePathProblem(frame: unknown): string | null {
+  if (typeof frame !== 'string' || !frame) return 'frame must be a path under ui/';
+  const parts = frame.split('/');
+  if (parts.some((s) => !s || s === '.' || s === '..' || /[\\\0?#%]/.test(s))) {
+    return `frame "${frame}" must be a relative path under ui/, e.g. "index.html"`;
+  }
+  return null;
+}
 
 export interface ManifestMeta {
   displayName?: string;
@@ -630,7 +655,10 @@ export interface ManifestMeta {
        * (in the manifest), replaced at load time by the parsed schema object
        * + `render: 'schema'` so the Studio renders it without per-host build. */
       schema?: unknown;
-      render?: 'schema';
+      /** Built document (ADR 0038): a path under ui/, served at
+       * `/api/extensions/<name>/ui/<frame>`; marked `render: 'frame'` at load. */
+      frame?: string;
+      render?: 'schema' | 'frame';
       /** Where the page mounts (ADR 0006): `console` (the default) under
        * /admin, `app` under /app/<extension>. Hosts show only their own. */
       surface?: 'console' | 'app';
@@ -657,7 +685,8 @@ export type ExtensionManifest = z.infer<typeof ManifestSchema> & {
 
 /**
  * For each manifest studio page that names a JSON schema file, read + parse it
- * and inline the parsed object (so /api/extensions delivers it with no extra
+ * and inline the parsed object; a page naming a `frame` that exists is marked
+ * `render: 'frame'` (so /api/extensions delivers it with no extra
  * round-trip and no per-host build). Read once at load; failures degrade
  * gracefully (the page is left as-is).
  */
@@ -679,6 +708,12 @@ export async function embedPageSchemas(
       }
       if (p.schema !== undefined && p.schema !== null && typeof p.schema === 'object') {
         return { ...p, render: 'schema' as const };
+      }
+      if (typeof p.frame === 'string') {
+        if (await Bun.file(join(extDir, 'ui', p.frame)).exists()) {
+          return { ...p, render: 'frame' as const };
+        }
+        console.warn(`⚠️  Extension frame "ui/${p.frame}" is missing; the page is not shown.`);
       }
       return p;
     }),
