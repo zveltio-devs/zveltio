@@ -192,11 +192,11 @@ describe('dispatchToWs — observed via broadcastEvent', () => {
     }
   });
 
-  it('falls back to { id: record_id } and null tenant when data/tenantId are absent', () => {
+  it('without data, gates on { id: record_id } and delivers no data (ADR 0036 decision 4)', () => {
     const spy = spyOn(wsModule, 'broadcastEvent').mockImplementation(() => {});
     try {
       dispatchToWs(baseMsg({ event: 'record.deleted', data: undefined, tenantId: null }));
-      expect(spy).toHaveBeenCalledWith('contacts', 'delete', { id: 'r1' }, null);
+      expect(spy).toHaveBeenCalledWith('contacts', 'delete', { id: 'r1' }, null, false, true);
     } finally {
       spy.mockRestore();
     }
@@ -216,16 +216,20 @@ describe('dispatchToWs — observed via broadcastEvent', () => {
 });
 
 describe('trimForPgNotify', () => {
-  it('omits data when the full payload exceeds pg_notify limit', () => {
-    const trimmed = trimForPgNotify({
-      event: 'record.updated',
-      collection: 'docs',
-      record_id: 'doc-1',
-      data: { body: 'x'.repeat(9000) },
-      timestamp: '2026-08-22T00:00:00Z',
-      tenantId: 'tenant-1',
-    });
-    expect(trimmed.data).toBeUndefined();
+  it('over the cap, a record keeps id and the row-rule columns, and is marked trimmed', () => {
+    const trimmed = trimForPgNotify(
+      {
+        event: 'record.updated',
+        collection: 'docs',
+        record_id: 'doc-1',
+        data: { id: 'doc-1', owner: 'u1', team: null, body: 'x'.repeat(9000) },
+        timestamp: '2026-08-22T00:00:00Z',
+        tenantId: 'tenant-1',
+      },
+      ['owner', 'team', 'absent'],
+    );
+    expect(trimmed.data).toEqual({ id: 'doc-1', owner: 'u1', team: null });
+    expect(trimmed.trimmed).toBe(true);
     expect(JSON.stringify(trimmed).length).toBeLessThanOrEqual(PG_NOTIFY_PAYLOAD_MAX);
     expect(trimmed.record_id).toBe('doc-1');
   });

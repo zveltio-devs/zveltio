@@ -51,7 +51,8 @@ describe('trimForPgNotify sizes payloads in bytes', () => {
     expect(untrimmedBytes).toBeGreaterThan(PG_HARD_CAP); // …and Postgres would reject it
 
     const out = trimForPgNotify(msg);
-    expect(out.data).toBeUndefined(); // degraded to id-only; dispatchToWs falls back
+    expect(out.data).toEqual({ id: msg.record_id }); // id-only: no row rule names a column here
+    expect(out.trimmed).toBe(true);
     expect(out.record_id).toBe(msg.record_id);
     expect(out.tenantId).toBeNull();
     expect(bytes(out)).toBeLessThanOrEqual(PG_NOTIFY_PAYLOAD_MAX);
@@ -59,7 +60,7 @@ describe('trimForPgNotify sizes payloads in bytes', () => {
 
   it('trims a payload that is oversized by both measures', () => {
     const out = trimForPgNotify(message('x'.repeat(20_000)));
-    expect(out.data).toBeUndefined();
+    expect(out.data).toEqual({ id: message('').record_id });
     expect(bytes(out)).toBeLessThanOrEqual(PG_NOTIFY_PAYLOAD_MAX);
   });
 });
