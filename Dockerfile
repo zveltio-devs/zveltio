@@ -52,6 +52,9 @@ COPY packages/ui/package.json ./packages/ui/
 
 RUN bun install --frozen-lockfile
 
+# The engine validates extension view/2 pages against the SDK's published schema.
+COPY packages/sdk/schemas ./packages/sdk/schemas
+
 WORKDIR /app/packages/engine
 
 COPY packages/engine ./
