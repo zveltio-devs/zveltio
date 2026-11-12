@@ -59,7 +59,10 @@ const CONDITION_LISTS = new Set(['filter', 'when', 'emphasisWhen']);
  * - a button's `prompt` never names an input its `input` already binds.
  */
 function crossChecks(v: unknown, path: string, out: ViewIssue[]): void {
-  if (Array.isArray(v)) return v.forEach((x, i) => crossChecks(x, `${path}/${i}`, out));
+  if (Array.isArray(v)) {
+    v.forEach((x, i) => crossChecks(x, `${path}/${i}`, out));
+    return;
+  }
   if (!isObj(v)) return;
   // A button's `prompt` asks for what its `input` left open: never a bound key.
   if (Array.isArray(v.prompt) && isObj(v.input)) {

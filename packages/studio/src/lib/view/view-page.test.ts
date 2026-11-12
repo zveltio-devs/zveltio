@@ -11,7 +11,9 @@ const rows = [
   { id: 'n2', title: 'Second', status: 'done', body: 'plain' },
 ];
 const calls: string[] = [];
-const post = vi.fn(async (_url: string, _body: unknown) => ({ result: { total: 3 } }));
+const post = vi.fn(
+  async (_url: string, _body: unknown): Promise<unknown> => ({ result: { total: 3 } }),
+);
 
 vi.mock('#lib/api.js', () => ({
   api: {
@@ -177,7 +179,7 @@ describe('view/2 renderer', () => {
 
   it('a button is held until its confirmed action settles: no double submit', async () => {
     let finish: (v: unknown) => void = () => {};
-    post.mockImplementation(() => new Promise((r) => (finish = r)));
+    post.mockImplementation(() => new Promise<unknown>((r) => (finish = r)));
     const { default: ViewPage } = await import('./ViewPage.svelte');
     const { getByText } = render(ViewPage, {
       props: {
