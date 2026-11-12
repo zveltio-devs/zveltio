@@ -42,6 +42,7 @@ import {
   buildExtensionInternals,
   installExtensionsBase,
   isSupportedLocaleName,
+  serveExtensionUi,
   serviceRegistry,
 } from './lib/extensions/index.js';
 import { queryAlterRegistry } from './lib/data/index.js';
@@ -1025,6 +1026,9 @@ rm studio.tar.gz</pre>
 
     return c.json({ extensions: allActive, meta });
   });
+
+  // An extension's built documents (ADR 0038), each response under its own CSP.
+  app.get('/api/extensions/*', serveExtensionUi(db));
 
   // ── Health + Prometheus metrics (counters are module-level, survive hot-reloads) ─
   app.get('/health', (c) => c.json({ status: 'ok' }, 200));
