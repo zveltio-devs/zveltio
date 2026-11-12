@@ -338,6 +338,8 @@ for await (const rel of schemaGlob.scan({ cwd: EXT_DIR, onlyFiles: true })) {
   // `continue` below skipped them whole — four schemas, none checked. Measured:
   // pointing ldap's `saveEndpoint` at a route that does not exist passed.
   const settings = !schema?.resources && typeof schema?.dataSource === 'string';
+  // A `zveltio.view/2` file has neither: it names collections and actions, not
+  // URLs, and `checkViews` (check-extension-sdui-schemas) holds its references.
   if (!schema?.resources && !settings) continue;
 
   // Engine sources for this extension, concatenated: a router may be split.

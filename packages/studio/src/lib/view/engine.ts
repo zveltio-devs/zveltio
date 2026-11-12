@@ -220,6 +220,8 @@ export interface ViewHost {
   press: (b: Button, scope: ViewScope) => Promise<void>;
   /** Runs an action with this input and acts on its result. */
   run: (action: string, input: Record<string, unknown>) => Promise<void>;
+  /** Deletes a record through the data API, after a confirm. */
+  remove: (collection: string, id: string) => Promise<void>;
   /** Whether the caller may run an action (`GET /api/actions`); a hint, the engine decides. */
   canRun: (action: string) => boolean;
   /** Bumped after an action ran: lists and records read again. */

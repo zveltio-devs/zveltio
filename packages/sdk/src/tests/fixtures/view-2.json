@@ -1,5 +1,13 @@
 {
   "valid": {
+    "a list that edits and deletes its rows": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "invoices",
+      "create": true,
+      "edit": true,
+      "delete": true
+    },
     "inbox": {
       "spec": "zveltio.view/2",
       "id": "mail.inbox",
@@ -107,6 +115,12 @@
     }
   },
   "invalid": {
+    "delete that is not a boolean": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "invoices",
+      "delete": "yes"
+    },
     "view/1 habits": {
       "spec": "zveltio.view/2",
       "type": "list",
