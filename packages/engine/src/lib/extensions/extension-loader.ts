@@ -305,6 +305,8 @@ interface LoadedExtension {
   actions?: ReadonlyMap<string, CompiledAction>;
   /** Manifest `routes` paired with their handlers at load (ADR 0039), for a reload to mount. */
   declaredRoutes?: readonly DeclaredRoute[];
+  /** Manifest `routes` with their access, for a reload to hand the `/ext/*` gate. */
+  manifestRoutes?: readonly (RouteSpec & { access: string })[];
   /** What its routes' `host.collections` reaches (ADR 0025), for a reload to hand them. */
   routes?: { reads: ReadonlySet<string>; writes: ReadonlySet<string> };
 }

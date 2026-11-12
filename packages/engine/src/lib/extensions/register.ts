@@ -76,7 +76,7 @@ import type {
   ZveltioExtension,
 } from '@zveltio/sdk/extension';
 import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
-import { type ExtensionManifest, publicRoutePaths } from './manifest-schema.js';
+import type { ExtensionManifest } from './manifest-schema.js';
 import {
   type DeclaredRoute,
   mountDeclaredRoutes,
@@ -1081,10 +1081,17 @@ export async function finalizeExtensionLoad(
   // Register the extension's declared public routes with the `/ext/*` auth gate.
   // Anything NOT listed here is fail-closed (401 for anonymous callers) — see
   // middleware/extension-auth-gate.ts.
-  // `publicRoutes` (deprecated) and the declared routes whose access is `public` (ADR 0039).
-  const publicRoutes = publicRoutePaths(manifest);
+  // And the declared routes, each with its access (ADR 0039); `publicRoutes` is deprecated.
+  const publicRoutes = manifest?.publicRoutes ?? [];
   const apiKeyRoutes = (manifest as { apiKeyRoutes?: string[] } | null)?.apiKeyRoutes ?? [];
-  registerExtensionPublicRoutes(extName, publicRoutes, apiKeyRoutes, actions.values());
+  const manifestRoutes = manifest?.routes ?? [];
+  registerExtensionPublicRoutes(
+    extName,
+    publicRoutes,
+    apiKeyRoutes,
+    actions.values(),
+    manifestRoutes,
+  );
 
   // With the effective capabilities: an unapproved `data:system` runs no job.
   registerJobs(extName, jobs, effective);
@@ -1107,6 +1114,7 @@ export async function finalizeExtensionLoad(
     serviceDeps,
     actions,
     declaredRoutes,
+    manifestRoutes,
     routes,
   });
   console.log(`🔌 Extension loaded: ${extName}`);
@@ -1146,6 +1154,7 @@ export async function reRegisterExtension(
     loaded?.publicRoutes ?? [],
     loaded?.apiKeyRoutes ?? [],
     loaded?.actions?.values(),
+    loaded?.manifestRoutes,
   );
   const restrictedCtx = buildRestrictedContext(
     loader.ctx,

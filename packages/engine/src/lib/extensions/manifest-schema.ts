@@ -540,20 +540,15 @@ export const ManifestSchema = z
       }
     });
     const publicPaths = publicRoutePaths(m);
-    const seenRoutes = new Map<string, string>();
+    const seenRoutes = new Set<string>();
     m.routes.forEach((r, i) => {
-      // The gate opens a path, not a method: one path is public or it is not.
-      const access = seenRoutes.get(r.path);
       const issue = seenRoutes.has(`${r.method} ${r.path}`)
         ? `route ${r.method} ${r.path} is declared twice`
-        : access !== undefined && access !== r.access
-          ? `route ${r.path} is declared both public and caller; one path has one access`
-          : r.path === '/actions' || r.path.startsWith('/actions/')
-            ? `route ${r.path}: /actions is the engine's (POST /actions/<action>)`
-            : null;
+        : r.path === '/actions' || r.path.startsWith('/actions/')
+          ? `route ${r.path}: /actions is the engine's (POST /actions/<action>)`
+          : null;
       if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['routes', i], message: issue });
-      seenRoutes.set(r.path, r.access);
-      seenRoutes.set(`${r.method} ${r.path}`, r.access);
+      seenRoutes.add(`${r.method} ${r.path}`);
     });
     const jobNames = new Set<string>();
     const slotKinds = new Map<string, string>();

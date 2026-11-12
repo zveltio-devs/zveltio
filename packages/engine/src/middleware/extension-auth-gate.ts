@@ -67,8 +67,21 @@ interface KeyRoute {
   action: string;
 }
 
+/** A manifest `routes` entry (ADR 0039), compiled: its access is decided by method and path. */
+interface DeclaredRoute {
+  method: string;
+  path: RegExp;
+  public: boolean;
+}
+
 /** Registered extension → its compiled public-route and API-key-route matchers. */
-const registry = new Map<string, { publicRoutes: RegExp[]; apiKeyRoutes: KeyRoute[] }>();
+const registry = new Map<
+  string,
+  { publicRoutes: RegExp[]; apiKeyRoutes: KeyRoute[]; routes: DeclaredRoute[] }
+>();
+
+/** `POST /actions/<name>`: the engine's action route, mounted ahead of every declared route. */
+const ACTION_ROUTE = /^\/actions\/[^/]+$/;
 
 /** The action `permissionGate` derives from a method — the one a key's scope must carry. */
 const METHOD_ACTION: Record<string, string> = {
@@ -306,6 +319,7 @@ export function registerExtensionPublicRoutes(
   publicRoutes: readonly string[],
   apiKeyRoutes: readonly string[] = [],
   actions: Iterable<{ name: string; permission: { action: string } }> = [],
+  routes: readonly { method: string; path: string; access: string }[] = [],
 ): void {
   // Actions first: `keyRouteAction` takes the first match, and an `apiKeyRoutes`
   // `POST /actions/*` must not turn the action's gate back into `create`.
@@ -317,6 +331,11 @@ export function registerExtensionPublicRoutes(
   registry.set(extName, {
     publicRoutes: publicRoutes.map(compilePattern),
     apiKeyRoutes: [...actionRoutes, ...apiKeyRoutes.map(compileKeyRoute)],
+    routes: routes.map((r) => ({
+      method: r.method,
+      path: compilePattern(r.path),
+      public: r.access === 'public',
+    })),
   });
 }
 
@@ -350,11 +369,24 @@ function resolveOwner(rest: string): { name: string; sub: string } | null {
   return best;
 }
 
-/** True if `sub` matches any of the extension's declared public patterns. */
-function isDeclaredPublic(extName: string, sub: string): boolean {
-  const matchers = registry.get(extName)?.publicRoutes;
-  if (!matchers) return false;
-  return matchers.some((re) => re.test(sub));
+/**
+ * True if `method sub` is served without a session. A declared route decides by
+ * the route the request resolves to — the first that matches method and path,
+ * in manifest order, as the routes are mounted — so a public pattern opens no
+ * other method of its path and no `caller` route of its shape. The action route
+ * is mounted before them and is never a declared route's. Otherwise the
+ * deprecated `publicRoutes`, by path.
+ */
+function isDeclaredPublic(extName: string, method: string, sub: string): boolean {
+  const entry = registry.get(extName);
+  if (!entry) return false;
+  // Hono answers HEAD with the GET route.
+  const m = method === 'HEAD' ? 'GET' : method;
+  if (!(m === 'POST' && ACTION_ROUTE.test(sub))) {
+    const route = entry.routes.find((r) => r.method === m && r.path.test(sub));
+    if (route) return route.public;
+  }
+  return entry.publicRoutes.some((re) => re.test(sub));
 }
 
 /** The action a key needs for `method sub`, or null when the route is not declared for keys. */
@@ -374,7 +406,7 @@ function keyRouteAction(extName: string, method: string, sub: string): string | 
  */
 export function gateAdmitsAction(extName: string, name: string, user: RequestUser): boolean {
   const owner = resolveOwner(`${extName}/actions/${name}`);
-  if (owner?.name !== extName || isDeclaredPublic(extName, owner.sub)) return false;
+  if (owner?.name !== extName || isDeclaredPublic(extName, 'POST', owner.sub)) return false;
   if (!isApiKeyPrincipal(user)) return true;
   const action = keyRouteAction(extName, 'POST', owner.sub);
   return !!action && apiKeyHoldsScope(user.scopes, extScope(extName), action);
@@ -394,7 +426,7 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
     const rest = path.slice('/ext/'.length);
 
     const owner = resolveOwner(rest);
-    if (owner && isDeclaredPublic(owner.name, owner.sub)) {
+    if (owner && isDeclaredPublic(owner.name, c.req.method, owner.sub)) {
       // Explicitly declared public — anonymous access allowed.
       const req: PublicRouteRequest = {
         extName: owner.name,

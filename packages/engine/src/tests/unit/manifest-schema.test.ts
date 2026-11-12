@@ -197,6 +197,39 @@ describe('ManifestSchema — extension-api v1 actions and jobs', () => {
     // A family is refused even when it is a publicRoutes entry.
     expect(parse('/webhooks/*', ['/webhooks/*'])).toBe(false);
   });
+
+  it('takes declared routes (ADR 0039); a public one is a route a job may name', () => {
+    const route = (r: Record<string, unknown>) => ({
+      method: 'POST',
+      path: '/hook/:id',
+      access: 'public',
+      handler: 'hook',
+      ...r,
+    });
+    const parse = (routes: unknown[], fromPublicRoutes: string[] = []) =>
+      ManifestSchema.safeParse({
+        ...v1,
+        routes,
+        jobs: [{ ...v1.jobs[0], fromPublicRoutes }],
+      }).success;
+    expect(ManifestSchema.parse(v1).routes).toEqual([]);
+    expect(parse([route({})], ['/hook/:id'])).toBe(true);
+    expect(parse([route({ access: 'caller' })], ['/hook/:id'])).toBe(false);
+    expect(parse([route({}), route({ method: 'GET', path: '/hook/x', access: 'caller' })])).toBe(true);
+    for (const bad of [
+      { path: '/hook/*' },
+      { path: 'hook' },
+      { path: '/hook/:id{[0-9]+}' },
+      { path: '/actions/run' },
+      { method: 'OPTIONS' },
+      { access: 'admin' },
+      { handler: 'Hook' },
+      { extra: true },
+    ]) {
+      expect(parse([route(bad)]), JSON.stringify(bad)).toBe(false);
+    }
+    expect(parse([route({}), route({ handler: 'other' })])).toBe(false);
+  });
 });
 
 describe('ManifestSchema — studio page surface (ADR 0006)', () => {
