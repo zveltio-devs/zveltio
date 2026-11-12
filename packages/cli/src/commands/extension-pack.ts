@@ -30,9 +30,16 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 import { resolvePackIsolation } from '../lib/pack-isolation.js';
 import { resolvePublisherTier } from '../lib/publisher-tier.js';
@@ -241,6 +248,7 @@ interface Manifest {
     isolation?: 'inline' | 'worker';
   };
   collections?: string[];
+  studio?: { pages?: Array<{ frame?: unknown }> };
   integrity?: {
     engineSha256?: string;
     /** Hash of the declared schema files — see `hashSchemaFiles`. */
@@ -360,6 +368,31 @@ function validatePeerDeps(m: Manifest): string[] {
   return [];
 }
 
+/** The `studio.pages[].frame` entries (ADR 0038). */
+export const declaredFrames = (m: Manifest): unknown[] =>
+  (m.studio?.pages ?? []).map((p) => p?.frame).filter((f) => f !== undefined);
+
+/**
+ * Each declared frame must be a file inside `ui/`, which ships in the archive as
+ * built. The CLI does not build it: bring the built document into `ui/`.
+ */
+export function checkFrames(dir: string, m: Manifest): void {
+  const frames = declaredFrames(m);
+  if (frames.length === 0) return;
+  const ui = join(dir, 'ui');
+  const root = existsSync(ui) ? realpathSync(ui) + sep : '';
+  for (const frame of frames) {
+    const file = typeof frame === 'string' && frame ? join(ui, frame) : '';
+    const real = root && file && existsSync(file) ? realpathSync(file) : '';
+    if (!real || !real.startsWith(root) || !statSync(real).isFile()) {
+      throw new Error(
+        `studio.pages[].frame ${JSON.stringify(frame)} is not a file under ui/. ` +
+          'Build the document into ui/ before packing.',
+      );
+    }
+  }
+}
+
 export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<void> {
   const dir = resolve(opts.dir ?? process.cwd());
   const entry = join(dir, 'engine', 'index.ts');
@@ -369,6 +402,11 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
     // A Studio-only extension has no bundle; its declared collections still
     // need their digest, or the engine refuses them at load.
     const manifest = existsSync(join(dir, 'manifest.json')) ? readManifest(dir) : undefined;
+    if (manifest) checkFrames(dir, manifest);
+    if (manifest && !declaresCollections(manifest) && declaredFrames(manifest).length > 0) {
+      console.log(`${c.green('✓')} pack complete`);
+      return;
+    }
     if (!manifest || !declaresCollections(manifest)) {
       throw new Error(
         `No engine/index.ts at ${entry}. ` +
@@ -386,6 +424,7 @@ export async function extensionPackCommand(opts: ExtensionPackOptions): Promise<
 
   const manifest = readManifest(dir);
   console.log(`📦 Packing ${c.bold(manifest.name)} v${manifest.version}`);
+  checkFrames(dir, manifest);
 
   // Validate peer-deps against the allow-list. If a publisher wants to
   // ship a peer-dep that's NOT in the allow-list, they must set

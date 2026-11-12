@@ -24,7 +24,7 @@ import { join, basename, dirname, resolve } from 'path';
 import { tmpdir } from 'os';
 import { signBundle, sha256Hex } from '@zveltio/sdk/publish';
 import { extensionValidateCommand } from './extension-validate.js';
-import { extensionPackCommand } from './extension-pack.js';
+import { declaredFrames, extensionPackCommand } from './extension-pack.js';
 import { readKeyFile, resolveKeyId } from './keys.js';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
@@ -139,9 +139,11 @@ async function runEnginePack(
   tierOpts: { firstParty?: boolean; token?: string; registryUrl?: string },
 ): Promise<void> {
   // A Studio-only extension packs only for its declared collections' digest.
-  const { collections } = readManifest(dir);
-  const declares = Array.isArray(collections) && collections.length > 0;
-  if (!existsSync(join(dir, 'engine', 'index.ts')) && !declares) return;
+  // So are its frames checked (ADR 0038).
+  const manifest = readManifest(dir) as Parameters<typeof declaredFrames>[0];
+  const declares = Array.isArray(manifest.collections) && manifest.collections.length > 0;
+  const frames = declaredFrames(manifest).length > 0;
+  if (!existsSync(join(dir, 'engine', 'index.ts')) && !declares && !frames) return;
   await extensionPackCommand({ dir, ...tierOpts });
 }
 
