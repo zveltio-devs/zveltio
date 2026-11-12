@@ -2,7 +2,6 @@
   "routes": [
     "ai",
     "developer/graphql",
-    "geospatial/postgis",
     "mail",
     "pages",
     "storage/cloud"

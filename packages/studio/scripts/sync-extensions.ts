@@ -106,6 +106,42 @@ function copyTreeSkippingTests(from: string, to: string): void {
 }
 
 /**
+ * Remove what a PREVIOUS sync wrote and this one did not.
+ *
+ * Sync only ever added. When `content/page-builder` and `content/portals` merged
+ * into `content/pages`, the admin route `(admin)/page-builder/` and the snapshot
+ * `#lib/ext/content/page-builder/` stayed exactly where they were — so the Studio
+ * kept a Page Builder screen whose every call went to
+ * `/ext/content/page-builder/blocks`, an extension the engine no longer has. The
+ * screen loaded and every button on it 404'd.
+ *
+ * The list of what to remove comes from a manifest this script writes, NOT from
+ * "everything under (admin) that is not an extension". That distinction is the
+ * whole safety argument: `(admin)/` also holds hand-written core routes, and a
+ * prune that inferred generated-ness from the filesystem would delete them the
+ * first time it was run somewhere the extensions repo was missing. Nothing is
+ * ever removed that a previous run of this script did not create.
+ */
+const MANIFEST = join(LIB_EXT, '.synced.json');
+
+interface SyncManifest {
+  routes: string[];
+  libs: string[];
+  contributions: string[];
+}
+
+let previous: SyncManifest = { routes: [], libs: [], contributions: [] };
+if (existsSync(MANIFEST)) {
+  try {
+    previous = JSON.parse(await Bun.file(MANIFEST).text()) as SyncManifest;
+  } catch {
+    // Unreadable manifest: prune nothing this run and rewrite it below. Deleting
+    // on a guess is the one thing this must not do.
+    previous = { routes: [], libs: [], contributions: [] };
+  }
+}
+
+/**
  * Extension pages the Studio deliberately does not carry.
  *
  * An entry belongs here when an extension ships a page for a feature the core
@@ -154,6 +190,13 @@ for (const extRoot of EXT_ROOTS) {
     // still live under studio/src/ and must keep syncing into $lib/ext/.
     // `client/` counts too: an extension may ship only a block renderer.
     if (!hasPages && !hasSrc && !hasClient) continue;
+
+    // A directory a previous run created is rewritten whole, so a file the
+    // extension deleted does not survive as a stale copy (a stale page stays a
+    // live route). Only directories `.synced.json` names: a core route is never
+    // touched.
+    if (previous.libs.includes(extName))
+      rmSync(join(LIB_EXT, extName), { recursive: true, force: true });
 
     // The extension's `client/` → `#lib/ext/<name>/client/`.
     //
@@ -208,6 +251,7 @@ for (const extRoot of EXT_ROOTS) {
 
     if (hasPages) {
       const dest = join(ROUTES_EXT, slug);
+      if (previous.routes.includes(slug)) rmSync(dest, { recursive: true, force: true });
       mkdirSync(dest, { recursive: true });
       cpSync(pagesDir, dest, { recursive: true });
       syncedSlugs.push(slug);
@@ -261,42 +305,6 @@ ${entries}
 }
 
 writeContributionsRegistry(syncedContributions);
-
-/**
- * Remove what a PREVIOUS sync wrote and this one did not.
- *
- * Sync only ever added. When `content/page-builder` and `content/portals` merged
- * into `content/pages`, the admin route `(admin)/page-builder/` and the snapshot
- * `#lib/ext/content/page-builder/` stayed exactly where they were — so the Studio
- * kept a Page Builder screen whose every call went to
- * `/ext/content/page-builder/blocks`, an extension the engine no longer has. The
- * screen loaded and every button on it 404'd.
- *
- * The list of what to remove comes from a manifest this script writes, NOT from
- * "everything under (admin) that is not an extension". That distinction is the
- * whole safety argument: `(admin)/` also holds hand-written core routes, and a
- * prune that inferred generated-ness from the filesystem would delete them the
- * first time it was run somewhere the extensions repo was missing. Nothing is
- * ever removed that a previous run of this script did not create.
- */
-const MANIFEST = join(LIB_EXT, '.synced.json');
-
-interface SyncManifest {
-  routes: string[];
-  libs: string[];
-  contributions: string[];
-}
-
-let previous: SyncManifest = { routes: [], libs: [], contributions: [] };
-if (existsSync(MANIFEST)) {
-  try {
-    previous = JSON.parse(await Bun.file(MANIFEST).text()) as SyncManifest;
-  } catch {
-    // Unreadable manifest: prune nothing this run and rewrite it below. Deleting
-    // on a guess is the one thing this must not do.
-    previous = { routes: [], libs: [], contributions: [] };
-  }
-}
 
 const wroteGeneratedTree =
   syncedSlugs.length > 0 || syncedLibDirs.length > 0 || syncedContributions.length > 0;
