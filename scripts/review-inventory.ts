@@ -523,6 +523,7 @@ const SECTIONS: Section[] = [
       'The manifest v2 contract, and the extension migration runner — it has no DDL lint gate.',
     match: [
       `${E}lib/extensions/manifest-schema.ts`,
+      `${E}lib/declared-routes.ts`,
       `${E}lib/extensions/extension-catalog.ts`,
       `${E}lib/extensions/extension-registry.ts`,
       `${E}lib/extensions/extension-utils.ts`,

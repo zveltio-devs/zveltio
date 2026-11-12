@@ -216,9 +216,10 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
     await unregisterJobs(EXT);
     if (base) rmSync(base, { recursive: true, force: true });
     if (!db) return;
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${WEXT}, ${BAD})`.execute(
-      db,
-    );
+    // The refused loads leave registry rows too (`${BAD}i`, `u`, `g`); a row with no
+    // manifest makes every later default grant refuse, so they all go.
+    await sql`DELETE FROM zv_extension_registry
+               WHERE name IN (${EXT}, ${WEXT}) OR name LIKE ${`${BAD}%`}`.execute(db);
     await sql`DELETE FROM pgboss.job WHERE name = ${jobQueueName(EXT, 'ingest')}`
       .execute(db)
       .catch(() => {});
