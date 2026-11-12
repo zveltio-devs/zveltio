@@ -159,7 +159,7 @@ Validation runs in three places, against the same schema:
 
 | Where | When | What happens to an invalid view |
 |---|---|---|
-| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema, a field and operator twice in one condition list, or a `prompt` naming a bound input; `VIEW_REFERENCE` for a collection or action the extension does not own, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json` |
+| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema, a field and operator twice in one condition list, or a `prompt` naming a bound input; `VIEW_REFERENCE` for a collection or action the extension does not own, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json`, a field (`fields`, `card`, `groupBy`, `location`, `filter`, `sort`, …) its collection file does not declare |
 | `zveltio extension pack` | when the bundle is built | the same checks, and a page file that is missing or is not JSON; the pack stops |
 | the engine | when it loads the extension | the schema only; the page is not served and the log says why. The references and the cross-key checks above are the CLI's, and the engine's permission rules decide every call at run time |
 

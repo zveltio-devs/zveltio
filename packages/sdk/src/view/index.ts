@@ -138,6 +138,52 @@ export interface ViewNames {
   views?: Iterable<string>;
   /** The message keys a `Text` may name (its own `en.json` and the shared ones). Omit to skip. */
   messageKeys?: Iterable<string>;
+  /**
+   * Each declared collection's field names, system columns included: a view
+   * bound to one of them may name only these. A collection absent here is not
+   * checked. Omit to skip.
+   */
+  fields?: ReadonlyMap<string, Iterable<string>>;
+}
+
+/** Keys that name one field of the bound collection, by view kind (`*`: any). */
+const ONE_FIELD: Record<string, readonly string[]> = {
+  board: ['groupBy'],
+  timeline: ['start', 'end', 'groupBy'],
+  tree: ['parent', 'label', 'order'],
+  matrix: ['row', 'column', 'value'],
+  map: ['location', 'label'],
+  // `lines` of a form and a `stat` source carry no `type`.
+  '': ['fk', 'order', 'field'],
+};
+
+/** The field names an object bound to a collection uses, by path. */
+function fieldRefs(v: Record<string, unknown>): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  const add = (at: string, x: unknown) => typeof x === 'string' && out.push([at, x]);
+  const fieldList = (x: unknown, at: string) =>
+    Array.isArray(x) &&
+    x.forEach((f, i) => (isObj(f) ? add(`${at}/${i}/field`, f.field) : add(`${at}/${i}`, f)));
+  const conditions = (x: unknown, at: string) =>
+    Array.isArray(x) && x.forEach((c, i) => isObj(c) && add(`${at}/${i}/field`, c.field));
+  for (const k of ONE_FIELD[typeof v.type === 'string' ? v.type : ''] ?? []) add(`/${k}`, v[k]);
+  fieldList(v.fields, '/fields');
+  fieldList(v.card, '/card');
+  if (Array.isArray(v.sections)) {
+    v.sections.forEach((s, i) => isObj(s) && fieldList(s.fields, `/sections/${i}/fields`));
+  }
+  conditions(v.filter, '/filter');
+  conditions(v.emphasisWhen, '/emphasisWhen');
+  const sort = typeof v.sort === 'string' ? [v.sort] : v.sort;
+  if (Array.isArray(sort)) {
+    sort.forEach((x, i) =>
+      add(
+        typeof v.sort === 'string' ? '/sort' : `/sort/${i}`,
+        typeof x === 'string' ? x.replace(/^-/, '') : x,
+      ),
+    );
+  }
+  return out;
 }
 
 /** Maps of values by name: their keys are the caller's, not references. */
@@ -150,7 +196,7 @@ const MESSAGE_KEY = /^[a-z][a-z0-9]*(\.[a-z0-9_]+)+$/i;
  * What the schema cannot see in a (valid) view: a collection or action its
  * extension does not own, a `$selected` that names no earlier pane, a pane id
  * used twice, a `navigate`/`open` to no view of the extension, a message key
- * the extension does not ship. (`fallback` is an inline view, not a reference.)
+ * the extension does not ship, a field its collection does not have. (`fallback` is an inline view, not a reference.)
  */
 export function viewNameIssues(view: unknown, names: ViewNames): ViewIssue[] {
   const collections = new Set(names.collections);
@@ -158,6 +204,8 @@ export function viewNameIssues(view: unknown, names: ViewNames): ViewIssue[] {
   const deps = new Set(names.dependencies ?? []);
   const views = names.views && new Set(names.views);
   const keys = names.messageKeys && new Set(names.messageKeys);
+  const fields =
+    names.fields && new Map([...names.fields].map(([c, f]) => [c, new Set(f)] as const));
   const ids = new Set<string>();
   const out: ViewIssue[] = [];
   const issue = (path: string, message: string) => out.push({ path, message });
@@ -183,6 +231,13 @@ export function viewNameIssues(view: unknown, names: ViewNames): ViewIssue[] {
         if (isObj(pane) && typeof pane.id === 'string') earlier.add(pane.id);
       });
       scope = earlier;
+    }
+    const known = !valuesOnly && typeof v.collection === 'string' && fields?.get(v.collection);
+    if (known) {
+      for (const [at, f] of fieldRefs(v)) {
+        if (!known.has(f))
+          issue(`${path}${at}`, `field "${f}" is not a field of "${v.collection}"`);
+      }
     }
     for (const [k, x] of Object.entries(v)) {
       const at = `${path}/${k}`;
