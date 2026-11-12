@@ -1431,6 +1431,8 @@ a friendly error panel (see `validateSchema`), never a white screen.
 
 ### Code pages (bespoke / Tier-3) + i18n
 
+> **Being retired (ADR 0042).** Do not add new code pages; see [ui-model.md](ui-model.md).
+
 For UIs the schema can't express (editors, canvases, maps, kanban, AI chat, file
 browsers, live timers, message composers), ship `studio/pages/+page.svelte` under
 the extension repo. At install/sync time these are copied into Studio's route tree

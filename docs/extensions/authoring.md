@@ -15,6 +15,8 @@ every extension follows — read it before building one.
 
 ### Where UI goes
 
+> **Direction (ADR 0042, 2026-11-12):** an extension's UI is data only, and each front end draws it its own way. Code pages and Svelte slot widgets are being retired. Read [ui-model.md](ui-model.md) first; this section describes today's state.
+
 Three destinations, and they are not three equal choices. Of the 55 extensions
 shipped today, 60 pages are schemas and seven are code — and each of those seven
 sits BESIDE a schema, for the one part a schema could not express (a chat, an
@@ -90,6 +92,8 @@ Anything else has to be vendored under `studio/src/`.
 
 ### When to use Tier-3 (code pages) vs SDUI
 
+> **Being retired (ADR 0042).** Do not add new code pages. A screen SDUI cannot express is a request for a view kind or a field type ([ui-model.md](ui-model.md)); a screen that truly needs code becomes a front-end package outside the extension.
+
 Prefer **SDUI** (`manifest.studio.pages[].schema` → JSON under `studio/schemas/`)
 for anything that is CRUD, settings, tabs of tables, or KPI+list. See
 [SDUI-SCHEMA-REFERENCE.md](../ui/sdui.md).
@@ -115,24 +119,7 @@ stays as Svelte.
 reintroduces per-extension Studio churn and blocks the “data, not code” admin
 security model.
 
-**Untrusted marketplace UI** (future): iframe sandbox + `postMessage` — not
-runtime Web Components and not Tier-3 Svelte executed in the admin origin.
-Shadow DOM is style isolation, not a security boundary.
-
-Studio ships a **scaffold** (`MarketplaceSandbox.svelte` +
-`lib/components/marketplace/protocol.ts`) behind an explicit `enabled` prop.
-It is **not** wired into marketplace install/enable yet. Protocol v1:
-
-| Direction | `type` | Payload |
-|-----------|--------|---------|
-| host → iframe | `zveltio:marketplace:init` | `extensionId`, `locale` |
-| iframe → host | `zveltio:marketplace:ready` | — |
-| iframe → host | `zveltio:marketplace:navigate` | `path` (must start with `/`) |
-| iframe → host | `zveltio:marketplace:toast` | `level`, `message` |
-
-The iframe uses `sandbox="allow-scripts allow-forms allow-popups"` (no
-`allow-same-origin`). The host ignores messages from unexpected origins or
-unknown types.
+**Untrusted marketplace UI:** withdrawn (ADR 0042). No extension code runs in a browser, framed or not. The `MarketplaceSandbox.svelte` scaffold is not part of the model and is not wired anywhere; see [ui-model.md](ui-model.md).
 
 ## `manifest.json`
 
@@ -631,6 +618,8 @@ export function myRoutes(ctx: ExtensionContext): Hono<{ Variables: { user: any }
   `$lib/extension-api.svelte.js` instead of the SDK register proxies.
 
 ### Studio slot contributions (compile-time, Model 2.5)
+
+> **Being retired (ADR 0042):** a slot takes data only. See [ui-model.md](ui-model.md).
 
 To inject a widget into a core slot (e.g. `dashboard.widgets` on the admin
 home page), add **`studio/src/contribute.ts`** (alongside `studio/src/components/`):
