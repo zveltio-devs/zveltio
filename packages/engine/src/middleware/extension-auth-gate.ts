@@ -275,7 +275,8 @@ export async function fenceAdminGrant(granted: boolean): Promise<boolean> {
 /**
  * Compile a manifest publicRoutes pattern into an anchored RegExp.
  *
- * `*` becomes `.*` (matches across `/`); every literal chunk is regex-escaped.
+ * `*` becomes `.*` (matches across `/`); a `:param` segment (a declared route's,
+ * ADR 0039) matches one segment; every literal chunk is regex-escaped.
  * A leading slash is optional in the declaration — normalized so both
  * `"/public/*"` and `"public/*"` work. Patterns are matched against the
  * sub-path AFTER the `/ext/<name>` mount (which always starts with `/`).
@@ -286,7 +287,11 @@ export function compilePattern(pattern: string): RegExp {
   // rejoin with '.*' (the wildcard matches across '/'). No placeholder char.
   const body = normalized
     .split('*')
-    .map((chunk) => chunk.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+    .map((chunk) =>
+      chunk
+        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/(?<=\/):[A-Za-z_][A-Za-z0-9_]*(?=\/|$)/g, '[^/]+'),
+    )
     .join('.*');
   return new RegExp(`^${body}$`);
 }
