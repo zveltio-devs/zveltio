@@ -25,6 +25,7 @@ import { queryAlterRegistry } from '../data/index.js';
 import { entityAccessRegistry, forgetSensitiveResources } from '../tenancy/index.js';
 import { cronRunner } from '../runtime/index.js';
 import { unregisterExtensionPublicRoutes } from '../../middleware/extension-auth-gate.js';
+import { unregisterSignInProviders } from './sign-in.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkExtensionDependencies } from '../version-checker.js';
@@ -124,6 +125,8 @@ export async function unloadExtension(
   // is for and is never invoked at that moment reads, to anyone auditing, as
   // the cleanup having been done.
   unregisterExtensionPublicRoutes(name);
+  // And the sign-in providers it offered: off the list a front end draws.
+  unregisterSignInProviders(name);
   // Drop the extension's query alters so post-unload selects don't keep
   // applying its filters.
   queryAlterRegistry.unregisterAll(name);

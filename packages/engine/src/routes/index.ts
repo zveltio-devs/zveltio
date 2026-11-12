@@ -63,6 +63,7 @@ import { requestLogMiddleware } from '../middleware/request-log.js';
 import { previewEnvMiddleware } from '../middleware/preview-env.js';
 import { tracingMiddleware } from '../middleware/tracing.js';
 import { demoModeMiddleware } from '../middleware/demo-mode.js';
+import { listSignInProviders } from '../lib/extensions/index.js';
 import { configStepUp } from '../middleware/config-step-up.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
@@ -362,6 +363,11 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   app.route('/api/me/api-keys', memberApiKeysRoutes(db, auth));
   // The extension actions the caller may run (ADR 0029).
   app.route('/api/actions', actionsRoutes(db, auth));
+  // The ways to sign in the extensions on in this tenant offer (ADR 0039): public,
+  // a sign-in page is drawn before anyone is signed in.
+  app.get('/api/sign-in/providers', async (c) =>
+    c.json({ providers: await listSignInProviders(c, poolDb) }),
+  );
 
   // Public invitation accept flow (no session required)
   app.route('/api/invitations', invitationRoutes(db, auth));

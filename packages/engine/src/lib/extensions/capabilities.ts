@@ -38,8 +38,9 @@
  */
 // 2: `auth:users`, 3: `data:write`, 4: `tenant:enter` (implied by `db:admin`),
 // 5: `identity:provision`, 6: `audit:read`, 7: `auth:users` also reads (exportUserData),
-// 8: `data:system`, 9: `files` no longer covers `moveToTrash`, retired (ADR 0034 Q2)
-export const CAPABILITY_CONTRACT_VERSION = 9;
+// 8: `data:system`, 9: `files` no longer covers `moveToTrash`, retired (ADR 0034 Q2),
+// 10: `auth:session` is `host.identity`, no longer `createBetterAuthSession` (ADR 0039)
+export const CAPABILITY_CONTRACT_VERSION = 10;
 
 /**
  * Every capability an extension may declare.
@@ -67,9 +68,9 @@ export const CAPABILITIES = [
   /** Encrypt/decrypt values with the engine's field key. */
   'secrets',
   /**
-   * Mint a Better-Auth session for a user. Effectively "log anyone in", which
-   * is why it must be declared: six catalogue extensions call it today and
-   * nothing gated it.
+   * Sign a person in from a declared public route (`host.identity`, ADR 0039):
+   * the extension asserts who signed in at its provider, the engine finds the
+   * account, opens the session and audits it.
    */
   'auth:session',
   /**
@@ -223,8 +224,6 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   // HMAC under the instance auth secret. Gated with the other key-material
   // helpers: the extension that needs it used to hold BETTER_AUTH_SECRET itself.
   deriveTokenHash: 'secrets',
-  // Identity — "log anyone in"
-  createBetterAuthSession: 'auth:session',
   // Identity — "remove anyone"
   deleteUser: 'auth:users',
   revokeUserSessions: 'auth:users',

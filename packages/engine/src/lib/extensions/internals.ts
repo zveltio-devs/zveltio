@@ -116,7 +116,6 @@ import {
 } from '../security/index.js';
 import { sendNotification } from '../notifications.js';
 import {
-  createBetterAuthSession,
   deleteUser,
   liftOwnBan,
   revokeUserSessions,
@@ -148,7 +147,7 @@ import {
   readAuditActivity,
   countAuditActivity,
 } from './tenant-facts.js';
-import type { CreateSsoSessionOptions, UserDataExport, UserDeletion } from '../users.js';
+import type { UserDataExport, UserDeletion } from '../users.js';
 
 /**
  * Internal extension context — extends the public ExtensionContext from the SDK
@@ -548,14 +547,6 @@ export interface ExtensionInternals {
   // so this slot must stay at least as loose as the SDK's. `unknown` params keep
   // it loose without `any`; the real (stricter) fn is cast in buildExtensionInternals.
   sendNotification: (db: unknown, input: unknown) => Promise<void>;
-  /** Sign in a user the extension verified, where better-auth reads sessions.
-   *  `db` is the caller's transaction; the write is better-auth's. See
-   *  `lib/users.ts`. Gated `auth:session`. */
-  createBetterAuthSession: (
-    db: unknown,
-    userId: string,
-    opts?: CreateSsoSessionOptions,
-  ) => Promise<{ token: string; setCookie: string }>;
   /**
    * Encrypt with a host-held key. `keyring` selects WHICH key: 'field' (the
    * default, FIELD_ENCRYPTION_KEY) or 'mail' (MAIL_ENCRYPTION_KEY), so an
@@ -987,8 +978,6 @@ function buildUnboundInternals(): ExtensionInternals {
     safeFetch,
     assertNonMetadataUrl,
     sendNotification: sendNotification as ExtensionInternals['sendNotification'],
-    createBetterAuthSession: (db: unknown, userId: string, opts?: CreateSsoSessionOptions) =>
-      createBetterAuthSession(db as Database, getDb(), userId, opts),
     encryptSecret: async (plaintext: string, opts?: { keyring?: Keyring }) => {
       const keyring = assertKeyring(opts?.keyring ?? 'field');
       // Already-encrypted input is returned untouched so a caller that

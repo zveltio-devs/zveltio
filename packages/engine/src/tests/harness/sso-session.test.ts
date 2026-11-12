@@ -1,6 +1,6 @@
 /**
- * `ctx.internals.createBetterAuthSession` — signing in a user an SSO extension
- * verified, the way LDAP and SAML call it: inside the request's tenant
+ * `createBetterAuthSession` — signing in a user an SSO extension verified, the
+ * way `host.identity.signIn` calls it (ADR 0039): inside the request's tenant
  * transaction, as `zveltio_rls`, often on a user that transaction just created.
  *
  * It inserted the `session` row on that transaction, and `zveltio_rls` has had no
@@ -12,18 +12,23 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
-import type { Database } from '../../db/index.js';
+import { type Database, getDb } from '../../db/index.js';
 import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
+import { type CreateSsoSessionOptions, createBetterAuthSession } from '../../lib/users.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 
-d('createBetterAuthSession through ctx.internals (no cache)', () => {
+d('createBetterAuthSession (no cache)', () => {
   let app: Hono;
   let db: Database;
-  const internals = gateInternals('auth/ldap', buildExtensionInternals(), ['auth:session']);
+  // The engine's own SSO session writer: `host.identity.signIn` calls it (ADR 0039).
+  const internals = {
+    createBetterAuthSession: (trx: Database, userId: string, opts?: CreateSsoSessionOptions) =>
+      createBetterAuthSession(trx, getDb(), userId, opts),
+  };
   const asRequest = <T>(fn: (trx: Database) => Promise<T>) =>
     buildExtensionInternals().withTenantIsolation(TENANT, fn);
   const signedInAs = async (setCookie: string) => {

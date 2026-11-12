@@ -462,10 +462,11 @@ export interface CreateSsoSessionOptions {
  * its own pool, its storage, its `session.create` hook (the ban check).
  *
  * `db` is the caller's transaction, asked first whether the user is blocked so a
- * ban in that transaction counts. A user that transaction created is invisible to
- * better-auth's pool until the commit, so their session is written then: before
- * the response, which `withTenantIsolation` holds for its after-commit work, and
- * never if the transaction rolls back.
+ * ban in that transaction counts. The session is written once that transaction
+ * commits (a user it created is invisible to better-auth's pool until then, and
+ * the sign-in's audit entry is on it): before the response, which
+ * `withTenantIsolation` holds for its after-commit work, and never if the
+ * transaction rolls back.
  *
  * Users and sessions are instance-wide, so an extension holding `auth:session`
  * can sign in any user row; tenant membership is enforced per request by
@@ -504,20 +505,20 @@ export async function createBetterAuthSession(
   };
   const committed = async () =>
     (await sql`SELECT 1 FROM "user" WHERE id = ${userId}`.execute(poolDb)).rows.length > 0;
-  if (await committed()) {
-    await write();
-    if (opts.replaceExisting) {
-      if (trx) onAfterCommit(revokeOthers);
-      else await revokeOthers();
-    }
-  } else if (trx) {
-    // Asked again after the commit: a savepoint the caller rolled back may have
-    // taken the user with it, and better-auth would cache a session for no one.
+  if (trx) {
+    // Inside a request, the session is written only once it commits — for an
+    // existing user too: written at once, it outlived a request that then rolled
+    // back, and with it the sign-in's audit entry. Asked again after the commit:
+    // a savepoint the caller rolled back may have taken the user with it, and
+    // better-auth would cache a session for no one.
     onAfterCommit(async () => {
       if (!(await committed())) return;
       await write();
       if (opts.replaceExisting) await revokeOthers();
     });
+  } else if (await committed()) {
+    await write();
+    if (opts.replaceExisting) await revokeOthers();
   } else throw new Error(`No user ${userId} to sign in.`);
 
   const cookie = ctx.authCookies.sessionToken;

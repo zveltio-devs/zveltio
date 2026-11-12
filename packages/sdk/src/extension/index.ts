@@ -945,31 +945,6 @@ export interface ExtensionInternals<DB = unknown> {
     input: { user_id: string; type?: string; title: string; message?: string; data?: unknown },
   ) => Promise<void>;
   /**
-   * Sign in a user your extension has already verified (SSO bridge: LDAP,
-   * SAML, OIDC). The session is written by the engine's better-auth — its pool
-   * and, with Valkey, its session cache — so `auth.api.getSession` accepts the
-   * cookie; `ctx.db` cannot reach the `session` table. Refuses a deactivated
-   * user with an error whose `code` is `'account_disabled'`.
-   *
-   * `db` is your transaction: pass the one that provisioned the user. A user it
-   * created gets their session when it commits, and none if it rolls back.
-   * `replaceExisting` ends the user's other sessions once this one is written
-   * and your request commits. Returns the `Set-Cookie` header value for your
-   * Response. Needs `auth:session`.
-   */
-  createBetterAuthSession: (
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    db: any,
-    userId: string,
-    opts?: {
-      ipAddress?: string;
-      userAgent?: string;
-      ttlSeconds?: number;
-      crossDomain?: boolean;
-      replaceExisting?: boolean;
-    },
-  ) => Promise<{ token: string; setCookie: string }>;
-  /**
    * Encrypt a secret (LDAP bind passwords, third-party API keys, …) with
    * the engine's AES-256-GCM field encryption key (FIELD_ENCRYPTION_KEY).
    * Output is prefixed with `enc:v1:`, so calling this on an already-
@@ -1549,6 +1524,56 @@ export interface DeclaredRouteHost extends RouteHost {
    * `data:system`; absent on a worker-isolated route, as `ctx.internals` is.
    */
   enqueue?: (job: string, input: unknown) => Promise<string>;
+  /**
+   * Signing in (ADR 0039 decision 7). Callable only from a declared `public`
+   * route of an extension holding `auth:session`; anywhere else each call
+   * throws. Inline routes only: absent on a worker-isolated route. Engines from
+   * 3.0.0-beta.113.
+   */
+  identity?: RouteIdentity;
+}
+
+/**
+ * The one way an extension signs a person in: it says who signed in at its
+ * provider, and the engine does the rest. The engine finds or creates the
+ * account by `email` under its linking rule, refuses a disabled account, opens
+ * the session (ending the person's other sessions once the request commits),
+ * writes the audit entry with the provider as actor, and hands back the
+ * headers that carry the session. `provider` is one of the ids this extension
+ * declares in the manifest's `signInProviders`.
+ */
+export interface RouteIdentity {
+  /**
+   * Resolves to the account and the headers to answer with: `Set-Cookie`, and
+   * `set-auth-token` for a caller that sent no session cookie. A refusal throws
+   * an error whose `code` is `account_disabled` (403), `account_exists` (403: an
+   * account for that address exists and this tenant has no claim to it),
+   * `not_a_member` (403: this tenant does not admit the person — a withdrawn
+   * member, or outside the default tenant an account that is not its member) or
+   * `invalid_input` (400), with `status` set; the engine has audited it.
+   * Without an approved `auth:session` it throws `capability_required` (403).
+   */
+  signIn(input: SignInInput): Promise<SignInResult>;
+  /**
+   * Record a sign-in the provider refused (a wrong password, an assertion that
+   * did not validate): the engine writes the failed sign-in's audit entry.
+   * `identifier` is what the person gave (a user name), never a secret.
+   */
+  signInRefused(input: { provider: string; identifier: string; reason: string }): Promise<void>;
+}
+
+export interface SignInInput {
+  /** A `signInProviders` id of this extension. */
+  provider: string;
+  /** The person's stable id at the provider (an LDAP DN, a SAML NameID). */
+  subject: string;
+  email: string;
+  name?: string;
+}
+
+export interface SignInResult {
+  user: { id: string; email: string; name: string };
+  headers: Headers;
 }
 
 /**

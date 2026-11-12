@@ -279,6 +279,45 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
     }
     if (isObject(r)) seenRoutes.add(`${r.method} ${r.path}`);
   });
+  // Sign-in providers (ADR 0039 decision 8), each started by a declared public
+  // route: `POST` for `credentials`, `GET` for `redirect`, without parameters.
+  if (obj.signInProviders !== undefined && !Array.isArray(obj.signInProviders)) {
+    out.push(err('MANIFEST_BAD_SIGN_IN_PROVIDER', '"signInProviders" must be an array'));
+  }
+  const providerIds = new Set<string>();
+  (Array.isArray(obj.signInProviders) ? obj.signInProviders : []).forEach((p, i) => {
+    const method = isObject(p) && p.kind === 'credentials' ? 'POST' : 'GET';
+    const ok =
+      isObject(p) &&
+      Object.keys(p).every((k) => ['id', 'label', 'kind', 'route'].includes(k)) &&
+      typeof p.id === 'string' &&
+      /^[a-z][a-z0-9-]{0,63}$/.test(p.id) &&
+      typeof p.label === 'string' &&
+      p.label.length > 0 &&
+      p.label.length <= 100 &&
+      (p.kind === 'credentials' || p.kind === 'redirect') &&
+      declaredRoutes.some(
+        (r) =>
+          isObject(r) &&
+          r.method === method &&
+          r.path === p.route &&
+          r.access === 'public' &&
+          !String(p.route).includes(':'),
+      );
+    if (!ok) {
+      out.push(
+        err(
+          'MANIFEST_BAD_SIGN_IN_PROVIDER',
+          `signInProviders[${i}] needs an id, a label, kind (credentials|redirect) and the route of a declared public route without parameters that starts it (POST for credentials, GET for redirect)`,
+        ),
+      );
+    } else if (providerIds.has(p.id as string)) {
+      out.push(
+        err('MANIFEST_BAD_SIGN_IN_PROVIDER', `sign-in provider "${p.id}" is declared twice`),
+      );
+    }
+    if (isObject(p) && typeof p.id === 'string') providerIds.add(p.id);
+  });
   // `publicRoutes` (deprecated) and the declared public routes: what a job or
   // `forwardCredentials` may name.
   const publicPaths = [
