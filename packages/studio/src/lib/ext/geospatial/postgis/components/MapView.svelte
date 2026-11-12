@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { mapTiles } from '#lib/map-tiles.js';
   /**
    * Plot a collection's records on a map.
    *
@@ -135,9 +136,10 @@
     });
 
     map = L.map(mapElement).setView(FALLBACK_CENTER, 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
-    }).addTo(map);
+    // The operator chooses the tile server (ADR 0043); null = no tiles.
+    void Promise.resolve(mapTiles()).then((t) => {
+      if (t && map) L.tileLayer(t.url, { attribution: t.attribution }).addTo(map);
+    });
 
     draw();
   });
