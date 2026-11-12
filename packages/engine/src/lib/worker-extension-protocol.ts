@@ -86,7 +86,8 @@ export interface RouteInvokeRequest {
   url?: string;
   headers: Record<string, string>;
   query: Record<string, string>;
-  body?: string; // JSON or text; binary not supported in C-minimal
+  /** The request's bytes, unchanged: a binary upload crosses as sent (ADR 0039 decision 3). */
+  body?: Uint8Array<ArrayBuffer>;
   /**
    * What `c.get('user')` reads inline: the session user or API-key principal
    * the `/ext/*` gate admitted. The worker's handlers see it; the host never
@@ -101,7 +102,8 @@ export interface RouteInvokeResponse {
   id: WorkerMessageId;
   status?: number;
   headers?: Record<string, string>;
-  body?: string;
+  /** The response's bytes, unchanged: a handler's binary answer crosses as sent. */
+  body?: Uint8Array<ArrayBuffer>;
   error?: string;
   /** The SQLSTATE of an error the handler did not catch, for the host's `problemOnError`. */
   errno?: string;

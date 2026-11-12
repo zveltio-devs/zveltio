@@ -1311,7 +1311,12 @@ export class WorkerExtensionHost {
         }) => {
           const live = this.workers.get(managed.name);
           if (!live) return new Response('Extension worker is not running', { status: 503 });
-          const bodyText = await c.req.raw.text().catch(() => '');
+          // Bytes, not text: a text decode replaced every invalid UTF-8 sequence,
+          // so an image or PDF upload reached the handler corrupted.
+          const body = await c.req.raw
+            .arrayBuffer()
+            .then((b) => new Uint8Array(b))
+            .catch(() => undefined);
           // Drop the `/ext/<name>` segments rather than string-replacing the
           // name: Hono matched a percent-encoded name (`/ext/%70robe/x`), and
           // a replace left the whole path for the worker to 404 on.
@@ -1372,7 +1377,7 @@ export class WorkerExtensionHost {
                   url: c.req.raw.url,
                   headers,
                   query: c.req.query(),
-                  body: bodyText || undefined,
+                  body: body?.length ? body : undefined,
                   tenantId: reqTenantId ?? undefined,
                   user,
                 });
@@ -1397,7 +1402,7 @@ export class WorkerExtensionHost {
               }
               return new Response(resp.error ?? 'worker error', { status: 500 });
             }
-            return new Response(resp.body ?? '', {
+            return new Response(resp.body ?? null, {
               status: resp.status ?? 200,
               headers: resp.headers,
             });
