@@ -30,6 +30,7 @@ import {
   harnessAvailable,
   plantMagicLink,
 } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -38,6 +39,8 @@ d('extension offboarding through ctx.internals', () => {
   let app: Hono;
   let db: Database;
   const internals = gateInternals('auth/scim', buildExtensionInternals(), ['auth:users']);
+  // The offboarding helpers `host.identity` is built from (ADR 0039 decision 9).
+  const idp = identityAs('ext:auth/scim');
   // Where an extension's handler runs: the request's tenant transaction.
   const asRequest = <T>(fn: (trx: Database) => Promise<T>) =>
     buildExtensionInternals().withTenantIsolation(TENANT, fn);
@@ -119,7 +122,7 @@ d('extension offboarding through ctx.internals', () => {
     const { cookie, userId, email } = await createMemberSession(app, db);
     expect(await sessionUser(cookie)).toBe(userId);
 
-    await asRequest(() => internals.revokeUserSessions(userId));
+    await asRequest(() => idp.revokeUserSessions(userId));
 
     expect(await sessionUser(cookie)).toBeUndefined();
     const signIn = await app.request('/api/auth/sign-in/email', {
@@ -158,7 +161,7 @@ d('extension offboarding through ctx.internals', () => {
       (await auth.handler(new Request(await plantMagicLink(authCtx, email)))).status;
 
     try {
-      await asRequest((trx) => internals.setUserActive(trx, userId, false));
+      await asRequest((trx) => idp.setUserActive(trx, userId, false));
 
       expect(await sessionUser(cookie)).toBeUndefined();
       expect(await passwordSignIn()).toBe(403);
@@ -174,7 +177,7 @@ d('extension offboarding through ctx.internals', () => {
       const sessions = await sql`SELECT 1 FROM session WHERE "userId" = ${userId}`.execute(db);
       expect(sessions.rows).toHaveLength(0);
 
-      await asRequest((trx) => internals.setUserActive(trx, userId, true));
+      await asRequest((trx) => idp.setUserActive(trx, userId, true));
 
       expect(await passwordSignIn()).toBe(200);
       expect(await magicLinkSignIn()).toBe(200);
@@ -210,12 +213,12 @@ d('extension offboarding through ctx.internals', () => {
       ).status;
     expect(await call()).not.toBe(401);
 
-    await asRequest((trx) => internals.setUserActive(trx, userId, false));
+    await asRequest((trx) => idp.setUserActive(trx, userId, false));
     expect(await call()).toBe(401);
     expect(await wsUpgrade()).toBe(401);
 
     // Reactivation does not bring it back (ADR 0010): it was revoked, not hidden.
-    await asRequest((trx) => internals.setUserActive(trx, userId, true));
+    await asRequest((trx) => idp.setUserActive(trx, userId, true));
     expect(await call()).toBe(401);
   });
 
@@ -248,7 +251,7 @@ d('extension offboarding through ctx.internals', () => {
     const god = (await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db))
       .rows[0]!.id;
 
-    await expect(asRequest((trx) => internals.setUserActive(trx, god, false))).rejects.toThrow(
+    await expect(asRequest((trx) => idp.setUserActive(trx, god, false))).rejects.toThrow(
       'is the instance owner (god) and cannot be deactivated',
     );
     await expect(
@@ -263,8 +266,9 @@ d('extension offboarding through ctx.internals', () => {
 
   it('is refused to an extension that did not declare auth:users', () => {
     const bare = gateInternals('compliance/gdpr', buildExtensionInternals(), ['database']);
-    expect(() => bare.revokeUserSessions('anyone')).toThrow(CapabilityDeniedError);
-    expect(() => bare.setUserActive(db, 'anyone', false)).toThrow(CapabilityDeniedError);
     expect(() => bare.deleteUser(db, 'anyone', { reason: 'x' })).toThrow(CapabilityDeniedError);
+    // Directory offboarding is `host.identity`'s (ADR 0039 decision 9), not an internal.
+    const all = buildExtensionInternals() as unknown as Record<string, unknown>;
+    expect([all.revokeUserSessions, all.setUserActive]).toEqual([undefined, undefined]);
   });
 });

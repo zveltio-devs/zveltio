@@ -19,6 +19,7 @@ import {
 import { CapabilityDeniedError, gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -26,8 +27,8 @@ const TENANT = '00000000-0000-0000-0000-000000000001';
 d('ban provenance', () => {
   let app: Hono;
   let db: Database;
-  const scim = gateInternals('auth/scim', buildExtensionInternals(), ['auth:users']);
-  const ldap = gateInternals('auth/ldap', buildExtensionInternals(), ['auth:users']);
+  const scim = identityAs('ext:auth/scim');
+  const ldap = identityAs('ext:auth/ldap');
   const asRequest = <T>(fn: (trx: Database) => Promise<T>) =>
     buildExtensionInternals().withTenantIsolation(TENANT, fn);
 
@@ -114,13 +115,9 @@ d('ban provenance', () => {
     expect(await ban(id)).toEqual({ banned: true, ban_source: 'unknown', banned_at: null });
   });
 
-  it('is gated auth:users, and has no caller outside the gate', async () => {
-    const bare = gateInternals('compliance/gdpr', buildExtensionInternals(), ['database']);
-    expect(() => bare.liftOwnBan(db, 'anyone')).toThrow(CapabilityDeniedError);
-    expect(() => buildExtensionInternals().liftOwnBan(db, 'anyone')).toThrow('gateInternals');
-    expect(() => buildExtensionInternals().setUserActive(db, 'anyone', false)).toThrow(
-      'gateInternals',
-    );
+  it('is no longer offered to extensions: `host.identity.setActive` is (ADR 0039 decision 9)', () => {
+    const all = buildExtensionInternals() as unknown as Record<string, unknown>;
+    expect([all.liftOwnBan, all.setUserActive]).toEqual([undefined, undefined]);
   });
 
   describe('migration 035 on an existing install', () => {

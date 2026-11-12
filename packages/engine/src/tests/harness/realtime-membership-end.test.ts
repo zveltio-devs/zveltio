@@ -27,6 +27,7 @@ import {
   harnessAvailable,
   wsUpgradeData,
 } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
@@ -39,7 +40,7 @@ d('an open realtime connection when its membership is ended or removed', () => {
   let god = '';
   let ext: Database;
   const probes: string[] = [];
-  const scim = gateInternals('auth/scim', buildExtensionInternals(), ['identity:provision']);
+  const scim = identityAs('ext:auth/scim');
   const as = <R>(fn: (trx: Database) => Promise<R>) =>
     buildExtensionInternals().withTenantIsolation(T.id, () => fn(ext));
 

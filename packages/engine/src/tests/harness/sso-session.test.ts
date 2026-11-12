@@ -17,6 +17,7 @@ import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { type CreateSsoSessionOptions, createBetterAuthSession } from '../../lib/users.js';
 import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { identityAs } from '../../testing/identity-as.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -38,7 +39,7 @@ d('createBetterAuthSession (no cache)', () => {
   };
   // What both extensions do before signing in: `provisionUser` on the same
   // transaction (`zveltio_rls` writes no "user" row of its own).
-  const identity = gateInternals('auth/ldap', buildExtensionInternals(), ['identity:provision']);
+  const identity = identityAs('ext:auth/ldap');
   const provision = async () =>
     (await identity.provisionUser({ email: `sso-${crypto.randomUUID()}@test.local`, name: 'SSO' }))
       .user.id;
