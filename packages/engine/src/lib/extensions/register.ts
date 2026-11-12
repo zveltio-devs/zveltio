@@ -1083,6 +1083,11 @@ export async function finalizeExtensionLoad(
   // middleware/extension-auth-gate.ts.
   // And the declared routes, each with its access (ADR 0039); `publicRoutes` is deprecated.
   const publicRoutes = manifest?.publicRoutes ?? [];
+  if (publicRoutes.length > 0) {
+    console.warn(
+      `[extensions] "${extName}" declares publicRoutes, deprecated by ADR 0039: declare each in "routes" with access "public".`,
+    );
+  }
   const apiKeyRoutes = (manifest as { apiKeyRoutes?: string[] } | null)?.apiKeyRoutes ?? [];
   const manifestRoutes = manifest?.routes ?? [];
   registerExtensionPublicRoutes(
