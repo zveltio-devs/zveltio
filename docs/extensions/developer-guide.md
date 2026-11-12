@@ -251,6 +251,7 @@ computes the SHA-256, and patches these blocks in place.
 | `homepage` | string | no | URL. |
 | `permissions` | string[] | no | **Enforced capabilities.** See §Capabilities below. Validated at load — an unknown value fails the manifest. |
 | `publicRoutes` | string[] | no | Routes reachable WITHOUT a session, relative to the `/ext/<name>` mount (e.g. `["/webhook/twilio", "/public/*"]`). Everything else is fail-closed (401 for anonymous). `*` matches across `/`. See §5 "Authentication". |
+| `signInProviders` | object[] | no | The ways to sign in you offer: `[{ id, label, kind, route }]`, `kind` `credentials` (`route` is a declared public `POST` taking `{ "username", "password" }` as JSON) or `redirect` (a declared public `GET` the browser is sent to). Listed at `GET /api/sign-in/providers`. See §5 "Signing a person in". |
 | `apiKeyRoutes` | string[] | no | Routes an API key may call as well as a session: `"<GET\|POST\|PUT\|PATCH\|DELETE> <pattern>"`, patterns as in `publicRoutes` (e.g. `["GET /invoices", "POST /invoices"]`). The key needs the scope `$ext:<name>` with the method's action. Undeclared routes stay session-only. See §5 "Authentication". |
 | `forwardCredentials` | object | no | Worker-isolated extensions only. The engine strips the caller's `Cookie`, `Authorization`, `Proxy-Authorization` and `X-API-Key` from every request it hands a worker (signature headers such as `Stripe-Signature` pass); `ctx.auth.api.getSession()` still answers with the caller's session, minus `session.token`, approved or not (in a service another extension calls: `{ user: { id } }` only). A public route that authenticates on its own names the ones it needs back, keyed by its `publicRoutes` entry: `{ "/scim/*": ["authorization"] }`. Any other key or header name fails the manifest. A request, not a grant: nothing is forwarded until an operator approves the whole map — `POST /api/marketplace/<name>/install` or `/approve-forward-credentials` with `{ "forward_credentials": { … } }` — and a version that asks for one header more forwards nothing until approved again. |
 | `peerDependencies` | object | no | Bundled INTO `engine/index.js` when `engine.bundlePeers: true`. The "install at enable time" model was retired in alpha.113 — bundling is the only path that works on the compiled binary. |
@@ -292,7 +293,7 @@ your `ctx`, not inside your own code.
 | `tenant:enter` | `ctx.internals.withTenantIsolation` into a tenant other than the one the request or job runs as, or where none runs (load time, a timer, a schedule). Without it (or `db:admin`) that helper enters only the running tenant. Grants nothing else — no `adminDb`, no extra tables. |
 | `ddl` | `ctx.internals.enqueueDDLJob` — create/alter physical tables. |
 | `secrets` | `encryptSecret` / `decryptSecret`. |
-| `auth:session` | `createBetterAuthSession` — sign in any user who is not deactivated (optionally ending their other sessions). |
+| `auth:session` | `host.identity` on a declared public route — say who signed in at your provider; the engine finds or creates the account, refuses a disabled one, opens the session and audits it. See §5 "Signing a person in". |
 | `auth:users` | `deleteUser`, `revokeUserSessions`, `setUserActive`, `liftOwnBan`, `exportUserData` — delete any user, end their sessions, block and restore their sign-in, or read what the engine holds about them (a data-subject access request). A block records your extension as its source; `liftOwnBan` lifts only a block you placed, while `setUserActive(…, true)` lifts any. |
 | `identity:provision` | `provisionUser`, `listTenantUsers`, `updateUserProfile`, `addTenantMember`, `removeTenantMember`, `setTenantMembershipEnd` — the engine is the only writer of `"user"`, `zv_tenant_users` and `zv_tenants`. Find-or-create a verified, passwordless account (never god; an existing one only if the running tenant has a claim to it — its member, or a bare record — else `account_exists`), inside the running tenant transaction when there is one, so a rollback undoes it and the Casbin grades, which land at commit; list, join (`member`/`viewer` only), remove and date the memberships of the RUNNING tenant; rename a user that tenant alone holds. `isSingleTenantInstance` is ungated. |
 | `audit:read` | `readAuditActivity` — the running tenant's recent audit rows (who did what to which record, and when; no `metadata`, no `ip`). `countAuditActivity({ since, eventType?, resourceType? })`, a count over the same rows, is ungated. |
@@ -695,6 +696,58 @@ declared in `publicRoutes`.
 every declared `publicRoutes` entry is actually reachable anonymously and that a
 non-declared path is `401`. A forgotten declaration or a regressed gate fails the
 `runtime-probe` job.
+
+### Signing a person in
+
+An identity provider (a directory, a SAML IdP) proves who someone is; the engine
+signs them in (ADR 0039). Declare the provider and the public route that starts
+it, and hold `auth:session`:
+
+```jsonc
+{
+  "permissions": ["auth:session"],
+  "routes": [{ "method": "POST", "path": "/login", "access": "public", "handler": "login" }],
+  "signInProviders": [{ "id": "ldap", "label": "Directory", "kind": "credentials", "route": "/login" }]
+}
+```
+
+```ts
+export const login: RouteHandler = async (request, { host }) => {
+  const { username, password } = await request.json();
+  const person = await checkAtProvider(username, password).catch(() => null);
+  if (!person) {
+    await host.identity!.signInRefused({ provider: 'ldap', identifier: username, reason: 'bad credentials' });
+    return Response.json({ error: 'Authentication failed' }, { status: 401 });
+  }
+  try {
+    const { user, headers } = await host.identity!.signIn({
+      provider: 'ldap', subject: person.dn, email: person.mail, name: person.cn,
+    });
+    return Response.json({ user }, { headers });
+  } catch (err) {
+    const { status = 500, message } = err as { status?: number; message: string };
+    return Response.json({ error: message }, { status });
+  }
+};
+```
+
+- `signIn` finds the account by `email` (case-insensitively) or creates a
+  verified, passwordless one. An existing account the tenant has no claim to —
+  god, an instance administrator, another tenant's administrator — throws
+  `account_exists` (403); a disabled one `account_disabled` (403). The engine
+  opens the session, ends the person's other sessions once the request commits,
+  and writes `auth.login_success` with the provider and the subject.
+- `headers` carry the session: `Set-Cookie`, and `set-auth-token` for a caller
+  that sent no session cookie (a native or server client, as for the engine's
+  own sign-in). Answer with them.
+- `signInRefused` writes `auth.login_failed` for a refusal at your provider; a
+  refusal by the engine is already audited. `identifier` is what the person
+  typed, never a secret.
+- Only on a declared `public` route, of an extension holding `auth:session`,
+  for a `provider` it declares; anywhere else each call throws. A route
+  `register` mounts has no `identity`, and neither does a worker-isolated route.
+  There is no way to open a session for a user id of your choosing.
+- Engines from 3.0.0-beta.113.
 
 ### Reading files at runtime
 

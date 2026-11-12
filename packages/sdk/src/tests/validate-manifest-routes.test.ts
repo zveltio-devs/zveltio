@@ -50,3 +50,41 @@ describe('manifest routes', () => {
     expect(codes({ routes: {} })).toEqual(['MANIFEST_BAD_ROUTE']);
   });
 });
+
+describe('manifest signInProviders (ADR 0039 decision 8)', () => {
+  const login = { method: 'POST', path: '/login', access: 'public', handler: 'login' };
+  const start = { method: 'GET', path: '/start', access: 'public', handler: 'start' };
+  const dir = { id: 'dir', label: 'Directory', kind: 'credentials', route: '/login' };
+
+  it('takes a provider started by a declared public route of its kind', () => {
+    expect(
+      codes({
+        routes: [login, start],
+        signInProviders: [dir, { id: 'sso', label: 'SSO', kind: 'redirect', route: '/start' }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('refuses what the engine refuses', () => {
+    for (const bad of [
+      { kind: 'redirect' },
+      { route: '/start' },
+      { route: '/nowhere' },
+      { id: 'Dir' },
+      { label: '' },
+      { kind: 'oauth' },
+      { extra: 1 },
+    ]) {
+      expect(
+        codes({ routes: [login, start], signInProviders: [{ ...dir, ...bad }] }),
+        JSON.stringify(bad),
+      ).toEqual(['MANIFEST_BAD_SIGN_IN_PROVIDER']);
+    }
+    expect(codes({ routes: [{ ...login, access: 'caller' }], signInProviders: [dir] })).toEqual([
+      'MANIFEST_BAD_SIGN_IN_PROVIDER',
+    ]);
+    expect(codes({ routes: [login], signInProviders: [dir, dir] })).toEqual([
+      'MANIFEST_BAD_SIGN_IN_PROVIDER',
+    ]);
+  });
+});

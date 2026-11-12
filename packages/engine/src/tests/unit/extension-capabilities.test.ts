@@ -25,7 +25,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 function fakeInternals() {
   return {
     decryptSecret: () => 'plaintext',
-    createBetterAuthSession: () => 'session',
+    deleteUser: () => 'deleted',
     enqueueDDLJob: () => 'job',
     generatePDFAsync: () => 'pdf',
     // Ungated helper — no ambient authority.
@@ -47,13 +47,13 @@ describe('gateInternals', () => {
   it('names the extension, the member and the capability to add', () => {
     const g = gateInternals('rogue-ext', fakeInternals(), []);
     try {
-      g.createBetterAuthSession();
+      g.deleteUser();
       throw new Error('should have thrown');
     } catch (e) {
       const msg = (e as Error).message;
       expect(msg).toContain('rogue-ext');
-      expect(msg).toContain('createBetterAuthSession');
-      expect(msg).toContain('auth:session');
+      expect(msg).toContain('deleteUser');
+      expect(msg).toContain('auth:users');
     }
   });
 
@@ -96,9 +96,7 @@ describe('gateInternals', () => {
     const one = Object.getOwnPropertyDescriptor(g, 'decryptSecret')?.value as () => unknown;
     expect(() => one()).toThrow(CapabilityDeniedError);
     const all = Object.getOwnPropertyDescriptors(g);
-    expect(() => (all.createBetterAuthSession.value as () => unknown)()).toThrow(
-      CapabilityDeniedError,
-    );
+    expect(() => (all.deleteUser.value as () => unknown)()).toThrow(CapabilityDeniedError);
     expect((all.withTenantIsolation.value as () => unknown)()).toBe('bound to ext:ai');
   });
 });
@@ -167,7 +165,7 @@ describe('INTERNALS_CAPABILITY coverage', () => {
     for (const member of [
       'decryptSecret',
       'encryptSecret',
-      'createBetterAuthSession',
+      'deleteUser',
       'enqueueDDLJob',
       'runEdgeFunction',
       'sendNotification',
@@ -176,6 +174,13 @@ describe('INTERNALS_CAPABILITY coverage', () => {
     ]) {
       expect(INTERNALS_CAPABILITY[member]).toBeTruthy();
     }
+  });
+
+  it('retired createBetterAuthSession: no member opens a session for a user id (ADR 0039)', () => {
+    // It signed in whichever user id the extension named; `host.identity.signIn`
+    // takes who signed in at the provider and finds the account itself.
+    expect('createBetterAuthSession' in buildExtensionInternals()).toBe(false);
+    expect(INTERNALS_CAPABILITY.createBetterAuthSession).toBeUndefined();
   });
 
   it('retired moveToTrash: no member trashes a file past the caller rule (ADR 0034 Q2)', () => {

@@ -323,6 +323,15 @@ export default defineExtension(['data:write', 'data:system'], {
   inside `asSystem`. A throw from the route rolls back a put with its bytes; a
   delete's bytes go once the request commits. A public route has no files.
   Absent on a worker-isolated route. Engines from 3.0.0-beta.110.
+- A declared public route of an extension holding `auth:session` also has
+  `host.identity` (ADR 0039): `signIn({ provider, subject, email, name })`
+  signs in the person your provider vouched for — the engine finds or creates
+  the account, refuses a disabled one, opens the session, audits it and hands
+  back the headers to answer with — and `signInRefused({ provider, identifier,
+  reason })` audits a refusal at the provider. The manifest's
+  `signInProviders` names each provider and the route that starts it; the
+  engine lists them at `GET /api/sign-in/providers`. Engines from
+  3.0.0-beta.113. See the developer guide, "Signing a person in".
 
 ### Inbound webhooks: a public route enqueues, a job writes
 

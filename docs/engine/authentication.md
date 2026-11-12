@@ -9,6 +9,7 @@ Complete guide for configuring and using authentication in Zveltio.
 - [Overview](#overview)
 - [Email & Password](#email--password)
 - [OAuth Providers](#oauth-providers)
+- [Sign-in providers from extensions](#sign-in-providers-from-extensions)
 - [Two-Factor Authentication (2FA)](#two-factor-authentication-2fa)
 - [Session Management](#session-management)
 - [God Mode / Emergency Access](#god-mode--emergency-access)
@@ -181,6 +182,36 @@ await authClient.signIn.magicLink({ email: 'user@example.com' });
 ```
 
 ---
+
+## Sign-in providers from extensions
+
+An extension can offer a way to sign in — `auth/ldap` a directory, `auth/saml`
+an identity provider (ADR 0039). The extension proves who the person is; the
+engine finds or creates the account, refuses a disabled one, opens the session
+and audits it (`auth.login_success`, `auth.login_failed`, with the provider in
+the metadata).
+
+A front end draws its sign-in page from the list, with no knowledge of the
+extensions:
+
+```bash
+GET /api/sign-in/providers
+# { "providers": [
+#   { "id": "ldap", "label": "LDAP / Active Directory", "kind": "credentials",
+#     "extension": "auth/ldap", "url": "/ext/auth/ldap/login" },
+#   { "id": "saml", "label": "SAML single sign-on", "kind": "redirect",
+#     "extension": "auth/saml", "url": "/ext/auth/saml/login" } ] }
+```
+
+Public, and per tenant: it lists the providers of the extensions turned on for
+the tenant the request resolves to. An extension whose own settings are not
+filled in yet is still listed; its route answers 503 until they are.
+
+- **`credentials`**: `POST` `{ "username", "password" }` as JSON to `url`. The
+  answer carries the session cookie, and `set-auth-token` for a client that
+  sent no cookie (see [Bearer session tokens](#bearer-session-tokens-native-and-server-clients)).
+- **`redirect`**: send the browser to `url` (optionally `?redirect=/path`, a
+  relative path to land on). It comes back signed in.
 
 ## Two-Factor Authentication (2FA)
 
@@ -378,5 +409,6 @@ Authorization: Bearer zvk_abc123...
 | `POST` | `/api/auth/two-factor/enable` | Enable 2FA — returns TOTP URI |
 | `POST` | `/api/auth/two-factor/verify-totp` | Verify TOTP code |
 | `POST` | `/api/auth/two-factor/disable` | Disable 2FA |
+| `GET` | `/api/sign-in/providers` | The extensions' sign-in providers for this tenant (engine route, not Better-Auth) |
 
 All endpoints follow the Better-Auth API contract. See [better-auth.com/docs](https://www.better-auth.com/docs) for the full reference.

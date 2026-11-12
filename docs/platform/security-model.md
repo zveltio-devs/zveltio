@@ -87,8 +87,9 @@ header — they don't contain the nonce.
 | Path | Method | Auth | Notes |
 |---|---|---|---|
 | `/api/auth/*` | Better-Auth | password / OAuth / passkey / magic-link | Built-in |
-| `/ext/auth/saml/*` | SAML 2.0 | IdP-asserted | `ctx.internals.createBetterAuthSession` bridges to Better-Auth |
-| `/ext/auth/ldap/*` | Bind via ldapts | Username + password | Same SSO bridge as SAML |
+| `/ext/auth/saml/*` | SAML 2.0 | IdP-asserted | `host.identity.signIn` (ADR 0039): the engine finds the account, opens the session and audits it |
+| `/ext/auth/ldap/*` | Bind via ldapts | Username + password | Same engine sign-in as SAML |
+| `/api/sign-in/providers` | GET | none | The sign-in providers of the extensions on in the tenant, for a front end's sign-in page |
 | `/api/api-keys/*` | session key for management | `X-API-Key` / `Authorization: Bearer zvk_…` for usage | HMAC-SHA256 of key stored, never plaintext |
 
 ### Rate-limiting
