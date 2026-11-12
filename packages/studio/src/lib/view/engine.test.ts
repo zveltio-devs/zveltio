@@ -4,11 +4,21 @@ vi.mock('#lib/api.js', () => ({ api: {}, dataApi: {} }));
 
 import {
   actionInputFields,
+  choicesOf,
+  dayKey,
+  daysBetween,
   elapsed,
   findAction,
   formPayload,
+  isWithin,
   listParams,
+  period,
+  periodQueries,
+  relatedOf,
+  shiftDays,
+  reorder,
   toFormField,
+  treeParents,
   viewHref,
 } from './engine.js';
 
@@ -128,5 +138,144 @@ describe('elapsed', () => {
     const now = Date.parse('2026-11-12T12:00:00Z');
     expect(elapsed('2026-11-12T09:00:00Z', now, 'en')).toBe('3 hours ago');
     expect(elapsed('not a date', now, 'en')).toBe('not a date');
+  });
+});
+
+describe('the slice 4 kinds: time, trees, choices', () => {
+  it('a period is a day, a week from Monday, or a whole month', () => {
+    expect(period('2026-11-12', 'day')).toEqual(['2026-11-12']);
+    expect(period('2026-11-12', 'week')).toEqual([
+      '2026-11-09',
+      '2026-11-10',
+      '2026-11-11',
+      '2026-11-12',
+      '2026-11-13',
+      '2026-11-14',
+      '2026-11-15',
+    ]);
+    const feb = period('2028-02-20', 'gantt');
+    expect([feb[0], feb.length, feb[feb.length - 1]]).toEqual(['2028-02-01', 29, '2028-02-29']);
+  });
+
+  it('a move keeps a date a date and a timestamp its time of day', () => {
+    expect(shiftDays('2026-11-30', 2)).toBe('2026-12-02');
+    const at = new Date(2026, 10, 12, 9, 30).toISOString();
+    const moved = new Date(shiftDays(at, -3) as string);
+    expect([moved.getDate(), moved.getHours(), moved.getMinutes()]).toEqual([9, 9, 30]);
+    expect(shiftDays(null, 1)).toBeNull();
+    expect(daysBetween('2026-11-30', '2026-12-02')).toBe(2);
+    // A date is its own day, never shifted by the time zone.
+    expect(dayKey('2026-11-12')).toBe('2026-11-12');
+    expect(dayKey(new Date(2026, 10, 12, 23, 59).toISOString())).toBe('2026-11-12');
+    expect(dayKey('soon')).toBeNull();
+  });
+
+  it('a node is within itself and its ancestors chain, and a cycle in the data ends the walk', () => {
+    const parentOf = new Map<string, string | null>([
+      ['a', null],
+      ['b', 'a'],
+      ['c', 'b'],
+      ['x', 'y'],
+      ['y', 'x'],
+    ]);
+    expect(isWithin('a', 'c', parentOf)).toBe(true);
+    expect(isWithin('c', 'c', parentOf)).toBe(true);
+    expect(isWithin('c', 'a', parentOf)).toBe(false);
+    expect(isWithin('a', 'x', parentOf)).toBe(false);
+  });
+
+  it('choices come as declared: plain values or { value, label }', () => {
+    expect(
+      choicesOf({
+        name: 's',
+        type: 'select',
+        options: { choices: ['a', { value: 2, label: 'Two' }] },
+      }),
+    ).toEqual([
+      { value: 'a', label: 'a' },
+      { value: '2', label: 'Two' },
+    ]);
+    expect(choicesOf({ name: 't', type: 'text' })).toEqual([]);
+  });
+});
+
+describe('the slice 4 kinds: queries, order, cycles, relations', () => {
+  it('a timeline with an end asks twice: what overlaps, and what has no end', () => {
+    const own = [{ field: 'kind', op: 'eq' as const, value: 'trip' }];
+    expect(periodQueries(own, 's', undefined, '2026-11-01', '2026-12-01')).toEqual([
+      [
+        ...own,
+        { field: 's', op: 'lt', value: '2026-12-01' },
+        { field: 's', op: 'gte', value: '2026-11-01' },
+      ],
+    ]);
+    expect(periodQueries(own, 's', 'e', '2026-11-01', '2026-12-01')).toEqual([
+      [
+        ...own,
+        { field: 's', op: 'lt', value: '2026-12-01' },
+        { field: 'e', op: 'gte', value: '2026-11-01' },
+      ],
+      [
+        ...own,
+        { field: 's', op: 'lt', value: '2026-12-01' },
+        { field: 's', op: 'gte', value: '2026-11-01' },
+        { field: 'e', op: 'null' },
+      ],
+    ]);
+    // The view's own `s gte` stays the view's.
+    const mine = [{ field: 's', op: 'gte' as const, value: { $today: true as const } }];
+    expect(periodQueries(mine, 's', undefined, 'a', 'b')).toEqual([
+      [...mine, { field: 's', op: 'lt', value: 'b' }],
+    ]);
+  });
+
+  it('swapping order: each takes the other; equal or empty, all siblings are renumbered', () => {
+    const sibs = [
+      { id: 'a', pos: 3 },
+      { id: 'b', pos: 7 },
+      { id: 'c', pos: 7 },
+    ];
+    expect(reorder(sibs, 0, 1, 'pos')).toEqual({
+      renumber: false,
+      writes: [
+        { record: sibs[0], patch: { pos: 7 } },
+        { record: sibs[1], patch: { pos: 3 } },
+      ],
+    });
+    // Equal (or empty): every sibling renumbered 0..n-1 in the new order.
+    expect(reorder(sibs, 2, 1, 'pos')).toEqual({
+      renumber: true,
+      writes: [
+        { record: sibs[0], patch: { pos: 0 } },
+        { record: sibs[2], patch: { pos: 1 } },
+        { record: sibs[1], patch: { pos: 2 } },
+      ],
+    });
+    expect(reorder([{ pos: null }, { pos: 4 }], 0, 1, 'pos').renumber).toBe(true);
+  });
+
+  it('a parent outside the rows is none, and a cycle is broken at its first record', () => {
+    const rows = [
+      { id: 'a', p: 'gone' },
+      { id: 'x', p: 'y' },
+      { id: 'y', p: 'x' },
+      { id: 'z', p: 'y' },
+    ];
+    expect(Object.fromEntries(treeParents(rows, 'p'))).toEqual({
+      a: null,
+      x: null,
+      y: 'x',
+      z: 'y',
+    });
+  });
+
+  it('a relation names its collection; any other field none', () => {
+    expect(relatedOf({ name: 'r', type: 'm2o', options: { related_collection: 'roles' } })).toBe(
+      'roles',
+    );
+    expect(
+      relatedOf({ name: 'r', type: 'text', options: { related_collection: 'roles' } }),
+    ).toBeNull();
+    expect(relatedOf({ name: 'r', type: 'reference' })).toBeNull();
   });
 });

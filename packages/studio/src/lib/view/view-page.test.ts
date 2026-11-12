@@ -150,7 +150,8 @@ describe('view/2 renderer', () => {
   it('falls back to the generated list for a kind it does not draw', async () => {
     const { default: ViewPage } = await import('./ViewPage.svelte');
     const { container } = render(ViewPage, {
-      props: { ext: 'notes', view: { type: 'board', collection: 'notes', groupBy: 'status' } },
+      // A kind of a later `view/2` than this Studio knows.
+      props: { ext: 'notes', view: { type: 'gallery', collection: 'notes' } as never },
     });
     await waitFor(() => expect(container.textContent).toContain('First'));
     expect(container.querySelector('[data-testid="view-not-drawn"]')).toBeTruthy();

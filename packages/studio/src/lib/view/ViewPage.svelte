@@ -11,6 +11,7 @@ import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
 import {
   type Button,
+  type Change,
   readActionResult,
   resolveInput,
   type View,
@@ -35,6 +36,7 @@ import {
   toFormField,
   type ViewHost,
   viewHref,
+  WHOLE,
 } from './engine.js';
 import ViewNode from './ViewNode.svelte';
 
@@ -87,10 +89,23 @@ function navigate(viewId: string, p: Record<string, unknown>) {
   void goto(resolve(href.slice(1)));
 }
 
-async function run(action: string, input: Record<string, unknown>) {
+/** Runs an action and acts on its result; `true` once the engine ran it. */
+async function run(action: string, input: Record<string, unknown>): Promise<boolean> {
+  let result: unknown;
   try {
-    const outcome = readActionResult(await runAction(host.ext, action, input));
-    host.version++;
+    result = await runAction(host.ext, action, input);
+  } catch (e) {
+    toast.error((e as Error).message || m['common.failed']());
+    return false;
+  }
+  host.version++;
+  await settle(result);
+  return true;
+}
+
+async function settle(result: unknown) {
+  try {
+    const outcome = readActionResult(result);
     // Not an `ActionResult`: the action ran, its result cannot be read.
     if (outcome.kind === 'invalid') {
       toast.error(m['extPage.renderFailed']());
@@ -130,7 +145,7 @@ async function press(b: Button, scope: ViewScope) {
   if (!input) return void toast.error(m['view.selectFirst']());
   // The view's bound input wins: a prompt never overrides what the view fixed.
   const go = (asked: Record<string, unknown>): Promise<void> => {
-    const fire = () => run(b.action, { ...asked, ...input });
+    const fire = async () => void (await run(b.action, { ...asked, ...input }));
     if (!b.confirm) return fire();
     settleConfirm();
     return new Promise<void>((resolve) => {
@@ -182,6 +197,64 @@ function remove(collection: string, id: string): Promise<void> {
   });
 }
 
+async function change(
+  c: Change,
+  collection: string,
+  record: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
+  if (c !== 'patch') {
+    // The action sees the record as it is after the change (`$record`).
+    const input = resolveInput(c.input, { ...host.scope, record: { ...record, ...patch } });
+    if (!input) {
+      toast.error(m['view.selectFirst']());
+      return false;
+    }
+    return run(c.action, input);
+  }
+  try {
+    if (record.id === undefined || record.id === null)
+      await dataApi.create(collection, { ...record, ...patch });
+    else await dataApi.update(collection, String(record.id), patch);
+    return true;
+  } catch (e) {
+    toast.error((e as Error).message || m['common.failed']());
+    return false;
+  } finally {
+    host.version++;
+  }
+}
+
+async function changeMany(
+  c: Change,
+  collection: string,
+  writes: { record: Record<string, unknown>; patch: Record<string, unknown> }[],
+): Promise<boolean> {
+  if (c !== 'patch') {
+    for (const w of writes) if (!(await change(c, collection, w.record, w.patch))) return false;
+    return true;
+  }
+  // The data API's bulk limit: more is refused here, before anything is written.
+  if (writes.length > WHOLE) {
+    toast.error(m['view.tooMany']({ count: writes.length, max: WHOLE }));
+    return false;
+  }
+  try {
+    const res = await dataApi.bulkUpdate(
+      collection,
+      writes.map((w) => ({ ...w.patch, id: String(w.record.id) })),
+    );
+    if (!res.errors?.length) return true;
+    toast.error(res.errors.flatMap((e) => e.errors).join('; ') || m['common.failed']());
+    return false;
+  } catch (e) {
+    toast.error((e as Error).message || m['common.failed']());
+    return false;
+  } finally {
+    host.version++;
+  }
+}
+
 function closePrompt() {
   const p = prompt;
   prompt = null;
@@ -209,6 +282,8 @@ const host = $state<ViewHost>({
   press,
   run,
   remove,
+  change,
+  changeMany,
   canRun: () => true,
   version: 0,
 });

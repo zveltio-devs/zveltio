@@ -295,6 +295,17 @@ export const dataApi = {
   delete: (collection: string, id: string) => api.delete(`/api/data/${seg(collection)}/${seg(id)}`),
   bulkDelete: (collection: string, ids: string[]) =>
     api.delete<{ deleted: number }>(`/api/data/${seg(collection)}/bulk`, { ids }),
+  /**
+   * `PATCH /api/data/:collection/bulk`: up to 500 records in one transaction. A
+   * row the engine refuses (rules, validation, a hook) comes back in `errors`
+   * with a 207 while the other rows are written; a thrown database error rolls
+   * the whole batch back.
+   */
+  bulkUpdate: (collection: string, records: ({ id: string } & Record<string, unknown>)[]) =>
+    api.patch<{ updated: number; errors: { index: number; id: string; errors: string[] }[] }>(
+      `/api/data/${seg(collection)}/bulk`,
+      { records },
+    ),
 };
 
 export const usersApi = {

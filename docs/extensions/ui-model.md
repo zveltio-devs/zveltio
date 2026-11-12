@@ -127,6 +127,12 @@ What the specification holds:
 - **A list's own rows**: `create`, `edit` and `delete` offer the collection's
   generated form to add a record, the same form to change a row, and a delete
   after a confirm, all through the data API as the user.
+- **A move or a cell edit** (`move` of a `board`, `timeline` or `tree`; `edit`
+  of a `matrix`) is a `Change`: `patch` writes the changed fields through the
+  data API as the user (a `matrix` cell with no record creates one), or the
+  named action runs with its `input` resolved against `$record` as the record
+  *after* the change, so `{ "id": { "$record": "id" }, "to": { "$record": "status" } }`
+  is the record and its new column. Without `move` or `edit` nothing moves.
 - **Fields** are names; a field object adds only presentation hints
   (`label`, `display`, `tones`, `readOnly`). Type, label and editor come from
   the collection.
@@ -194,7 +200,18 @@ and drawn as before.
 | `detail` | the record's fields, then its `panels` with `$record` set to it |
 | `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
 | `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |
-| `board`, `timeline`, `map`, `tree`, `matrix` | not yet (ADR 0042 slice 4): the view's `fallback`, else the generated list, under a notice |
+| `board` | a column per `groupBy` value (its declared choices first, in order, then any other value, then none); `card` fields, else the first default ones; `move` by dragging a card or by its "Move to" menu (ADR 0042 slice 4) |
+| `timeline` | one period at a time, with previous, today and next: `day` and `week` as an agenda, `month` (the default) as a calendar, `gantt` as a bar per record over the month; the period is part of the data API filter: with an `end`, what overlaps the period and, asked apart (the data API has no OR) and merged by id, what starts in it with an empty `end`, drawn on its start day; `move` by dropping a record on a day, or by the date in its menu (the keyboard's way), moves it, and its `end`, by whole days |
+| `tree` | the records under their `parent`, named by `label`, siblings in `order`; a record whose parent the caller cannot read is a root, and a cycle in the data (A under B under A) is broken at its first record, so every record is drawn once; `move` by dropping a node on another or on the root line, or by its "Move to" menu, never into its own descendants; with `order` too, "Move up" and "Move down" swap the node's `order` with its sibling's, or, when the two are equal or empty, renumber every sibling 0..n-1 in the new order (refused while a page is not read yet); with `patch` that is one bulk update of the data API (at most 500 records, one transaction; a row the engine refuses is named in the answer while the others are written), with an action one run per record, stopping at the first refusal |
+| `matrix` | a grid of the `row` and `column` values the records hold (declared choices first); an axis on a relation (`m2o`, `reference`) shows the related records' labels, read by id through the data API as the user, and keeps the id of one the caller cannot read; each cell the `value`, edited in place with `edit` (a checkbox for a boolean) |
+| `map` | the records with a `location` as points on a Leaflet map (OpenStreetMap tiles) and as a list under it; a point or an entry sets `$selected` |
+| a kind of a later `view/2` | the view's `fallback`, else the generated list, under a notice |
+
+`board`, `timeline`, `tree`, `matrix` and `map` read the data API a page at a
+time at its largest size (500 records). With more, they say how many are shown
+of how many and offer "Load more", which reads the next page and appends it;
+nothing reads further on its own. A re-read after a write keeps the pages
+already read.
 
 Not drawn yet, each with a notice where it appears: a form's `lines`, `recalc`
 and `autosave`, a list's `realtime`, a `stat` that sums, averages or takes a
@@ -244,7 +261,7 @@ adopted:
 
 | Topic | Today | Target (ADR 0042) |
 |---|---|---|
-| Schema format | `sduiSchema: 1` ([sdui.md](../ui/sdui.md)), types in Studio; `view/2` specified and validated (`@zveltio/sdk/view`) and drawn by Studio; `board`, `timeline`, `map`, `tree`, `matrix` fall back to a list | `view/2` only, a shared specification package with JSON Schema, validated by the engine and the CLI |
+| Schema format | `sduiSchema: 1` ([sdui.md](../ui/sdui.md)), types in Studio; `view/2` specified and validated (`@zveltio/sdk/view`) and drawn by Studio, every kind | `view/2` only, a shared specification package with JSON Schema, validated by the engine and the CLI |
 | Data binding | URLs (`dataSource`, `endpoint`) | names of collections and actions |
 | Styling | daisyUI class names, icon names | semantic tones |
 | Computed values | arithmetic tokens, templates, `computed` | server fields or actions |

@@ -7,6 +7,8 @@
 import {
   actionPath,
   type Button,
+  type Change,
+  type Condition,
   type Field,
   type SchemaField,
   toFilter,
@@ -15,6 +17,7 @@ import {
 } from '@zveltio/sdk/view';
 import type { FormField } from '@zveltio/sdk/extension';
 import { api, dataApi } from '#lib/api.js';
+import { labelFromRecord } from '#lib/components/collections/field-helpers.js';
 
 export interface ReadableCollection {
   name: string;
@@ -146,6 +149,17 @@ export function toFormField(f: SchemaField, label?: string): FormField {
   };
 }
 
+/** A select or enum field's declared choices, in order; none for any other field. */
+export function choicesOf(f: SchemaField | undefined): { value: string; label: string }[] {
+  const opts = f?.options as { choices?: unknown[] } | unknown[] | null | undefined;
+  const list = Array.isArray(opts) ? opts : (opts?.choices ?? []);
+  return list.map((c) => {
+    if (typeof c !== 'object' || c === null) return { value: String(c), label: String(c) };
+    const { value, label } = c as { value: unknown; label?: unknown };
+    return { value: String(value), label: String(label ?? value) };
+  });
+}
+
 /** An action's input JSON Schema as the fields of a form. */
 export function actionInputFields(input: RunnableAction['input'] | undefined): SchemaField[] {
   const required = new Set(input?.required ?? []);
@@ -219,13 +233,111 @@ export interface ViewHost {
   /** Runs a button: an action, a navigation (a form handles `save` itself). */
   press: (b: Button, scope: ViewScope) => Promise<void>;
   /** Runs an action with this input and acts on its result. */
-  run: (action: string, input: Record<string, unknown>) => Promise<void>;
+  run: (action: string, input: Record<string, unknown>) => Promise<boolean>;
   /** Deletes a record through the data API, after a confirm. */
   remove: (collection: string, id: string) => Promise<void>;
   /** Whether the caller may run an action (`GET /api/actions`); a hint, the engine decides. */
   canRun: (action: string) => boolean;
+  /**
+   * Writes a change a view made (a board or timeline `move`, a matrix `edit`):
+   * `patch` through the data API (a record with no `id` is created), or the
+   * action with `$record` as the record after the change. Reads again after;
+   * `true` when the write went through.
+   */
+  change: (
+    change: Change,
+    collection: string,
+    record: Record<string, unknown>,
+    patch: Record<string, unknown>,
+  ) => Promise<boolean>;
+  /**
+   * Several such writes as one: `patch` is one bulk update of the data API
+   * (one transaction, at most 500 records); an action runs once per record and
+   * stops at the first refusal. `true` when every write went through.
+   */
+  changeMany: (
+    change: Change,
+    collection: string,
+    writes: { record: Record<string, unknown>; patch: Record<string, unknown> }[],
+  ) => Promise<boolean>;
   /** Bumped after an action ran: lists and records read again. */
   version: number;
+}
+
+/**
+ * The page a board, timeline, tree, matrix or map reads: the data API's
+ * largest. More than that shows a note and "Load more" (`readRows`).
+ */
+export const WHOLE = 500;
+
+/** A date or timestamp as its local day, `YYYY-MM-DD`; `null` when it is neither. */
+export function dayKey(value: unknown): string | null {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : localDay(d);
+}
+
+export function localDay(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** A `YYYY-MM-DD` day as a local midnight. */
+export const dayDate = (key: string) => new Date(`${key}T00:00:00`);
+
+/**
+ * A date or timestamp moved by whole days, in its own form: a date stays a
+ * date, a timestamp keeps its local time of day.
+ */
+export function shiftDays(value: unknown, days: number): unknown {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const d = dayDate(value);
+    d.setDate(d.getDate() + days);
+    return localDay(d);
+  }
+  if (typeof value !== 'string' && typeof value !== 'number') return value;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
+/** Whole days from `a` to `b`, both `YYYY-MM-DD`. */
+export const daysBetween = (a: string, b: string) =>
+  Math.round((dayDate(b).getTime() - dayDate(a).getTime()) / 86_400_000);
+
+/** The days a timeline shows around `anchor`: a day, a week from Monday, or a month. */
+export function period(anchor: string, scale: 'day' | 'week' | 'month' | 'gantt'): string[] {
+  const d = dayDate(anchor);
+  let n = 1;
+  if (scale === 'week') {
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    n = 7;
+  } else if (scale === 'month' || scale === 'gantt') {
+    d.setDate(1);
+    n = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  }
+  return Array.from({ length: n }, (_, i) => {
+    const x = new Date(d);
+    x.setDate(d.getDate() + i);
+    return localDay(x);
+  });
+}
+
+/** Whether `id` is `under` or one of its descendants: a tree must not take a node into itself. */
+export function isWithin(
+  id: string,
+  under: string,
+  parentOf: ReadonlyMap<string, string | null>,
+): boolean {
+  const seen = new Set<string>();
+  for (let at: string | null | undefined = under; at != null; at = parentOf.get(at)) {
+    if (at === id) return true;
+    if (seen.has(at)) return false; // a cycle already in the data: stop
+    seen.add(at);
+  }
+  return false;
 }
 
 /**
@@ -277,4 +389,122 @@ export function elapsed(value: unknown, now = Date.now(), locale?: string): stri
     if (Math.abs(s) >= size) return fmt.format(Math.round(s / size), unit);
   }
   return fmt.format(s, 'second');
+}
+
+/**
+ * The data API queries of a timeline's period `[from, until)`, the view's own
+ * conditions kept (a field and operator the view sets stay the view's). With
+ * an `end`: what overlaps the period, and, asked apart because the data API has
+ * no OR, what starts in it with an empty `end` (a point at its start).
+ */
+export function periodQueries(
+  own: readonly Condition[],
+  start: string,
+  end: string | undefined,
+  from: string,
+  until: string,
+): Condition[][] {
+  const keep = (add: Condition[]) => [
+    ...own,
+    ...add.filter((c) => !own.some((o) => o.field === c.field && o.op === c.op)),
+  ];
+  const before: Condition = { field: start, op: 'lt', value: until };
+  const after: Condition = { field: start, op: 'gte', value: from };
+  if (!end) return [keep([before, after])];
+  return [
+    keep([before, { field: end, op: 'gte', value: from }]),
+    keep([before, after, { field: end, op: 'null' }]),
+  ];
+}
+
+/**
+ * Each record's parent in a tree: the `parent` value when that record is
+ * among the rows, else none (a root). A cycle in the data (A under B under A)
+ * has no root and would not be drawn: its first record becomes one, so every
+ * record is drawn exactly once and the drawing ends.
+ */
+export function treeParents(
+  rows: readonly { id: string; [k: string]: unknown }[],
+  parent: string,
+): Map<string, string | null> {
+  const ids = new Set(rows.map((r) => r.id));
+  const out = new Map(
+    rows.map((r) => {
+      const p = r[parent];
+      return [r.id, p != null && ids.has(String(p)) ? String(p) : null] as const;
+    }),
+  );
+  for (;;) {
+    const kids = new Map<string | null, string[]>();
+    for (const [id, p] of out) kids.set(p, [...(kids.get(p) ?? []), id]);
+    const reached = new Set<string>();
+    const todo = [...(kids.get(null) ?? [])];
+    while (todo.length) {
+      const id = todo.pop() as string;
+      if (reached.has(id)) continue;
+      reached.add(id);
+      todo.push(...(kids.get(id) ?? []));
+    }
+    const lost = rows.find((r) => !reached.has(r.id));
+    if (!lost) return out;
+    out.set(lost.id, null);
+  }
+}
+
+/**
+ * The `order` writes that move sibling `i` to `j` (a neighbour): the two swap
+ * values when both are set and differ; otherwise every sibling is renumbered
+ * 0..n-1 in the new order, so no value collides with another sibling's.
+ */
+export function reorder<R extends Record<string, unknown>>(
+  sibs: readonly R[],
+  i: number,
+  j: number,
+  order: string,
+): { renumber: boolean; writes: { record: R; patch: Record<string, unknown> }[] } {
+  const set = (v: unknown) => v !== null && v !== undefined && v !== '';
+  const [a, b] = [sibs[i][order], sibs[j][order]];
+  if (set(a) && set(b) && a !== b) {
+    return {
+      renumber: false,
+      writes: [
+        { record: sibs[i], patch: { [order]: b } },
+        { record: sibs[j], patch: { [order]: a } },
+      ],
+    };
+  }
+  const next = [...sibs];
+  [next[i], next[j]] = [next[j], next[i]];
+  return { renumber: true, writes: next.map((record, k) => ({ record, patch: { [order]: k } })) };
+}
+
+/** The collection a relation field points at (`m2o`, `reference`); none for any other field. */
+export function relatedOf(f: SchemaField | undefined): string | null {
+  const target = (f?.options as { related_collection?: unknown } | null | undefined)
+    ?.related_collection;
+  return (f?.type === 'm2o' || f?.type === 'reference') && typeof target === 'string'
+    ? target
+    : null;
+}
+
+/**
+ * The labels of records of `collection` by id, read through the data API as
+ * the user, 100 ids a query (a short URL). An id the caller may not read, or
+ * that is gone, has no label.
+ */
+export async function recordLabels(
+  collection: string,
+  ids: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const res = await listRecords(collection, {
+      page: 1,
+      limit: chunk.length,
+      filter: JSON.stringify({ id: { in: chunk } }),
+    });
+    for (const r of res.records) out.set(String(r.id), labelFromRecord(r));
+  }
+  return out;
 }

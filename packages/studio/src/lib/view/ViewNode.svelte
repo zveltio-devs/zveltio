@@ -1,8 +1,8 @@
 <script lang="ts">
 /**
- * One `view/2` view, drawn by kind (ADR 0042 slice 2). Containers (`split`,
- * `tabs`) draw their children here; a kind Studio does not draw yet falls back
- * to the view's own `fallback`, else to the generated list of its collection.
+ * One `view/2` view, drawn by kind (ADR 0042 slices 2 and 4). Containers
+ * (`split`, `tabs`) draw their children here; a kind Studio does not draw falls
+ * back to the view's own `fallback`, else to the generated list of its collection.
  */
 import { fallbackFor, type View, type ViewScope } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
@@ -12,6 +12,10 @@ import ViewForm from './ViewForm.svelte';
 import ViewDetail from './ViewDetail.svelte';
 import ViewStat from './ViewStat.svelte';
 import ViewButtons from './ViewButtons.svelte';
+import ViewBoard from './ViewBoard.svelte';
+import ViewTimeline from './ViewTimeline.svelte';
+import ViewTree from './ViewTree.svelte';
+import ViewMatrix from './ViewMatrix.svelte';
 import Self from './ViewNode.svelte';
 
 interface Props {
@@ -22,8 +26,20 @@ interface Props {
 }
 const { view, host, record }: Props = $props();
 
-/** The kinds this renderer draws; `board`, `timeline`, `map`, `tree` and `matrix` are slice 4. */
-const DRAWN = new Set(['list', 'form', 'detail', 'stat', 'split', 'tabs']);
+/** The kinds this renderer draws: every `view/2` kind. A later kind falls back. */
+const DRAWN = new Set([
+  'list',
+  'form',
+  'detail',
+  'board',
+  'timeline',
+  'tree',
+  'matrix',
+  'map',
+  'stat',
+  'split',
+  'tabs',
+]);
 
 const shown = $derived(DRAWN.has(view.type) ? view : fallbackFor(view, DRAWN));
 const scope = $derived<ViewScope>({ ...host.scope, record });
@@ -50,6 +66,19 @@ let tab = $state(0);
     <ViewForm view={shown} {host} {scope} />
   {:else if shown.type === 'detail'}
     <ViewDetail view={shown} {host} {scope} />
+  {:else if shown.type === 'board'}
+    <ViewBoard view={shown} {host} {scope} />
+  {:else if shown.type === 'timeline'}
+    <ViewTimeline view={shown} {host} {scope} />
+  {:else if shown.type === 'tree'}
+    <ViewTree view={shown} {host} {scope} />
+  {:else if shown.type === 'matrix'}
+    <ViewMatrix view={shown} {host} {scope} />
+  {:else if shown.type === 'map'}
+    <!-- Loaded when drawn: Leaflet stays out of the pages with no map. -->
+    {#await import('./ViewMap.svelte') then { default: ViewMap }}
+      <ViewMap view={shown} {host} {scope} />
+    {/await}
   {:else if shown.type === 'stat'}
     <ViewStat view={shown} {host} {scope} />
   {:else if shown.type === 'split'}
