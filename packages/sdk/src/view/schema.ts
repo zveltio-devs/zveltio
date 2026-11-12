@@ -71,6 +71,23 @@ const common: Schema = {
 const kind = (type: string, description: string, properties: Schema, required: string[]) =>
   closed(description, { type: { const: type }, ...common, ...properties }, ['type', ...required]);
 
+/** What both forms (collection-bound, action-bound) accept. */
+const formProps: Schema = {
+  fields: ref('Fields'),
+  sections: arrayOf(
+    closed('A titled group of fields.', { title: ref('Text'), fields: ref('Fields') }, ['fields']),
+    1,
+  ),
+  lines: closed(
+    'Line items: records of another collection pointing at this one.',
+    { collection: ref('Name'), fk: ref('Name'), fields: ref('Fields'), order: ref('Name') },
+    ['collection', 'fk'],
+  ),
+  submit: ref('Buttons'),
+  recalc: { ...ref('ActionCall'), description: 'Recomputes values on the server.' },
+  autosave: { type: 'boolean' },
+};
+
 const VIEW_KINDS = [
   'ListView',
   'FormView',
@@ -242,40 +259,28 @@ export const VIEW_SCHEMA: Schema = {
       ['collection'],
     ),
     FormView: {
-      ...kind(
-        'form',
-        "Create or edit a record of a collection, or fill an action's input.",
-        {
-          collection: ref('Name'),
-          action: ref('ActionName'),
-          record: {
-            description: 'The record to edit; `singleton` for a one-row collection.',
-            anyOf: [ref('Ref'), { const: 'singleton' }],
-          },
-          fields: ref('Fields'),
-          sections: arrayOf(
-            closed('A titled group of fields.', { title: ref('Text'), fields: ref('Fields') }, [
-              'fields',
-            ]),
-            1,
-          ),
-          lines: closed(
-            'Line items: records of another collection pointing at this one.',
-            {
-              collection: ref('Name'),
-              fk: ref('Name'),
-              fields: ref('Fields'),
-              order: ref('Name'),
+      description: 'A form binds a collection or an action, never both.',
+      anyOf: [
+        kind(
+          'form',
+          'Create or edit a record of a collection.',
+          {
+            collection: ref('Name'),
+            record: {
+              description: 'The record to edit; `singleton` for a one-row collection.',
+              anyOf: [ref('Ref'), { const: 'singleton' }],
             },
-            ['collection', 'fk'],
-          ),
-          submit: ref('Buttons'),
-          recalc: { ...ref('ActionCall'), description: 'Recomputes values on the server.' },
-          autosave: { type: 'boolean' },
-        },
-        [],
-      ),
-      oneOf: [{ required: ['collection'] }, { required: ['action'] }],
+            ...formProps,
+          },
+          ['collection'],
+        ),
+        kind(
+          'form',
+          "Fill an action's input; submitting runs the action.",
+          { action: ref('ActionName'), ...formProps },
+          ['action'],
+        ),
+      ],
     },
     DetailView: kind(
       'detail',

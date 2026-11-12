@@ -160,14 +160,15 @@ function typeOf(v: unknown): string {
 
 const show = (v: unknown) => JSON.stringify(v);
 
-/** The `type` const of a view kind, so a failed `anyOf` reports the kind the value names. */
-function kindOf(s: Schema): unknown {
-  return ((resolve(s).properties as Record<string, Schema> | undefined)?.type ?? {}).const;
+/** The `type` consts a schema (a view kind, or a union of them) accepts. */
+function kindsOf(schema: Schema): unknown[] {
+  const s = resolve(schema);
+  if (Array.isArray(s.anyOf)) return (s.anyOf as Schema[]).flatMap(kindsOf);
+  return [((s.properties as Record<string, Schema> | undefined)?.type ?? {}).const];
 }
 
 function check(schema: Schema, v: unknown, path: string, out: ViewIssue[]): void {
   const s = resolve(schema);
-  const before = out.length;
   const at = (message: string) => out.push({ path, message });
   if ('const' in s && v !== s.const) return void at(`must be ${show(s.const)}`);
   if (Array.isArray(s.enum) && !s.enum.includes(v)) {
@@ -180,29 +181,24 @@ function check(schema: Schema, v: unknown, path: string, out: ViewIssue[]): void
       return void at(`must be ${want.join(' or ')}`);
     }
   }
-  for (const key of ['anyOf', 'oneOf'] as const) {
-    const branches = s[key] as Schema[] | undefined;
-    if (!branches) continue;
+  const branches = s.anyOf as Schema[] | undefined;
+  if (branches) {
     const results = branches.map((b) => {
       const errs: ViewIssue[] = [];
       check(b, v, path, errs);
       return errs;
     });
-    const passed = results.filter((r) => r.length === 0).length;
-    if (key === 'oneOf' && passed > 1) at('must match exactly one of its forms');
-    if (passed === 0) {
-      // Report the closest form: the view kind `type` names, else the form
-      // whose shape the value has (its issues are deeper), else the fewest.
-      const named =
-        isObj(v) && typeof v.type === 'string'
-          ? branches.findIndex((b) => kindOf(b) === v.type)
-          : -1;
-      const score = (r: ViewIssue[]) => r.filter((i) => i.path === path).length * 1000 + r.length;
-      out.push(
-        ...(named >= 0 ? results[named] : results.reduce((a, b) => (score(b) < score(a) ? b : a))),
-      );
-    }
-    if (out.length > before) return;
+    if (results.some((r) => r.length === 0)) return;
+    // Report the closest form: among the view kinds `type` names if any, the
+    // one whose shape the value has (its issues sit deeper), else the fewest.
+    const named = results.filter(
+      (_, i) => isObj(v) && typeof v.type === 'string' && kindsOf(branches[i]).includes(v.type),
+    );
+    const score = (r: ViewIssue[]) => r.filter((i) => i.path === path).length * 1000 + r.length;
+    out.push(
+      ...(named.length > 0 ? named : results).reduce((a, b) => (score(b) < score(a) ? b : a)),
+    );
+    return;
   }
   if (typeof v === 'string') {
     if (typeof s.pattern === 'string' && !new RegExp(s.pattern).test(v)) {

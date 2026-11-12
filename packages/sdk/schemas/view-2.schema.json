@@ -471,118 +471,200 @@
       "additionalProperties": false
     },
     "FormView": {
-      "type": "object",
-      "description": "Create or edit a record of a collection, or fill an action's input.",
-      "properties": {
-        "type": {
-          "const": "form"
-        },
-        "spec": {
-          "const": "zveltio.view/2",
-          "description": "Set on the top-level view of a file."
-        },
-        "id": {
-          "$ref": "#/$defs/PaneId"
-        },
-        "title": {
-          "$ref": "#/$defs/Text"
-        },
-        "actions": {
-          "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
-        },
-        "fallback": {
-          "$ref": "#/$defs/View",
-          "description": "What a front end that does not know this view kind draws instead."
-        },
-        "collection": {
-          "$ref": "#/$defs/Name"
-        },
-        "action": {
-          "$ref": "#/$defs/ActionName"
-        },
-        "record": {
-          "description": "The record to edit; `singleton` for a one-row collection.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Ref"
-            },
-            {
-              "const": "singleton"
-            }
-          ]
-        },
-        "fields": {
-          "$ref": "#/$defs/Fields"
-        },
-        "sections": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "description": "A titled group of fields.",
-            "properties": {
-              "title": {
-                "$ref": "#/$defs/Text"
-              },
-              "fields": {
-                "$ref": "#/$defs/Fields"
-              }
-            },
-            "required": [
-              "fields"
-            ],
-            "additionalProperties": false
-          },
-          "minItems": 1
-        },
-        "lines": {
+      "description": "A form binds a collection or an action, never both.",
+      "anyOf": [
+        {
           "type": "object",
-          "description": "Line items: records of another collection pointing at this one.",
+          "description": "Create or edit a record of a collection.",
           "properties": {
+            "type": {
+              "const": "form"
+            },
+            "spec": {
+              "const": "zveltio.view/2",
+              "description": "Set on the top-level view of a file."
+            },
+            "id": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "title": {
+              "$ref": "#/$defs/Text"
+            },
+            "actions": {
+              "$ref": "#/$defs/Buttons",
+              "description": "Toolbar actions of this view."
+            },
+            "fallback": {
+              "$ref": "#/$defs/View",
+              "description": "What a front end that does not know this view kind draws instead."
+            },
             "collection": {
               "$ref": "#/$defs/Name"
             },
-            "fk": {
-              "$ref": "#/$defs/Name"
+            "record": {
+              "description": "The record to edit; `singleton` for a one-row collection.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "const": "singleton"
+                }
+              ]
             },
             "fields": {
               "$ref": "#/$defs/Fields"
             },
-            "order": {
-              "$ref": "#/$defs/Name"
+            "sections": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A titled group of fields.",
+                "properties": {
+                  "title": {
+                    "$ref": "#/$defs/Text"
+                  },
+                  "fields": {
+                    "$ref": "#/$defs/Fields"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1
+            },
+            "lines": {
+              "type": "object",
+              "description": "Line items: records of another collection pointing at this one.",
+              "properties": {
+                "collection": {
+                  "$ref": "#/$defs/Name"
+                },
+                "fk": {
+                  "$ref": "#/$defs/Name"
+                },
+                "fields": {
+                  "$ref": "#/$defs/Fields"
+                },
+                "order": {
+                  "$ref": "#/$defs/Name"
+                }
+              },
+              "required": [
+                "collection",
+                "fk"
+              ],
+              "additionalProperties": false
+            },
+            "submit": {
+              "$ref": "#/$defs/Buttons"
+            },
+            "recalc": {
+              "$ref": "#/$defs/ActionCall",
+              "description": "Recomputes values on the server."
+            },
+            "autosave": {
+              "type": "boolean"
             }
           },
           "required": [
-            "collection",
-            "fk"
+            "type",
+            "collection"
           ],
           "additionalProperties": false
         },
-        "submit": {
-          "$ref": "#/$defs/Buttons"
-        },
-        "recalc": {
-          "$ref": "#/$defs/ActionCall",
-          "description": "Recomputes values on the server."
-        },
-        "autosave": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "additionalProperties": false,
-      "oneOf": [
         {
+          "type": "object",
+          "description": "Fill an action's input; submitting runs the action.",
+          "properties": {
+            "type": {
+              "const": "form"
+            },
+            "spec": {
+              "const": "zveltio.view/2",
+              "description": "Set on the top-level view of a file."
+            },
+            "id": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "title": {
+              "$ref": "#/$defs/Text"
+            },
+            "actions": {
+              "$ref": "#/$defs/Buttons",
+              "description": "Toolbar actions of this view."
+            },
+            "fallback": {
+              "$ref": "#/$defs/View",
+              "description": "What a front end that does not know this view kind draws instead."
+            },
+            "action": {
+              "$ref": "#/$defs/ActionName"
+            },
+            "fields": {
+              "$ref": "#/$defs/Fields"
+            },
+            "sections": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A titled group of fields.",
+                "properties": {
+                  "title": {
+                    "$ref": "#/$defs/Text"
+                  },
+                  "fields": {
+                    "$ref": "#/$defs/Fields"
+                  }
+                },
+                "required": [
+                  "fields"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1
+            },
+            "lines": {
+              "type": "object",
+              "description": "Line items: records of another collection pointing at this one.",
+              "properties": {
+                "collection": {
+                  "$ref": "#/$defs/Name"
+                },
+                "fk": {
+                  "$ref": "#/$defs/Name"
+                },
+                "fields": {
+                  "$ref": "#/$defs/Fields"
+                },
+                "order": {
+                  "$ref": "#/$defs/Name"
+                }
+              },
+              "required": [
+                "collection",
+                "fk"
+              ],
+              "additionalProperties": false
+            },
+            "submit": {
+              "$ref": "#/$defs/Buttons"
+            },
+            "recalc": {
+              "$ref": "#/$defs/ActionCall",
+              "description": "Recomputes values on the server."
+            },
+            "autosave": {
+              "type": "boolean"
+            }
+          },
           "required": [
-            "collection"
-          ]
-        },
-        {
-          "required": [
+            "type",
             "action"
-          ]
+          ],
+          "additionalProperties": false
         }
       ]
     },

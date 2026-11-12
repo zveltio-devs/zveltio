@@ -124,7 +124,7 @@ export type ListView = {
   realtime?: boolean;
 };
 
-/** Create or edit a record of a collection, or fill an action's input. */
+/** A form binds a collection or an action, never both. */
 export type FormView = {
   type: 'form';
   /** Set on the top-level view of a file. */
@@ -135,10 +135,36 @@ export type FormView = {
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
-  collection?: Name;
-  action?: ActionName;
+  collection: Name;
   /** The record to edit; `singleton` for a one-row collection. */
   record?: Ref | 'singleton';
+  fields?: Fields;
+  sections?: Array<{
+    title?: Text;
+    fields: Fields;
+  }>;
+  /** Line items: records of another collection pointing at this one. */
+  lines?: {
+    collection: Name;
+    fk: Name;
+    fields?: Fields;
+    order?: Name;
+  };
+  submit?: Buttons;
+  /** Recomputes values on the server. */
+  recalc?: ActionCall;
+  autosave?: boolean;
+} | {
+  type: 'form';
+  /** Set on the top-level view of a file. */
+  spec?: 'zveltio.view/2';
+  id?: PaneId;
+  title?: Text;
+  /** Toolbar actions of this view. */
+  actions?: Buttons;
+  /** What a front end that does not know this view kind draws instead. */
+  fallback?: View;
+  action: ActionName;
   fields?: Fields;
   sections?: Array<{
     title?: Text;
