@@ -293,6 +293,14 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
     );
     expect([claim.status, claim.code]).toEqual([409, 'account_exists']);
     expect((await call(DIR, 'get', [`s-${STAMP}-claim`], inT)).out).toBeNull();
+    // The same answer for an account the tenant could not claim (the instance
+    // owner's): which tenant holds an address is not the provider's to learn.
+    const god = String(
+      (await sql<Rec>`SELECT email FROM "user" WHERE role = 'god' LIMIT 1`.execute(db)).rows[0]
+        ?.email,
+    );
+    const owner = await call(DIR, 'provision', [{ subject: `s-${STAMP}-god`, email: god }], inT);
+    expect([owner.status, owner.code, owner.error]).toEqual([409, 'account_exists', claim.error]);
     // Nor does reusing a subject.
     const again = await call(OTHER, 'provision', [{ subject: theirs, email: email('again') }], inT);
     expect([again.status, again.code]).toEqual([409, 'account_exists']);

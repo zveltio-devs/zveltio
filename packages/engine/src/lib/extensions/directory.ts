@@ -326,17 +326,24 @@ export function routeDirectory(c: Context, extName: string, access: string): Rou
         }
         // A new account only: one that exists, whoever holds it, is a conflict
         // an administrator resolves (an invitation proves control of the address).
+        // One answer whether this tenant could claim it or not: which tenant
+        // holds an address is not the provider's to learn.
+        const exists = () =>
+          new IdentityRefusedError(
+            'account_exists',
+            'An account with this e-mail already exists; a provider provisions new accounts ' +
+              "only. An existing account joins a tenant through that tenant's administrator " +
+              '(an invitation).',
+          );
         const { user, created } = await provisionUser(
           { email: input.email, ...(typeof input.name === 'string' ? { name: input.name } : {}) },
           actor,
-        );
-        if (!created) {
-          throw new IdentityRefusedError(
-            'account_exists',
-            'An account with this e-mail exists; a provider provisions new accounts only. An ' +
-              "existing account joins a tenant through that tenant's administrator (an invitation).",
-          );
-        }
+        ).catch((err) => {
+          throw err instanceof IdentityRefusedError && err.code === 'account_exists'
+            ? exists()
+            : err;
+        });
+        if (!created) throw exists();
         await addTenantMember(db, user.id, 'member', actor);
         await asEngineRole(db, () =>
           sql`INSERT INTO zv_identity_links (tenant_id, provider, subject, user_id, active)
