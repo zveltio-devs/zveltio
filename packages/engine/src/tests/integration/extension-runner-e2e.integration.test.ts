@@ -117,6 +117,13 @@ let ping = null;
 let tick = null;
 export default {
   name: '${main}',
+  // ADR 0039: declared routes, answered by plain functions over Request/Response.
+  routes: {
+    declared: async (request, { params, host }) => Response.json({
+      id: params.id, url: request.url, body: await request.text(), host: Object.keys(host),
+    }),
+    mine: () => Response.json({ mine: true }),
+  },
   async register(app, ctx) {
     const db = ctx.db;
     await pair(db, 'register');
@@ -436,6 +443,10 @@ for (const [driver, transport] of LEGS) {
         {
           dependencies: [{ name: dep }],
           publicRoutes: ['/hook', '/fwd'],
+          routes: [
+            { method: 'POST', path: '/declared/:id', access: 'public', handler: 'declared' },
+            { method: 'GET', path: '/declared/mine', access: 'caller', handler: 'mine' },
+          ],
           forwardCredentials: { '/fwd': ['authorization'] },
           apiKeyRoutes: ['GET /who', 'GET /perm', 'GET /notes', 'POST /notes'],
         },
@@ -639,6 +650,10 @@ for (const [driver, transport] of LEGS) {
         'stripe-signature': 't=1,v1=abc',
       };
       out.hook = await call('/hook', creds, 'POST');
+      out.declaredPublic = await call('/declared/7', {}, 'POST', { n: 1 });
+      out.declaredMineAnon = (await call('/declared/mine', {})).status;
+      out.declaredMine = await call('/declared/mine', member);
+      out.declaredUndeclared = (await call('/declared/7', member)).status;
       out.fwd = await call('/fwd', creds, 'POST');
 
       out.rowsInForce = await call('/rows', member);
@@ -833,6 +848,17 @@ for (const [driver, transport] of LEGS) {
           'stripe-signature': 't=1,v1=abc',
         },
       });
+    });
+
+    it('a declared route is served over the transport (ADR 0039)', () => {
+      expect(out.declaredPublic).toMatchObject({
+        status: 200,
+        body: { id: '7', body: '{"n":1}', host: ['collections'] },
+      });
+      expect(String(((out.declaredPublic as Res).body as { url: string }).url)).toEndWith(`/ext/${main}/declared/7`);
+      expect(out.declaredMineAnon).toBe(401);
+      expect(out.declaredMine).toEqual({ status: 200, body: { mine: true } });
+      expect(out.declaredUndeclared).toBe(404);
     });
 
     it('a lapsed tenant member reads nothing and writes nothing (migration 060)', () => {
