@@ -13,8 +13,6 @@ import {
   type Button,
   readActionResult,
   resolveInput,
-  validateView,
-  VIEW_SPEC,
   type View,
   type ViewScope,
 } from '@zveltio/sdk/view';
@@ -83,14 +81,18 @@ async function run(action: string, input: Record<string, unknown>) {
   try {
     const outcome = readActionResult(await runAction(host.ext, action, input));
     host.version++;
+    // Not an `ActionResult`: the action ran, its result cannot be read.
+    if (outcome.kind === 'invalid') {
+      toast.error(m['extPage.renderFailed']());
+      return;
+    }
     if (outcome.kind === 'navigate') return navigate(outcome.view, outcome.params);
     if (outcome.kind === 'reveal') {
       reveal = outcome.value;
       return;
     }
     if (outcome.kind === 'view') {
-      const checked = validateView({ ...outcome.view, spec: VIEW_SPEC });
-      if (!checked.ok) return void toast.error(m['extPage.renderFailed']());
+      // Already checked against the vocabulary as part of `ActionResult`.
       shown = outcome.view;
       return;
     }

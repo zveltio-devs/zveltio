@@ -213,5 +213,30 @@
     },
     "an unknown kind": { "spec": "zveltio.view/2", "type": "gallery", "collection": "a" },
     "detail without a record": { "spec": "zveltio.view/2", "type": "detail", "collection": "a" }
+  },
+  "actionResults": {
+    "valid": {
+      "navigation": { "view": "mail.compose", "params": { "draft_id": "d1", "n": 2 } },
+      "navigation without params": { "view": "mail.inbox" },
+      "inline view": { "view": { "type": "form", "action": "confirm", "fields": ["reason"] } },
+      "file": { "file": "f_123" },
+      "reveal": { "reveal": "sk_live_abc" },
+      "values object": { "total": 42, "currency": "RON" },
+      "values scalar": 3,
+      "values null": null,
+      "values list": [1, "a"]
+    },
+    "invalid": {
+      "view and an unknown key": { "view": "mail.compose", "extra": 1 },
+      "view id that is not one": { "view": "Not An Id" },
+      "inline view not of the vocabulary": { "view": { "type": "list", "dataSource": "/api/x" } },
+      "params with a reference": {
+        "view": "mail.compose",
+        "params": { "id": { "$record": "id" } }
+      },
+      "file not a string": { "file": 7 },
+      "empty file": { "file": "" },
+      "reveal with values": { "reveal": "k", "total": 1 }
+    }
   }
 }

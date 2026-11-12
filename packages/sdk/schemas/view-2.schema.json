@@ -1926,6 +1926,106 @@
           "$ref": "#/$defs/TabsView"
         }
       ]
+    },
+    "ActionResult": {
+      "description": "What an action returns, as a front end reads it (ADR 0042 decision 4). An object with `view`, `file` or `reveal` is one of the closed forms; anything else is values.",
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "Opens a view (a navigation).",
+          "properties": {
+            "view": {
+              "$ref": "#/$defs/ViewId"
+            },
+            "params": {
+              "type": "object",
+              "description": "The parameters it is opened with (`$param`).",
+              "additionalProperties": {
+                "$ref": "#/$defs/Literal"
+              }
+            }
+          },
+          "required": [
+            "view"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Draws this view (wizards, computed screens).",
+          "properties": {
+            "view": {
+              "$ref": "#/$defs/View"
+            }
+          },
+          "required": [
+            "view"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Hands the caller a stored file.",
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "file"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Shows a value once (a key, a secret).",
+          "properties": {
+            "reveal": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "reveal"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/ActionValues"
+        }
+      ]
+    },
+    "ActionValues": {
+      "description": "Values: a scalar, a list, or an object without `view`, `file` or `reveal` (a form `recalc` merges an object of them).",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {}
+        },
+        {
+          "type": "object",
+          "properties": {
+            "view": {
+              "not": {}
+            },
+            "file": {
+              "not": {}
+            },
+            "reveal": {
+              "not": {}
+            }
+          }
+        }
+      ]
     }
   }
 }

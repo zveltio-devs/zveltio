@@ -226,38 +226,3 @@ export function actionPath(extension: string, action: string): string {
   const [ext, name] = dot < 0 ? [extension, action] : [action.slice(0, dot), action.slice(dot + 1)];
   return `/ext/${encodeURIComponent(ext)}/actions/${encodeURIComponent(name)}`;
 }
-
-/**
- * How a front end reads an action's `result` (ADR 0042 decision 4: values, a
- * view, a file, a reveal, a navigation):
- * - `{ view: "<id>", params? }` opens that view (a navigation);
- * - `{ view: { type, ... } }` draws the returned view (wizards, computed screens);
- * - `{ file: "<file id>" }` hands the caller a stored file;
- * - `{ reveal: "<text>" }` shows a value once (a key, a secret);
- * - anything else is values (a form's `recalc` merges an object of them).
- */
-export type ActionOutcome =
-  | { kind: 'navigate'; view: string; params: Record<string, unknown> }
-  | { kind: 'view'; view: View }
-  | { kind: 'file'; file: string }
-  | { kind: 'reveal'; value: string }
-  | { kind: 'values'; values: unknown };
-
-export function readActionResult(result: unknown): ActionOutcome {
-  if (typeof result === 'object' && result !== null && !Array.isArray(result)) {
-    const r = result as Record<string, unknown>;
-    if (typeof r.view === 'string') {
-      const params =
-        typeof r.params === 'object' && r.params !== null
-          ? (r.params as Record<string, unknown>)
-          : {};
-      return { kind: 'navigate', view: r.view, params };
-    }
-    if (typeof r.view === 'object' && r.view !== null && 'type' in r.view) {
-      return { kind: 'view', view: r.view as View };
-    }
-    if (typeof r.file === 'string') return { kind: 'file', file: r.file };
-    if (typeof r.reveal === 'string') return { kind: 'reveal', value: r.reveal };
-  }
-  return { kind: 'values', values: result };
-}

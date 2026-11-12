@@ -324,3 +324,24 @@ export type TabsView = {
 };
 
 export type View = ListView | FormView | DetailView | BoardView | TimelineView | TreeView | MatrixView | MapView | StatView | SplitView | TabsView;
+
+/** What an action returns, as a front end reads it (ADR 0042 decision 4). An object with `view`, `file` or `reveal` is one of the closed forms; anything else is values. */
+export type ActionResult = {
+  view: ViewId;
+  /** The parameters it is opened with (`$param`). */
+  params?: Record<string, Literal>;
+} | {
+  view: View;
+} | {
+  file: string;
+} | {
+  reveal: string;
+} | ActionValues;
+
+/** Values: a scalar, a list, or an object without `view`, `file` or `reveal` (a form `recalc` merges an object of them). */
+export type ActionValues = string | number | boolean | null | unknown[] | {
+  view?: never;
+  file?: never;
+  reveal?: never;
+  [key: string]: unknown;
+};

@@ -1,6 +1,8 @@
 // What every `view/2` renderer shares (ADR 0042 decision 8): references, the
 // data API filter, `when`, the generated defaults, the fallback, action results.
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   $,
   actionPath,
@@ -131,7 +133,22 @@ describe('actions', () => {
     expect(readActionResult({ reveal: 'k' })).toEqual({ kind: 'reveal', value: 'k' });
     expect(readActionResult({ total: 3 })).toEqual({ kind: 'values', values: { total: 3 } });
     expect(readActionResult(null)).toEqual({ kind: 'values', values: null });
+    // A tagged object that is none of the closed forms is not values: no guessing.
+    const bad = readActionResult({ view: 'mail.compose', extra: 1 });
+    expect(bad.kind).toBe('invalid');
   });
+
+  // The shared corpus: the engine's test runs the same results through the
+  // published JSON Schema.
+  const corpus = JSON.parse(
+    readFileSync(join(import.meta.dir, '../../src/tests/fixtures/view-2.json'), 'utf8'),
+  ).actionResults as { valid: Record<string, unknown>; invalid: Record<string, unknown> };
+  for (const [name, r] of Object.entries(corpus.valid)) {
+    it(`reads: ${name}`, () => expect(readActionResult(r).kind).not.toBe('invalid'));
+  }
+  for (const [name, r] of Object.entries(corpus.invalid)) {
+    it(`refuses: ${name}`, () => expect(readActionResult(r).kind).toBe('invalid'));
+  }
 
   it('sorts by the first field, `-` descending', () => {
     expect(toSort('-issued_on')).toEqual({ sort: 'issued_on', order: 'desc' });

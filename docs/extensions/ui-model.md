@@ -127,6 +127,20 @@ What the specification holds:
   `fallback` (the view a front end draws when it does not know this kind).
   Only the top of a file carries `spec`; its `id` (`billing.invoices`) is what
   `navigate` and `open` name. Inside a container `id` names a pane, once.
+- **An action's result** is an `ActionResult` (`$defs/ActionResult` of the JSON
+  Schema), one of:
+
+  | Result | A front end |
+  |---|---|
+  | `{ "view": "<view id>", "params": { ... } }` | opens that view (`params` optional, literal values, read by `$param`) |
+  | `{ "view": { "type": ..., ... } }` | draws the returned view (wizards, computed screens) |
+  | `{ "file": "<file id>" }` | hands the caller the stored file |
+  | `{ "reveal": "<text>" }` | shows the value once (a key, a secret) |
+  | anything else: a scalar, a list, an object without `view`, `file` or `reveal` | values; a form's `recalc` merges an object of them |
+
+  The four forms are closed: `{ "view": "x.y", "extra": 1 }` is not values but
+  an invalid result, and a front end reports it instead of guessing.
+  `readActionResult` in `@zveltio/sdk/view` checks a result and says which it is.
 
 Validation runs in three places, against the same schema:
 
@@ -152,7 +166,7 @@ and only draws it:
 | `defaultFields`, `defaultView`, `viewFields` | the generated default list, form and detail of a collection: no system or computed field, a list at most eight columns, a form without read-only ones |
 | `fallbackFor` | what to draw for a kind the front end does not draw: the view's `fallback`, else the generated list of its collection |
 | `actionPath` | `POST /ext/<extension>/actions/<name>`, or the dependency's for `<dependency>.<action>` |
-| `readActionResult` | an action's result: `{ view: "<id>", params }` opens that view, `{ view: { type, ... } }` draws the returned view, `{ file: "<id>" }` hands over a stored file, `{ reveal: "<text>" }` shows a value once, anything else is values |
+| `readActionResult` | an action's result checked against `ActionResult` (above): `navigate`, `view`, `file`, `reveal`, `values`, or `invalid` |
 
 Every call is the signed-in user's: field lists come from `GET /api/data` (the
 fields the caller may read), rows and records from the data API, actions from
