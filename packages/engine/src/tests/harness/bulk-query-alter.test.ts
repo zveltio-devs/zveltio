@@ -92,8 +92,9 @@ d('bulk writes honour query alters (in-process)', () => {
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ records: [{ id: hidden[0], label: 'rewritten' }] }),
     });
-    const body = (await res.json()) as { updated: number };
-    expect(body.updated).toBe(0);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: { errors: string[] }[] };
+    expect(body.errors[0]!.errors).toEqual(['Record not found']);
 
     const still = await sql<{ label: string }>`
       SELECT label FROM ${sql.table(TABLE)} WHERE id = ${hidden[0]}::uuid
@@ -107,8 +108,9 @@ d('bulk writes honour query alters (in-process)', () => {
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ ids: [hidden[0]] }),
     });
-    const body = (await res.json()) as { deleted: number };
-    expect(body.deleted).toBe(0);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: { errors: string[] }[] };
+    expect(body.errors[0]!.errors).toEqual(['Record not found']);
 
     const still = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.table(TABLE)} WHERE id = ${hidden[0]}::uuid

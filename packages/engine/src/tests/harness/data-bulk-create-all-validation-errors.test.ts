@@ -1,5 +1,5 @@
 /**
- * Phase C — bulk POST returns 207 when every row fails validation (handlers/bulk.ts).
+ * Phase C — bulk POST returns 422 when every row fails validation (handlers/bulk.ts).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -39,7 +39,7 @@ d('data bulk create all validation errors (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 207 with created 0 when every record fails validation', async () => {
+  it('returns 422 naming every record when all fail validation', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -47,12 +47,8 @@ d('data bulk create all validation errors (in-process)', () => {
         records: [{ score: 1 }, { score: 2 }],
       }),
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      created: number;
-      errors: Array<{ index: number; errors: string[] }>;
-    };
-    expect(body.created).toBe(0);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
     expect(body.errors.length).toBe(2);
     expect(body.errors.every((e) => e.errors.length > 0)).toBe(true);
   });

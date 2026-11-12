@@ -1,7 +1,7 @@
 /**
  * Phase C — bulk handler deep paths (handlers/bulk.ts).
  *
- * Correct API shapes, 207 partial success, validation limits, and hook aborts.
+ * Correct API shapes, all-or-nothing refusals (ADR 0044), validation limits, and hook aborts.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
@@ -76,36 +76,28 @@ d('data bulk handler deep paths (in-process)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 207 when PATCH mixes found and missing rows', async () => {
+  it('returns 422 when PATCH mixes found and missing rows', async () => {
     const res = await bulk('PATCH', {
       records: [
         { id: goodId, score: 9 },
         { id: fakeId, score: 8 },
       ],
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      updated: number;
-      errors: Array<{ id: string; errors: string[] }>;
-    };
-    expect(body.updated).toBe(1);
-    expect(body.errors.some((e) => e.id === fakeId)).toBe(true);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ id: string; errors: string[] }> };
+    expect(body.errors.map((e) => e.id)).toEqual([fakeId]);
   });
 
-  it('returns 207 when bulk create has validation errors on one row', async () => {
+  it('returns 422 when bulk create has validation errors on one row', async () => {
     const res = await bulk('POST', {
       records: [{ label: 'ok', score: 1 }, { score: 2 }],
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      created: number;
-      errors: Array<{ index: number; errors: string[] }>;
-    };
-    expect(body.created).toBe(1);
-    expect(body.errors.length).toBeGreaterThanOrEqual(1);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
+    expect(body.errors.map((e) => e.index)).toEqual([1]);
   });
 
-  it('returns 207 when beforeInsert aborts one row in a bulk create', async () => {
+  it('returns 422 when beforeInsert aborts one row in a bulk create', async () => {
     engineEvents.onBefore('record.beforeInsert', (p) => {
       if ((p.data.label as string) === 'blocked') p.abort('quota');
     });
@@ -116,16 +108,12 @@ d('data bulk handler deep paths (in-process)', () => {
         { label: 'blocked', score: 2 },
       ],
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      created: number;
-      errors: Array<{ index: number; errors: string[] }>;
-    };
-    expect(body.created).toBe(1);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
     expect(body.errors.some((e) => e.errors.join('').includes('EXT_HOOK_ABORTED'))).toBe(true);
   });
 
-  it('returns 207 when beforeUpdate aborts one row in a bulk patch', async () => {
+  it('returns 422 when beforeUpdate aborts one row in a bulk patch', async () => {
     const locked = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -143,18 +131,14 @@ d('data bulk handler deep paths (in-process)', () => {
         { id: lockedId, score: 88 },
       ],
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      updated: number;
-      errors: Array<{ id: string; errors: string[] }>;
-    };
-    expect(body.updated).toBe(1);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ id: string; errors: string[] }> };
     expect(
       body.errors.some((e) => e.id === lockedId && e.errors.join('').includes('EXT_HOOK_ABORTED')),
     ).toBe(true);
   });
 
-  it('returns 207 when beforeDelete aborts one id in bulk delete', async () => {
+  it('returns 422 when beforeDelete aborts one id in bulk delete', async () => {
     const extra = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -167,13 +151,10 @@ d('data bulk handler deep paths (in-process)', () => {
     });
 
     const res = await bulk('DELETE', { ids: [goodId, extraId] });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      deleted: number;
-      aborted?: Array<{ id: string; reason: string }>;
-    };
-    expect(body.deleted).toBe(1);
-    expect(body.aborted?.some((a) => a.id === extraId && a.reason === 'protected')).toBe(true);
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { errors: unknown[] }).errors).toEqual([
+      { index: 1, id: extraId, errors: ['EXT_HOOK_ABORTED: protected'] },
+    ]);
   });
 
   it('returns 400 when DELETE ids are not valid UUIDs', async () => {

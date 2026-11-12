@@ -970,6 +970,8 @@ Key semantics:
   `ctx.internals.maybeEncrypt` before writing to an `encrypted: true` field.
 - `abort(reason)` throws `AbortHookError`. The data layer catches it and
   returns HTTP 422 `{ code: 'EXT_HOOK_ABORTED', reason }`. No row is written.
+  In a bulk write the abort refuses the whole batch: 422 `bulk_refused`, the
+  row listed with `EXT_HOOK_ABORTED: <reason>`, and no row of the batch written.
 - A handler that throws anything other than `AbortHookError` becomes a 500.
 
 **Hook scope** — what triggers pre-hooks:

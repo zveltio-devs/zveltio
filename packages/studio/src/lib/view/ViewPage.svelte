@@ -240,13 +240,12 @@ async function changeMany(
     return false;
   }
   try {
-    const res = await dataApi.bulkUpdate(
+    // All or nothing (ADR 0044): a refused row throws, naming every refused row.
+    await dataApi.bulkUpdate(
       collection,
       writes.map((w) => ({ ...w.patch, id: String(w.record.id) })),
     );
-    if (!res.errors?.length) return true;
-    toast.error(res.errors.flatMap((e) => e.errors).join('; ') || m['common.failed']());
-    return false;
+    return true;
   } catch (e) {
     toast.error((e as Error).message || m['common.failed']());
     return false;

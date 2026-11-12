@@ -117,16 +117,15 @@ d('data bulk RLS (in-process)', () => {
         ],
       }),
     });
-    expect(res.status).toBe(207);
+    // All or nothing (ADR 0044): the hidden row refuses the batch.
+    expect(res.status).toBe(422);
     const body = (await res.json()) as {
-      updated: number;
-      errors: Array<{ id: string; errors: string[] }>;
+      errors: Array<{ index?: number; id: string; errors: string[] }>;
     };
-    expect(body.updated).toBe(1);
     expect(body.errors).toEqual([expect.objectContaining({ id: hiddenId })]);
     expect(body.errors[0]!.errors.join(' ')).toContain('not found');
 
-    expect(await titleOf(openId)).toBe('open-updated');
+    expect(await titleOf(openId)).toBe('open-u');
     expect(await titleOf(hiddenId)).toBe('hidden-u');
   });
 
@@ -139,11 +138,14 @@ d('data bulk RLS (in-process)', () => {
       headers: { 'Content-Type': 'application/json', cookie: memberCookie },
       body: JSON.stringify({ ids: [openId, hiddenId] }),
     });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { deleted: number; ids: string[] };
-    expect(body.ids).toEqual([openId]);
+    // Not found for this caller, as `DELETE /:id` answers: the batch is refused.
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      errors: Array<{ index?: number; id: string; errors: string[] }>;
+    };
+    expect(body.errors).toEqual([{ index: 1, id: hiddenId, errors: ['Record not found'] }]);
 
-    expect(await titleOf(openId)).toBeUndefined();
+    expect(await titleOf(openId)).toBe('open-d');
     expect(await titleOf(hiddenId)).toBe('hidden-d');
   });
 });

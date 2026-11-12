@@ -48,11 +48,9 @@ export async function runListPagination(opts: RunOptions): Promise<ListResult> {
 
   try {
     // Seed via bulk endpoint to keep setup fast — we're not measuring inserts here.
-    // Acceptable statuses:
-    //   201 — full success
-    //   207 — partial success (per-row errors but transaction kept the good rows)
-    // Anything else is a real failure; surface the body so CI logs show the
-    // actual engine error instead of a bare status code.
+    // 201 is the only success (a batch is all or nothing); anything else is a
+    // real failure: surface the body so CI logs show the actual engine error
+    // instead of a bare status code.
     const BATCH = 200;
     for (let offset = 0; offset < seedRows; offset += BATCH) {
       const records = Array.from({ length: Math.min(BATCH, seedRows - offset) }, (_, i) => ({
@@ -60,14 +58,13 @@ export async function runListPagination(opts: RunOptions): Promise<ListResult> {
         bucket: (offset + i) % 100,
       }));
       const res = await timedPost(client, `/api/data/${name}/bulk`, { records });
-      if (res.status !== 200 && res.status !== 201 && res.status !== 207) {
+      if (res.status !== 201) {
         const bodyStr = res.body ? JSON.stringify(res.body).slice(0, 500) : '(no body)';
         throw new Error(`bulk seed batch at offset=${offset} returned ${res.status} — ${bodyStr}`);
       }
     }
 
-    // 207 is accepted above, and a 207 whose every row failed seeds nothing: the
-    // pages below would then time an empty table and pass any budget.
+    // An empty table would let the pages below pass any budget: count the seed.
     const seeded = await timedGet(client, `/api/data/${name}?page=1&limit=1`);
     const total = (seeded.body as { pagination?: { total?: number } } | undefined)?.pagination
       ?.total;

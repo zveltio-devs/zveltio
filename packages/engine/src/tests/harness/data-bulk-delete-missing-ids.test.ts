@@ -1,5 +1,6 @@
 /**
- * Phase C — bulk DELETE with only non-existent ids (handlers/bulk.ts).
+ * Phase C — bulk DELETE with only non-existent ids (handlers/bulk.ts): refused, as
+ * `DELETE /:id` answers 404, and every id named (ADR 0044).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -39,7 +40,7 @@ d('data bulk delete missing ids (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 200 with deleted 0 when no ids match existing rows', async () => {
+  it('returns 422 naming every id when no ids match existing rows', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -47,9 +48,11 @@ d('data bulk delete missing ids (in-process)', () => {
         ids: ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'],
       }),
     });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { deleted?: number; ids?: string[] };
-    expect(body.deleted).toBe(0);
-    expect(body.ids ?? []).toHaveLength(0);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
+    expect(body.errors.map((e) => [e.index, e.errors])).toEqual([
+      [0, ['Record not found']],
+      [1, ['Record not found']],
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Phase C — bulk POST mixed validation 207 (handlers/bulk.ts per-row errors).
+ * Phase C — bulk POST mixed validation: the batch is refused whole (ADR 0044).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -10,9 +10,9 @@ import { DDLManager } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const COLLECTION = `hbulkc207_${Date.now()}`;
+const COLLECTION = `hbulkc422_${Date.now()}`;
 
-d('data bulk create mixed 207 (in-process)', () => {
+d('data bulk create mixed refused (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
@@ -42,7 +42,7 @@ d('data bulk create mixed 207 (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 207 when some records validate and others fail', async () => {
+  it('returns 422 naming the invalid row and stores none when one record fails', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -50,14 +50,11 @@ d('data bulk create mixed 207 (in-process)', () => {
         records: [{ label: 'ok-row', score: 1 }, { score: 2 }, { label: 'also-ok', score: 3 }],
       }),
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      created: number;
-      records: unknown[];
-      errors: Array<{ index: number; errors: string[] }>;
-    };
-    expect(body.created).toBe(2);
-    expect(body.records).toHaveLength(2);
-    expect(body.errors.some((e) => e.index === 1)).toBe(true);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
+    expect(body.errors.map((e) => e.index)).toEqual([1]);
+    const rows = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM ${sql.id(`zvd_${COLLECTION}`)}`.execute(db);
+    expect(rows.rows[0]!.n).toBe(0);
   });
 });

@@ -58,7 +58,7 @@ d('bulk entity-access enforcement (in-process)', () => {
       .catch(() => {});
   });
 
-  it('bulkUpdate blocks a row that entity-access denies, still updates the allowed one', async () => {
+  it('bulkUpdate refuses the batch on a row entity-access denies (ADR 0044)', async () => {
     const openId = await post('open-u');
     const lockedId = await post('locked-u');
     entityAccessRegistry.scope(OWNER).register({
@@ -77,10 +77,9 @@ d('bulk entity-access enforcement (in-process)', () => {
         ],
       }),
     });
-    expect(res.status).toBe(207);
+    expect(res.status).toBe(422);
     const body = (await res.json()) as {
-      updated: number;
-      errors: Array<{ id: string; errors: string[] }>;
+      errors: Array<{ index?: number; id: string; errors: string[] }>;
     };
     expect(
       body.errors.some((e) => e.id === lockedId && e.errors.join(' ').includes('Forbidden')),
@@ -91,9 +90,14 @@ d('bulk entity-access enforcement (in-process)', () => {
       SELECT title FROM ${sql.id(tableName)} WHERE id = ${lockedId}
     `.execute(db);
     expect(locked.rows[0]?.title).toBe('locked-u');
+    // ...and neither was the allowed one.
+    const open = await sql<{ title: string }>`
+      SELECT title FROM ${sql.id(tableName)} WHERE id = ${openId}
+    `.execute(db);
+    expect(open.rows[0]?.title).toBe('open-u');
   });
 
-  it('bulkDelete reports denied rows under `forbidden` and does not delete them', async () => {
+  it('bulkDelete refuses the batch on a row entity-access denies (ADR 0044)', async () => {
     const openId = await post('open-d');
     const lockedId = await post('locked-d');
     entityAccessRegistry.scope(OWNER).register({
@@ -107,15 +111,16 @@ d('bulk entity-access enforcement (in-process)', () => {
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ ids: [openId, lockedId] }),
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as { deleted: number; ids: string[]; forbidden?: string[] };
-    expect(body.ids).toContain(openId);
-    expect(body.forbidden ?? []).toContain(lockedId);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      errors: Array<{ index?: number; id: string; errors: string[] }>;
+    };
+    expect(body.errors).toEqual([{ index: 1, id: lockedId, errors: ['Forbidden'] }]);
 
-    // the denied row still exists
+    // both rows still exist
     const still = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM ${sql.id(tableName)} WHERE id = ${lockedId}
+      SELECT count(*)::int AS n FROM ${sql.id(tableName)} WHERE id IN (${openId}, ${lockedId})
     `.execute(db);
-    expect(still.rows[0]!.n).toBe(1);
+    expect(still.rows[0]!.n).toBe(2);
   });
 });

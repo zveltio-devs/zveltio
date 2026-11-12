@@ -103,10 +103,7 @@ function answer(collection: string, params: Record<string, unknown>) {
 const calls: string[] = [];
 const update = vi.fn(async (_c: string, _id: string, _d: unknown) => ({}));
 const bulkUpdate = vi.fn(
-  async (_c: string, _r: unknown[]): Promise<{ updated: number; errors: unknown[] }> => ({
-    updated: 0,
-    errors: [],
-  }),
+  async (_c: string, _r: unknown[]): Promise<{ updated: number }> => ({ updated: 0 }),
 );
 const create = vi.fn(async (_c: string, _d: unknown) => ({}));
 const post = vi.fn(async (_url: string, _body: unknown): Promise<unknown> => ({ result: null }));

@@ -83,7 +83,7 @@ d('bulk read-only column enforcement (in-process)', () => {
       .catch(() => {});
   });
 
-  it('bulkCreate reports a per-row error and does not write the read-only column', async () => {
+  it('bulkCreate refuses the batch on a read-only column and writes nothing', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: memberCookie },
@@ -91,12 +91,9 @@ d('bulk read-only column enforcement (in-process)', () => {
         records: [{ title: 'ok-row' }, { title: 'sneaky', secret: 'leak' }],
       }),
     });
-    expect(res.status).toBe(207); // mixed: one created, one errored
-    const body = (await res.json()) as {
-      created: number;
-      errors: Array<{ index: number; errors: string[] }>;
-    };
-    expect(body.created).toBe(1);
+    expect(res.status).toBe(422); // the read-only row refuses the batch (ADR 0044)
+    const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
+    expect(body.errors.map((e) => e.index)).toEqual([1]);
     const blockedErr = body.errors.find((e) => e.index === 1);
     expect(blockedErr?.errors.join(' ').toLowerCase()).toContain('read-only');
 
@@ -105,6 +102,10 @@ d('bulk read-only column enforcement (in-process)', () => {
       SELECT count(*)::int AS n FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE secret = 'leak'
     `.execute(db);
     expect(leaked.rows[0]!.n).toBe(0);
+    const stored = await sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE title = 'ok-row'
+    `.execute(db);
+    expect(stored.rows[0]!.n).toBe(0);
   });
 
   it('bulkUpdate reports a per-row error for a read-only column', async () => {
@@ -121,7 +122,7 @@ d('bulk read-only column enforcement (in-process)', () => {
       headers: { 'Content-Type': 'application/json', cookie: memberCookie },
       body: JSON.stringify({ records: [{ id, secret: 'leak2' }] }),
     });
-    expect(res.status).toBe(207);
+    expect(res.status).toBe(422);
     const body = (await res.json()) as { errors: Array<{ id: string; errors: string[] }> };
     expect(body.errors[0]?.errors.join(' ').toLowerCase()).toContain('read-only');
 

@@ -14,7 +14,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hbulkufbd_${Date.now()}`;
 const OWNER = 'harness-bulk-update-forbidden-only';
 
-d('bulk update forbidden-only 207 (in-process)', () => {
+d('bulk update forbidden-only 422 (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
@@ -59,7 +59,7 @@ d('bulk update forbidden-only 207 (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 207 with updated 0 when entity-access denies every row', async () => {
+  it('returns 422 naming every row when entity-access denies them all', async () => {
     entityAccessRegistry.scope(OWNER).register({
       table: tableName,
       check: (_record, _user, op) => (op === 'update' ? 'deny' : 'allow'),
@@ -75,12 +75,8 @@ d('bulk update forbidden-only 207 (in-process)', () => {
         ],
       }),
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      updated: number;
-      errors: Array<{ id: string; errors: string[] }>;
-    };
-    expect(body.updated).toBe(0);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ id: string; errors: string[] }> };
     expect(body.errors).toHaveLength(2);
     expect(body.errors.every((e) => e.errors.join(' ').includes('Forbidden'))).toBe(true);
   });

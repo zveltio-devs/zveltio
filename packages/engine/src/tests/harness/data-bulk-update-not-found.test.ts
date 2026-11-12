@@ -49,19 +49,15 @@ d('data bulk update missing records (in-process)', () => {
       body: JSON.stringify(body),
     });
 
-  it('returns 207 with per-row not-found errors when ids are valid but absent', async () => {
+  it('returns 422 with per-row not-found errors when ids are valid but absent', async () => {
     const res = await bulk({
       records: [
         { id: '00000000-0000-4000-8000-000000000011', label: 'ghost', score: 1 },
         { id: '00000000-0000-4000-8000-000000000022', label: 'also-missing', score: 2 },
       ],
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      updated: number;
-      errors: Array<{ id: string; errors: string[] }>;
-    };
-    expect(body.updated).toBe(0);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ id: string; errors: string[] }> };
     expect(body.errors).toHaveLength(2);
     expect(body.errors.every((e) => e.errors.join('').toLowerCase().includes('not found'))).toBe(
       true,

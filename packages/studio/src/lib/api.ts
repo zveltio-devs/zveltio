@@ -2,15 +2,20 @@ import { ENGINE_URL } from './config.js';
 
 /**
  * `detail` with the reasons the envelope's `errors` carries: a refused body
- * (validation_failed) has no `detail`, only zod issues `{ path, message }`, and
- * a 422 from the field pipeline has strings. Without them the toast said "Bad
- * Request" and never which field or why.
+ * (validation_failed) has no `detail`, only zod issues `{ path, message }`, a
+ * 422 from the field pipeline has strings, and a refused bulk write (ADR 0044)
+ * has one `{ index, id?, errors }` per refused row. Without them the toast said
+ * "Bad Request" and never which field, row or why.
  */
 function withReasons(detail: unknown, errors: unknown): string {
   const reasons = Array.isArray(errors)
     ? errors
         .map((x) => {
           if (typeof x === 'string') return x;
+          const row = x as { index?: unknown; id?: unknown; errors?: unknown } | null;
+          if (typeof row?.index === 'number' && Array.isArray(row.errors)) {
+            return `${typeof row.id === 'string' ? row.id : `#${row.index + 1}`}: ${row.errors.join(', ')}`;
+          }
           const issue = x as { path?: unknown; message?: unknown } | null;
           if (typeof issue?.message !== 'string') return null;
           const path = Array.isArray(issue.path) ? issue.path.join('.') : '';
@@ -296,16 +301,13 @@ export const dataApi = {
   bulkDelete: (collection: string, ids: string[]) =>
     api.delete<{ deleted: number }>(`/api/data/${seg(collection)}/bulk`, { ids }),
   /**
-   * `PATCH /api/data/:collection/bulk`: up to 500 records in one transaction. A
-   * row the engine refuses (rules, validation, a hook) comes back in `errors`
-   * with a 207 while the other rows are written; a thrown database error rolls
-   * the whole batch back.
+   * `PATCH /api/data/:collection/bulk`: up to 500 records, all or nothing (ADR
+   * 0044). One refused row (rules, validation, a hook) refuses the batch with a
+   * 422 `bulk_refused` that names every refused row, and nothing is written; the
+   * thrown error's message lists them.
    */
   bulkUpdate: (collection: string, records: ({ id: string } & Record<string, unknown>)[]) =>
-    api.patch<{ updated: number; errors: { index: number; id: string; errors: string[] }[] }>(
-      `/api/data/${seg(collection)}/bulk`,
-      { records },
-    ),
+    api.patch<{ updated: number }>(`/api/data/${seg(collection)}/bulk`, { records }),
 };
 
 export const usersApi = {

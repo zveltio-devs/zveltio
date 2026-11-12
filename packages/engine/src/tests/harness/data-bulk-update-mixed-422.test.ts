@@ -1,5 +1,5 @@
 /**
- * Phase C — bulk PATCH partial success 207 (handlers/bulk.ts per-row errors).
+ * Phase C — bulk PATCH with refused rows: the batch is refused whole (ADR 0044).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -10,9 +10,9 @@ import { DDLManager } from '../../lib/data/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const COLLECTION = `hbulk207_${Date.now()}`;
+const COLLECTION = `hbulk422_${Date.now()}`;
 
-d('data bulk update mixed 207 (in-process)', () => {
+d('data bulk update mixed refused (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
@@ -51,7 +51,7 @@ d('data bulk update mixed 207 (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 207 when some rows update and others fail validation or are missing', async () => {
+  it('returns 422 naming every refused row and updates none', async () => {
     const missingId = '00000000-0000-4000-8000-000000000099';
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'PATCH',
@@ -64,14 +64,16 @@ d('data bulk update mixed 207 (in-process)', () => {
         ],
       }),
     });
-    expect(res.status).toBe(207);
+    expect(res.status).toBe(422);
     const body = (await res.json()) as {
-      updated: number;
       errors: Array<{ index: number; id?: string; errors: string[] }>;
     };
-    expect(body.updated).toBe(1);
-    expect(body.errors.length).toBeGreaterThanOrEqual(2);
-    expect(body.errors.some((e) => e.id === missingId)).toBe(true);
-    expect(body.errors.some((e) => e.errors.join('').length > 0)).toBe(true);
+    // Every refused row, not only the first (ADR 0044).
+    expect(body.errors.map((e) => e.index)).toEqual([1, 2]);
+    expect(body.errors[0]!.id).toBe(missingId);
+    // The valid row was not written either.
+    const row = await sql<{ score: number }>`
+      SELECT score FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${goodId}`.execute(db);
+    expect(Number(row.rows[0]!.score)).toBe(1);
   });
 });

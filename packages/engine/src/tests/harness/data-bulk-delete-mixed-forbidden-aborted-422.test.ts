@@ -1,6 +1,6 @@
 /**
- * Phase C — bulk delete 207 when the batch mixes allowed, forbidden, and aborted rows
- * (handlers/bulk.ts forbidden + aborted response branches together).
+ * Bulk delete mixing allowed, forbidden and aborted rows: 422 naming both refused
+ * rows, and the allowed one is not deleted either (ADR 0044).
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
@@ -16,7 +16,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hbulkmix_${Date.now()}`;
 const OWNER = 'harness-bulk-delete-mixed';
 
-d('bulk delete mixed forbidden+aborted 207 (in-process)', () => {
+d('bulk delete mixed forbidden+aborted 422 (in-process)', () => {
   let app: Hono;
   let db: Database;
   let cookie = '';
@@ -66,7 +66,7 @@ d('bulk delete mixed forbidden+aborted 207 (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 207 with deleted, forbidden, and aborted arrays in one batch', async () => {
+  it('returns 422 naming the forbidden and the aborted row, and deletes none', async () => {
     entityAccessRegistry.scope(OWNER).register({
       table: tableName,
       check: (record, _user, op) =>
@@ -83,21 +83,20 @@ d('bulk delete mixed forbidden+aborted 207 (in-process)', () => {
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ ids: [deletableId, forbiddenId, abortedId] }),
     });
-    expect(res.status).toBe(207);
+    expect(res.status).toBe(422);
     const body = (await res.json()) as {
-      deleted: number;
-      ids: string[];
-      forbidden?: string[];
-      aborted?: Array<{ id: string; reason: string }>;
+      errors: Array<{ index: number; id: string; errors: string[] }>;
     };
-    expect(body.deleted).toBe(1);
-    expect(body.ids).toEqual([deletableId]);
-    expect(body.forbidden ?? []).toContain(forbiddenId);
-    expect(body.aborted?.some((a) => a.id === abortedId && a.reason === 'retain')).toBe(true);
+    expect(body.errors).toEqual([
+      { index: 1, id: forbiddenId, errors: ['Forbidden'] },
+      { index: 2, id: abortedId, errors: ['EXT_HOOK_ABORTED: retain'] },
+    ]);
 
     const remaining = await sql<{ id: string }>`
       SELECT id::text AS id FROM ${sql.id(tableName)} ORDER BY title
     `.execute(db);
-    expect(remaining.rows.map((r) => r.id).sort()).toEqual([abortedId, forbiddenId].sort());
+    expect(remaining.rows.map((r) => r.id).sort()).toEqual(
+      [abortedId, deletableId, forbiddenId].sort(),
+    );
   });
 });

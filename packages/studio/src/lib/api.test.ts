@@ -195,6 +195,21 @@ describe('api — the error envelope', () => {
     expect(err.message).toBe('Invalid record: code is required');
   });
 
+  it('names every row a refused bulk write lists (ADR 0044)', async () => {
+    respond(422, {
+      code: 'bulk_refused',
+      detail: 'A refused row refuses the whole batch; nothing was written',
+      errors: [
+        { index: 0, errors: ['label is required'] },
+        { index: 2, id: 'r-3', errors: ['Forbidden', 'EXT_HOOK_ABORTED: frozen'] },
+      ],
+    });
+    const err = asApiError(await api.get('/api/x').catch((e) => e));
+    expect(err.message).toBe(
+      'A refused row refuses the whole batch; nothing was written: #1: label is required; r-3: Forbidden, EXT_HOOK_ABORTED: frozen',
+    );
+  });
+
   it('prefers detail over title when both are present', async () => {
     // Ordering is the whole point of the chain: `title` is the status name
     // ("Forbidden"), `detail` is what actually happened.

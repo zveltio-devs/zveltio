@@ -80,7 +80,7 @@ d('bulk create all read-only errors (in-process)', () => {
       .catch(() => {});
   });
 
-  it('returns 207 with created 0 when every row includes a read-only field', async () => {
+  it('returns 422 naming every row when each includes a read-only field', async () => {
     const res = await app.request(`/api/data/${COLLECTION}/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: memberCookie },
@@ -91,12 +91,8 @@ d('bulk create all read-only errors (in-process)', () => {
         ],
       }),
     });
-    expect(res.status).toBe(207);
-    const body = (await res.json()) as {
-      created: number;
-      errors: Array<{ index: number; errors: string[] }>;
-    };
-    expect(body.created).toBe(0);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
     expect(body.errors).toHaveLength(2);
     expect(body.errors.every((e) => e.errors.join(' ').toLowerCase().includes('read-only'))).toBe(
       true,
