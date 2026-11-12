@@ -351,11 +351,42 @@ function ownMessageKeys(dir: string): string[] | undefined {
 }
 
 /**
+ * The columns the engine adds to every collection table (`SYSTEM_COLUMNS` in
+ * the engine's `ddl-manager.ts`, which the CLI cannot import).
+ */
+const SYSTEM_COLUMNS = ['id', 'created_at', 'updated_at', 'created_by', 'updated_by', 'tenant_id'];
+
+/**
+ * Each declared collection's field names from `schema/collections/<name>.json`
+ * (fields, relation columns, system columns). A missing or unreadable file is
+ * left out: file presence and the engine report it, and its views go unchecked.
+ */
+function declaredFields(dir: string, collections: string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const name of collections) {
+    try {
+      const file = JSON.parse(
+        readFileSync(join(dir, 'schema', 'collections', `${name}.json`), 'utf8'),
+      ) as { fields?: unknown; relations?: unknown };
+      out.set(name, [
+        ...SYSTEM_COLUMNS,
+        ...names(file.fields, 'name'),
+        ...names(file.relations, 'field'),
+      ]);
+    } catch {
+      // see above
+    }
+  }
+  return out;
+}
+
+/**
  * The manifest's `zveltio.view/2` pages against the specification (ADR 0042):
  * the schema, then what it cannot see — a collection or action the extension
  * does not own (a dependency's action is allowed), a `$selected` with no
  * earlier pane, a pane id used twice, a `navigate`/`open` to no view of the
- * extension, a message key its `en.json` does not ship. A page file that is
+ * extension, a message key its `en.json` does not ship, a field its collection
+ * does not declare. A page file that is
  * missing or is not JSON is an error too. A `view/1` page is not checked here.
  * The engine runs the same schema when it loads the extension.
  */
@@ -394,6 +425,7 @@ export function checkViews(dir: string, manifest: unknown): ValidationError[] {
     dependencies: [...names(m.dependencies, 'name'), ...names(m.optionalDependencies, 'name')],
     views: views.map((d) => (d.doc as { id?: unknown }).id).filter((x) => typeof x === 'string'),
     messageKeys: own && [...own, ...SHARED_MESSAGE_KEYS],
+    fields: declaredFields(dir, names(m.collections)),
   };
   for (const { file, doc } of views) {
     const r = validateView(doc);

@@ -149,6 +149,32 @@ describe('viewNameIssues', () => {
     });
     expect(found.map((i) => i.path)).toEqual(['/rowActions/0/navigate', '/rowActions/0/label']);
   });
+
+  it('reports a field the bound collection does not declare, and only with fields given', () => {
+    const v = {
+      type: 'split',
+      panes: [
+        {
+          type: 'list',
+          collection: 'mail_messages',
+          fields: ['subject', { field: 'sujbect', label: 'Subject' }],
+          filter: [{ field: 'read', op: 'eq', value: false }],
+          sort: ['-created_at', 'sent'],
+          rowActions: [{ action: 'send', label: 'Send', input: { subject: 'x' } }],
+        },
+        { type: 'board', collection: 'mail_messages', groupBy: 'folder', card: ['subject'] },
+        { type: 'stat', source: { collection: 'mail_messages', aggregate: 'sum', field: 'size' } },
+      ],
+    };
+    const fields = new Map([['mail_messages', ['id', 'created_at', 'subject', 'folder']]]);
+    expect(viewNameIssues(v, { ...names, fields }).map((i) => i.path)).toEqual([
+      '/panes/0/fields/1/field',
+      '/panes/0/filter/0/field',
+      '/panes/0/sort/1',
+      '/panes/2/source/field',
+    ]);
+    expect(viewNameIssues(v, names)).toEqual([]);
+  });
 });
 
 describe('builder', () => {
