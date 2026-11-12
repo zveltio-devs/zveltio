@@ -103,17 +103,17 @@ async function createFlow() {
   saving = true;
   formError = '';
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    const triggerConfig: Record<string, any> = {};
-    if (triggerType === 'cron') triggerConfig.expression = triggerCron;
+    // The engine takes `trigger: { type, collection?, cron? }` and stores the
+    // rest of it as trigger_config.
+    const trigger: { type: string; collection?: string; cron?: string } = { type: triggerType };
+    if (triggerType === 'cron') trigger.cron = triggerCron;
     if (['on_create', 'on_update', 'on_delete'].includes(triggerType) && triggerCollection)
-      triggerConfig.collection = triggerCollection;
+      trigger.collection = triggerCollection;
 
     const data = await api.post<{ flow: Flow }>('/api/flows', {
       name: name.trim(),
       description: description.trim() || undefined,
-      trigger_type: triggerType,
-      trigger_config: triggerConfig,
+      trigger,
       is_active: isActive,
       ...(runAsRole ? { run_as_role: runAsRole } : {}),
     });
@@ -184,7 +184,7 @@ function triggerLabel(flow: Flow): string {
     case 'on_delete':
       return `${flow.trigger_config?.collection || '*'} → delete`;
     case 'cron':
-      return `Cron: ${flow.trigger_config?.expression || '?'}`;
+      return `Cron: ${flow.trigger_config?.cron || '?'}`;
     case 'webhook':
       return 'Webhook';
     default:

@@ -33,7 +33,7 @@ vi.mock('#lib/api.js', () => ({
         name: 'Nightly sync',
         description: null,
         trigger_type: 'cron',
-        trigger_config: { expression: '0 3 * * *' },
+        trigger_config: { cron: '0 3 * * *' },
         is_active: true,
         steps: [
           { id: 's1', name: 'First', type: 'http_request', config: {}, order: 0 },

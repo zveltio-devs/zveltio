@@ -274,8 +274,8 @@ function updateStepName(name: string) {
           {#if flow.trigger_config?.collection}
             <p class="text-xs text-base-content/65 mt-1">{flow.trigger_config.collection}</p>
           {/if}
-          {#if flow.trigger_config?.expression}
-            <p class="text-xs font-mono text-base-content/65 mt-1">{flow.trigger_config.expression}</p>
+          {#if flow.trigger_config?.cron}
+            <p class="text-xs font-mono text-base-content/65 mt-1">{flow.trigger_config.cron}</p>
           {/if}
         </div>
         <div class="form-control">
