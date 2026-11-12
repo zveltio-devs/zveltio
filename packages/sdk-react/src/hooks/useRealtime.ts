@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { ZveltioRealtime } from '@zveltio/sdk';
+import { type RealtimeRecordEvent, ZveltioRealtime } from '@zveltio/sdk';
 
 export function useRealtime(
   baseUrl: string,
   collection: string,
   event: string | null,
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  callback: (data: any) => void,
+  /** `event.id` is always set; `event.data` only when the engine sends it. */
+  callback: (event: RealtimeRecordEvent) => void,
 ): void {
   const realtimeRef = useRef<ZveltioRealtime | null>(null);
   const callbackRef = useRef(callback);
