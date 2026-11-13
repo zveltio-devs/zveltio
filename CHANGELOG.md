@@ -4,6 +4,10 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.118] - 2026-11-13
+
+**An action form draws its lines (ADR 0042).** On a `view/2` form bound to an action, each input property that is a list of objects is a table of lines, one column per scalar property of a line (an `integer` column takes whole numbers). A line left empty is not sent, and the form refuses to run with fewer filled lines than `minItems` or a required cell empty. A required object or list of scalars, which has no input, shows a notice instead of a text field that always failed validation, and a button `prompt` naming one is refused. `finance/invoicing` 2.5.0 (new invoice) and `compliance/ro/documents` 2.1.0 (new document) are such forms and need this engine.
+
 ## [3.0.0-beta.117] - 2026-11-13
 
 **`view/2` draws mail (ADR 0042 slice 5).** The specification gains, all optional: a button's `busyWhen` (while its record meets it the button is busy and the page reads its records again every few seconds), a button's `files` (the request's `$files`, ADR 0032: `read` takes file ids or a `file` field's value, `write` a name and `maxBytes`), a detail's `onOpen` (an action run once per record shown that meets its `when`, its result not shown) and a field's `fallback` (the field shown while this one is empty). A detail's toolbar now acts on the record it shows (`$record`), and an action in a collection form's `submit` saves the record first and runs on it as saved. Studio draws a `richtext` value inert: sanitised by its own DOMPurify (no script, handler, form, frame or `javascript:`/`data:` URL), remote images and any style loading through `url()`, `image-set()` or an escape blocked, in a `srcdoc` frame with no `allow-scripts` and a `default-src 'none'` policy; a list cell shows its text. A `richtext` field is edited in place (bold, italic, lists; what enters it, pasted or stored, is sanitised first), a `file` field (`{ id, name, size, type }`, a list with `options.multiple`) by uploading through the file API as the user, and its files open through a signed URL. `communications/mail` 2.2.0 is three such views and ships no Studio code.

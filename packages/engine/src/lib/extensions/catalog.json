@@ -137,7 +137,7 @@
       "displayName": "RO Documents",
       "description": "Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata",
       "category": "compliance/ro",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["documents", "contracts", "romania"],
       "permissions": ["data:write"]
@@ -367,7 +367,7 @@
       "displayName": "Invoicing",
       "description": "Recurring invoices, payment tracking and overdue management",
       "category": "finance",
-      "version": "2.4.0",
+      "version": "2.5.0",
       "author": "Zveltio",
       "tags": ["invoicing", "payments", "billing"],
       "permissions": ["data:write"]
