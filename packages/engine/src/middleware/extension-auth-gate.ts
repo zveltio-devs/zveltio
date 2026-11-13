@@ -175,6 +175,20 @@ export function gatePrincipal(c: unknown): GatePrincipal | undefined {
 }
 
 /**
+ * The context of the `/ext/*` request running now, named by itself or by its
+ * `Request`: a declared route's handler is handed the request, never `c` (ADR
+ * 0039), and the `ctx.internals` members that act for "the request being
+ * handled" take it in `c`'s place. Anything else comes back as it came, so a
+ * request kept from an earlier call, or a forged object, still names no caller.
+ */
+export function servedContext(token: unknown): unknown {
+  for (const store of [gated.getStore(), publicServed.getStore()]) {
+    if (store && (store.c === token || store.c.req.raw === token)) return store.c;
+  }
+  return token;
+}
+
+/**
  * A request the gate let through as one of an extension's `publicRoutes`: who
  * owns the route, the sub-path it matched, and the request's transaction and
  * tenant, copied before extension code runs (as `GatePrincipal`).

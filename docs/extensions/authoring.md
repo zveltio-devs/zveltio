@@ -573,6 +573,15 @@ ctx.internals.DataLoaderRegistry      // GraphQL N+1 batching
 ctx.internals.checkQueryDepth         // GraphQL query-depth validator
 ```
 
+The members that act for the request being handled (`createRecord`,
+`updateRecord`, `deleteRecord`, `readRecord`, `listRecords`, `enqueue`,
+`writeValidationRule*`) take its context `c`. A declared route's handler is
+handed no `c` (ADR 0039): it passes the `Request` it was handed instead, and
+`ctx.internals.caller(request)` names who the engine authenticated for it (a
+copy of the user, `session` or `api_key`, and the tenant), or `null`. A request
+kept from an earlier call names no one. Engines from 3.0.0-beta.116;
+`developer/graphql` keeps its context from `register` and works this way.
+
 No internal deletes an account. Erasing one's own is the engine's
 `DELETE /api/me`, re-authenticated by the subject (ADR 0046); `deleteUser` is no
 longer offered (engines from 3.0.0-beta.115), as the directory internals before
