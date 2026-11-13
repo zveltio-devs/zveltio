@@ -208,7 +208,17 @@ async function press(
   // A prompt asks only for what the view did not bind (`validateView` refuses the overlap).
   const ask = (b.prompt ?? []).filter((name) => !Object.hasOwn(b.input ?? {}, name));
   if (ask.length === 0) return go({});
-  const declared = actionInputFields(findAction(actions ?? [], host.ext, b.action)?.input);
+  const input = findAction(actions ?? [], host.ext, b.action)?.input;
+  const declared = actionInputFields(input);
+  // A list or an object the action declares has no prompt input: refused, never sent as text.
+  const composite = ask.find(
+    (name) =>
+      Object.hasOwn(input?.properties ?? {}, name) && !declared.some((f) => f.name === name),
+  );
+  if (composite) {
+    toast.error(m['view.notDrawn']({ kind: composite }));
+    return Promise.resolve();
+  }
   const fields = ask.map((name) =>
     toFormField(declared.find((f) => f.name === name) ?? { name, type: 'text' }),
   );

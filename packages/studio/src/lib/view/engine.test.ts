@@ -4,6 +4,8 @@ vi.mock('#lib/api.js', () => ({ api: {}, dataApi: {} }));
 
 import {
   actionInputFields,
+  actionInputLines,
+  actionInputUndrawn,
   choicesOf,
   dayKey,
   daysBetween,
@@ -87,6 +89,44 @@ describe('fields', () => {
       { name: 'reason', type: 'text', required: true, label: 'Why' },
       { name: 'days', type: 'number', required: false },
       { name: 'kind', type: 'select', required: false, options: { choices: ['a', 'b'] } },
+    ]);
+  });
+
+  it('reads a list of objects in an action input as lines, never as a text input', () => {
+    const input = {
+      properties: {
+        client: { type: 'string' },
+        meta: { type: 'object' },
+        tags: { type: 'array', items: { type: 'string' } },
+        lines: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            required: ['description'],
+            properties: {
+              description: { type: 'string' },
+              quantity: { type: 'number' },
+              metadata: { type: 'object' },
+            },
+          },
+        },
+      },
+    };
+    expect(actionInputFields(input).map((f) => f.name)).toEqual(['client']);
+    expect(actionInputLines(input)).toEqual([
+      {
+        name: 'lines',
+        min: 1,
+        columns: [
+          { name: 'description', type: 'text', required: true },
+          { name: 'quantity', type: 'number', required: false },
+        ],
+        integers: [],
+      },
+    ]);
+    expect(actionInputUndrawn({ ...input, required: ['meta', 'lines', 'client'] })).toEqual([
+      'meta',
     ]);
   });
 

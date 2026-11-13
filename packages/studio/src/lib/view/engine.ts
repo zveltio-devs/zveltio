@@ -207,22 +207,70 @@ export function choicesOf(f: SchemaField | undefined): { value: string; label: s
 /** An action's input JSON Schema as the fields of a form. */
 export function actionInputFields(input: RunnableAction['input'] | undefined): SchemaField[] {
   const required = new Set(input?.required ?? []);
-  return Object.entries(input?.properties ?? {}).map(([name, p]) => {
-    const t = Array.isArray(p.type) ? p.type.find((x) => x !== 'null') : p.type;
-    return {
+  return Object.entries(input?.properties ?? {})
+    .filter(([, p]) => !isLines(p) && !isComposite(p))
+    .map(([name, p]) => {
+      const t = Array.isArray(p.type) ? p.type.find((x) => x !== 'null') : p.type;
+      return {
+        name,
+        type: Array.isArray(p.enum)
+          ? 'select'
+          : t === 'boolean'
+            ? 'boolean'
+            : t === 'number' || t === 'integer'
+              ? 'number'
+              : 'text',
+        required: required.has(name),
+        ...(Array.isArray(p.enum) ? { options: { choices: p.enum } } : {}),
+        ...(typeof p.title === 'string' ? { label: p.title } : {}),
+      };
+    });
+}
+
+type InputSchema = RunnableAction['input'];
+const typeOf = (p: Record<string, unknown>) =>
+  Array.isArray(p.type) ? p.type.find((x) => x !== 'null') : p.type;
+/** An input property that is a list of objects: drawn as a table of lines. */
+const isLines = (p: Record<string, unknown>) => {
+  const item = (p.items ?? {}) as Record<string, unknown>;
+  return typeOf(p) === 'array' && (typeOf(item) === 'object' || (!item.type && !!item.properties));
+};
+/** An object, or a list of anything but objects: no input draws it. */
+const isComposite = (p: Record<string, unknown>) => typeOf(p) === 'object' || typeOf(p) === 'array';
+
+/** A table of lines: an action input property that is a list of objects. */
+export interface InputLines {
+  name: string;
+  label?: string;
+  /** The fewest lines the action takes (`minItems`). */
+  min: number;
+  /** One per scalar property of a line; an object or list in a line is not drawn. */
+  columns: SchemaField[];
+  /** Columns that take whole numbers (`integer`). */
+  integers: string[];
+}
+
+/** The lines of an action's input (ADR 0042 slice 4: a form's line items). */
+export function actionInputLines(input: InputSchema | undefined): InputLines[] {
+  return Object.entries(input?.properties ?? {})
+    .filter(([, p]) => isLines(p))
+    .map(([name, p]) => ({
       name,
-      type: Array.isArray(p.enum)
-        ? 'select'
-        : t === 'boolean'
-          ? 'boolean'
-          : t === 'number' || t === 'integer'
-            ? 'number'
-            : 'text',
-      required: required.has(name),
-      ...(Array.isArray(p.enum) ? { options: { choices: p.enum } } : {}),
       ...(typeof p.title === 'string' ? { label: p.title } : {}),
-    };
-  });
+      min: typeof p.minItems === 'number' ? p.minItems : 0,
+      columns: actionInputFields(p.items as InputSchema),
+      integers: Object.entries((p.items as InputSchema).properties ?? {})
+        .filter(([, c]) => typeOf(c) === 'integer')
+        .map(([n]) => n),
+    }));
+}
+
+/** Required input properties no form input draws: an object, a list of scalars. */
+export function actionInputUndrawn(input: InputSchema | undefined): string[] {
+  const required = new Set(input?.required ?? []);
+  return Object.entries(input?.properties ?? {})
+    .filter(([n, p]) => required.has(n) && !isLines(p) && isComposite(p))
+    .map(([n]) => n);
 }
 
 /**

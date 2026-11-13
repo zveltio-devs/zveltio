@@ -216,7 +216,7 @@ and drawn as before.
 | Kind | Studio draws |
 |---|---|
 | `list` | table, `cards` or `feed`; search, paging, selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `edit` (the row in that form), `delete` (after a confirm), `open` |
-| `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit` (an action saves first), read-only fields shown as text; a `richtext` field in an editor whose content (stored or pasted) is sanitised first, with remote images blocked while editing; a `file` field as its files, an upload button and a remove per file |
+| `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit` (an action saves first), read-only fields shown as text; a `richtext` field in an editor whose content (stored or pasted) is sanitised first, with remote images blocked while editing; a `file` field as its files, an upload button and a remove per file; on an action form, an input property that is a list of objects is a table of lines (one column per scalar property of a line, an `integer` column takes whole numbers, a line left empty is not sent, at least `minItems` filled lines and every required cell before it runs); a required object or list of scalars has no input and shows a notice, and a button's `prompt` naming one is refused |
 | `detail` | its toolbar, the record's fields (a `richtext` one inert in a sandboxed frame, a `file` one as files that open), then its `panels`, all with `$record` set to it; `onOpen` |
 | `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
 | `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |
@@ -233,8 +233,8 @@ of how many and offer "Load more", which reads the next page and appends it;
 nothing reads further on its own. A re-read after a write keeps the pages
 already read.
 
-Not drawn yet, each with a notice where it appears: a form's `lines`, `recalc`
-and `autosave`, a list's `realtime`, a `stat` that sums, averages or takes a
+Not drawn yet, each with a notice where it appears: a collection form's `lines`
+(records of another collection), `recalc` and `autosave`, a list's `realtime`, a `stat` that sums, averages or takes a
 minimum or maximum (the data API has no aggregate route; make it a server field
 or an action).
 

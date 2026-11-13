@@ -5,7 +5,8 @@
  * collection (or the action's input schema); the view only selects and orders.
  * A `richtext` field is edited by `ViewRichTextEditor`, a `file` field by
  * `ViewFiles`, after the group's other fields. On a collection form an action
- * in `submit` saves the record first and runs on the saved record.
+ * in `submit` saves the record first and runs on the saved record. An action
+ * input property that is a list of objects is drawn by `ViewLines`.
  */
 import {
   type FormView,
@@ -22,16 +23,20 @@ import { toast } from '#lib/stores/toast.svelte.js';
 import SchemaForm from '#lib/components/common/SchemaForm.svelte';
 import {
   actionInputFields,
+  actionInputLines,
+  actionInputUndrawn,
   fieldHints,
   findAction,
   formPayload,
   runnableActions,
   schemaOf,
   toFormField,
+  type InputLines,
   type ViewHost,
 } from './engine.js';
 import ViewButtons from './ViewButtons.svelte';
 import ViewFiles from './ViewFiles.svelte';
+import ViewLines from './ViewLines.svelte';
 import ViewRichTextEditor from './ViewRichTextEditor.svelte';
 import ViewValue from './ViewValue.svelte';
 
@@ -45,6 +50,8 @@ interface Props {
 const { view, host, scope, onDone }: Props = $props();
 
 let schema = $state<SchemaField[]>([]);
+let inputLines = $state<InputLines[]>([]);
+let undrawn = $state<string[]>([]);
 let values = $state<Record<string, unknown>>({});
 let recordId = $state<string | null>(null);
 let loading = $state(true);
@@ -69,10 +76,15 @@ $effect(() => {
   loading = true;
   error = null;
   const fields = c
-    ? schemaOf(c)
-    : runnableActions().then((list) =>
-        actionInputFields(findAction(list, host.ext, (view as { action: string }).action)?.input),
-      );
+    ? schemaOf(c).then((f) => ({ f, lines: [] as InputLines[], undrawn: [] as string[] }))
+    : runnableActions().then((list) => {
+        const input = findAction(list, host.ext, (view as { action: string }).action)?.input;
+        return {
+          f: actionInputFields(input),
+          lines: actionInputLines(input),
+          undrawn: actionInputUndrawn(input),
+        };
+      });
   const record =
     !c || t === null || t === undefined
       ? Promise.resolve(null)
@@ -83,9 +95,15 @@ $effect(() => {
     .then(([f, r]) => {
       // A newer target is already loading: this answer is for a record no longer shown.
       if (mine !== seq) return;
-      schema = f;
+      schema = f.f;
+      inputLines = f.lines;
+      undrawn = f.undrawn;
       recordId = r?.id ?? null;
-      values = r ? { ...r } : {};
+      values = r
+        ? { ...r }
+        : Object.fromEntries(
+            f.lines.map((l) => [l.name, Array.from({ length: Math.max(l.min, 1) }, () => ({}))]),
+          );
     })
     .catch((e: Error) => {
       if (mine === seq) error = e.message || m['ext.loadFailed']();
@@ -122,11 +140,42 @@ const OWN_EDITOR = new Set(['richtext', 'file']);
 const ownEditor = (f: FormField) => OWN_EDITOR.has(String(f.fieldType));
 const multiple = (name: string) =>
   (byName.get(name)?.options as { multiple?: unknown } | null | undefined)?.multiple === true;
-const notDrawn = $derived(
-  [view.lines && 'lines', view.recalc && 'recalc', view.autosave && 'autosave'].filter(
-    Boolean,
-  ) as string[],
+/** The view names fields: only the lines it names; it names none: every line. */
+const named = $derived(
+  new Map(
+    fieldHints([...(view.fields ?? []), ...(view.sections ?? []).flatMap((s) => s.fields)]).map(
+      (h) => [h.name, h.hint],
+    ),
+  ),
 );
+const shownLines = $derived(named.size ? inputLines.filter((l) => named.has(l.name)) : inputLines);
+const lineLabel = (l: InputLines) => {
+  const label = named.get(l.name)?.label;
+  return label ? host.t(label) : (l.label ?? l.name);
+};
+/** The drawn lines as the action takes them: a line with nothing filled in is dropped. */
+const linesPayload = () =>
+  Object.fromEntries(
+    shownLines.map((l) => [
+      l.name,
+      ((values[l.name] as Record<string, unknown>[] | undefined) ?? []).filter(
+        (r) => Object.keys(r).length > 0,
+      ),
+    ]),
+  );
+/** The first table of lines with too few filled lines or a required cell left empty. */
+const unfilledLines = (body: Record<string, unknown>) =>
+  shownLines.find((l) => {
+    const rows = body[l.name] as Record<string, unknown>[];
+    const required = l.columns.filter((c) => c.required).map((c) => c.name);
+    return rows.length < l.min || rows.some((r) => required.some((n) => !Object.hasOwn(r, n)));
+  });
+const notDrawn = $derived([
+  ...([view.lines && 'lines', view.recalc && 'recalc', view.autosave && 'autosave'].filter(
+    Boolean,
+  ) as string[]),
+  ...undrawn,
+]);
 
 /** Saves the form; the record as saved, or `null` when it was refused. */
 async function save(): Promise<Record<string, unknown> | null> {
@@ -134,7 +183,16 @@ async function save(): Promise<Record<string, unknown> | null> {
   try {
     let saved: Record<string, unknown> = { ...values };
     if (!collection) {
-      await host.run((view as { action: string }).action, formPayload(values, allEditable));
+      const lines = linesPayload();
+      const unfilled = unfilledLines(lines);
+      if (unfilled) {
+        toast.error(`${lineLabel(unfilled)}: ${m['common.required']()}`);
+        return null;
+      }
+      await host.run((view as { action: string }).action, {
+        ...formPayload(values, allEditable),
+        ...lines,
+      });
     } else {
       const body = formPayload(values, allEditable, recordId !== null);
       saved = recordId
@@ -214,6 +272,14 @@ async function beforeAction(scope: ViewScope): Promise<ViewScope | null> {
           </div>
         {/each}
       </section>
+    {/each}
+    {#each shownLines as l (l.name)}
+      <ViewLines
+        lines={l}
+        label={lineLabel(l)}
+        rows={(values[l.name] as Record<string, unknown>[] | undefined) ?? []}
+        onchange={(rows) => (values[l.name] = rows)}
+      />
     {/each}
     <div class="flex justify-end gap-2">
       {#if view.submit?.length}
