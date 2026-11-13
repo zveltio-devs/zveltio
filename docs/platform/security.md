@@ -167,6 +167,51 @@ BETTER_AUTH_SECRET=CHANGE_ME_64_RANDOM_CHARACTERS
 BETTER_AUTH_URL=https://api.yourdomain.com
 ```
 
+#### Rotating `BETTER_AUTH_SECRET`
+
+`BETTER_AUTH_SECRET` keys more than sessions. Rotating it is **destructive for
+API keys and TOTP**: there is no previous-secret fallback, so plan it as an
+incident step (the secret leaked), not as routine hygiene.
+`FIELD_ENCRYPTION_KEY` and `MAIL_ENCRYPTION_KEY` are separate keys; encrypted
+and `secret` fields are not affected.
+
+| Use (engine file) | After rotation | Operator action |
+|---|---|---|
+| Session cookies and CLI bearer tokens (Better Auth signs them) | Every session ends; `get-session` answers `null` | None: people sign in again |
+| API keys, `zvk_…` (`lib/security/api-key-hash.ts`, an HMAC under the secret) | **Destroyed**: every key answers 401. The SCIM token is an API key (ADR 0045) | Re-issue each key, hand it to its integration, delete the old row |
+| TOTP secret and backup codes (Better Auth encrypts them with the secret) | **Destroyed**: a TOTP user passes the password step and then gets 500 on `verify-totp` and on `verify-backup-code`; they cannot sign in | Reset the user's factors (`POST /api/users/:id/factors/reset`, with a step-up); they sign in with their password and enrol again. A god whose only factor was TOTP uses `RECOVERY_TOKEN` |
+| Token hashes an extension stored through `deriveTokenHash` (`lib/security/keyring.ts` `hmacAuthSecret`) | **Destroyed**: they no longer match | Re-issue those tokens (no first-party extension uses it) |
+| Sealed list and sync cursors (`lib/data/query-parse.ts`, ADR 0021) | Refused; the walk restarts from page 1, a sync pull from the start | None |
+| Signed local file URLs (`lib/storage/local-driver.ts`) | 403 until the client asks for a new one (they live 1 h, 24 h after upload) | None |
+| Signed authorization caches in Valkey: permissions, god, roles (`lib/tenancy/permissions.ts`), tenants (`tenant-manager.ts`), row rules, column permissions (`signed-cache.ts`) | Each old entry is a miss: answered from the database and rewritten. An entry signed with the old secret is not trusted | None. `FLUSHDB` is not needed |
+| E-mail verification links, in-flight OAuth sign-ins | Refused | Ask again |
+| Passwords, passkeys, password-reset and magic-link tokens, invitations | Unaffected (not keyed by the secret) | None |
+
+Procedure (run on a live engine, 2026-11-13):
+
+1. Count what will be lost: `SELECT count(*) FROM zv_api_keys WHERE is_active`
+   and `SELECT "userId" FROM "twoFactor"`. Tell the owners of those keys and
+   accounts. Make sure the god who will run steps 4 and 5 has a passkey, not
+   only TOTP, or has `RECOVERY_TOKEN` ready.
+2. Generate the new value (`openssl rand -hex 32`) and set it on **every**
+   replica. Restart them together: two replicas on different secrets refuse
+   each other's cookies, cursors and file URLs.
+3. Sign in again.
+4. Re-issue the API keys (`POST /api/api-keys` or `POST /api/me/api-keys`),
+   deliver them, and delete the old rows (`DELETE /api/api-keys/:id`).
+5. For each user from step 1, `POST /api/users/:id/factors/reset`. This also
+   removes their passkeys and ends their sessions; they enrol again after
+   signing in.
+
+Better Auth's own `BETTER_AUTH_SECRETS` list (`"2:<new>,1:<old>"`) does not
+make this rotation non-destructive in Zveltio: the engine's own keys read only
+`BETTER_AUTH_SECRET`, and Better Auth decrypts the TOTP secrets written before
+the list existed only with `BETTER_AUTH_SECRET` (measured: with
+`BETTER_AUTH_SECRET=<new>` and the list, TOTP still answers 500). Keeping
+`BETTER_AUTH_SECRET=<old>` beside the list rotates only Better Auth's half and
+leaves the leaked value keying everything in the table. It is not a supported
+rotation.
+
 #### API Key Security
 
 API keys are hashed with **HMAC-SHA256** (not plain SHA-256) using `BETTER_AUTH_SECRET` as a keyed salt. This prevents rainbow-table attacks against the predictable `zvk_` prefix format even if the database is compromised.

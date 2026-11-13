@@ -594,7 +594,7 @@ await sql.raw(`SELECT * FROM users WHERE email = '${userInput}'`);
 3. **Limit Emergency Admins** - Only create one Super-Admin user for emergency access
 4. **Review permissions** - Regularly audit Casbin policies
 5. **Use HTTPS** - Always use SSL/TLS in production
-6. **Rotate secrets** - Change `BETTER_AUTH_SECRET` periodically
+6. **Rotate secrets after a leak, not on a schedule** - rotating `BETTER_AUTH_SECRET` destroys every API key and TOTP enrolment; follow [the procedure](../platform/security.md#rotating-better_auth_secret)
 
 ---
 

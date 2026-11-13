@@ -38,9 +38,10 @@ project bug.
 `MAIL_ENCRYPTION_KEY`. Production additionally requires
 `VALKEY_URL`. Full reference: [configuration.md](configuration.md).
 
-`BETTER_AUTH_SECRET` signs session cookies **and** keys field encryption —
-rotating it invalidates sessions and breaks encrypted secrets.
-`FIELD_ENCRYPTION_KEY` is separate.
+`BETTER_AUTH_SECRET` signs session cookies **and** keys API key hashes and
+the TOTP encryption — rotating it signs everyone out and destroys every API key
+and TOTP enrolment ([security.md](security.md#rotating-better_auth_secret)).
+Field encryption uses `FIELD_ENCRYPTION_KEY`, which is separate.
 
 ### Extensions during development
 
