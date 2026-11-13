@@ -97,7 +97,7 @@ accurate counts.
 |---|---|---|---|
 | `developer/api-docs` | API Documentation | 2.2.0 | Swagger UI over the data API: each visitor sees the collections they may read |
 | `developer/byod` | BYOD Import | 2.0.1 | External database schema introspection and import |
-| `developer/graphql` | GraphQL API | 2.1.0 | Auto-generated GraphQL API with playground for all collections |
+| `developer/graphql` | GraphQL API | 2.2.0 | Auto-generated GraphQL API with playground for all collections |
 
 ## ecommerce
 
