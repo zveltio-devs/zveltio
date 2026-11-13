@@ -9,6 +9,8 @@ import { withAuthorizedUserCreation } from '../lib/auth.js';
 import { auditLog } from '../lib/audit.js';
 import { asEngineRole } from '../lib/role-window.js';
 import { hashInvitationToken } from '../lib/security/index.js';
+import { reauthenticate } from '../lib/step-up.js';
+import { deleteUser, ProtectedUserError } from '../lib/users.js';
 
 // Auth routes — Better-Auth handles all /api/auth/** requests
 // This file registers the handler and adds a /me convenience endpoint
@@ -16,8 +18,22 @@ import { hashInvitationToken } from '../lib/security/index.js';
 /** The membership grades `zv_tenant_users.role` accepts (a CHECK constraint). */
 const MEMBERSHIP_ROLES = new Set(['owner', 'admin', 'member', 'viewer']);
 
-// biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-export function authRoutes(db: Database, auth: any): Hono {
+/** `DELETE /api/me`'s body. `erasure_id` is opaque: a caller's own reference
+ *  (a GDPR request's id) the audit row carries, trusted for nothing else. */
+const ErasureBody = z
+  .object({
+    password: z.string().min(1).max(200).optional(),
+    erasure_id: z.string().uuid().optional(),
+  })
+  .strict();
+
+export function authRoutes(
+  db: Database,
+  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+  auth: any,
+  /** The privileged pool: erasing the account revokes its sessions (`deleteUser`). */
+  poolDb: Database,
+): Hono {
   const app = new Hono();
 
   // GET / — current user profile (mounted at /api/me)
@@ -72,6 +88,39 @@ export function authRoutes(db: Database, auth: any): Hono {
       return c.json({ user: updated });
     },
   );
+
+  // DELETE / — erase the caller's own account (ADR 0046; GDPR Art. 17). A
+  // session only: an API key resolves no session here, so it cannot erase its
+  // author. Re-authenticated in the request (`reauthenticate`), then the one
+  // delete every path uses — sessions, keys, grants, the row, `user.deleted`
+  // with actor `self` — on the caller's id and no other.
+  app.delete('/', async (c) => {
+    const session = await requestSession(c, auth);
+    if (!session) return refuseWithoutSession(c, 'Not authenticated');
+    const parsed = ErasureBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'Invalid body', code: 'invalid_body' }, 400);
+    const { password, erasure_id } = parsed.data;
+
+    const confirmedBy = await reauthenticate(c, session, 'account.delete', password);
+    if (confirmedBy instanceof Response) return confirmedBy;
+
+    const userId = session.user.id;
+    try {
+      const deleted = await deleteUser(db, poolDb, userId, {
+        actor: 'self',
+        reason: 'self.erasure',
+        metadata: { confirmed_by: confirmedBy, ...(erasure_id ? { erasure_id } : {}) },
+      });
+      if (!deleted) return c.json({ error: 'Account not found' }, 404);
+    } catch (err) {
+      // The instance owner: demote or transfer god first (lib/users.ts).
+      if (err instanceof ProtectedUserError) {
+        return c.json({ error: err.message, code: err.code }, 409);
+      }
+      throw err;
+    }
+    return c.json({ success: true });
+  });
 
   return app;
 }

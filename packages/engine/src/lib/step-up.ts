@@ -459,3 +459,40 @@ export async function requireStepUp(c: Context, action: string): Promise<StepUpM
     403,
   );
 }
+
+/**
+ * Re-authenticate an act on the caller's own account (ADR 0046, erasing it): the
+ * rule that confirms a first factor (routes/step-up.ts), asked every time. An
+ * account with a passkey or TOTP steps up for `action` — no password fallback,
+ * as above; one without, its password; one with no password either, a session an
+ * OAuth sign-in created at most five minutes ago. How it was confirmed, or the 403.
+ */
+export async function reauthenticate(
+  c: Context,
+  session: RequestSession,
+  action: string,
+  password: string | undefined,
+): Promise<StepUpMethod | 'password' | 'oauth' | Response> {
+  const userId = session.user.id;
+  if (await hasStepUpFactor(userId)) return requireStepUp(c, action);
+  const rule = await firstFactorRule(userId, session.session.token);
+  if (rule === 'password') {
+    if (password) {
+      try {
+        await auth.api.verifyPassword({ headers: c.req.raw.headers, body: { password } });
+        return 'password';
+      } catch {
+        // Falls through to the refusal: a wrong password reads as a missing one.
+      }
+    }
+    return c.json({ error: 'Enter your password to confirm', code: 'password_required' }, 403);
+  }
+  if (rule === 'recent_sign_in') return 'oauth';
+  return c.json(
+    {
+      error: 'Sign in again with your sign-in provider, then confirm within five minutes.',
+      code: 'recent_sign_in_required',
+    },
+    403,
+  );
+}
