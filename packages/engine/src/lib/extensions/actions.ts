@@ -34,6 +34,7 @@ import {
 import { afterRequestSettles } from '../../middleware/tenant.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import { CapabilityDeniedError, holdsCapability } from './capabilities.js';
+import { ANY_COLLECTION } from '../manifest-capabilities.js';
 import { actionWrites, type ExtensionContext, type ExtensionInternals } from './internals.js';
 import { enqueueJob, extensionPrincipal, jobData } from './jobs.js';
 import { admitFileGrant, type FileGrant } from './file-grants.js';
@@ -326,6 +327,17 @@ async function actionHost(
       def,
       callerData(c, ctx.internals, extName),
       secretReveal(trx, p.tenantId, extName),
+      // ADR 0047: `"*"` only here, where `callerData` is the data API as the
+      // caller and nothing else — not on a route's host, nor a job's.
+      (kind) => {
+        if (!holdsCapability(extName, ANY_COLLECTION[kind])) {
+          throw new Error(
+            `action "${def.name}" lists "*" in ${kind}, which needs the consent ` +
+              `"${ANY_COLLECTION[kind]}": no administrator has approved it ` +
+              `(POST /api/marketplace/${extName}/approve-capabilities)`,
+          );
+        }
+      },
     ),
     enqueue: async (job, input, options) => {
       const refuse = (why: string): never => {
@@ -564,19 +576,25 @@ export function secretReveal(
   };
 }
 
-/** `io`, narrowed to the collections `def` declares; a refused call throws. */
+/**
+ * `io`, narrowed to the collections `def` declares; a refused call throws.
+ * `anyCollection`: the caller passes it only where `io` is the data API as the
+ * caller (an action, ADR 0047) — then `"*"` in `def` reaches every collection,
+ * once it returns (it throws to refuse). Without it `"*"` matches nothing.
+ */
 export function hostCollections(
   what: string,
   def: { reads: ReadonlySet<string>; writes: ReadonlySet<string> },
   io: DataIo,
   reveal: SecretReveal,
+  anyCollection?: (kind: 'reads' | 'writes') => void,
 ): HostCollections {
   const declared = (kind: 'reads' | 'writes', collection: string) => {
-    if (!def[kind].has(collection)) {
-      throw new Error(
-        `${what} reached collection "${collection}", which its manifest does not list in ${kind}`,
-      );
-    }
+    if (def[kind].has(collection)) return;
+    if (anyCollection && def[kind].has('*')) return anyCollection(kind);
+    throw new Error(
+      `${what} reached collection "${collection}", which its manifest does not list in ${kind}`,
+    );
   };
   // A refused write fails the action or job, so its transaction rolls back what it wrote before.
   const ok = (a: DataApiAnswer): Record<string, unknown> => {
@@ -625,17 +643,19 @@ export function hostCollections(
 /**
  * ADR 0025: what a route's `host.collections` reaches — the collections the
  * manifest declares (`collections`, read and written), and those its actions
- * and jobs list in `reads` / `writes`.
+ * and jobs list in `reads` / `writes`. Not `"*"` (ADR 0047): an action reaches
+ * any collection only as its caller, and a route may act as the system
+ * (`asSystem`), so the wildcard does not widen a route; `routeHost` also
+ * passes no `anyCollection`.
  */
 export function routeCollections(
   manifest: Pick<ExtensionManifest, 'collections' | 'actions' | 'jobs'> | null,
 ): { reads: ReadonlySet<string>; writes: ReadonlySet<string> } {
   const declared = manifest?.collections ?? [];
   const entries = [...(manifest?.actions ?? []), ...(manifest?.jobs ?? [])];
-  return {
-    reads: new Set([...declared, ...entries.flatMap((e) => e.reads)]),
-    writes: new Set([...declared, ...entries.flatMap((e) => e.writes)]),
-  };
+  const listed = (kind: 'reads' | 'writes') =>
+    new Set([...declared, ...entries.flatMap((e) => e[kind]).filter((c) => c !== '*')]);
+  return { reads: listed('reads'), writes: listed('writes') };
 }
 
 /**

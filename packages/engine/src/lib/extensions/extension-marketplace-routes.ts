@@ -64,6 +64,7 @@ import {
   declaredCapabilities,
   declaredSlots,
   declaredTcpSlots,
+  EGRESS_PREFIX,
   formatSlotBinding,
   parseSlotBinding,
   recordConsent,
@@ -687,10 +688,12 @@ export function registerMarketplaceRoutes(
 
       // Installing IS the consent: the admin was shown what the extension asks
       // for and chose to install it. Record the set so a later version that
-      // asks for more has to come back and ask again.
-      const declaredAtInstall = (
-        Array.isArray(manifest.permissions) ? (manifest.permissions as unknown[]) : []
-      ).filter((x: unknown): x is string => typeof x === 'string');
+      // asks for more has to come back and ask again. Its `permissions` and an
+      // action's reach to any collection as its caller (ADR 0047); never egress,
+      // which an administrator approves host by host (ADR 0022).
+      const declaredAtInstall = declaredCapabilities(manifest).filter(
+        (cap) => !cap.startsWith(EGRESS_PREFIX),
+      );
       await recordConsent(db, entry.name, declaredAtInstall).catch(() => undefined);
       // An install records the approval it carries, and none when it carries none.
       await recordForwardApproval(db, entry.name, forwardApproval);

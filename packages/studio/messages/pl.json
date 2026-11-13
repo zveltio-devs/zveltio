@@ -2426,6 +2426,8 @@
   "mkt.approved": "Zatwierdzono {caps} dla {name}. Zrestartuj, aby zastosować.",
   "mkt.asksFor1": "Ta wersja prosi o",
   "mkt.asksFor2": "których nie zatwierdzono. Działa bez nich.",
+  "mkt.capAnyRead": "dowolna kolekcja, którą może czytać osoba ją uruchamiająca",
+  "mkt.capAnyWrite": "dowolna kolekcja, do której może pisać osoba ją uruchamiająca",
   "mkt.available": "Dostępne",
   "mkt.building": "Budowanie",
   "mkt.changelogEmpty": "Brak informacji o wydaniach między tymi wersjami.",

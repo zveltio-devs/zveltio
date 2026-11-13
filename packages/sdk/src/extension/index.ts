@@ -1542,8 +1542,10 @@ export type ExtensionAction = (input: unknown, host: ActionHost) => Promise<unkn
  * transaction — permissions, RLS, column rules, hooks and audit are the route's.
  * Only the collections the manifest declares for the action: `reads` for
  * `read`/`list`, `writes` for `insert`/`update`/`delete` (which also need
- * `data:write`). A refused write throws with the data API's status, and the
- * request fails with it.
+ * `data:write`). `"*"` in either list reaches any collection the caller may
+ * read or write, still only as the caller (ADR 0047; consented at install as
+ * `collections:any:read` / `collections:any:write`). A refused write throws
+ * with the data API's status, and the request fails with it.
  */
 export interface ActionHost {
   collections: HostCollections;

@@ -339,12 +339,28 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
     }
   }
   const jobs = entries('jobs', 'MANIFEST_BAD_JOB');
+  // ADR 0047: `"*"` reaches any collection as the caller — an action's, never a job's.
+  for (const j of jobs) {
+    for (const k of ['reads', 'writes']) {
+      if (Array.isArray(j[k]) && (j[k] as unknown[]).includes('*')) {
+        out.push(
+          err(
+            'MANIFEST_BAD_JOB',
+            `job "${j.name}" lists "*" in ${k}: only an action reaches any collection, as its caller; a job lists each one`,
+          ),
+        );
+      }
+    }
+  }
   const resources = Array.isArray(obj.resources) ? obj.resources : [];
   const actions = entries('actions', 'MANIFEST_BAD_ACTION');
-  // A collection the actions or jobs read or write may gate an action too (extension model v3).
-  const collections = [...actions, ...jobs].flatMap((e) =>
-    ['reads', 'writes'].flatMap((k) => (Array.isArray(e[k]) ? (e[k] as unknown[]) : [])),
-  );
+  // A collection the actions or jobs read or write may gate an action too (extension
+  // model v3); `"*"` names none.
+  const collections = [...actions, ...jobs]
+    .flatMap((e) =>
+      ['reads', 'writes'].flatMap((k) => (Array.isArray(e[k]) ? (e[k] as unknown[]) : [])),
+    )
+    .filter((c) => c !== '*');
   for (const a of actions) {
     const p = a.permission;
     if (

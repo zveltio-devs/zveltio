@@ -290,6 +290,16 @@ export default defineExtension(['data:write', 'data:system'], {
   (a job: as the extension, scoped to its `reads`/`writes`), with permissions,
   RLS, column rules, hooks and audit. No SQL. A refused write throws with the
   data API's status and `code`, and the request fails with it.
+- `"*"` in an action's `reads` or `writes` reaches any collection, still only
+  as the caller (ADR 0047): a collection the caller holds no grant on is
+  refused as the data API refuses it, their row and column rules hold, and
+  `ctx.internals.asSystem` does not change who it acts as. `reads: ["*"]`
+  grants no write. Install consent shows it as `collections:any:read` /
+  `collections:any:write` ("any collection the person running it can
+  read/write"); a version that starts listing `"*"` runs without it until an
+  administrator approves. A job cannot list `"*"` (the manifest is refused),
+  and `"*"` does not widen a route. Engines from the release carrying ADR 0047;
+  an older engine reads `"*"` as a collection named `*` and refuses every call.
 - `throw new ActionRefusal(status, code, message)` answers the caller with that
   4xx. Any other throw answers 500. Both roll back what the action wrote.
 - `host.actions.run(extension, action, input)` runs an action of an extension
@@ -305,7 +315,8 @@ export default defineExtension(['data:write', 'data:system'], {
   "today", never `new Date().toISOString().slice(0, 10)`.
 - A route has `host.collections` too (ADR 0025): `ctx.host(c).collections`,
   inline and worker-isolated, over the collections the manifest declares
-  (`collections`) and those its actions and jobs read or write. It acts as the
+  (`collections`) and those its actions and jobs read or write — `"*"` excepted
+  (ADR 0047): an action's wildcard does not widen a route. It acts as the
   caller — the signed-in user, or the `public` role on a public route, which
   reads only — and its writes need `data:write` and carry no action mark.
   In an inline extension, inside `ctx.internals.asSystem(['settings'], fn)`

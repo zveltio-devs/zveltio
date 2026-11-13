@@ -2426,6 +2426,8 @@
   "mkt.approved": "Approved {caps} for {name}. Restart to apply.",
   "mkt.asksFor1": "This version asks for",
   "mkt.asksFor2": "which you have not approved. It is running without them.",
+  "mkt.capAnyRead": "any collection the person running it can read",
+  "mkt.capAnyWrite": "any collection the person running it can write",
   "mkt.available": "Available",
   "mkt.building": "Building",
   "mkt.changelogEmpty": "No release notes between these versions.",
