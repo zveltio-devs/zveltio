@@ -67,7 +67,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `compliance/ro/documents` | RO Documents | 2.0.0 | Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata |
+| `compliance/ro/documents` | RO Documents | 2.1.0 | Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata |
 | `compliance/ro/efactura` | e-Factura RO | 2.1.0 | Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer |
 | `compliance/ro/etransport` | e-Transport RO | 2.0.0 | Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF |
 | `compliance/ro/procurement` | Achizitii Publice RO | 2.3.0 | Romanian public procurement management — purchase orders, supplier registry, budget tracking |
@@ -109,7 +109,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `finance/invoicing` | Invoicing | 2.4.0 | Recurring invoices, payment tracking and overdue management |
+| `finance/invoicing` | Invoicing | 2.5.0 | Recurring invoices, payment tracking and overdue management |
 | `finance/accounting` | Accounting | 2.2.0 | Double-entry bookkeeping: chart of accounts, journal entries, fiscal years, budgets, trial balance, P&L and balance sheet |
 | `finance/banking` | Banking Sync | 2.2.0 | Import bank statements, auto-reconcile transactions with invoices and track cash flow |
 | `finance/subscriptions` | Subscriptions | 2.3.0 | Recurring billing plans, subscribers, metered usage, invoices and dunning |

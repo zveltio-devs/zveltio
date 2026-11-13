@@ -9,7 +9,10 @@
       "category": "fixture",
       "version": "1.0.0",
       "author": "Zveltio",
-      "tags": ["internal", "smoke"],
+      "tags": [
+        "internal",
+        "smoke"
+      ],
       "permissions": []
     },
     {
@@ -19,7 +22,11 @@
       "category": "fixture",
       "version": "1.0.0",
       "author": "Zveltio",
-      "tags": ["internal", "smoke", "worker-isolation"],
+      "tags": [
+        "internal",
+        "smoke",
+        "worker-isolation"
+      ],
       "permissions": []
     },
     {
@@ -29,7 +36,11 @@
       "category": "fixture",
       "version": "1.0.0",
       "author": "Zveltio",
-      "tags": ["internal", "smoke", "mount-strategy"],
+      "tags": [
+        "internal",
+        "smoke",
+        "mount-strategy"
+      ],
       "permissions": []
     },
     {
@@ -39,7 +50,11 @@
       "category": "fixture",
       "version": "1.0.0",
       "author": "Zveltio",
-      "tags": ["internal", "smoke", "ui-only"],
+      "tags": [
+        "internal",
+        "smoke",
+        "ui-only"
+      ],
       "permissions": []
     },
     {
@@ -49,8 +64,16 @@
       "category": "intelligence",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["ai", "llm", "embeddings", "semantic-search", "chat"],
-      "permissions": ["data:system"]
+      "tags": [
+        "ai",
+        "llm",
+        "embeddings",
+        "semantic-search",
+        "chat"
+      ],
+      "permissions": [
+        "data:system"
+      ]
     },
     {
       "name": "analytics/dashboard",
@@ -59,8 +82,14 @@
       "category": "analytics",
       "version": "2.0.1",
       "author": "Zveltio",
-      "tags": ["analytics", "dashboard", "widgets"],
-      "permissions": ["audit:read"]
+      "tags": [
+        "analytics",
+        "dashboard",
+        "widgets"
+      ],
+      "permissions": [
+        "audit:read"
+      ]
     },
     {
       "name": "analytics/quality",
@@ -69,8 +98,14 @@
       "category": "analytics",
       "version": "2.0.1",
       "author": "Zveltio",
-      "tags": ["analytics", "quality", "anomalies"],
-      "permissions": ["data:write"]
+      "tags": [
+        "analytics",
+        "quality",
+        "anomalies"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "auth/ldap",
@@ -79,8 +114,16 @@
       "category": "auth",
       "version": "3.0.1",
       "author": "Zveltio",
-      "tags": ["auth", "ldap", "active-directory", "sso"],
-      "permissions": ["auth:session", "data:system"]
+      "tags": [
+        "auth",
+        "ldap",
+        "active-directory",
+        "sso"
+      ],
+      "permissions": [
+        "auth:session",
+        "data:system"
+      ]
     },
     {
       "name": "auth/saml",
@@ -89,8 +132,17 @@
       "category": "auth",
       "version": "2.2.1",
       "author": "Zveltio",
-      "tags": ["auth", "saml", "sso", "okta", "azure"],
-      "permissions": ["auth:session", "data:system"]
+      "tags": [
+        "auth",
+        "saml",
+        "sso",
+        "okta",
+        "azure"
+      ],
+      "permissions": [
+        "auth:session",
+        "data:system"
+      ]
     },
     {
       "name": "auth/scim",
@@ -99,8 +151,16 @@
       "category": "auth",
       "version": "3.0.0",
       "author": "Zveltio",
-      "tags": ["auth", "scim", "provisioning", "entra", "okta"],
-      "permissions": ["identity:provision"]
+      "tags": [
+        "auth",
+        "scim",
+        "provisioning",
+        "entra",
+        "okta"
+      ],
+      "permissions": [
+        "identity:provision"
+      ]
     },
     {
       "name": "communications/mail",
@@ -109,8 +169,16 @@
       "category": "communications",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["mail", "email", "imap", "smtp"],
-      "permissions": ["data:system", "files"]
+      "tags": [
+        "mail",
+        "email",
+        "imap",
+        "smtp"
+      ],
+      "permissions": [
+        "data:system",
+        "files"
+      ]
     },
     {
       "name": "sms",
@@ -119,8 +187,15 @@
       "category": "sms",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["sms", "notifications", "twilio", "vonage"],
-      "permissions": ["data:system"]
+      "tags": [
+        "sms",
+        "notifications",
+        "twilio",
+        "vonage"
+      ],
+      "permissions": [
+        "data:system"
+      ]
     },
     {
       "name": "compliance/gdpr",
@@ -129,18 +204,31 @@
       "category": "compliance",
       "version": "3.0.0",
       "author": "Zveltio",
-      "tags": ["compliance", "gdpr", "privacy"],
-      "permissions": ["data:write", "auth:users"]
+      "tags": [
+        "compliance",
+        "gdpr",
+        "privacy"
+      ],
+      "permissions": [
+        "data:write",
+        "auth:users"
+      ]
     },
     {
       "name": "compliance/ro/documents",
       "displayName": "RO Documents",
       "description": "Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata",
       "category": "compliance/ro",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["documents", "contracts", "romania"],
-      "permissions": ["data:write"]
+      "tags": [
+        "documents",
+        "contracts",
+        "romania"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "compliance/ro/efactura",
@@ -149,8 +237,16 @@
       "category": "compliance/ro",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["invoicing", "anaf", "romania", "ubl"],
-      "permissions": ["data:write", "data:system"]
+      "tags": [
+        "invoicing",
+        "anaf",
+        "romania",
+        "ubl"
+      ],
+      "permissions": [
+        "data:write",
+        "data:system"
+      ]
     },
     {
       "name": "compliance/ro/etransport",
@@ -159,8 +255,15 @@
       "category": "compliance/ro",
       "version": "2.0.0",
       "author": "Zveltio",
-      "tags": ["transport", "anaf", "romania", "logistics"],
-      "permissions": ["data:write"]
+      "tags": [
+        "transport",
+        "anaf",
+        "romania",
+        "logistics"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "compliance/ro/procurement",
@@ -169,8 +272,15 @@
       "category": "compliance/ro",
       "version": "2.3.0",
       "author": "Zveltio",
-      "tags": ["procurement", "suppliers", "budget", "romania"],
-      "permissions": ["data:write"]
+      "tags": [
+        "procurement",
+        "suppliers",
+        "budget",
+        "romania"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "compliance/ro/saft",
@@ -179,8 +289,15 @@
       "category": "compliance/ro",
       "version": "2.0.0",
       "author": "Zveltio",
-      "tags": ["saft", "tax", "anaf", "romania"],
-      "permissions": ["data:write"]
+      "tags": [
+        "saft",
+        "tax",
+        "anaf",
+        "romania"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "content/document-templates",
@@ -189,8 +306,15 @@
       "category": "content",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["documents", "templates", "pdf"],
-      "permissions": ["documents", "data:write"]
+      "tags": [
+        "documents",
+        "templates",
+        "pdf"
+      ],
+      "permissions": [
+        "documents",
+        "data:write"
+      ]
     },
     {
       "name": "content/documents",
@@ -199,8 +323,15 @@
       "category": "content",
       "version": "2.0.1",
       "author": "Zveltio",
-      "tags": ["documents", "pdf", "templates"],
-      "permissions": ["documents", "data:write"]
+      "tags": [
+        "documents",
+        "pdf",
+        "templates"
+      ],
+      "permissions": [
+        "documents",
+        "data:write"
+      ]
     },
     {
       "name": "content/drafts",
@@ -209,8 +340,14 @@
       "category": "content",
       "version": "2.1.1",
       "author": "Zveltio",
-      "tags": ["cms", "drafts", "publishing"],
-      "permissions": ["data:write"]
+      "tags": [
+        "cms",
+        "drafts",
+        "publishing"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "content/media",
@@ -219,7 +356,11 @@
       "category": "content",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["media", "files", "images"],
+      "tags": [
+        "media",
+        "files",
+        "images"
+      ],
       "permissions": []
     },
     {
@@ -229,7 +370,13 @@
       "category": "content",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["cms", "pages", "sites", "portals", "content"],
+      "tags": [
+        "cms",
+        "pages",
+        "sites",
+        "portals",
+        "content"
+      ],
       "permissions": []
     },
     {
@@ -239,7 +386,11 @@
       "category": "content",
       "version": "1.0.1",
       "author": "Zveltio",
-      "tags": ["pdf", "viewer", "documents"],
+      "tags": [
+        "pdf",
+        "viewer",
+        "documents"
+      ],
       "permissions": []
     },
     {
@@ -249,8 +400,14 @@
       "category": "forms",
       "version": "3.0.0",
       "author": "Zveltio",
-      "tags": ["forms", "submissions", "builder"],
-      "permissions": ["data:write"]
+      "tags": [
+        "forms",
+        "submissions",
+        "builder"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "crm",
@@ -259,8 +416,14 @@
       "category": "business",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["crm", "contacts", "sales"],
-      "permissions": ["data:write"]
+      "tags": [
+        "crm",
+        "contacts",
+        "sales"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "data/export",
@@ -269,7 +432,12 @@
       "category": "data",
       "version": "2.0.1",
       "author": "Zveltio",
-      "tags": ["export", "csv", "json", "data"],
+      "tags": [
+        "export",
+        "csv",
+        "json",
+        "data"
+      ],
       "permissions": []
     },
     {
@@ -279,8 +447,15 @@
       "category": "data",
       "version": "2.0.2",
       "author": "Zveltio",
-      "tags": ["import", "csv", "json", "data"],
-      "permissions": ["data:write"]
+      "tags": [
+        "import",
+        "csv",
+        "json",
+        "data"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "developer/api-docs",
@@ -289,7 +464,12 @@
       "category": "developer",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["api", "swagger", "openapi", "docs"],
+      "tags": [
+        "api",
+        "swagger",
+        "openapi",
+        "docs"
+      ],
       "permissions": []
     },
     {
@@ -299,8 +479,15 @@
       "category": "developer",
       "version": "2.0.1",
       "author": "Zveltio",
-      "tags": ["byod", "introspection", "migration"],
-      "permissions": ["introspection", "data:write"]
+      "tags": [
+        "byod",
+        "introspection",
+        "migration"
+      ],
+      "permissions": [
+        "introspection",
+        "data:write"
+      ]
     },
     {
       "name": "developer/graphql",
@@ -309,8 +496,14 @@
       "category": "developer",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["graphql", "api", "playground"],
-      "permissions": ["data:write"]
+      "tags": [
+        "graphql",
+        "api",
+        "playground"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "billing",
@@ -319,8 +512,15 @@
       "category": "billing",
       "version": "2.3.0",
       "author": "Zveltio",
-      "tags": ["billing", "stripe", "usage", "metering"],
-      "permissions": ["data:system"]
+      "tags": [
+        "billing",
+        "stripe",
+        "usage",
+        "metering"
+      ],
+      "permissions": [
+        "data:system"
+      ]
     },
     {
       "name": "ecommerce/store",
@@ -329,8 +529,15 @@
       "category": "ecommerce",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["ecommerce", "store", "orders", "products"],
-      "permissions": ["data:write"]
+      "tags": [
+        "ecommerce",
+        "store",
+        "orders",
+        "products"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "finance/accounting",
@@ -339,8 +546,14 @@
       "category": "finance",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["accounting", "bookkeeping", "finance"],
-      "permissions": ["data:write"]
+      "tags": [
+        "accounting",
+        "bookkeeping",
+        "finance"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "finance/banking",
@@ -349,8 +562,14 @@
       "category": "finance",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["banking", "reconciliation", "cashflow"],
-      "permissions": ["data:write"]
+      "tags": [
+        "banking",
+        "reconciliation",
+        "cashflow"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "finance/expenses",
@@ -359,18 +578,30 @@
       "category": "finance",
       "version": "2.3.0",
       "author": "Zveltio",
-      "tags": ["expenses", "receipts", "approvals"],
-      "permissions": ["data:write"]
+      "tags": [
+        "expenses",
+        "receipts",
+        "approvals"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "finance/invoicing",
       "displayName": "Invoicing",
       "description": "Recurring invoices, payment tracking and overdue management",
       "category": "finance",
-      "version": "2.4.0",
+      "version": "2.5.0",
       "author": "Zveltio",
-      "tags": ["invoicing", "payments", "billing"],
-      "permissions": ["data:write"]
+      "tags": [
+        "invoicing",
+        "payments",
+        "billing"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "finance/quotes",
@@ -379,8 +610,15 @@
       "category": "finance",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["quotes", "proposals", "pdf", "crm"],
-      "permissions": ["data:write"]
+      "tags": [
+        "quotes",
+        "proposals",
+        "pdf",
+        "crm"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "finance/subscriptions",
@@ -389,8 +627,15 @@
       "category": "finance",
       "version": "2.3.0",
       "author": "Zveltio",
-      "tags": ["subscriptions", "billing", "stripe", "mrr"],
-      "permissions": ["data:write"]
+      "tags": [
+        "subscriptions",
+        "billing",
+        "stripe",
+        "mrr"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "geospatial/postgis",
@@ -399,7 +644,12 @@
       "category": "geospatial",
       "version": "2.3.0",
       "author": "Zveltio",
-      "tags": ["maps", "location", "geospatial", "postgis"],
+      "tags": [
+        "maps",
+        "location",
+        "geospatial",
+        "postgis"
+      ],
       "permissions": []
     },
     {
@@ -409,8 +659,14 @@
       "category": "hr",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["hr", "employees", "departments"],
-      "permissions": ["data:write"]
+      "tags": [
+        "hr",
+        "employees",
+        "departments"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "hr/leave",
@@ -419,8 +675,15 @@
       "category": "hr",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["hr", "leave", "vacation", "approvals"],
-      "permissions": ["data:write"]
+      "tags": [
+        "hr",
+        "leave",
+        "vacation",
+        "approvals"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "hr/payroll",
@@ -429,8 +692,15 @@
       "category": "hr",
       "version": "2.0.0",
       "author": "Zveltio",
-      "tags": ["payroll", "hr", "romania", "revisal"],
-      "permissions": ["data:write"]
+      "tags": [
+        "payroll",
+        "hr",
+        "romania",
+        "revisal"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "hr/time-tracking",
@@ -439,8 +709,15 @@
       "category": "hr",
       "version": "2.3.0",
       "author": "Zveltio",
-      "tags": ["timesheets", "billing", "projects", "hr"],
-      "permissions": ["data:write"]
+      "tags": [
+        "timesheets",
+        "billing",
+        "projects",
+        "hr"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "i18n/translations",
@@ -449,8 +726,14 @@
       "category": "i18n",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["i18n", "translations", "locales"],
-      "permissions": ["data:write"]
+      "tags": [
+        "i18n",
+        "translations",
+        "locales"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "integrations/api-connector",
@@ -459,8 +742,15 @@
       "category": "integrations",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["integrations", "api", "http", "webhooks"],
-      "permissions": ["data:system"]
+      "tags": [
+        "integrations",
+        "api",
+        "http",
+        "webhooks"
+      ],
+      "permissions": [
+        "data:system"
+      ]
     },
     {
       "name": "integrations/migrators",
@@ -469,8 +759,17 @@
       "category": "integrations",
       "version": "2.0.1",
       "author": "Zveltio",
-      "tags": ["integrations", "migration", "hubspot", "notion", "airtable"],
-      "permissions": ["data:write", "data:system"]
+      "tags": [
+        "integrations",
+        "migration",
+        "hubspot",
+        "notion",
+        "airtable"
+      ],
+      "permissions": [
+        "data:write",
+        "data:system"
+      ]
     },
     {
       "name": "operations/assets",
@@ -479,8 +778,14 @@
       "category": "operations",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["assets", "depreciation", "maintenance"],
-      "permissions": ["data:write"]
+      "tags": [
+        "assets",
+        "depreciation",
+        "maintenance"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "operations/inventory",
@@ -489,8 +794,15 @@
       "category": "operations",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["inventory", "warehouse", "stock", "barcode"],
-      "permissions": ["data:write"]
+      "tags": [
+        "inventory",
+        "warehouse",
+        "stock",
+        "barcode"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "operations/pos",
@@ -499,8 +811,15 @@
       "category": "operations",
       "version": "2.2.0",
       "author": "Zveltio",
-      "tags": ["pos", "retail", "receipts", "inventory"],
-      "permissions": ["data:write"]
+      "tags": [
+        "pos",
+        "retail",
+        "receipts",
+        "inventory"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "operations/traceability",
@@ -509,8 +828,16 @@
       "category": "operations",
       "version": "2.0.1",
       "author": "Zveltio",
-      "tags": ["traceability", "food-safety", "lots", "recall", "ansvsa"],
-      "permissions": ["data:write"]
+      "tags": [
+        "traceability",
+        "food-safety",
+        "lots",
+        "recall",
+        "ansvsa"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "projects/helpdesk",
@@ -519,8 +846,15 @@
       "category": "projects",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["helpdesk", "tickets", "support", "sla"],
-      "permissions": ["data:write"]
+      "tags": [
+        "helpdesk",
+        "tickets",
+        "support",
+        "sla"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "projects/management",
@@ -529,7 +863,12 @@
       "category": "projects",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["projects", "tasks", "kanban", "milestones"],
+      "tags": [
+        "projects",
+        "tasks",
+        "kanban",
+        "milestones"
+      ],
       "permissions": []
     },
     {
@@ -539,8 +878,16 @@
       "category": "storage",
       "version": "2.0.0",
       "author": "Zveltio",
-      "tags": ["storage", "files", "cloud", "sharing"],
-      "permissions": ["data:write", "files"]
+      "tags": [
+        "storage",
+        "files",
+        "cloud",
+        "sharing"
+      ],
+      "permissions": [
+        "data:write",
+        "files"
+      ]
     },
     {
       "name": "workflow/approvals",
@@ -549,8 +896,14 @@
       "category": "workflow",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["workflow", "approvals", "notifications"],
-      "permissions": ["data:write"]
+      "tags": [
+        "workflow",
+        "approvals",
+        "notifications"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     },
     {
       "name": "workflow/checklists",
@@ -559,8 +912,14 @@
       "category": "workflow",
       "version": "2.1.0",
       "author": "Zveltio",
-      "tags": ["forms", "checklists", "scoring"],
-      "permissions": ["data:write"]
+      "tags": [
+        "forms",
+        "checklists",
+        "scoring"
+      ],
+      "permissions": [
+        "data:write"
+      ]
     }
   ]
 }
