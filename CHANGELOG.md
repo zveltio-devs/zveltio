@@ -4,7 +4,9 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
-**A declared route's handler hands `ctx.internals` its `Request` (ADR 0039).** The members that act for the request being handled — `createRecord`, `updateRecord`, `deleteRecord`, `readRecord`, `listRecords`, `enqueue`, `writeValidationRule`, `writeValidationRuleGroup` — took only the Hono context `c`, which a declared handler is never handed, so a first-party extension could not port a route that writes or reads as its caller (`developer/graphql`). They now take that handler's `Request` in `c`'s place, resolved by the `/ext/*` gate to the request running now; a request kept from an earlier call, or a forged object, names no caller, as before. New `ctx.internals.caller(c | request)`: a copy of who the gate admitted (user, `session` or `api_key`, tenant), or `null`. First-party code only (RFC v3 l.64); `host` is unchanged (ADR 0039 decision 4).
+## [3.0.0-beta.116] - 2026-11-13
+
+**A declared route's handler hands `ctx.internals` its `Request` (ADR 0039).** The members that act for the request being handled — `createRecord`, `updateRecord`, `deleteRecord`, `readRecord`, `listRecords`, `enqueue`, `writeValidationRule`, `writeValidationRuleGroup` — took only the Hono context `c`, which a declared handler is never handed, so a first-party extension could not port a route that writes or reads as its caller (`developer/graphql`). They now take that handler's `Request` in `c`'s place, resolved by the `/ext/*` gate to the request running now; a request kept from an earlier call, or a forged object, names no caller, as before. New `ctx.internals.caller(c | request)`: a copy of who the gate admitted (user, `session` or `api_key`, tenant), or `null`. First-party code only (RFC v3 l.64); `host` is unchanged (ADR 0039 decision 4). `developer/graphql` 2.2.0 (its four routes declared) needs this engine.
 
 ## [3.0.0-beta.115] - 2026-11-13
 

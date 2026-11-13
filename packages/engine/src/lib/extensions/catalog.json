@@ -307,7 +307,7 @@
       "displayName": "GraphQL API",
       "description": "Auto-generated GraphQL API with playground for all collections",
       "category": "developer",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["graphql", "api", "playground"],
       "permissions": ["data:write"]
