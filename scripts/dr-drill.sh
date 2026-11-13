@@ -157,9 +157,9 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
     # one who needs to know.
     if psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='zveltio_rls'" | grep -q 1; then
       pass "zveltio_rls role reachable from the restore" 0
-      echo "  - NOTE: roles live in the cluster, not the dump. A NEW server needs" >>"$REPORT"
-      echo "    \`pg_dumpall --roles-only\` restored BEFORE the dump, or every grant" >>"$REPORT"
-      echo "    to an engine role is dropped (section 1b, DRILL_NEW_CLUSTER)." >>"$REPORT"
+      echo "  - NOTE: roles live in the cluster, not a plain pg_dump. A NEW server needs" >>"$REPORT"
+      echo "    them BEFORE such a dump, or every grant to an engine role is dropped;" >>"$REPORT"
+      echo "    the built-in backup carries them (section 1b, DRILL_NEW_CLUSTER)." >>"$REPORT"
     else
       fail "zveltio_rls role missing in the restored cluster" "policies cannot be enforced"
     fi
@@ -256,47 +256,88 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
   fi
   dropdb -U "$DRILL_DB_USER" "$SCRATCH_DB" 2>/dev/null || true
 
-  # ── 1b. The same dump onto a NEW server ─────────────────────────
-  # The restore above lands on the cluster it came from, where the engine's
-  # roles already exist, so it cannot see what a lost server does: roles are
-  # cluster objects, pg_dump does not carry them, and every GRANT in the dump
-  # naming one fails where it does not exist. Measured 2026-11-13: restored
-  # that way, zveltio_rls was denied zvv__revisions and the narrow roles held
-  # nothing, while boot logged "Tenant RLS enforced".
-  #
-  # DRILL_NEW_CLUSTER is a second cluster without them (a postgresql:// URL of
-  # its maintenance database). This follows disaster-recovery.md §4 Scenario B:
-  # the roles first, then the dump, stopping at the first error, and then every
-  # grant the engine's roles hold must be the source's, one for one.
-  if [[ -n "${DRILL_NEW_CLUSTER:-}" ]]; then
-    NEW_DB="${DRILL_DB}_newserver_$TS"
-    NEW_URL="${DRILL_NEW_CLUSTER%/*}/$NEW_DB"
-    ROLE_COUNT_SQL="SELECT count(*) FROM pg_roles WHERE rolname IN ('zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader')"
-    # Every privilege an engine role holds in this database, one line each.
-    PRIV_SQL="WITH r AS (SELECT oid, rolname FROM pg_roles WHERE rolname LIKE 'zveltio\_%' AND NOT rolcanlogin)
-      SELECT * FROM (
-        SELECT r.rolname, c.relkind::text, n.nspname || '.' || c.relname AS obj, a.privilege_type
-          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a JOIN r ON r.oid = a.grantee
-        UNION ALL SELECT r.rolname, 'column', c.relname || '.' || t.attname, a.privilege_type
-          FROM pg_attribute t JOIN pg_class c ON c.oid = t.attrelid, aclexplode(t.attacl) a JOIN r ON r.oid = a.grantee
-        UNION ALL SELECT r.rolname, 'function', p.oid::regprocedure::text, a.privilege_type
-          FROM pg_proc p, aclexplode(p.proacl) a JOIN r ON r.oid = a.grantee
-        UNION ALL SELECT r.rolname, 'schema', s.nspname, a.privilege_type
-          FROM pg_namespace s, aclexplode(s.nspacl) a JOIN r ON r.oid = a.grantee
-        UNION ALL SELECT r.rolname, 'default ' || d.defaclobjtype::text, coalesce(d.defaclnamespace::regnamespace::text, '*'), a.privilege_type
-          FROM pg_default_acl d, aclexplode(d.defaclacl) a JOIN r ON r.oid = a.grantee
-      ) x ORDER BY 1, 2, 3, 4"
-    HAVE=$(psql "$DRILL_NEW_CLUSTER" -tAc "$ROLE_COUNT_SQL" 2>/dev/null || echo "unreachable")
-    if [[ "$HAVE" != "0" ]]; then
-      fail "restore onto a new server" "DRILL_NEW_CLUSTER is not a new server (engine roles: $HAVE)"
-    elif ! time_ms bash -c "set -o pipefail; pg_dumpall --roles-only -U '$DRILL_DB_USER' | psql -q '$DRILL_NEW_CLUSTER' >/dev/null 2>&1" \
-         || [[ "$(psql "$DRILL_NEW_CLUSTER" -tAc "$ROLE_COUNT_SQL")" != "3" ]]; then
-      fail "roles restored before the dump" "pg_dumpall --roles-only did not bring the engine roles"
+else
+  fail "pg_dump completes" "command exited non-zero"
+fi
+rm -f "$DUMP_FILE"
+
+# ── 1b. The built-in backup onto a NEW server ───────────────────────
+# Section 1 lands on the cluster it came from, where the engine's roles already
+# exist, so it cannot see what a lost server does: roles are cluster objects,
+# pg_dump does not carry them, and every GRANT in the dump naming one fails
+# where it does not exist. Measured 2026-11-13: restored that way, zveltio_rls
+# was denied zvv__revisions and the narrow roles held nothing, and the engine
+# refuses to boot on it (migration 121's marker).
+#
+# The archive `POST /api/backup` writes opens with the engine's roles (ADR 0047),
+# so the one restore command of disaster-recovery.md §4 Scenario B — no roles
+# step, stopping at the first error — must bring a role-less cluster to a
+# database the engine boots on, with every grant the source's.
+#
+# DRILL_NEW_CLUSTER is that cluster (a postgresql:// URL of its maintenance
+# database). The engine's own roles must not exist there yet.
+if [[ -n "${DRILL_NEW_CLUSTER:-}" ]]; then
+  NEW_DB="${DRILL_DB}_newserver_$TS"
+  NEW_URL="${DRILL_NEW_CLUSTER%/*}/$NEW_DB"
+  BUILTIN_FILE=$(mktemp --suffix=.sql.gz)
+  BACKUP_JAR=$(mktemp)
+  ENGINE_ROLES_SQL="SELECT count(*) FROM pg_roles WHERE rolname LIKE 'zveltio\_%' AND NOT rolcanlogin"
+  # Every privilege an engine role holds in this database, one line each.
+  PRIV_SQL="WITH r AS (SELECT oid, rolname FROM pg_roles WHERE rolname LIKE 'zveltio\_%' AND NOT rolcanlogin)
+    SELECT * FROM (
+      SELECT r.rolname, c.relkind::text, n.nspname || '.' || c.relname AS obj, a.privilege_type
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a JOIN r ON r.oid = a.grantee
+      UNION ALL SELECT r.rolname, 'column', c.relname || '.' || t.attname, a.privilege_type
+        FROM pg_attribute t JOIN pg_class c ON c.oid = t.attrelid, aclexplode(t.attacl) a JOIN r ON r.oid = a.grantee
+      UNION ALL SELECT r.rolname, 'function', p.oid::regprocedure::text, a.privilege_type
+        FROM pg_proc p, aclexplode(p.proacl) a JOIN r ON r.oid = a.grantee
+      UNION ALL SELECT r.rolname, 'schema', s.nspname, a.privilege_type
+        FROM pg_namespace s, aclexplode(s.nspacl) a JOIN r ON r.oid = a.grantee
+      UNION ALL SELECT r.rolname, 'default ' || d.defaclobjtype::text, coalesce(d.defaclnamespace::regnamespace::text, '*'), a.privilege_type
+        FROM pg_default_acl d, aclexplode(d.defaclacl) a JOIN r ON r.oid = a.grantee
+    ) x ORDER BY 1, 2, 3, 4"
+  # What makes the engine refuse to boot (enforceRoleGrantsMarker,
+  # lib/tenancy/tenant-manager.ts): a role the marker's comment names that
+  # holds no EXECUTE on it. Empty means it boots.
+  MARKER_SQL="SELECT string_agg(n, ',') FROM unnest(string_to_array(
+      obj_description('public.zveltio_role_grants_marker()'::regprocedure, 'pg_proc'), ',')) n
+     WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = n)
+        OR NOT has_function_privilege(n, 'public.zveltio_role_grants_marker()', 'EXECUTE')"
+
+  HAVE=$(psql "$DRILL_NEW_CLUSTER" -tAc "$ENGINE_ROLES_SQL" 2>/dev/null || echo "unreachable")
+  if [[ "$HAVE" != "0" ]]; then
+    fail "restore onto a new server" "DRILL_NEW_CLUSTER is not a new server (engine roles: $HAVE)"
+  # Configuration changes need a fresh passkey or TOTP confirmation (ADR 0006).
+  # The drill opens that window in the drill database directly, standing in for
+  # the operator's confirmation, then takes the backup the way they would.
+  elif ! curl -sf -c "$BACKUP_JAR" -X POST "$DRILL_BASE_URL/api/auth/sign-in/email" \
+         -H "Content-Type: application/json" \
+         -d "{\"email\":\"$DRILL_ADMIN_EMAIL\",\"password\":\"$DRILL_ADMIN_PASSWORD\"}" >/dev/null \
+       || ! psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -qc "
+         INSERT INTO verification (id, identifier, value, \"expiresAt\")
+         SELECT 'step-up-window:' || rtrim(translate(encode(sha256(convert_to(s.id, 'UTF8')), 'base64'), '+/', '-_'), '='),
+                'step-up:window:' || s.\"userId\", 'totp', now() + interval '5 minutes'
+           FROM session s JOIN \"user\" u ON u.id = s.\"userId\" WHERE u.email = '$DRILL_ADMIN_EMAIL'
+         ON CONFLICT (id) DO UPDATE SET \"expiresAt\" = excluded.\"expiresAt\"" >/dev/null; then
+    fail "built-in backup" "could not sign in as $DRILL_ADMIN_EMAIL"
+  else
+    BACKUP_ID=$(curl -sf -b "$BACKUP_JAR" -X POST "$DRILL_BASE_URL/api/backup" \
+      -H "Content-Type: application/json" -d '{"notes":"dr-drill"}' | sed -nE 's/.*"backup_id":"([^"]+)".*/\1/p' || true)
+    STATUS=""
+    for _ in $(seq 1 120); do
+      [[ -n "$BACKUP_ID" ]] || break
+      STATUS=$(curl -sf -b "$BACKUP_JAR" "$DRILL_BASE_URL/api/backup/$BACKUP_ID/status" | sed -nE 's/.*"status":"([^"]+)".*/\1/p' || true)
+      [[ "$STATUS" == "completed" || "$STATUS" == "failed" ]] && break
+      sleep 1
+    done
+    if [[ "$STATUS" != "completed" ]] \
+       || ! curl -sf -b "$BACKUP_JAR" -o "$BUILTIN_FILE" "$DRILL_BASE_URL/api/backup/$BACKUP_ID/download"; then
+      fail "built-in backup" "POST /api/backup ended '${STATUS:-not started}' (id '${BACKUP_ID:-none}')"
     else
-      pass "roles restored before the dump (pg_dumpall --roles-only)" "$DURATION_MS"
+      pass "built-in backup (POST /api/backup, $(stat -c%s "$BUILTIN_FILE") bytes)" 0
       createdb --maintenance-db="$DRILL_NEW_CLUSTER" "$NEW_DB"
-      if time_ms bash -c "set -o pipefail; gunzip -c '$DUMP_FILE' | psql -q -v ON_ERROR_STOP=1 '$NEW_URL' >/dev/null"; then
-        pass "restore onto a new server, stopping at the first error" "$DURATION_MS"
+      if time_ms bash -c "set -o pipefail; gunzip -c '$BUILTIN_FILE' | psql -q -v ON_ERROR_STOP=1 '$NEW_URL' >/dev/null"; then
+        pass "built-in backup restores onto a new server in one command, stopping at the first error" "$DURATION_MS"
         ORIG_PRIVS=$(psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -tAc "$PRIV_SQL")
         NEW_PRIVS=$(psql "$NEW_URL" -tAc "$PRIV_SQL")
         if [[ -n "$ORIG_PRIVS" ]] && [[ "$ORIG_PRIVS" == "$NEW_PRIVS" ]]; then
@@ -305,18 +346,31 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
           fail "engine role grants differ on the new server" "first differences below (< source, > new server)"
           diff <(echo "$ORIG_PRIVS") <(echo "$NEW_PRIVS") | head -20 | sed 's/^/    /' >>"$REPORT" || true
         fi
+        LOST=$(psql "$NEW_URL" -tAc "$MARKER_SQL" 2>&1 || true)
+        if [[ -z "$LOST" ]]; then
+          pass "the engine's restore marker passes on the new server" 0
+        else
+          fail "the engine would refuse to boot on the new server" "roles without their grants: $LOST"
+        fi
+        if psql "$NEW_URL" -tAc "BEGIN; SET LOCAL ROLE zveltio_rls; SELECT count(*) FROM zvv__revisions; ROLLBACK" >/dev/null 2>&1; then
+          pass "zvv__revisions readable as zveltio_rls on the new server" 0
+        else
+          fail "zvv__revisions not readable as zveltio_rls on the new server" "the revision view lost its grant"
+        fi
       else
-        fail "restore onto a new server" "psql stopped at an error — see the log above"
+        fail "built-in backup onto a new server" "psql stopped at an error — see the log above"
       fi
       dropdb --maintenance-db="$DRILL_NEW_CLUSTER" "$NEW_DB" 2>/dev/null || true
+      # Leave the cluster role-less, as found, so the next drill measures the same thing.
+      for role in $(psql "$DRILL_NEW_CLUSTER" -tAc "SELECT rolname FROM pg_roles WHERE rolname LIKE 'zveltio\_%' AND NOT rolcanlogin" 2>/dev/null); do
+        psql "$DRILL_NEW_CLUSTER" -qc "DROP ROLE \"$role\"" >/dev/null 2>&1 || true
+      done
     fi
-  else
-    skip "restore onto a new server" "DRILL_NEW_CLUSTER is not set"
   fi
+  rm -f "$BUILTIN_FILE" "$BACKUP_JAR"
 else
-  fail "pg_dump completes" "command exited non-zero"
+  skip "built-in backup onto a new server" "DRILL_NEW_CLUSTER is not set"
 fi
-rm -f "$DUMP_FILE"
 
 # ── 2. Engine smoke check ───────────────────────────────────────────
 if time_ms curl -sf -o /dev/null "$DRILL_BASE_URL/api/health"; then

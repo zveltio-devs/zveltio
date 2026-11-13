@@ -16,6 +16,7 @@
  */
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { writeSync } from 'node:fs';
 import type { Database } from '../../db/index.js';
 import { scheduleBackups, setNextRun } from '../../lib/backup/scheduler.js';
 import { CannedDb } from './fixtures/canned-db.js';
@@ -127,13 +128,13 @@ describe('scheduleBackups — one tick', () => {
   // whether it starts a dump at all, and a real `pg_dump` here would only add a
   // DNS timeout to every case.
   function fakeSpawn() {
-    return spyOn(Bun, 'spawn').mockImplementation(((cmd: string[]) => {
+    return spyOn(Bun, 'spawn').mockImplementation(((cmd: string[], o?: { stdout?: unknown }) => {
       if (cmd[0] === 'pg_dump') {
-        const dest = cmd.includes('-f') ? cmd[cmd.indexOf('-f') + 1] : undefined;
+        // pg_dump writes to the file descriptor it is handed (lib/backup/dump.ts).
         // Comfortably above EMPTY_ARCHIVE_BYTES: a one-byte file is now refused
         // as an archive holding no dump, which would make every tick here fail.
-        const done = dest ? Bun.write(dest, 'x'.repeat(64)).then(() => 0) : Promise.resolve(0);
-        return { exited: done, exitCode: 0, stderr: new Response('').body } as never;
+        if (typeof o?.stdout === 'number') writeSync(o.stdout, 'x'.repeat(64));
+        return { exited: Promise.resolve(0), exitCode: 0, stderr: new Response('').body } as never;
       }
       return {
         exited: Promise.resolve(0),

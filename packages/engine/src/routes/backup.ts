@@ -10,6 +10,7 @@ import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
 import { getStorage } from '../lib/storage/index.js';
 import { cleanupOldBackups, runScheduledBackup } from '../lib/backup/run-scheduled-backup.js';
+import { writeBackupArchive } from '../lib/backup/dump.js';
 import { verifyArchive } from '../lib/backup/verify-archive.js';
 import { setNextRun } from '../lib/backup/scheduler.js';
 import type { Database } from '../db/index.js';
@@ -202,13 +203,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     // One resolver for both routes — see `resolveDumpTarget`. The copy that used
     // to live here and the copy in the schedule trigger had drifted, and only
     // one of them read `DATABASE_URL`.
-    const {
-      host: dbHost,
-      port: dbPort,
-      name: dbName,
-      user: dbUser,
-      password: dbPassword,
-    } = resolveDumpTarget();
+    const dumpTarget = resolveDumpTarget();
 
     // Run backup in background — do NOT await
     const backupBg = async () => {
@@ -217,48 +212,26 @@ export function backupRoutes(db: Database, auth: any): Hono {
         const mkdirProc = Bun.spawn(['mkdir', '-p', BACKUP_DIR]);
         await mkdirProc.exited;
 
-        // pg_dump writes the gzip archive itself (`-Z 6`: plain SQL, gzip-compressed).
-        // It was `pg_dump | gzip`, with Bun copying pg_dump's stdout into gzip's
-        // stdin in this process; a write into that pipe after it closed surfaced
-        // as an uncaught EPIPE here. One process, no pipe, and a write that fails
-        // (disk full, SIGXFSZ) is pg_dump's own exit code.
-        const pgdumpProc = Bun.spawn(
-          [
-            'pg_dump',
-            '-h',
-            dbHost,
-            '-p',
-            String(dbPort),
-            '-U',
-            dbUser,
-            '-d',
-            dbName,
-            '-Z',
-            '6',
-            '-f',
-            filepath,
-          ],
-          {
-            env: { ...process.env, PGPASSWORD: dbPassword } as Record<string, string>,
-            stdout: 'ignore',
-            stderr: 'pipe',
-          },
-        );
-        await pgdumpProc.exited;
+        // The engine's roles, then pg_dump's own gzip archive (`-Z 6`: plain SQL)
+        // appended to the same file — lib/backup/dump.ts. It was `pg_dump | gzip`,
+        // with Bun copying pg_dump's stdout into gzip's stdin in this process; a
+        // write into that pipe after it closed surfaced as an uncaught EPIPE here.
+        // No gzip process, no pipe, and a write that fails (disk full, SIGXFSZ)
+        // is pg_dump's own exit code.
+        const dump = await writeBackupArchive(db, dumpTarget, filepath);
 
         // A dump that failed outright has a better error than anything the
         // archive check can produce, and `explainDumpFailure` translates the
         // common ones.
-        if (pgdumpProc.exitCode !== 0) {
-          const stderr = await new Response(pgdumpProc.stderr).text();
+        if (dump.exitCode !== 0) {
           throw new Error(
-            `pg_dump failed (exit ${pgdumpProc.exitCode}): ${explainDumpFailure(stderr)}`,
+            `pg_dump failed (exit ${dump.exitCode}): ${explainDumpFailure(dump.stderr)}`,
           );
         }
 
         // Then the file and its size (verify-archive.ts, shared with
         // `run-scheduled-backup.ts` so a third backup path cannot miss them).
-        const size = await verifyArchive(filepath);
+        const size = await verifyArchive(filepath, dump.rolesBytes);
 
         // Tighten permissions on the dump file: it holds the entire DB
         // including password hashes, secrets, customer PII. The default
