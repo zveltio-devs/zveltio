@@ -1802,6 +1802,76 @@ export function isSingleUnitReach(scope: TenantScope | null, tenantId: string): 
  */
 let _rlsRoleAvailable = false;
 
+/** The engine's own roles that migrations grant on objects in this database. */
+const NARROW_ENGINE_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader'];
+
+/**
+ * Refuse to start on a database restored without the engine's roles.
+ *
+ * The roles belong to the cluster, so `pg_dump` does not carry them, and every
+ * GRANT in the dump that names one fails on a server where it does not exist
+ * yet. Boot recreates the roles but cannot recreate those grants — only the dump
+ * holds them all — so the engine used to start with revision reads, the media
+ * quota, worker SQL and flow `query_db` broken or falling back, and logged
+ * "Tenant RLS enforced".
+ *
+ * The evidence is migration 121's marker: each role here is granted EXECUTE on
+ * it the first time the engine sees the role, and named in its COMMENT. The
+ * dump carries both, so after a restore a named role without EXECUTE is one
+ * whose grants did not survive. A role the engine has never seen is not named,
+ * so an install that gains a role later (CREATEROLE granted, the bootstrap
+ * script re-run) starts as before.
+ */
+export async function enforceRoleGrantsMarker(db: Database): Promise<void> {
+  const marker = 'public.zveltio_role_grants_marker()';
+  const r = await sql<{ name: string; present: boolean; granted: boolean; note: string | null }>`
+    SELECT n.name,
+           EXISTS (SELECT 1 FROM pg_roles WHERE rolname = n.name) AS present,
+           EXISTS (SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a
+                     JOIN pg_roles g ON g.oid = a.grantee
+                    WHERE p.oid = to_regprocedure(${marker}) AND g.rolname = n.name
+                      AND a.privilege_type = 'EXECUTE') AS granted,
+           obj_description(to_regprocedure(${marker}), 'pg_proc') AS note
+      FROM unnest(${NARROW_ENGINE_ROLES}::text[]) AS n(name)
+     WHERE to_regprocedure(${marker}) IS NOT NULL
+  `.execute(db);
+  const recorded = new Set((r.rows[0]?.note ?? '').split(',').filter(Boolean));
+  const lost = r.rows.filter((x) => recorded.has(x.name) && !x.granted);
+  if (lost.length) {
+    const absent = lost.filter((x) => !x.present).map((x) => x.name);
+    throw new Error(
+      `[tenant-rls] This database was restored without the engine's database roles: ` +
+        `${lost.map((x) => x.name).join(', ')} held grants here when the backup was taken, and ` +
+        'the restore dropped every one of them (a role belongs to the cluster, not to the dump). ' +
+        'Starting would run with those grants missing. ' +
+        (absent.length
+          ? `Create ${absent.join(', ')} (pg_dumpall --roles-only from the old server, or ` +
+            'scripts/bootstrap-db-role.sh), then restore the dump again into an empty database.'
+          : 'The roles exist now: drop this database, restore the dump again into an empty one, ' +
+            'and start the engine.') +
+        ' See docs/platform/disaster-recovery.md §4 Scenario B.',
+    );
+  }
+  const seen = r.rows.filter((x) => x.present && !recorded.has(x.name)).map((x) => x.name);
+  if (!seen.length) return;
+  // Best-effort: an engine that does not own the marker records nothing, and
+  // boots as it did before 121.
+  try {
+    for (const role of seen) {
+      await sql`GRANT EXECUTE ON FUNCTION ${sql.raw(marker)} TO ${sql.id(role)}`.execute(db);
+      recorded.add(role);
+    }
+    await sql`COMMENT ON FUNCTION ${sql.raw(marker)} IS ${sql.lit([...recorded].sort().join(','))}`.execute(
+      db,
+    );
+  } catch (err) {
+    console.warn(
+      '[tenant-rls] could not record the engine roles on the grants marker:',
+      (err as Error).message,
+    );
+  }
+}
+
 /**
  * Recreate `zveltio_rls` if it is not here, before deciding whether it is.
  *
@@ -1821,6 +1891,11 @@ let _rlsRoleAvailable = false;
  * So the role is provisioned here, at every boot, rather than once in a
  * migration. Idempotent and identical to what 030 does; on a healthy instance
  * it grants what is already granted and returns.
+ *
+ * It does not bring back every grant such a restore dropped: functions, views,
+ * default privileges and the narrow roles' grants were made by migrations, and
+ * only the dump holds the full set. `enforceRoleGrantsMarker` notices that
+ * restore and refuses to start; the remedy is the roles first, then the dump.
  *
  * Best-effort by design: a managed Postgres where the engine's user cannot
  * create roles is a legitimate deployment, and it should keep starting and keep
@@ -1850,24 +1925,31 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
   // means a role that cannot grant membership still gets its table grants, and
   // the log names the step that actually failed.
 
-  // 1. The role itself. Needs CREATEROLE, which a plain engine role should not
-  //    have — scripts/bootstrap-db-role.sh pre-creates it for that case.
-  try {
-    await sql`
-      DO $ensure_rls_role$
-      BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_rls') THEN
-          CREATE ROLE zveltio_rls NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
-        END IF;
-      END
-      $ensure_rls_role$;
-    `.execute(db);
-  } catch (err) {
-    console.warn(
-      '[tenant-rls] could not create the zveltio_rls role (continuing):',
-      (err as Error).message,
-    );
-    return; // Nothing below can succeed without it.
+  // 1. The roles themselves. Needs CREATEROLE, which a plain engine role should
+  //    not have — scripts/bootstrap-db-role.sh pre-creates them for that case.
+  //    The two narrow ones too: absent, a flow `query_db` step falls back to the
+  //    connection role, a SUPERUSER on a stock install. Their grants are not
+  //    made here — after a restore without roles only the dump has them, and
+  //    `enforceRoleGrantsMarker` refuses to start instead.
+  for (const role of NARROW_ENGINE_ROLES) {
+    try {
+      await sql`
+        DO $ensure_rls_role$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${sql.lit(role)}) THEN
+            EXECUTE format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE',
+                           ${sql.lit(role)});
+          END IF;
+        END
+        $ensure_rls_role$;
+      `.execute(db);
+    } catch (err) {
+      console.warn(
+        `[tenant-rls] could not create the ${role} role (continuing):`,
+        (err as Error).message,
+      );
+      if (role === 'zveltio_rls') return; // Nothing below can succeed without it.
+    }
   }
 
   // 2. Membership, so `SET LOCAL ROLE zveltio_rls` is permitted. Guarded by the
@@ -1882,7 +1964,7 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
   //    request failed. The two narrow roles the engine also switches into (the
   //    worker SQL bridge, flow `query_db`) get the same repair, one statement
   //    each so one refusal does not skip the rest.
-  for (const role of ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader']) {
+  for (const role of NARROW_ENGINE_ROLES) {
     try {
       await sql`
         DO $ensure_role_member$
@@ -2069,6 +2151,7 @@ export async function initRlsEnforcementRole(
     console.warn('[tenant-rls] grant lock unavailable, granting unlocked:', (err as Error).message);
     return ensureRlsEnforcementRole(db);
   });
+  await enforceRoleGrantsMarker(db);
   try {
     const r = await sql<{ ok: boolean; super_user: boolean }>`
       SELECT pg_has_role(current_user, 'zveltio_rls', 'SET') AS ok,

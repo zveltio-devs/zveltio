@@ -43,6 +43,11 @@ when `NODE_ENV=production`, and the only way out is
 production it stays a warning, because a development machine on the stock
 image's superuser is a normal thing.
 
+Before any of the three, boot refuses — everywhere, with no override — a
+database restored onto a server that lacked the engine's roles: the dump's
+grants to them were dropped, and only the dump has them
+([disaster-recovery.md § 4 Scenario B](disaster-recovery.md)).
+
 **The documented production installation does not use a superuser.**
 [`deployment-k8s.md`](deployment-k8s.md) describes it and
 `scripts/bootstrap-db-role.sh` performs it: run **once**, as superuser, it

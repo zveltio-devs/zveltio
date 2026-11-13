@@ -64,13 +64,17 @@ cat >"$REPORT" <<EOF
 ## Results
 EOF
 
-# Helper: time a command in ms, store in $DURATION_MS
+# Helper: time a command in ms, store in $DURATION_MS, return the command's
+# status. It returned the status of its last line, an assignment, so every
+# `if time_ms …` in this script passed whatever the command did (`set -e` does
+# not apply inside a function called from an `if`).
 time_ms() {
-  local t0 t1
+  local t0 t1 rc=0
   t0=$(date +%s%N)
-  "$@"
+  "$@" || rc=$?
   t1=$(date +%s%N)
   DURATION_MS=$(( (t1 - t0) / 1000000 ))
+  return "$rc"
 }
 
 # ── 1. pg_dump + restore round-trip ─────────────────────────────────
@@ -153,10 +157,9 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
     # one who needs to know.
     if psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='zveltio_rls'" | grep -q 1; then
       pass "zveltio_rls role reachable from the restore" 0
-      echo "  - NOTE: roles live in the cluster, not the dump. Restoring onto a NEW" >>"$REPORT"
-      echo "    server also needs \`pg_dumpall --roles-only\`, or the CREATE ROLE" >>"$REPORT"
-      echo "    zveltio_rls block from db/migrations/sql/001_initial.sql re-run," >>"$REPORT"
-      echo "    or tenant isolation has policies with no role to enforce them." >>"$REPORT"
+      echo "  - NOTE: roles live in the cluster, not the dump. A NEW server needs" >>"$REPORT"
+      echo "    \`pg_dumpall --roles-only\` restored BEFORE the dump, or every grant" >>"$REPORT"
+      echo "    to an engine role is dropped (section 1b, DRILL_NEW_CLUSTER)." >>"$REPORT"
     else
       fail "zveltio_rls role missing in the restored cluster" "policies cannot be enforced"
     fi
@@ -252,6 +255,64 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
     fail "restore to scratch DB" "psql import failed"
   fi
   dropdb -U "$DRILL_DB_USER" "$SCRATCH_DB" 2>/dev/null || true
+
+  # ── 1b. The same dump onto a NEW server ─────────────────────────
+  # The restore above lands on the cluster it came from, where the engine's
+  # roles already exist, so it cannot see what a lost server does: roles are
+  # cluster objects, pg_dump does not carry them, and every GRANT in the dump
+  # naming one fails where it does not exist. Measured 2026-11-13: restored
+  # that way, zveltio_rls was denied zvv__revisions and the narrow roles held
+  # nothing, while boot logged "Tenant RLS enforced".
+  #
+  # DRILL_NEW_CLUSTER is a second cluster without them (a postgresql:// URL of
+  # its maintenance database). This follows disaster-recovery.md §4 Scenario B:
+  # the roles first, then the dump, stopping at the first error, and then every
+  # grant the engine's roles hold must be the source's, one for one.
+  if [[ -n "${DRILL_NEW_CLUSTER:-}" ]]; then
+    NEW_DB="${DRILL_DB}_newserver_$TS"
+    NEW_URL="${DRILL_NEW_CLUSTER%/*}/$NEW_DB"
+    ROLE_COUNT_SQL="SELECT count(*) FROM pg_roles WHERE rolname IN ('zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader')"
+    # Every privilege an engine role holds in this database, one line each.
+    PRIV_SQL="WITH r AS (SELECT oid, rolname FROM pg_roles WHERE rolname LIKE 'zveltio\_%' AND NOT rolcanlogin)
+      SELECT * FROM (
+        SELECT r.rolname, c.relkind::text, n.nspname || '.' || c.relname AS obj, a.privilege_type
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a JOIN r ON r.oid = a.grantee
+        UNION ALL SELECT r.rolname, 'column', c.relname || '.' || t.attname, a.privilege_type
+          FROM pg_attribute t JOIN pg_class c ON c.oid = t.attrelid, aclexplode(t.attacl) a JOIN r ON r.oid = a.grantee
+        UNION ALL SELECT r.rolname, 'function', p.oid::regprocedure::text, a.privilege_type
+          FROM pg_proc p, aclexplode(p.proacl) a JOIN r ON r.oid = a.grantee
+        UNION ALL SELECT r.rolname, 'schema', s.nspname, a.privilege_type
+          FROM pg_namespace s, aclexplode(s.nspacl) a JOIN r ON r.oid = a.grantee
+        UNION ALL SELECT r.rolname, 'default ' || d.defaclobjtype::text, coalesce(d.defaclnamespace::regnamespace::text, '*'), a.privilege_type
+          FROM pg_default_acl d, aclexplode(d.defaclacl) a JOIN r ON r.oid = a.grantee
+      ) x ORDER BY 1, 2, 3, 4"
+    HAVE=$(psql "$DRILL_NEW_CLUSTER" -tAc "$ROLE_COUNT_SQL" 2>/dev/null || echo "unreachable")
+    if [[ "$HAVE" != "0" ]]; then
+      fail "restore onto a new server" "DRILL_NEW_CLUSTER is not a new server (engine roles: $HAVE)"
+    elif ! time_ms bash -c "set -o pipefail; pg_dumpall --roles-only -U '$DRILL_DB_USER' | psql -q '$DRILL_NEW_CLUSTER' >/dev/null 2>&1" \
+         || [[ "$(psql "$DRILL_NEW_CLUSTER" -tAc "$ROLE_COUNT_SQL")" != "3" ]]; then
+      fail "roles restored before the dump" "pg_dumpall --roles-only did not bring the engine roles"
+    else
+      pass "roles restored before the dump (pg_dumpall --roles-only)" "$DURATION_MS"
+      createdb --maintenance-db="$DRILL_NEW_CLUSTER" "$NEW_DB"
+      if time_ms bash -c "set -o pipefail; gunzip -c '$DUMP_FILE' | psql -q -v ON_ERROR_STOP=1 '$NEW_URL' >/dev/null"; then
+        pass "restore onto a new server, stopping at the first error" "$DURATION_MS"
+        ORIG_PRIVS=$(psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -tAc "$PRIV_SQL")
+        NEW_PRIVS=$(psql "$NEW_URL" -tAc "$PRIV_SQL")
+        if [[ -n "$ORIG_PRIVS" ]] && [[ "$ORIG_PRIVS" == "$NEW_PRIVS" ]]; then
+          pass "engine roles hold the source's grants on the new server ($(wc -l <<<"$ORIG_PRIVS") grants)" 0
+        else
+          fail "engine role grants differ on the new server" "first differences below (< source, > new server)"
+          diff <(echo "$ORIG_PRIVS") <(echo "$NEW_PRIVS") | head -20 | sed 's/^/    /' >>"$REPORT" || true
+        fi
+      else
+        fail "restore onto a new server" "psql stopped at an error — see the log above"
+      fi
+      dropdb --maintenance-db="$DRILL_NEW_CLUSTER" "$NEW_DB" 2>/dev/null || true
+    fi
+  else
+    skip "restore onto a new server" "DRILL_NEW_CLUSTER is not set"
+  fi
 else
   fail "pg_dump completes" "command exited non-zero"
 fi
