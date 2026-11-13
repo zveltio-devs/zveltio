@@ -122,6 +122,31 @@ regenerating backup codes needs a step-up token.
 Each change writes an `auth.factor_changed` audit row and, with SMTP configured,
 mails the account.
 
+### DELETE /api/me
+
+Erase your own account (ADR 0046; a GDPR Art. 17 erasure). A session only: an API key
+is refused (403 `Session required`), so a key never erases its issuer. Nothing in the
+request names the account — it is the session's, and no other.
+
+```json
+{ "password": "…", "erasure_id": "8a1d1f0e-…" }
+```
+
+Re-authenticated in the request, by the rule that confirms a first factor: an account
+with a passkey or TOTP sends a step-up token for `account.delete` in
+`X-Zveltio-Step-Up` (403 `step_up_required`; its password alone is not enough); one
+without sends `password` (403 `password_required`, wrong or missing); one with no
+password either (OAuth only) needs a session an OAuth sign-in created at most 5
+minutes ago (403 `recent_sign_in_required`). `erasure_id` is optional and opaque — a
+UUID of your own (a GDPR request's id) that the audit row carries; any other field is
+refused (400). Counts against the per-address auth limit (10/min).
+
+The account goes as an administrator's `DELETE /api/users/:id` takes it: every
+session and every API key it issued stops, its grants and memberships go, the row is
+deleted, and `user.deleted` is audited with `actor: "self"`, `reason: "self.erasure"`,
+`confirmed_by` and `erasure_id`. 200 `{ "success": true }`. 409 `user_protected` for
+the instance owner (`god`): transfer or demote the role first.
+
 ### POST /api/users/:id/factors/reset
 
 Deletes a user's passkeys and TOTP, for a user who lost them, and ends every session

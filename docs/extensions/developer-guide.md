@@ -294,7 +294,7 @@ your `ctx`, not inside your own code.
 | `ddl` | `ctx.internals.enqueueDDLJob` — create/alter physical tables. |
 | `secrets` | `encryptSecret` / `decryptSecret`. |
 | `auth:session` | `host.identity` on a declared public route — say who signed in at your provider; the engine finds or creates the account, refuses a disabled one, opens the session and audits it. See §5 "Signing a person in". |
-| `auth:users` | `deleteUser`, `exportUserData` — delete any user, or read what the engine holds about them: a data-subject erasure or access request. Directory offboarding is not here: it is `identity:provision`'s, scoped to the accounts a provider provisioned. |
+| `auth:users` | `exportUserData` — read what the engine holds about a user: a data-subject access request. Erasure is not here: the subject erases their own account with `DELETE /api/me` (ADR 0046; `deleteUser` is no longer offered, engines from 3.0.0-beta.115). Directory offboarding is `identity:provision`'s, scoped to the accounts a provider provisioned. |
 | `identity:provision` | `host.identity`'s directory on a declared route (a `caller` one answers only a tenant administrator or a key one issued, ADR 0045) — `provision`, `update`, `setActive`, `remove`, `list`, `get` over the accounts your extension provisioned in the request's tenant, keyed by your own id for each (`subject`). See §5 "Provisioning a directory". `isSingleTenantInstance` is ungated. |
 | `audit:read` | `readAuditActivity` — the running tenant's recent audit rows (who did what to which record, and when; no `metadata`, no `ip`). `countAuditActivity({ since, eventType?, resourceType? })`, a count over the same rows, is ungated. |
 | `data:write` | `createRecord`, `updateRecord`, `deleteRecord` — write a collection record through the data API's own handlers (access check, column permissions, row policies, alters, entity access, hooks, revisions, webhooks, flows, realtime) as the caller the engine authenticated for the request `c` you pass. There is no identity parameter; outside that request they throw. |
@@ -470,7 +470,7 @@ export default defineExtension(['secrets', 'data:system'], {
   category: 'tools',
   async register(app, ctx) {
     await ctx.internals.encryptSecret('…');   // ok — 'secrets'
-    await ctx.internals.deleteUser(db, id);   // compile error — needs 'auth:users'
+    await ctx.internals.exportUserData(id);   // compile error — needs 'auth:users'
     ctx.adminDb;                              // never — needs 'db:admin'
   },
 });

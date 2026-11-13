@@ -573,6 +573,11 @@ ctx.internals.DataLoaderRegistry      // GraphQL N+1 batching
 ctx.internals.checkQueryDepth         // GraphQL query-depth validator
 ```
 
+No internal deletes an account. Erasing one's own is the engine's
+`DELETE /api/me`, re-authenticated by the subject (ADR 0046); `deleteUser` is no
+longer offered (engines from 3.0.0-beta.115), as the directory internals before
+it (ADR 0039 decision 9).
+
 ## `engine/routes.ts` — Hono routes
 
 ```ts
