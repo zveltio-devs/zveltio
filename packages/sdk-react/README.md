@@ -154,3 +154,26 @@ folder **id**; omit it for the root.
 - [GitHub](https://github.com/zveltio-devs/zveltio)
 - [Core SDK](https://www.npmjs.com/package/@zveltio/sdk)
 - [Vue SDK](https://www.npmjs.com/package/@zveltio/vue)
+
+## Extension views (`view/2`)
+
+Draws the views extensions declare (ADR 0042). See
+[`docs/extensions/ui-model.md`](../../docs/extensions/ui-model.md#in-react-zveltioreact).
+
+```tsx
+import { useEffect, useState } from 'react';
+import { type ExtensionPage, ExtensionView, extensionPages, useZveltioClient } from '@zveltio/react';
+
+function Page({ path }: { path: string }) {
+  const client = useZveltioClient();
+  const [page, setPage] = useState<ExtensionPage>();
+  useEffect(() => {
+    extensionPages(client).then((all) => setPage(all.find((p) => p.path === path)));
+  }, [client, path]);
+  if (!page?.view.ok) return null;
+  return <ExtensionView extension={page.extension} view={page.view.view} onNavigate={(id) => go(id)} />;
+}
+```
+
+On a server, `loadView` then `renderToString(<ViewRenderer node={...} host={...} />)`.
+

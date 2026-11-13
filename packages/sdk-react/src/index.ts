@@ -6,12 +6,14 @@ export { useSyncStatus } from './hooks/useSyncStatus.js';
 export { useRealtime } from './hooks/useRealtime.js';
 export { useAuth } from './hooks/useAuth.js';
 export { useStorage } from './hooks/useStorage.js';
+export { DRAWN, ExtensionView, extensionPages, loadView, ViewRenderer } from './view.js';
 
 export type { CollectionOptions, HookResult, SyncStatus } from './types.js';
 export type { ZveltioProviderProps } from './context.js';
 export type { UseSyncCollectionOptions } from './hooks/useSyncCollection.js';
 export type { AuthState } from './hooks/useAuth.js';
 export type { StorageFile } from '@zveltio/sdk';
+export type { Column, ExtensionPage, ExtensionViewProps, Loaded, ViewHost } from './view.js';
 
 // Re-export core client for convenience
 export { ZveltioClient, createZveltioClient } from '@zveltio/sdk';

@@ -18,7 +18,8 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "proof:views": "bun scripts/proof-views.tsx"
   },
   "dependencies": {
     "@zveltio/sdk": "workspace:*"
