@@ -48,8 +48,8 @@ export const _typedCtx = defineExtension(['secrets', 'data:system'], {
     // Ungated: always reachable.
     void ctx.internals.getUserNames;
     void ctx.internals.withTenantIsolation;
-    // @ts-expect-error — `deleteUser` needs 'auth:users', which is not declared.
-    void ctx.internals.deleteUser;
+    // @ts-expect-error — `exportUserData` needs 'auth:users', which is not declared.
+    void ctx.internals.exportUserData;
     // @ts-expect-error — `enqueueDDLJob` needs 'ddl'.
     void ctx.internals.enqueueDDLJob;
     // @ts-expect-error — `adminDb` needs 'db:admin'.
@@ -62,6 +62,8 @@ export const _untyped: import('@zveltio/sdk/extension').ZveltioExtension = {
   name: 'untyped',
   category: 'test',
   async register(_app, ctx) {
+    void ctx.internals.exportUserData;
+    // @ts-expect-error — withdrawn: erasure is the subject's `DELETE /api/me` (ADR 0046).
     void ctx.internals.deleteUser;
     void ctx.adminDb?.selectFrom;
   },

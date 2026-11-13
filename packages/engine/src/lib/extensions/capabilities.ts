@@ -41,8 +41,10 @@
 // 8: `data:system`, 9: `files` no longer covers `moveToTrash`, retired (ADR 0034 Q2),
 // 10: `auth:session` is `host.identity`, no longer `createBetterAuthSession` (ADR 0039),
 // 11: `identity:provision` is `host.identity`'s directory, `auth:users` no longer
-// covers `revokeUserSessions`, `setUserActive`, `liftOwnBan` (ADR 0039 decision 9)
-export const CAPABILITY_CONTRACT_VERSION = 11;
+// covers `revokeUserSessions`, `setUserActive`, `liftOwnBan` (ADR 0039 decision 9),
+// 12: `auth:users` no longer covers `deleteUser`; erasing one's own account is
+// `DELETE /api/me` (ADR 0046)
+export const CAPABILITY_CONTRACT_VERSION = 12;
 
 /**
  * Every capability an extension may declare.
@@ -76,10 +78,10 @@ export const CAPABILITIES = [
    */
   'auth:session',
   /**
-   * Delete any user (`deleteUser`), or read what the engine holds about them in
-   * every tenant (`exportUserData`): a data-subject erasure or access request
-   * (GDPR). Directory offboarding is `identity:provision`'s, scoped to the
-   * accounts a provider provisioned (ADR 0039 decision 9).
+   * Read what the engine holds about a user in every tenant (`exportUserData`):
+   * a data-subject access request (GDPR). Erasure is the subject's own
+   * `DELETE /api/me` (ADR 0046); directory offboarding is `identity:provision`'s,
+   * scoped to the accounts a provider provisioned (ADR 0039 decision 9).
    */
   'auth:users',
   /**
@@ -226,8 +228,7 @@ export const INTERNALS_CAPABILITY: Readonly<Record<string, Capability>> = {
   // HMAC under the instance auth secret. Gated with the other key-material
   // helpers: the extension that needs it used to hold BETTER_AUTH_SECRET itself.
   deriveTokenHash: 'secrets',
-  // Identity — "remove anyone"
-  deleteUser: 'auth:users',
+  // Identity — "read what the engine holds about anyone"
   exportUserData: 'auth:users',
   // The tenant's activity trail
   readAuditActivity: 'audit:read',

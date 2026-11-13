@@ -80,7 +80,10 @@ d('DELETE /api/me erases the caller’s own account (ADR 0046)', () => {
     const raw = await mintKey(m.userId);
     expect(await keyWorks(raw)).toBe(true);
     expect((await erase({}, { password: PASSWORD })).status).toBe(401);
-    for (const h of [{ 'X-API-Key': raw }, { Authorization: `Bearer ${raw}` }]) {
+    for (const h of [{ 'X-API-Key': raw }, { Authorization: `Bearer ${raw}` }] as Record<
+      string,
+      string
+    >[]) {
       // `refuseWithoutSession`: a key is told a session is required (403).
       const res = await erase(h, { password: PASSWORD });
       expect(res.status).toBe(403);
@@ -109,10 +112,14 @@ d('DELETE /api/me erases the caller’s own account (ADR 0046)', () => {
     // Nothing in the request names whom to erase: an id is refused, not followed.
     const aimed = await erase({ cookie: m.cookie }, { password: PASSWORD, user_id: other.userId });
     expect(aimed.status).toBe(400);
-    expect((await app.request(`/api/me/${other.userId}`, {
-      method: 'DELETE',
-      headers: { cookie: m.cookie },
-    })).status).toBe(404);
+    expect(
+      (
+        await app.request(`/api/me/${other.userId}`, {
+          method: 'DELETE',
+          headers: { cookie: m.cookie },
+        })
+      ).status,
+    ).toBe(404);
 
     const erasureId = crypto.randomUUID();
     const res = await erase({ cookie: m.cookie }, { password: PASSWORD, erasure_id: erasureId });
@@ -140,7 +147,10 @@ d('DELETE /api/me erases the caller’s own account (ADR 0046)', () => {
 
   it('an erasure_id is an opaque uuid, nothing else', async () => {
     const m = await createMemberSession(app, db);
-    const res = await erase({ cookie: m.cookie }, { password: PASSWORD, erasure_id: 'x'.repeat(5000) });
+    const res = await erase(
+      { cookie: m.cookie },
+      { password: PASSWORD, erasure_id: 'x'.repeat(5000) },
+    );
     expect(res.status).toBe(400);
     expect(await exists(m.userId)).toBe(true);
   });
