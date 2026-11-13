@@ -166,6 +166,14 @@ export type FilterOp =
  * of what `ctx.internals.checkAccess` asks an extension for, and the engine
  * re-exports it rather than keeping a second copy.
  */
+/**
+ * The request a `ctx.internals` member acts for: the handler's context `c`, or,
+ * in a declared route's handler (ADR 0039), which is handed no `c`, the
+ * `Request` it was handed. Either names the request only while it runs. A
+ * `Request` is accepted from engine 3.0.0-beta.116.
+ */
+export type HandledRequest = Context | Request;
+
 export interface RequestUser {
   id: string;
   name: string;
@@ -562,7 +570,7 @@ export interface ExtensionInternals<DB = unknown> {
    * 3.0.0-beta.88 and later.
    */
   writeValidationRule: (
-    c: Context,
+    c: HandledRequest,
     write: ValidationRuleWrite,
   ) => Promise<Record<string, unknown> | null>;
   /**
@@ -574,7 +582,7 @@ export interface ExtensionInternals<DB = unknown> {
    * when no group has that id. Engine 3.0.0-beta.88 and later.
    */
   writeValidationRuleGroup: (
-    c: Context,
+    c: HandledRequest,
     write: ValidationRuleGroupWrite,
   ) => Promise<Record<string, unknown> | null>;
   /**
@@ -736,7 +744,7 @@ export interface ExtensionInternals<DB = unknown> {
    * job, a listener, a context kept from an earlier request). Needs `data:write`.
    */
   createRecord: (
-    c: Context,
+    c: HandledRequest,
     collection: string,
     data: Record<string, unknown>,
   ) => Promise<DataApiAnswer>;
@@ -748,14 +756,14 @@ export interface ExtensionInternals<DB = unknown> {
    * otherwise 409, code `precondition_failed`.
    */
   updateRecord: (
-    c: Context,
+    c: HandledRequest,
     collection: string,
     id: string,
     data: Record<string, unknown>,
     options?: { expect?: UpdateExpect },
   ) => Promise<DataApiAnswer>;
   /** `DELETE /api/data/:collection/:id`, as `updateRecord`. */
-  deleteRecord: (c: Context, collection: string, id: string) => Promise<DataApiAnswer>;
+  deleteRecord: (c: HandledRequest, collection: string, id: string) => Promise<DataApiAnswer>;
   /**
    * Read one record exactly as `GET /api/data/:collection/:id` does — permission,
    * RLS, column rules — as the same caller as `createRecord`. 200 and the record,
@@ -767,9 +775,24 @@ export interface ExtensionInternals<DB = unknown> {
    * The request is charged once to the anonymous read rate limit; over it, the
    * read throws the 429 (ADR 0020, 3.0.0-beta.99; it threw there before).
    */
-  readRecord: (c: Context, collection: string, id: string) => Promise<DataApiAnswer>;
+  readRecord: (c: HandledRequest, collection: string, id: string) => Promise<DataApiAnswer>;
   /** `GET /api/data/:collection` with the route's own query parameters, as `readRecord`. */
-  listRecords: (c: Context, collection: string, query?: DataApiReadQuery) => Promise<DataApiAnswer>;
+  listRecords: (
+    c: HandledRequest,
+    collection: string,
+    query?: DataApiReadQuery,
+  ) => Promise<DataApiAnswer>;
+  /**
+   * Who the engine authenticated for the request being handled — session or API
+   * key, and the tenant it runs in — as a copy, or `null` outside that request
+   * and on a public route. The members above act as this caller whatever the
+   * copy is changed to. Engine 3.0.0-beta.116 and later.
+   */
+  caller?: (c: HandledRequest) => {
+    user: RequestUser;
+    authType: 'session' | 'api_key';
+    tenantId: string | null;
+  } | null;
   /** Is this user an administrator of the current tenant? */
   /**
    * The tenant to add as an explicit `tenant_id =` beside the RLS policy, or
@@ -847,7 +870,7 @@ export interface ExtensionInternals<DB = unknown> {
    * request. The job has no author. Needs `data:system`; audited. Throws
    * anywhere else. Absent before 3.0.0-beta.97.
    */
-  enqueue?: (c: Context, job: string, input: unknown) => Promise<string>;
+  enqueue?: (c: HandledRequest, job: string, input: unknown) => Promise<string>;
   /**
    * The running tenant's recent audit rows, newest first — never another
    * tenant's, never instance-level events. `limit` defaults to 20, capped at

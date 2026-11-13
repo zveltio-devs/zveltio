@@ -55,6 +55,7 @@ d('an extension writes records as the request caller, and only as them', () => {
   let member: { cookie: string; userId: string };
   let internals: ExtensionInternals;
   let kept: Context | undefined;
+  let keptRequest: Request | undefined;
   const keys: string[] = [];
 
   /** Mount `ext` through the real loader behind the real `/ext/*` chain. */
@@ -136,6 +137,27 @@ d('an extension writes records as the request caller, and only as them', () => {
         name: WRITER,
         category: 'custom',
         mountStrategy: 'subapp',
+        // ADR 0039: a declared route's handler is handed the request, never `c`.
+        // The members that take `c` take that request in its place.
+        routes: {
+          declared: async (request) => {
+            const { label, useKept } = (await request.json()) as Record<string, unknown>;
+            if (useKept) {
+              try {
+                await internals.createRecord(keptRequest as never, C, { label });
+                return Response.json({ wrote: true });
+              } catch {
+                return Response.json({ refused: true });
+              }
+            }
+            keptRequest = request;
+            const res = await internals.createRecord(request, C, { label });
+            return Response.json(
+              { caller: internals.caller(request), body: res.body },
+              { status: res.status },
+            );
+          },
+        },
         async register(sub, ctx) {
           internals = ctx.internals as unknown as ExtensionInternals;
           sub.post('/write', async (c) => {
@@ -198,7 +220,11 @@ d('an extension writes records as the request caller, and only as them', () => {
           });
         },
       },
-      { permissions: ['data:write'], apiKeyRoutes: ['POST /write'] },
+      {
+        permissions: ['data:write'],
+        apiKeyRoutes: ['POST /write', 'POST /declared'],
+        routes: [{ method: 'POST', path: '/declared', access: 'caller', handler: 'declared' }],
+      },
     );
     await load(
       {
@@ -375,6 +401,35 @@ d('an extension writes records as the request caller, and only as them', () => {
       expect((await post(`/ext/${WRITER}/read`, body, { cookie: blind.cookie })).status).toBe(403);
     }
     await expect(internals.listRecords(kept, C)).rejects.toThrow('pass the request context');
+  });
+
+  it('a declared route hands its Request where c was asked: the gate’s caller, nobody else', async () => {
+    const res = await post(
+      `/ext/${WRITER}/declared`,
+      { label: 'declared' },
+      { cookie: member.cookie },
+    );
+    expect(res.status, await res.clone().text()).toBe(201);
+    const { caller } = (await res.json()) as {
+      caller: { user: { id: string }; authType: string; tenantId: string | null };
+    };
+    expect(caller).toMatchObject({ user: { id: member.userId }, authType: 'session' });
+    expect(caller.tenantId).toBeString();
+    const row = await authorOf('declared');
+    expect(row?.created_by).toBe(member.userId);
+    expect(await revisionAuthor(row!.id)).toEqual([member.userId]);
+    // A request kept from an earlier call names no caller, during a request or after it.
+    const again = await post(
+      `/ext/${WRITER}/declared`,
+      { label: 'declared-kept', useKept: true },
+      { cookie: member.cookie },
+    );
+    expect(await again.json()).toEqual({ refused: true });
+    expect(internals.caller(keptRequest as Request)).toBeNull();
+    await expect(internals.createRecord(keptRequest as never, C, { label: 'x' })).rejects.toThrow(
+      'pass the request context',
+    );
+    expect(await authorOf('declared-kept')).toBeUndefined();
   });
 
   it('is refused to an extension whose manifest does not declare data:write', async () => {

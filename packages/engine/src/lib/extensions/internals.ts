@@ -75,12 +75,13 @@ import {
 } from '../tenancy/index.js';
 import { applyColumnAccess } from '../tenancy/index.js';
 import { checkAccess, dataApiRead, dataApiWrite, readScope } from '../data/index.js';
-import type { ReadQuery } from '../data/index.js';
+import type { ReadQuery, RequestUser } from '../data/index.js';
 import {
   fenceAdminGrant,
   gatePrincipal,
   type PublicRouteRequest,
   publicRouteRequest,
+  servedContext,
 } from '../../middleware/extension-auth-gate.js';
 import { anonymousReadRateLimit } from '../../middleware/rate-limit.js';
 import { isSingleTenantInstance } from '../identity.js';
@@ -396,6 +397,16 @@ export interface ExtensionInternals {
   readRecord: (c: unknown, collection: string, id: string) => Promise<DataApiAnswer>;
   listRecords: (c: unknown, collection: string, query?: ReadQuery) => Promise<DataApiAnswer>;
   /**
+   * Who the `/ext/*` gate admitted for the request being handled (`c`, or a
+   * declared route's `Request`) — a copy — or `null` outside one and on a
+   * public route. What the members above act as; reading it changes nothing.
+   */
+  caller: (c: unknown) => {
+    user: RequestUser;
+    authType: 'session' | 'api_key';
+    tenantId: string | null;
+  } | null;
+  /**
    * The tenant to add as an explicit `tenant_id =` beside the policy, or `null`
    * when one must not be added.
    *
@@ -576,12 +587,13 @@ const unbound = (member: string) => () => {
  */
 function writeAsCaller(op: 'create' | 'update' | 'delete', writtenBy?: string) {
   return async (
-    c: unknown,
+    token: unknown,
     collection: string,
     id: string,
     data: Record<string, unknown>,
     expect?: UpdateExpect,
   ): Promise<DataApiAnswer> => {
+    const c = servedContext(token);
     const p = gatePrincipal(c);
     if (!p) {
       throw new Error(
@@ -627,12 +639,13 @@ const answerOf = async (res: Response): Promise<DataApiAnswer> => ({
  * by `buildExtensionInternals`; without it there is no public read.
  */
 async function readAsCaller(
-  c: unknown,
+  token: unknown,
   collection: string,
   id: string | null,
   query?: ReadQuery,
   extName?: string,
 ): Promise<DataApiAnswer> {
+  const c = servedContext(token);
   const member = id === null ? 'listRecords' : 'readRecord';
   const p = gatePrincipal(c);
   if (p)
@@ -720,7 +733,7 @@ async function readAsPublic(
  * Outside the request `c` belongs to there is no caller, so there is no write.
  */
 function gateWriter(c: unknown, name: string): ValidationWriter {
-  const p = gatePrincipal(c);
+  const p = gatePrincipal(servedContext(c));
   if (!p) {
     throw new Error(
       `ctx.internals.${name}: pass the request context \`c\` of the /ext/* request ` +
@@ -810,7 +823,8 @@ export function buildExtensionInternals(): ExtensionInternals {
     ),
     audit: (event: ExtensionAuditEvent) => auditAs(caller, event),
     asSystem: (collections, fn, opts) => asSystemAs(caller, collections, fn, opts),
-    enqueue: (c, job, input) => enqueueFromPublicRoute(caller.replace(/^ext:/, ''), c, job, input),
+    enqueue: (c, job, input) =>
+      enqueueFromPublicRoute(caller.replace(/^ext:/, ''), servedContext(c), job, input),
     readRecord: (c, collection, id) =>
       readAsCaller(c, collection, id, undefined, caller.replace(/^ext:/, '')),
     listRecords: (c, collection, query) =>
@@ -874,6 +888,13 @@ function buildUnboundInternals(): ExtensionInternals {
     deleteRecord: (c, collection, id) => deleteAsCaller(c, collection, id, {}),
     readRecord: (c, collection, id) => readAsCaller(c, collection, id),
     listRecords: (c, collection, query) => readAsCaller(c, collection, null, query),
+    caller: (c) => {
+      const p = gatePrincipal(servedContext(c));
+      // A copy: the principal the writes act as is the gate's, not this object.
+      return p
+        ? structuredClone({ user: p.user, authType: p.authType, tenantId: p.tenantId })
+        : null;
+    },
     getUserNames,
     countMembers: () => countMembers(),
     getDataStats: () => getDataStats(),
