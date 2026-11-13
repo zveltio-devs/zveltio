@@ -1,15 +1,17 @@
 <script lang="ts">
 /**
- * Page block builder — Tier-3 canvas for a single page (by UUID).
+ * The page-builder canvas for one page of `content/pages`: a front-end package
+ * of Studio (ADR 0042 decision 9), drawn instead of the extension's
+ * `pages.builder` view (see `#lib/code-screens.ts`). It reads and writes only
+ * through the data API and the extension's `publish` action, as the user.
  */
 import { onDestroy, onMount } from 'svelte';
-import { page } from '$app/state';
 import { resolve } from '$app/paths';
 import { ArrowLeft, Monitor, Save, Smartphone, Tablet, Undo2, Redo2 } from '@lucide/svelte';
 import { api } from '#lib/api.js';
 import { m } from '#lib/i18n.svelte.js';
 import { toast } from '#lib/stores/toast.svelte.js';
-import type { Block } from '#lib/ext/content/pages/lib/builder-types.js';
+import type { Block } from '#lib/page-builder/lib/builder-types.js';
 import {
   ensureIds,
   findById,
@@ -17,11 +19,11 @@ import {
   isContainer,
   patchById,
   removeById,
-} from '#lib/ext/content/pages/lib/block-tree.js';
-import { BREAKPOINT_LABEL, type Breakpoint } from '#lib/ext/content/pages/lib/breakpoints.js';
-import BlockLibrary from '#lib/ext/content/pages/components/builder/BlockLibrary.svelte';
-import Canvas from '#lib/ext/content/pages/components/builder/Canvas.svelte';
-import PropertiesPanel from '#lib/ext/content/pages/components/builder/PropertiesPanel.svelte';
+} from '#lib/page-builder/lib/block-tree.js';
+import { BREAKPOINT_LABEL, type Breakpoint } from '#lib/page-builder/lib/breakpoints.js';
+import BlockLibrary from '#lib/page-builder/components/builder/BlockLibrary.svelte';
+import Canvas from '#lib/page-builder/components/builder/Canvas.svelte';
+import PropertiesPanel from '#lib/page-builder/components/builder/PropertiesPanel.svelte';
 
 const PAGES = '/api/data/pages';
 const EXT = '/ext/content/pages';
@@ -33,7 +35,10 @@ type PageMeta = {
   blocks?: Block[] | string;
 };
 
-const pageId = $derived(page.params.id ?? '');
+/** The view's parameters: the page path's `:id`. */
+let { params }: { params: Record<string, string> } = $props();
+
+const pageId = $derived(params.id ?? '');
 
 let meta = $state<PageMeta | null>(null);
 let blocks = $state<Block[]>([]);
@@ -92,7 +97,8 @@ async function loadPage(): Promise<void> {
   try {
     meta = await api.get<PageMeta>(`${PAGES}/${pageId}`);
     if (!meta) throw new Error('Page not found');
-    const raw = typeof meta.blocks === 'string' ? JSON.parse(meta.blocks || '[]') : (meta.blocks ?? []);
+    const raw =
+      typeof meta.blocks === 'string' ? JSON.parse(meta.blocks || '[]') : (meta.blocks ?? []);
     blocks = ensureIds(Array.isArray(raw) ? raw : []);
     history = [];
     future = [];
@@ -114,9 +120,11 @@ async function loadExtras(): Promise<void> {
       api
         .get<{ icons?: string[]; motion?: string[] }>(`${EXT}/vocabulary`)
         .catch((): { icons?: string[]; motion?: string[] } => ({})),
-      api.get<{ collections?: Array<{ name: string; fields?: Array<{ name: string }> }> }>(
-        '/api/collections',
-      ).catch(() => ({ collections: [] })),
+      api
+        .get<{ collections?: Array<{ name: string; fields?: Array<{ name: string }> }> }>(
+          '/api/collections',
+        )
+        .catch(() => ({ collections: [] })),
     ]);
     iconNames = vocab.icons ?? [];
     motionTypes = vocab.motion ?? [];

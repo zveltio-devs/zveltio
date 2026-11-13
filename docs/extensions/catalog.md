@@ -77,7 +77,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `content/pages` | Pages | 2.2.0 | Pages built from blocks, grouped into sites. Authors edit drafts; publishing writes the sanitized snapshot a public website or a signed-in portal renders, read through the data API under the engine's rules. |
+| `content/pages` | Pages | 2.3.0 | Pages built from blocks, grouped into sites. Authors edit drafts; publishing writes the sanitized snapshot a public website or a signed-in portal renders, read through the data API under the engine's rules. |
 | `content/media` | Media Library | 2.1.0 | Tags, favorites, curated collections and AI metadata for the engine’s media files |
 | `content/documents` | Document Generator | 2.0.1 | Numbered documents generated from templates as the caller, with signatures by logged-in users |
 | `content/document-templates` | Document Templates | 2.1.0 | HTML templates with {{variable}} interpolation, rendered to PDF as the caller |

@@ -9,7 +9,8 @@
  * Lowest-priority route in (admin): any /admin/<slug> NOT matched by a real
  * (baked) route lands here. If an active extension declares a schema page for
  * that slug — exact or parametric (`forms/:id`) — render it with the generic
- * host renderers. Otherwise show a 404.
+ * host renderers. Otherwise show a 404. A `view/2` page whose extension and `id` name a
+ * Studio front-end package (`#lib/code-screens.ts`) draws that screen instead.
  */
 import { page } from '$app/state';
 import { extensions, refreshExtensions } from '#lib/extensions.svelte.js';
@@ -17,6 +18,7 @@ import { validateSchema } from '#lib/sdui/validate.js';
 import SchemaPage from '#lib/sdui/SchemaPage.svelte';
 import SettingsPage from '#lib/sdui/SettingsPage.svelte';
 import ViewPage from '#lib/view/ViewPage.svelte';
+import { codeScreen } from '#lib/code-screens.js';
 import { isViewDocument, validateView, type ViewDocument } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
 import { PackageX, TriangleAlert } from '@lucide/svelte';
@@ -104,6 +106,13 @@ const resolved = $derived.by(() => {
   return best?.result ?? null;
 });
 
+/** A Studio front-end package drawn instead of this extension's view, if any. */
+const screen = $derived(
+  resolved?.ok && resolved.kind === 'view'
+    ? codeScreen(resolved.extName, resolved.view.id)
+    : undefined,
+);
+
 /** `$param` reads the path's `:name` segments and the query. */
 const viewParams = $derived({
   ...Object.fromEntries(page.url.searchParams),
@@ -127,6 +136,11 @@ const viewParams = $derived({
       <div class="text-xs opacity-80">{resolved.error}</div>
     </div>
   </div>
+{:else if screen}
+  {@const Screen = screen}
+  {#key slug}
+    <Screen params={viewParams} />
+  {/key}
 {:else if resolved.kind === 'view'}
   <div class="p-6">
     {#key slug}

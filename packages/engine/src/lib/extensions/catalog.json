@@ -227,7 +227,7 @@
       "displayName": "Pages",
       "description": "Pages built from blocks, grouped into sites. Authors edit drafts; publishing writes the sanitized snapshot a public website or a signed-in portal renders, read through the data API under the engine's rules.",
       "category": "content",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "author": "Zveltio",
       "tags": ["cms", "pages", "sites", "portals", "content"],
       "permissions": []

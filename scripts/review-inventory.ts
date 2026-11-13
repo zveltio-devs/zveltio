@@ -116,7 +116,6 @@ const SECTIONS: Section[] = [
       'packages/client/src/lib/ext/',
       `${S}routes/(admin)/ai/`,
       `${S}routes/(admin)/developer/`,
-      `${S}routes/(admin)/pages/`,
     ],
   },
   {
@@ -670,6 +669,8 @@ const SECTIONS: Section[] = [
       `${S}lib/sdui/types.ts`,
       `${S}lib/sdui/validate.ts`,
       `${S}lib/view/`,
+      `${S}lib/code-screens.ts`,
+      `${S}lib/page-builder/`,
     ],
   },
   {

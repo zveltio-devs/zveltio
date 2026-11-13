@@ -298,6 +298,35 @@ third-party widget (a payment form), hardware (a fiscal printer). They are
 They sit outside the extension contract: the engine and the extension know
 nothing of them, and the extension must still be operable without them (rule 5).
 
+The extension ships a view for that screen like any other, with an `id`. That
+view is the screen's **fallback**: every front end without the package draws
+it. A front end that has the package draws the package instead, chosen by the
+view's `id`, and passes it the view's parameters. The package reaches data the
+way a view does: the data API and the extension's actions, as the user.
+
+**The example: the page builder** (ADR 0042 slice 7). `content/pages` declares
+the page `/admin/pages/builder/:id` with `schemas/builder.json`, a `form` over
+`pages` (title, slug, `blocks` as JSON, Save, Publish) whose `id` is
+`pages.builder`. Studio carries the canvas in `packages/studio/src/lib/page-builder/`
+and lists it in `packages/studio/src/lib/code-screens.ts`, by extension and view id:
+
+```ts
+const SCREENS = new Map<string, CodeScreen>([
+  ['content/pages pages.builder', PageBuilderWorkspace], // gets { params: { id } }
+]);
+```
+
+The key names the extension too, so another extension declaring a view with
+the same `id` gets its own view, never this screen.
+
+The extension page host (`routes/(admin)/[...extPath]`) draws a listed screen
+in place of the view; without the entry, or in another front end
+(`@zveltio/react` draws it in CI), the form is drawn. The package's messages are
+Studio's (`pageBuilder.*`), and its test holds it to the extension's block list
+and breakpoint keys. Uninstalling the extension removes the page, and so the
+screen. The cost is that the canvas ships with Studio's release, not the
+extension's.
+
 ## What is not part of the model
 
 - **Extension code in the browser.** Not in the host page, not as Web
@@ -327,7 +356,7 @@ adopted:
 | Data binding | URLs (`dataSource`, `endpoint`) | names of collections and actions |
 | Styling | daisyUI class names, icon names | semantic tones |
 | Computed values | arithmetic tokens, templates, `computed` | server fields or actions |
-| Code pages (`studio/pages/+page.svelte`, "Tier-3") | 7 pages, synced into Studio at release | views; the page-builder canvas becomes a front-end package |
+| Code pages (`studio/pages/+page.svelte`, "Tier-3") | synced into Studio at release (ai, graphql, storage/cloud); the page builder is a Studio front-end package over the `pages.builder` view | views; screens that need code are front-end packages |
 | Slot widgets (`studio/src/contribute.ts`) | Svelte components | data only |
 | Renderers | Studio and `@zveltio/react` (the shared runtime is in `@zveltio/sdk/view`) | Studio, `sdk-react`, `sdk-vue` |
 

@@ -847,7 +847,7 @@ const CASES: Case[] = [
     // writes the original over them — the two restores agree.
     gate: 'check-ext-snapshot-fresh',
     cmd: 'bun run scripts/check-ext-snapshot-fresh.ts',
-    file: 'packages/studio/src/lib/ext/content/pages/components/builder/BlockList.svelte',
+    file: 'packages/studio/src/lib/ext/content/pages/components/CalendarView.svelte',
     body: '\n<!-- edited in the snapshot, where the next build deletes it -->\n',
     mode: 'append',
   },
