@@ -25,7 +25,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 function fakeInternals() {
   return {
     decryptSecret: () => 'plaintext',
-    deleteUser: () => 'deleted',
+    exportUserData: () => 'exported',
     enqueueDDLJob: () => 'job',
     generatePDFAsync: () => 'pdf',
     // Ungated helper — no ambient authority.
@@ -47,12 +47,12 @@ describe('gateInternals', () => {
   it('names the extension, the member and the capability to add', () => {
     const g = gateInternals('rogue-ext', fakeInternals(), []);
     try {
-      g.deleteUser();
+      g.exportUserData();
       throw new Error('should have thrown');
     } catch (e) {
       const msg = (e as Error).message;
       expect(msg).toContain('rogue-ext');
-      expect(msg).toContain('deleteUser');
+      expect(msg).toContain('exportUserData');
       expect(msg).toContain('auth:users');
     }
   });
@@ -96,7 +96,7 @@ describe('gateInternals', () => {
     const one = Object.getOwnPropertyDescriptor(g, 'decryptSecret')?.value as () => unknown;
     expect(() => one()).toThrow(CapabilityDeniedError);
     const all = Object.getOwnPropertyDescriptors(g);
-    expect(() => (all.deleteUser.value as () => unknown)()).toThrow(CapabilityDeniedError);
+    expect(() => (all.exportUserData.value as () => unknown)()).toThrow(CapabilityDeniedError);
     expect((all.withTenantIsolation.value as () => unknown)()).toBe('bound to ext:ai');
   });
 });
@@ -165,7 +165,7 @@ describe('INTERNALS_CAPABILITY coverage', () => {
     for (const member of [
       'decryptSecret',
       'encryptSecret',
-      'deleteUser',
+      'exportUserData',
       'enqueueDDLJob',
       'runEdgeFunction',
       'sendNotification',
@@ -174,6 +174,13 @@ describe('INTERNALS_CAPABILITY coverage', () => {
     ]) {
       expect(INTERNALS_CAPABILITY[member]).toBeTruthy();
     }
+  });
+
+  it('retired deleteUser: no member deletes an account (ADR 0046)', () => {
+    // It deleted whichever user id the extension named; erasing one's own
+    // account is the subject's re-authenticated `DELETE /api/me`.
+    expect('deleteUser' in buildExtensionInternals()).toBe(false);
+    expect(INTERNALS_CAPABILITY.deleteUser).toBeUndefined();
   });
 
   it('retired createBetterAuthSession: no member opens a session for a user id (ADR 0039)', () => {
