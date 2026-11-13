@@ -4,6 +4,14 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.120] - 2026-11-13
+
+**Boot refuses a database restored without the engine's roles (DR-19).** A `psql` restore onto a cluster that lacks `zveltio_rls`, `zveltio_worker` and `zveltio_flow_reader` lost every grant to them; the engine then booted with `zveltio_rls` re-granted only in part (revision reads and `?as_of=` failed with `permission denied for view zvv__revisions`), and flow `query_db` ran as the connection role, a superuser on a stock install. Migration 121 adds a marker function whose grants travel in the dump; boot now refuses to start, with the recovery steps, when the dump names an engine role that lost its grant. Boot also creates `zveltio_worker` and `zveltio_flow_reader` when missing (no grants, fail closed). The runbook restores `pg_dumpall --roles-only` first and runs the dump with `ON_ERROR_STOP=1`. Dumps taken before migration 121 carry no marker, so a role-less restore of one is not detected. The built-in `POST /api/backup` still takes only `pg_dump`.
+
+**Studio message bundles regenerated.** The committed `messages/{locale}.json` had drifted from the extensions tree; the Validation Rules labels now live in Studio core, and `i18n:merge` refuses a regen that drops a key Studio still uses.
+
+`finance/invoicing` 2.6.0: the company settings page is a `view/2` singleton form on `company_profile`; saving needs `update` (or `create` on the first save) on that collection instead of `execute`.
+
 ## [3.0.0-beta.119] - 2026-11-13
 
 **SECURITY (Studio): the page-builder canvas drew author-typed values raw.** A video block whose URL was `javascript:...` ran script in Studio's origin for anyone who opened the builder (stored XSS from any author with write on `pages`), and colours and numbers went raw into `style` (CSS injection, e.g. a tracking request). Every iframe address now goes through an http(s)-only check and the frame is sandboxed; every colour and number in a style is checked or clamped; line style and text alignment are allow-listed. Every Studio up to 3.0.0-beta.118 carries the defect; update.
