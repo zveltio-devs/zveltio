@@ -2,7 +2,6 @@
   "routes": [
     "ai",
     "developer/graphql",
-    "pages",
     "storage/cloud"
   ],
   "libs": [

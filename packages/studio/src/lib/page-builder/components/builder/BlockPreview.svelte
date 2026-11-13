@@ -1,27 +1,33 @@
 <script lang="ts">
-  import { m } from '#lib/i18n.svelte.js';
-  import type { Block, BlockStyle } from '../../lib/builder-types.js';
-  import { safeHtml } from '../../lib/sanitize.js';
+import { m } from '#lib/i18n.svelte.js';
+import {
+  type Block,
+  type BlockStyle,
+  columnTexts,
+  fieldsOf,
+  statItems,
+} from '../../lib/builder-types.js';
+import { safeHtml } from '../../lib/sanitize.js';
 
-  let { block }: { block: Block } = $props();
+let { block }: { block: Block } = $props();
 
-  function styleStr(s: BlockStyle = {}): string {
-    const parts: string[] = [];
-    if (s.paddingTop    != null) parts.push(`padding-top:${s.paddingTop}px`);
-    if (s.paddingBottom != null) parts.push(`padding-bottom:${s.paddingBottom}px`);
-    if (s.paddingLeft   != null) parts.push(`padding-left:${s.paddingLeft}px`);
-    if (s.paddingRight  != null) parts.push(`padding-right:${s.paddingRight}px`);
-    if (s.marginTop     != null) parts.push(`margin-top:${s.marginTop}px`);
-    if (s.marginBottom  != null) parts.push(`margin-bottom:${s.marginBottom}px`);
-    if (s.backgroundColor)      parts.push(`background-color:${s.backgroundColor}`);
-    if (s.textColor)             parts.push(`color:${s.textColor}`);
-    if (s.borderRadius  != null) parts.push(`border-radius:${s.borderRadius}px`);
-    if (s.textAlign)             parts.push(`text-align:${s.textAlign}`);
-    return parts.join(';');
-  }
+function styleStr(s: BlockStyle = {}): string {
+  const parts: string[] = [];
+  if (s.paddingTop != null) parts.push(`padding-top:${s.paddingTop}px`);
+  if (s.paddingBottom != null) parts.push(`padding-bottom:${s.paddingBottom}px`);
+  if (s.paddingLeft != null) parts.push(`padding-left:${s.paddingLeft}px`);
+  if (s.paddingRight != null) parts.push(`padding-right:${s.paddingRight}px`);
+  if (s.marginTop != null) parts.push(`margin-top:${s.marginTop}px`);
+  if (s.marginBottom != null) parts.push(`margin-bottom:${s.marginBottom}px`);
+  if (s.backgroundColor) parts.push(`background-color:${s.backgroundColor}`);
+  if (s.textColor) parts.push(`color:${s.textColor}`);
+  if (s.borderRadius != null) parts.push(`border-radius:${s.borderRadius}px`);
+  if (s.textAlign) parts.push(`text-align:${s.textAlign}`);
+  return parts.join(';');
+}
 
-  const p = $derived(block.content);
-  const outer = $derived(styleStr(block.style));
+const p = $derived(fieldsOf(block));
+const outer = $derived(styleStr(block.style));
 </script>
 
 <div style={outer} class="w-full overflow-hidden">
@@ -47,7 +53,7 @@
   {:else if block.type === 'richtext'}
     <div class="prose prose-sm max-w-none px-4 py-3">
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-      {@html p.content ? safeHtml(p.content) : `<p>${m['content.pages.b.richTextPh']()}</p>`}
+      {@html p.content ? safeHtml(p.content) : `<p>${m['pageBuilder.richTextPh']()}</p>`}
     </div>
 
   {:else if block.type === 'cta'}
@@ -67,7 +73,7 @@
   {:else if block.type === 'stats'}
     {@const cols = p.columns ?? 4}
     <div class="grid gap-4 py-6 px-4" style="grid-template-columns:repeat({cols},1fr)">
-      {#each (p.items ?? []) as item}
+      {#each statItems(p.items) as item}
         <div class="text-center">
           <p class="text-3xl font-extrabold text-primary leading-none">{item.value}</p>
           <p class="text-xs text-base-content/65 mt-1">{item.label}</p>
@@ -78,7 +84,7 @@
   {:else if block.type === 'columns'}
     {@const count = p.count ?? 2}
     <div class="grid gap-3 p-3" style="grid-template-columns:repeat({count},1fr)">
-      {#each (p.items ?? []) as col}
+      {#each columnTexts(p.items) as col}
         <div class="min-h-[60px] bg-base-200 rounded-lg p-3 text-sm prose prose-sm max-w-none">
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
           {@html safeHtml(col)}
@@ -122,7 +128,7 @@
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
             <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
           </svg>
-          <span class="text-xs">{m['content.pages.b.videoLabel']()}</span>
+          <span class="text-xs">{m['pageBuilder.videoLabel']()}</span>
         </div>
       {/if}
     </div>
@@ -220,17 +226,17 @@
         <table class="table table-xs w-full">
           <thead>
             <tr class="bg-base-200">
-              {#if p.fields?.length > 0}
+              {#if (p.fields?.length ?? 0) > 0}
                 {#each p.fields as f}<th class="font-mono text-[10px]">{f}</th>{/each}
               {:else}
-                <th class="text-base-content/55 text-[10px] italic">{m['content.pages.b.configFields']()}</th>
+                <th class="text-base-content/55 text-[10px] italic">{m['pageBuilder.configFields']()}</th>
               {/if}
             </tr>
           </thead>
           <tbody>
             {#each { length: 3 } as _, r (r)}
               <tr>
-                {#if p.fields?.length > 0}
+                {#if (p.fields?.length ?? 0) > 0}
                   {#each p.fields as _, c (c)}
                     <td><div class="h-2.5 rounded bg-base-200 w-{c % 2 === 0 ? 20 : 16}"></div></td>
                   {/each}

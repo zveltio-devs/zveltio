@@ -1,31 +1,36 @@
 <script lang="ts">
-  import { m } from '#lib/i18n.svelte.js';
-  import { LIBRARY, type LibraryBlock } from '../../lib/builder-types.js';
+import { m } from '#lib/i18n.svelte.js';
+import { type Block, LIBRARY, type LibraryBlock } from '../../lib/builder-types.js';
 
-  let { onAdd }: { onAdd: (b: any) => void } = $props();
+let { onAdd }: { onAdd: (b: Block) => void } = $props();
 
-  // Category names come from the catalogue like everything else the author
-  // reads. `zveltio` is the data category and is named for what it holds.
-  const cats = [
-    { key: 'layout',  label: () => m['content.pages.b.catLayout']() },
-    { key: 'content', label: () => m['content.pages.b.catContent']() },
-    { key: 'media',   label: () => m['content.pages.b.catMedia']() },
-    { key: 'zveltio', label: () => m['content.pages.b.catData']() },
-  ] as const;
+// Category names come from the catalogue like everything else the author
+// reads. `zveltio` is the data category and is named for what it holds.
+const cats = [
+  { key: 'layout', label: () => m['pageBuilder.catLayout']() },
+  { key: 'content', label: () => m['pageBuilder.catContent']() },
+  { key: 'media', label: () => m['pageBuilder.catMedia']() },
+  { key: 'zveltio', label: () => m['pageBuilder.catData']() },
+] as const;
 
-  function make(item: LibraryBlock) {
-    return { id: crypto.randomUUID(), type: item.type, content: { ...item.defaultContent }, style: {} };
-  }
+function make(item: LibraryBlock) {
+  return {
+    id: crypto.randomUUID(),
+    type: item.type,
+    content: { ...item.defaultContent },
+    style: {},
+  };
+}
 
-  function onDragStart(e: DragEvent, item: LibraryBlock) {
-    e.dataTransfer!.setData('text/block-type', item.type);
-    e.dataTransfer!.effectAllowed = 'copy';
-  }
+function onDragStart(e: DragEvent, item: LibraryBlock) {
+  e.dataTransfer!.setData('text/block-type', item.type);
+  e.dataTransfer!.effectAllowed = 'copy';
+}
 </script>
 
 <div class="w-52 shrink-0 bg-base-100 border-r border-base-300 overflow-y-auto flex flex-col">
   <div class="px-3 py-2.5 border-b border-base-300">
-    <span class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest">{m['content.pages.b.blocksWord']()}</span>
+    <span class="text-[10px] font-bold text-base-content/65 uppercase tracking-widest">{m['pageBuilder.blocksWord']()}</span>
   </div>
 
   {#each cats as cat}
