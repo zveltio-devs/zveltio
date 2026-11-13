@@ -597,7 +597,7 @@ function writeAsCaller(op: 'create' | 'update' | 'delete', writtenBy?: string) {
     const p = gatePrincipal(c);
     if (!p) {
       throw new Error(
-        `ctx.internals.${op}Record: pass the request context \`c\` of the /ext/* request ` +
+        `ctx.internals.${op}Record: pass the request context \`c\` (or the declared handler's \`Request\`) of the /ext/* request ` +
           'being handled. Writes act as the caller that request authenticated; outside ' +
           'one there is no caller, so there is no write.',
       );
@@ -653,7 +653,7 @@ async function readAsCaller(
   const pub = extName === undefined ? undefined : publicRouteRequest(c);
   if (!pub || pub.extName !== extName) {
     throw new Error(
-      `ctx.internals.${member}: pass the request context \`c\` of the /ext/* request being ` +
+      `ctx.internals.${member}: pass the request context \`c\` (or the declared handler's \`Request\`) of the /ext/* request being ` +
         'handled. Reads act as the caller that request authenticated, or as the public ' +
         "role in one of this extension's publicRoutes; outside one there is no caller, so " +
         'there is no read.',
@@ -736,7 +736,7 @@ function gateWriter(c: unknown, name: string): ValidationWriter {
   const p = gatePrincipal(servedContext(c));
   if (!p) {
     throw new Error(
-      `ctx.internals.${name}: pass the request context \`c\` of the /ext/* request ` +
+      `ctx.internals.${name}: pass the request context \`c\` (or the declared handler's \`Request\`) of the /ext/* request ` +
         'being handled; outside one there is no caller, so there is no write.',
     );
   }
