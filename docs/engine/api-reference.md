@@ -966,11 +966,20 @@ keeps anyone from approving their own wording.
 
 ### GET /api/api-keys
 
-List all API keys (admin only). Raw keys are never returned — only prefix and metadata.
+The request tenant's API keys, members' included, newest first (`page`, `limit`,
+`total`). Raw keys are never returned — only prefix and metadata.
+
+Who: the instance administrator, or the administrator of the request's tenant
+(`isTenantAdmin`, ADR 0046), whatever `member_api_keys` says. Every
+`/api/api-keys` route works in the request's tenant only: a tenant
+administrator never sees, mints or revokes another tenant's keys, nor the root
+tenant's instance-wide ones (`is_instance_wide: true`), which only the instance
+administrator manages. Other signed-in callers: 403.
 
 ### POST /api/api-keys
 
-Create an API key. The raw key is returned **only once** in the response.
+Create an API key in the request's tenant, issued by the caller (same callers as
+`GET`). The raw key is returned **only once** in the response.
 
 ```json
 // Request
@@ -1101,8 +1110,10 @@ session (only a key has a key record).
 
 The signed-in member's own keys in the acting tenant, newest first (`page`,
 `limit`). Never the key or its hash. A key cannot call any `/api/me/api-keys`
-route (403). All three answer 403 `member_api_keys_off` until the instance sets
-`member_api_keys` to `true` (`PUT /api/settings/member_api_keys`).
+route (403). `POST` answers 403 `member_api_keys_off` until the instance sets
+`member_api_keys` to `true` (`PUT /api/settings/member_api_keys`); listing and
+revoking stay open. A tenant administrator does not need it: they mint at
+[`POST /api/api-keys`](#post-apiapi-keys).
 
 ### POST /api/me/api-keys
 
@@ -1151,7 +1162,9 @@ Remove the per-key override, reverting to the tier default.
 
 ### DELETE /api/api-keys/:id
 
-Revoke an API key immediately.
+Revoke an API key of the request's tenant immediately (same callers as `GET`).
+404 for a key of another tenant, an unknown one, or, for a tenant administrator,
+an instance-wide one.
 
 ---
 

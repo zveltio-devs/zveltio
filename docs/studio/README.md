@@ -52,6 +52,12 @@ onboarding, pages, permissions, projects, request-logs, rls, rpc, saved-queries,
 schema-branches, settings, sql, storage, templates, tenants, users,
 virtual-collections, webhooks — plus the extension catch-all `[...extPath]`.
 
+**API keys** (`api-keys`) lists and mints the keys of the tenant the unit
+switcher names (`x-tenant-slug`). The instance administrator sees the root
+tenant's keys; a tenant administrator sees, mints and revokes their tenant's
+keys only, whatever `member_api_keys` says (ADR 0046). The engine decides who
+gets the list; the page shows what it answers.
+
 The sidebar is generated from `src/lib/nav-model.ts`, which is the single source
 of truth for grouped navigation. Core items carry a Paraglide `labelKey`;
 extension items carry a label from the extension manifest. Group ordering is

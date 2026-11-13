@@ -835,7 +835,7 @@ function buildSpec() {
       '/api-keys': {
         get: {
           tags: ['API Keys'],
-          summary: 'List API keys for the current user (hashes only — plaintext not stored)',
+          summary: "The request tenant's API keys (instance or tenant administrator; ADR 0046)",
           responses: { '200': { description: 'API keys list' } },
         },
         post: {

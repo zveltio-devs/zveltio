@@ -598,6 +598,15 @@ result only as a boolean. A key can be exempted from row rules on reads, per key
 0037), and the exemption is read from `zveltio.rls_bypass` —
 a published decision, not a role-name comparison inside a predicate.
 
+Who mints them: the administrator of a tenant manages that tenant's keys at
+`/api/api-keys` (Studio → API Keys), whatever `member_api_keys` says (ADR 0046);
+the root tenant's keys, which act wherever their issuer is a member in force,
+only the instance administrator. Every handler there works in the request's
+tenant, and `zv_api_keys` is under FORCE RLS besides (migration 065). A key
+minted in tenant A is refused in tenant B (`apiKeyActsIn`) on every door, and
+acts as its author (ADR 0028). Members mint their own at `/api/me/api-keys` only
+while `member_api_keys` is on.
+
 ---
 
 ## 7. Extensions
