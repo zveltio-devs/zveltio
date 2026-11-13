@@ -56,6 +56,8 @@ let values = $state<Record<string, unknown>>({});
 let recordId = $state<string | null>(null);
 let loading = $state(true);
 let error = $state<string | null>(null);
+/** The record shown was read again and is gone: an action removed it (a sent draft). */
+let gone = $state(false);
 let saving = $state(false);
 
 const collection = $derived('collection' in view ? view.collection : null);
@@ -75,6 +77,7 @@ $effect(() => {
   const mine = ++seq;
   loading = true;
   error = null;
+  gone = false;
   const fields = c
     ? schemaOf(c).then((f) => ({ f, lines: [] as InputLines[], undrawn: [] as string[] }))
     : runnableActions().then((list) => {
@@ -105,8 +108,10 @@ $effect(() => {
             f.lines.map((l) => [l.name, Array.from({ length: Math.max(l.min, 1) }, () => ({}))]),
           );
     })
-    .catch((e: Error) => {
-      if (mine === seq) error = e.message || m['ext.loadFailed']();
+    .catch((e: Error & { status?: number }) => {
+      if (mine !== seq) return;
+      if (e.status === 404 && t !== undefined && t === recordId) gone = true;
+      else error = e.message || m['ext.loadFailed']();
     })
     .finally(() => {
       if (mine === seq) loading = false;
@@ -228,6 +233,8 @@ async function beforeAction(scope: ViewScope): Promise<ViewScope | null> {
     <p class="text-sm text-base-content/65 py-6 text-center">{m['view.selectFirst']()}</p>
   {:else if loading}
     <span class="loading loading-spinner loading-sm"></span>
+  {:else if gone}
+    <div class="alert alert-info text-sm">{m['ext.recordGone']()}</div>
   {:else if error}
     <div class="alert alert-error text-sm">{error}</div>
   {:else}

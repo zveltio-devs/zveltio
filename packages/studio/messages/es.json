@@ -1863,6 +1863,7 @@
   "ext.errorPrefix": "Error: ",
   "ext.linkCopied": "Enlace copiado.",
   "ext.loadFailed": "Error al cargar los datos",
+  "ext.recordGone": "Este registro ya no existe: la acción ejecutada lo eliminó.",
   "ext.rejected": "Rechazado",
   "ext.reveal.copy": "Copiar",
   "ext.reveal.note": "Solo se muestra una vez — cópialo antes de cerrar.",

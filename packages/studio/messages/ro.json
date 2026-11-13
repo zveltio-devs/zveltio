@@ -1863,6 +1863,7 @@
   "ext.errorPrefix": "Eșec: ",
   "ext.linkCopied": "Link copiat.",
   "ext.loadFailed": "Încărcarea datelor a eșuat",
+  "ext.recordGone": "Această înregistrare nu mai există: acțiunea rulată a eliminat-o.",
   "ext.rejected": "Respins",
   "ext.reveal.copy": "Copiază",
   "ext.reveal.note": "Se afișează o singură dată — copiază-l înainte să închizi.",

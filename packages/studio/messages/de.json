@@ -1863,6 +1863,7 @@
   "ext.errorPrefix": "Fehlgeschlagen: ",
   "ext.linkCopied": "Link kopiert.",
   "ext.loadFailed": "Laden der Daten fehlgeschlagen",
+  "ext.recordGone": "Dieser Datensatz existiert nicht mehr: Die ausgeführte Aktion hat ihn entfernt.",
   "ext.rejected": "Abgelehnt",
   "ext.reveal.copy": "Kopieren",
   "ext.reveal.note": "Es wird nur einmal angezeigt — vor dem Schließen kopieren.",

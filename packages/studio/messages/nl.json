@@ -1863,6 +1863,7 @@
   "ext.errorPrefix": "Mislukt: ",
   "ext.linkCopied": "Link gekopieerd.",
   "ext.loadFailed": "Gegevens laden mislukt",
+  "ext.recordGone": "Dit record bestaat niet meer: de uitgevoerde actie heeft het verwijderd.",
   "ext.rejected": "Afgewezen",
   "ext.reveal.copy": "Kopiëren",
   "ext.reveal.note": "Het wordt maar één keer getoond — kopieer het voordat je sluit.",
