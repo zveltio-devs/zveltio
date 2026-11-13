@@ -2426,6 +2426,8 @@
   "mkt.approved": "Se aprobó {caps} para {name}. Reinicia para aplicar.",
   "mkt.asksFor1": "Esta versión solicita",
   "mkt.asksFor2": "que no has aprobado. Se ejecuta sin ellos.",
+  "mkt.capAnyRead": "cualquier colección que pueda leer la persona que la ejecuta",
+  "mkt.capAnyWrite": "cualquier colección en la que pueda escribir la persona que la ejecuta",
   "mkt.available": "Disponible",
   "mkt.building": "Compilando",
   "mkt.changelogEmpty": "No hay notas de versión entre estas versiones.",

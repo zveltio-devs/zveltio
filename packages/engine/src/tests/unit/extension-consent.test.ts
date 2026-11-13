@@ -317,3 +317,41 @@ describe('manifest egressSlots', () => {
     expect([...declaredTcpSlots(manifest)]).toEqual(['mail']);
   });
 });
+
+describe('an action reaching any collection as its caller (ADR 0047)', () => {
+  const action = (reads: string[], writes: string[] = []) => ({
+    name: 'scan',
+    permission: { resource: 'items' },
+    input: { type: 'object' },
+    reads,
+    writes,
+  });
+
+  it('asks consent for "*" in an action, in reads and writes apart', () => {
+    expect(declaredCapabilities({ permissions: ['data:write'], actions: [action(['*'])] })).toEqual(
+      ['data:write', 'collections:any:read'],
+    );
+    expect(declaredCapabilities({ actions: [action(['items'], ['*']), action(['*'])] })).toEqual([
+      'collections:any:write',
+      'collections:any:read',
+    ]);
+    expect(declaredCapabilities({ actions: [action(['items'], ['items'])] })).toEqual([]);
+    // A version that starts asking runs without it until approved.
+    const r = resolveCapabilities(declaredCapabilities({ actions: [action(['*'])] }), []);
+    expect(r.pending).toEqual(['collections:any:read']);
+  });
+
+  it('the manifest refuses it in a job, and as an action gate; it is no capability to list', () => {
+    const parse = (m: Record<string, unknown>) => ManifestSchema.safeParse({ name: 'x', ...m });
+    expect(parse({ actions: [action(['*'], ['*'])], resources: ['items'] }).success).toBe(true);
+    for (const kind of ['reads', 'writes']) {
+      const r = parse({ jobs: [{ name: 'j', input: { type: 'object' }, [kind]: ['*'] }] });
+      expect(r.success).toBe(false);
+      expect(r.error?.issues[0]?.message).toContain('lists "*" in ' + kind);
+    }
+    expect(parse({ actions: [{ ...action(['*']), permission: { resource: '*' } }] }).success).toBe(
+      false,
+    );
+    expect(parse({ permissions: ['collections:any:read'] }).success).toBe(false);
+  });
+});

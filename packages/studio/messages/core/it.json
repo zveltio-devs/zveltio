@@ -810,6 +810,8 @@
   "mkt.approved": "Approvato {caps} per {name}. Riavvia per applicare.",
   "mkt.asksFor1": "Questa versione richiede",
   "mkt.asksFor2": "che non hai approvato. È in esecuzione senza di essi.",
+  "mkt.capAnyRead": "qualsiasi raccolta che la persona che la esegue può leggere",
+  "mkt.capAnyWrite": "qualsiasi raccolta in cui la persona che la esegue può scrivere",
   "mkt.available": "Disponibile",
   "mkt.building": "In costruzione",
   "mkt.configDesc": "Configurazione JSON per questa estensione. Le modifiche hanno effetto al prossimo riavvio.",

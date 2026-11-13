@@ -810,6 +810,8 @@
   "mkt.approved": "{caps} für {name} genehmigt. Zum Anwenden neu starten.",
   "mkt.asksFor1": "Diese Version fordert",
   "mkt.asksFor2": "die Sie nicht genehmigt haben. Sie läuft ohne sie.",
+  "mkt.capAnyRead": "jede Sammlung, die die ausführende Person lesen darf",
+  "mkt.capAnyWrite": "jede Sammlung, in die die ausführende Person schreiben darf",
   "mkt.available": "Verfügbar",
   "mkt.building": "Wird gebaut",
   "mkt.configDesc": "JSON-Konfiguration für diese Erweiterung. Änderungen werden beim nächsten Neustart wirksam.",

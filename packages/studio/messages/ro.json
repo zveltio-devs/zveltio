@@ -2426,6 +2426,8 @@
   "mkt.approved": "Ai aprobat {caps} pentru {name}. Repornește pentru a aplica.",
   "mkt.asksFor1": "Această versiune cere",
   "mkt.asksFor2": "pe care nu le-ai aprobat. Rulează fără ele.",
+  "mkt.capAnyRead": "orice colecție pe care o poate citi persoana care o rulează",
+  "mkt.capAnyWrite": "orice colecție în care poate scrie persoana care o rulează",
   "mkt.available": "Disponibilă",
   "mkt.building": "Se construiește",
   "mkt.changelogEmpty": "Nicio notă de versiune între aceste versiuni.",

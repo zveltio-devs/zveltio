@@ -2426,6 +2426,8 @@
   "mkt.approved": "Jóváhagyva: {caps} ehhez: {name}. Az alkalmazáshoz indítsd újra.",
   "mkt.asksFor1": "Ez a verzió a következőket kéri:",
   "mkt.asksFor2": "amelyeket nem hagytál jóvá. Ezek nélkül fut.",
+  "mkt.capAnyRead": "bármely gyűjtemény, amelyet a futtató személy olvashat",
+  "mkt.capAnyWrite": "bármely gyűjtemény, amelybe a futtató személy írhat",
   "mkt.available": "Elérhető",
   "mkt.building": "Építés",
   "mkt.changelogEmpty": "Nincsenek kiadási megjegyzések ezen verziók között.",

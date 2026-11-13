@@ -314,6 +314,9 @@ export const ManifestSchema = z
      * or on a collection the actions or jobs read or write,
      * the body must match `input` (JSON Schema), and the implementation reaches
      * only the collections in `reads` and `writes`, inside the request transaction.
+     * `"*"` in either list reaches any collection, only as the caller (ADR 0047):
+     * the data API with the caller's grants, row and column rules, never as the
+     * system; consented as `collections:any:read` / `collections:any:write`.
      */
     actions: z
       .array(
@@ -341,7 +344,8 @@ export const ManifestSchema = z
      * Asynchronous work (RFC v3 "Jobs"): an action enqueues one in its request
      * transaction, and the engine runs it after that commits, out of any request,
      * in the enqueuing tenant. `input` is a JSON Schema checked at enqueue; the
-     * implementation reaches only the collections in `reads` and `writes`.
+     * implementation reaches only the collections in `reads` and `writes`, never
+     * `"*"`: a job acts as the extension, with no caller to bound it (ADR 0047).
      * `retry.limit` failed runs are retried, with exponential `backoff` by default.
      */
     jobs: z
@@ -515,9 +519,11 @@ export const ManifestSchema = z
       });
     }
     const names = new Set<string>();
+    // `"*"` (ADR 0047) names no collection, and is no Casbin object to gate on.
     const collections = new Set(
       [...m.actions, ...m.jobs].flatMap((e) => [...e.reads, ...e.writes]),
     );
+    collections.delete('*');
     m.actions.forEach((a, i) => {
       if (names.has(a.name)) {
         ctx.addIssue({
@@ -603,6 +609,15 @@ export const ManifestSchema = z
         });
       }
       jobNames.add(j.name);
+      for (const kind of ['reads', 'writes'] as const) {
+        if (j[kind].includes('*')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['jobs', i, kind],
+            message: `job "${j.name}" lists "*" in ${kind}: only an action reaches any collection, as its caller (ADR 0047); a job lists each one`,
+          });
+        }
+      }
       inputSchemaIssue(ctx, ['jobs', i, 'input'], `job "${j.name}"`, j.input);
       try {
         parseEgress(j.egress);

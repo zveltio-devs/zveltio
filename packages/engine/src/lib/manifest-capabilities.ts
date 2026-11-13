@@ -16,18 +16,37 @@ const jobsOf = (manifest: unknown): unknown[] => {
 };
 
 /**
- * What a manifest asks consent for: its `permissions`, and one
- * `egress:<authority>` per authority its jobs declare. Anything not a string
+ * ADR 0047: an action listing `"*"` in `reads` / `writes` reaches any
+ * collection the person running it can read / write. Derived from the actions,
+ * never declarable in `permissions`, and consented like any capability: a
+ * version that starts asking runs without it until an administrator approves.
+ */
+export const ANY_COLLECTION = {
+  reads: 'collections:any:read',
+  writes: 'collections:any:write',
+} as const;
+
+/**
+ * What a manifest asks consent for: its `permissions`, one
+ * `egress:<authority>` per authority its jobs declare, and `ANY_COLLECTION`'s
+ * entries for `"*"` in an action's `reads` / `writes`. Anything not a string
  * is ignored, as it is for `permissions`.
  */
 export function declaredCapabilities(manifest: unknown): string[] {
   const egress = jobsOf(manifest).flatMap((j) =>
     strings((j as { egress?: unknown } | null)?.egress).map((a) => `${EGRESS_PREFIX}${a}`),
   );
+  const actions = (manifest as { actions?: unknown } | null)?.actions;
+  const any = (Array.isArray(actions) ? actions : []).flatMap((a) =>
+    (['reads', 'writes'] as const)
+      .filter((k) => strings((a as Record<string, unknown> | null)?.[k]).includes('*'))
+      .map((k) => ANY_COLLECTION[k]),
+  );
   return [
     ...new Set([
       ...strings((manifest as { permissions?: unknown } | null)?.permissions),
       ...egress,
+      ...any,
     ]),
   ];
 }

@@ -108,4 +108,13 @@ describe('manifest collections', () => {
       }),
     ).toEqual(['job "other": slot "mail" is declared both "http" and "tcp"']);
   });
+
+  it('refuses "*" in a job, and as an action\'s gate (ADR 0047)', () => {
+    const any = { ...action, enqueues: [], reads: ['*'], writes: ['*'] };
+    expect(errors({ actions: [any] })).toEqual([]);
+    expect(errors({ actions: [action], jobs: [{ ...job, reads: ['*'] }] })).toEqual([
+      'job "notify" lists "*" in reads: only an action reaches any collection, as its caller; a job lists each one',
+    ]);
+    expect(errors({ actions: [{ ...any, permission: { resource: '*' } }] })).toHaveLength(1);
+  });
 });

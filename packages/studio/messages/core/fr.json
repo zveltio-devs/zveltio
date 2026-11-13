@@ -810,6 +810,8 @@
   "mkt.approved": "{caps} approuvé(s) pour {name}. Redémarrez pour appliquer.",
   "mkt.asksFor1": "Cette version demande",
   "mkt.asksFor2": "que vous n'avez pas approuvées. Elle fonctionne sans elles.",
+  "mkt.capAnyRead": "toute collection que la personne qui l'exécute peut lire",
+  "mkt.capAnyWrite": "toute collection dans laquelle la personne qui l'exécute peut écrire",
   "mkt.available": "Disponible",
   "mkt.building": "Compilation",
   "mkt.configDesc": "Configuration JSON de cette extension. Les modifications prennent effet au prochain redémarrage.",

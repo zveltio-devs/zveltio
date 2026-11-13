@@ -2426,6 +2426,8 @@
   "mkt.approved": "{caps} goedgekeurd voor {name}. Herstart om toe te passen.",
   "mkt.asksFor1": "Deze versie vraagt om",
   "mkt.asksFor2": "die je niet hebt goedgekeurd. De extensie draait zonder deze.",
+  "mkt.capAnyRead": "elke collectie die de persoon die het uitvoert mag lezen",
+  "mkt.capAnyWrite": "elke collectie waarin de persoon die het uitvoert mag schrijven",
   "mkt.available": "Beschikbaar",
   "mkt.building": "Bouwen",
   "mkt.changelogEmpty": "Geen release notes tussen deze versies.",

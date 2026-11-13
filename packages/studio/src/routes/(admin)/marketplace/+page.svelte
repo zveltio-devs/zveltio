@@ -347,6 +347,13 @@ async function update(ext: Extension) {
   }
 }
 
+/** ADR 0047: what an action's `"*"` reaches, in words; null for a capability its name says. */
+function capWords(cap: string): string | null {
+  if (cap === 'collections:any:read') return m['mkt.capAnyRead']();
+  if (cap === 'collections:any:write') return m['mkt.capAnyWrite']();
+  return null;
+}
+
 /**
  * Grant exactly the capabilities the admin was shown.
  *
@@ -789,7 +796,7 @@ onMount(loadCatalog);
                         <p class="opacity-80 mb-2">
                           {m['mkt.asksFor1']()}
                           {#each ext.pending_capabilities ?? [] as cap, i}<code
-                            class="font-mono">{cap}</code>{#if i < (ext.pending_capabilities ?? []).length - 1}, {/if}{/each},
+                            class="font-mono">{cap}</code>{#if capWords(cap)} ({capWords(cap)}){/if}{#if i < (ext.pending_capabilities ?? []).length - 1}, {/if}{/each},
                           {m['mkt.asksFor2']()}
                         </p>
                         <button
