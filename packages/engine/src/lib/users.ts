@@ -125,7 +125,8 @@ export async function deleteUser(
     userId: who.actorUserId ?? undefined,
     resourceId: userId,
     resourceType: 'user',
-    metadata: { ...(who.actor ? { actor: who.actor } : {}), reason: who.reason, ...who.metadata },
+    // `actor` and `reason` last: metadata never rewrites who erased the account, or why.
+    metadata: { ...who.metadata, ...(who.actor ? { actor: who.actor } : {}), reason: who.reason },
   });
   return true;
 }
