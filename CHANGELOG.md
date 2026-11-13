@@ -4,7 +4,19 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.119] - 2026-11-13
+
+**SECURITY (Studio): the page-builder canvas drew author-typed values raw.** A video block whose URL was `javascript:...` ran script in Studio's origin for anyone who opened the builder (stored XSS from any author with write on `pages`), and colours and numbers went raw into `style` (CSS injection, e.g. a tracking request). Every iframe address now goes through an http(s)-only check and the frame is sandboxed; every colour and number in a style is checked or clamped; line style and text alignment are allow-listed. Every Studio up to 3.0.0-beta.118 carries the defect; update.
+
+**The page builder is a Studio front-end package (ADR 0042 slice 7).** The block canvas of `content/pages` is no longer extension code: Studio carries it and draws it for that extension's view `pages.builder`, chosen by extension and view id. Every other front end, and a Studio without the canvas, draws the extension's own view, a form over the page (title, slug, blocks as JSON, Save, Publish). Its messages are Studio's (`pageBuilder.*`). `content/pages` 2.3.0 ships this view and no builder code; with this Studio the page path `/admin/pages/builder/:id` shows the canvas as before. Editing one figure of a `stats` block or one legacy column no longer rewrites the others. `docs/extensions/ui-model.md` documents the path for a screen that needs code with this example.
+
 **`@zveltio/react` draws extension views (ADR 0042 slice 6).** `extensionPages` lists the active extensions' `view/2` pages, `loadView` reads what a view shows and `ViewRenderer` draws it (on a server too), and `ExtensionView` ties them together in a browser. It draws list, detail, form, stat, split and tabs, and any other kind through its fallback. CI draws every `view/2` page of the extensions catalogue with it.
+
+**A form whose record an action removed says so.** A `view/2` form that reads its record again after an action and gets a 404 shows an info notice ("This record no longer exists: the action that ran removed it.") instead of a red "Record not found": the mail `send` job deletes the draft it sent. A 404 on the first read is still an error.
+
+**Generated types list a `multiple` field.** A field with `options.multiple` (a `file` field holding several files) is typed as a list by both generators (`/api/admin/types` and `zveltio generate-types --from`); it was typed as one value.
+
+`ctx.internals` refusals name the declared handler's `Request` as well as `c`.
 
 ## [3.0.0-beta.118] - 2026-11-13
 
