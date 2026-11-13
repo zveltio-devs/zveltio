@@ -32,7 +32,7 @@
  * bundle IS the job. A forgotten merge does not ship silently: `i18n-core` in CI
  * fails on any key a page calls that the bundle does not resolve.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { findExtensions, LOCALES, sortKeys, type Locale } from './lib/extension-i18n.ts';
 
@@ -107,6 +107,33 @@ console.log(
 
 mkdirSync(CORE_DIR, { recursive: true });
 mkdirSync(OUT_DIR, { recursive: true });
+
+// A key the regen drops but Studio's own source still names (a core SDUI
+// `schema.ts`, `nav-model.ts`) lived only in the committed bundle: the
+// extension that owned it left. Refuse, so it moves to messages/core instead of
+// shipping as a raw key (#1531 left 26 such keys; `i18n-core` sees `m['…']` only).
+const nextEn = loadBundle('en');
+const dropped = Object.keys(readJson(join(OUT_DIR, 'en.json'))).filter((k) => !(k in nextEn));
+if (dropped.length) {
+  const source = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? e.name === 'paraglide'
+          ? []
+          : source(join(dir, e.name))
+        : /\.(ts|svelte)$/.test(e.name)
+          ? [readFileSync(join(dir, e.name), 'utf8')]
+          : [],
+    );
+  const text = source(join(STUDIO, 'src')).join('\n');
+  const named = dropped.filter((k) => text.includes(`'${k}'`) || text.includes(`"${k}"`));
+  if (named.length) {
+    console.error(
+      `[i18n:merge] ${named.length} key(s) Studio source names would leave the bundle; add them to messages/core:\n  ${named.join('\n  ')}`,
+    );
+    process.exit(1);
+  }
+}
 
 const collisions: string[] = [];
 for (const locale of LOCALES) {
