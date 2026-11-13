@@ -1011,6 +1011,7 @@ const SECTIONS: Section[] = [
       'scripts/setup-test-db.sh',
       'scripts/sql/',
       'scripts/sync-engine-version.ts',
+      'scripts/sync-extension-catalog.ts',
       'scripts/validate-all-extensions.ts',
     ],
   },

@@ -61,7 +61,8 @@
     "test:e2e:ui": "playwright test --ui",
     "typecheck": "turbo run typecheck",
     "typecheck:force": "turbo run typecheck --force",
-    "sync-versions": "bun run scripts/sync-engine-version.ts"
+    "sync-versions": "bun run scripts/sync-engine-version.ts",
+    "sync-catalog": "bun run scripts/sync-extension-catalog.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

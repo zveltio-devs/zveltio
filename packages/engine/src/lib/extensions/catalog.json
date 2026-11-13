@@ -45,199 +45,199 @@
     {
       "name": "ai",
       "displayName": "AI",
-      "description": "AI capabilities: providers, chat, embeddings, semantic search, text-to-SQL, schema generation, agentic workflows",
+      "description": "AI chat on providers the operator allows: OpenAI, Anthropic, Ollama or any OpenAI-compatible server, with prompt templates and a usage log. The assistant acts as its caller and nothing more.",
       "category": "intelligence",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["ai", "llm", "embeddings", "semantic-search", "chat"],
-      "permissions": ["database", "settings", "network"]
+      "permissions": ["data:system"]
     },
     {
       "name": "analytics/dashboard",
       "displayName": "Dashboards",
       "description": "Role-aware, per-user home dashboards — IT sets a default layout per role, each user personalizes within their permissions",
       "category": "analytics",
-      "version": "1.0.1",
+      "version": "2.0.1",
       "author": "Zveltio",
       "tags": ["analytics", "dashboard", "widgets"],
-      "permissions": ["database"]
+      "permissions": ["audit:read"]
     },
     {
       "name": "analytics/quality",
       "displayName": "Data Quality",
-      "description": "Automated data quality scans, anomaly detection and issue management",
+      "description": "Data quality scans over the data API, as the scanning user: duplicates, missing values, outliers and optional AI normalization hints",
       "category": "analytics",
-      "version": "1.0.0",
+      "version": "2.0.1",
       "author": "Zveltio",
       "tags": ["analytics", "quality", "anomalies"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "auth/ldap",
       "displayName": "LDAP / Active Directory",
-      "description": "Authenticate users via LDAP or Active Directory",
+      "description": "Authenticate users via LDAP or Active Directory (ldapts)",
       "category": "auth",
-      "version": "1.0.0",
+      "version": "3.0.1",
       "author": "Zveltio",
       "tags": ["auth", "ldap", "active-directory", "sso"],
-      "permissions": ["database"]
+      "permissions": ["auth:session", "data:system"]
     },
     {
       "name": "auth/saml",
       "displayName": "SAML 2.0 SSO",
       "description": "SAML 2.0 Single Sign-On with external Identity Providers (Okta, Azure AD, Google Workspace)",
       "category": "auth",
-      "version": "1.0.0",
+      "version": "2.2.1",
       "author": "Zveltio",
       "tags": ["auth", "saml", "sso", "okta", "azure"],
-      "permissions": ["database"]
+      "permissions": ["auth:session", "data:system"]
     },
     {
       "name": "auth/scim",
       "displayName": "SCIM Provisioning",
-      "description": "SCIM 2.0 user provisioning for Azure AD / Entra, Okta and other identity providers — bearer tokens, Users CRUD, active-flag offboarding",
+      "description": "SCIM 2.0 user provisioning for Azure AD / Entra, Okta and other identity providers — engine API keys, Users CRUD, active-flag offboarding",
       "category": "auth",
-      "version": "1.0.3",
+      "version": "3.0.0",
       "author": "Zveltio",
       "tags": ["auth", "scim", "provisioning", "entra", "okta"],
-      "permissions": ["database", "secrets"]
+      "permissions": ["identity:provision"]
     },
     {
       "name": "communications/mail",
       "displayName": "Mail Client",
-      "description": "Full IMAP/SMTP email client with AI features, Sieve filtering, and contacts",
+      "description": "IMAP/SMTP mail client: accounts, folders, messages, drafts, identities, signatures, filters and contacts as collections; syncing and sending run as jobs that reach only the mail servers an operator binds to the \"mail\" slot.",
       "category": "communications",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["mail", "email", "imap", "smtp"],
-      "permissions": ["database", "settings"]
+      "permissions": ["data:system", "files"]
     },
     {
       "name": "sms",
       "displayName": "SMS / Push Notifications",
-      "description": "Send SMS via Twilio or Vonage with templates and delivery tracking",
-      "category": "communications",
-      "version": "1.0.0",
+      "description": "Send SMS through Twilio or Vonage, with templates and delivery reports",
+      "category": "sms",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["sms", "notifications", "twilio", "vonage"],
-      "permissions": ["database"]
+      "permissions": ["data:system"]
     },
     {
       "name": "compliance/gdpr",
       "displayName": "GDPR Compliance",
       "description": "Data export and right to erasure (GDPR Art. 15, 17)",
       "category": "compliance",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["compliance", "gdpr", "privacy"],
-      "permissions": ["database"]
+      "permissions": ["data:write", "auth:users"]
     },
     {
       "name": "compliance/ro/documents",
-      "displayName": "Documents RO",
+      "displayName": "RO Documents",
       "description": "Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata",
-      "category": "compliance",
-      "version": "1.0.0",
+      "category": "compliance/ro",
+      "version": "2.0.0",
       "author": "Zveltio",
       "tags": ["documents", "contracts", "romania"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "compliance/ro/efactura",
       "displayName": "e-Factura RO",
-      "description": "Romanian e-Invoice (e-Factura) integration with ANAF — generate, validate, and submit UBL XML invoices",
-      "category": "compliance",
-      "version": "1.0.0",
+      "description": "Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer",
+      "category": "compliance/ro",
+      "version": "2.0.0",
       "author": "Zveltio",
       "tags": ["invoicing", "anaf", "romania", "ubl"],
-      "permissions": ["database"]
+      "permissions": ["data:write", "data:system"]
     },
     {
       "name": "compliance/ro/etransport",
       "displayName": "e-Transport RO",
       "description": "Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF",
-      "category": "compliance",
-      "version": "1.0.0",
+      "category": "compliance/ro",
+      "version": "2.0.0",
       "author": "Zveltio",
       "tags": ["transport", "anaf", "romania", "logistics"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "compliance/ro/procurement",
       "displayName": "Achizitii Publice RO",
       "description": "Romanian public procurement management — purchase orders, supplier registry, budget tracking",
-      "category": "compliance",
-      "version": "1.0.0",
+      "category": "compliance/ro",
+      "version": "2.3.0",
       "author": "Zveltio",
       "tags": ["procurement", "suppliers", "budget", "romania"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "compliance/ro/saft",
       "displayName": "SAF-T RO",
-      "description": "Romanian Standard Audit File for Tax (SAF-T D.394) — generate XML audit files for ANAF",
-      "category": "compliance",
-      "version": "1.0.0",
+      "description": "Romanian SAF-T (D406) — build the audit file XML from the finance/accounting ledger",
+      "category": "compliance/ro",
+      "version": "2.0.0",
       "author": "Zveltio",
       "tags": ["saft", "tax", "anaf", "romania"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "content/document-templates",
       "displayName": "Document Templates",
-      "description": "Admin-managed HTML/PDF templates with variable interpolation and async generation",
+      "description": "HTML templates with {{variable}} interpolation, rendered to PDF as the caller",
       "category": "content",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["documents", "templates", "pdf"],
-      "permissions": ["database"]
+      "permissions": ["documents", "data:write"]
     },
     {
       "name": "content/documents",
       "displayName": "Document Generator",
-      "description": "Generate PDF documents from templates with data binding",
+      "description": "Numbered documents generated from templates as the caller, with signatures by logged-in users",
       "category": "content",
-      "version": "1.0.0",
+      "version": "2.0.1",
       "author": "Zveltio",
       "tags": ["documents", "pdf", "templates"],
-      "permissions": ["database"]
+      "permissions": ["documents", "data:write"]
     },
     {
       "name": "content/drafts",
       "displayName": "Content Drafts",
-      "description": "Draft/publish workflow for content collections",
+      "description": "Draft, review and publish workflow for content collections, through the data API as the publishing user",
       "category": "content",
-      "version": "1.0.0",
+      "version": "2.1.1",
       "author": "Zveltio",
       "tags": ["cms", "drafts", "publishing"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "content/media",
       "displayName": "Media Library",
-      "description": "Media folders, files, and tags management",
+      "description": "Tags, favorites, curated collections and AI metadata for the engine’s media files",
       "category": "content",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["media", "files", "images"],
-      "permissions": ["database", "storage"]
+      "permissions": []
     },
     {
       "name": "content/pages",
       "displayName": "Pages",
-      "description": "Pages built from blocks — content or live collection data — grouped into sites. A site can be public with SEO, sitemap and redirects, or authenticated with access by role and its own branding",
+      "description": "Pages built from blocks, grouped into sites. Authors edit drafts; publishing writes the sanitized snapshot a public website or a signed-in portal renders, read through the data API under the engine's rules.",
       "category": "content",
-      "version": "1.0.0",
+      "version": "2.1.1",
       "author": "Zveltio",
       "tags": ["cms", "pages", "sites", "portals", "content"],
-      "permissions": ["database", "storage"]
+      "permissions": []
     },
     {
       "name": "content/pdf-viewer",
       "displayName": "PDF Viewer",
-      "description": "Inline PDF viewer for Studio asset manager, client apps, and page builder blocks",
+      "description": "Inline PDF viewer components for client apps and integrator-built pages. Exports PdfViewer and PdfBlock; no page-builder block type is registered.",
       "category": "content",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Zveltio",
       "tags": ["pdf", "viewer", "documents"],
       "permissions": []
@@ -245,322 +245,322 @@
     {
       "name": "forms",
       "displayName": "Form Builder",
-      "description": "Drag-and-drop form builder with public submission endpoints",
-      "category": "content",
-      "version": "1.0.0",
+      "description": "Forms, checklists and inspections: public one-shot forms and responses attached to records, filled field by field, with completion, scoring and recurrence",
+      "category": "forms",
+      "version": "3.0.0",
       "author": "Zveltio",
       "tags": ["forms", "submissions", "builder"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "crm",
       "displayName": "CRM",
-      "description": "Contacts, Organizations, and Transactions — optional CRM extension",
+      "description": "Contacts, Organizations, and Transactions — owned by this extension, not the engine core",
       "category": "business",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["crm", "contacts", "sales"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "data/export",
       "displayName": "Data Export",
-      "description": "Export collection data as JSON, CSV or NDJSON with filtering support",
+      "description": "Export collection data as JSON, CSV or NDJSON through the data API, as the exporting user",
       "category": "data",
-      "version": "1.0.0",
+      "version": "2.0.1",
       "author": "Zveltio",
       "tags": ["export", "csv", "json", "data"],
-      "permissions": ["database"]
+      "permissions": []
     },
     {
       "name": "data/import",
       "displayName": "Data Import",
-      "description": "Import collection data from CSV or JSON files with column mapping and background processing",
+      "description": "Import collection data from CSV, JSON or NDJSON files through the data API, as the importing user",
       "category": "data",
-      "version": "1.0.0",
+      "version": "2.0.2",
       "author": "Zveltio",
       "tags": ["import", "csv", "json", "data"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "developer/api-docs",
       "displayName": "API Documentation",
-      "description": "Swagger UI + OpenAPI spec auto-generated from collections",
+      "description": "Swagger UI over the data API: each visitor sees the collections they may read",
       "category": "developer",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["api", "swagger", "openapi", "docs"],
-      "permissions": ["database"]
+      "permissions": []
     },
     {
       "name": "developer/byod",
       "displayName": "BYOD Import",
       "description": "External database schema introspection and import",
       "category": "developer",
-      "version": "1.0.0",
+      "version": "2.0.1",
       "author": "Zveltio",
       "tags": ["byod", "introspection", "migration"],
-      "permissions": ["database"]
+      "permissions": ["introspection", "data:write"]
     },
     {
       "name": "developer/graphql",
       "displayName": "GraphQL API",
       "description": "Auto-generated GraphQL API with playground for all collections",
       "category": "developer",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["graphql", "api", "playground"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "billing",
       "displayName": "Billing & Usage",
       "description": "Usage metering and Stripe billing integration",
       "category": "billing",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["billing", "stripe", "usage", "metering"],
-      "permissions": ["database"]
+      "permissions": ["data:system"]
     },
     {
       "name": "ecommerce/store",
       "displayName": "eCommerce",
-      "description": "Product catalog, orders, customer management, coupons and public storefront API",
+      "description": "Product catalog, orders, coupons, shipping, carts and reviews, with checkout and moderation as actions",
       "category": "ecommerce",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["ecommerce", "store", "orders", "products"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "finance/accounting",
       "displayName": "Accounting",
-      "description": "Double-entry bookkeeping, chart of accounts, journal entries, P&L and balance sheet reports",
+      "description": "Double-entry bookkeeping: chart of accounts, journal entries, fiscal years, budgets, trial balance, P&L and balance sheet",
       "category": "finance",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["accounting", "bookkeeping", "finance"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "finance/banking",
       "displayName": "Banking Sync",
       "description": "Import bank statements, auto-reconcile transactions with invoices and track cash flow",
       "category": "finance",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["banking", "reconciliation", "cashflow"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "finance/expenses",
       "displayName": "Expenses",
       "description": "Employee expense reports with receipt management, categorization and approval flow",
       "category": "finance",
-      "version": "1.0.0",
+      "version": "2.3.0",
       "author": "Zveltio",
       "tags": ["expenses", "receipts", "approvals"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "finance/invoicing",
       "displayName": "Invoicing",
       "description": "Recurring invoices, payment tracking and overdue management",
       "category": "finance",
-      "version": "1.0.0",
+      "version": "2.4.0",
       "author": "Zveltio",
       "tags": ["invoicing", "payments", "billing"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "finance/quotes",
       "displayName": "Quotes & Proposals",
-      "description": "Generate branded PDF quotes and proposals linked to CRM contacts, with convert-to-invoice action",
+      "description": "Quotes and proposals linked to CRM contacts, converted into invoices",
       "category": "finance",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["quotes", "proposals", "pdf", "crm"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "finance/subscriptions",
       "displayName": "Subscriptions",
-      "description": "Recurring billing plans, subscriber management, MRR/ARR tracking and Stripe integration",
+      "description": "Recurring billing plans, subscribers, metered usage, invoices and dunning",
       "category": "finance",
-      "version": "1.0.0",
+      "version": "2.3.0",
       "author": "Zveltio",
       "tags": ["subscriptions", "billing", "stripe", "mrr"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "geospatial/postgis",
-      "displayName": "Geospatial",
-      "description": "Location history, map views in Studio, and proximity and bounding-box search through the data API",
+      "displayName": "PostGIS",
+      "description": "Location history and map components — proximity and bounding-box search through the data API",
       "category": "geospatial",
-      "version": "1.0.0",
+      "version": "2.3.0",
       "author": "Zveltio",
       "tags": ["maps", "location", "geospatial", "postgis"],
-      "permissions": ["database"]
+      "permissions": []
     },
     {
       "name": "hr/employees",
       "displayName": "HR",
       "description": "Employee records, departments, job positions, contracts and onboarding checklists",
       "category": "hr",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["hr", "employees", "departments"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "hr/leave",
       "displayName": "Leave Management",
-      "description": "Vacation and leave requests with balance tracking, approval workflow and calendar view",
+      "description": "Vacation and leave requests with balance tracking and an approval workflow",
       "category": "hr",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["hr", "leave", "vacation", "approvals"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "hr/payroll",
       "displayName": "Payroll RO",
       "description": "Romanian payroll: CAS, CASS, income tax calculations, meal vouchers and Revisal XML export",
       "category": "hr",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "author": "Zveltio",
       "tags": ["payroll", "hr", "romania", "revisal"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "hr/time-tracking",
       "displayName": "Time Tracking",
-      "description": "Timesheets, project-based time logging, billable hours and client reports",
+      "description": "Timesheets, project-based time logging and billable hours",
       "category": "hr",
-      "version": "1.0.0",
+      "version": "2.3.0",
       "author": "Zveltio",
       "tags": ["timesheets", "billing", "projects", "hr"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "i18n/translations",
       "displayName": "Translations",
-      "description": "Internationalization: manage locales, translation keys and per-locale string values",
+      "description": "Internationalization: locales, translation keys, per-locale values, a glossary and approvals",
       "category": "i18n",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["i18n", "translations", "locales"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "integrations/api-connector",
       "displayName": "API Connector",
-      "description": "No-code HTTP integrations — connect external REST APIs with field mapping, retry logic and execution logs",
+      "description": "No-code HTTP integrations: call external REST APIs on hosts the operator allows, with retries, OAuth2 and a call log; receive signed incoming webhooks",
       "category": "integrations",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["integrations", "api", "http", "webhooks"],
-      "permissions": ["database"]
+      "permissions": ["data:system"]
     },
     {
       "name": "integrations/migrators",
       "displayName": "Data Migrators",
-      "description": "Import your data from HubSpot, Notion and Airtable into Zveltio collections — encrypted connections, field mapping preview, audited runs",
+      "description": "Import your data from HubSpot, Notion and Airtable into Zveltio collections, through the data API as the importing user",
       "category": "integrations",
-      "version": "1.0.0",
+      "version": "2.0.1",
       "author": "Zveltio",
       "tags": ["integrations", "migration", "hubspot", "notion", "airtable"],
-      "permissions": ["database", "network", "secrets"]
+      "permissions": ["data:write", "data:system"]
     },
     {
       "name": "operations/assets",
       "displayName": "Fixed Assets",
-      "description": "Fixed asset register, straight-line and declining balance depreciation, maintenance schedules",
+      "description": "Fixed asset register, straight-line and declining balance depreciation posted to the ledger, maintenance, insurance, revaluations and transfers",
       "category": "operations",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["assets", "depreciation", "maintenance"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "operations/inventory",
       "displayName": "Inventory",
       "description": "Warehouses, SKUs, stock movements, reorder alerts and barcode support",
       "category": "operations",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["inventory", "warehouse", "stock", "barcode"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "operations/pos",
       "displayName": "Point of Sale",
-      "description": "Cash register, receipt generation, end-of-day reports and inventory integration",
+      "description": "Till sessions, sales, receipts numbering, loyalty, cash movements and Z-reports, with stock moved through inventory",
       "category": "operations",
-      "version": "1.0.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["pos", "retail", "receipts", "inventory"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "operations/traceability",
-      "displayName": "Food Traceability",
-      "description": "Food traceability conforming to Regulation (EC) 178/2002 Art. 18 — lot reception, QR scanning, bidirectional tree, recall simulator",
+      "displayName": "Trasabilitate Alimentară",
+      "description": "Trasabilitate alimentară conformă Reg. CE 178/2002 (Art. 18) și cerințelor ANSVSA România — recepție loturi, scanare QR, arbore bidirecțional, simulator recall.",
       "category": "operations",
-      "version": "1.0.0",
+      "version": "2.0.1",
       "author": "Zveltio",
       "tags": ["traceability", "food-safety", "lots", "recall", "ansvsa"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "projects/helpdesk",
       "displayName": "Helpdesk",
       "description": "Support ticket management with SLA timers, priorities, assignments and message threads",
       "category": "projects",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["helpdesk", "tickets", "support", "sla"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     },
     {
       "name": "projects/management",
       "displayName": "Project Management",
       "description": "Projects, milestones, tasks, kanban board, team assignments and progress tracking",
       "category": "projects",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["projects", "tasks", "kanban", "milestones"],
-      "permissions": ["database"]
+      "permissions": []
     },
     {
       "name": "storage/cloud",
       "displayName": "Cloud Storage",
-      "description": "File versioning, trash bin, public share links, and storage quotas",
+      "description": "Version history, favorites and retention policies over the engine's stored files",
       "category": "storage",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "author": "Zveltio",
       "tags": ["storage", "files", "cloud", "sharing"],
-      "permissions": ["database", "storage"]
+      "permissions": ["data:write", "files"]
     },
     {
       "name": "workflow/approvals",
       "displayName": "Approval Workflows",
-      "description": "Multi-step approval workflows with email notifications, SLA tracking, and full audit trail",
+      "description": "Multi-step approval workflows for any collection",
       "category": "workflow",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["workflow", "approvals", "notifications"],
-      "permissions": ["database", "email"]
+      "permissions": ["data:write"]
     },
     {
       "name": "workflow/checklists",
       "displayName": "Checklists",
-      "description": "Dynamic checklists and forms with scoring, conditional logic, and response analytics",
+      "description": "Deprecated: use forms 3.0.0, which attaches checklists to records. Attach reusable checklists to any collection record",
       "category": "workflow",
-      "version": "1.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["forms", "checklists", "scoring"],
-      "permissions": ["database"]
+      "permissions": ["data:write"]
     }
   ]
 }
