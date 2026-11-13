@@ -506,7 +506,7 @@ export const CORE_FIELD_TS_TYPES: Readonly<Record<string, string>> = {
 
 export interface CollectionShape {
   name: string;
-  fields: { name: string; type: string; required?: boolean }[];
+  fields: { name: string; type: string; required?: boolean; options?: { multiple?: boolean } }[];
 }
 
 /** A type `tsTypeOf` does not know is `any`. */
@@ -516,7 +516,11 @@ export function emitCollectionTypes(
 ): string {
   const typeName = collection.name.charAt(0).toUpperCase() + collection.name.slice(1);
   const inputFields = collection.fields
-    .map((f) => `  ${f.name}${f.required ? '' : '?'}: ${tsTypeOf(f.type) || 'any'};`)
+    .map((f) => {
+      const one = tsTypeOf(f.type) || 'any';
+      // `options.multiple` stores a list of the type (a `file` field's files).
+      return `  ${f.name}${f.required ? '' : '?'}: ${f.options?.multiple ? `Array<${one}>` : one};`;
+    })
     .join('\n');
   return `export interface ${typeName}Input {
 ${inputFields}
