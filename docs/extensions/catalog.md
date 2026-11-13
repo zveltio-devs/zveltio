@@ -55,7 +55,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `communications/mail` | Mail Client | 2.1.0 | IMAP/SMTP mail client: accounts, folders, messages, drafts, identities, signatures, filters and contacts as collections; syncing and sending run as jobs that reach only the mail servers an operator binds to the "mail" slot. |
+| `communications/mail` | Mail Client | 2.2.0 | IMAP/SMTP mail client: accounts, folders, messages, drafts, identities, signatures, filters and contacts as collections; syncing and sending run as jobs that reach only the mail servers an operator binds to the "mail" slot. |
 
 ## compliance
 
