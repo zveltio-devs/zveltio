@@ -331,7 +331,9 @@ export class FieldTypeRegistry {
     const inputFields = fields
       .map((f) => {
         const typeDef = this.get(f.type);
-        const tsType = typeDef?.typescript.inputType || 'any';
+        const one = typeDef?.typescript.inputType || 'any';
+        // `options.multiple` stores a list of the type (a `file` field's files).
+        const tsType = f.options?.multiple ? `Array<${one}>` : one;
         const optional = !f.required ? '?' : '';
         return `  ${f.name}${optional}: ${tsType};`;
       })

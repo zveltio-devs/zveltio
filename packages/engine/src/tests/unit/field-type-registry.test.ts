@@ -215,4 +215,13 @@ describe('CORE_FIELD_TS_TYPES', () => {
       r.generateTypeScript('probe', fields as Any),
     );
   });
+
+  it('types a field with options.multiple as a list, in both generators', () => {
+    const r = new FieldTypeRegistry();
+    registerCoreFieldTypes(r);
+    const fields = [{ name: 'attachments', type: 'file', options: { multiple: true } }];
+    const sdk = emitCollectionTypes({ name: 'probe', fields });
+    expect(sdk).toContain(`attachments?: Array<${CORE_FIELD_TS_TYPES.file}>;`);
+    expect(sdk).toBe(r.generateTypeScript('probe', fields as Any));
+  });
 });
