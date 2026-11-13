@@ -42,6 +42,7 @@ on:
       - 'packages/engine/src/lib/backup/**'
       - 'packages/engine/src/routes/backup.ts'
       - 'packages/engine/src/db/migrations/**'
+      - 'packages/engine/src/lib/tenancy/tenant-manager.ts'
       - 'scripts/dr-drill.sh'
       - '.github/workflows/dr-smoke.yml'
 
@@ -61,6 +62,21 @@ jobs:
           POSTGRES_USER: postgres
         ports:
           - '5432:5432'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      # The new server of disaster-recovery.md §4 Scenario B: a cluster with
+      # none of the engine's roles, which the restore above (same cluster)
+      # cannot stand in for. dr-drill.sh section 1b restores onto it.
+      postgres_new:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - '5433:5432'
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -152,6 +168,7 @@ jobs:
           DRILL_BASE_URL: http://localhost:3000
           DRILL_ADMIN_EMAIL: dr-smoke@zveltio.local
           DRILL_ADMIN_PASSWORD: 'DrSmoke12345!'
+          DRILL_NEW_CLUSTER: postgresql://postgres:postgres@localhost:5433/postgres
         run: bash scripts/dr-drill.sh
 
       - name: Publish the drill report
