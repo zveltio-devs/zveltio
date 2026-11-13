@@ -46,3 +46,19 @@ describe('breakpoint key parity', () => {
     }
   });
 });
+
+describe('the canvas sanitises what an author typed', () => {
+  const src = readFileSync(join(__dirname, '../components/builder/BlockPreview.svelte'), 'utf8');
+
+  // A `javascript:` URL in a video block ran in Studio's origin when anyone
+  // opened the builder: the helpers existed and the preview never called them.
+  test('every iframe address goes through safeIframeSrc', () => {
+    expect(src).toMatch(/embedUrl = safeIframeSrc\(/);
+    expect([...src.matchAll(/<iframe src=\{(\w+)\}/g)].map((m) => m[1])).toEqual(['embedUrl']);
+  });
+
+  test('no style attribute interpolates a raw block value', () => {
+    const raw = [...src.matchAll(/style="[^"]*\{(p\.[a-z_]+)[^}]*\}/g)].map((m) => m[1]);
+    expect(raw).toEqual([]);
+  });
+});

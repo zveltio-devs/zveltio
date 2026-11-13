@@ -7,22 +7,29 @@ import {
   fieldsOf,
   statItems,
 } from '../../lib/builder-types.js';
-import { safeHtml } from '../../lib/sanitize.js';
+import { safeCssColor, safeCssNumber, safeHtml, safeIframeSrc } from '../../lib/sanitize.js';
 
 let { block }: { block: Block } = $props();
 
 function styleStr(s: BlockStyle = {}): string {
   const parts: string[] = [];
-  if (s.paddingTop != null) parts.push(`padding-top:${s.paddingTop}px`);
-  if (s.paddingBottom != null) parts.push(`padding-bottom:${s.paddingBottom}px`);
-  if (s.paddingLeft != null) parts.push(`padding-left:${s.paddingLeft}px`);
-  if (s.paddingRight != null) parts.push(`padding-right:${s.paddingRight}px`);
-  if (s.marginTop != null) parts.push(`margin-top:${s.marginTop}px`);
-  if (s.marginBottom != null) parts.push(`margin-bottom:${s.marginBottom}px`);
-  if (s.backgroundColor) parts.push(`background-color:${s.backgroundColor}`);
-  if (s.textColor) parts.push(`color:${s.textColor}`);
-  if (s.borderRadius != null) parts.push(`border-radius:${s.borderRadius}px`);
-  if (s.textAlign) parts.push(`text-align:${s.textAlign}`);
+  if (s.paddingTop != null) parts.push(`padding-top:${safeCssNumber(s.paddingTop, 0, 0, 1000)}px`);
+  if (s.paddingBottom != null)
+    parts.push(`padding-bottom:${safeCssNumber(s.paddingBottom, 0, 0, 1000)}px`);
+  if (s.paddingLeft != null)
+    parts.push(`padding-left:${safeCssNumber(s.paddingLeft, 0, 0, 1000)}px`);
+  if (s.paddingRight != null)
+    parts.push(`padding-right:${safeCssNumber(s.paddingRight, 0, 0, 1000)}px`);
+  if (s.marginTop != null) parts.push(`margin-top:${safeCssNumber(s.marginTop, 0, -1000, 1000)}px`);
+  if (s.marginBottom != null)
+    parts.push(`margin-bottom:${safeCssNumber(s.marginBottom, 0, -1000, 1000)}px`);
+  if (s.backgroundColor)
+    parts.push(`background-color:${safeCssColor(s.backgroundColor, 'transparent')}`);
+  if (s.textColor) parts.push(`color:${safeCssColor(s.textColor, 'inherit')}`);
+  if (s.borderRadius != null)
+    parts.push(`border-radius:${safeCssNumber(s.borderRadius, 0, 0, 1000)}px`);
+  if (s.textAlign && ['left', 'center', 'right'].includes(s.textAlign))
+    parts.push(`text-align:${s.textAlign}`);
   return parts.join(';');
 }
 
@@ -35,11 +42,11 @@ const outer = $derived(styleStr(block.style));
   {#if block.type === 'hero'}
     <div
       class="relative flex flex-col items-center justify-center px-8 py-16 text-center min-h-[180px]"
-      style="background-color:{p.bg_color ?? '#1e293b'}; color:{p.text_color ?? '#fff'}"
+      style="background-color:{safeCssColor(p.bg_color, '#1e293b')}; color:{safeCssColor(p.text_color, '#fff')}"
     >
       {#if p.image_url}
         <img src={p.image_url} alt="" class="absolute inset-0 w-full h-full object-cover pointer-events-none select-none" />
-        <div class="absolute inset-0" style="background:rgba(0,0,0,{(p.overlay_opacity ?? 40)/100})"></div>
+        <div class="absolute inset-0" style="background:rgba(0,0,0,{safeCssNumber(p.overlay_opacity, 40, 0, 100) / 100})"></div>
       {/if}
       <div class="relative z-10 space-y-2">
         <h1 class="text-3xl font-bold leading-tight">{p.title ?? 'Hero Title'}</h1>
@@ -72,7 +79,7 @@ const outer = $derived(styleStr(block.style));
 
   {:else if block.type === 'stats'}
     {@const cols = p.columns ?? 4}
-    <div class="grid gap-4 py-6 px-4" style="grid-template-columns:repeat({cols},1fr)">
+    <div class="grid gap-4 py-6 px-4" style="grid-template-columns:repeat({safeCssNumber(cols, 3, 1, 12)},1fr)">
       {#each statItems(p.items) as item}
         <div class="text-center">
           <p class="text-3xl font-extrabold text-primary leading-none">{item.value}</p>
@@ -83,7 +90,7 @@ const outer = $derived(styleStr(block.style));
 
   {:else if block.type === 'columns'}
     {@const count = p.count ?? 2}
-    <div class="grid gap-3 p-3" style="grid-template-columns:repeat({count},1fr)">
+    <div class="grid gap-3 p-3" style="grid-template-columns:repeat({safeCssNumber(count, 2, 1, 12)},1fr)">
       {#each columnTexts(p.items) as col}
         <div class="min-h-[60px] bg-base-200 rounded-lg p-3 text-sm prose prose-sm max-w-none">
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -93,13 +100,13 @@ const outer = $derived(styleStr(block.style));
     </div>
 
   {:else if block.type === 'spacer'}
-    <div style="height:{p.height ?? 48}px" class="w-full flex items-center justify-center">
+    <div style="height:{safeCssNumber(p.height, 48, 0, 2000)}px" class="w-full flex items-center justify-center">
       <span class="text-[10px] text-base-content/55 font-mono">{p.height ?? 48}px</span>
     </div>
 
   {:else if block.type === 'divider'}
     <div class="px-4 py-3">
-      <hr style="border-color:{p.color ?? '#e5e7eb'};border-top-width:{p.thickness ?? 1}px;border-style:{p.line_style ?? 'solid'}" />
+      <hr style="border-color:{safeCssColor(p.color, '#e5e7eb')};border-top-width:{safeCssNumber(p.thickness, 1, 0, 50)}px;border-style:{['solid', 'dashed', 'dotted'].includes(p.line_style ?? '') ? p.line_style : 'solid'}" />
     </div>
 
   {:else if block.type === 'image'}
@@ -121,8 +128,8 @@ const outer = $derived(styleStr(block.style));
   {:else if block.type === 'video'}
     <div class="w-full aspect-video bg-base-300 rounded flex items-center justify-center">
       {#if p.url}
-        {@const embedUrl = p.url.includes('youtu') ? p.url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/') : p.url}
-        <iframe src={embedUrl} title={p.caption ?? 'video'} class="w-full h-full rounded" allowfullscreen></iframe>
+        {@const embedUrl = safeIframeSrc(p.url.includes('youtu') ? p.url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/') : p.url)}
+        <iframe src={embedUrl} sandbox="allow-scripts allow-same-origin allow-presentation" title={p.caption ?? 'video'} class="w-full h-full rounded" allowfullscreen></iframe>
       {:else}
         <div class="flex flex-col items-center gap-2 text-base-content/55">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
@@ -135,7 +142,7 @@ const outer = $derived(styleStr(block.style));
 
   {:else if block.type === 'gallery'}
     {@const cols = p.columns ?? 3}
-    <div class="grid gap-1.5 p-1" style="grid-template-columns:repeat({cols},1fr)">
+    <div class="grid gap-1.5 p-1" style="grid-template-columns:repeat({safeCssNumber(cols, 3, 1, 12)},1fr)">
       {#each (p.images ?? []) as img}
         <img src={img.url ?? img} alt={img.alt ?? ''} class="w-full aspect-square object-cover rounded" />
       {:else}
@@ -183,7 +190,7 @@ const outer = $derived(styleStr(block.style));
     -->
     <div class="p-3 flex items-center gap-2 text-base-content/65">
       <span class="inline-flex items-center justify-center rounded border border-dashed"
-        style="width:{Math.min(Number(p.size) || 32, 48)}px;height:{Math.min(Number(p.size) || 32, 48)}px;color:{p.color || 'currentColor'}">
+        style="width:{Math.min(Number(p.size) || 32, 48)}px;height:{Math.min(Number(p.size) || 32, 48)}px;color:{safeCssColor(p.color, 'currentColor')}">
         <span class="text-[9px] font-mono">icon</span>
       </span>
       <span class="text-xs font-mono">{p.name ?? 'star'}</span>
