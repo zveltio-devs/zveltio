@@ -65,6 +65,7 @@ vi.mock('#lib/api.js', () => ({
     list: async () => ({ records: Object.values(records), pagination: { total: 4 } }),
     get: async (collection: string, id: string) => {
       calls.push(`GET ${collection}/${id}`);
+      if (!records[id]) throw Object.assign(new Error('Record not found'), { status: 404 });
       return records[id];
     },
     update: (c: string, id: string, body: Record<string, unknown>) => update(c, id, body),
@@ -210,6 +211,38 @@ describe('the mail pilot in the view/2 renderer', () => {
       draft_id: 'd1',
       $files: { read: ['f1'] },
     });
+  }, 60_000);
+
+  it('a form whose record the action removed says so, not "Record not found"', async () => {
+    records.d3 = {
+      id: 'd3',
+      subject: 'Sent soon',
+      body: '',
+      attachments: [],
+      send_status: 'draft',
+    };
+    post.mockImplementationOnce(async () => {
+      delete records.d3; // the send job deletes the draft
+      return { result: {} };
+    });
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { findByText, getByText, queryByText } = render(ViewPage, {
+      props: {
+        ext: 'mail',
+        params: { draft_id: 'd3' },
+        view: {
+          type: 'form',
+          collection: 'msgs',
+          record: { $param: 'draft_id' },
+          fields: ['subject'],
+          submit: [{ action: 'send', label: 'Send', input: { draft_id: { $record: 'id' } } }],
+        },
+      },
+    });
+    await findByText('Send');
+    await fireEvent.click(getByText('Send'));
+    await findByText(/no longer exists/);
+    expect(queryByText('Record not found')).toBeNull();
   }, 60_000);
 
   it('a submit action with a confirm saves only once confirmed; cancelling saves nothing', async () => {

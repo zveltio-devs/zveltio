@@ -631,6 +631,7 @@
   "ext.errorPrefix": "Errore: ",
   "ext.linkCopied": "Link copiato.",
   "ext.loadFailed": "Caricamento dei dati non riuscito",
+  "ext.recordGone": "Questo record non esiste più: l'azione eseguita lo ha rimosso.",
   "ext.rejected": "Rifiutato",
   "ext.reveal.copy": "Copia",
   "ext.reveal.note": "Viene mostrato una sola volta — copialo prima di chiudere.",

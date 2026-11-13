@@ -256,6 +256,10 @@ While a button's `busyWhen` holds, Studio reads the page's records again every
 three seconds (one timer per page, for at most ten minutes); the button shows
 busy until it no longer holds.
 
+A form whose record is read again (after an action, or while `busyWhen`
+holds) and is gone says that the action removed it, not that loading failed:
+the mail `send` job deletes the draft it sent.
+
 A row's `open` and a `navigate` go to the extension's page whose view file has
 that `id`; the page path's `:name` segments are filled from the parameters and
 the rest go in the query, and `$param` reads both. `open` passes the row as
