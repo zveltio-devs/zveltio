@@ -24,7 +24,9 @@ const VAPID = {
   subject: 'mailto:ops@example.com',
 };
 const SUB = {
-  endpoint: 'https://push.example.com/send/abc',
+  // An IP literal: safeFetch refuses a name that does not resolve, and push.example.com
+  // stopped resolving on 2026-11-13 (5 failures with no code change).
+  endpoint: 'https://93.184.216.34/send/abc',
   p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4',
   auth: 'BTBZMqHH6r4Tts7J_aSIgg',
 };
@@ -81,7 +83,7 @@ describe('sendWebPush', () => {
     const claims = JSON.parse(
       atob(auth.split('t=')[1].split('.')[1].replace(/-/g, '+').replace(/_/g, '/')),
     ) as { aud: string; sub: string; exp: number };
-    expect(claims.aud).toBe('https://push.example.com'); // not the full URL
+    expect(claims.aud).toBe('https://93.184.216.34'); // not the full URL
     expect(claims.sub).toBe(VAPID.subject);
     expect(claims.exp - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(24 * 60 * 60);
   });
