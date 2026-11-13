@@ -13,7 +13,7 @@
  *     category: 'tools',
  *     async register(app, ctx) {
  *       await ctx.internals.encryptSecret('x');      // ok: 'secrets'
- *       await ctx.internals.deleteUser(db, 'u');      // compile error: needs 'auth:users'
+ *       await ctx.internals.exportUserData('u');      // compile error: needs 'auth:users'
  *     },
  *   });
  *
@@ -59,7 +59,6 @@ export const CAPABILITY_MEMBERS = {
   encryptSecret: 'secrets',
   decryptSecret: 'secrets',
   deriveTokenHash: 'secrets',
-  deleteUser: 'auth:users',
   exportUserData: 'auth:users',
   readAuditActivity: 'audit:read',
   createRecord: 'data:write',

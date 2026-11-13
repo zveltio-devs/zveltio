@@ -357,7 +357,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   });
 
   // Profile convenience routes
-  app.route('/api/me', authRoutes(db, auth));
+  // Erasing one's own account checks a password or a step-up: the per-IP auth
+  // budget, as on the auth endpoints, so it is no unthrottled password oracle.
+  app.on(['DELETE'], '/api/me', authRateLimit);
+  app.route('/api/me', authRoutes(db, auth, poolDb));
   // A member's own keys (ADR 0010); off unless `member_api_keys` is set.
   app.route('/api/me/api-keys', memberApiKeysRoutes(db, auth));
   // The extension actions the caller may run (ADR 0029).

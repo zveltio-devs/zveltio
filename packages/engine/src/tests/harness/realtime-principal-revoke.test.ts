@@ -17,7 +17,6 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { gateInternals } from '../../lib/extensions/capabilities.js';
 import {
   ACCESS_RULES_CHANGED_EVENT,
   dispatchToWs,
@@ -48,11 +47,7 @@ d('an open realtime connection after its principal is revoked', () => {
   let god: string;
   const probes: string[] = [];
   const keyIds: string[] = [];
-  const gated = gateInternals('auth/scim', buildExtensionInternals(), ['auth:users']);
-  const internals = {
-    ...identityAs('ext:auth/scim'),
-    deleteUser: (...a: Parameters<typeof gated.deleteUser>) => gated.deleteUser(...a),
-  };
+  const internals = identityAs('ext:auth/scim');
   const asRequest = <T>(fn: (trx: Database) => Promise<T>) =>
     buildExtensionInternals().withTenantIsolation(TENANT, fn);
 

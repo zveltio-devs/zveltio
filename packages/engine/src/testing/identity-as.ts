@@ -1,7 +1,8 @@
 /**
  * The engine's identity helpers (`lib/identity.ts`, `lib/users.ts`) bound to an
  * actor, in the shape `ctx.internals` offered them until ADR 0039 decision 9.
- * Extensions reach directory provisioning through `host.identity` now; these
+ * (`deleteUser` until ADR 0046). Extensions reach directory provisioning through
+ * `host.identity` now, and erasure is the subject's `DELETE /api/me`; these
  * helpers are what it is built from, and their tests call them here.
  */
 
@@ -14,7 +15,13 @@ import {
   setTenantMembershipEnd,
   updateUserProfile,
 } from '../lib/identity.js';
-import { liftOwnBan, revokeUserSessions, setUserActive } from '../lib/users.js';
+import {
+  deleteUser,
+  liftOwnBan,
+  revokeUserSessions,
+  setUserActive,
+  type UserDeletion,
+} from '../lib/users.js';
 
 export function identityAs(actor: string) {
   return {
@@ -39,5 +46,7 @@ export function identityAs(actor: string) {
       setUserActive(db as Database, getDb(), userId, active, actor),
     liftOwnBan: (db: unknown, userId: string) => liftOwnBan(db as Database, userId, actor),
     revokeUserSessions: (userId: string) => revokeUserSessions(getDb(), userId),
+    deleteUser: (db: unknown, userId: string, who: UserDeletion) =>
+      deleteUser(db as Database, getDb(), userId, who),
   };
 }

@@ -206,7 +206,7 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
   });
 
   it('the enforcer revoking on the pool while the membership delete is uncommitted does not wait on it', async () => {
-    // SCIM's shape: membership deleted in a transaction, then `internals.deleteUser`
+    // SCIM's shape: membership deleted in a transaction, then `deleteUser`
     // removes the grants through the enforcer, whose adapter writes on the pool.
     await reconcilePolicies();
     await enrolInA();

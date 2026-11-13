@@ -105,7 +105,7 @@ import {
   recordsToCsv,
 } from '../security/index.js';
 import { sendNotification } from '../notifications.js';
-import { deleteUser, exportUserData } from '../users.js';
+import { exportUserData } from '../users.js';
 import { type AsSystemOptions, asSystemAs, markSystemJob } from './as-system.js';
 import { enqueueFromPublicRoute } from './jobs.js';
 import { bindsCaller } from './capabilities.js';
@@ -131,7 +131,7 @@ import {
   readAuditActivity,
   countAuditActivity,
 } from './tenant-facts.js';
-import type { UserDataExport, UserDeletion } from '../users.js';
+import type { UserDataExport } from '../users.js';
 
 /**
  * Internal extension context — extends the public ExtensionContext from the SDK
@@ -554,9 +554,6 @@ export interface ExtensionInternals {
   csvCell: (value: unknown) => string;
   /** Rows → CSV document, using `csvCell` for every cell. */
   recordsToCsv: (records: Record<string, unknown>[]) => string;
-  /** `DELETE /api/users/:id` for an extension — see `lib/users.ts`. `db` is the
-   *  caller's transaction; the privileged pool is the host's. Gated `auth:users`. */
-  deleteUser: (db: unknown, userId: string, who: UserDeletion) => Promise<boolean>;
   /** What the engine's tables hold about a user, every tenant's rows — a
    *  data-subject access request. Gated `auth:users`. */
   exportUserData: (userId: string) => Promise<UserDataExport | null>;
@@ -916,8 +913,6 @@ function buildUnboundInternals(): ExtensionInternals {
     deriveTokenHash: hmacAuthSecret,
     csvCell,
     recordsToCsv,
-    deleteUser: (db: unknown, userId: string, who: UserDeletion) =>
-      deleteUser(db as Database, getDb(), userId, who),
     exportUserData: (userId: string) => exportUserData(getDb(), userId),
     isSingleTenantInstance: () => isSingleTenantInstance(),
   };

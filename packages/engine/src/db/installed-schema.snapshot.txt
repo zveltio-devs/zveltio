@@ -1741,7 +1741,6 @@ table zvd_billing_settings
   col created_by                     text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col scope                          text NOT NULL DEFAULT 'tenant'::text
-  col search_text                    text
   col search_vector                  tsvector
   col stripe_webhook_secret          text
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
@@ -1749,6 +1748,7 @@ table zvd_billing_settings
   col updated_by                     text
   fk  zvd_billing_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_billing_settings_pkey PRIMARY KEY (id)
+  ck  zvd_billing_settings_stripe_webhook_secret_check CHECK (((stripe_webhook_secret IS NULL) OR (stripe_webhook_secret ~~ 'enc:v1:%'::text)))
   uq  zvd_billing_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
   fk  zvd_billing_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
@@ -9458,9 +9458,7 @@ table zvv_billing_settings
   col created_by                     text
   col id                             uuid
   col scope                          text
-  col search_text                    text
   col search_vector                  tsvector
-  col stripe_webhook_secret          text
   col tenant_id                      uuid
   col updated_at                     timestamp with time zone
   col updated_by                     text

@@ -1,6 +1,7 @@
 /**
- * `ctx.internals.deleteUser` / `revokeUserSessions` — offboarding as an
- * extension does it: inside the request's tenant transaction, as `zveltio_rls`.
+ * `deleteUser` / `revokeUserSessions` — offboarding as an extension did it
+ * through `ctx.internals` (until ADR 0039 / 0046): inside the request's tenant
+ * transaction, as `zveltio_rls`.
  *
  * SCIM deprovisioning and GDPR erasure deleted the "user" row with raw SQL. As
  * `zveltio_rls` the `session` delete is refused (migration 044), so SCIM answered
@@ -38,7 +39,6 @@ const TENANT = '00000000-0000-0000-0000-000000000001';
 d('extension offboarding through ctx.internals', () => {
   let app: Hono;
   let db: Database;
-  const internals = gateInternals('auth/scim', buildExtensionInternals(), ['auth:users']);
   // The offboarding helpers `host.identity` is built from (ADR 0039 decision 9).
   const idp = identityAs('ext:auth/scim');
   // Where an extension's handler runs: the request's tenant transaction.
@@ -72,7 +72,7 @@ d('extension offboarding through ctx.internals', () => {
     let deleted: boolean;
     try {
       deleted = await asRequest((trx) =>
-        internals.deleteUser(trx, userId, {
+        idp.deleteUser(trx, userId, {
           actor: 'scim:token-1',
           reason: 'scim.deprovision',
           metadata: { tenant_id: TENANT },
@@ -107,7 +107,7 @@ d('extension offboarding through ctx.internals', () => {
     await e.addPolicy(ghost, '*', 'data', 'read'); // a role, say
     try {
       const deleted = await asRequest((trx) =>
-        internals.deleteUser(trx, ghost, { actor: 'scim:token-1', reason: 'scim.deprovision' }),
+        idp.deleteUser(trx, ghost, { actor: 'scim:token-1', reason: 'scim.deprovision' }),
       );
       expect(deleted).toBe(false);
       expect(await e.getFilteredPolicy(0, ghost)).toEqual([[ghost, '*', 'data', 'read']]);
@@ -237,7 +237,7 @@ d('extension offboarding through ctx.internals', () => {
         .status;
     expect(await call()).not.toBe(401);
 
-    await asRequest((trx) => internals.deleteUser(trx, userId, { reason: 'test' }));
+    await asRequest((trx) => idp.deleteUser(trx, userId, { reason: 'test' }));
     // Harsher than deactivation, so at least as final: the key is refused, and
     // kept (revoked) rather than deleted, with its access log.
     expect(await call()).toBe(401);
@@ -255,7 +255,7 @@ d('extension offboarding through ctx.internals', () => {
       'is the instance owner (god) and cannot be deactivated',
     );
     await expect(
-      asRequest((trx) => internals.deleteUser(trx, god, { actor: 'scim:t', reason: 'x' })),
+      asRequest((trx) => idp.deleteUser(trx, god, { actor: 'scim:t', reason: 'x' })),
     ).rejects.toMatchObject({ code: 'user_protected' });
 
     const row = await sql<{ banned: boolean | null }>`
@@ -266,9 +266,14 @@ d('extension offboarding through ctx.internals', () => {
 
   it('is refused to an extension that did not declare auth:users', () => {
     const bare = gateInternals('compliance/gdpr', buildExtensionInternals(), ['database']);
-    expect(() => bare.deleteUser(db, 'anyone', { reason: 'x' })).toThrow(CapabilityDeniedError);
-    // Directory offboarding is `host.identity`'s (ADR 0039 decision 9), not an internal.
+    expect(() => bare.exportUserData('anyone')).toThrow(CapabilityDeniedError);
+    // Directory offboarding is `host.identity`'s (ADR 0039 decision 9) and erasure
+    // the subject's `DELETE /api/me` (ADR 0046), not internals.
     const all = buildExtensionInternals() as unknown as Record<string, unknown>;
-    expect([all.revokeUserSessions, all.setUserActive]).toEqual([undefined, undefined]);
+    expect([all.revokeUserSessions, all.setUserActive, all.deleteUser]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 });
