@@ -127,7 +127,7 @@
       "displayName": "GDPR Compliance",
       "description": "Data export and right to erasure (GDPR Art. 15, 17)",
       "category": "compliance",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "author": "Zveltio",
       "tags": ["compliance", "gdpr", "privacy"],
       "permissions": ["data:write", "auth:users"]
@@ -147,7 +147,7 @@
       "displayName": "e-Factura RO",
       "description": "Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer",
       "category": "compliance/ro",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["invoicing", "anaf", "romania", "ubl"],
       "permissions": ["data:write", "data:system"]
@@ -227,7 +227,7 @@
       "displayName": "Pages",
       "description": "Pages built from blocks, grouped into sites. Authors edit drafts; publishing writes the sanitized snapshot a public website or a signed-in portal renders, read through the data API under the engine's rules.",
       "category": "content",
-      "version": "2.1.1",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["cms", "pages", "sites", "portals", "content"],
       "permissions": []
@@ -317,7 +317,7 @@
       "displayName": "Billing & Usage",
       "description": "Usage metering and Stripe billing integration",
       "category": "billing",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "author": "Zveltio",
       "tags": ["billing", "stripe", "usage", "metering"],
       "permissions": ["data:system"]
@@ -457,7 +457,7 @@
       "displayName": "API Connector",
       "description": "No-code HTTP integrations: call external REST APIs on hosts the operator allows, with retries, OAuth2 and a call log; receive signed incoming webhooks",
       "category": "integrations",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "author": "Zveltio",
       "tags": ["integrations", "api", "http", "webhooks"],
       "permissions": ["data:system"]

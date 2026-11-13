@@ -43,7 +43,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `billing` | Billing & Usage | 2.2.0 | Usage metering and Stripe billing integration |
+| `billing` | Billing & Usage | 2.3.0 | Usage metering and Stripe billing integration |
 
 ## business
 
@@ -61,14 +61,14 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `compliance/gdpr` | GDPR Compliance | 2.1.0 | Data export and right to erasure (GDPR Art. 15, 17) |
+| `compliance/gdpr` | GDPR Compliance | 3.0.0 | Data export and right to erasure (GDPR Art. 15, 17) |
 
 ## compliance/ro — Romanian regulatory
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
 | `compliance/ro/documents` | RO Documents | 2.0.0 | Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata |
-| `compliance/ro/efactura` | e-Factura RO | 2.0.0 | Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer |
+| `compliance/ro/efactura` | e-Factura RO | 2.1.0 | Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer |
 | `compliance/ro/etransport` | e-Transport RO | 2.0.0 | Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF |
 | `compliance/ro/procurement` | Achizitii Publice RO | 2.3.0 | Romanian public procurement management — purchase orders, supplier registry, budget tracking |
 | `compliance/ro/saft` | SAF-T RO | 2.0.0 | Romanian SAF-T (D406) — build the audit file XML from the finance/accounting ledger |
@@ -77,7 +77,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `content/pages` | Pages | 2.1.1 | Pages built from blocks, grouped into sites. Authors edit drafts; publishing writes the sanitized snapshot a public website or a signed-in portal renders, read through the data API under the engine's rules. |
+| `content/pages` | Pages | 2.2.0 | Pages built from blocks, grouped into sites. Authors edit drafts; publishing writes the sanitized snapshot a public website or a signed-in portal renders, read through the data API under the engine's rules. |
 | `content/media` | Media Library | 2.1.0 | Tags, favorites, curated collections and AI metadata for the engine’s media files |
 | `content/documents` | Document Generator | 2.0.1 | Numbered documents generated from templates as the caller, with signatures by logged-in users |
 | `content/document-templates` | Document Templates | 2.1.0 | HTML templates with {{variable}} interpolation, rendered to PDF as the caller |
@@ -147,7 +147,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `integrations/api-connector` | API Connector | 2.1.0 | No-code HTTP integrations: call external REST APIs on hosts the operator allows, with retries, OAuth2 and a call log; receive signed incoming webhooks |
+| `integrations/api-connector` | API Connector | 2.2.0 | No-code HTTP integrations: call external REST APIs on hosts the operator allows, with retries, OAuth2 and a call log; receive signed incoming webhooks |
 | `integrations/migrators` | Data Migrators | 2.0.1 | Import your data from HubSpot, Notion and Airtable into Zveltio collections, through the data API as the importing user |
 
 ## operations
