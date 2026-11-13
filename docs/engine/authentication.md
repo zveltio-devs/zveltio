@@ -360,7 +360,10 @@ zveltio create-god
 
 ## API Key Authentication
 
-API keys provide programmatic access without sessions. They're managed in Studio → API Keys.
+API keys provide programmatic access without sessions. They're managed in Studio → API Keys,
+by the instance administrator or by the administrator of a tenant, who manages that tenant's
+keys only (ADR 0046) — whatever `member_api_keys` says. A key is bound to the tenant it was
+minted in and reaches no more than the person who issued it.
 
 ### Create an API key
 

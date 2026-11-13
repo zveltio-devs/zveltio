@@ -57,7 +57,7 @@ absent or refused:
 
 | Doors | Test |
 |---|---|
-| `/api/api-keys` list, create, revoke | `api-keys-tenant-isolation.test.ts` |
+| `/api/api-keys` list, create, revoke | `api-keys-tenant-isolation.test.ts`; as a tenant administrator, `tenant-admin-api-keys.test.ts` |
 | `/api/webhooks` list, create, read, change, delete, rotate; the dispatcher | `webhooks-tenant-isolation.test.ts` |
 | `/api/flows` list, create, read, change, delete, run, runs, steps, dead letters (list, retry) | `flows-tenant-isolation.test.ts` |
 | `/api/insights/dashboards` list, create, read, delete; shares, panels (add, change, delete, run); saved-query writes and runs; `/stats`; `POST /query` (god reads the instance, any other admin its own tenant) | `dashboards-tenant-isolation.test.ts` |

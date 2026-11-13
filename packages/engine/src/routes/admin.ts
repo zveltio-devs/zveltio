@@ -5,8 +5,10 @@ import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import {
   checkPermission,
+  getCurrentDomainOrNull,
   getEnforcer,
   isGodUser,
+  isTenantAdmin,
   requireInstanceAdmin,
 } from '../lib/tenancy/index.js';
 import { invalidateColumnPermCache } from '../lib/tenancy/index.js';
@@ -143,8 +145,14 @@ export function apiKeysRoutes(db: Database, auth: any): Hono {
     return c.json({ ...key, scopes: parseScopes(key.scopes) });
   });
 
+  // The administrator of the request's tenant (ADR 0046): every handler below
+  // reads, mints and revokes in the request's tenant only, so a tenant admin
+  // reaches neither another tenant's keys nor the root tenant's (instance) keys.
+  // No resolved tenant is not the root one: there, only the instance gate.
   app.use('*', async (c, next) => {
-    const user = await guardAdmin(c, auth, requireInstanceAdmin);
+    const user = await guardAdmin(c, auth, (uid) =>
+      getCurrentDomainOrNull() === null ? requireInstanceAdmin(uid) : isTenantAdmin(uid),
+    );
     if (user instanceof Response) return user;
     c.set('user', user);
     await next();
