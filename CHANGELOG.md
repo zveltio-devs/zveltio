@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**`@zveltio/react` draws extension views (ADR 0042 slice 6).** `extensionPages` lists the active extensions' `view/2` pages, `loadView` reads what a view shows and `ViewRenderer` draws it (on a server too), and `ExtensionView` ties them together in a browser. It draws list, detail, form, stat, split and tabs, and any other kind through its fallback. CI draws every `view/2` page of the extensions catalogue with it.
+
 ## [3.0.0-beta.118] - 2026-11-13
 
 **An action form draws its lines (ADR 0042).** On a `view/2` form bound to an action, each input property that is a list of objects is a table of lines, one column per scalar property of a line (an `integer` column takes whole numbers). A line left empty is not sent, and the form refuses to run with fewer filled lines than `minItems` or a required cell empty. A required object or list of scalars, which has no input, shows a notice instead of a text field that always failed validation, and a button `prompt` naming one is refused. `finance/invoicing` 2.5.0 (new invoice) and `compliance/ro/documents` 2.1.0 (new document) are such forms and need this engine.

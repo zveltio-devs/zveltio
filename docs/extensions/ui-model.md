@@ -207,6 +207,26 @@ fields the caller may read), rows and records from the data API, actions from
 `GET /api/actions` does not list for the caller is not drawn. The engine's rules
 decide each call; the renderer only asks.
 
+### In React (`@zveltio/react`)
+
+`extensionPages(client)` lists the active extensions' `view/2` pages
+(`GET /api/extensions`), each checked against the specification.
+`loadView(client, extension, view, scope)` reads what a view shows, and
+`ViewRenderer` draws what was read without reading anything itself, so a server
+renders the same HTML a browser does. `ExtensionView` joins the two in a
+browser: it reads again after a pane selection, a save or an action, and asks
+`onNavigate` to open the view a `navigate` button or a `{ view: "<id>" }`
+result names.
+
+It draws `list`, `detail`, `form`, `stat`, `split` and `tabs`; any other kind
+through `fallbackFor`. It shows what Studio shows as not drawn yet (a collection
+form's `lines`, a `stat` other than `count`) and does not yet hold a button's
+`busyWhen`; a button's `prompt` and `confirm`
+use the browser's own dialogs. It carries no class names but `zv-*` hooks and a
+`data-kind` on each view, so styling is the front end's. CI draws every
+`view/2` page of the extensions catalogue with it on the server
+(`bun run proof:views` in `packages/sdk-react`).
+
 ### In Studio
 
 A page whose schema has `"spec": "zveltio.view/2"` is drawn by
@@ -309,7 +329,7 @@ adopted:
 | Computed values | arithmetic tokens, templates, `computed` | server fields or actions |
 | Code pages (`studio/pages/+page.svelte`, "Tier-3") | 7 pages, synced into Studio at release | views; the page-builder canvas becomes a front-end package |
 | Slot widgets (`studio/src/contribute.ts`) | Svelte components | data only |
-| Renderers | Studio only (the shared runtime is in `@zveltio/sdk/view`) | Studio, `sdk-react`, `sdk-vue` |
+| Renderers | Studio and `@zveltio/react` (the shared runtime is in `@zveltio/sdk/view`) | Studio, `sdk-react`, `sdk-vue` |
 
 Studio draws `view/2` pages (below) and keeps drawing `sduiSchema: 1` schemas
 until the codemod (ADR 0042 slice 3). Do not add new code pages: a screen you

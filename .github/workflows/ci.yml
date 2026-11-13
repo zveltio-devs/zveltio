@@ -102,6 +102,11 @@ jobs:
         # Runnable locally: `bun run scripts/check-sdui-contract.ts <extDir>`
         run: bun run scripts/check-sdui-contract.ts ../zveltio-extensions
 
+      - name: React draws every extension view (ADR 0042 acceptance)
+        # A front end without Svelte, importing only the SDK, lists the
+        # extensions' pages and draws their views, fallbacks included.
+        run: cd packages/sdk-react && bun run proof:views
+
       - name: Studio extension snapshot is not hand-edited
         # `src/lib/ext/` and the synced `(admin)` pages are build outputs:
         # `prebuild` overwrites them from the extensions repo. An edit made here
