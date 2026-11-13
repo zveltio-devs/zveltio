@@ -63,7 +63,10 @@ const closed = (description: string, properties: Schema, required: string[] = []
 const common: Schema = {
   id: ref('PaneId'),
   title: ref('Text'),
-  actions: { ...ref('Buttons'), description: 'Toolbar actions of this view.' },
+  actions: {
+    ...ref('Buttons'),
+    description: "Toolbar actions of this view; a detail's act on the record it shows (`$record`).",
+  },
   fallback: {
     ...ref('View'),
     description: 'What a front end that does not know this view kind draws instead.',
@@ -212,6 +215,10 @@ const defs: Record<string, Schema> = {
             additionalProperties: ref('Tone'),
           },
           readOnly: { type: 'boolean' },
+          fallback: {
+            ...ref('Name'),
+            description: 'The field shown instead while this one is empty.',
+          },
         },
         ['field'],
       ),
@@ -237,6 +244,12 @@ const defs: Record<string, Schema> = {
           prompt: { ...arrayOf(ref('Name'), 1), description: 'Input fields to ask for.' },
           confirm: ref('Text'),
           when: ref('Conditions'),
+          busyWhen: {
+            ...ref('Conditions'),
+            description:
+              'While the record meets these, the work the action started is under way: the button is busy, and the front end reads the record again until it no longer does.',
+          },
+          files: ref('FileHandoff'),
         },
         ['action'],
       ),
@@ -254,6 +267,17 @@ const defs: Record<string, Schema> = {
     ],
   },
   Buttons: arrayOf(ref('Button'), 1),
+  FileHandoff: closed("Stored files the caller hands the action's job (`$files`, ADR 0032).", {
+    read: {
+      ...ref('Value'),
+      description: "File ids the job may read, or a `file` field's value (its files' ids).",
+    },
+    write: closed(
+      'The one file the job may store.',
+      { name: ref('Value'), maxBytes: ref('Value') },
+      ['name'],
+    ),
+  }),
   ListView: kind(
     'list',
     'Rows of a collection.',
@@ -309,6 +333,11 @@ const defs: Record<string, Schema> = {
       record: ref('Ref'),
       fields: ref('Fields'),
       panels: arrayOf(ref('View'), 1),
+      onOpen: closed(
+        'Runs the action when a record is shown and meets `when`, once per record; its result is not shown.',
+        { action: ref('ActionName'), input: ref('Input'), when: ref('Conditions') },
+        ['action'],
+      ),
     },
     ['collection', 'record'],
   ),

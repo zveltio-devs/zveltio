@@ -19,7 +19,7 @@ import {
 import { DDLManager, FIELD_RULE_TABLES, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { writtenByNeedsOwner } from './written-by.js';
 import { announceSchemaChange } from './ddl-queue.js';
-import { resolveConversion } from './field-type-conversions.js';
+import { keepsColumn, resolveConversion } from './field-type-conversions.js';
 import { applyColumnGuard } from './column-guard.js';
 import { dropMaskView, sealColumns } from './sealed-columns.js';
 import {
@@ -351,7 +351,12 @@ export async function alterField(
       if (!conv.ok) {
         throw new Error(conv.reason);
       }
-      await dynamicChangeColumnType(trx, tableName, fieldName, conv.sqlType, conv.using);
+      // Within a group that stores the same thing (`textarea` → `richtext`,
+      // `json` → `file`): the column and its values stay, and nothing rewrites
+      // the table. Into or out of `password`, `secret` or `computed` it never is.
+      if (!keepsColumn(fieldDef.type, newType)) {
+        await dynamicChangeColumnType(trx, tableName, fieldName, conv.sqlType, conv.using);
+      }
       updatedFieldShape = { ...updatedFieldShape, type: newType };
       if (intoSecret) {
         await intoSecretColumn(trx, name, tableName, fieldName, fieldDef.encrypted === true);

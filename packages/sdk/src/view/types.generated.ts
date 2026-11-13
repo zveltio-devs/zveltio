@@ -68,6 +68,8 @@ export type Field = Name | {
   /** A tone per value (enum fields). */
   tones?: Record<string, Tone>;
   readOnly?: boolean;
+  /** The field shown instead while this one is empty. */
+  fallback?: Name;
 };
 
 export type Fields = Field[];
@@ -90,6 +92,9 @@ export type Button = {
   prompt?: Name[];
   confirm?: Text;
   when?: Conditions;
+  /** While the record meets these, the work the action started is under way: the button is busy, and the front end reads the record again until it no longer does. */
+  busyWhen?: Conditions;
+  files?: FileHandoff;
 } | {
   navigate: ViewId;
   params?: Input;
@@ -102,12 +107,23 @@ export type Button = {
 
 export type Buttons = Button[];
 
+/** Stored files the caller hands the action's job (`$files`, ADR 0032). */
+export type FileHandoff = {
+  /** File ids the job may read, or a `file` field's value (its files' ids). */
+  read?: Value;
+  /** The one file the job may store. */
+  write?: {
+    name: Value;
+    maxBytes?: Value;
+  };
+};
+
 /** Rows of a collection. */
 export type ListView = {
   type: 'list';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -138,7 +154,7 @@ export type FormView = {
   type: 'form';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -165,7 +181,7 @@ export type FormView = {
   type: 'form';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -193,7 +209,7 @@ export type DetailView = {
   type: 'detail';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -201,6 +217,12 @@ export type DetailView = {
   record: Ref;
   fields?: Fields;
   panels?: View[];
+  /** Runs the action when a record is shown and meets `when`, once per record; its result is not shown. */
+  onOpen?: {
+    action: ActionName;
+    input?: Input;
+    when?: Conditions;
+  };
 };
 
 /** Records grouped by a field (kanban). */
@@ -208,7 +230,7 @@ export type BoardView = {
   type: 'board';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -224,7 +246,7 @@ export type TimelineView = {
   type: 'timeline';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -242,7 +264,7 @@ export type TreeView = {
   type: 'tree';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -258,7 +280,7 @@ export type MatrixView = {
   type: 'matrix';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -274,7 +296,7 @@ export type MapView = {
   type: 'map';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -289,7 +311,7 @@ export type StatView = {
   type: 'stat';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -308,7 +330,7 @@ export type SplitView = {
   type: 'split';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
@@ -320,7 +342,7 @@ export type TabsView = {
   type: 'tabs';
   id?: PaneId;
   title?: Text;
-  /** Toolbar actions of this view. */
+  /** Toolbar actions of this view; a detail's act on the record it shows (`$record`). */
   actions?: Buttons;
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;

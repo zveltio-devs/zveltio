@@ -201,9 +201,11 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       serialize: (v) => (typeof v === 'string' ? JSON.parse(v) : v),
       filterOperators: ['is_null', 'is_not_null'],
     },
+    // A stored file by id (ADR 0032/0033), never an address: a private file is
+    // reached through a signed URL as the reader. `options.multiple` holds a list.
     typescript: {
-      inputType: '{ url: string; name: string; size: number; type: string }',
-      outputType: '{ url: string; name: string; size: number; type: string }',
+      inputType: '{ id: string; name: string; size?: number; type?: string }',
+      outputType: '{ id: string; name: string; size?: number; type?: string }',
     },
   });
 

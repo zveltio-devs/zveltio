@@ -20,6 +20,7 @@ import { auditLog } from '../audit.js';
 import {
   alterField,
   announceSchemaChange,
+  keepsColumn,
   createRelation,
   FieldChangeError,
   RelationSchema,
@@ -243,6 +244,7 @@ async function prepare(
     case 'setCollection':
     case 'reorderFields':
     case 'intoSecret':
+    case 'retype':
       return op;
     case 'putEntry':
     case 'removeEntry':
@@ -623,6 +625,16 @@ async function run(
       );
       return;
     }
+    case 'retype': {
+      // Asked again of the field as it is now, not as it was planned.
+      const was = (await fieldsOf(db, op.collection)).find((f) => f.name === op.field)?.type;
+      if (!keepsColumn(was, op.to)) {
+        throw new SchemaFileError(
+          `${op.collection}.${op.field}: ${String(was)} → ${op.to} does not keep its column`,
+        );
+      }
+      return void (await alterField(db, op.collection, op.field, { newType: op.to }, owner));
+    }
     case 'setCollection':
       await DDLManager.updateCollectionMetadata(db, op.collection, { [op.key]: op.value });
       return announceSchemaChange(op.collection, 'alter');
@@ -723,6 +735,9 @@ async function run(
       return removeEntry(db, op.collection, op.list, op.entry);
   }
 }
+
+/** For tests: one prepared op, as `applySchema` runs it. */
+export const runApplyOp = run;
 
 /**
  * The plan for an extension's declared collections (`collections/<name>.json`

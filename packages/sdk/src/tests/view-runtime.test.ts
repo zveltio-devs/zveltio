@@ -10,7 +10,9 @@ import {
   fallbackFor,
   isEditable,
   matches,
+  fileIds,
   readActionResult,
+  resolveFiles,
   resolveInput,
   toFilter,
   toSort,
@@ -56,6 +58,27 @@ describe('references', () => {
   it('is unresolved while a pane has no selection', () => {
     expect(resolveInput({ x: $.selected('other') }, scope)).toBeNull();
     expect(toFilter([$.where('folder_id', 'eq', $.selected('other'))], scope)).toBeNull();
+  });
+});
+
+describe('files a button hands its action ($files, ADR 0032)', () => {
+  const file = (id: string) => ({ id, name: `${id}.pdf`, size: 1, type: 'application/pdf' });
+  it("reads ids from an id, a file field's value, or a list of them", () => {
+    expect(fileIds('f1')).toEqual(['f1']);
+    expect(fileIds(file('f1'))).toEqual(['f1']);
+    expect(fileIds([file('f1'), 'f2', file('f1'), { name: 'no id' }, null])).toEqual(['f1', 'f2']);
+    expect(fileIds(null)).toEqual([]);
+  });
+
+  it('resolves read and write; hands nothing for an empty read; waits on an unresolved one', () => {
+    const s = { record: { a: [file('f1')], none: [], filename: 'x.pdf', size: '2048' } };
+    expect(resolveFiles({ read: $.record('a') }, s)).toEqual({ read: ['f1'] });
+    expect(resolveFiles({ read: $.record('none') }, s)).toBeUndefined();
+    expect(resolveFiles(undefined, s)).toBeUndefined();
+    expect(
+      resolveFiles({ write: { name: $.record('filename'), maxBytes: $.record('size') } }, s),
+    ).toEqual({ write: { name: 'x.pdf', maxBytes: 2048 } });
+    expect(resolveFiles({ read: $.selected('nope') }, s)).toBeNull();
   });
 });
 

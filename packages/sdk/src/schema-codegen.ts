@@ -457,7 +457,7 @@ export const CORE_FIELD_TS_TYPES: Readonly<Record<string, string>> = {
   uuid: 'string',
   json: 'Record<string, any>',
   richtext: 'string',
-  file: '{ url: string; name: string; size: number; type: string }',
+  file: '{ id: string; name: string; size?: number; type?: string }',
   enum: 'string',
   reference: 'string',
   m2o: 'string',

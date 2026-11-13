@@ -53,10 +53,11 @@ let tab = $state(0);
 {/if}
 
 {#if shown}
-  {#if shown.title || shown.actions?.length}
+  {#if shown.title || (shown.actions?.length && shown.type !== 'detail')}
     <div class="flex items-center justify-between gap-3 mb-3">
       {#if shown.title}<h2 class="text-lg font-semibold">{host.t(shown.title)}</h2>{/if}
-      <ViewButtons buttons={shown.actions} {host} {scope} />
+      <!-- A detail draws its own: they act on the record it shows. -->
+      {#if shown.type !== 'detail'}<ViewButtons buttons={shown.actions} {host} {scope} />{/if}
     </div>
   {/if}
 

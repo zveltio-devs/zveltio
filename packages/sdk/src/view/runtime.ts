@@ -15,6 +15,7 @@ import type {
   Conditions,
   Field,
   Fields,
+  FileHandoff,
   Input,
   Literal,
   Ref,
@@ -75,6 +76,53 @@ export function resolveInput(
     out[k] = r;
   }
   return out;
+}
+
+/**
+ * The ids of stored files in a value: an id, a `file` field's value
+ * (`{ id, name, size, type }`), or a list of either.
+ */
+export function fileIds(v: unknown): string[] {
+  const one = (x: unknown): string[] =>
+    typeof x === 'string' && x
+      ? [x]
+      : typeof x === 'object' && x !== null && typeof (x as { id?: unknown }).id === 'string'
+        ? [(x as { id: string }).id]
+        : [];
+  return [...new Set(Array.isArray(v) ? v.flatMap(one) : one(v))];
+}
+
+/**
+ * A button's `files` as the action request's `$files` (ADR 0032): `undefined`
+ * when it hands nothing (no button `files`, or a `read` with no file),
+ * `null` while a reference has no value yet.
+ */
+export function resolveFiles(
+  files: FileHandoff | undefined,
+  s: ViewScope,
+): { read?: string[]; write?: { name: string; maxBytes?: number } } | null | undefined {
+  if (!files) return undefined;
+  const out: { read?: string[]; write?: { name: string; maxBytes?: number } } = {};
+  if (files.read !== undefined) {
+    const v = resolveValue(files.read, s);
+    if (v === undefined) return null;
+    const ids = fileIds(v);
+    if (ids.length) out.read = ids;
+  }
+  if (files.write) {
+    const name = resolveValue(files.write.name, s);
+    const max =
+      files.write.maxBytes === undefined ? undefined : resolveValue(files.write.maxBytes, s);
+    if (name === undefined || (files.write.maxBytes !== undefined && max === undefined))
+      return null;
+    // A bigint column reads as a string through the data API.
+    const bytes = typeof max === 'string' && max.trim() !== '' ? Number(max) : max;
+    out.write = {
+      name: String(name),
+      ...(typeof bytes === 'number' && Number.isFinite(bytes) ? { maxBytes: bytes } : {}),
+    };
+  }
+  return out.read || out.write ? out : undefined;
 }
 
 /**

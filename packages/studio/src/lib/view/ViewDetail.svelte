@@ -1,7 +1,13 @@
 <script lang="ts">
-/** `detail`: one record through the data API, its fields, then its panels (`$record` is it). */
+/**
+ * `detail`: one record through the data API, its toolbar, its fields, then its
+ * panels; `$record` is the record in all three. `onOpen` runs once per record
+ * shown that meets its `when`.
+ */
 import {
   type DetailView,
+  matches,
+  resolveInput,
   resolveValue,
   type SchemaField,
   viewFields,
@@ -9,7 +15,8 @@ import {
 } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
 import { dataApi } from '#lib/api.js';
-import { fieldHints, schemaOf, type ViewHost } from './engine.js';
+import { fieldHints, schemaOf, shownValue, type ViewHost } from './engine.js';
+import ViewButtons from './ViewButtons.svelte';
 import ViewNode from './ViewNode.svelte';
 import ViewValue from './ViewValue.svelte';
 
@@ -52,6 +59,19 @@ $effect(() => {
     });
 });
 
+/** The record `onOpen` last ran for: once per record, not on every read after it. */
+let opened: unknown = null;
+$effect(() => {
+  const r = record;
+  const o = view.onOpen;
+  if (!o || !r || r.id === opened || !host.canRun(o.action)) return;
+  opened = r.id;
+  const s = { ...scope, record: r };
+  if (!matches(o.when, r, s)) return;
+  const input = resolveInput(o.input, s);
+  if (input) void host.run(o.action, input, { quiet: true });
+});
+
 const fields = $derived(fieldHints(viewFields(view.fields, schema, 'detail')));
 const byName = $derived(new Map(schema.map((f) => [f.name, f])));
 function label(name: string, hint: { label?: string } | null): string {
@@ -69,10 +89,12 @@ function label(name: string, hint: { label?: string } | null): string {
   {:else if !record}
     <span class="loading loading-spinner loading-sm"></span>
   {:else}
+    <ViewButtons buttons={view.actions} {host} scope={{ ...scope, record }} />
     <dl class="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
       {#each fields as { name, hint } (name)}
+        {@const shown = shownValue(record, name, hint, byName)}
         <dt class="text-base-content/65">{label(name, hint)}</dt>
-        <dd><ViewValue value={record[name]} {hint} type={byName.get(name)?.type} /></dd>
+        <dd><ViewValue value={shown.value} {hint} type={shown.type} block /></dd>
       {/each}
     </dl>
     {#each view.panels ?? [] as panel, i (i)}

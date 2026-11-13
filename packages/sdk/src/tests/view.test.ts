@@ -157,21 +157,33 @@ describe('viewNameIssues', () => {
         {
           type: 'list',
           collection: 'mail_messages',
-          fields: ['subject', { field: 'sujbect', label: 'Subject' }],
+          fields: [
+            'subject',
+            { field: 'sujbect', label: 'Subject' },
+            { field: 'subject', fallback: 'sbj' },
+          ],
           filter: [{ field: 'read', op: 'eq', value: false }],
           sort: ['-created_at', 'sent'],
           rowActions: [{ action: 'send', label: 'Send', input: { subject: 'x' } }],
         },
         { type: 'board', collection: 'mail_messages', groupBy: 'folder', card: ['subject'] },
         { type: 'stat', source: { collection: 'mail_messages', aggregate: 'sum', field: 'size' } },
+        {
+          type: 'detail',
+          collection: 'mail_messages',
+          record: { $param: 'id' },
+          onOpen: { action: 'send', when: [{ field: 'unread', op: 'eq', value: true }] },
+        },
       ],
     };
     const fields = new Map([['mail_messages', ['id', 'created_at', 'subject', 'folder']]]);
     expect(viewNameIssues(v, { ...names, fields }).map((i) => i.path)).toEqual([
       '/panes/0/fields/1/field',
+      '/panes/0/fields/2/fallback',
       '/panes/0/filter/0/field',
       '/panes/0/sort/1',
       '/panes/2/source/field',
+      '/panes/3/onOpen/when/0/field',
     ]);
     expect(viewNameIssues(v, names)).toEqual([]);
   });
