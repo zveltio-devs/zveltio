@@ -13,7 +13,7 @@ and scheduled jobs, and they can be disabled again.
 | [v2-candidates.md](v2-candidates.md) | Lessons for extension-api v2: breaking changes, and the v1 stopgaps v2 should own |
 | [signatures.md](signatures.md) | Ed25519 signing and verification |
 | [marketplace-policy.md](marketplace-policy.md) | What is accepted into the registry, and the tier rules |
-| [catalog.md](catalog.md) | The 55 official extensions |
+| [catalog.md](catalog.md) | The 52 official extensions |
 | [overview.md](overview.md) | User-facing introduction to the plugin system |
 | [../ui/sdui.md](../ui/sdui.md) | The declarative page schema |
 

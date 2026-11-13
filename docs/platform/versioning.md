@@ -37,12 +37,23 @@ The current line is `3.0.0-beta.N`. Each beta raises `N` by one. Leaving beta
 
    It copies the SDK's version to the root package, the engine, Studio and the
    chart's `appVersion`, and stops with an error if the chart has no `appVersion`
-   line.
+   line. Then refresh the extension catalogue from the extension manifests:
+
+   ```bash
+   bun run sync-catalog && bun run format
+   ```
+
+   It copies each manifest's name, category, version, description and
+   permissions into the engine's bundled `catalog.json` and into
+   `docs/extensions/catalog.md`, and stops if an extension is listed on one side
+   only. Run it against an up-to-date `zveltio-extensions` (or point
+   `EXTENSIONS_ROOT` at one).
 2. **Write the release notes** in `CHANGELOG.md`, under `## [Unreleased]`.
 3. **Open a PR** named `chore/release-3.0.0-beta.N+1` with the commit
    `chore(release): 3.0.0-beta.N+1`. A correct release commit touches exactly
-   **10 files**: eight `package.json`, `Chart.yaml` and `CHANGELOG.md`. Nine
-   means the chart was not bumped.
+   **10 files**: eight `package.json`, `Chart.yaml` and `CHANGELOG.md`, plus
+   `catalog.json` and `catalog.md` when an extension changed since the last
+   release. Nine means the chart was not bumped.
 4. **Before merging**, if the change touched migrations, extension loading or
    anything the compiled binary embeds, build it locally:
    `bun build packages/engine/src/index.ts --compile`, and start it. Bugs that
