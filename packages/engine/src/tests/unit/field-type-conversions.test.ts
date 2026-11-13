@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test';
-import { resolveConversion } from '../../lib/data/field-type-conversions.js';
+import { describe, expect, it, test } from 'bun:test';
+import { keepsColumn, resolveConversion } from '../../lib/data/field-type-conversions.js';
 
 // Pure strategy table: given (from, to, targetSqlType, columnName), decide
 // whether an ALTER COLUMN ... TYPE is allowed and what USING clause to emit.
@@ -91,5 +91,38 @@ describe('resolveConversion', () => {
     const r = resolveConversion('integer', 'text', 'TEXT', 'select');
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.using).toContain('"select"');
+  });
+});
+
+// The one gate both an extension's `retype` and Studio's skipped ALTER ask
+// (ADR 0042 slice 5): the same column is not the same thing.
+describe('keepsColumn', () => {
+  it('keeps a change within plain text, or json → file', () => {
+    for (const [a, b] of [
+      ['textarea', 'richtext'],
+      ['text', 'email'],
+      ['url', 'text'],
+      ['json', 'file'],
+      ['file', 'json'],
+    ]) {
+      expect(keepsColumn(a, b)).toBe(true);
+    }
+  });
+
+  it('never a hash, ciphertext, a computed or relation field, or another column', () => {
+    for (const [a, b] of [
+      ['password', 'text'],
+      ['text', 'password'],
+      ['secret', 'textarea'],
+      ['richtext', 'secret'],
+      ['computed', 'text'],
+      ['text', 'computed'],
+      ['text', 'o2m'],
+      ['text', 'json'],
+      ['text', 'text'],
+      ['nope', 'text'],
+    ]) {
+      expect(keepsColumn(a, b)).toBe(false);
+    }
   });
 });

@@ -5280,6 +5280,7 @@ table zvd_mail_messages
   col snippet                        text
   col subject                        text
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
+  col thread_id                      text
   col to_addresses                   jsonb
   col uid                            bigint NOT NULL
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
@@ -11501,6 +11502,7 @@ table zvv_mail_messages
   col snippet                        text
   col subject                        text
   col tenant_id                      uuid
+  col thread_id                      text
   col to_addresses                   jsonb
   col uid                            bigint
   col updated_at                     timestamp with time zone

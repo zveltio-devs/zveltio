@@ -13,13 +13,14 @@ import {
   type Button,
   type Change,
   readActionResult,
+  resolveFiles,
   resolveInput,
   type View,
   type ViewScope,
 } from '@zveltio/sdk/view';
 import type { FormField } from '@zveltio/sdk/extension';
 import { m } from '#lib/i18n.svelte.js';
-import { api, dataApi } from '#lib/api.js';
+import { dataApi } from '#lib/api.js';
 import { auth } from '#lib/auth.svelte.js';
 import { toast } from '#lib/stores/toast.svelte.js';
 import { createExtensionConfirm } from '#lib/utils/extension-confirm.svelte.js';
@@ -28,8 +29,10 @@ import Modal from '#lib/components/common/Modal.svelte';
 import SchemaForm from '#lib/components/common/SchemaForm.svelte';
 import {
   actionInputFields,
+  type FileHandoff,
   findAction,
   formPayload,
+  openFile,
   type RunnableAction,
   runAction,
   runnableActions,
@@ -90,18 +93,47 @@ function navigate(viewId: string, p: Record<string, unknown>) {
 }
 
 /** Runs an action and acts on its result; `true` once the engine ran it. */
-async function run(action: string, input: Record<string, unknown>): Promise<boolean> {
+async function run(
+  action: string,
+  input: Record<string, unknown>,
+  opts: { files?: FileHandoff; quiet?: boolean } = {},
+): Promise<boolean> {
   let result: unknown;
   try {
-    result = await runAction(host.ext, action, input);
+    result = await runAction(host.ext, action, input, opts.files);
   } catch (e) {
     toast.error((e as Error).message || m['common.failed']());
     return false;
   }
   host.version++;
-  await settle(result);
+  if (!opts.quiet) await settle(result);
   return true;
 }
+
+/** While a button is busy the page reads its records again; one timer for all of them. */
+const POLL_MS = 3000;
+// ponytail: polling stops after 10 minutes on the page's busy spell (a job that
+// never settles); a reload or a new busy spell starts it again. Realtime record
+// events (ADR 0036) would replace the timer.
+const POLL_CEILING_MS = 10 * 60_000;
+let holds = 0;
+let poll: ReturnType<typeof setInterval> | undefined;
+function hold(): () => void {
+  if (holds++ === 0) {
+    const since = Date.now();
+    poll = setInterval(() => {
+      if (Date.now() - since > POLL_CEILING_MS) return clearInterval(poll);
+      host.version++;
+    }, POLL_MS);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--holds === 0) clearInterval(poll);
+  };
+}
+$effect(() => () => clearInterval(poll));
 
 async function settle(result: unknown) {
   try {
@@ -121,31 +153,41 @@ async function settle(result: unknown) {
       shown = outcome.view;
       return;
     }
-    if (outcome.kind === 'file') {
-      const { url } = await api.get<{ url: string }>(
-        `/api/storage/${encodeURIComponent(outcome.file)}/signed-url`,
-      );
-      window.open(url, '_blank', 'noopener');
-      return;
-    }
+    if (outcome.kind === 'file') return await openFile(outcome.file);
     toast.success(m['common.done']());
   } catch (e) {
     toast.error((e as Error).message || m['common.failed']());
   }
 }
 
-async function press(b: Button, scope: ViewScope) {
+async function press(
+  b: Button,
+  scope: ViewScope,
+  before?: (s: ViewScope) => Promise<ViewScope | null>,
+) {
   if ('save' in b) return;
   if ('navigate' in b) {
     const p = resolveInput(b.params, scope);
     if (!p) return void toast.error(m['view.selectFirst']());
     return navigate(b.navigate, p);
   }
-  const input = resolveInput(b.input, scope);
-  if (!input) return void toast.error(m['view.selectFirst']());
+  // Without `before` the input is known now; with it (a form saving first),
+  // only once the prompt and the confirm went through and the save did.
+  const bound = (s: ViewScope) => {
+    const input = resolveInput(b.input, s);
+    const files = resolveFiles(b.files, s);
+    return input && files !== null ? { input, files } : null;
+  };
+  if (!before && !bound(scope)) return void toast.error(m['view.selectFirst']());
   // The view's bound input wins: a prompt never overrides what the view fixed.
   const go = (asked: Record<string, unknown>): Promise<void> => {
-    const fire = async () => void (await run(b.action, { ...asked, ...input }));
+    const fire = async () => {
+      const s = before ? await before(scope) : scope;
+      if (!s) return;
+      const call = bound(s);
+      if (!call) return void toast.error(m['view.selectFirst']());
+      await run(b.action, { ...asked, ...call.input }, { files: call.files });
+    };
     if (!b.confirm) return fire();
     settleConfirm();
     return new Promise<void>((resolve) => {
@@ -164,7 +206,7 @@ async function press(b: Button, scope: ViewScope) {
     });
   };
   // A prompt asks only for what the view did not bind (`validateView` refuses the overlap).
-  const ask = (b.prompt ?? []).filter((name) => !Object.hasOwn(input, name));
+  const ask = (b.prompt ?? []).filter((name) => !Object.hasOwn(b.input ?? {}, name));
   if (ask.length === 0) return go({});
   const declared = actionInputFields(findAction(actions ?? [], host.ext, b.action)?.input);
   const fields = ask.map((name) =>
@@ -280,6 +322,7 @@ const host = $state<ViewHost>({
   t,
   press,
   run,
+  hold,
   remove,
   change,
   changeMany,

@@ -8,6 +8,8 @@
 import { describe, expect, it } from 'bun:test';
 import { SCHEMA_FORMAT, serialize } from '../../lib/schema-artifact/export.js';
 import { planSchema, SchemaFileError } from '../../lib/schema-artifact/plan.js';
+import { fieldTypeRegistry } from '../../lib/data/field-type-registry.js';
+import { registerCoreFieldTypes } from '../../field-types/index.js';
 
 type Obj = Record<string, unknown>;
 
@@ -390,6 +392,61 @@ describe('planSchema', () => {
       refused(was, { ...now, type: 'integer' });
       refused({ name: 'body', type: 'boolean' }, now);
       refused({ name: 'body', type: 'password' }, now);
+    });
+  });
+
+  // ADR 0042 slice 5: mail's `body_html` (textarea) becomes `richtext` and its
+  // draft `attachments` (json) become `file`. Same column, so the values stay.
+  describe('a field retyped to a type with the same column', () => {
+    registerCoreFieldTypes(fieldTypeRegistry);
+    const withField = (f: Obj): Obj => ({ ...posts(), fields: [(posts().fields as Obj[])[0], f] });
+    const steps = (from: string, to: string, extension = true, more: Obj = {}) =>
+      planSchema(
+        files([withField({ name: 'body', type: from })]),
+        files([withField({ name: 'body', type: to, ...more })]),
+        new Map(),
+        { intoSecret: extension },
+      );
+
+    it("is one step in an extension's plan, keeping every value", () => {
+      for (const [from, to] of [
+        ['textarea', 'richtext'],
+        ['json', 'file'],
+        ['text', 'richtext'],
+      ]) {
+        expect(steps(from, to)).toEqual([
+          {
+            change: '~',
+            target: 'posts',
+            action: `change field body type ${from} → ${to}`,
+            op: { kind: 'retype', collection: 'posts', field: 'body', to },
+          },
+        ]);
+      }
+      // What else the file changes is planned against the retyped field.
+      expect(steps('textarea', 'richtext', true, { label: 'Body' }).map((s) => s.op?.kind)).toEqual(
+        ['retype', 'alterField'],
+      );
+    });
+
+    it('stays refused for another column, out of secret, outside an extension', () => {
+      for (const [from, to, ext] of [
+        ['text', 'integer', true],
+        ['json', 'textarea', true],
+        ['secret', 'text', true],
+        ['textarea', 'richtext', false],
+        // Same `text` column, different meaning: a hash shown, plaintext never
+        // hashed, a computed field with no column.
+        ['password', 'textarea', true],
+        ['text', 'password', true],
+        ['computed', 'text', true],
+        ['richtext', 'computed', true],
+        ['json', 'file', false],
+      ] as const) {
+        const [only] = steps(from, to, ext);
+        expect(only).toMatchObject({ destructive: true });
+        expect(only.op).toBeUndefined();
+      }
     });
   });
 });

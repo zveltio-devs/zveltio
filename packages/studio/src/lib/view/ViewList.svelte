@@ -14,7 +14,14 @@ import {
 import { m } from '#lib/i18n.svelte.js';
 import Pagination from '#lib/components/common/Pagination.svelte';
 import Modal from '#lib/components/common/Modal.svelte';
-import { fieldHints, listParams, listRecords, schemaOf, type ViewHost } from './engine.js';
+import {
+  fieldHints,
+  listParams,
+  listRecords,
+  schemaOf,
+  shownValue,
+  type ViewHost,
+} from './engine.js';
 import ViewButtons from './ViewButtons.svelte';
 import ViewForm from './ViewForm.svelte';
 import ViewValue from './ViewValue.svelte';
@@ -66,7 +73,8 @@ $effect(() => {
       rows = res.records as Row[];
       total = res.pagination?.total ?? rows.length;
       error = null;
-      chosen = new Set();
+      // A re-read (after an action, or while a button is busy) keeps the rows still there.
+      chosen = new Set(rows.filter((r) => chosen.has(r.id)).map((r) => r.id));
     })
     .catch((e: Error) => {
       if (mine === seq) error = e.message || m['ext.loadFailed']();
@@ -156,7 +164,8 @@ const rowButtons = $derived(!!view.rowActions?.length || !!view.edit || !!view.d
         >
           <button type="button" class="card-body p-4 gap-1 text-left" onclick={() => openRow(row)}>
             {#each fields as { name, hint } (name)}
-              <div class="text-sm"><ViewValue value={row[name]} {hint} type={labels.get(name)?.type} /></div>
+              {@const shown = shownValue(row, name, hint, labels)}
+              <div class="text-sm"><ViewValue value={shown.value} {hint} type={shown.type} /></div>
             {/each}
           </button>
           {#if rowButtons}
@@ -200,7 +209,8 @@ const rowButtons = $derived(!!view.rowActions?.length || !!view.edit || !!view.d
                 </td>
               {/if}
               {#each fields as { name, hint } (name)}
-                <td><ViewValue value={row[name]} {hint} type={labels.get(name)?.type} /></td>
+                {@const shown = shownValue(row, name, hint, labels)}
+                <td><ViewValue value={shown.value} {hint} type={shown.type} /></td>
               {/each}
               {#if rowButtons}
                 <td onclick={(e) => e.stopPropagation()}>{@render rowControls(row)}</td>

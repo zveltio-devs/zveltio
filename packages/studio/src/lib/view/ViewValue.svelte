@@ -1,18 +1,25 @@
 <script lang="ts">
 /**
- * One value as a view shows it. Text only: a `richtext` value is untrusted and
- * is never rendered as HTML here (ADR 0042 decision 10).
+ * One value as a view shows it. A `richtext` value is untrusted (ADR 0042
+ * decision 10): in a `block` (a record's own fields) it is drawn inert in a
+ * sandboxed frame (`ViewRichText`), elsewhere it is its text. A `file` value is
+ * its files' names, each opening the file as the user.
  */
 import type { Field, Tone } from '@zveltio/sdk/view';
 import { fmtCell } from '#lib/components/collections/field-helpers.js';
 import { elapsed } from './engine.js';
+import ViewFiles from './ViewFiles.svelte';
+import ViewRichText from './ViewRichText.svelte';
+import { htmlText } from './untrusted-html.js';
 
 interface Props {
   value: unknown;
   hint: Exclude<Field, string> | null;
   type?: string;
+  /** A record's own field, with room to draw it whole (a detail), not a cell. */
+  block?: boolean;
 }
-const { value, hint, type }: Props = $props();
+const { value, hint, type, block = false }: Props = $props();
 
 const TONE: Record<Tone, string> = {
   neutral: 'badge-neutral',
@@ -30,6 +37,12 @@ const tone = $derived(
 
 {#if value === null || value === undefined}
   <span class="text-base-content/40">—</span>
+{:else if type === 'richtext'}
+  {#if block}<ViewRichText html={value} />{:else}{htmlText(value)}{/if}
+{:else if type === 'file'}
+  <ViewFiles {value} />
+{:else if block && type === 'textarea'}
+  <span class="whitespace-pre-wrap">{String(value)}</span>
 {:else if hint?.display === 'badge' || tone}
   <span class={`badge badge-sm ${tone ? TONE[tone] : 'badge-ghost'}`}>{fmtCell(value, type)}</span>
 {:else if hint?.display === 'flag' || typeof value === 'boolean'}

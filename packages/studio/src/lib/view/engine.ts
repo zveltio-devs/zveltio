@@ -62,13 +62,57 @@ export function findAction(
   return list.find((a) => a.extension === ext && a.name === name);
 }
 
+/** `$files`: the stored files the caller hands the action's job (ADR 0032). */
+export type FileHandoff = { read?: string[]; write?: { name: string; maxBytes?: number } };
+
 export async function runAction(
   extension: string,
   action: string,
   input: Record<string, unknown>,
+  files?: FileHandoff,
 ): Promise<unknown> {
-  const res = await api.post<{ result: unknown }>(actionPath(extension, action), input);
+  const res = await api.post<{ result: unknown }>(
+    actionPath(extension, action),
+    files ? { ...input, $files: files } : input,
+  );
   return res?.result ?? null;
+}
+
+/** A `file` field's value: a stored file by id. */
+export interface FileValue {
+  id: string;
+  name: string;
+  size?: number;
+  type?: string;
+}
+
+/** The files in a `file` field's value (one, or a list with `options.multiple`). */
+export function filesOf(v: unknown): FileValue[] {
+  return (Array.isArray(v) ? v : v == null ? [] : [v]).filter(
+    (f): f is FileValue =>
+      typeof f === 'object' && f !== null && typeof (f as FileValue).id === 'string',
+  );
+}
+
+/** Opens a stored file through a signed URL, as the user (`/api/storage/:id`). */
+export async function openFile(id: string): Promise<void> {
+  const { url } = await api.get<{ url: string }>(
+    `/api/storage/${encodeURIComponent(id)}/signed-url`,
+  );
+  window.open(url, '_blank', 'noopener');
+}
+
+/** What a view shows for a field of a row: its value, or its `fallback` field's while it is empty. */
+export function shownValue(
+  row: Record<string, unknown>,
+  name: string,
+  hint: { fallback?: string } | null,
+  types: ReadonlyMap<string, { type?: unknown }>,
+): { value: unknown; type: string | undefined } {
+  const empty = (v: unknown) => v === null || v === undefined || v === '';
+  const use = hint?.fallback && empty(row[name]) ? hint.fallback : name;
+  const t = types.get(use)?.type;
+  return { value: row[use], type: typeof t === 'string' ? t : undefined };
 }
 
 export interface ListQuery {
@@ -230,10 +274,32 @@ export interface ViewHost {
   scope: Required<Pick<ViewScope, 'params' | 'selected'>> & Pick<ViewScope, 'user'>;
   /** A message key of the extension, or literal text. */
   t: (s?: string) => string;
-  /** Runs a button: an action, a navigation (a form handles `save` itself). */
-  press: (b: Button, scope: ViewScope) => Promise<void>;
-  /** Runs an action with this input and acts on its result. */
-  run: (action: string, input: Record<string, unknown>) => Promise<boolean>;
+  /**
+   * Runs a button: an action, a navigation (a form handles `save` itself).
+   * `before` runs once the prompt and confirm went through, just before the
+   * action (a form saves there), and gives the scope it runs on, or `null`.
+   */
+  press: (
+    b: Button,
+    scope: ViewScope,
+    before?: (s: ViewScope) => Promise<ViewScope | null>,
+  ) => Promise<void>;
+  /**
+   * Runs an action with this input and acts on its result; `files` goes as the
+   * request's `$files`. `quiet`: no success message and the result is not
+   * acted on (`onOpen`).
+   */
+  run: (
+    action: string,
+    input: Record<string, unknown>,
+    opts?: { files?: FileHandoff; quiet?: boolean },
+  ) => Promise<boolean>;
+  /**
+   * Keeps the page reading its records again, every few seconds, until the
+   * returned release is called: a button's `busyWhen` holds while the work it
+   * started is under way.
+   */
+  hold: () => () => void;
   /** Deletes a record through the data API, after a confirm. */
   remove: (collection: string, id: string) => Promise<void>;
   /** Whether the caller may run an action (`GET /api/actions`); a hint, the engine decides. */

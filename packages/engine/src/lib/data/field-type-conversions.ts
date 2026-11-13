@@ -121,3 +121,20 @@ function isTextFamily(t: string): boolean {
 function isNumberFamily(t: string): boolean {
   return t === 'integer' || t === 'bigint' || t === 'decimal' || t === 'float' || t === 'number';
 }
+
+/**
+ * Types that store the same thing in the same column, by group: a change
+ * within a group keeps every value as it is (no `ALTER COLUMN … TYPE`), and an
+ * extension may make it (`retype`). Nothing else shares a column safely:
+ * `password` holds a hash, `secret` ciphertext, `computed` and relations no
+ * column at all.
+ */
+const KEEPS_COLUMN: readonly ReadonlySet<string>[] = [
+  new Set(['text', 'textarea', 'richtext', 'email', 'url']),
+  new Set(['json', 'file']),
+];
+
+/** Whether `from` → `to` keeps the column and every value in it. */
+export function keepsColumn(from: unknown, to: unknown): boolean {
+  return from !== to && KEEPS_COLUMN.some((g) => g.has(String(from)) && g.has(String(to)));
+}

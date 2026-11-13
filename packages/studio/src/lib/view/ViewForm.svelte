@@ -3,6 +3,9 @@
  * `form`: create or edit a record through the data API, or fill an action's
  * input and run it. The fields, their types and labels come from the
  * collection (or the action's input schema); the view only selects and orders.
+ * A `richtext` field is edited by `ViewRichTextEditor`, a `file` field by
+ * `ViewFiles`, after the group's other fields. On a collection form an action
+ * in `submit` saves the record first and runs on the saved record.
  */
 import {
   type FormView,
@@ -28,6 +31,8 @@ import {
   type ViewHost,
 } from './engine.js';
 import ViewButtons from './ViewButtons.svelte';
+import ViewFiles from './ViewFiles.svelte';
+import ViewRichTextEditor from './ViewRichTextEditor.svelte';
 import ViewValue from './ViewValue.svelte';
 
 interface Props {
@@ -112,30 +117,48 @@ const editable = $derived(
   ),
 );
 const allEditable = $derived(editable.flat() as FormField[]);
+/** Field types drawn here rather than by `SchemaForm`. */
+const OWN_EDITOR = new Set(['richtext', 'file']);
+const ownEditor = (f: FormField) => OWN_EDITOR.has(String(f.fieldType));
+const multiple = (name: string) =>
+  (byName.get(name)?.options as { multiple?: unknown } | null | undefined)?.multiple === true;
 const notDrawn = $derived(
   [view.lines && 'lines', view.recalc && 'recalc', view.autosave && 'autosave'].filter(
     Boolean,
   ) as string[],
 );
 
-async function save() {
+/** Saves the form; the record as saved, or `null` when it was refused. */
+async function save(): Promise<Record<string, unknown> | null> {
   saving = true;
   try {
+    let saved: Record<string, unknown> = { ...values };
     if (!collection) {
       await host.run((view as { action: string }).action, formPayload(values, allEditable));
     } else {
       const body = formPayload(values, allEditable, recordId !== null);
-      if (recordId) await dataApi.update(collection, recordId, body);
-      else await dataApi.create(collection, body);
+      saved = recordId
+        ? await dataApi.update(collection, recordId, body)
+        : await dataApi.create(collection, body);
+      if (saved?.id) recordId = String(saved.id);
       toast.success(m['common.saved']());
       host.version++;
     }
     onDone?.();
+    return { ...values, ...saved };
   } catch (e) {
     toast.error((e as Error).message || m['common.saveFailed']());
+    return null;
   } finally {
     saving = false;
   }
+}
+
+/** An action in a collection form's `submit` runs on the record as saved. */
+async function beforeAction(scope: ViewScope): Promise<ViewScope | null> {
+  if (!collection) return scope;
+  const saved = await save();
+  return saved && { ...scope, record: saved };
 }
 </script>
 
@@ -161,9 +184,35 @@ async function save() {
         {/each}
         <SchemaForm
           formId={`view:${host.ext}:${view.id ?? collection ?? (view as { action: string }).action}:${gi}`}
-          schema={{ id: `view:${host.ext}`, fields: editable[gi] }}
+          schema={{ id: `view:${host.ext}`, fields: editable[gi].filter((f) => !ownEditor(f)) }}
           bind:values
         />
+        {#each editable[gi].filter(ownEditor) as f (f.name)}
+          {@const fid = `view-${host.ext}-${gi}-${f.name}`}
+          <div class="form-control">
+            <label class="label" for={fid}>
+              <span class="label-text">
+                {f.label}
+                {#if f.required}<span class="text-error">*</span>{/if}
+              </span>
+            </label>
+            {#if f.fieldType === 'richtext'}
+              <ViewRichTextEditor
+                id={fid}
+                label={f.label ?? f.name}
+                value={values[f.name]}
+                onchange={(html) => (values[f.name] = html)}
+              />
+            {:else}
+              <ViewFiles
+                id={fid}
+                value={values[f.name]}
+                multiple={multiple(f.name)}
+                onchange={(v) => (values[f.name] = v)}
+              />
+            {/if}
+          </div>
+        {/each}
       </section>
     {/each}
     <div class="flex justify-end gap-2">
@@ -172,7 +221,8 @@ async function save() {
           buttons={view.submit}
           {host}
           scope={{ ...scope, record: { ...values, ...(recordId ? { id: recordId } : {}) } }}
-          onSave={save}
+          onSave={async () => void (await save())}
+          {beforeAction}
         />
       {:else}
         <button class="btn btn-primary btn-sm" disabled={saving} onclick={save}>

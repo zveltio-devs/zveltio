@@ -49,7 +49,7 @@ export function validateView(input: unknown): ViewValidation {
   return issues.length === 0 ? { ok: true, view: input as ViewDocument } : { ok: false, issues };
 }
 
-const CONDITION_LISTS = new Set(['filter', 'when', 'emphasisWhen']);
+const CONDITION_LISTS = new Set(['filter', 'when', 'emphasisWhen', 'busyWhen']);
 
 /**
  * What the schema cannot say, checked across keys:
@@ -163,7 +163,11 @@ function fieldRefs(v: Record<string, unknown>): Array<[string, string]> {
   const add = (at: string, x: unknown) => typeof x === 'string' && out.push([at, x]);
   const fieldList = (x: unknown, at: string) =>
     Array.isArray(x) &&
-    x.forEach((f, i) => (isObj(f) ? add(`${at}/${i}/field`, f.field) : add(`${at}/${i}`, f)));
+    x.forEach((f, i) => {
+      if (!isObj(f)) return add(`${at}/${i}`, f);
+      add(`${at}/${i}/field`, f.field);
+      add(`${at}/${i}/fallback`, f.fallback);
+    });
   const conditions = (x: unknown, at: string) =>
     Array.isArray(x) && x.forEach((c, i) => isObj(c) && add(`${at}/${i}/field`, c.field));
   for (const k of ONE_FIELD[typeof v.type === 'string' ? v.type : ''] ?? []) add(`/${k}`, v[k]);
@@ -174,6 +178,7 @@ function fieldRefs(v: Record<string, unknown>): Array<[string, string]> {
   }
   conditions(v.filter, '/filter');
   conditions(v.emphasisWhen, '/emphasisWhen');
+  if (isObj(v.onOpen)) conditions(v.onOpen.when, '/onOpen/when');
   const sort = typeof v.sort === 'string' ? [v.sort] : v.sort;
   if (Array.isArray(sort)) {
     sort.forEach((x, i) =>

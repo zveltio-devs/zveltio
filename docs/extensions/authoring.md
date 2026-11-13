@@ -172,7 +172,9 @@ List them in `manifest.json` and ship one file per name, in the
 - A name that already belongs to a collection the extension does not own
   refuses the whole set; nothing is created.
 - A later version's additions (a field, a rule, a relation) are applied when it
-  is enabled. A drop, a rename or a type change is refused for now.
+  is enabled. A type change into the same column type (`textarea` → `richtext`,
+  `json` → `file`, a text field → `secret`) keeps every value. A drop, a rename
+  or any other type change is refused for now.
 - The instance's own schema export leaves the extension's collections out: they
   belong to its package.
 - Their fields, relations and settings are the extension's: an operator's change

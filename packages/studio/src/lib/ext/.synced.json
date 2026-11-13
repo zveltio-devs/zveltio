@@ -2,13 +2,11 @@
   "routes": [
     "ai",
     "developer/graphql",
-    "mail",
     "pages",
     "storage/cloud"
   ],
   "libs": [
     "ai",
-    "communications/mail",
     "content/pages",
     "content/pdf-viewer",
     "crm",

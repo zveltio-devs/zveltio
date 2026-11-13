@@ -65,7 +65,11 @@ falls back to its generic collection screen; a view may name its own fallback.
 
 Untrusted content is a field renderer's duty: a `richtext` value is untrusted on
 display, and every front end sanitises it and shows it without scripts (a
-sandboxed `srcdoc` frame or equivalent).
+sandboxed `srcdoc` frame or equivalent). Remote images stay blocked: whether a
+reader may load them is not decided (ADR 0042 decision 10). A `file` field holds
+stored files by id (`{ id, name, size, type }`, a list of them with
+`options.multiple`), never an address: a front end uploads through the file API
+and opens a file through a signed URL, both as the user.
 
 ## Writing a view (`view/2`)
 
@@ -123,7 +127,22 @@ What the specification holds:
 - **Buttons** run an action (`action`, `input`, `prompt`, `confirm`, `when`),
   open a view (`navigate`, `params`) or save a form (`save`). A `prompt` asks
   only for inputs that `input` leaves open; naming a bound one is refused. A
-  `when` holds of a record, so a toolbar button with one is not drawn.
+  `when` holds of a record, so a toolbar button with one is not drawn (a
+  detail's toolbar holds of the record it shows). An action button may add:
+  - `busyWhen`: conditions on the same record that hold while the work the
+    action started is under way (a job's status: `queued`, `sending`). The
+    button is busy, and the front end reads the record again until they no
+    longer hold;
+  - `files`: the stored files the request hands the action's job (`$files`,
+    ADR 0032). `read` is a value of file ids or a `file` field's value (its
+    files' ids are handed; an empty one hands nothing), `write` names the one
+    file the job may store (`name`, `maxBytes`). The engine checks each file as
+    the caller.
+- **A detail's `onOpen`** runs an action once for each record the detail
+  shows that meets its `when` (marking a message read). Its result is not
+  shown; a failure is reported.
+- **A form's `submit`** on a collection: an action button saves the record
+  first and runs on it as saved (`$record`), so a draft is sent as written.
 - **A list's own rows**: `create`, `edit` and `delete` offer the collection's
   generated form to add a record, the same form to change a row, and a delete
   after a confirm, all through the data API as the user.
@@ -134,8 +153,9 @@ What the specification holds:
   *after* the change, so `{ "id": { "$record": "id" }, "to": { "$record": "status" } }`
   is the record and its new column. Without `move` or `edit` nothing moves.
 - **Fields** are names; a field object adds only presentation hints
-  (`label`, `display`, `tones`, `readOnly`). Type, label and editor come from
-  the collection.
+  (`label`, `display`, `tones`, `readOnly`, `fallback`: the field shown while
+  this one is empty, e.g. a message's `body_text` for its `body_html`). Type,
+  label and editor come from the collection.
 - **Every view kind** accepts `title`, `actions` (its toolbar), `id` and
   `fallback` (the view a front end draws when it does not know this kind).
   Only the top of a file carries `spec`; its `id` (`billing.invoices`) is what
@@ -196,8 +216,8 @@ and drawn as before.
 | Kind | Studio draws |
 |---|---|
 | `list` | table, `cards` or `feed`; search, paging, selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `edit` (the row in that form), `delete` (after a confirm), `open` |
-| `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit`, read-only fields shown as text |
-| `detail` | the record's fields, then its `panels` with `$record` set to it |
+| `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit` (an action saves first), read-only fields shown as text; a `richtext` field in an editor whose content (stored or pasted) is sanitised first, with remote images blocked while editing; a `file` field as its files, an upload button and a remove per file |
+| `detail` | its toolbar, the record's fields (a `richtext` one inert in a sandboxed frame, a `file` one as files that open), then its `panels`, all with `$record` set to it; `onOpen` |
 | `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
 | `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |
 | `board` | a column per `groupBy` value (its declared choices first, in order, then any other value, then none); `card` fields, else the first default ones; `move` by dragging a card or by its "Move to" menu (ADR 0042 slice 4) |
@@ -216,7 +236,25 @@ already read.
 Not drawn yet, each with a notice where it appears: a form's `lines`, `recalc`
 and `autosave`, a list's `realtime`, a `stat` that sums, averages or takes a
 minimum or maximum (the data API has no aggregate route; make it a server field
-or an action). A `richtext` value is shown as text, never as HTML.
+or an action).
+
+**Untrusted rich text in Studio** (`untrusted-html.ts`). A `richtext` value is
+sanitised by a DOMPurify instance of its own, with a closed list of tags and
+attributes (mail layout: tables, `font`, `center`; no `script`, `iframe`,
+`form`, `meta`, `base`, `style`, `svg`, no `on*` attribute) and of URL schemes
+(`http(s):`, `mailto:`, `tel:`, `cid:`, `#`); every remote `src`, `srcset`,
+`background` and `poster` is moved aside, and a `style` holding a `(` other than
+a plain colour function (`rgb()`, `hsla()`, ...) or a `\` is dropped (CSS loads
+through `image-set()` or an escaped `url(` too), so opening a message does not
+tell its sender. The result is drawn in an `<iframe srcdoc>` with
+`sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"` (no
+`allow-scripts`: nothing in it runs; the same origin only lets Studio size it)
+and a `default-src 'none'` Content-Security-Policy of its own. Links open in a
+new tab with no opener. In a list cell the value is its text.
+
+While a button's `busyWhen` holds, Studio reads the page's records again every
+three seconds (one timer per page, for at most ten minutes); the button shows
+busy until it no longer holds.
 
 A row's `open` and a `navigate` go to the extension's page whose view file has
 that `id`; the page path's `:name` segments are filled from the parameters and

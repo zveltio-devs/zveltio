@@ -411,6 +411,9 @@ caller adds `$files` beside the action's input:
 { "partId": "…", "$files": { "write": { "name": "report.pdf", "maxBytes": 2400000 } } }
 ```
 
+A view's action button sends it with `files` (`{ "read": { "$record": "attachments" } }`
+hands the ids of a `file` field's files; see [ui-model.md](ui-model.md)).
+
 The engine takes `$files` out before your input schema sees the body and checks
 it as the caller before your action runs: each `read` id must be a file they
 may read through `/api/storage/:id` (else 404), at most 32 uuids (else 400);

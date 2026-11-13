@@ -112,9 +112,64 @@
         { "field": "due_on", "op": "lte", "value": { "$today": true } },
         { "field": "assignee", "op": "eq", "value": { "$user": "id" } }
       ]
+    },
+    "busy buttons, file handoff, onOpen and a fallback field": {
+      "spec": "zveltio.view/2",
+      "type": "split",
+      "panes": [
+        {
+          "type": "list",
+          "id": "messages",
+          "collection": "mail_messages",
+          "fields": ["subject"],
+          "rowActions": [
+            {
+              "action": "fetchAttachment",
+              "input": { "attachment_id": { "$record": "id" } },
+              "busyWhen": [{ "field": "fetch_status", "op": "eq", "value": "queued" }],
+              "files": {
+                "write": { "name": { "$record": "filename" }, "maxBytes": { "$record": "size" } }
+              }
+            }
+          ]
+        },
+        {
+          "type": "detail",
+          "collection": "mail_messages",
+          "record": { "$selected": "messages" },
+          "fields": [{ "field": "body_html", "fallback": "body_text" }],
+          "onOpen": {
+            "action": "setFlags",
+            "input": { "message_ids": [{ "$record": "id" }], "is_read": true },
+            "when": [{ "field": "is_read", "op": "eq", "value": false }]
+          },
+          "actions": [
+            {
+              "action": "send",
+              "input": { "draft_id": { "$record": "id" } },
+              "files": { "read": { "$record": "attachments" } }
+            }
+          ]
+        }
+      ]
     }
   },
   "invalid": {
+    "a file handoff with a key view/2 does not have": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "x",
+      "rowActions": [
+        { "action": "send", "files": { "read": { "$record": "a" }, "url": "https://evil.test" } }
+      ]
+    },
+    "an onOpen without an action": {
+      "spec": "zveltio.view/2",
+      "type": "detail",
+      "collection": "x",
+      "record": { "$param": "id" },
+      "onOpen": { "input": { "id": { "$record": "id" } } }
+    },
     "delete that is not a boolean": {
       "spec": "zveltio.view/2",
       "type": "list",

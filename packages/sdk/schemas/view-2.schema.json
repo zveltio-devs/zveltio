@@ -23,7 +23,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -117,7 +117,7 @@
             },
             "actions": {
               "$ref": "#/$defs/Buttons",
-              "description": "Toolbar actions of this view."
+              "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
             },
             "fallback": {
               "$ref": "#/$defs/View",
@@ -220,7 +220,7 @@
             },
             "actions": {
               "$ref": "#/$defs/Buttons",
-              "description": "Toolbar actions of this view."
+              "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
             },
             "fallback": {
               "$ref": "#/$defs/View",
@@ -314,7 +314,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -335,6 +335,25 @@
             "$ref": "#/$defs/View"
           },
           "minItems": 1
+        },
+        "onOpen": {
+          "type": "object",
+          "description": "Runs the action when a record is shown and meets `when`, once per record; its result is not shown.",
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/ActionName"
+            },
+            "input": {
+              "$ref": "#/$defs/Input"
+            },
+            "when": {
+              "$ref": "#/$defs/Conditions"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -364,7 +383,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -413,7 +432,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -473,7 +492,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -523,7 +542,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -574,7 +593,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -620,7 +639,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -700,7 +719,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -740,7 +759,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1081,6 +1100,10 @@
             },
             "readOnly": {
               "type": "boolean"
+            },
+            "fallback": {
+              "$ref": "#/$defs/Name",
+              "description": "The field shown instead while this one is empty."
             }
           },
           "required": [
@@ -1155,6 +1178,13 @@
             },
             "when": {
               "$ref": "#/$defs/Conditions"
+            },
+            "busyWhen": {
+              "$ref": "#/$defs/Conditions",
+              "description": "While the record meets these, the work the action started is under way: the button is busy, and the front end reads the record again until it no longer does."
+            },
+            "files": {
+              "$ref": "#/$defs/FileHandoff"
             }
           },
           "required": [
@@ -1209,6 +1239,33 @@
       },
       "minItems": 1
     },
+    "FileHandoff": {
+      "type": "object",
+      "description": "Stored files the caller hands the action's job (`$files`, ADR 0032).",
+      "properties": {
+        "read": {
+          "$ref": "#/$defs/Value",
+          "description": "File ids the job may read, or a `file` field's value (its files' ids)."
+        },
+        "write": {
+          "type": "object",
+          "description": "The one file the job may store.",
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/Value"
+            },
+            "maxBytes": {
+              "$ref": "#/$defs/Value"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "ListView": {
       "type": "object",
       "description": "Rows of a collection.",
@@ -1224,7 +1281,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1313,7 +1370,7 @@
             },
             "actions": {
               "$ref": "#/$defs/Buttons",
-              "description": "Toolbar actions of this view."
+              "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
             },
             "fallback": {
               "$ref": "#/$defs/View",
@@ -1411,7 +1468,7 @@
             },
             "actions": {
               "$ref": "#/$defs/Buttons",
-              "description": "Toolbar actions of this view."
+              "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
             },
             "fallback": {
               "$ref": "#/$defs/View",
@@ -1500,7 +1557,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1521,6 +1578,25 @@
             "$ref": "#/$defs/View"
           },
           "minItems": 1
+        },
+        "onOpen": {
+          "type": "object",
+          "description": "Runs the action when a record is shown and meets `when`, once per record; its result is not shown.",
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/ActionName"
+            },
+            "input": {
+              "$ref": "#/$defs/Input"
+            },
+            "when": {
+              "$ref": "#/$defs/Conditions"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -1545,7 +1621,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1589,7 +1665,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1644,7 +1720,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1689,7 +1765,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1735,7 +1811,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1776,7 +1852,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1851,7 +1927,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",
@@ -1886,7 +1962,7 @@
         },
         "actions": {
           "$ref": "#/$defs/Buttons",
-          "description": "Toolbar actions of this view."
+          "description": "Toolbar actions of this view; a detail's act on the record it shows (`$record`)."
         },
         "fallback": {
           "$ref": "#/$defs/View",

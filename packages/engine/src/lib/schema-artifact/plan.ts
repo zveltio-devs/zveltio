@@ -13,7 +13,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { isOperatorField, relationKey, requiredSetNull } from '../data/index.js';
+import { isOperatorField, keepsColumn, relationKey, requiredSetNull } from '../data/index.js';
 import {
   ENGINE_SEEDED_ROLES,
   exportField,
@@ -55,6 +55,12 @@ export type ApplyOp =
    * index, the `encrypted` flag). Any other type change has no op.
    */
   | { kind: 'intoSecret'; collection: string; field: string }
+  /**
+   * An extension's field retyped within a group that stores the same thing in
+   * the same column (`keepsColumn`: `textarea` → `richtext`, `json` → `file`):
+   * the column and every value stay. Any other type change has no op.
+   */
+  | { kind: 'retype'; collection: string; field: string; to: string }
   /**
    * Creates a relation the way `POST /api/relations` does — its foreign key or
    * junction and the fields that stand for it — or, when one already holds the
@@ -500,7 +506,10 @@ interface Sink {
   owned: Map<string, Set<string>>;
   /** A field as the desired files define it. */
   fieldOf: (collection: string, field: string) => Obj | undefined;
-  /** An extension's plan (ADR 0024 §6): a text field may turn `secret`. */
+  /**
+   * An extension's plan: a text field may turn `secret` (ADR 0024 §6), and a
+   * field may take a type with the same column (`retype`).
+   */
   intoSecret: boolean;
 }
 
@@ -574,14 +583,24 @@ function diffCollection(name: string, cur: Obj, des: Obj, sink: Sink) {
     }
     if (old.type !== f.type) {
       const action = `change field ${f.name} type ${old.type} → ${f.type}`;
-      if (!sink.intoSecret || f.type !== 'secret' || !INTO_SECRET_FROM.has(String(old.type))) {
+      const field = f.name as string;
+      const op: ApplyOp | undefined = !sink.intoSecret
+        ? undefined
+        : f.type === 'secret'
+          ? INTO_SECRET_FROM.has(String(old.type))
+            ? { kind: 'intoSecret', collection: name, field }
+            : undefined
+          : keepsColumn(old.type, f.type)
+            ? { kind: 'retype', collection: name, field, to: String(f.type) }
+            : undefined;
+      if (!op) {
         step('~', action, true);
         continue;
       }
       // Keeps every value, so not destructive; what else the file changes on
       // the field is planned against the field the retype leaves.
-      step('~', action, false, { kind: 'intoSecret', collection: name, field: f.name as string });
-      old = afterIntoSecret(old);
+      step('~', action, false, op);
+      old = op.kind === 'intoSecret' ? afterIntoSecret(old) : { ...old, type: f.type };
     }
     if (!same(old, f)) {
       const keys = [...new Set([...Object.keys(old), ...Object.keys(f)])]
@@ -774,7 +793,10 @@ export function planSchema(
   current: Record<string, string>,
   desired: Record<string, unknown>,
   applied: ReadonlyMap<string, string> = new Map(),
-  /** `intoSecret`: an extension's plan, where a text field may turn `secret` (ADR 0024 §6). */
+  /**
+   * `intoSecret`: an extension's plan, where a text field may turn `secret`
+   * (ADR 0024 §6) and a field may take a type with the same column.
+   */
   opts: { intoSecret?: boolean } = {},
 ): PlanStep[] {
   const cur = read(current);
