@@ -24,8 +24,14 @@ import { extensionPages, type Loaded, loadView, ViewRenderer } from '../src/view
 
 requireSibling(SIBLING_ROOT, 'proof-views');
 
-// biome-ignore lint/suspicious/noExplicitAny: manifest JSON read as found; `validateView` checks what is drawn
-type Json = Record<string, any>;
+/** The parts of a manifest read here; `validateView` checks what is drawn. */
+interface Manifest {
+  name?: string;
+  collections?: (string | { name: string })[];
+  studio?: { pages?: { path: string; schema?: unknown }[] };
+  actions?: { name: string; input?: unknown }[];
+}
+type Json = Record<string, unknown>;
 
 function manifests(dir: string, acc: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -37,7 +43,7 @@ function manifests(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-const read = (f: string): Json | null => {
+const read = <T = Json>(f: string): T | null => {
   try {
     return JSON.parse(readFileSync(f, 'utf8'));
   } catch {
@@ -49,21 +55,20 @@ const meta: Json[] = [];
 const collections = new Map<string, { name: string; type: string; is_system?: boolean }[]>();
 const actions: Json[] = [];
 for (const file of manifests(SIBLING_ROOT)) {
-  const m = read(file);
+  const m = read<Manifest>(file);
   if (!m?.name) continue;
   const dir = dirname(file);
-  const pages = (m.studio?.pages ?? []).map((p: Json) => ({
+  const pages = (m.studio?.pages ?? []).map((p) => ({
     ...p,
     schema: typeof p.schema === 'string' ? read(join(dir, 'studio', p.schema)) : p.schema,
   }));
   meta.push({ name: m.name, studio: { pages } });
   for (const c of m.collections ?? []) {
     const name = typeof c === 'string' ? c : c.name;
-    const decl = read(join(dir, 'schema', 'collections', `${name}.json`));
-    collections.set(name, [
-      { name: 'id', type: 'uuid', is_system: true },
-      ...((decl?.fields ?? []) as { name: string; type: string }[]),
-    ]);
+    const decl = read<{ fields?: { name: string; type: string }[] }>(
+      join(dir, 'schema', 'collections', `${name}.json`),
+    );
+    collections.set(name, [{ name: 'id', type: 'uuid', is_system: true }, ...(decl?.fields ?? [])]);
   }
   for (const a of m.actions ?? [])
     actions.push({ extension: m.name, name: a.name, input: a.input ?? {} });
