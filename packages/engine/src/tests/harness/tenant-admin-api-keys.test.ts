@@ -21,6 +21,8 @@ import {
   invalidateUserPermCache,
 } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
+  asTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -89,13 +91,17 @@ d('a tenant administrator mints the tenant keys (ADR 0046)', () => {
   /** A key inserted by hand, as `issuer` in `tenant`: what the auth path reads. */
   const plant = async (issuer: string, tenant: string, memberIssued = false) => {
     const raw = generateApiKey();
-    const row = await sql<{ id: string }>`
+    const hash = await hashApiKey(raw);
+    // In the key's tenant: zv_api_keys has FORCE RLS, which binds a non-superuser owner too.
+    const row = await asTenant(db, tenant, (trx) =>
+      sql<{ id: string }>`
       INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, created_by, is_active,
                                tenant_id, member_issued, request_count)
-      VALUES (${NAME}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
+      VALUES (${NAME}, ${hash}, ${raw.slice(0, 12)},
               ${JSON.stringify([{ collection: '*', actions: ['*'] }])}::jsonb, ${issuer}, true,
               ${tenant}::uuid, ${memberIssued}, 0)
-      RETURNING id`.execute(db);
+      RETURNING id`.execute(trx),
+    );
     return { raw, id: row.rows[0]!.id };
   };
 
@@ -111,8 +117,10 @@ d('a tenant administrator mints the tenant keys (ADR 0046)', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (const t of [A, B])
-      await sql`INSERT INTO ${sql.table(`zvd_${COLL}`)} (tenant_id, title)
-                VALUES (${t.id}::uuid, ${`row-of-${t.slug}`})`.execute(db);
+      await asTenant(db, t.id, (trx) =>
+        sql`INSERT INTO ${sql.table(`zvd_${COLL}`)} (tenant_id, title)
+            VALUES (${t.id}::uuid, ${`row-of-${t.slug}`})`.execute(trx),
+      );
     adminA = await memberOf(A.id, true);
     memberA = await memberOf(A.id, false);
     adminB = await memberOf(B.id, true);
@@ -120,14 +128,16 @@ d('a tenant administrator mints the tenant keys (ADR 0046)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zv_api_keys WHERE name = ${NAME}`.execute(db);
+    await asEveryTenant(db, (trx) =>
+      sql`DELETE FROM zv_api_keys WHERE name = ${NAME}`.execute(trx),
+    );
     const e = await getEnforcer();
     for (const u of [adminA, adminB]) if (u) await e.deleteRolesForUser(u.userId).catch(() => {});
     for (const t of [A, B]) {
       await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${t.id}::uuid`.execute(db);
-      await sql`DELETE FROM ${sql.table(`zvd_${COLL}`)} WHERE tenant_id = ${t.id}::uuid`
-        .execute(db)
-        .catch(() => {});
+      await asEveryTenant(db, (trx) =>
+        sql`DELETE FROM ${sql.table(`zvd_${COLL}`)} WHERE tenant_id = ${t.id}::uuid`.execute(trx),
+      ).catch(() => {});
     }
     await dropTestCollection(db, COLL).catch(() => {});
     await sql`DELETE FROM zv_tenants WHERE id IN (${A.id}::uuid, ${B.id}::uuid)`.execute(db);
