@@ -69,7 +69,7 @@ accurate counts.
 |---|---|---|---|
 | `compliance/ro/documents` | RO Documents | 2.1.0 | Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata |
 | `compliance/ro/efactura` | e-Factura RO | 2.1.0 | Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer |
-| `compliance/ro/etransport` | e-Transport RO | 2.0.0 | Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF |
+| `compliance/ro/etransport` | e-Transport RO | 2.1.0 | Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF |
 | `compliance/ro/procurement` | Achizitii Publice RO | 2.3.0 | Romanian public procurement management — purchase orders, supplier registry, budget tracking |
 | `compliance/ro/saft` | SAF-T RO | 2.0.0 | Romanian SAF-T (D406) — build the audit file XML from the finance/accounting ledger |
 

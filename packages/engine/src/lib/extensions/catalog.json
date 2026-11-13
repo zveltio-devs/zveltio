@@ -157,7 +157,7 @@
       "displayName": "e-Transport RO",
       "description": "Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF",
       "category": "compliance/ro",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": "Zveltio",
       "tags": ["transport", "anaf", "romania", "logistics"],
       "permissions": ["data:write"]
