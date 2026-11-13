@@ -37,6 +37,12 @@ const HOSTILE = [
   `<p style="background-image:image-set('https://evil.test/set.png' 1x)">set</p>`,
   '<p style="background:\\75 rl(https://evil.test/esc.png)">esc</p>',
   '<p style="background:-webkit-image-set(\'https://evil.test/wk.png\' 1x)">wk</p>',
+  // Remote forms that do not start with `//` or `https://`.
+  '<img src="https:\\\\evil.test/bs.png">',
+  '<img src="https:evil.test/noslash.png">',
+  '<img src="//evil.test/proto.png">',
+  '<img src="/relative/evil.test.png">',
+  '<img srcset="data:image/png;base64,AAAA 1x, https://evil.test/second.png 2x">',
 ].join('\n');
 
 describe('untrusted rich text', () => {

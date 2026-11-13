@@ -79,9 +79,18 @@ export const ALLOWED_URI = /^(?:https?:|mailto:|tel:|cid:|#)/i;
 /** Attributes that can pull a remote resource and so report an open. */
 const URL_ATTRS = ['src', 'srcset', 'background', 'poster'] as const;
 
+/**
+ * May this resource attribute value load? Only a message part (`cid:`) or an
+ * inline base64 image; anything else — `https:\\host`, `https:host`,
+ * `//host`, a relative path resolved against Studio's origin, a later
+ * `srcset` candidate — could reach a server, so it is blocked (inverted check:
+ * a list of what may load, never a list of what may not).
+ */
+const INLINE_RESOURCE = /^(?:cid:[^\s,]+|data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+)$/i;
+
 /** Does this attribute value reach off-origin? */
 export function isRemoteUrl(value: string): boolean {
-  return /^(?:https?:)?\/\//i.test(value.trim());
+  return !INLINE_RESOURCE.test(value.trim());
 }
 
 /**
