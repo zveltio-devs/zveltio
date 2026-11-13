@@ -307,12 +307,12 @@ export function fieldsOf(block: Block): BlockFields {
   return block.content as BlockFields;
 }
 
-/** The figures of a `stats` block: entries that are objects. */
-export function statItems(items: unknown[] | undefined): StatItem[] {
-  return (items ?? []).filter((x): x is StatItem => typeof x === 'object' && x !== null);
+/** One `stats` entry read as a figure; anything else reads as an empty one. */
+export function asStat(item: unknown): StatItem {
+  return typeof item === 'object' && item !== null ? (item as StatItem) : {};
 }
 
-/** The HTML of each column of a legacy `columns` block. */
-export function columnTexts(items: unknown[] | undefined): string[] {
-  return (items ?? []).map((x) => (typeof x === 'string' ? x : ''));
+/** One legacy `columns` entry read as its HTML, as the public renderer reads it. */
+export function asText(item: unknown): string {
+  return typeof item === 'string' ? item : String(item ?? '');
 }

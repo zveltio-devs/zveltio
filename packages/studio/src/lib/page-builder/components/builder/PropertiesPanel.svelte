@@ -4,10 +4,9 @@ import {
   type Block,
   type BlockStyle,
   type ContentFilter,
-  columnTexts,
   fieldsOf,
-  type StatItem,
-  statItems,
+  asStat,
+  asText,
 } from '../../lib/builder-types.js';
 import { BREAKPOINT_LABEL, spanKey, styleKey, type Breakpoint } from '../../lib/breakpoints.js';
 import { Image as ImageIcon, X as XIcon } from '@lucide/svelte';
@@ -113,7 +112,7 @@ function patchMotion(key: string, value: unknown) {
   onPatch((b) => ({ ...b, motion: { ...(b.motion ?? {}), [key]: value } }));
 }
 
-function patchItems(items: StatItem[]) {
+function patchItems(items: unknown[]) {
   onPatch((b) => ({ ...b, content: { ...b.content, items } }));
 }
 
@@ -348,18 +347,18 @@ async function copyField(name: string) {
         <div>
           <p class="text-[10px] font-medium text-base-content/65 mb-1">{m['pageBuilder.items']()}</p>
           <div class="space-y-1.5">
-            {#each statItems(p.items) as item, i}
+            {#each (p.items ?? []).map(asStat) as item, i}
               <div class="flex gap-1">
                 <input class="input input-xs flex-1 min-w-0" placeholder="Value" value={item.value}
-                  oninput={(e) => { const a=[...statItems(p.items)]; a[i]={...a[i],value:e.currentTarget.value}; patchItems(a); }} />
+                  oninput={(e) => { const a=[...(p.items ?? [])]; a[i]={...asStat(a[i]),value:e.currentTarget.value}; patchItems(a); }} />
                 <input class="input input-xs flex-1 min-w-0" placeholder="Label" value={item.label}
-                  oninput={(e) => { const a=[...statItems(p.items)]; a[i]={...a[i],label:e.currentTarget.value}; patchItems(a); }} />
+                  oninput={(e) => { const a=[...(p.items ?? [])]; a[i]={...asStat(a[i]),label:e.currentTarget.value}; patchItems(a); }} />
                 <button class="btn btn-ghost btn-xs text-error px-1"
-                  onclick={() => patchItems(statItems(p.items).filter((_, j) => j !== i))}>×</button>
+                  onclick={() => patchItems((p.items ?? []).filter((_, j) => j !== i))}>×</button>
               </div>
             {/each}
             <button class="btn btn-xs btn-ghost w-full border border-dashed border-base-300"
-              onclick={() => patchItems([...statItems(p.items),{value:'—',label:'Label'}])}>+ {m['pageBuilder.addItem']()}</button>
+              onclick={() => patchItems([...(p.items ?? []),{value:'—',label:'Label'}])}>+ {m['pageBuilder.addItem']()}</button>
           </div>
         </div>
 
@@ -369,10 +368,10 @@ async function copyField(name: string) {
             oninput={(e) => patchContent('count', Number(e.currentTarget.value))} /></div>
         <div>
           <p class="text-[10px] font-medium text-base-content/65 mb-1">{m['pageBuilder.colContent']()}</p>
-          {#each columnTexts(p.items) as col, i}
+          {#each (p.items ?? []).map(asText) as col, i}
             <textarea class="textarea textarea-xs w-full font-mono text-[10px] resize-y min-h-[60px] mb-1"
               value={col}
-              oninput={(e) => { const a=columnTexts(p.items); a[i]=e.currentTarget.value; onPatch(b=>({...b,content:{...b.content,items:a}})); }}
+              oninput={(e) => { const a=[...(p.items ?? [])]; a[i]=e.currentTarget.value; onPatch(b=>({...b,content:{...b.content,items:a}})); }}
             ></textarea>
           {/each}
         </div>

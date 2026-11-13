@@ -12,7 +12,13 @@ import PageBuilderWorkspace from '#lib/page-builder/components/PageBuilderWorksp
 
 export type CodeScreen = Component<{ params: Record<string, string> }>;
 
-export const CODE_SCREENS: Readonly<Record<string, CodeScreen>> = {
+/** Keyed by extension and view id: a screen answers only its own extension's view. */
+const SCREENS = new Map<string, CodeScreen>([
   // content/pages: the block canvas over `pages.blocks`; its fallback is a form.
-  'pages.builder': PageBuilderWorkspace,
-};
+  ['content/pages pages.builder', PageBuilderWorkspace],
+]);
+
+/** The screen Studio draws instead of `viewId` of `extension`, if any. */
+export function codeScreen(extension: string, viewId: string | undefined): CodeScreen | undefined {
+  return viewId ? SCREENS.get(`${extension} ${viewId}`) : undefined;
+}

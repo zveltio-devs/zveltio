@@ -1,12 +1,6 @@
 <script lang="ts">
 import { m } from '#lib/i18n.svelte.js';
-import {
-  type Block,
-  type BlockStyle,
-  columnTexts,
-  fieldsOf,
-  statItems,
-} from '../../lib/builder-types.js';
+import { type Block, type BlockStyle, fieldsOf, asStat, asText } from '../../lib/builder-types.js';
 import { safeCssColor, safeCssNumber, safeHtml, safeIframeSrc } from '../../lib/sanitize.js';
 
 let { block }: { block: Block } = $props();
@@ -80,7 +74,7 @@ const outer = $derived(styleStr(block.style));
   {:else if block.type === 'stats'}
     {@const cols = p.columns ?? 4}
     <div class="grid gap-4 py-6 px-4" style="grid-template-columns:repeat({safeCssNumber(cols, 3, 1, 12)},1fr)">
-      {#each statItems(p.items) as item}
+      {#each (p.items ?? []).map(asStat) as item}
         <div class="text-center">
           <p class="text-3xl font-extrabold text-primary leading-none">{item.value}</p>
           <p class="text-xs text-base-content/65 mt-1">{item.label}</p>
@@ -91,7 +85,7 @@ const outer = $derived(styleStr(block.style));
   {:else if block.type === 'columns'}
     {@const count = p.count ?? 2}
     <div class="grid gap-3 p-3" style="grid-template-columns:repeat({safeCssNumber(count, 2, 1, 12)},1fr)">
-      {#each columnTexts(p.items) as col}
+      {#each (p.items ?? []).map(asText) as col}
         <div class="min-h-[60px] bg-base-200 rounded-lg p-3 text-sm prose prose-sm max-w-none">
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
           {@html safeHtml(col)}

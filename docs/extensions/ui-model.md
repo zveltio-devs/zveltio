@@ -308,13 +308,16 @@ way a view does: the data API and the extension's actions, as the user.
 the page `/admin/pages/builder/:id` with `schemas/builder.json`, a `form` over
 `pages` (title, slug, `blocks` as JSON, Save, Publish) whose `id` is
 `pages.builder`. Studio carries the canvas in `packages/studio/src/lib/page-builder/`
-and lists it in `packages/studio/src/lib/code-screens.ts`:
+and lists it in `packages/studio/src/lib/code-screens.ts`, by extension and view id:
 
 ```ts
-export const CODE_SCREENS: Readonly<Record<string, CodeScreen>> = {
-  'pages.builder': PageBuilderWorkspace, // gets { params: { id } }
-};
+const SCREENS = new Map<string, CodeScreen>([
+  ['content/pages pages.builder', PageBuilderWorkspace], // gets { params: { id } }
+]);
 ```
+
+The key names the extension too, so another extension declaring a view with
+the same `id` gets its own view, never this screen.
 
 The extension page host (`routes/(admin)/[...extPath]`) draws a listed screen
 in place of the view; without the entry, or in another front end

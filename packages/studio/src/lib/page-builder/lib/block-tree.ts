@@ -15,9 +15,6 @@ import type { Block } from './builder-types.js';
  * versions, so mutating in place would rewrite history as well as the present.
  */
 
-// biome-ignore lint/suspicious/noExplicitAny: block content is untyped JSON
-type Any = any;
-
 /**
  * The block shape this module walks.
  *
