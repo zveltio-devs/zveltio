@@ -464,7 +464,7 @@ export async function enqueueFromPublicRoute(
   const req = publicRouteRequest(c);
   if (!req || req.extName !== extName) {
     return refuse(
-      "pass the request context `c` of a request to one of this extension's publicRoutes; " +
+      "pass the request context `c` (or the declared handler's `Request`) of a request to one of this extension's publicRoutes; " +
         'only such a request enqueues from a route (an action enqueues with host.enqueue)',
     );
   }
