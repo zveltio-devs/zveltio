@@ -4,9 +4,11 @@
  * `when` does not hold for the record, or whose action the caller may not run,
  * is not drawn; the engine still decides every call. While the record meets a
  * button's `busyWhen` the button is busy and the page reads its records again
- * (`host.hold`) until it no longer does.
+ * (`host.hold`) until it no longer does. A button whose `input`, `params` or
+ * `files` names a value the scope does not have yet (no row selected in the
+ * pane) is disabled; a form's button resolves them on the saved record.
  */
-import { type Button, matches, type Tone, type ViewScope } from '@zveltio/sdk/view';
+import { type Button, isBound, matches, type Tone, type ViewScope } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
 import type { ViewHost } from './engine.js';
 
@@ -49,6 +51,8 @@ function label(b: Button): string {
 /** The record meets the button's `busyWhen`: the work it started is under way. */
 const working = (b: Button) =>
   'busyWhen' in b && !!b.busyWhen && !!scope.record && matches(b.busyWhen, scope.record, scope);
+/** A reference has no value yet; with `beforeAction` it is resolved after the save. */
+const unbound = (b: Button) => !beforeAction && !isBound(b, scope);
 const anyWorking = $derived(shown.some(working));
 $effect(() => {
   if (anyWorking) return host.hold();
@@ -74,7 +78,7 @@ async function press(b: Button) {
       <button
         type="button"
         class={`btn btn-${size} ${'tone' in b && b.tone ? TONE[b.tone] : 'save' in b ? 'btn-primary' : 'btn-outline'}`}
-        disabled={busy || working(b)}
+        disabled={busy || working(b) || unbound(b)}
         aria-busy={working(b)}
         onclick={() => press(b)}
       >

@@ -8,6 +8,7 @@ import {
   actionPath,
   defaultView,
   fallbackFor,
+  isBound,
   isEditable,
   matches,
   fileIds,
@@ -58,6 +59,22 @@ describe('references', () => {
   it('is unresolved while a pane has no selection', () => {
     expect(resolveInput({ x: $.selected('other') }, scope)).toBeNull();
     expect(toFilter([$.where('folder_id', 'eq', $.selected('other'))], scope)).toBeNull();
+  });
+});
+
+describe('a button whose reference has no value yet', () => {
+  const none = { ...scope, selected: {} };
+  it('is not bound while the pane it names has no selection, and is once it has', () => {
+    const b = { action: 'dismissScan', input: { scan_id: $.selected('folders') } };
+    expect(isBound(b, none)).toBe(false);
+    expect(isBound(b, scope)).toBe(true);
+    expect(isBound({ navigate: 'folder', params: { id: $.selected('folders') } }, none)).toBe(false);
+    expect(isBound({ action: 'a', files: { read: $.selected('folders') } }, none)).toBe(false);
+  });
+  it('counts no prompt, no literal, and no save button', () => {
+    expect(isBound({ action: 'scan', prompt: ['collection'] }, none)).toBe(true);
+    expect(isBound({ action: 'a', input: { n: 1 } }, {})).toBe(true);
+    expect(isBound({ save: true }, {})).toBe(true);
   });
 });
 
