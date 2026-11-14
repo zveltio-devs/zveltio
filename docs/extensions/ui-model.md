@@ -128,7 +128,11 @@ What the specification holds:
   open a view (`navigate`, `params`) or save a form (`save`). A `prompt` asks
   only for inputs that `input` leaves open; naming a bound one is refused. A
   `when` holds of a record, so a toolbar button with one is not drawn (a
-  detail's toolbar holds of the record it shows). An action button may add:
+  detail's toolbar holds of the record it shows). A button whose `input`,
+  `params` or `files` holds a reference with no value yet (no row selected in
+  the pane a `$selected` names) is drawn disabled and never sent; what it
+  `prompt`s for is no reference, and a form's `submit` resolves on the saved
+  record. An action button may add:
   - `busyWhen`: conditions on the same record that hold while the work the
     action started is under way (a job's status: `queued`, `sending`). The
     button is busy, and the front end reads the record again until they no
@@ -193,7 +197,7 @@ and only draws it:
 
 | Function | Does |
 |---|---|
-| `resolveValue`, `resolveInput` | fill `$record`, `$selected`, `$selection`, `$param`, `$user`, `$today`; unresolved while a pane has no selection |
+| `resolveValue`, `resolveInput`, `isBound` | fill `$record`, `$selected`, `$selection`, `$param`, `$user`, `$today`; unresolved while a pane has no selection; `isBound` says whether a button's references all have a value |
 | `toFilter`, `toSort` | a view's conditions and sort as the data API's JSON `filter`, `sort` and `order` |
 | `matches` | whether a row meets a `when` or `emphasisWhen` |
 | `defaultFields`, `defaultView`, `viewFields` | the generated default list, form and detail of a collection: no system or computed field, a list at most eight columns, a form without read-only ones |

@@ -131,6 +131,32 @@ describe('loadView + ViewRenderer', () => {
     expect(draw(after)).toContain('<dd>Beta</dd>');
   });
 
+  it('a toolbar button whose input names an unselected pane is disabled until a row is', async () => {
+    const { client } = fakeClient();
+    const view: View = {
+      type: 'split',
+      panes: [
+        { type: 'list', id: 'deals', collection: 'deals' },
+        {
+          type: 'list',
+          collection: 'deals',
+          actions: [
+            { action: 'close', label: 'Close all', input: { deal: { $selected: 'deals' } } },
+          ],
+        },
+      ],
+    };
+    const button = async (selected: Record<string, unknown>) => {
+      const n = await loadView(client, 'crm', view, { selected });
+      const html = renderToString(
+        <ViewRenderer node={n} host={{ ...host, scope: { selected } }} />,
+      );
+      return html.match(/<button[^>]*>Close all<\/button>/)?.[0];
+    };
+    expect(await button({})).toContain('disabled');
+    expect(await button({ deals: 'a' })).toBe('<button type="button">Close all</button>');
+  });
+
   it('an action form draws the scalar inputs of the action, and a stat runs its action', async () => {
     const { client, calls } = fakeClient();
     const form = await loadView(client, 'crm', { type: 'form', action: 'close' });

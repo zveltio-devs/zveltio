@@ -283,7 +283,12 @@ function Buttons({
       {live.map((b, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a view's own list, fixed for the view's lifetime
         // A reference with no value yet (no row selected in the pane): disabled, never sent.
-        <button key={i} type="button" disabled={!isBound(b, scope)} onClick={() => host.press(b, scope)}>
+        <button
+          key={i}
+          type="button"
+          disabled={!isBound(b, scope)}
+          onClick={() => host.press(b, scope)}
+        >
           {host.t(b.label) || ('action' in b ? b.action : 'navigate' in b ? b.navigate : 'Save')}
         </button>
       ))}

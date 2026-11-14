@@ -130,7 +130,11 @@ describe('view/2 renderer', () => {
               collection: 'notes',
               fields: ['status'],
               actions: [
-                { action: 'archive', label: 'Dismiss all', input: { note_id: { $selected: 'notes' } } },
+                {
+                  action: 'archive',
+                  label: 'Dismiss all',
+                  input: { note_id: { $selected: 'notes' } },
+                },
               ],
             },
           ],

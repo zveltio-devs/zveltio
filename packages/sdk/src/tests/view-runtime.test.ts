@@ -68,7 +68,9 @@ describe('a button whose reference has no value yet', () => {
     const b = { action: 'dismissScan', input: { scan_id: $.selected('folders') } };
     expect(isBound(b, none)).toBe(false);
     expect(isBound(b, scope)).toBe(true);
-    expect(isBound({ navigate: 'folder', params: { id: $.selected('folders') } }, none)).toBe(false);
+    expect(isBound({ navigate: 'folder', params: { id: $.selected('folders') } }, none)).toBe(
+      false,
+    );
     expect(isBound({ action: 'a', files: { read: $.selected('folders') } }, none)).toBe(false);
   });
   it('counts no prompt, no literal, and no save button', () => {
